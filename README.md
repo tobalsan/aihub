@@ -121,9 +121,28 @@ curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d
 }'
 ```
 
+## Custom Models
+
+Add custom providers via `~/.aihub/models.json`:
+
+```json
+{
+  "providers": {
+    "my-provider": {
+      "models": [
+        { "id": "my-model", "displayName": "My Model" }
+      ],
+      "baseUrl": "https://api.example.com/v1"
+    }
+  }
+}
+```
+
+Synced to Pi SDK's agent dir on each run.
+
 ## Skills
 
-Place skills in `{workspaceDir}/pi/skills/` - auto-loaded at runtime.
+Place skills in `{workspaceDir}/.pi/skills/` - auto-loaded at runtime.
 
 ## Development
 
@@ -135,5 +154,6 @@ pnpm dev:web      # Terminal 2
 ## Data
 
 - Config: `~/.aihub/aihub.json`
+- Models: `~/.aihub/models.json` (optional)
 - Schedules: `~/.aihub/schedules.json`
 - Sessions: `~/.aihub/sessions/*.jsonl`

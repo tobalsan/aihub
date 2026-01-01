@@ -4,7 +4,7 @@ import type { AppMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession, Skill } from "@mariozechner/pi-coding-agent";
 import type { ThinkLevel, StreamEvent } from "@aihub/shared";
-import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
+import { getAgent, resolveWorkspaceDir, CONFIG_DIR, MODELS_PATH } from "../config/index.js";
 import {
   setSessionStreaming,
   isStreaming,
@@ -48,6 +48,29 @@ async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }
 
+/** Copy ~/.aihub/models.json to agentDir/models.json if it exists */
+async function syncModelsJson(agentDir: string): Promise<void> {
+  try {
+    const source = await fs.readFile(MODELS_PATH, "utf8");
+    const targetPath = path.join(agentDir, "models.json");
+
+    // Compare before write
+    let existing = "";
+    try {
+      existing = await fs.readFile(targetPath, "utf8");
+    } catch {
+      // File doesn't exist
+    }
+
+    if (existing === source) return;
+
+    await fs.mkdir(agentDir, { recursive: true, mode: 0o700 });
+    await fs.writeFile(targetPath, source, { mode: 0o600 });
+  } catch {
+    // Source doesn't exist or unreadable - skip
+  }
+}
+
 function resolveSessionFile(agentId: string, sessionId: string): string {
   return path.join(SESSIONS_DIR, `${agentId}-${sessionId}.jsonl`);
 }
@@ -88,9 +111,9 @@ async function waitForStreamingEnd(agentId: string, sessionId: string): Promise<
   return false;
 }
 
-/** Load skills from workspaceDir/pi/skills if it exists */
+/** Load skills from workspaceDir/.pi/skills if it exists */
 async function loadWorkspaceSkills(workspaceDir: string): Promise<Skill[]> {
-  const skillsDir = path.join(workspaceDir, "pi", "skills");
+  const skillsDir = path.join(workspaceDir, ".pi", "skills");
   try {
     const stat = await fs.stat(skillsDir);
     if (!stat.isDirectory()) return [];
@@ -173,6 +196,9 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     // Resolve model
     const agentDir = path.join(CONFIG_DIR, "agent");
     await fs.mkdir(agentDir, { recursive: true });
+
+    // Sync custom models.json before Pi SDK discovers models
+    await syncModelsJson(agentDir);
 
     const authStorage = discoverAuthStorage(agentDir);
     const modelRegistry = discoverModels(authStorage, agentDir);

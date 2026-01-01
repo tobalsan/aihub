@@ -6,6 +6,7 @@ import { GatewayConfigSchema, type GatewayConfig } from "@aihub/shared";
 export const CONFIG_DIR = path.join(os.homedir(), ".aihub");
 export const CONFIG_PATH = path.join(CONFIG_DIR, "aihub.json");
 export const SCHEDULES_PATH = path.join(CONFIG_DIR, "schedules.json");
+export const MODELS_PATH = path.join(CONFIG_DIR, "models.json");
 
 let cachedConfig: GatewayConfig | null = null;
 let singleAgentId: string | null = null;
