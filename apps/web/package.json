@@ -1,0 +1,19 @@
+{
+  "name": "@aihub/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aihub/shared": "workspace:*",
+    "solid-js": "^1.9.3"
+  },
+  "devDependencies": {
+    "vite": "^6.0.3",
+    "vite-plugin-solid": "^2.10.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "aihub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @aihub/shared --filter @aihub/gateway build",
+    "build:web": "pnpm --filter @aihub/web build",
+    "dev:gateway": "pnpm --filter @aihub/gateway dev",
+    "dev:web": "pnpm --filter @aihub/web dev",
+    "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "format": "prettier --write .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.8"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
