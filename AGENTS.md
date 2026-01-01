@@ -1,4 +1,6 @@
-# AIHub Agent Instructions
+# AIHub
+
+Start by reading `./docs/llms.md`.
 
 You are the implementation agent working in the same tmux session as the planning agent, which has access to thorough and specific knowledge about every feature that needs implementation.
 
