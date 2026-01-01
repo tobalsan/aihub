@@ -243,9 +243,8 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
             .assistantMessageEvent as Record<string, unknown> | undefined;
           const evtType = assistantEvent?.type as string | undefined;
 
-          if (evtType === "text_delta" || evtType === "text_start" || evtType === "text_end") {
-            const chunk =
-              (assistantEvent?.delta as string) ?? (assistantEvent?.content as string) ?? "";
+          if (evtType === "text_delta") {
+            const chunk = assistantEvent?.delta as string;
             if (chunk) {
               deltaBuffer += chunk;
               params.onEvent?.({ type: "text", data: chunk });
