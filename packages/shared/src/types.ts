@@ -139,10 +139,20 @@ export const UpdateScheduleRequestSchema = z.object({
 });
 export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
 
-// SSE event types
+// Stream event types (used by WebSocket)
 export type StreamEvent =
   | { type: "text"; data: string }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
   | { type: "done"; meta?: { durationMs: number } }
   | { type: "error"; message: string };
+
+// WebSocket protocol types
+export type WsClientMessage = {
+  type: "send";
+  agentId: string;
+  sessionId?: string;
+  message: string;
+};
+
+export type WsServerMessage = StreamEvent;

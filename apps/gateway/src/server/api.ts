@@ -1,10 +1,8 @@
 import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 import {
   SendMessageRequestSchema,
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
-  type StreamEvent,
 } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent } from "../agents/index.js";
@@ -69,46 +67,6 @@ api.post("/agents/:id/messages", async (c) => {
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
-});
-
-// GET /api/agents/:id/stream - SSE stream for agent replies
-api.get("/agents/:id/stream", async (c) => {
-  const agentId = c.req.param("id");
-  const agent = getAgent(agentId);
-  if (!agent || !isAgentActive(agentId)) {
-    return c.json({ error: "Agent not found" }, 404);
-  }
-
-  const message = c.req.query("message");
-  const sessionId = c.req.query("sessionId") ?? "default";
-
-  if (!message) {
-    return c.json({ error: "message query param required" }, 400);
-  }
-
-  return streamSSE(c, async (stream) => {
-    try {
-      await runAgent({
-        agentId,
-        message,
-        sessionId,
-        onEvent: async (event: StreamEvent) => {
-          await stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
-        },
-      });
-    } catch (err) {
-      await stream.writeSSE({
-        event: "error",
-        data: JSON.stringify({
-          type: "error",
-          message: err instanceof Error ? err.message : String(err),
-        }),
-      });
-    }
-  });
 });
 
 // GET /api/schedules - list schedules

@@ -21,3 +21,11 @@ export type SendMessageResponse = {
     sessionId: string;
   };
 };
+
+// Stream event types (WebSocket protocol)
+export type StreamEvent =
+  | { type: "text"; data: string }
+  | { type: "tool_start"; toolName: string }
+  | { type: "tool_end"; toolName: string; isError?: boolean }
+  | { type: "done"; meta?: { durationMs: number } }
+  | { type: "error"; message: string };

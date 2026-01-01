@@ -14,15 +14,17 @@
   "dependencies": {
     "@aihub/shared": "workspace:*",
     "@hono/node-server": "^1.13.7",
-    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "commander": "^12.1.0",
     "discord.js": "^14.16.3",
     "hono": "^4.6.12",
+    "ws": "^8.18.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.2"
   }
 }

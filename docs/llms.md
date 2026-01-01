@@ -20,7 +20,7 @@ aihub/
 
 Core TypeScript/Node.js application. Exports:
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`
-- **Server** (`src/server/`): Hono-based HTTP API + SSE streaming
+- **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution
 - **Discord** (`src/discord/`): Per-agent Discord bot integration
@@ -30,9 +30,9 @@ Core TypeScript/Node.js application. Exports:
 
 Solid.js SPA. Two views:
 - `AgentList`: Select agent to chat with
-- `ChatView`: SSE-based streaming chat interface
+- `ChatView`: WebSocket-based streaming chat interface
 
-Proxies `/api` to gateway (port 4000) in dev mode.
+Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
 ### packages/shared
 
@@ -81,9 +81,14 @@ When agent is already streaming:
 - **queue** (default): Inject message via `AgentSession.queueMessage()`. If Pi session not ready, buffer in `pendingMessages` and inject after session creation.
 - **interrupt**: Abort current run, wait up to 2s for streaming to end, start new run.
 
-### Streaming Events
+### WebSocket Streaming
 
-SSE events emitted during agent run:
+Connect to `/ws` endpoint. Client sends:
+```typescript
+{ type: "send", agentId: string, sessionId?: string, message: string }
+```
+
+Server streams back:
 ```typescript
 { type: "text", data: string }
 { type: "tool_start", toolName: string }
@@ -91,6 +96,7 @@ SSE events emitted during agent run:
 { type: "done", meta?: { durationMs } }
 { type: "error", message: string }
 ```
+Connection closes after `done` or `error`.
 
 ## Services
 
@@ -117,7 +123,7 @@ Polls `amsg inbox --new -a <id>` every 60s. Tracks seen message IDs (JSON mode) 
 | GET | `/api/agents` | List active agents |
 | GET | `/api/agents/:id/status` | Agent status |
 | POST | `/api/agents/:id/messages` | Send message (returns result) |
-| GET | `/api/agents/:id/stream` | SSE stream (query: message, sessionId) |
+| WS | `/ws` | WebSocket streaming (JSON protocol) |
 | GET | `/api/schedules` | List schedules |
 | POST | `/api/schedules` | Create schedule |
 | PATCH | `/api/schedules/:id` | Update schedule |

@@ -1,4 +1,4 @@
-import type { Agent, SendMessageResponse } from "./types";
+import type { Agent, SendMessageResponse, StreamEvent } from "./types";
 
 const API_BASE = "/api";
 
@@ -22,6 +22,15 @@ export async function sendMessage(
   return res.json();
 }
 
+function getWsUrl(): string {
+  // In dev mode (port 3000), connect directly to gateway (port 4000)
+  // In prod, use same host
+  const isDev = window.location.port === "3000";
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = isDev ? `${window.location.hostname}:4000` : window.location.host;
+  return `${proto}//${host}/ws`;
+}
+
 export function streamMessage(
   agentId: string,
   message: string,
@@ -30,36 +39,34 @@ export function streamMessage(
   onDone: () => void,
   onError: (error: string) => void
 ): () => void {
-  const url = new URL(`${API_BASE}/agents/${agentId}/stream`, window.location.origin);
-  url.searchParams.set("message", message);
-  url.searchParams.set("sessionId", sessionId);
+  const ws = new WebSocket(getWsUrl());
 
-  const eventSource = new EventSource(url.toString());
-
-  eventSource.addEventListener("text", (e) => {
-    const data = JSON.parse(e.data);
-    onText(data.data);
-  });
-
-  eventSource.addEventListener("done", () => {
-    eventSource.close();
-    onDone();
-  });
-
-  eventSource.addEventListener("error", (e) => {
-    if (e instanceof MessageEvent) {
-      const data = JSON.parse(e.data);
-      onError(data.message);
-    } else {
-      onError("Connection error");
-    }
-    eventSource.close();
-  });
-
-  eventSource.onerror = () => {
-    onError("Connection lost");
-    eventSource.close();
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "send", agentId, sessionId, message }));
   };
 
-  return () => eventSource.close();
+  ws.onmessage = (e) => {
+    const event: StreamEvent = JSON.parse(e.data);
+    switch (event.type) {
+      case "text":
+        onText(event.data);
+        break;
+      case "done":
+        onDone();
+        break;
+      case "error":
+        onError(event.message);
+        break;
+    }
+  };
+
+  ws.onerror = () => {
+    onError("Connection error");
+  };
+
+  return () => {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  };
 }
