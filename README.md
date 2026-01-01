@@ -25,7 +25,7 @@ EOF
 
 # Build & run
 pnpm build && pnpm build:web
-node apps/gateway/dist/index.js gateway
+pnpm aihub gateway
 ```
 
 Open http://localhost:3000
@@ -43,9 +43,9 @@ packages/
 ## CLI
 
 ```bash
-aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
-aihub agent list
-aihub send -a <agentId> -m "Hello" [-s <sessionId>]
+pnpm aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
+pnpm aihub agent list
+pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 ```
 
 ## API

@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "format": "prettier --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "aihub": "node apps/gateway/dist/cli/index.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
@@ -21,7 +22,7 @@
     "typescript-eslint": "^8.18.0",
     "vitest": "^2.1.8"
   },
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@10.27.0",
   "engines": {
     "node": ">=20"
   }
