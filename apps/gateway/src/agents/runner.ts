@@ -15,6 +15,11 @@ import {
   bufferPendingMessage,
   popPendingMessages,
 } from "./sessions.js";
+import {
+  ensureBootstrapFiles,
+  loadBootstrapFiles,
+  buildBootstrapContextFiles,
+} from "./workspace.js";
 
 export type RunAgentParams = {
   agentId: string;
@@ -135,6 +140,9 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   const sessionFile = resolveSessionFile(params.agentId, sessionId);
   const workspaceDir = resolveWorkspaceDir(agent.workspace);
 
+  // Ensure bootstrap files exist on first run
+  await ensureBootstrapFiles(workspaceDir);
+
   const abortController = new AbortController();
   setSessionStreaming(params.agentId, sessionId, true, abortController);
 
@@ -177,13 +185,17 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     // Discover skills from workspace/.pi/skills, ~/.pi/agent/skills, etc.
     const skills = discoverSkills(workspaceDir);
 
+    // Load bootstrap context files (AGENTS.md, SOUL.md, etc.)
+    const bootstrapFiles = await loadBootstrapFiles(workspaceDir);
+    const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
+
     // Create tools with correct cwd (pre-built codingTools use process.cwd())
     const tools = createCodingTools(workspaceDir);
 
-    // Build system prompt with skills
+    // Build system prompt with skills and context files
     const systemPrompt = buildSystemPrompt({
       cwd: workspaceDir,
-      contextFiles: [],
+      contextFiles,
       skills,
       tools,
     });
@@ -203,7 +215,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       sessionManager,
       settingsManager,
       skills,
-      contextFiles: [],
+      contextFiles,
     });
 
     // Store the Pi session for queue injection BEFORE any async work
