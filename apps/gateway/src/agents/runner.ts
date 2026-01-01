@@ -172,7 +172,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
   await ensureSessionsDir();
   const sessionFile = resolveSessionFile(params.agentId, sessionId);
-  const workspaceDir = resolveWorkspaceDir(agent.workspaceDir);
+  const workspaceDir = resolveWorkspaceDir(agent.workspace);
 
   const abortController = new AbortController();
   setSessionStreaming(params.agentId, sessionId, true, abortController);

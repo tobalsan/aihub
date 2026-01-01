@@ -8,7 +8,7 @@ describe("config validation", () => {
         {
           id: "test-agent",
           name: "Test Agent",
-          workspaceDir: "~/test",
+          workspace: "~/test",
           model: {
             provider: "anthropic",
             model: "claude-3-5-sonnet-20241022",
@@ -27,7 +27,7 @@ describe("config validation", () => {
         {
           id: "test-agent",
           name: "Test Agent",
-          workspaceDir: "~/test",
+          workspace: "~/test",
           model: {
             provider: "anthropic",
             model: "claude-3-5-sonnet-20241022",
@@ -71,7 +71,7 @@ describe("config validation", () => {
         {
           id: "test",
           name: "Test",
-          workspaceDir: "~/test",
+          workspace: "~/test",
           model: { provider: "anthropic", model: "test" },
           thinkLevel: "invalid",
         },

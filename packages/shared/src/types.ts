@@ -31,7 +31,7 @@ export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
 export const AgentConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
-  workspaceDir: z.string(),
+  workspace: z.string(),
   model: AgentModelConfigSchema,
   discord: DiscordConfigSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),

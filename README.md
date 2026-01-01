@@ -16,7 +16,7 @@ cat > ~/.aihub/aihub.json << 'EOF'
     {
       "id": "my-agent",
       "name": "My Agent",
-      "workspaceDir": "~/workspace",
+      "workspace": "~/workspace",
       "model": { "provider": "anthropic", "model": "claude-sonnet-4-20250514" }
     }
   ]
@@ -68,7 +68,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
     {
       "id": "agent-1",
       "name": "Agent One",
-      "workspaceDir": "~/projects/agent-1",
+      "workspace": "~/projects/agent-1",
       "model": { "provider": "anthropic", "model": "claude-sonnet-4-20250514" },
       "thinkLevel": "off",
       "queueMode": "queue",
@@ -91,7 +91,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 |-------|-------------|
 | `id` | Unique identifier |
 | `name` | Display name |
-| `workspaceDir` | Agent working directory |
+| `workspace` | Agent working directory |
 | `model.provider` | Model provider (anthropic, openai, etc) |
 | `model.model` | Model name |
 | `thinkLevel` | off, minimal, low, medium, high |
@@ -142,7 +142,7 @@ Synced to Pi SDK's agent dir on each run.
 
 ## Skills
 
-Place skills in `{workspaceDir}/.pi/skills/` - auto-loaded at runtime.
+Place skills in `{workspace}/.pi/skills/` - auto-loaded at runtime.
 
 ## Development
 
