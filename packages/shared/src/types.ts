@@ -102,7 +102,8 @@ export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 // API payloads
 export const SendMessageRequestSchema = z.object({
   message: z.string(),
-  sessionId: z.string().optional(),
+  sessionId: z.string().optional(), // explicit session ID (bypasses sessionKey resolution)
+  sessionKey: z.string().optional(), // logical key (resolved to sessionId with idle timeout)
   thinkLevel: ThinkLevelSchema.optional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
@@ -151,7 +152,8 @@ export type StreamEvent =
 export type WsClientMessage = {
   type: "send";
   agentId: string;
-  sessionId?: string;
+  sessionId?: string; // explicit session ID (bypasses sessionKey resolution)
+  sessionKey?: string; // logical key (resolved to sessionId with idle timeout)
   message: string;
 };
 

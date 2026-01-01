@@ -44,7 +44,8 @@ All stored in `~/.aihub/`:
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
 - `schedules.json` - Persisted schedule jobs with state
-- `sessions/*.jsonl` - Agent conversation history
+- `sessions.json` - Session key -> sessionId mapping with timestamps
+- `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts)
 - (Pi SDK) auth/settings files under `~/.aihub/` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
 
@@ -85,7 +86,7 @@ When agent is already streaming:
 
 Connect to `/ws` endpoint. Client sends:
 ```typescript
-{ type: "send", agentId: string, sessionId?: string, message: string }
+{ type: "send", agentId: string, sessionKey?: string, sessionId?: string, message: string }
 ```
 
 Server streams back:
@@ -97,6 +98,18 @@ Server streams back:
 { type: "error", message: string }
 ```
 Connection closes after `done` or `error`.
+
+### Session Persistence
+
+Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`:
+- **sessionKey**: Logical key (default: "main") stored in `~/.aihub/sessions.json`
+- **sessionId**: Raw UUID, bypasses key resolution if provided directly
+- **idleMinutes**: Sessions expire after 60 minutes of inactivity (creates new session)
+- **resetTriggers**: `/new` or `/reset` force a new session; the trigger is stripped from message
+
+Store format: `{agentId}:{sessionKey}` -> `{ sessionId, updatedAt }`
+
+Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation.
 
 ## Services
 
@@ -123,6 +136,7 @@ Polls `amsg inbox --new -a <id>` every 60s. Tracks seen message IDs (JSON mode) 
 | GET | `/api/agents` | List active agents |
 | GET | `/api/agents/:id/status` | Agent status |
 | POST | `/api/agents/:id/messages` | Send message (returns result) |
+| GET | `/api/agents/:id/history` | Get session history (query: sessionKey) |
 | WS | `/ws` | WebSocket streaming (JSON protocol) |
 | GET | `/api/schedules` | List schedules |
 | POST | `/api/schedules` | Create schedule |

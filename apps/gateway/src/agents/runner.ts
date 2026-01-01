@@ -307,3 +307,72 @@ export async function queueOrRun(params: RunAgentParams): Promise<RunAgentResult
   // This function is now simplified - runAgent handles queue/interrupt internally
   return runAgent(params);
 }
+
+export type HistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+};
+
+/**
+ * Load conversation history from session transcript file
+ */
+export async function getSessionHistory(
+  agentId: string,
+  sessionId: string
+): Promise<HistoryMessage[]> {
+  const sessionFile = resolveSessionFile(agentId, sessionId);
+  const messages: HistoryMessage[] = [];
+
+  try {
+    const content = await fs.readFile(sessionFile, "utf-8");
+    const lines = content.trim().split("\n");
+
+    for (const line of lines) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== "message") continue;
+
+        const msg = entry.message;
+        if (!msg || !msg.role) continue;
+
+        if (msg.role === "user") {
+          // Extract text from user message content
+          let text = "";
+          if (Array.isArray(msg.content)) {
+            text = msg.content
+              .filter((c: { type: string }) => c.type === "text")
+              .map((c: { text: string }) => c.text)
+              .join("\n");
+          } else if (typeof msg.content === "string") {
+            text = msg.content;
+          }
+          if (text) {
+            messages.push({ role: "user", content: text, timestamp: msg.timestamp });
+          }
+        } else if (msg.role === "assistant") {
+          // Extract text from assistant message (skip tool calls, thinking)
+          let text = "";
+          if (Array.isArray(msg.content)) {
+            text = msg.content
+              .filter((c: { type: string }) => c.type === "text")
+              .map((c: { text: string }) => c.text)
+              .join("\n");
+          } else if (typeof msg.content === "string") {
+            text = msg.content;
+          }
+          if (text) {
+            messages.push({ role: "assistant", content: text, timestamp: msg.timestamp });
+          }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // File doesn't exist or not readable - return empty
+  }
+
+  return messages;
+}

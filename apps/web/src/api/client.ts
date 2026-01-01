@@ -1,11 +1,23 @@
-import type { Agent, SendMessageResponse, StreamEvent } from "./types";
+import type { Agent, SendMessageResponse, StreamEvent, HistoryMessage } from "./types";
 
 const API_BASE = "/api";
+const SESSION_KEY_PREFIX = "aihub:sessionKey:";
+const DEFAULT_SESSION_KEY = "main";
 
 export async function fetchAgents(): Promise<Agent[]> {
   const res = await fetch(`${API_BASE}/agents`);
   if (!res.ok) throw new Error("Failed to fetch agents");
   return res.json();
+}
+
+export async function fetchHistory(
+  agentId: string,
+  sessionKey: string
+): Promise<HistoryMessage[]> {
+  const res = await fetch(`${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.messages ?? [];
 }
 
 export async function sendMessage(
@@ -31,10 +43,18 @@ function getWsUrl(): string {
   return `${proto}//${host}/ws`;
 }
 
+export function getSessionKey(agentId: string): string {
+  return localStorage.getItem(`${SESSION_KEY_PREFIX}${agentId}`) ?? DEFAULT_SESSION_KEY;
+}
+
+export function setSessionKey(agentId: string, key: string): void {
+  localStorage.setItem(`${SESSION_KEY_PREFIX}${agentId}`, key);
+}
+
 export function streamMessage(
   agentId: string,
   message: string,
-  sessionId: string,
+  sessionKey: string,
   onText: (text: string) => void,
   onDone: () => void,
   onError: (error: string) => void
@@ -42,7 +62,7 @@ export function streamMessage(
   const ws = new WebSocket(getWsUrl());
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "send", agentId, sessionId, message }));
+    ws.send(JSON.stringify({ type: "send", agentId, sessionKey, message }));
   };
 
   ws.onmessage = (e) => {

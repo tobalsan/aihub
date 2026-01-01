@@ -7,6 +7,7 @@ import type { WsClientMessage, StreamEvent } from "@aihub/shared";
 import { api } from "./api.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent } from "../agents/index.js";
+import { resolveSessionId } from "../sessions/index.js";
 
 const app = new Hono();
 
@@ -42,10 +43,23 @@ function handleWsConnection(ws: WebSocket) {
     }
 
     try {
+      // Resolve sessionId from sessionKey if not explicitly provided
+      let sessionId = msg.sessionId;
+      let message = msg.message;
+      if (!sessionId && msg.sessionKey) {
+        const resolved = await resolveSessionId({
+          agentId: msg.agentId,
+          sessionKey: msg.sessionKey,
+          message: msg.message,
+        });
+        sessionId = resolved.sessionId;
+        message = resolved.message;
+      }
+
       await runAgent({
         agentId: msg.agentId,
-        message: msg.message,
-        sessionId: msg.sessionId ?? "default",
+        message,
+        sessionId: sessionId ?? "default",
         onEvent: (event: StreamEvent) => {
           sendWs(ws, event);
         },

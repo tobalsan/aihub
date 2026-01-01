@@ -5,8 +5,9 @@ import {
   UpdateScheduleRequestSchema,
 } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive } from "../config/index.js";
-import { runAgent, getAllSessionsForAgent } from "../agents/index.js";
+import { runAgent, getAllSessionsForAgent, getSessionHistory } from "../agents/index.js";
 import { getScheduler } from "../scheduler/index.js";
+import { resolveSessionId, getSessionEntry } from "../sessions/index.js";
 
 const api = new Hono();
 
@@ -57,16 +58,48 @@ api.post("/agents/:id/messages", async (c) => {
   }
 
   try {
+    // Resolve sessionId from sessionKey if not explicitly provided
+    let sessionId = parsed.data.sessionId;
+    let message = parsed.data.message;
+    if (!sessionId && parsed.data.sessionKey) {
+      const resolved = await resolveSessionId({
+        agentId: agent.id,
+        sessionKey: parsed.data.sessionKey,
+        message: parsed.data.message,
+      });
+      sessionId = resolved.sessionId;
+      message = resolved.message;
+    }
+
     const result = await runAgent({
       agentId: agent.id,
-      message: parsed.data.message,
-      sessionId: parsed.data.sessionId,
+      message,
+      sessionId,
       thinkLevel: parsed.data.thinkLevel,
     });
     return c.json(result);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
+});
+
+// GET /api/agents/:id/history - get session history
+api.get("/agents/:id/history", async (c) => {
+  const agentId = c.req.param("id");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId)) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+
+  const sessionKey = c.req.query("sessionKey") ?? "main";
+  const entry = getSessionEntry(agentId, sessionKey);
+
+  if (!entry) {
+    return c.json({ messages: [] });
+  }
+
+  const messages = await getSessionHistory(agentId, entry.sessionId);
+  return c.json({ messages, sessionId: entry.sessionId });
 });
 
 // GET /api/schedules - list schedules

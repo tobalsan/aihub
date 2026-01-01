@@ -1,5 +1,5 @@
-import { createSignal, createEffect, For, onCleanup } from "solid-js";
-import { streamMessage } from "../api/client";
+import { createSignal, createEffect, For, onCleanup, onMount } from "solid-js";
+import { streamMessage, getSessionKey, fetchHistory } from "../api/client";
 import type { Agent, Message } from "../api/types";
 
 type Props = {
@@ -12,16 +12,34 @@ export function ChatView(props: Props) {
   const [input, setInput] = createSignal("");
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [streamingText, setStreamingText] = createSignal("");
+  const [loading, setLoading] = createSignal(true);
 
   let messagesEndRef: HTMLDivElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
 
-  const sessionId = `web:${props.agent.id}:${Date.now()}`;
+  // Use persistent sessionKey (default "main") instead of ephemeral sessionId
+  const sessionKey = getSessionKey(props.agent.id);
 
   const scrollToBottom = () => {
     messagesEndRef?.scrollIntoView({ behavior: "smooth" });
   };
+
+  // Load history on mount
+  onMount(async () => {
+    const history = await fetchHistory(props.agent.id, sessionKey);
+    if (history.length > 0) {
+      setMessages(
+        history.map((h) => ({
+          id: crypto.randomUUID(),
+          role: h.role,
+          content: h.content,
+          timestamp: h.timestamp,
+        }))
+      );
+    }
+    setLoading(false);
+  });
 
   createEffect(() => {
     messages();
@@ -35,7 +53,7 @@ export function ChatView(props: Props) {
 
   const handleSend = () => {
     const text = input().trim();
-    if (!text || isStreaming()) return;
+    if (!text || isStreaming() || loading()) return;
 
     // Add user message
     const userMsg: Message = {
@@ -53,7 +71,7 @@ export function ChatView(props: Props) {
     cleanup = streamMessage(
       props.agent.id,
       text,
-      sessionId,
+      sessionKey,
       (chunk) => {
         setStreamingText((prev) => prev + chunk);
       },
@@ -136,7 +154,7 @@ export function ChatView(props: Props) {
         <button
           class="send-btn"
           onClick={handleSend}
-          disabled={!input().trim() || isStreaming()}
+          disabled={!input().trim() || isStreaming() || loading()}
         >
           ↑
         </button>

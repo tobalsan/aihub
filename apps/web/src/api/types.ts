@@ -29,3 +29,10 @@ export type StreamEvent =
   | { type: "tool_end"; toolName: string; isError?: boolean }
   | { type: "done"; meta?: { durationMs: number } }
   | { type: "error"; message: string };
+
+// History message from session transcript
+export type HistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+};
