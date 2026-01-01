@@ -131,6 +131,16 @@ export function ChatView(props: Props) {
           )}
         </For>
 
+        {isStreaming() && !streamingText() && (
+          <div class="message assistant thinking">
+            <div class="thinking-dots">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        )}
+
         {streamingText() && (
           <div class="message assistant streaming">
             <div class="content">{streamingText()}</div>
@@ -232,6 +242,42 @@ export function ChatView(props: Props) {
 
         @keyframes blink {
           50% { opacity: 0; }
+        }
+
+        .message.thinking {
+          padding: 14px 18px;
+        }
+
+        .thinking-dots {
+          display: flex;
+          gap: 4px;
+        }
+
+        .thinking-dots span {
+          width: 8px;
+          height: 8px;
+          background: #666;
+          border-radius: 50%;
+          animation: thinking 1.4s ease-in-out infinite;
+        }
+
+        .thinking-dots span:nth-child(2) {
+          animation-delay: 0.2s;
+        }
+
+        .thinking-dots span:nth-child(3) {
+          animation-delay: 0.4s;
+        }
+
+        @keyframes thinking {
+          0%, 80%, 100% {
+            opacity: 0.3;
+            transform: scale(0.8);
+          }
+          40% {
+            opacity: 1;
+            transform: scale(1);
+          }
         }
 
         .input-area {
