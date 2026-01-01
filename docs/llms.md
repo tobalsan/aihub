@@ -74,7 +74,7 @@ All stored in `~/.aihub/`:
 1. **Config Load**: `loadConfig()` reads `~/.aihub/aihub.json`, validates via Zod
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
 3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
-4. **Skills**: Auto-loaded from `{workspace}/.pi/skills/` via Pi SDK
+4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
 
 ### Queue Semantics
 

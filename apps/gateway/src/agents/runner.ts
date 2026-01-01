@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { AgentSession as PiAgentSession, Skill } from "@mariozechner/pi-coding-agent";
+import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { ThinkLevel, StreamEvent } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
 import {
@@ -88,22 +88,6 @@ async function waitForStreamingEnd(agentId: string, sessionId: string): Promise<
   return false;
 }
 
-/** Load skills from workspaceDir/.pi/skills if it exists */
-async function loadWorkspaceSkills(workspaceDir: string): Promise<Skill[]> {
-  const skillsDir = path.join(workspaceDir, ".pi", "skills");
-  try {
-    const stat = await fs.stat(skillsDir);
-    if (!stat.isDirectory()) return [];
-
-    const { loadSkillsFromDir } = await import("@mariozechner/pi-coding-agent");
-    const result = loadSkillsFromDir({ dir: skillsDir, source: "workspace" });
-    return result.skills;
-  } catch {
-    // Directory doesn't exist or not readable
-    return [];
-  }
-}
-
 export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> {
   const agent = getAgent(params.agentId);
   if (!agent) {
@@ -165,6 +149,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       SettingsManager,
       discoverAuthStorage,
       discoverModels,
+      discoverSkills,
       buildSystemPrompt,
       createCodingTools,
     } = await import("@mariozechner/pi-coding-agent");
@@ -189,8 +174,8 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     }
     authStorage.setRuntimeApiKey(model.provider, apiKey);
 
-    // Load skills from workspace
-    const skills = await loadWorkspaceSkills(workspaceDir);
+    // Discover skills from workspace/.pi/skills, ~/.pi/agent/skills, etc.
+    const skills = discoverSkills(workspaceDir);
 
     // Create tools with correct cwd (pre-built codingTools use process.cwd())
     const tools = createCodingTools(workspaceDir);
