@@ -4,7 +4,7 @@ import type { AppMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession, Skill } from "@mariozechner/pi-coding-agent";
 import type { ThinkLevel, StreamEvent } from "@aihub/shared";
-import { getAgent, resolveWorkspaceDir, CONFIG_DIR, MODELS_PATH } from "../config/index.js";
+import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
 import {
   setSessionStreaming,
   isStreaming,
@@ -46,29 +46,6 @@ const INTERRUPT_POLL_MS = 50;
 
 async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
-}
-
-/** Copy ~/.aihub/models.json to agentDir/models.json if it exists */
-async function syncModelsJson(agentDir: string): Promise<void> {
-  try {
-    const source = await fs.readFile(MODELS_PATH, "utf8");
-    const targetPath = path.join(agentDir, "models.json");
-
-    // Compare before write
-    let existing = "";
-    try {
-      existing = await fs.readFile(targetPath, "utf8");
-    } catch {
-      // File doesn't exist
-    }
-
-    if (existing === source) return;
-
-    await fs.mkdir(agentDir, { recursive: true, mode: 0o700 });
-    await fs.writeFile(targetPath, source, { mode: 0o600 });
-  } catch {
-    // Source doesn't exist or unreadable - skip
-  }
 }
 
 function resolveSessionFile(agentId: string, sessionId: string): string {
@@ -193,15 +170,11 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     } = await import("@mariozechner/pi-coding-agent");
     const { getEnvApiKey } = await import("@mariozechner/pi-ai");
 
-    // Resolve model
-    const agentDir = path.join(CONFIG_DIR, "agent");
-    await fs.mkdir(agentDir, { recursive: true });
+    // Resolve model - use CONFIG_DIR directly so Pi SDK reads ~/.aihub/models.json
+    await fs.mkdir(CONFIG_DIR, { recursive: true });
 
-    // Sync custom models.json before Pi SDK discovers models
-    await syncModelsJson(agentDir);
-
-    const authStorage = discoverAuthStorage(agentDir);
-    const modelRegistry = discoverModels(authStorage, agentDir);
+    const authStorage = discoverAuthStorage(CONFIG_DIR);
+    const modelRegistry = discoverModels(authStorage, CONFIG_DIR);
     const model = modelRegistry.find(agent.model.provider, agent.model.model);
 
     if (!model) {
@@ -227,12 +200,12 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       tools: codingTools,
     });
 
-    const sessionManager = SessionManager.open(sessionFile, agentDir);
-    const settingsManager = SettingsManager.create(workspaceDir, agentDir);
+    const sessionManager = SessionManager.open(sessionFile, CONFIG_DIR);
+    const settingsManager = SettingsManager.create(workspaceDir, CONFIG_DIR);
 
     const { session: agentSession } = await createAgentSession({
       cwd: workspaceDir,
-      agentDir,
+      agentDir: CONFIG_DIR,
       authStorage,
       modelRegistry,
       model,
