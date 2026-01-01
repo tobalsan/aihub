@@ -166,7 +166,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       discoverAuthStorage,
       discoverModels,
       buildSystemPrompt,
-      codingTools,
+      createCodingTools,
     } = await import("@mariozechner/pi-coding-agent");
     const { getEnvApiKey } = await import("@mariozechner/pi-ai");
 
@@ -192,12 +192,15 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     // Load skills from workspace
     const skills = await loadWorkspaceSkills(workspaceDir);
 
+    // Create tools with correct cwd (pre-built codingTools use process.cwd())
+    const tools = createCodingTools(workspaceDir);
+
     // Build system prompt with skills
     const systemPrompt = buildSystemPrompt({
       cwd: workspaceDir,
       contextFiles: [],
       skills,
-      tools: codingTools,
+      tools,
     });
 
     const sessionManager = SessionManager.open(sessionFile, CONFIG_DIR);
@@ -211,7 +214,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       model,
       thinkingLevel: params.thinkLevel ?? agent.thinkLevel ?? "off",
       systemPrompt,
-      tools: codingTools,
+      tools,
       sessionManager,
       settingsManager,
       skills,
