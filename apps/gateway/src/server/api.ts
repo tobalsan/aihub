@@ -5,7 +5,8 @@ import {
   UpdateScheduleRequestSchema,
 } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive } from "../config/index.js";
-import { runAgent, getAllSessionsForAgent, getSessionHistory } from "../agents/index.js";
+import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
+import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry } from "../sessions/index.js";
 
@@ -84,6 +85,7 @@ api.post("/agents/:id/messages", async (c) => {
 });
 
 // GET /api/agents/:id/history - get session history
+// Query params: sessionKey (default "main"), view ("simple" | "full", default "simple")
 api.get("/agents/:id/history", async (c) => {
   const agentId = c.req.param("id");
   const agent = getAgent(agentId);
@@ -92,14 +94,19 @@ api.get("/agents/:id/history", async (c) => {
   }
 
   const sessionKey = c.req.query("sessionKey") ?? "main";
+  const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
   const entry = getSessionEntry(agentId, sessionKey);
 
   if (!entry) {
-    return c.json({ messages: [] });
+    return c.json({ messages: [], view });
   }
 
-  const messages = await getSessionHistory(agentId, entry.sessionId);
-  return c.json({ messages, sessionId: entry.sessionId });
+  const messages =
+    view === "full"
+      ? await getFullSessionHistory(agentId, entry.sessionId)
+      : await getSessionHistory(agentId, entry.sessionId);
+
+  return c.json({ messages, sessionId: entry.sessionId, view });
 });
 
 // GET /api/schedules - list schedules

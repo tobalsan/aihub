@@ -3,7 +3,14 @@ import path from "node:path";
 import type { AppMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
-import type { ThinkLevel, StreamEvent } from "@aihub/shared";
+import type {
+  ThinkLevel,
+  StreamEvent,
+  SimpleHistoryMessage,
+  FullHistoryMessage,
+  ContentBlock,
+  HistoryViewMode,
+} from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
 import {
   setSessionStreaming,
@@ -305,21 +312,58 @@ export async function queueOrRun(params: RunAgentParams): Promise<RunAgentResult
   return runAgent(params);
 }
 
-export type HistoryMessage = {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-};
+// Re-export types for backward compatibility
+export type { SimpleHistoryMessage, FullHistoryMessage, HistoryViewMode };
+
+/** @deprecated Use SimpleHistoryMessage instead */
+export type HistoryMessage = SimpleHistoryMessage;
 
 /**
- * Load conversation history from session transcript file
+ * Parse raw content blocks from session file
+ */
+function parseContentBlocks(content: unknown[]): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  for (const c of content) {
+    const block = c as Record<string, unknown>;
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      blocks.push({ type: "thinking", thinking: block.thinking });
+    } else if (block.type === "text" && typeof block.text === "string") {
+      blocks.push({ type: "text", text: block.text });
+    } else if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
+      blocks.push({
+        type: "toolCall",
+        id: block.id,
+        name: block.name,
+        arguments: block.arguments,
+      });
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Extract text-only content from message
+ */
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c): c is { type: "text"; text: string } =>
+      c && typeof c === "object" && c.type === "text" && typeof c.text === "string"
+    )
+    .map((c) => c.text)
+    .join("\n");
+}
+
+/**
+ * Load conversation history from session transcript file (simple view)
  */
 export async function getSessionHistory(
   agentId: string,
   sessionId: string
-): Promise<HistoryMessage[]> {
+): Promise<SimpleHistoryMessage[]> {
   const sessionFile = resolveSessionFile(agentId, sessionId);
-  const messages: HistoryMessage[] = [];
+  const messages: SimpleHistoryMessage[] = [];
 
   try {
     const content = await fs.readFile(sessionFile, "utf-8");
@@ -335,33 +379,84 @@ export async function getSessionHistory(
         if (!msg || !msg.role) continue;
 
         if (msg.role === "user") {
-          // Extract text from user message content
-          let text = "";
-          if (Array.isArray(msg.content)) {
-            text = msg.content
-              .filter((c: { type: string }) => c.type === "text")
-              .map((c: { text: string }) => c.text)
-              .join("\n");
-          } else if (typeof msg.content === "string") {
-            text = msg.content;
-          }
+          const text = extractTextContent(msg.content);
           if (text) {
             messages.push({ role: "user", content: text, timestamp: msg.timestamp });
           }
         } else if (msg.role === "assistant") {
-          // Extract text from assistant message (skip tool calls, thinking)
-          let text = "";
-          if (Array.isArray(msg.content)) {
-            text = msg.content
-              .filter((c: { type: string }) => c.type === "text")
-              .map((c: { text: string }) => c.text)
-              .join("\n");
-          } else if (typeof msg.content === "string") {
-            text = msg.content;
-          }
+          const text = extractTextContent(msg.content);
           if (text) {
             messages.push({ role: "assistant", content: text, timestamp: msg.timestamp });
           }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // File doesn't exist or not readable - return empty
+  }
+
+  return messages;
+}
+
+/**
+ * Load full conversation history with all content blocks
+ */
+export async function getFullSessionHistory(
+  agentId: string,
+  sessionId: string
+): Promise<FullHistoryMessage[]> {
+  const sessionFile = resolveSessionFile(agentId, sessionId);
+  const messages: FullHistoryMessage[] = [];
+
+  try {
+    const content = await fs.readFile(sessionFile, "utf-8");
+    const lines = content.trim().split("\n");
+
+    for (const line of lines) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== "message") continue;
+
+        const msg = entry.message as Record<string, unknown>;
+        if (!msg || !msg.role) continue;
+
+        const timestamp = (msg.timestamp as number) ?? Date.now();
+        const rawContent = msg.content as unknown[];
+
+        if (msg.role === "user") {
+          const contentBlocks = Array.isArray(rawContent) ? parseContentBlocks(rawContent) : [];
+          if (contentBlocks.length > 0) {
+            messages.push({ role: "user", content: contentBlocks, timestamp });
+          }
+        } else if (msg.role === "assistant") {
+          const contentBlocks = Array.isArray(rawContent) ? parseContentBlocks(rawContent) : [];
+          messages.push({
+            role: "assistant",
+            content: contentBlocks,
+            timestamp,
+            meta: {
+              api: msg.api as string | undefined,
+              provider: msg.provider as string | undefined,
+              model: msg.model as string | undefined,
+              usage: msg.usage as FullHistoryMessage extends { role: "assistant"; meta?: { usage?: infer U } } ? U : undefined,
+              stopReason: msg.stopReason as string | undefined,
+            },
+          });
+        } else if (msg.role === "toolResult") {
+          const contentBlocks = Array.isArray(rawContent) ? parseContentBlocks(rawContent) : [];
+          const details = msg.details as Record<string, unknown> | undefined;
+          messages.push({
+            role: "toolResult",
+            toolCallId: msg.toolCallId as string,
+            toolName: msg.toolName as string,
+            content: contentBlocks,
+            isError: (msg.isError as boolean) ?? false,
+            details: details?.diff ? { diff: details.diff as string } : undefined,
+            timestamp,
+          });
         }
       } catch {
         // Skip malformed lines

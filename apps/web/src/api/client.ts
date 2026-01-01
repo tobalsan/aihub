@@ -1,4 +1,12 @@
-import type { Agent, SendMessageResponse, StreamEvent, HistoryMessage } from "./types";
+import type {
+  Agent,
+  SendMessageResponse,
+  StreamEvent,
+  SimpleHistoryMessage,
+  FullHistoryMessage,
+  HistoryViewMode,
+  ActiveToolCall,
+} from "./types";
 
 const API_BASE = "/api";
 const SESSION_KEY_PREFIX = "aihub:sessionKey:";
@@ -10,14 +18,36 @@ export async function fetchAgents(): Promise<Agent[]> {
   return res.json();
 }
 
-export async function fetchHistory(
+export async function fetchSimpleHistory(
   agentId: string,
   sessionKey: string
-): Promise<HistoryMessage[]> {
-  const res = await fetch(`${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}`);
+): Promise<SimpleHistoryMessage[]> {
+  const res = await fetch(
+    `${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=simple`
+  );
   if (!res.ok) return [];
   const data = await res.json();
   return data.messages ?? [];
+}
+
+export async function fetchFullHistory(
+  agentId: string,
+  sessionKey: string
+): Promise<FullHistoryMessage[]> {
+  const res = await fetch(
+    `${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=full`
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.messages ?? [];
+}
+
+/** @deprecated Use fetchSimpleHistory or fetchFullHistory */
+export async function fetchHistory(
+  agentId: string,
+  sessionKey: string
+): Promise<SimpleHistoryMessage[]> {
+  return fetchSimpleHistory(agentId, sessionKey);
 }
 
 export async function sendMessage(
@@ -51,13 +81,22 @@ export function setSessionKey(agentId: string, key: string): void {
   localStorage.setItem(`${SESSION_KEY_PREFIX}${agentId}`, key);
 }
 
+export type StreamCallbacks = {
+  onText: (text: string) => void;
+  onToolStart?: (toolName: string) => void;
+  onToolEnd?: (toolName: string, isError: boolean) => void;
+  onDone: () => void;
+  onError: (error: string) => void;
+};
+
 export function streamMessage(
   agentId: string,
   message: string,
   sessionKey: string,
   onText: (text: string) => void,
   onDone: () => void,
-  onError: (error: string) => void
+  onError: (error: string) => void,
+  callbacks?: Partial<StreamCallbacks>
 ): () => void {
   const ws = new WebSocket(getWsUrl());
 
@@ -70,6 +109,12 @@ export function streamMessage(
     switch (event.type) {
       case "text":
         onText(event.data);
+        break;
+      case "tool_start":
+        callbacks?.onToolStart?.(event.toolName);
+        break;
+      case "tool_end":
+        callbacks?.onToolEnd?.(event.toolName, event.isError ?? false);
         break;
       case "done":
         onDone();

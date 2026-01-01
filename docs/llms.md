@@ -28,15 +28,25 @@ Core TypeScript/Node.js application. Exports:
 
 ### apps/web
 
-Solid.js SPA. Two views:
+Solid.js SPA with sleek dark theme. Two views:
 - `AgentList`: Select agent to chat with
-- `ChatView`: WebSocket-based streaming chat interface
+- `ChatView`: WebSocket-based streaming chat with Simple/Full view modes
+
+Features:
+- **Simple mode**: Text-only messages (default)
+- **Full mode**: Shows thinking blocks (collapsed), tool calls with JSON args, tool results with diffs, model metadata (provider/model/tokens)
+- Live tool indicators during streaming
+- Collapsible blocks auto-collapse if content >200 chars
+- Thinking indicator dots while waiting for response
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
 ### packages/shared
 
-Zod schemas for all types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`, API payloads.
+Zod schemas and TypeScript types:
+- Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
+- History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
+- API payloads and WebSocket protocol types
 
 ## Runtime Data
 
@@ -45,7 +55,7 @@ All stored in `~/.aihub/`:
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
 - `schedules.json` - Persisted schedule jobs with state
 - `sessions.json` - Session key -> sessionId mapping with timestamps
-- `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts)
+- `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
 - (Pi SDK) auth/settings files under `~/.aihub/` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
 
@@ -75,7 +85,26 @@ All stored in `~/.aihub/`:
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
 3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
-5. **Bootstrap Files**: On first run, creates workspace files (AGENTS.md, SOUL.md, IDENTITY.md, USER.md, TOOLS.md, BOOTSTRAP.md) from templates. These are injected as contextFiles into the system prompt.
+5. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
+
+### Workspace Bootstrap
+
+Templates in `docs/templates/` are copied to `{workspace}/` on first agent run (using `flag: 'wx'` to avoid overwriting):
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | Workspace overview, memory management, safety guidelines |
+| `SOUL.md` | Agent persona, core behaviors, boundaries |
+| `IDENTITY.md` | Agent name, creature type, vibe, emoji |
+| `USER.md` | User profile - name, timezone, context |
+| `TOOLS.md` | Environment-specific tool notes (SSH hosts, TTS prefs) |
+| `BOOTSTRAP.md` | First-run ritual - guides identity formation, then deleted |
+
+Bootstrap flow:
+1. `ensureBootstrapFiles(workspaceDir)` writes missing files from templates
+2. `loadBootstrapFiles(workspaceDir)` reads all files
+3. `buildBootstrapContextFiles(files)` converts to Pi SDK contextFiles format
+4. Passed to `buildSystemPrompt()` and `createAgentSession()`
 
 ### Queue Semantics
 
@@ -112,6 +141,24 @@ Store format: `{agentId}:{sessionKey}` -> `{ sessionId, updatedAt }`
 
 Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation.
 
+### Session Transcript Format
+
+Sessions stored as JSONL in `~/.aihub/sessions/{agentId}-{sessionId}.jsonl`:
+
+```jsonl
+{"type":"session","id":"...","timestamp":"...","cwd":"..."}
+{"type":"message","timestamp":"...","message":{"role":"user","content":[{"type":"text","text":"..."}],"timestamp":...}}
+{"type":"message","timestamp":"...","message":{"role":"assistant","content":[{"type":"thinking","thinking":"..."},{"type":"toolCall","id":"...","name":"...","arguments":{...}},{"type":"text","text":"..."}],"api":"...","provider":"...","model":"...","usage":{...},"stopReason":"..."}}
+{"type":"message","timestamp":"...","message":{"role":"toolResult","toolCallId":"...","toolName":"...","content":[{"type":"text","text":"..."}],"isError":false,"details":{"diff":"..."}}}
+```
+
+Content block types:
+- `text`: Plain text content
+- `thinking`: Model reasoning (with thinkingSignature)
+- `toolCall`: Tool invocation with id, name, arguments
+
+The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHistoryMessage` (all blocks + metadata) based on `view` param.
+
 ## Services
 
 ### Scheduler (`src/scheduler/`)
@@ -137,7 +184,7 @@ Polls `amsg inbox --new -a <id>` every 60s. Tracks seen message IDs (JSON mode) 
 | GET | `/api/agents` | List active agents |
 | GET | `/api/agents/:id/status` | Agent status |
 | POST | `/api/agents/:id/messages` | Send message (returns result) |
-| GET | `/api/agents/:id/history` | Get session history (query: sessionKey) |
+| GET | `/api/agents/:id/history` | Get session history (query: sessionKey, view=simple\|full) |
 | WS | `/ws` | WebSocket streaming (JSON protocol) |
 | GET | `/api/schedules` | List schedules |
 | POST | `/api/schedules` | Create schedule |

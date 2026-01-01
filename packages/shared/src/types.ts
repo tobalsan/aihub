@@ -158,3 +158,80 @@ export type WsClientMessage = {
 };
 
 export type WsServerMessage = StreamEvent;
+
+// History types
+
+/** Simple history message (text only) */
+export type SimpleHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+};
+
+/** Content block types for full history */
+export type ThinkingBlock = {
+  type: "thinking";
+  thinking: string;
+};
+
+export type TextBlock = {
+  type: "text";
+  text: string;
+};
+
+export type ToolCallBlock = {
+  type: "toolCall";
+  id: string;
+  name: string;
+  arguments: unknown;
+};
+
+export type ContentBlock = ThinkingBlock | TextBlock | ToolCallBlock;
+
+/** Model usage info */
+export type ModelUsage = {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens: number;
+  cost?: {
+    input: number;
+    output: number;
+    total: number;
+  };
+};
+
+/** Model metadata for assistant messages */
+export type ModelMeta = {
+  api?: string;
+  provider?: string;
+  model?: string;
+  usage?: ModelUsage;
+  stopReason?: string;
+};
+
+/** Full history message with all content blocks */
+export type FullHistoryMessage =
+  | {
+      role: "user";
+      content: ContentBlock[];
+      timestamp: number;
+    }
+  | {
+      role: "assistant";
+      content: ContentBlock[];
+      timestamp: number;
+      meta?: ModelMeta;
+    }
+  | {
+      role: "toolResult";
+      toolCallId: string;
+      toolName: string;
+      content: ContentBlock[];
+      isError: boolean;
+      details?: { diff?: string };
+      timestamp: number;
+    };
+
+export type HistoryViewMode = "simple" | "full";
