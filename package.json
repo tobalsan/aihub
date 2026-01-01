@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm --filter @aihub/shared --filter @aihub/gateway build",
     "build:web": "pnpm --filter @aihub/web build",
-    "dev:gateway": "pnpm --filter @aihub/gateway dev",
+    "dev:gateway": "pnpm --filter @aihub/gateway exec tsx watch src/cli/index.ts gateway",
     "dev:web": "pnpm --filter @aihub/web dev",
     "lint": "eslint .",
     "typecheck": "tsc -b",
