@@ -71,12 +71,9 @@ export async function sendMessage(
 }
 
 function getWsUrl(): string {
-  // In dev mode, connect directly to gateway (port 4000)
-  // In prod, use same host (gateway serves static files)
-  const isDev = import.meta.env.DEV;
+  // Use Vite's proxy in dev mode, direct connection in prod
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = isDev ? `${window.location.hostname}:4000` : window.location.host;
-  return `${proto}//${host}/ws`;
+  return `${proto}//${window.location.host}/ws`;
 }
 
 export function getSessionKey(agentId: string): string {

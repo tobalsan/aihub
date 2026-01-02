@@ -5,19 +5,35 @@ import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
 
-type UiBindMode = "loopback" | "lan" | "tailnet";
+type BindMode = "loopback" | "lan" | "tailnet";
+
+interface TailscaleConfig {
+  mode?: "off" | "serve";
+  resetOnExit?: boolean;
+}
 
 interface UiConfig {
   port?: number;
-  bind?: UiBindMode;
+  bind?: BindMode;
+  tailscale?: TailscaleConfig;
 }
 
-function loadUiConfig(): UiConfig {
+interface GatewayConfig {
+  host?: string;
+  port?: number;
+  bind?: BindMode;
+}
+
+interface AihubConfig {
+  ui?: UiConfig;
+  gateway?: GatewayConfig;
+}
+
+function loadConfig(): AihubConfig {
   try {
     const configPath = path.join(os.homedir(), ".aihub", "aihub.json");
     const raw = fs.readFileSync(configPath, "utf-8");
-    const config = JSON.parse(raw);
-    return config.ui ?? {};
+    return JSON.parse(raw);
   } catch {
     return {};
   }
@@ -57,7 +73,21 @@ function getTailscaleIP(): string | null {
   }
 }
 
-function resolveHost(bind?: UiBindMode): string {
+/**
+ * Get tailnet MagicDNS hostname
+ */
+function getTailnetHostname(): string | null {
+  try {
+    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const status = JSON.parse(output);
+    const dns = status?.Self?.DNSName as string | undefined;
+    return dns ? dns.replace(/\.$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveHost(bind?: BindMode): string {
   if (!bind || bind === "loopback") return "127.0.0.1";
   if (bind === "lan") return "0.0.0.0";
   if (bind === "tailnet") {
@@ -69,9 +99,24 @@ function resolveHost(bind?: UiBindMode): string {
   return "127.0.0.1";
 }
 
-const uiConfig = loadUiConfig();
+const config = loadConfig();
+const uiConfig = config.ui ?? {};
+const gatewayConfig = config.gateway ?? {};
+
 const port = uiConfig.port ?? 3000;
-const host = resolveHost(uiConfig.bind);
+const tailscaleServe = uiConfig.tailscale?.mode === "serve";
+
+// When using tailscale serve, bind to localhost so tailscale can proxy to it
+// Otherwise, use the configured bind mode
+const host = tailscaleServe ? "127.0.0.1" : resolveHost(uiConfig.bind);
+
+// Get MagicDNS hostname for HMR when using tailscale serve
+const tailnetHostname = tailscaleServe ? getTailnetHostname() : null;
+
+// Resolve gateway target for proxy
+const gatewayHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
+const gatewayPort = gatewayConfig.port ?? 4000;
+const gatewayTarget = `http://${gatewayHost}:${gatewayPort}`;
 
 export default defineConfig({
   plugins: [solid()],
@@ -83,13 +128,17 @@ export default defineConfig({
   server: {
     host,
     port,
+    // Allow MagicDNS hostname when using tailscale serve
+    allowedHosts: tailnetHostname ? [tailnetHostname] : undefined,
+    // HMR needs to connect via the MagicDNS hostname when using tailscale serve
+    hmr: tailnetHostname ? { host: tailnetHostname } : undefined,
     proxy: {
       "/api": {
-        target: "http://localhost:4000",
+        target: gatewayTarget,
         changeOrigin: true,
       },
       "/ws": {
-        target: "http://localhost:4000",
+        target: gatewayTarget,
         ws: true,
       },
     },
