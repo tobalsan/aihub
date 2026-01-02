@@ -1,11 +1,56 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { spawn, ChildProcess } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig, getAgents, getAgent, setSingleAgentMode } from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { startDiscordBots, stopDiscordBots } from "../discord/index.js";
 import { startScheduler, stopScheduler } from "../scheduler/index.js";
 import { startAmsgWatcher, stopAmsgWatcher } from "../amsg/index.js";
 import { runAgent } from "../agents/index.js";
+import type { UiConfig, GatewayBindMode } from "@aihub/shared";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Tracks web UI child process for cleanup
+let webProcess: ChildProcess | null = null;
+
+function resolveUiHost(bind?: string): string {
+  if (!bind || bind === "loopback") return "127.0.0.1";
+  if (bind === "lan") return "0.0.0.0";
+  // For tailnet bind with tailscale serve, Vite preview must bind to loopback
+  return "127.0.0.1";
+}
+
+function startWebUI(uiConfig: UiConfig): ChildProcess | null {
+  if (process.env.AIHUB_SKIP_WEB) return null;
+
+  const port = uiConfig.port ?? 3000;
+  const host = resolveUiHost(uiConfig.bind);
+  const useTailscaleServe = uiConfig.tailscale?.mode === "serve";
+
+  // Get monorepo root (gateway is at apps/gateway/dist/cli or apps/gateway/src/cli)
+  const gatewayRoot = path.resolve(__dirname, "../..");
+  const monorepoRoot = path.resolve(gatewayRoot, "../..");
+
+  const args = ["--filter", "@aihub/web", "exec", "vite", "preview", "--port", String(port), "--host", host];
+  const child = spawn("pnpm", args, {
+    cwd: monorepoRoot,
+    stdio: "inherit",
+    env: { ...process.env, AIHUB_SKIP_WEB: "1" },
+  });
+
+  // Log URL
+  if (useTailscaleServe) {
+    console.log(`Web UI: https://<tailnet>/ (via tailscale serve)`);
+  } else {
+    const displayHost = host === "0.0.0.0" ? "localhost" : host;
+    console.log(`Web UI: http://${displayHost}:${port}/`);
+  }
+
+  return child;
+}
 
 const program = new Command();
 
@@ -39,6 +84,12 @@ program
       const port = opts.port ? parseInt(opts.port, 10) : undefined;
       startServer(port, opts.host);
 
+      // Start web UI if enabled (default: true)
+      const uiEnabled = config.ui?.enabled !== false;
+      if (uiEnabled) {
+        webProcess = startWebUI(config.ui ?? {});
+      }
+
       // Start Discord bots
       await startDiscordBots();
 
@@ -51,6 +102,7 @@ program
       // Handle shutdown
       const shutdown = async () => {
         console.log("\nShutting down...");
+        if (webProcess) webProcess.kill("SIGTERM");
         stopAmsgWatcher();
         await stopScheduler();
         await stopDiscordBots();

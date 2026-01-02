@@ -77,7 +77,7 @@ All stored in `~/.aihub/`:
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
-  ui?: { port?, bind?, tailscale? }  // bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
+  ui?: { enabled?, port?, bind?, tailscale? }  // enabled: default true; bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
   // Note: tailscale.mode=serve requires gateway.bind and ui.bind to be loopback
 }
 ```
@@ -232,8 +232,11 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 
 ```bash
 pnpm install
-pnpm dev:gateway  # tsx watch on CLI entry
-pnpm dev:web      # Vite dev server
+pnpm dev          # gateway + web UI (ui.enabled default true)
+pnpm dev:gateway  # gateway only (tsx watch)
+pnpm dev:web      # web UI only (Vite dev server)
 pnpm build        # TypeScript compile
 pnpm aihub <cmd>  # Run CLI
 ```
+
+Set `ui.enabled: false` in config to disable automatic web UI startup.

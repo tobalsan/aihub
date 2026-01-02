@@ -88,6 +88,7 @@ export type UiTailscaleConfig = z.infer<typeof UiTailscaleConfigSchema>;
 
 // UI config
 export const UiConfigSchema = z.object({
+  enabled: z.boolean().optional(),
   port: z.number().optional(),
   bind: UiBindModeSchema.optional(),
   tailscale: UiTailscaleConfigSchema.optional(),

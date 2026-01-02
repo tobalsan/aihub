@@ -113,6 +113,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
 | Field | Description |
 |-------|-------------|
+| `ui.enabled` | Auto-start web UI with gateway (default: true) |
 | `ui.port` | Web UI port (default: 3000) |
 | `ui.bind` | `loopback` (127.0.0.1), `lan` (0.0.0.0), or `tailnet` (auto-detect tailnet IP) |
 | `ui.tailscale.mode` | `off` (default) or `serve` (enable HTTPS via `tailscale serve`) |
@@ -179,8 +180,9 @@ ln -s agent .pi
 ## Development
 
 ```bash
-pnpm dev:gateway  # Terminal 1
-pnpm dev:web      # Terminal 2
+pnpm dev          # gateway + web UI (auto-starts if ui.enabled !== false)
+pnpm dev:gateway  # gateway only
+pnpm dev:web      # web UI only
 ```
 
 ## Data
