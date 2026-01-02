@@ -58,17 +58,33 @@ _If someone knew nothing about this codebase, would they have everything needed 
 
 ```yaml
 # SDK Docs
-- url: https://platform.claude.com/docs/en/agent-sdk/typescript
-  why: Claude Agent SDK usage patterns (query generator, interrupt, tool/MCP integration)
-  critical: SDK exposes async generator with interrupt(), supports MCP tools, may not read settings by default
+- url: https://docs.claude.com/en/api/agent-sdk
+  why: Claude Agent SDK overview + auth (ANTHROPIC_API_KEY)
+  critical: SDK renamed from Claude Code SDK; auth via ANTHROPIC_API_KEY
+
+- url: https://docs.claude.com/en/docs/claude-code/sdk/sdk-typescript
+  why: Claude Agent SDK TypeScript reference (query async generator, settingSources)
+  critical: query() streams SDKMessage; settingSources controls filesystem settings (default none)
+
+- url: https://docs.claude.com/en/docs/claude-code/sdk
+  why: Migration guide (Claude Code SDK -> Claude Agent SDK)
+  critical: package name change to @anthropic-ai/claude-agent-sdk
 
 - url: https://developers.openai.com/codex/sdk/
-  why: Codex SDK top-level usage and SDK packaging expectations
-  critical: Codex SDK is CLI-backed with JSONL streaming; limited control surface
+  why: Codex SDK TypeScript library usage + install
+  critical: npm install @openai/codex-sdk, thread.run()/resumeThread()
 
-- url: https://raw.githubusercontent.com/openai/codex/refs/heads/main/sdk/typescript/README.md
-  why: Codex SDK exact TypeScript API (run, runStreamed, startThread, resumeThread, event types)
-  critical: Event stream type mapping needed for history + streaming; sessions stored in ~/.codex/sessions
+- url: https://developers.openai.com/codex/noninteractive/
+  why: Codex exec JSONL event stream types for mapping
+  critical: event types include thread/turn/item and error
+
+- url: https://developers.openai.com/codex/guides/api-key/
+  why: Codex API key auth (OPENAI_API_KEY)
+  critical: key env var and preferred_auth_method config
+
+- url: https://developers.openai.com/codex/config-basic/
+  why: Codex config file location and precedence
+  critical: ~/.codex/config.toml, precedence rules
 
 # Core runtime files
 - file: apps/gateway/src/agents/runner.ts
@@ -278,6 +294,159 @@ for await (const evt of codex.runStreamed(...)) {
   // map item.completed/turn.completed to history + StreamEvent
 }
 ```
+
+### Spec Clarifications (to increase one-pass success)
+
+#### SDK Dependencies, Versions, and Auth (explicit)
+
+**Claude Agent SDK (TypeScript)**:
+- **Package**: `@anthropic-ai/claude-agent-sdk` (renamed from Claude Code SDK).
+- **Auth**: set `ANTHROPIC_API_KEY` in env.
+- **Settings**: `query({ settingSources: [...] })` controls loading local settings; default is no local settings.
+- **Optional cloud provider flags** (if you choose to support them): `CLAUDE_CODE_USE_BEDROCK=1` or `CLAUDE_CODE_USE_VERTEX=1` and respective AWS/GCP credentials.
+
+**Codex SDK (TypeScript)**:
+- **Package**: `@openai/codex-sdk` via npm.
+- **Auth**: set `OPENAI_API_KEY` or configure preferred auth in `~/.codex/config.toml`.
+- **Event stream source**: if SDK doesn’t expose full event typing, use Codex JSONL event types from `codex exec --json` as the canonical mapping.
+
+#### Adapter Interface (exact)
+
+```ts
+export type HistoryEvent =
+  | { type: "user"; text: string; timestamp: number }
+  | { type: "assistant_text"; text: string; timestamp: number }
+  | { type: "assistant_thinking"; text: string; timestamp: number }
+  | { type: "tool_call"; id: string; name: string; args: unknown; timestamp: number }
+  | { type: "tool_result"; id: string; name: string; content: string; isError: boolean; details?: { diff?: string }; timestamp: number }
+  | { type: "meta"; provider?: string; model?: string; api?: string; usage?: ModelUsage; stopReason?: string; timestamp: number };
+
+export type SdkRunParams = {
+  agentId: string;
+  sessionId: string;
+  sessionKey?: string;
+  message: string;
+  workspaceDir: string;
+  thinkLevel?: ThinkLevel;
+  onEvent: (event: StreamEvent) => void;          // streaming to UI
+  onHistoryEvent: (event: HistoryEvent) => void;  // canonical transcript
+  onSessionHandle?: (handle: unknown) => void;    // for queue/abort
+};
+
+export type SdkAdapter = {
+  id: "pi" | "claude" | "codex";
+  displayName: string;
+  capabilities: {
+    queueWhileStreaming: boolean;
+    interrupt: boolean;
+    toolEvents: boolean;
+    fullHistory: boolean;
+  };
+  resolveDisplayModel(agent: AgentConfig): { provider?: string; model?: string };
+  run(params: SdkRunParams): Promise<RunAgentResult>;
+  queueMessage?: (handle: unknown, message: string) => Promise<void>;
+  abort?: (handle: unknown) => void;
+};
+```
+
+#### Canonical History Assembly Semantics
+
+**Principle**: History is built from *events*, not SDK-native transcripts. The runner owns the merge logic.
+
+**Merge rules**:
+- Create a **turn context** per run (`sessionId + runId` in memory).
+- For each `assistant_text` delta: append to current assistant text buffer.
+- For each `assistant_thinking` delta: append to current thinking buffer (separate from text).
+- For `tool_call`: append a toolCall block to the current assistant’s content list (preserve order).
+- For `tool_result`: emit a toolResult message immediately (not nested inside assistant).
+- For `meta`: attach to the *current assistant message* (provider/model/usage/stopReason).
+- On `turn_done`: flush a single assistant message composed as:
+  1) thinking block (if any)  
+  2) toolCall blocks (in order)  
+  3) final text block
+
+**Backfill**:
+- For Pi sessions: parse existing Pi JSONL into this format once (write canonical history file).
+
+#### Codex Event Mapping Table (explicit)
+
+Use JSONL events from `codex exec --json` as the canonical mapping.
+
+| Codex event | Meaning | History/Stream mapping |
+|---|---|---|
+| `thread.started` | thread created | set session metadata |
+| `turn.started` | new assistant turn | start turn buffer |
+| `item.started` | new item | if item.type == `command_execution` / `file_change` / `mcp_tool` / `web_search` / `reasoning` / `agent_message` → map to tool_call or thinking/text |
+| `item.completed` | item done | if tool-like: emit tool_result; if text: append to assistant_text |
+| `turn.completed` | turn done | flush assistant message, emit `done` |
+| `turn.failed` / `error` | failure | emit error + flush if partial |
+
+If SDK exposes `runStreamed()` or similar, map its events to the same semantic buckets above.
+
+#### Queue Drain Algorithm (explicit)
+
+When adapter lacks queue/interrupt:
+
+```
+// runner-owned queue (per agentId+sessionId)
+if (isStreaming && queueMode === "queue" && !cap.queueWhileStreaming) {
+  enqueue(pendingQueue, message);
+  return queued;
+}
+
+onRunComplete:
+  while (pendingQueue not empty) {
+    const next = dequeue();
+    await runAgent({ ...params, message: next, sessionId, sessionKey, source: "queue-drain" });
+  }
+```
+
+When adapter supports queueWhileStreaming, call adapter.queueMessage(handle, msg) and do not enqueue.
+
+#### Canonical History Store (exact format)
+
+Store in `~/.aihub/history/{agentId}-{sessionId}.jsonl` with JSONL entries:
+
+```jsonl
+{"type":"history","agentId":"...","sessionId":"...","timestamp":1700000000,"role":"user","content":[{"type":"text","text":"..."}]}
+{"type":"history","agentId":"...","sessionId":"...","timestamp":1700000001,"role":"assistant","content":[{"type":"thinking","thinking":"..."},{"type":"text","text":"..."}],"meta":{"provider":"anthropic","model":"claude-3-5-sonnet","usage":{"input":123,"output":45,"totalTokens":168}}}
+{"type":"history","agentId":"...","sessionId":"...","timestamp":1700000002,"role":"toolResult","toolCallId":"call_1","toolName":"read","content":[{"type":"text","text":"file contents"}],"isError":false,"details":{"diff":"..."}}
+```
+
+**History API behavior**:
+- If canonical history exists: use it.
+- If missing and SDK == "pi": read Pi session JSONL and backfill into canonical store once (one-time migration).
+
+#### Queue / Interrupt Fallback Matrix
+
+| condition | behavior |
+|---|---|
+| streaming + queueMode=queue + adapter.queueWhileStreaming | call adapter.queueMessage(handle, msg); return queued |
+| streaming + queueMode=queue + adapter lacks queue | enqueue to in-memory pending queue; return queued; after run ends, runner starts a new run with next queued message |
+| streaming + queueMode=interrupt + adapter.interrupt | call adapter.abort(handle); wait for end; start new run |
+| streaming + queueMode=interrupt + adapter lacks interrupt | fall back to pending queue (same as above) |
+
+Runner owns the pending queue and drains it sequentially.
+
+#### Config Schema (explicit)
+
+```ts
+agent: {
+  id: string;
+  name: string;
+  sdk?: "pi" | "claude" | "codex"; // default "pi"
+  model: { provider: string; model: string }; // keep existing shape for all SDKs
+  // For codex, use provider="openai-codex" and model="codex-<id>" (adapter interprets)
+  workspace: string;
+  // existing fields unchanged
+}
+```
+
+#### Adapter Event Mapping (required minimum)
+
+- **Pi**: map existing Pi content blocks -> HistoryEvent; stream text_delta -> StreamEvent{text}.
+- **Claude**: stream tokens -> StreamEvent{text}; map tool use/results to tool_call/tool_result.
+- **Codex**: stream text deltas -> StreamEvent{text}; parse JSONL events into HistoryEvent; if no tool events, omit.
 
 ### Integration Points
 
