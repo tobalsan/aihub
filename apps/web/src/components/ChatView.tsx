@@ -1,6 +1,6 @@
 import { createSignal, createEffect, createResource, createMemo, For, onCleanup, Show } from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
-import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent } from "../api/client";
+import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent, subscribeToSession } from "../api/client";
 import type {
   Message,
   HistoryViewMode,
@@ -135,6 +135,7 @@ export function ChatView() {
 
   let messagesEndRef: HTMLDivElement | undefined;
   let cleanup: (() => void) | null = null;
+  let subscriptionCleanup: (() => void) | null = null;
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -168,6 +169,23 @@ export function ChatView() {
     if (agent()) loadHistory(mode);
   });
 
+  // Subscribe to live updates for background runs
+  createEffect(() => {
+    const agentId = params.agentId;
+    const key = sessionKey();
+    if (!agentId) return;
+
+    subscriptionCleanup?.();
+    subscriptionCleanup = subscribeToSession(agentId, key, {
+      onHistoryUpdated: () => {
+        // Refetch history when background run completes
+        if (!isStreaming()) {
+          loadHistory(viewMode());
+        }
+      },
+    });
+  });
+
   createEffect(() => {
     simpleMessages();
     fullMessages();
@@ -178,6 +196,7 @@ export function ChatView() {
 
   onCleanup(() => {
     cleanup?.();
+    subscriptionCleanup?.();
   });
 
   const handleViewChange = (mode: HistoryViewMode) => {

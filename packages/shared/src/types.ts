@@ -149,7 +149,7 @@ export type StreamEvent =
   | { type: "error"; message: string };
 
 // WebSocket protocol types
-export type WsClientMessage = {
+export type WsSendMessage = {
   type: "send";
   agentId: string;
   sessionId?: string; // explicit session ID (bypasses sessionKey resolution)
@@ -157,7 +157,26 @@ export type WsClientMessage = {
   message: string;
 };
 
-export type WsServerMessage = StreamEvent;
+export type WsSubscribeMessage = {
+  type: "subscribe";
+  agentId: string;
+  sessionKey: string;
+};
+
+export type WsUnsubscribeMessage = {
+  type: "unsubscribe";
+};
+
+export type WsClientMessage = WsSendMessage | WsSubscribeMessage | WsUnsubscribeMessage;
+
+// Server messages include stream events plus subscription-specific events
+export type WsHistoryUpdatedEvent = {
+  type: "history_updated";
+  agentId: string;
+  sessionId: string;
+};
+
+export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent;
 
 // History types
 

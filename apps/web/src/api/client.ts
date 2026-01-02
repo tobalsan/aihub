@@ -141,3 +141,63 @@ export function streamMessage(
     }
   };
 }
+
+export type SubscriptionCallbacks = {
+  onText?: (text: string) => void;
+  onToolStart?: (toolName: string) => void;
+  onToolEnd?: (toolName: string, isError: boolean) => void;
+  onDone?: () => void;
+  onHistoryUpdated?: () => void;
+  onError?: (error: string) => void;
+};
+
+/**
+ * Subscribe to live updates for an agent session.
+ * Receives events from background runs (amsg, discord, scheduler).
+ */
+export function subscribeToSession(
+  agentId: string,
+  sessionKey: string,
+  callbacks: SubscriptionCallbacks
+): () => void {
+  const ws = new WebSocket(getWsUrl());
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "subscribe", agentId, sessionKey }));
+  };
+
+  ws.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    switch (event.type) {
+      case "text":
+        callbacks.onText?.(event.data);
+        break;
+      case "tool_start":
+        callbacks.onToolStart?.(event.toolName);
+        break;
+      case "tool_end":
+        callbacks.onToolEnd?.(event.toolName, event.isError ?? false);
+        break;
+      case "done":
+        callbacks.onDone?.();
+        break;
+      case "history_updated":
+        callbacks.onHistoryUpdated?.();
+        break;
+      case "error":
+        callbacks.onError?.(event.message);
+        break;
+    }
+  };
+
+  ws.onerror = () => {
+    callbacks.onError?.("Subscription connection error");
+  };
+
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "unsubscribe" }));
+    }
+    ws.close();
+  };
+}

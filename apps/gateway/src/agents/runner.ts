@@ -28,6 +28,7 @@ import {
   buildBootstrapContextFiles,
 } from "./workspace.js";
 import { resolveSessionId } from "../sessions/index.js";
+import { agentEventBus, type AgentStreamEvent } from "./events.js";
 
 export type RunAgentParams = {
   agentId: string;
@@ -125,6 +126,17 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     sessionId = "default";
   }
 
+  // Helper to emit events to both callback and global bus
+  const emit = (event: StreamEvent) => {
+    params.onEvent?.(event);
+    agentEventBus.emitStreamEvent({
+      ...event,
+      agentId: params.agentId,
+      sessionId,
+      sessionKey: params.sessionKey,
+    } as AgentStreamEvent);
+  };
+
   const currentlyStreaming = isStreaming(params.agentId, sessionId);
 
   // Handle queue vs interrupt mode when already streaming
@@ -141,8 +153,8 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         bufferPendingMessage(params.agentId, sessionId, message);
       }
 
-      params.onEvent?.({ type: "text", data: "Message queued into current run" });
-      params.onEvent?.({ type: "done", meta: { durationMs: 0 } });
+      emit({ type: "text", data: "Message queued into current run" });
+      emit({ type: "done", meta: { durationMs: 0 } });
       return {
         payloads: [{ text: "Message queued into current run" }],
         meta: { durationMs: 0, sessionId, queued: true },
@@ -272,7 +284,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
             const chunk = assistantEvent?.delta as string;
             if (chunk) {
               deltaBuffer += chunk;
-              params.onEvent?.({ type: "text", data: chunk });
+              emit({ type: "text", data: chunk });
             }
           }
         }
@@ -280,13 +292,13 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
       if (evt.type === "tool_execution_start") {
         const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
-        params.onEvent?.({ type: "tool_start", toolName });
+        emit({ type: "tool_start", toolName });
       }
 
       if (evt.type === "tool_execution_end") {
         const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
         const isError = (evt as { isError?: boolean }).isError ?? false;
-        params.onEvent?.({ type: "tool_end", toolName, isError });
+        emit({ type: "tool_end", toolName, isError });
       }
     });
 
@@ -298,7 +310,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     }
 
     const durationMs = Date.now() - started;
-    params.onEvent?.({ type: "done", meta: { durationMs } });
+    emit({ type: "done", meta: { durationMs } });
 
     // Extract text from the last assistant message
     const messages = agentSession.messages;
@@ -316,8 +328,8 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       meta: { durationMs, sessionId, aborted },
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    params.onEvent?.({ type: "error", message });
+    const errMessage = err instanceof Error ? err.message : String(err);
+    emit({ type: "error", message: errMessage });
     throw err;
   } finally {
     clearAgentSession(params.agentId, sessionId);
