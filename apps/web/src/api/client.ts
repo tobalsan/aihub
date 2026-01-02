@@ -71,9 +71,9 @@ export async function sendMessage(
 }
 
 function getWsUrl(): string {
-  // In dev mode (port 3000), connect directly to gateway (port 4000)
-  // In prod, use same host
-  const isDev = window.location.port === "3000";
+  // In dev mode, connect directly to gateway (port 4000)
+  // In prod, use same host (gateway serves static files)
+  const isDev = import.meta.env.DEV;
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = isDev ? `${window.location.hostname}:4000` : window.location.host;
   return `${proto}//${host}/ws`;

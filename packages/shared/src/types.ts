@@ -75,6 +75,17 @@ export const ScheduleJobSchema = z.object({
 });
 export type ScheduleJob = z.infer<typeof ScheduleJobSchema>;
 
+// UI bind mode
+export const UiBindModeSchema = z.enum(["loopback", "lan", "tailnet"]);
+export type UiBindMode = z.infer<typeof UiBindModeSchema>;
+
+// UI config
+export const UiConfigSchema = z.object({
+  port: z.number().optional(),
+  bind: UiBindModeSchema.optional(),
+});
+export type UiConfig = z.infer<typeof UiConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   agents: z.array(AgentConfigSchema),
@@ -96,6 +107,7 @@ export const GatewayConfigSchema = z.object({
       baseUrl: z.string().optional(),
     })
     .optional(),
+  ui: UiConfigSchema.optional(),
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 
