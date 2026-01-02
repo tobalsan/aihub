@@ -17,7 +17,18 @@ cat > ~/.aihub/aihub.json << 'EOF'
       "id": "my-agent",
       "name": "My Agent",
       "workspace": "~/workspace",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4-20250514" }
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" }
+    },
+    {
+      "id": "claude-agent",
+      "name": "Claude Agent",
+      "workspace": "~/workspace",
+      "sdk": "claude",
+      "model": {
+        "model": "claude-sonnet-4-5-20250929",
+        "base_url": "http://127.0.0.1:8317",
+        "auth_token": "sk-dummy"
+      }
     }
   ]
 }
@@ -70,7 +81,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
       "id": "agent-1",
       "name": "Agent One",
       "workspace": "~/projects/agent-1",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4-20250514" },
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" },
       "thinkLevel": "off",
       "queueMode": "queue",
       "discord": {
@@ -94,8 +105,11 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 | `id` | Unique identifier |
 | `name` | Display name |
 | `workspace` | Agent working directory |
-| `model.provider` | Model provider (anthropic, openai, etc) |
+| `sdk` | Agent SDK: `pi` (default), `claude`, or `codex` |
+| `model.provider` | Model provider (required for Pi SDK) |
 | `model.model` | Model name |
+| `model.base_url` | API proxy URL (Claude SDK only) |
+| `model.auth_token` | API auth token (Claude SDK only, overrides env) |
 | `thinkLevel` | off, minimal, low, medium, high |
 | `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
 | `discord` | Discord bot config |

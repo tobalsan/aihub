@@ -81,6 +81,9 @@ export const piAdapter: SdkAdapter = {
 
     const authStorage = discoverAuthStorage(CONFIG_DIR);
     const modelRegistry = discoverModels(authStorage, CONFIG_DIR);
+    if (!agent.model.provider) {
+      throw new Error(`Pi SDK requires model.provider to be set for agent: ${agent.id}`);
+    }
     const model = modelRegistry.find(agent.model.provider, agent.model.model);
 
     if (!model) {

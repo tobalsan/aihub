@@ -6,8 +6,10 @@ export type ThinkLevel = z.infer<typeof ThinkLevelSchema>;
 
 // Agent model config
 export const AgentModelConfigSchema = z.object({
-  provider: z.string(),
+  provider: z.string().optional(), // For display; inferred from sdk if omitted
   model: z.string(),
+  base_url: z.string().optional(), // API proxy URL (e.g. for Claude SDK)
+  auth_token: z.string().optional(), // API auth token (overrides env)
 });
 export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 

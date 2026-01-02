@@ -39,7 +39,6 @@ export const codexAdapter: SdkAdapter = {
     // Dynamic import to avoid requiring the package if not used
     let CodexClass: new () => CodexClient;
     try {
-      // @ts-expect-error - optional dependency, resolved at runtime
       const sdk = await import("@openai/codex-sdk");
       CodexClass = sdk.Codex as unknown as new () => CodexClient;
     } catch {
