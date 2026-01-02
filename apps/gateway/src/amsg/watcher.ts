@@ -9,11 +9,6 @@ const CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 
 let timer: NodeJS.Timeout | null = null;
 
-// Track seen messages: stable IDs when JSON available, timestamp-based otherwise
-const seenMessageIds = new Map<string, Set<string>>();
-// Timestamp of last successful trigger per agent (for non-JSON fallback)
-const lastTriggerTime = new Map<string, number>();
-
 async function runAmsgCommand(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn("amsg", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -41,11 +36,6 @@ async function runAmsgCommand(args: string[]): Promise<string> {
     });
   });
 }
-
-type InboxCheckResult = {
-  hasNew: boolean;
-  messageIds: string[] | null; // null if JSON not available
-};
 
 type AmsgInfoFile = {
   agent_id: string;
@@ -86,32 +76,16 @@ async function resolveAmsgId(agent: AgentConfig): Promise<string | null> {
   }
 }
 
-async function checkInbox(amsgId: string): Promise<InboxCheckResult> {
+/**
+ * Check if agent has new messages in inbox.
+ */
+async function hasNewMessages(amsgId: string): Promise<boolean> {
   try {
-    // Try JSON format first: amsg inbox --new -a <amsgId> --json
-    const output = await runAmsgCommand(["inbox", "--new", "-a", amsgId, "--json"]);
-    if (!output || output.trim() === "" || output.includes("No new messages")) {
-      return { hasNew: false, messageIds: [] };
-    }
-    // Parse JSON output - expect array of message objects with id
-    const messages = JSON.parse(output);
-    if (!Array.isArray(messages)) return { hasNew: false, messageIds: [] };
-    const ids = messages
-      .filter((m): m is { id: string } => m && typeof m.id === "string")
-      .map((m) => m.id);
-    return { hasNew: ids.length > 0, messageIds: ids };
+    const output = await runAmsgCommand(["inbox", "--new", "-a", amsgId]);
+    // "No new messages for <id>" means empty
+    return !!output && !output.includes("No new messages");
   } catch {
-    // JSON not available - fall back to plain text check
-    try {
-      const output = await runAmsgCommand(["inbox", "--new", "-a", amsgId]);
-      if (!output || output.includes("No new messages") || output.trim() === "") {
-        return { hasNew: false, messageIds: null };
-      }
-      // Has new messages but can't get stable IDs
-      return { hasNew: true, messageIds: null };
-    } catch {
-      return { hasNew: false, messageIds: null };
-    }
+    return false;
   }
 }
 
@@ -127,8 +101,7 @@ async function checkAllAgents() {
     if (!amsgId) continue; // Agent not registered with amsg
 
     try {
-      const result = await checkInbox(amsgId);
-      if (!result.hasNew) continue;
+      if (!(await hasNewMessages(amsgId))) continue;
 
       // Skip if agent is currently streaming on ANY session - don't interrupt
       const allSessions = getAllSessionsForAgent(agent.id);
@@ -136,46 +109,14 @@ async function checkAllAgents() {
         continue;
       }
 
-      let shouldTrigger = false;
+      console.log(`[amsg] New message(s) for agent: ${agent.id}`);
 
-      if (result.messageIds !== null) {
-        // JSON available - use stable message IDs
-        if (!seenMessageIds.has(agent.id)) {
-          seenMessageIds.set(agent.id, new Set());
-        }
-        const seen = seenMessageIds.get(agent.id)!;
-        const newIds = result.messageIds.filter((id) => !seen.has(id));
-
-        if (newIds.length > 0) {
-          shouldTrigger = true;
-          for (const id of newIds) {
-            seen.add(id);
-          }
-          console.log(`[amsg] ${newIds.length} new message(s) for agent: ${agent.id}`);
-        }
-      } else {
-        // No JSON - use timestamp-based throttling
-        // Only trigger if we haven't triggered in the last 5 minutes
-        const lastTrigger = lastTriggerTime.get(agent.id) ?? 0;
-        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-
-        if (lastTrigger < fiveMinutesAgo) {
-          shouldTrigger = true;
-          console.log(`[amsg] New message(s) detected for agent: ${agent.id} (no JSON, using throttle)`);
-        }
-      }
-
-      if (shouldTrigger) {
-        lastTriggerTime.set(agent.id, Date.now());
-
-        // Send a message to the agent telling them to check inbox
-        // The agent is responsible for pull/ack
-        await runAgent({
-          agentId: agent.id,
-          message: "You have new messages in your amsg inbox. Please check with `amsg inbox --new` and process them.",
-          sessionKey: "main",
-        });
-      }
+      // Notify agent to check inbox - agent handles pull/ack
+      await runAgent({
+        agentId: agent.id,
+        message: "You have new messages in your amsg inbox. Please check with `amsg inbox --new` and process them.",
+        sessionKey: "main",
+      });
     } catch (err) {
       console.error(`[amsg] Error checking inbox for ${agent.id}:`, err);
     }
