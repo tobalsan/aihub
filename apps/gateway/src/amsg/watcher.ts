@@ -173,7 +173,7 @@ async function checkAllAgents() {
         await runAgent({
           agentId: agent.id,
           message: "You have new messages in your amsg inbox. Please check with `amsg inbox --new` and process them.",
-          sessionId: `amsg:${agent.id}`,
+          sessionKey: "main",
         });
       }
     } catch (err) {

@@ -27,11 +27,13 @@ import {
   loadBootstrapFiles,
   buildBootstrapContextFiles,
 } from "./workspace.js";
+import { resolveSessionId } from "../sessions/index.js";
 
 export type RunAgentParams = {
   agentId: string;
   message: string;
   sessionId?: string;
+  sessionKey?: string; // Resolves to sessionId with idle timeout + reset triggers
   thinkLevel?: ThinkLevel;
   onEvent?: (event: StreamEvent) => void;
 };
@@ -106,7 +108,23 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     throw new Error(`Agent not found: ${params.agentId}`);
   }
 
-  const sessionId = params.sessionId ?? "default";
+  // Resolve sessionId: explicit > sessionKey resolution > default
+  let sessionId: string;
+  let message = params.message;
+  if (params.sessionId) {
+    sessionId = params.sessionId;
+  } else if (params.sessionKey) {
+    const resolved = await resolveSessionId({
+      agentId: params.agentId,
+      sessionKey: params.sessionKey,
+      message: params.message,
+    });
+    sessionId = resolved.sessionId;
+    message = resolved.message;
+  } else {
+    sessionId = "default";
+  }
+
   const currentlyStreaming = isStreaming(params.agentId, sessionId);
 
   // Handle queue vs interrupt mode when already streaming
@@ -117,10 +135,10 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
       if (existingPiSession) {
         // Queue mode: inject message into current Pi session
-        await existingPiSession.queueMessage(params.message);
+        await existingPiSession.queueMessage(message);
       } else {
         // Pi session not ready yet - buffer the message for later injection
-        bufferPendingMessage(params.agentId, sessionId, params.message);
+        bufferPendingMessage(params.agentId, sessionId, message);
       }
 
       params.onEvent?.({ type: "text", data: "Message queued into current run" });
@@ -274,7 +292,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
     try {
       // Run the prompt
-      await agentSession.prompt(params.message);
+      await agentSession.prompt(message);
     } finally {
       unsubscribe();
     }
