@@ -85,7 +85,8 @@ All stored in `~/.aihub/`:
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
 3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
-5. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
+5. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
+6. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
 
 ### Workspace Bootstrap
 

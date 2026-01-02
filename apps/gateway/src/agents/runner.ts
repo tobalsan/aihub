@@ -197,6 +197,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       discoverAuthStorage,
       discoverModels,
       discoverSkills,
+      discoverSlashCommands,
       buildSystemPrompt,
       createCodingTools,
     } = await import("@mariozechner/pi-coding-agent");
@@ -223,6 +224,9 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
     // Discover skills from workspace/.pi/skills, ~/.pi/agent/skills, etc.
     const skills = discoverSkills(workspaceDir);
+
+    // Discover slash commands from workspace/.pi/commands, ~/.pi/agent/commands
+    const slashCommands = discoverSlashCommands(workspaceDir);
 
     // Load bootstrap context files (AGENTS.md, SOUL.md, etc.)
     const bootstrapFiles = await loadBootstrapFiles(workspaceDir);
@@ -254,6 +258,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       sessionManager,
       settingsManager,
       skills,
+      slashCommands,
       contextFiles,
     });
 
