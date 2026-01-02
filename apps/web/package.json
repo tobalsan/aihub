@@ -11,9 +11,12 @@
   "dependencies": {
     "@aihub/shared": "workspace:*",
     "@solidjs/router": "^0.15.4",
+    "dompurify": "^3.3.1",
+    "marked": "^17.0.1",
     "solid-js": "^1.9.3"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.2.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vite-plugin-solid": "^2.10.2"

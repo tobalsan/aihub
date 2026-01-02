@@ -1,5 +1,7 @@
 import { createSignal, createEffect, createResource, createMemo, For, onCleanup, Show } from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent, subscribeToSession } from "../api/client";
 import type {
   Message,
@@ -12,6 +14,12 @@ import type {
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
+
+// Render markdown to sanitized HTML
+function renderMarkdown(content: string): string {
+  const html = marked.parse(content, { breaks: true, async: false }) as string;
+  return DOMPurify.sanitize(html);
+}
 
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
@@ -57,7 +65,7 @@ function ContentBlocks(props: { blocks: ContentBlock[] }) {
       <For each={props.blocks}>
         {(block) => {
           if (block.type === "text") {
-            return <div class="block-text">{block.text}</div>;
+            return <div class="block-text markdown-content" innerHTML={renderMarkdown(block.text)} />;
           }
           if (block.type === "thinking") {
             return (
@@ -331,7 +339,11 @@ export function ChatView() {
           <For each={simpleMessages()}>
             {(msg) => (
               <div class={`message ${msg.role}`}>
-                <div class="content">{msg.content}</div>
+                {msg.role === "assistant" ? (
+                  <div class="content markdown-content" innerHTML={renderMarkdown(msg.content)} />
+                ) : (
+                  <div class="content">{msg.content}</div>
+                )}
               </div>
             )}
           </For>
@@ -405,7 +417,7 @@ export function ChatView() {
 
         {streamingText() && (
           <div class="message assistant streaming">
-            <div class="content">{streamingText()}</div>
+            <div class="content markdown-content" innerHTML={renderMarkdown(streamingText())} />
           </div>
         )}
 
@@ -741,6 +753,85 @@ export function ChatView() {
 
         .block-text {
           white-space: pre-wrap;
+        }
+
+        /* Markdown content */
+        .markdown-content {
+          line-height: 1.5;
+          white-space: normal;
+        }
+
+        .markdown-content > *:first-child {
+          margin-top: 0;
+        }
+
+        .markdown-content > *:last-child {
+          margin-bottom: 0;
+        }
+
+        .markdown-content p {
+          margin: 0.4em 0;
+        }
+
+        .markdown-content code {
+          background: var(--surface-2);
+          padding: 0.1em 0.35em;
+          border-radius: 4px;
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 0.9em;
+        }
+
+        .markdown-content pre {
+          background: var(--surface-0);
+          border: 1px solid var(--surface-2);
+          border-radius: var(--radius-sm);
+          padding: 10px;
+          overflow-x: auto;
+          margin: 0.5em 0;
+        }
+
+        .markdown-content pre code {
+          background: none;
+          padding: 0;
+          font-size: 0.85em;
+          line-height: 1.4;
+        }
+
+        .markdown-content ul,
+        .markdown-content ol {
+          margin: 0.4em 0;
+          padding-left: 1.25em;
+        }
+
+        .markdown-content li {
+          margin: 0.15em 0;
+        }
+
+        .markdown-content li p {
+          margin: 0;
+        }
+
+        .markdown-content a {
+          color: var(--accent);
+          text-decoration: none;
+        }
+
+        .markdown-content a:hover {
+          text-decoration: underline;
+        }
+
+        .markdown-content blockquote {
+          border-left: 3px solid var(--surface-3);
+          margin: 0.4em 0;
+          padding-left: 0.75em;
+          color: var(--text-secondary);
+        }
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+          margin: 0.6em 0 0.3em 0;
+          font-weight: 600;
         }
 
         /* Model meta */
