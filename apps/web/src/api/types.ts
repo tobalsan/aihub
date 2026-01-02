@@ -5,6 +5,7 @@ export type Agent = {
     provider: string;
     model: string;
   };
+  workspaceDir?: string;
 };
 
 export type Message = {

@@ -2,6 +2,12 @@ import { createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
 
+function shortenPath(path: string): string {
+  const home = path.match(/^\/Users\/[^/]+/)?.[0];
+  if (home) return path.replace(home, "~");
+  return path;
+}
+
 export function AgentList() {
   const [agents] = createResource(fetchAgents);
 
@@ -25,8 +31,13 @@ export function AgentList() {
             {(agent) => (
               <A href={`/chat/${agent.id}`} class="agent-card">
                 <div class="agent-name">{agent.name}</div>
-                <div class="agent-model">
-                  {agent.model.provider}/{agent.model.model}
+                <div class="agent-meta">
+                  <span class="agent-model">
+                    {agent.model.provider}/{agent.model.model}
+                  </span>
+                  {agent.workspaceDir && (
+                    <span class="agent-workspace">{shortenPath(agent.workspaceDir)}</span>
+                  )}
                 </div>
               </A>
             )}
@@ -96,9 +107,21 @@ export function AgentList() {
           margin-bottom: 4px;
         }
 
+        .agent-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
         .agent-model {
           font-size: 13px;
           color: #888;
+        }
+
+        .agent-workspace {
+          font-size: 12px;
+          color: #666;
+          font-family: monospace;
         }
       `}</style>
     </div>

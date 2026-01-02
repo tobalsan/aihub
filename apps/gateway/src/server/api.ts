@@ -4,7 +4,7 @@ import {
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
 } from "@aihub/shared";
-import { getActiveAgents, getAgent, isAgentActive } from "../config/index.js";
+import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
@@ -20,6 +20,7 @@ api.get("/agents", (c) => {
       id: a.id,
       name: a.name,
       model: a.model,
+      workspaceDir: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
     }))
   );
 });
@@ -35,6 +36,7 @@ api.get("/agents/:id", (c) => {
     id: agent.id,
     name: agent.name,
     model: agent.model,
+    workspaceDir: agent.workspace ? resolveWorkspaceDir(agent.workspace) : undefined,
   });
 });
 
