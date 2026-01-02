@@ -2,14 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const BOOTSTRAP_FILENAMES = [
+// Core files that indicate workspace is initialized (not brand-new)
+const CORE_FILENAMES = [
   "AGENTS.md",
   "SOUL.md",
   "TOOLS.md",
   "IDENTITY.md",
   "USER.md",
-  "BOOTSTRAP.md",
 ] as const;
+
+const BOOTSTRAP_FILENAMES = [...CORE_FILENAMES, "BOOTSTRAP.md"] as const;
 
 type BootstrapFileName = (typeof BOOTSTRAP_FILENAMES)[number];
 
@@ -95,15 +97,36 @@ async function writeIfMissing(filePath: string, content: string): Promise<void> 
   }
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ensure bootstrap files exist in workspace directory.
  * Uses wx flag to only write if missing.
+ * BOOTSTRAP.md is only created for brand-new workspaces (no core files exist).
  */
 export async function ensureBootstrapFiles(workspaceDir: string): Promise<void> {
   await fs.mkdir(workspaceDir, { recursive: true });
 
+  // Check if any core file exists - if so, workspace is not brand-new
+  const coreFileChecks = await Promise.all(
+    CORE_FILENAMES.map((name) => fileExists(path.join(workspaceDir, name)))
+  );
+  const hasAnyCoreFile = coreFileChecks.some(Boolean);
+
+  // Determine which files to create
+  const filesToCreate = hasAnyCoreFile
+    ? CORE_FILENAMES // Skip BOOTSTRAP.md for existing workspaces
+    : BOOTSTRAP_FILENAMES; // Include BOOTSTRAP.md for new workspaces
+
   const templates = await Promise.all(
-    BOOTSTRAP_FILENAMES.map(async (name) => ({
+    filesToCreate.map(async (name) => ({
       name,
       content: await loadTemplate(name),
     }))
