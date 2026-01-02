@@ -1,6 +1,9 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { spawn } from "node:child_process";
-import { getActiveAgents } from "../config/index.js";
+import { getActiveAgents, resolveWorkspaceDir } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent } from "../agents/index.js";
+import type { AgentConfig } from "@aihub/shared";
 
 const CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 
@@ -44,6 +47,45 @@ type InboxCheckResult = {
   messageIds: string[] | null; // null if JSON not available
 };
 
+type AmsgInfoFile = {
+  id: string;
+};
+
+/**
+ * Resolve amsg ID for an agent.
+ * Priority: workspace/.amsg-info > agent.amsg.id > agent.id
+ * Returns null if .amsg-info is absent (agent not registered).
+ */
+async function resolveAmsgId(agent: AgentConfig): Promise<string | null> {
+  const workspaceDir = resolveWorkspaceDir(agent.workspace);
+  const infoPath = path.join(workspaceDir, ".amsg-info");
+
+  try {
+    const content = await fs.readFile(infoPath, "utf-8");
+    const info: AmsgInfoFile = JSON.parse(content);
+    if (info.id && typeof info.id === "string") {
+      // Warn if config id differs from .amsg-info
+      if (agent.amsg?.id && agent.amsg.id !== info.id) {
+        console.warn(
+          `[amsg] Agent ${agent.id}: config amsg.id "${agent.amsg.id}" differs from .amsg-info "${info.id}", using .amsg-info`
+        );
+      }
+      return info.id;
+    }
+    // File exists but invalid format
+    console.warn(`[amsg] Agent ${agent.id}: .amsg-info missing 'id' field, skipping`);
+    return null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // .amsg-info doesn't exist - agent not registered
+      return null;
+    }
+    // File exists but can't be parsed
+    console.warn(`[amsg] Agent ${agent.id}: Failed to read .amsg-info:`, err);
+    return null;
+  }
+}
+
 async function checkInbox(amsgId: string): Promise<InboxCheckResult> {
   try {
     // Try JSON format first: amsg inbox --new -a <amsgId> --json
@@ -77,10 +119,12 @@ async function checkAllAgents() {
   const agents = getActiveAgents();
 
   for (const agent of agents) {
-    // Skip agents without amsg config or with amsg disabled
-    if (!agent.amsg || agent.amsg.enabled === false) continue;
+    // Skip agents with amsg explicitly disabled
+    if (agent.amsg?.enabled === false) continue;
 
-    const amsgId = agent.amsg.id ?? agent.id;
+    // Resolve amsg ID from .amsg-info (source of truth)
+    const amsgId = await resolveAmsgId(agent);
+    if (!amsgId) continue; // Agent not registered with amsg
 
     try {
       const result = await checkInbox(amsgId);
