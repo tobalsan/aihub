@@ -48,7 +48,7 @@ type InboxCheckResult = {
 };
 
 type AmsgInfoFile = {
-  id: string;
+  agent_id: string;
 };
 
 /**
@@ -63,17 +63,17 @@ async function resolveAmsgId(agent: AgentConfig): Promise<string | null> {
   try {
     const content = await fs.readFile(infoPath, "utf-8");
     const info: AmsgInfoFile = JSON.parse(content);
-    if (info.id && typeof info.id === "string") {
+    if (info.agent_id && typeof info.agent_id === "string") {
       // Warn if config id differs from .amsg-info
-      if (agent.amsg?.id && agent.amsg.id !== info.id) {
+      if (agent.amsg?.id && agent.amsg.id !== info.agent_id) {
         console.warn(
-          `[amsg] Agent ${agent.id}: config amsg.id "${agent.amsg.id}" differs from .amsg-info "${info.id}", using .amsg-info`
+          `[amsg] Agent ${agent.id}: config amsg.id "${agent.amsg.id}" differs from .amsg-info "${info.agent_id}", using .amsg-info`
         );
       }
-      return info.id;
+      return info.agent_id;
     }
     // File exists but invalid format
-    console.warn(`[amsg] Agent ${agent.id}: .amsg-info missing 'id' field, skipping`);
+    console.warn(`[amsg] Agent ${agent.id}: .amsg-info missing 'agent_id' field, skipping`);
     return null;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
