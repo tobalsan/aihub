@@ -253,6 +253,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   try {
     const result = await adapter.run({
       agentId: params.agentId,
+      agent,
       sessionId,
       sessionKey: params.sessionKey,
       message,

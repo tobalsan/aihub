@@ -8,6 +8,7 @@ export type ClaudeQueryOptions = {
   systemPrompt?: string | { type: "preset"; preset: "claude_code" };
   settingSources?: Array<"user" | "project" | "local">;
   includePartialMessages?: boolean;
+  model?: string;
 };
 
 export type SDKMessage =

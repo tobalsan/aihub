@@ -46,6 +46,7 @@ export type HistoryEvent =
 // Run parameters passed to adapter
 export type SdkRunParams = {
   agentId: string;
+  agent: AgentConfig;
   sessionId: string;
   sessionKey?: string;
   message: string;

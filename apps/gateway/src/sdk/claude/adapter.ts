@@ -20,7 +20,6 @@ export const claudeAdapter: SdkAdapter = {
     // Dynamic import to avoid requiring the package if not used
     let query: QueryFunction;
     try {
-      // @ts-expect-error - optional dependency, resolved at runtime
       const sdk = await import("@anthropic-ai/claude-agent-sdk");
       query = sdk.query as QueryFunction;
     } catch {
@@ -59,6 +58,8 @@ export const claudeAdapter: SdkAdapter = {
           settingSources: ["project"],
           // Stream partial messages for real-time updates
           includePartialMessages: true,
+          // Use model from agent config
+          model: params.agent.model.model,
         },
       });
 
