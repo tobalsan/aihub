@@ -190,7 +190,9 @@ Jobs stored in `~/.aihub/schedules.json` with state (nextRunAtMs, lastRunAtMs, l
 
 ### Discord (`src/discord/`)
 
-One bot per agent with discord config. Listens to configured guild/channel (or all if not specified). Session ID: `discord:{channelId}`. Handles 2000-char chunking.
+One bot per agent with discord config. When `channelId` is configured, only that channel is handled; messages in other channels are ignored. Uses `sessionKey: "main"` (shares session with web UI). Handles 2000-char chunking.
+
+Live broadcast: Main-session responses from other sources (web, amsg, scheduler) are automatically broadcast to the Discord channel. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
 
 ### Amsg Watcher (`src/amsg/`)
 

@@ -1,10 +1,13 @@
 import { EventEmitter } from "node:events";
 import type { StreamEvent } from "@aihub/shared";
 
+export type RunSource = "web" | "discord" | "amsg" | "scheduler" | "cli";
+
 export type AgentStreamEvent = StreamEvent & {
   agentId: string;
   sessionId: string;
   sessionKey?: string;
+  source?: RunSource;
 };
 
 class AgentEventBus extends EventEmitter {

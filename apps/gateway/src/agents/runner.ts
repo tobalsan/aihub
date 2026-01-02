@@ -28,7 +28,7 @@ import {
   buildBootstrapContextFiles,
 } from "./workspace.js";
 import { resolveSessionId } from "../sessions/index.js";
-import { agentEventBus, type AgentStreamEvent } from "./events.js";
+import { agentEventBus, type AgentStreamEvent, type RunSource } from "./events.js";
 
 export type RunAgentParams = {
   agentId: string;
@@ -36,6 +36,7 @@ export type RunAgentParams = {
   sessionId?: string;
   sessionKey?: string; // Resolves to sessionId with idle timeout + reset triggers
   thinkLevel?: ThinkLevel;
+  source?: RunSource;
   onEvent?: (event: StreamEvent) => void;
 };
 
@@ -134,6 +135,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       agentId: params.agentId,
       sessionId,
       sessionKey: params.sessionKey,
+      source: params.source,
     } as AgentStreamEvent);
   };
 

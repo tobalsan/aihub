@@ -1,6 +1,7 @@
-import { Client, GatewayIntentBits, Events, type Message } from "discord.js";
+import { Client, GatewayIntentBits, Events, type Message, type TextChannel } from "discord.js";
 import type { AgentConfig } from "@aihub/shared";
-import { runAgent } from "../agents/index.js";
+import { runAgent, agentEventBus, type AgentStreamEvent } from "../agents/index.js";
+import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
 
 export type DiscordBot = {
   client: Client;
@@ -21,6 +22,10 @@ export function createDiscordBot(agent: AgentConfig): DiscordBot | null {
     ],
   });
 
+  // Track accumulated text per session for broadcasting
+  const textAccumulators = new Map<string, string>();
+  let unsubscribeBroadcast: (() => void) | null = null;
+
   const handleMessage = async (message: Message) => {
     // Ignore bots
     if (message.author.bot) return;
@@ -38,8 +43,9 @@ export function createDiscordBot(agent: AgentConfig): DiscordBot | null {
     const content = message.content.trim();
     if (!content) return;
 
-    // Use channel ID as session ID for Discord
-    const sessionId = `discord:${message.channelId}`;
+    // If this is the configured main channel, route via sessionKey="main"
+    // Otherwise, use per-channel sessionId
+    const isMainChannel = agent.discord?.channelId === message.channelId;
 
     try {
       // Send typing indicator (only for text-based channels)
@@ -50,9 +56,15 @@ export function createDiscordBot(agent: AgentConfig): DiscordBot | null {
       const result = await runAgent({
         agentId: agent.id,
         message: content,
-        sessionId,
+        ...(isMainChannel
+          ? { sessionKey: DEFAULT_MAIN_KEY }
+          : { sessionId: `discord:${message.channelId}` }),
         thinkLevel: agent.thinkLevel,
+        source: "discord",
       });
+
+      // Skip reply for queued messages - response will come when run completes
+      if (result.meta.queued) return;
 
       // Send response
       for (const payload of result.payloads) {
@@ -80,13 +92,63 @@ export function createDiscordBot(agent: AgentConfig): DiscordBot | null {
     console.error(`[discord:${agent.id}] Error:`, err);
   });
 
+  // Broadcast main-session responses to Discord channel (for non-discord sources)
+  const setupBroadcaster = () => {
+    if (!agent.discord?.channelId) return;
+
+    unsubscribeBroadcast = agentEventBus.onStreamEvent(async (event) => {
+      // Only handle events for this agent
+      if (event.agentId !== agent.id) return;
+
+      // Skip if originated from Discord (avoid echo loop)
+      if (event.source === "discord") return;
+
+      // Only broadcast main session events
+      const mainEntry = getSessionEntry(agent.id, DEFAULT_MAIN_KEY);
+      if (!mainEntry || mainEntry.sessionId !== event.sessionId) return;
+
+      const accKey = `${event.agentId}:${event.sessionId}`;
+
+      if (event.type === "text") {
+        // Accumulate text chunks
+        const current = textAccumulators.get(accKey) ?? "";
+        textAccumulators.set(accKey, current + event.data);
+      } else if (event.type === "done") {
+        // Send accumulated text to Discord
+        const text = textAccumulators.get(accKey);
+        textAccumulators.delete(accKey);
+
+        if (text) {
+          try {
+            const channel = await client.channels.fetch(agent.discord!.channelId!);
+            if (channel && "send" in channel) {
+              const chunks = splitMessage(text, 2000);
+              for (const chunk of chunks) {
+                await (channel as TextChannel).send(chunk);
+              }
+            }
+          } catch (err) {
+            console.error(`[discord:${agent.id}] Broadcast error:`, err);
+          }
+        }
+      } else if (event.type === "error") {
+        // Clean up on error
+        textAccumulators.delete(accKey);
+      }
+    });
+  };
+
   return {
     client,
     agentId: agent.id,
     start: async () => {
       await client.login(agent.discord!.token);
+      setupBroadcaster();
     },
     stop: async () => {
+      unsubscribeBroadcast?.();
+      unsubscribeBroadcast = null;
+      textAccumulators.clear();
       await client.destroy();
     },
   };
