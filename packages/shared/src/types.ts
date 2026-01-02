@@ -94,6 +94,18 @@ export const UiConfigSchema = z.object({
 });
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 
+// Gateway server bind mode (reuses UiBindMode)
+export const GatewayBindModeSchema = UiBindModeSchema;
+export type GatewayBindMode = UiBindMode;
+
+// Gateway server config
+export const GatewayServerConfigSchema = z.object({
+  host: z.string().optional(), // Explicit host (overrides bind)
+  port: z.number().optional(),
+  bind: GatewayBindModeSchema.optional(), // loopback | lan | tailnet
+});
+export type GatewayServerConfig = z.infer<typeof GatewayServerConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   agents: z.array(AgentConfigSchema),
@@ -104,6 +116,7 @@ export const GatewayConfigSchema = z.object({
       baseUrl: z.string().optional(),
     })
     .optional(),
+  gateway: GatewayServerConfigSchema.optional(),
   scheduler: z
     .object({
       enabled: z.boolean().optional().default(true),

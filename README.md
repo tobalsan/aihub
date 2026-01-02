@@ -81,7 +81,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
       "amsg": { "id": "agent-1", "enabled": true }
     }
   ],
-  "server": { "host": "127.0.0.1", "port": 4000 },
+  "gateway": { "port": 4000, "bind": "tailnet" },
   "scheduler": { "enabled": true, "tickSeconds": 60 },
   "ui": { "port": 3000, "bind": "loopback" }
 }
@@ -100,6 +100,14 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 | `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
 | `discord` | Discord bot config |
 | `amsg` | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
+
+### Gateway Options
+
+| Field | Description |
+|-------|-------------|
+| `gateway.port` | Gateway port (default: 4000) |
+| `gateway.bind` | `loopback` (127.0.0.1), `lan` (0.0.0.0), or `tailnet` (auto-detect tailnet IP) |
+| `gateway.host` | Explicit host (overrides `bind`) |
 
 ### UI Options
 

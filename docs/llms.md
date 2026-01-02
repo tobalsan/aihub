@@ -74,6 +74,7 @@ All stored in `~/.aihub/`:
     amsg?: { id?, enabled? }
   }],
   server?: { host?, port?, baseUrl? },
+  gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
   ui?: { port?, bind?, tailscale? }  // bind: loopback|lan|tailnet; tailscale: { mode: off|serve }

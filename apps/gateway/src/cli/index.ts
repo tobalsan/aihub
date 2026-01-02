@@ -17,8 +17,8 @@ program
 program
   .command("gateway")
   .description("Start the gateway server (multi-agent mode)")
-  .option("-p, --port <port>", "Server port", "4000")
-  .option("-h, --host <host>", "Server host", "127.0.0.1")
+  .option("-p, --port <port>", "Server port (default: 4000 or config)")
+  .option("-h, --host <host>", "Server host (default: from config gateway.bind)")
   .option("--agent-id <id>", "Single-agent mode: only load this agent")
   .action(async (opts) => {
     try {
@@ -35,8 +35,8 @@ program
         console.log(`Single-agent mode: ${agent.name} (${agent.id})`);
       }
 
-      // Start server
-      const port = parseInt(opts.port, 10);
+      // Start server (undefined args let startServer use config defaults)
+      const port = opts.port ? parseInt(opts.port, 10) : undefined;
       startServer(port, opts.host);
 
       // Start Discord bots

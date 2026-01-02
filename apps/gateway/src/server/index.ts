@@ -1,9 +1,11 @@
 import { serve } from "@hono/node-server";
+import os from "node:os";
+import { execSync } from "node:child_process";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { WsClientMessage, WsServerMessage } from "@aihub/shared";
+import type { WsClientMessage, WsServerMessage, GatewayBindMode } from "@aihub/shared";
 import { api } from "./api.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
@@ -119,10 +121,55 @@ function setupEventBroadcast() {
   });
 }
 
+/**
+ * Scan network interfaces for tailnet IPv4 (100.64.0.0/10)
+ */
+function pickTailnetIPv4(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const [, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family !== "IPv4" || addr.internal) continue;
+      const octets = addr.address.split(".").map(Number);
+      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
+        return addr.address;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Fallback: get tailnet IP from tailscale status --json
+ */
+function getTailscaleIP(): string | null {
+  try {
+    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const status = JSON.parse(output);
+    const ips = status?.Self?.TailscaleIPs as string[] | undefined;
+    return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBindHost(bind?: GatewayBindMode): string {
+  if (!bind || bind === "loopback") return "127.0.0.1";
+  if (bind === "lan") return "0.0.0.0";
+  if (bind === "tailnet") {
+    const ip = pickTailnetIPv4() ?? getTailscaleIP();
+    if (ip) return ip;
+    console.warn("[gateway] tailnet bind: no tailnet IP found, falling back to 127.0.0.1");
+    return "127.0.0.1";
+  }
+  return "127.0.0.1";
+}
+
 export function startServer(port?: number, host?: string) {
   const config = loadConfig();
-  const resolvedPort = port ?? config.server?.port ?? 4000;
-  const resolvedHost = host ?? config.server?.host ?? "127.0.0.1";
+  const resolvedPort = port ?? config.gateway?.port ?? 4000;
+  // host arg > config.gateway.host > resolve from bind > default loopback
+  const resolvedHost = host ?? config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
 
   console.log(`Starting gateway server on ${resolvedHost}:${resolvedPort}`);
 
