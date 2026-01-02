@@ -1,0 +1,191 @@
+import type { AgentConfig } from "@aihub/shared";
+import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
+import type { QueryFunction, SDKMessage } from "./types.js";
+
+export const claudeAdapter: SdkAdapter = {
+  id: "claude",
+  displayName: "Claude Agent",
+  capabilities: {
+    queueWhileStreaming: false, // Claude Agent SDK doesn't support queue injection
+    interrupt: true,
+    toolEvents: true,
+    fullHistory: true,
+  },
+
+  resolveDisplayModel(agent: AgentConfig) {
+    return { provider: "anthropic", model: agent.model.model };
+  },
+
+  async run(params: SdkRunParams): Promise<SdkRunResult> {
+    // Dynamic import to avoid requiring the package if not used
+    let query: QueryFunction;
+    try {
+      // @ts-expect-error - optional dependency, resolved at runtime
+      const sdk = await import("@anthropic-ai/claude-agent-sdk");
+      query = sdk.query as QueryFunction;
+    } catch {
+      throw new Error(
+        "Claude Agent SDK not installed. Run: npm install @anthropic-ai/claude-agent-sdk"
+      );
+    }
+
+    let aborted = false;
+    let assistantText = "";
+    const toolIdToName = new Map<string, string>();
+    let sentTurnEnd = false;
+
+    // Create abort controller
+    const abortController = new AbortController();
+    params.abortSignal.addEventListener("abort", () => {
+      aborted = true;
+      abortController.abort();
+    });
+
+    // Emit user message to history
+    params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
+
+    try {
+      // Query the Claude Agent SDK
+      const conversation = query({
+        prompt: params.message,
+        options: {
+          cwd: params.workspaceDir,
+          abortController,
+          // Use Claude Code's built-in tools
+          tools: { type: "preset", preset: "claude_code" },
+          // Use Claude Code's system prompt
+          systemPrompt: { type: "preset", preset: "claude_code" },
+          // Load project settings (CLAUDE.md, etc.)
+          settingSources: ["project"],
+          // Stream partial messages for real-time updates
+          includePartialMessages: true,
+        },
+      });
+
+      // Process streaming messages
+      for await (const rawMessage of conversation) {
+        if (aborted) break;
+        const message = rawMessage as SDKMessage;
+
+        // Handle partial streaming messages
+        if (message.type === "stream_event") {
+          const event = message.event;
+          // Handle content block delta for text streaming
+          if (event.type === "content_block_delta") {
+            const delta = event.delta;
+            if (delta?.type === "text_delta" && delta.text) {
+              assistantText += delta.text;
+              params.onEvent({ type: "text", data: delta.text });
+              params.onHistoryEvent({
+                type: "assistant_text",
+                text: delta.text,
+                timestamp: Date.now(),
+              });
+            }
+          }
+        }
+
+        // Handle complete assistant messages
+        if (message.type === "assistant") {
+          const apiMessage = message.message;
+          // Process content blocks
+          if (apiMessage.content) {
+            for (const block of apiMessage.content) {
+              if (block.type === "tool_use" && block.id && block.name) {
+                toolIdToName.set(block.id, block.name);
+                params.onEvent({ type: "tool_start", toolName: block.name });
+                params.onHistoryEvent({
+                  type: "tool_call",
+                  id: block.id,
+                  name: block.name,
+                  args: block.input,
+                  timestamp: Date.now(),
+                });
+              } else if (block.type === "thinking" && block.thinking) {
+                params.onHistoryEvent({
+                  type: "assistant_thinking",
+                  text: block.thinking,
+                  timestamp: Date.now(),
+                });
+              }
+            }
+          }
+
+          // Emit meta info
+          if (apiMessage.usage) {
+            params.onHistoryEvent({
+              type: "meta",
+              provider: "anthropic",
+              model: apiMessage.model,
+              usage: {
+                input: apiMessage.usage.input_tokens,
+                output: apiMessage.usage.output_tokens,
+                cacheRead: apiMessage.usage.cache_read_input_tokens ?? undefined,
+                cacheWrite: apiMessage.usage.cache_creation_input_tokens ?? undefined,
+                totalTokens:
+                  apiMessage.usage.input_tokens + apiMessage.usage.output_tokens,
+              },
+              stopReason: apiMessage.stop_reason ?? undefined,
+              timestamp: Date.now(),
+            });
+          }
+        }
+
+        // Handle user messages (tool results)
+        if (message.type === "user") {
+          const apiMessage = message.message;
+          if (apiMessage.content) {
+            for (const block of apiMessage.content) {
+              if (block.type === "tool_result") {
+                const toolName = toolIdToName.get(block.tool_use_id) ?? block.tool_use_id;
+                const content =
+                  typeof block.content === "string"
+                    ? block.content
+                    : JSON.stringify(block.content);
+                params.onEvent({
+                  type: "tool_end",
+                  toolName,
+                  isError: block.is_error ?? false,
+                });
+                params.onHistoryEvent({
+                  type: "tool_result",
+                  id: block.tool_use_id,
+                  name: toolName,
+                  content: content ?? "",
+                  isError: block.is_error ?? false,
+                  timestamp: Date.now(),
+                });
+              }
+            }
+          }
+        }
+
+        // Handle final result
+        if (message.type === "result") {
+          if (message.subtype === "success") {
+            assistantText = message.result || assistantText;
+          }
+        }
+      }
+    } catch (err) {
+      if (!aborted) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        params.onEvent({ type: "error", message: errMessage });
+        throw err;
+      }
+    }
+
+    if (!sentTurnEnd) {
+      params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
+      sentTurnEnd = true;
+    }
+
+    return { text: assistantText, aborted };
+  },
+
+  abort(handle: unknown): void {
+    // The abort is handled via the abortController passed to query()
+    // The handle is not used for Claude SDK
+    void handle;
+  },
+};

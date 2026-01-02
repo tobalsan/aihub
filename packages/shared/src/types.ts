@@ -27,11 +27,16 @@ export const AmsgConfigSchema = z.object({
 });
 export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
 
+// SDK types
+export const SdkIdSchema = z.enum(["pi", "claude", "codex"]);
+export type SdkId = z.infer<typeof SdkIdSchema>;
+
 // Agent config
 export const AgentConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
   workspace: z.string(),
+  sdk: SdkIdSchema.optional(), // default "pi"
   model: AgentModelConfigSchema,
   discord: DiscordConfigSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),

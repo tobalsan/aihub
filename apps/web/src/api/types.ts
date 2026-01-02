@@ -1,6 +1,9 @@
+export type SdkId = "pi" | "claude" | "codex";
+
 export type Agent = {
   id: string;
   name: string;
+  sdk?: SdkId; // default "pi"
   model: {
     provider: string;
     model: string;

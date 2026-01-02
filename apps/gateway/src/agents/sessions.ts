@@ -1,13 +1,12 @@
-import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
-
 export type AgentSession = {
   agentId: string;
   sessionId: string;
   isStreaming: boolean;
   lastActivity: number;
   abortController?: AbortController;
-  piSession?: PiAgentSession;
+  sessionHandle?: unknown; // SDK-agnostic session handle
   pendingMessages: string[];
+  pendingUserMessages: Array<{ text: string; timestamp: number }>;
 };
 
 const sessions = new Map<string, AgentSession>();
@@ -26,13 +25,14 @@ export function getOrCreateSession(agentId: string, sessionId: string): AgentSes
       isStreaming: false,
       lastActivity: Date.now(),
       pendingMessages: [],
+      pendingUserMessages: [],
     };
     sessions.set(key, session);
   }
   return session;
 }
 
-/** Buffer a message to be queued once Pi session is available */
+/** Buffer a message to be queued once session handle is available */
 export function bufferPendingMessage(agentId: string, sessionId: string, message: string) {
   const session = getOrCreateSession(agentId, sessionId);
   session.pendingMessages.push(message);
@@ -45,6 +45,36 @@ export function popPendingMessages(agentId: string, sessionId: string): string[]
   const messages = session.pendingMessages;
   session.pendingMessages = [];
   return messages;
+}
+
+export function enqueuePendingUserMessage(
+  agentId: string,
+  sessionId: string,
+  text: string,
+  timestamp: number
+) {
+  const session = getOrCreateSession(agentId, sessionId);
+  session.pendingUserMessages.push({ text, timestamp });
+}
+
+export function shiftPendingUserMessage(
+  agentId: string,
+  sessionId: string
+): { text: string; timestamp: number } | undefined {
+  const session = getSession(agentId, sessionId);
+  if (!session || session.pendingUserMessages.length === 0) return undefined;
+  return session.pendingUserMessages.shift();
+}
+
+export function popAllPendingUserMessages(
+  agentId: string,
+  sessionId: string
+): Array<{ text: string; timestamp: number }> {
+  const session = getSession(agentId, sessionId);
+  if (!session) return [];
+  const pending = session.pendingUserMessages;
+  session.pendingUserMessages = [];
+  return pending;
 }
 
 export function setSessionStreaming(
@@ -71,27 +101,27 @@ export function abortSession(agentId: string, sessionId: string): boolean {
   return true;
 }
 
-export function setAgentSession(
+export function setSessionHandle(
   agentId: string,
   sessionId: string,
-  piSession: PiAgentSession
+  handle: unknown
 ) {
   const session = getOrCreateSession(agentId, sessionId);
-  session.piSession = piSession;
+  session.sessionHandle = handle;
 }
 
-export function getAgentSession(
+export function getSessionHandle(
   agentId: string,
   sessionId: string
-): PiAgentSession | undefined {
+): unknown | undefined {
   const session = getSession(agentId, sessionId);
-  return session?.piSession;
+  return session?.sessionHandle;
 }
 
-export function clearAgentSession(agentId: string, sessionId: string) {
+export function clearSessionHandle(agentId: string, sessionId: string) {
   const session = getSession(agentId, sessionId);
   if (session) {
-    session.piSession = undefined;
+    session.sessionHandle = undefined;
   }
 }
 

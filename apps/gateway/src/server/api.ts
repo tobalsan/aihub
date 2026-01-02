@@ -20,6 +20,7 @@ api.get("/agents", (c) => {
       id: a.id,
       name: a.name,
       model: a.model,
+      sdk: a.sdk ?? "pi",
       workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
     }))
   );
@@ -36,6 +37,7 @@ api.get("/agents/:id", (c) => {
     id: agent.id,
     name: agent.name,
     model: agent.model,
+    sdk: agent.sdk ?? "pi",
     workspace: agent.workspace ? resolveWorkspaceDir(agent.workspace) : undefined,
   });
 });

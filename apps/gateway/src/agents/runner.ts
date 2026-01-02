@@ -1,14 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AppMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type {
   ThinkLevel,
   StreamEvent,
   SimpleHistoryMessage,
   FullHistoryMessage,
-  ContentBlock,
   HistoryViewMode,
 } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
@@ -16,19 +12,29 @@ import {
   setSessionStreaming,
   isStreaming,
   abortSession,
-  setAgentSession,
-  getAgentSession,
-  clearAgentSession,
+  setSessionHandle,
+  getSessionHandle,
+  clearSessionHandle,
   bufferPendingMessage,
   popPendingMessages,
+  enqueuePendingUserMessage,
+  shiftPendingUserMessage,
+  popAllPendingUserMessages,
 } from "./sessions.js";
-import {
-  ensureBootstrapFiles,
-  loadBootstrapFiles,
-  buildBootstrapContextFiles,
-} from "./workspace.js";
 import { resolveSessionId } from "../sessions/index.js";
 import { agentEventBus, type AgentStreamEvent, type RunSource } from "./events.js";
+import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
+import type { SdkId, HistoryEvent } from "../sdk/types.js";
+import {
+  createTurnBuffer,
+  bufferHistoryEvent,
+  type TurnBuffer,
+  flushTurnBuffer,
+  getSimpleHistory as getCanonicalSimpleHistory,
+  getFullHistory as getCanonicalFullHistory,
+  hasCanonicalHistory,
+  backfillFromPiSession,
+} from "../history/store.js";
 
 export type RunAgentParams = {
   agentId: string;
@@ -52,7 +58,7 @@ export type RunAgentResult = {
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
-// Max wait time for Pi session to be set during queue race
+// Max wait time for session handle to be set during queue race
 const QUEUE_WAIT_MS = 500;
 const QUEUE_POLL_MS = 10;
 
@@ -68,27 +74,15 @@ function resolveSessionFile(agentId: string, sessionId: string): string {
   return path.join(SESSIONS_DIR, `${agentId}-${sessionId}.jsonl`);
 }
 
-function extractAssistantText(msg: AssistantMessage): string {
-  if (!msg.content) return "";
-  if (typeof msg.content === "string") return msg.content;
-  if (Array.isArray(msg.content)) {
-    return msg.content
-      .filter((c): c is { type: "text"; text: string } => c.type === "text")
-      .map((c) => c.text)
-      .join("\n");
-  }
-  return "";
-}
-
-/** Wait for Pi session to be available, with timeout */
-async function waitForPiSession(
+/** Wait for session handle to be available, with timeout */
+async function waitForSessionHandle(
   agentId: string,
   sessionId: string
-): Promise<PiAgentSession | undefined> {
+): Promise<unknown | undefined> {
   const deadline = Date.now() + QUEUE_WAIT_MS;
   while (Date.now() < deadline) {
-    const session = getAgentSession(agentId, sessionId);
-    if (session) return session;
+    const handle = getSessionHandle(agentId, sessionId);
+    if (handle) return handle;
     await new Promise((r) => setTimeout(r, QUEUE_POLL_MS));
   }
   return undefined;
@@ -109,6 +103,11 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   if (!agent) {
     throw new Error(`Agent not found: ${params.agentId}`);
   }
+
+  // Resolve SDK adapter
+  const sdkId = (agent.sdk ?? getDefaultSdkId()) as SdkId;
+  const adapter = getSdkAdapter(sdkId);
+  const capabilities = adapter.capabilities;
 
   // Resolve sessionId: explicit > sessionKey resolution > default
   let sessionId: string;
@@ -144,43 +143,56 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   // Handle queue vs interrupt mode when already streaming
   if (currentlyStreaming) {
     if (agent.queueMode === "queue") {
-      // Wait for Pi session to be set (handles race with setSessionStreaming)
-      const existingPiSession = await waitForPiSession(params.agentId, sessionId);
-
-      if (existingPiSession) {
-        // Queue mode: inject message into current Pi session
-        await existingPiSession.queueMessage(message);
+      if (capabilities.queueWhileStreaming && adapter.queueMessage) {
+        // Track user message for the next assistant turn
+        enqueuePendingUserMessage(params.agentId, sessionId, message, Date.now());
+        // Adapter supports native queue - wait for session handle
+        const existingHandle = await waitForSessionHandle(params.agentId, sessionId);
+        if (existingHandle) {
+          await adapter.queueMessage(existingHandle, message);
+        } else {
+          // Handle not ready - buffer for later
+          bufferPendingMessage(params.agentId, sessionId, message);
+        }
       } else {
-        // Pi session not ready yet - buffer the message for later injection
+        // Adapter lacks queue support - buffer message for sequential drain
         bufferPendingMessage(params.agentId, sessionId, message);
       }
 
-      emit({ type: "text", data: "Message queued into current run" });
+      const queueNote = capabilities.queueWhileStreaming
+        ? "Message queued into current run"
+        : "Message queued for next run";
+      emit({ type: "text", data: queueNote });
       emit({ type: "done", meta: { durationMs: 0 } });
       return {
-        payloads: [{ text: "Message queued into current run" }],
+        payloads: [{ text: queueNote }],
         meta: { durationMs: 0, sessionId, queued: true },
       };
     }
 
     if (agent.queueMode === "interrupt") {
-      // Interrupt mode: abort existing session and wait for it to end
-      abortSession(params.agentId, sessionId);
+      if (capabilities.interrupt && adapter.abort) {
+        // Adapter supports interrupt
+        const handle = getSessionHandle(params.agentId, sessionId);
+        if (handle) {
+          adapter.abort(handle);
+        }
+        abortSession(params.agentId, sessionId);
+      } else {
+        // Fall back to abort controller only
+        abortSession(params.agentId, sessionId);
+      }
       const ended = await waitForStreamingEnd(params.agentId, sessionId);
       if (!ended) {
-        // Force clear the streaming state if it didn't end gracefully
-        clearAgentSession(params.agentId, sessionId);
+        // Force clear if not ended gracefully
+        clearSessionHandle(params.agentId, sessionId);
         setSessionStreaming(params.agentId, sessionId, false);
       }
     }
   }
 
   await ensureSessionsDir();
-  const sessionFile = resolveSessionFile(params.agentId, sessionId);
   const workspaceDir = resolveWorkspaceDir(agent.workspace);
-
-  // Ensure bootstrap files exist on first run
-  await ensureBootstrapFiles(workspaceDir);
 
   const abortController = new AbortController();
   setSessionStreaming(params.agentId, sessionId, true, abortController);
@@ -188,150 +200,124 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   const started = Date.now();
   let aborted = false;
 
+  // Turn buffers for assembling history events (sync, no I/O during streaming)
+  let currentTurn: TurnBuffer | null = null;
+  const completedTurns: TurnBuffer[] = [];
+
+  const startTurnWithUser = (event: Extract<HistoryEvent, { type: "user" }>) => {
+    const buffer = createTurnBuffer();
+    bufferHistoryEvent(buffer, event);
+    if (!currentTurn) {
+      currentTurn = buffer;
+    } else {
+      enqueuePendingUserMessage(params.agentId, sessionId, event.text, event.timestamp);
+    }
+  };
+
+  const ensureCurrentTurn = (): TurnBuffer => {
+    if (!currentTurn) {
+      const pendingUser = shiftPendingUserMessage(params.agentId, sessionId);
+      currentTurn = createTurnBuffer();
+      if (pendingUser) {
+        bufferHistoryEvent(currentTurn, {
+          type: "user",
+          text: pendingUser.text,
+          timestamp: pendingUser.timestamp,
+        });
+      }
+    }
+    return currentTurn;
+  };
+
+  const finishCurrentTurn = () => {
+    if (currentTurn) {
+      completedTurns.push(currentTurn);
+      currentTurn = null;
+    }
+  };
+
+  // History event handler - buffers events synchronously
+  const handleHistoryEvent = (event: HistoryEvent): void => {
+    if (event.type === "user") {
+      startTurnWithUser(event);
+      return;
+    }
+    if (event.type === "turn_end") {
+      finishCurrentTurn();
+      return;
+    }
+    const buffer = ensureCurrentTurn();
+    bufferHistoryEvent(buffer, event);
+  };
+
   try {
-    // Dynamically import pi-coding-agent
-    const {
-      createAgentSession,
-      SessionManager,
-      SettingsManager,
-      discoverAuthStorage,
-      discoverModels,
-      discoverSkills,
-      discoverSlashCommands,
-      buildSystemPrompt,
-      createCodingTools,
-    } = await import("@mariozechner/pi-coding-agent");
-    const { getEnvApiKey } = await import("@mariozechner/pi-ai");
-
-    // Resolve model - use CONFIG_DIR directly so Pi SDK reads ~/.aihub/models.json
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
-
-    const authStorage = discoverAuthStorage(CONFIG_DIR);
-    const modelRegistry = discoverModels(authStorage, CONFIG_DIR);
-    const model = modelRegistry.find(agent.model.provider, agent.model.model);
-
-    if (!model) {
-      throw new Error(`Model not found: ${agent.model.provider}/${agent.model.model}`);
-    }
-
-    // Get API key
-    const storedKey = await authStorage.getApiKey(model.provider);
-    const apiKey = storedKey ?? getEnvApiKey(model.provider);
-    if (!apiKey) {
-      throw new Error(`No API key for provider: ${model.provider}`);
-    }
-    authStorage.setRuntimeApiKey(model.provider, apiKey);
-
-    // Discover skills from workspace/.pi/skills, ~/.pi/agent/skills, etc.
-    const skills = discoverSkills(workspaceDir);
-
-    // Discover slash commands from workspace/.pi/commands, ~/.pi/agent/commands
-    const slashCommands = discoverSlashCommands(workspaceDir);
-
-    // Load bootstrap context files (AGENTS.md, SOUL.md, etc.)
-    const bootstrapFiles = await loadBootstrapFiles(workspaceDir);
-    const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
-
-    // Create tools with correct cwd (pre-built codingTools use process.cwd())
-    const tools = createCodingTools(workspaceDir);
-
-    // Build system prompt with skills and context files
-    const systemPrompt = buildSystemPrompt({
-      cwd: workspaceDir,
-      contextFiles,
-      skills,
-      tools,
-    });
-
-    const sessionManager = SessionManager.open(sessionFile, CONFIG_DIR);
-    const settingsManager = SettingsManager.create(workspaceDir, CONFIG_DIR);
-
-    const { session: agentSession } = await createAgentSession({
-      cwd: workspaceDir,
-      agentDir: CONFIG_DIR,
-      authStorage,
-      modelRegistry,
-      model,
-      thinkingLevel: params.thinkLevel ?? agent.thinkLevel ?? "off",
-      systemPrompt,
-      tools,
-      sessionManager,
-      settingsManager,
-      skills,
-      slashCommands,
-      contextFiles,
-    });
-
-    // Store the Pi session for queue injection BEFORE any async work
-    setAgentSession(params.agentId, sessionId, agentSession as PiAgentSession);
-
-    // Inject any buffered messages that arrived before Pi session was ready
-    const bufferedMessages = popPendingMessages(params.agentId, sessionId);
-    for (const bufferedMsg of bufferedMessages) {
-      await agentSession.queueMessage(bufferedMsg);
-    }
-
-    // Handle abort
-    abortController.signal.addEventListener("abort", () => {
-      aborted = true;
-      agentSession.abort();
-    });
-
-    // Subscribe to streaming events
-    let deltaBuffer = "";
-    const unsubscribe = agentSession.subscribe((evt) => {
-      if (evt.type === "message_update") {
-        const msg = (evt as { message?: AppMessage }).message;
-        if (msg?.role === "assistant") {
-          const assistantEvent = (evt as { assistantMessageEvent?: unknown })
-            .assistantMessageEvent as Record<string, unknown> | undefined;
-          const evtType = assistantEvent?.type as string | undefined;
-
-          if (evtType === "text_delta") {
-            const chunk = assistantEvent?.delta as string;
-            if (chunk) {
-              deltaBuffer += chunk;
-              emit({ type: "text", data: chunk });
-            }
+    const result = await adapter.run({
+      agentId: params.agentId,
+      sessionId,
+      sessionKey: params.sessionKey,
+      message,
+      workspaceDir,
+      thinkLevel: params.thinkLevel ?? agent.thinkLevel,
+      onEvent: emit,
+      onHistoryEvent: handleHistoryEvent,
+      onSessionHandle: (handle) => {
+        setSessionHandle(params.agentId, sessionId, handle);
+        // Inject buffered messages if adapter supports queue
+        if (capabilities.queueWhileStreaming && adapter.queueMessage) {
+          const buffered = popPendingMessages(params.agentId, sessionId);
+          for (const msg of buffered) {
+            adapter.queueMessage!(handle, msg);
           }
         }
-      }
-
-      if (evt.type === "tool_execution_start") {
-        const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
-        emit({ type: "tool_start", toolName });
-      }
-
-      if (evt.type === "tool_execution_end") {
-        const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
-        const isError = (evt as { isError?: boolean }).isError ?? false;
-        emit({ type: "tool_end", toolName, isError });
-      }
+      },
+      abortSignal: abortController.signal,
     });
 
-    try {
-      // Run the prompt
-      await agentSession.prompt(message);
-    } finally {
-      unsubscribe();
+    aborted = result.aborted ?? false;
+
+    // Flush completed turns first
+    for (const buffer of completedTurns) {
+      await flushTurnBuffer(params.agentId, sessionId, buffer);
+    }
+    // Flush any in-progress turn
+    if (currentTurn) {
+      await flushTurnBuffer(params.agentId, sessionId, currentTurn);
+      currentTurn = null;
+    }
+    // Flush any pending user-only turns (queued but not processed)
+    const pendingUsers = popAllPendingUserMessages(params.agentId, sessionId);
+    for (const pending of pendingUsers) {
+      const buffer = createTurnBuffer();
+      bufferHistoryEvent(buffer, {
+        type: "user",
+        text: pending.text,
+        timestamp: pending.timestamp,
+      });
+      await flushTurnBuffer(params.agentId, sessionId, buffer);
     }
 
     const durationMs = Date.now() - started;
     emit({ type: "done", meta: { durationMs } });
 
-    // Extract text from the last assistant message
-    const messages = agentSession.messages;
-    const lastAssistant = messages
-      .slice()
-      .reverse()
-      .find((m: AppMessage) => m.role === "assistant") as AssistantMessage | undefined;
-
-    const assistantText = lastAssistant ? extractAssistantText(lastAssistant) : "";
-
-    agentSession.dispose();
+    // Drain pending queue if adapter lacks native queue support
+    if (!capabilities.queueWhileStreaming) {
+      const pendingMessages = popPendingMessages(params.agentId, sessionId);
+      for (const pendingMsg of pendingMessages) {
+        // Run next message - omit onEvent to use agentEventBus only
+        await runAgent({
+          agentId: params.agentId,
+          message: pendingMsg,
+          sessionId,
+          sessionKey: params.sessionKey,
+          thinkLevel: params.thinkLevel,
+          source: params.source,
+          // onEvent omitted - events go to agentEventBus only
+        });
+      }
+    }
 
     return {
-      payloads: assistantText ? [{ text: assistantText }] : [],
+      payloads: result.text ? [{ text: result.text }] : [],
       meta: { durationMs, sessionId, aborted },
     };
   } catch (err) {
@@ -339,13 +325,12 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     emit({ type: "error", message: errMessage });
     throw err;
   } finally {
-    clearAgentSession(params.agentId, sessionId);
+    clearSessionHandle(params.agentId, sessionId);
     setSessionStreaming(params.agentId, sessionId, false);
   }
 }
 
 export async function queueOrRun(params: RunAgentParams): Promise<RunAgentResult> {
-  // This function is now simplified - runAgent handles queue/interrupt internally
   return runAgent(params);
 }
 
@@ -356,152 +341,41 @@ export type { SimpleHistoryMessage, FullHistoryMessage, HistoryViewMode };
 export type HistoryMessage = SimpleHistoryMessage;
 
 /**
- * Parse raw content blocks from session file
- */
-function parseContentBlocks(content: unknown[]): ContentBlock[] {
-  const blocks: ContentBlock[] = [];
-  for (const c of content) {
-    const block = c as Record<string, unknown>;
-    if (block.type === "thinking" && typeof block.thinking === "string") {
-      blocks.push({ type: "thinking", thinking: block.thinking });
-    } else if (block.type === "text" && typeof block.text === "string") {
-      blocks.push({ type: "text", text: block.text });
-    } else if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
-      blocks.push({
-        type: "toolCall",
-        id: block.id,
-        name: block.name,
-        arguments: block.arguments,
-      });
-    }
-  }
-  return blocks;
-}
-
-/**
- * Extract text-only content from message
- */
-function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((c): c is { type: "text"; text: string } =>
-      c && typeof c === "object" && c.type === "text" && typeof c.text === "string"
-    )
-    .map((c) => c.text)
-    .join("\n");
-}
-
-/**
- * Load conversation history from session transcript file (simple view)
+ * Load conversation history (simple view)
+ * Uses canonical history store, with one-time backfill from Pi session files
  */
 export async function getSessionHistory(
   agentId: string,
   sessionId: string
 ): Promise<SimpleHistoryMessage[]> {
-  const sessionFile = resolveSessionFile(agentId, sessionId);
-  const messages: SimpleHistoryMessage[] = [];
+  // One-time backfill from Pi session if canonical doesn't exist
+  await backfillFromPiSession(agentId, sessionId);
 
-  try {
-    const content = await fs.readFile(sessionFile, "utf-8");
-    const lines = content.trim().split("\n");
-
-    for (const line of lines) {
-      if (!line) continue;
-      try {
-        const entry = JSON.parse(line);
-        if (entry.type !== "message") continue;
-
-        const msg = entry.message;
-        if (!msg || !msg.role) continue;
-
-        if (msg.role === "user") {
-          const text = extractTextContent(msg.content);
-          if (text) {
-            messages.push({ role: "user", content: text, timestamp: msg.timestamp });
-          }
-        } else if (msg.role === "assistant") {
-          const text = extractTextContent(msg.content);
-          if (text) {
-            messages.push({ role: "assistant", content: text, timestamp: msg.timestamp });
-          }
-        }
-      } catch {
-        // Skip malformed lines
-      }
-    }
-  } catch {
-    // File doesn't exist or not readable - return empty
+  // Try canonical history
+  if (await hasCanonicalHistory(agentId, sessionId)) {
+    return getCanonicalSimpleHistory(agentId, sessionId);
   }
 
-  return messages;
+  // No history exists
+  return [];
 }
 
 /**
  * Load full conversation history with all content blocks
+ * Uses canonical history store, with one-time backfill from Pi session files
  */
 export async function getFullSessionHistory(
   agentId: string,
   sessionId: string
 ): Promise<FullHistoryMessage[]> {
-  const sessionFile = resolveSessionFile(agentId, sessionId);
-  const messages: FullHistoryMessage[] = [];
+  // One-time backfill from Pi session if canonical doesn't exist
+  await backfillFromPiSession(agentId, sessionId);
 
-  try {
-    const content = await fs.readFile(sessionFile, "utf-8");
-    const lines = content.trim().split("\n");
-
-    for (const line of lines) {
-      if (!line) continue;
-      try {
-        const entry = JSON.parse(line);
-        if (entry.type !== "message") continue;
-
-        const msg = entry.message as Record<string, unknown>;
-        if (!msg || !msg.role) continue;
-
-        const timestamp = (msg.timestamp as number) ?? Date.now();
-        const rawContent = msg.content as unknown[];
-
-        if (msg.role === "user") {
-          const contentBlocks = Array.isArray(rawContent) ? parseContentBlocks(rawContent) : [];
-          if (contentBlocks.length > 0) {
-            messages.push({ role: "user", content: contentBlocks, timestamp });
-          }
-        } else if (msg.role === "assistant") {
-          const contentBlocks = Array.isArray(rawContent) ? parseContentBlocks(rawContent) : [];
-          messages.push({
-            role: "assistant",
-            content: contentBlocks,
-            timestamp,
-            meta: {
-              api: msg.api as string | undefined,
-              provider: msg.provider as string | undefined,
-              model: msg.model as string | undefined,
-              usage: msg.usage as FullHistoryMessage extends { role: "assistant"; meta?: { usage?: infer U } } ? U : undefined,
-              stopReason: msg.stopReason as string | undefined,
-            },
-          });
-        } else if (msg.role === "toolResult") {
-          const contentBlocks = Array.isArray(rawContent) ? parseContentBlocks(rawContent) : [];
-          const details = msg.details as Record<string, unknown> | undefined;
-          messages.push({
-            role: "toolResult",
-            toolCallId: msg.toolCallId as string,
-            toolName: msg.toolName as string,
-            content: contentBlocks,
-            isError: (msg.isError as boolean) ?? false,
-            details: details?.diff ? { diff: details.diff as string } : undefined,
-            timestamp,
-          });
-        }
-      } catch {
-        // Skip malformed lines
-      }
-    }
-  } catch {
-    // File doesn't exist or not readable - return empty
+  // Try canonical history
+  if (await hasCanonicalHistory(agentId, sessionId)) {
+    return getCanonicalFullHistory(agentId, sessionId);
   }
 
-  return messages;
+  // No history exists
+  return [];
 }
