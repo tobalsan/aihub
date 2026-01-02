@@ -118,7 +118,11 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 | `ui.tailscale.mode` | `off` (default) or `serve` (enable HTTPS via `tailscale serve`) |
 | `ui.tailscale.resetOnExit` | Reset tailscale serve on exit (default: true) |
 
-**Note:** `ui.tailscale.mode: "serve"` requires Tailscale to be installed and logged in. It provides HTTPS which is required for `crypto.randomUUID()` on non-localhost addresses.
+**Note on `ui.tailscale.mode: "serve"`:**
+- Requires Tailscale installed and logged in
+- Both `gateway.bind` and `ui.bind` must be `loopback` (or omitted)
+- MagicDNS hostname (e.g. `https://machine.tail1234.ts.net`) only works from other devices
+- Local access requires `http://127.0.0.1:<port>` (gateway: 4000, ui: 3000 by default)
 
 ## Scheduling
 

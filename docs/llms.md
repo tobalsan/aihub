@@ -78,6 +78,7 @@ All stored in `~/.aihub/`:
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
   ui?: { port?, bind?, tailscale? }  // bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
+  // Note: tailscale.mode=serve requires gateway.bind and ui.bind to be loopback
 }
 ```
 
