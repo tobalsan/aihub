@@ -112,22 +112,41 @@ When agent is already streaming:
 - **queue** (default): Inject message via `AgentSession.queueMessage()`. If Pi session not ready, buffer in `pendingMessages` and inject after session creation.
 - **interrupt**: Abort current run, wait up to 2s for streaming to end, start new run.
 
-### WebSocket Streaming
+### WebSocket Protocol
 
-Connect to `/ws` endpoint. Client sends:
+Connect to `/ws` endpoint. Supports two modes:
+
+**Send Mode** (request/response):
 ```typescript
+// Client sends:
 { type: "send", agentId: string, sessionKey?: string, sessionId?: string, message: string }
-```
 
-Server streams back:
-```typescript
+// Server streams back:
 { type: "text", data: string }
 { type: "tool_start", toolName: string }
 { type: "tool_end", toolName: string, isError?: boolean }
 { type: "done", meta?: { durationMs } }
 { type: "error", message: string }
 ```
-Connection closes after `done` or `error`.
+
+**Subscribe Mode** (persistent connection for live updates):
+```typescript
+// Client subscribes:
+{ type: "subscribe", agentId: string, sessionKey: string }
+
+// Server broadcasts events from ALL runs (including background: amsg, discord, scheduler):
+{ type: "text", data: string }
+{ type: "tool_start", toolName: string }
+{ type: "tool_end", toolName: string, isError?: boolean }
+{ type: "done", meta?: { durationMs } }
+{ type: "history_updated", agentId: string, sessionId: string }  // UI should refetch history
+{ type: "error", message: string }
+
+// Client unsubscribes:
+{ type: "unsubscribe" }
+```
+
+Web UI uses both: `send` for user messages, `subscribe` for live background updates.
 
 ### Session Persistence
 
@@ -175,7 +194,7 @@ One bot per agent with discord config. Listens to configured guild/channel (or a
 
 ### Amsg Watcher (`src/amsg/`)
 
-Polls `amsg inbox --new -a <id>` every 60s. Tracks seen message IDs (JSON mode) or uses 5-min throttle (fallback). Triggers agent with "check inbox" message. Skips if agent is streaming.
+Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.amsg-info` (JSON with `agent_id` field) - skips agents without this file. Triggers agent with "check inbox" message using `sessionKey: "main"`. Skips if agent is streaming. Agent handles `pull`/`ack` workflow.
 
 ## API Endpoints
 
