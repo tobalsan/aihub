@@ -142,7 +142,14 @@ Synced to Pi SDK's agent dir on each run.
 
 ## Skills
 
-Place skills in `{workspace}/.pi/skills/` - auto-loaded at runtime.
+Each agent can have their own skills. Skills (and other custom agent resources like commands) should be available to any coding harnesses, therefore, we use a generalized folder name. Therefore, place agent skills in `{agent_workspace}/agent/skills/`
+
+To have them auto-loaded at runtime, they must be placed in the folder expected by the agent harness (currently only Pi). Currently, the process is manual, so for each agent, you need to create a symlink to the `./agent` folder, e.g.:
+
+```bash
+# Inside the agent workspace folder
+ln -s agent .pi
+```
 
 ## Development
 
