@@ -35,8 +35,8 @@ export function AgentList() {
                   <span class="agent-model">
                     {agent.model.provider}/{agent.model.model}
                   </span>
-                  {agent.workspaceDir && (
-                    <span class="agent-workspace">{shortenPath(agent.workspaceDir)}</span>
+                  {agent.workspace && (
+                    <span class="agent-workspace">{shortenPath(agent.workspace)}</span>
                   )}
                 </div>
               </A>
