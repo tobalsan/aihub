@@ -107,6 +107,10 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 |-------|-------------|
 | `ui.port` | Web UI port (default: 3000) |
 | `ui.bind` | `loopback` (127.0.0.1), `lan` (0.0.0.0), or `tailnet` (auto-detect tailnet IP) |
+| `ui.tailscale.mode` | `off` (default) or `serve` (enable HTTPS via `tailscale serve`) |
+| `ui.tailscale.resetOnExit` | Reset tailscale serve on exit (default: true) |
+
+**Note:** `ui.tailscale.mode: "serve"` requires Tailscale to be installed and logged in. It provides HTTPS which is required for `crypto.randomUUID()` on non-localhost addresses.
 
 ## Scheduling
 

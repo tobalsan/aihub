@@ -79,10 +79,18 @@ export type ScheduleJob = z.infer<typeof ScheduleJobSchema>;
 export const UiBindModeSchema = z.enum(["loopback", "lan", "tailnet"]);
 export type UiBindMode = z.infer<typeof UiBindModeSchema>;
 
+// UI tailscale config
+export const UiTailscaleConfigSchema = z.object({
+  mode: z.enum(["off", "serve"]).optional(),
+  resetOnExit: z.boolean().optional(),
+});
+export type UiTailscaleConfig = z.infer<typeof UiTailscaleConfigSchema>;
+
 // UI config
 export const UiConfigSchema = z.object({
   port: z.number().optional(),
   bind: UiBindModeSchema.optional(),
+  tailscale: UiTailscaleConfigSchema.optional(),
 });
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 

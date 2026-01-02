@@ -76,7 +76,7 @@ All stored in `~/.aihub/`:
   server?: { host?, port?, baseUrl? },
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
-  ui?: { port?, bind? }  // bind: "loopback"|"lan"|"tailnet"
+  ui?: { port?, bind?, tailscale? }  // bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
 }
 ```
 
