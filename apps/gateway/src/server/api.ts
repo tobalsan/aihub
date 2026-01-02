@@ -24,6 +24,20 @@ api.get("/agents", (c) => {
   );
 });
 
+// GET /api/agents/:id - get single agent
+api.get("/agents/:id", (c) => {
+  const agentId = c.req.param("id");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId)) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+  return c.json({
+    id: agent.id,
+    name: agent.name,
+    model: agent.model,
+  });
+});
+
 // GET /api/agents/:id/status - get agent status
 api.get("/agents/:id/status", (c) => {
   const agentId = c.req.param("id");

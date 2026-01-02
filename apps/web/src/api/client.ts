@@ -18,6 +18,12 @@ export async function fetchAgents(): Promise<Agent[]> {
   return res.json();
 }
 
+export async function fetchAgent(agentId: string): Promise<Agent> {
+  const res = await fetch(`${API_BASE}/agents/${agentId}`);
+  if (!res.ok) throw new Error("Failed to fetch agent");
+  return res.json();
+}
+
 export async function fetchSimpleHistory(
   agentId: string,
   sessionKey: string

@@ -1,12 +1,8 @@
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createResource, For, Show } from "solid-js";
+import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
-import type { Agent } from "../api/types";
 
-type Props = {
-  onSelect: (agent: Agent) => void;
-};
-
-export function AgentList(props: Props) {
+export function AgentList() {
   const [agents] = createResource(fetchAgents);
 
   return (
@@ -27,12 +23,12 @@ export function AgentList(props: Props) {
         <div class="agents">
           <For each={agents()}>
             {(agent) => (
-              <button class="agent-card" onClick={() => props.onSelect(agent)}>
+              <A href={`/chat/${agent.id}`} class="agent-card">
                 <div class="agent-name">{agent.name}</div>
                 <div class="agent-model">
                   {agent.model.provider}/{agent.model.model}
                 </div>
-              </button>
+              </A>
             )}
           </For>
         </div>
@@ -82,6 +78,7 @@ export function AgentList(props: Props) {
           text-align: left;
           cursor: pointer;
           transition: background 0.2s;
+          text-decoration: none;
         }
 
         .agent-card:hover {

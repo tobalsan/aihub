@@ -1,20 +1,14 @@
-import { createSignal, createEffect, For, onCleanup, onMount, Show } from "solid-js";
-import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory } from "../api/client";
+import { createSignal, createEffect, createResource, createMemo, For, onCleanup, Show } from "solid-js";
+import { useParams, useNavigate, A } from "@solidjs/router";
+import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent } from "../api/client";
 import type {
-  Agent,
   Message,
   HistoryViewMode,
   FullHistoryMessage,
-  SimpleHistoryMessage,
   ContentBlock,
   ModelMeta,
   ActiveToolCall,
 } from "../api/types";
-
-type Props = {
-  agent: Agent;
-  onBack: () => void;
-};
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
@@ -123,8 +117,14 @@ function ActiveToolIndicator(props: { tools: ActiveToolCall[] }) {
   );
 }
 
-export function ChatView(props: Props) {
-  const [viewMode, setViewMode] = createSignal<HistoryViewMode>("simple");
+export function ChatView() {
+  const params = useParams<{ agentId: string; view?: string }>();
+  const navigate = useNavigate();
+  const [agent] = createResource(() => params.agentId, fetchAgent);
+
+  const viewMode = createMemo<HistoryViewMode>(() =>
+    params.view === "full" ? "full" : "simple"
+  );
   const [simpleMessages, setSimpleMessages] = createSignal<Message[]>([]);
   const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>([]);
   const [input, setInput] = createSignal("");
@@ -136,7 +136,7 @@ export function ChatView(props: Props) {
   let messagesEndRef: HTMLDivElement | undefined;
   let cleanup: (() => void) | null = null;
 
-  const sessionKey = getSessionKey(props.agent.id);
+  const sessionKey = () => getSessionKey(params.agentId);
 
   const scrollToBottom = () => {
     messagesEndRef?.scrollIntoView({ behavior: "smooth" });
@@ -146,10 +146,10 @@ export function ChatView(props: Props) {
   const loadHistory = async (mode: HistoryViewMode) => {
     setLoading(true);
     if (mode === "full") {
-      const history = await fetchFullHistory(props.agent.id, sessionKey);
+      const history = await fetchFullHistory(params.agentId, sessionKey());
       setFullMessages(history);
     } else {
-      const history = await fetchSimpleHistory(props.agent.id, sessionKey);
+      const history = await fetchSimpleHistory(params.agentId, sessionKey());
       setSimpleMessages(
         history.map((h) => ({
           id: crypto.randomUUID(),
@@ -162,7 +162,11 @@ export function ChatView(props: Props) {
     setLoading(false);
   };
 
-  onMount(() => loadHistory(viewMode()));
+  // Load history when agent is loaded or view mode changes
+  createEffect(() => {
+    const mode = viewMode(); // track viewMode
+    if (agent()) loadHistory(mode);
+  });
 
   createEffect(() => {
     simpleMessages();
@@ -178,8 +182,10 @@ export function ChatView(props: Props) {
 
   const handleViewChange = (mode: HistoryViewMode) => {
     if (mode !== viewMode()) {
-      setViewMode(mode);
-      loadHistory(mode);
+      const path = mode === "full"
+        ? `/chat/${params.agentId}/full`
+        : `/chat/${params.agentId}`;
+      navigate(path, { replace: true });
     }
   };
 
@@ -208,9 +214,9 @@ export function ChatView(props: Props) {
     setActiveTools([]);
 
     cleanup = streamMessage(
-      props.agent.id,
+      params.agentId,
       text,
-      sessionKey,
+      sessionKey(),
       (chunk) => {
         setStreamingText((prev) => prev + chunk);
       },
@@ -271,13 +277,13 @@ export function ChatView(props: Props) {
   return (
     <div class="chat-view">
       <header class="header">
-        <button class="back-btn" onClick={props.onBack} aria-label="Go back">
+        <A href="/" class="back-btn" aria-label="Go back">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
-        </button>
+        </A>
         <div class="agent-info">
-          <div class="agent-name">{props.agent.name}</div>
+          <div class="agent-name">{agent()?.name ?? "Loading..."}</div>
           <div class="agent-status">
             <span class="status-dot" classList={{ active: isStreaming() }} />
             <span class="status-text">{isStreaming() ? "thinking" : "online"}</span>
@@ -460,6 +466,7 @@ export function ChatView(props: Props) {
           align-items: center;
           justify-content: center;
           transition: all 0.2s ease;
+          text-decoration: none;
         }
 
         .back-btn:hover {

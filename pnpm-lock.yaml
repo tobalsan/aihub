@@ -78,6 +78,9 @@ importers:
       '@aihub/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@solidjs/router':
+        specifier: ^0.15.4
+        version: 0.15.4(solid-js@1.9.10)
       solid-js:
         specifier: ^1.9.3
         version: 1.9.10
@@ -913,6 +916,11 @@ packages:
 
   '@sinclair/typebox@0.34.45':
     resolution: {integrity: sha512-qJcFVfCa5jxBFSuv7S5WYbA8XdeCPmhnaVVfX/2Y6L8WYg8sk3XY2+6W0zH+3mq1Cz+YC7Ki66HfqX6IHAwnkg==}
+
+  '@solidjs/router@0.15.4':
+    resolution: {integrity: sha512-WOpgg9a9T638cR+5FGbFi/IV4l2FpmBs1GpIMSPa0Ce9vyJN7Wts+X2PqMf9IYn0zUj2MlSJtm1gp7/HI/n5TQ==}
+    peerDependencies:
+      solid-js: ^1.8.6
 
   '@tokenizer/inflate@0.4.1':
     resolution: {integrity: sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA==}
@@ -2744,6 +2752,10 @@ snapshots:
   '@sapphire/snowflake@3.5.3': {}
 
   '@sinclair/typebox@0.34.45': {}
+
+  '@solidjs/router@0.15.4(solid-js@1.9.10)':
+    dependencies:
+      solid-js: 1.9.10
 
   '@tokenizer/inflate@0.4.1':
     dependencies:

@@ -1,17 +1,11 @@
-import { createSignal, Show } from "solid-js";
+import { Router, Route } from "@solidjs/router";
 import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
-import type { Agent } from "./api/types";
 
-export default function App() {
-  const [selectedAgent, setSelectedAgent] = createSignal<Agent | null>(null);
-
+function Layout(props: { children?: any }) {
   return (
-    <div class="app">
-      <Show when={selectedAgent()} fallback={<AgentList onSelect={setSelectedAgent} />}>
-        <ChatView agent={selectedAgent()!} onBack={() => setSelectedAgent(null)} />
-      </Show>
-
+    <>
+      <div class="app">{props.children}</div>
       <style>{`
         .app {
           height: 100%;
@@ -21,6 +15,15 @@ export default function App() {
           margin: 0 auto;
         }
       `}</style>
-    </div>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <Router root={Layout}>
+      <Route path="/" component={AgentList} />
+      <Route path="/chat/:agentId/:view?" component={ChatView} />
+    </Router>
   );
 }

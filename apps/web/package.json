@@ -9,11 +9,12 @@
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",
+    "@solidjs/router": "^0.15.4",
     "solid-js": "^1.9.3"
   },
   "devDependencies": {
+    "typescript": "^5.7.2",
     "vite": "^6.0.3",
-    "vite-plugin-solid": "^2.10.2",
-    "typescript": "^5.7.2"
+    "vite-plugin-solid": "^2.10.2"
   }
 }
