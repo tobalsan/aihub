@@ -54,9 +54,10 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 |----------|--------|-------------|
 | `/api/agents` | GET | List agents |
 | `/api/agents/:id/messages` | POST | Send message |
-| `/api/agents/:id/stream` | GET | SSE stream |
+| `/api/agents/:id/history` | GET | Session history (?sessionKey=main&view=simple\|full) |
 | `/api/schedules` | GET/POST | List/create schedules |
 | `/api/schedules/:id` | PATCH/DELETE | Update/delete schedule |
+| `/ws` | WS | WebSocket streaming (send + subscribe) |
 
 ## Configuration
 
@@ -97,7 +98,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 | `thinkLevel` | off, minimal, low, medium, high |
 | `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
 | `discord` | Discord bot config |
-| `amsg` | Amsg inbox watcher config |
+| `amsg` | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 
 ## Scheduling
 
