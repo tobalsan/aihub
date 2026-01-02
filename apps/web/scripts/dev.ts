@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env node
 /**
  * Dev launcher for web UI with optional Tailscale HTTPS support.
  *
@@ -86,7 +86,7 @@ async function main() {
   }
 
   // Spawn vite dev server
-  const vite = spawn("npx", ["vite"], {
+  const vite = spawn("pnpm", ["exec", "vite"], {
     stdio: "inherit",
     env: {
       ...process.env,

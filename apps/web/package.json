@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "npx tsx scripts/dev.ts",
+    "dev": "pnpm exec tsx scripts/dev.ts",
     "dev:vite": "vite",
     "build": "vite build",
     "preview": "vite preview"
