@@ -21,7 +21,7 @@ import {
   shiftPendingUserMessage,
   popAllPendingUserMessages,
 } from "./sessions.js";
-import { resolveSessionId } from "../sessions/index.js";
+import { resolveSessionId, clearClaudeSessionId } from "../sessions/index.js";
 import { agentEventBus, type AgentStreamEvent, type RunSource } from "./events.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
@@ -122,6 +122,10 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     });
     sessionId = resolved.sessionId;
     message = resolved.message;
+    // Clear Claude SDK session mapping on reset (new session via /new, /reset, or idle timeout)
+    if (resolved.isNew) {
+      await clearClaudeSessionId(params.agentId, sessionId);
+    }
   } else {
     sessionId = "default";
   }

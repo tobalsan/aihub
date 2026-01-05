@@ -9,6 +9,9 @@ export type ClaudeQueryOptions = {
   settingSources?: Array<"user" | "project" | "local">;
   includePartialMessages?: boolean;
   model?: string;
+  // Session resumption
+  resume?: string;
+  forkSession?: boolean;
 };
 
 export type SDKMessage =
@@ -54,6 +57,11 @@ export type SDKMessage =
       type: "result";
       subtype: string;
       result?: string;
+    }
+  | {
+      type: "system";
+      subtype: string;
+      session_id?: string;
     };
 
 export type Query = AsyncGenerator<SDKMessage, void>;

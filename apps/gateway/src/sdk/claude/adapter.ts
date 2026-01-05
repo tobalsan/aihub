@@ -2,6 +2,7 @@ import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles, ensureClaudeMdSymlink } from "../../agents/workspace.js";
+import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
@@ -83,6 +84,12 @@ export const claudeAdapter: SdkAdapter = {
     // Create CLAUDE.md -> AGENTS.md symlink so Claude SDK reads our bootstrap
     await ensureClaudeMdSymlink(params.workspaceDir);
 
+    // Handle empty message (e.g., after /new or /reset stripped the trigger)
+    // Claude SDK doesn't accept empty prompts, so return early
+    if (!params.message.trim()) {
+      return { text: "", aborted: false };
+    }
+
     return withClaudeEnv(envOverrides, async () => {
       // Dynamic import to avoid requiring the package if not used
       let query: QueryFunction;
@@ -110,6 +117,9 @@ export const claudeAdapter: SdkAdapter = {
       // Emit user message to history
       params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
+      // Look up existing Claude session for resumption
+      const existingClaudeSessionId = getClaudeSessionId(params.agentId, params.sessionId);
+
       try {
         // Query the Claude Agent SDK
         const conversation = query({
@@ -127,6 +137,8 @@ export const claudeAdapter: SdkAdapter = {
             includePartialMessages: true,
             // Use model from agent config
             model: params.agent.model.model,
+            // Resume existing session if available
+            resume: existingClaudeSessionId,
           },
         });
 
@@ -235,6 +247,11 @@ export const claudeAdapter: SdkAdapter = {
             if (message.subtype === "success") {
               assistantText = message.result || assistantText;
             }
+          }
+
+          // Handle system init message to capture session_id
+          if (message.type === "system" && message.subtype === "init" && message.session_id) {
+            await setClaudeSessionId(params.agentId, params.sessionId, message.session_id);
           }
         }
       } catch (err) {

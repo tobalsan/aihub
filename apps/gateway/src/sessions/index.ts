@@ -8,3 +8,9 @@ export {
   type ResolveSessionParams,
   type ResolveSessionResult,
 } from "./store.js";
+
+export {
+  getClaudeSessionId,
+  setClaudeSessionId,
+  clearClaudeSessionId,
+} from "./claude.js";
