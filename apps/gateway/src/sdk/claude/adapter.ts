@@ -115,8 +115,9 @@ export const claudeAdapter: SdkAdapter = {
       // Emit user message to history
       params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
-      // Look up existing Claude session for resumption
-      const existingClaudeSessionId = getClaudeSessionId(params.agentId, params.sessionId);
+      // Look up existing Claude session for resumption (only if model matches)
+      const requestedModel = params.agent.model.model;
+      const existingClaudeSessionId = getClaudeSessionId(params.agentId, params.sessionId, requestedModel);
 
       try {
         // Query the Claude Agent SDK
@@ -249,7 +250,7 @@ export const claudeAdapter: SdkAdapter = {
 
           // Handle system init message to capture session_id
           if (message.type === "system" && message.subtype === "init" && message.session_id) {
-            await setClaudeSessionId(params.agentId, params.sessionId, message.session_id);
+            await setClaudeSessionId(params.agentId, params.sessionId, message.session_id, requestedModel);
           }
         }
       } catch (err) {

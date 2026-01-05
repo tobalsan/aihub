@@ -3,13 +3,18 @@ import os from "node:os";
 import path from "node:path";
 
 /**
- * Persistent mapping of agentId+sessionId -> Claude SDK session_id.
+ * Persistent mapping of agentId+sessionId -> Claude SDK session info.
  * Used to resume Claude SDK sessions across gateway restarts.
  */
 
+type ClaudeSessionEntry = {
+  claudeSessionId: string;
+  model: string;
+};
+
 const STORE_PATH = path.join(os.homedir(), ".aihub", "claude-sessions.json");
 
-let store: Record<string, string> = {};
+let store: Record<string, ClaudeSessionEntry | string> = {}; // string for backwards compat
 let loaded = false;
 
 function ensureLoaded() {
@@ -40,13 +45,21 @@ function makeKey(agentId: string, sessionId: string): string {
 
 /**
  * Get Claude SDK session_id for an agent session.
+ * Only returns if model matches (session can't change models).
  */
 export function getClaudeSessionId(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  model: string
 ): string | undefined {
   ensureLoaded();
-  return store[makeKey(agentId, sessionId)];
+  const entry = store[makeKey(agentId, sessionId)];
+  if (!entry) return undefined;
+  // Backwards compat: old entries are just strings
+  if (typeof entry === "string") return undefined; // Can't verify model, skip resume
+  // Only resume if model matches
+  if (entry.model !== model) return undefined;
+  return entry.claudeSessionId;
 }
 
 /**
@@ -55,10 +68,11 @@ export function getClaudeSessionId(
 export async function setClaudeSessionId(
   agentId: string,
   sessionId: string,
-  claudeSessionId: string
+  claudeSessionId: string,
+  model: string
 ): Promise<void> {
   ensureLoaded();
-  store[makeKey(agentId, sessionId)] = claudeSessionId;
+  store[makeKey(agentId, sessionId)] = { claudeSessionId, model };
   await save();
 }
 
