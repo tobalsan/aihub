@@ -1,6 +1,9 @@
+export type SdkId = "pi" | "claude";
+
 export type Agent = {
   id: string;
   name: string;
+  sdk?: SdkId; // default "pi"
   model: {
     provider: string;
     model: string;
@@ -20,15 +23,19 @@ export type SendMessageResponse = {
   meta: {
     durationMs: number;
     sessionId: string;
+    aborted?: boolean;
+    queued?: boolean;
   };
 };
 
 // Stream event types (WebSocket protocol)
 export type StreamEvent =
   | { type: "text"; data: string }
+  | { type: "thinking"; data: string }
+  | { type: "tool_call"; id: string; name: string; arguments: unknown }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
-  | { type: "done"; meta?: { durationMs: number } }
+  | { type: "done"; meta?: { durationMs: number; aborted?: boolean } }
   | { type: "error"; message: string };
 
 // History view mode

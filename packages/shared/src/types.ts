@@ -6,8 +6,10 @@ export type ThinkLevel = z.infer<typeof ThinkLevelSchema>;
 
 // Agent model config
 export const AgentModelConfigSchema = z.object({
-  provider: z.string(),
+  provider: z.string().optional(), // For display; inferred from sdk if omitted
   model: z.string(),
+  base_url: z.string().optional(), // API proxy URL (e.g. for Claude SDK)
+  auth_token: z.string().optional(), // API auth token (overrides env)
 });
 export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 
@@ -27,16 +29,22 @@ export const AmsgConfigSchema = z.object({
 });
 export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
 
+// SDK types
+export const SdkIdSchema = z.enum(["pi", "claude"]);
+export type SdkId = z.infer<typeof SdkIdSchema>;
+
 // Agent config
 export const AgentConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
   workspace: z.string(),
+  sdk: SdkIdSchema.optional(), // default "pi"
   model: AgentModelConfigSchema,
   discord: DiscordConfigSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
   amsg: AmsgConfigSchema.optional(),
+  introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
@@ -177,9 +185,11 @@ export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
 // Stream event types (used by WebSocket)
 export type StreamEvent =
   | { type: "text"; data: string }
+  | { type: "thinking"; data: string }
+  | { type: "tool_call"; id: string; name: string; arguments: unknown }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
-  | { type: "done"; meta?: { durationMs: number } }
+  | { type: "done"; meta?: { durationMs: number; aborted?: boolean } }
   | { type: "error"; message: string };
 
 // WebSocket protocol types
@@ -210,7 +220,12 @@ export type WsHistoryUpdatedEvent = {
   sessionId: string;
 };
 
-export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent;
+export type WsSessionResetEvent = {
+  type: "session_reset";
+  sessionId: string;
+};
+
+export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent | WsSessionResetEvent;
 
 // History types
 

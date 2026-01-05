@@ -9,7 +9,7 @@ import type { WsClientMessage, WsServerMessage, GatewayBindMode } from "@aihub/s
 import { api } from "./api.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import { resolveSessionId, getSessionEntry } from "../sessions/index.js";
+import { resolveSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
 
 const app = new Hono();
 
@@ -57,9 +57,22 @@ function handleWsConnection(ws: WebSocket) {
       }
 
       try {
+        // Handle /abort - skip session resolution to avoid creating new session
+        if (isAbortTrigger(msg.message)) {
+          await runAgent({
+            agentId: msg.agentId,
+            message: msg.message,
+            sessionId: msg.sessionId,
+            sessionKey: msg.sessionKey,
+            onEvent: (event) => sendWs(ws, event),
+          });
+          return;
+        }
+
         // Resolve sessionId from sessionKey if not explicitly provided
         let sessionId = msg.sessionId;
         let message = msg.message;
+        let isNewSession = false;
         if (!sessionId && msg.sessionKey) {
           const resolved = await resolveSessionId({
             agentId: msg.agentId,
@@ -68,6 +81,16 @@ function handleWsConnection(ws: WebSocket) {
           });
           sessionId = resolved.sessionId;
           message = resolved.message;
+          isNewSession = resolved.isNew;
+        }
+
+        // Handle session reset with empty message (e.g., /new command)
+        if (isNewSession && !message.trim()) {
+          const introMessage = agent.introMessage ?? "New conversation started.";
+          sendWs(ws, { type: "session_reset", sessionId: sessionId ?? "default" });
+          sendWs(ws, { type: "text", data: introMessage });
+          sendWs(ws, { type: "done", meta: { durationMs: 0 } });
+          return;
         }
 
         await runAgent({

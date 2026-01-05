@@ -86,8 +86,11 @@ export function setSessionKey(agentId: string, key: string): void {
 
 export type StreamCallbacks = {
   onText: (text: string) => void;
+  onThinking?: (text: string) => void;
+  onToolCall?: (id: string, name: string, args: unknown) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
+  onSessionReset?: (sessionId: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
 };
@@ -108,16 +111,25 @@ export function streamMessage(
   };
 
   ws.onmessage = (e) => {
-    const event: StreamEvent = JSON.parse(e.data);
+    const event = JSON.parse(e.data);
     switch (event.type) {
       case "text":
         onText(event.data);
+        break;
+      case "thinking":
+        callbacks?.onThinking?.(event.data);
+        break;
+      case "tool_call":
+        callbacks?.onToolCall?.(event.id, event.name, event.arguments);
         break;
       case "tool_start":
         callbacks?.onToolStart?.(event.toolName);
         break;
       case "tool_end":
         callbacks?.onToolEnd?.(event.toolName, event.isError ?? false);
+        break;
+      case "session_reset":
+        callbacks?.onSessionReset?.(event.sessionId);
         break;
       case "done":
         onDone();
@@ -141,6 +153,8 @@ export function streamMessage(
 
 export type SubscriptionCallbacks = {
   onText?: (text: string) => void;
+  onThinking?: (text: string) => void;
+  onToolCall?: (id: string, name: string, args: unknown) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
   onDone?: () => void;
@@ -168,6 +182,12 @@ export function subscribeToSession(
     switch (event.type) {
       case "text":
         callbacks.onText?.(event.data);
+        break;
+      case "thinking":
+        callbacks.onThinking?.(event.data);
+        break;
+      case "tool_call":
+        callbacks.onToolCall?.(event.id, event.name, event.arguments);
         break;
       case "tool_start":
         callbacks.onToolStart?.(event.toolName);

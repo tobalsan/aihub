@@ -8,7 +8,7 @@ import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir } from ".
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
-import { resolveSessionId, getSessionEntry } from "../sessions/index.js";
+import { resolveSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
 
 const api = new Hono();
 
@@ -20,6 +20,7 @@ api.get("/agents", (c) => {
       id: a.id,
       name: a.name,
       model: a.model,
+      sdk: a.sdk ?? "pi",
       workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
     }))
   );
@@ -36,6 +37,7 @@ api.get("/agents/:id", (c) => {
     id: agent.id,
     name: agent.name,
     model: agent.model,
+    sdk: agent.sdk ?? "pi",
     workspace: agent.workspace ? resolveWorkspaceDir(agent.workspace) : undefined,
   });
 });
@@ -75,6 +77,17 @@ api.post("/agents/:id/messages", async (c) => {
   }
 
   try {
+    // Handle /abort - skip session resolution to avoid creating new session
+    if (isAbortTrigger(parsed.data.message)) {
+      const result = await runAgent({
+        agentId: agent.id,
+        message: parsed.data.message,
+        sessionId: parsed.data.sessionId,
+        sessionKey: parsed.data.sessionKey,
+      });
+      return c.json(result);
+    }
+
     // Resolve sessionId from sessionKey if not explicitly provided
     let sessionId = parsed.data.sessionId;
     let message = parsed.data.message;

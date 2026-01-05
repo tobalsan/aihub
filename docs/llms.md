@@ -67,11 +67,18 @@ All stored in `~/.aihub/`:
     id: string,
     name: string,
     workspace: string,           // Agent working directory (~ expanded)
-    model: { provider, model },  // Pi SDK model reference
+    sdk?: "pi"|"claude",         // Default: pi
+    model: {
+      provider?: string,         // Required for Pi SDK; optional for Claude
+      model: string,
+      base_url?: string,         // API proxy URL (Claude SDK only)
+      auth_token?: string        // API auth token (Claude SDK only, overrides env)
+    },
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high",
     queueMode?: "queue"|"interrupt",  // Default: queue
     discord?: { token, applicationId?, guildId?, channelId? },
-    amsg?: { id?, enabled? }
+    amsg?: { id?, enabled? },
+    introMessage?: string            // Custom intro for /new (default: "New conversation started.")
   }],
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
@@ -220,9 +227,32 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 
 `aihub gateway --agent-id <id>` filters all services to one agent. Useful for isolated testing.
 
+## Claude SDK Proxy Configuration
+
+For Claude SDK agents, you can configure a proxy URL and auth token directly in the agent config instead of using environment variables:
+
+```json
+{
+  "agents": [{
+    "id": "my-agent",
+    "name": "My Agent",
+    "workspace": "~/agents/my-agent",
+    "sdk": "claude",
+    "model": {
+      "model": "claude-sonnet-4-5-20250929",
+      "base_url": "http://127.0.0.1:8317",
+      "auth_token": "sk-dummy"
+    }
+  }]
+}
+```
+
+This sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for that agent's runs. Runs with proxy config are serialized to prevent env var cross-contamination.
+
 ## Key Dependencies
 
 - **Pi SDK** (`@mariozechner/pi-coding-agent`): Agent runtime, tools, skills, model registry
+- **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`): Claude SDK integration
 - **Hono**: HTTP server framework
 - **Discord.js**: Discord bot integration
 - **Zod**: Schema validation

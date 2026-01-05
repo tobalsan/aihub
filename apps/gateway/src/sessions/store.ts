@@ -11,6 +11,25 @@ export type SessionEntry = {
 export const DEFAULT_MAIN_KEY = "main";
 export const DEFAULT_IDLE_MINUTES = 60;
 export const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
+export const DEFAULT_ABORT_TRIGGERS = ["/abort"];
+
+/**
+ * Check if message is an abort trigger.
+ * Matches exact trigger or trigger + " " prefix.
+ */
+export function isAbortTrigger(
+  message: string,
+  triggers = DEFAULT_ABORT_TRIGGERS
+): boolean {
+  const trimmed = message.trim();
+  for (const trigger of triggers) {
+    if (!trigger) continue;
+    if (trimmed === trigger || trimmed.startsWith(trigger + " ")) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const STORE_PATH = path.join(os.homedir(), ".aihub", "sessions.json");
 

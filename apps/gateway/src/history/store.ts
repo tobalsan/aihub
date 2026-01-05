@@ -1,0 +1,471 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import type {
+  FullHistoryMessage,
+  SimpleHistoryMessage,
+  ContentBlock,
+  ModelUsage,
+} from "@aihub/shared";
+import type { HistoryEvent } from "../sdk/types.js";
+import { CONFIG_DIR } from "../config/index.js";
+
+const HISTORY_DIR = path.join(CONFIG_DIR, "history");
+
+async function ensureHistoryDir() {
+  await fs.mkdir(HISTORY_DIR, { recursive: true });
+}
+
+function resolveHistoryFile(agentId: string, sessionId: string): string {
+  return path.join(HISTORY_DIR, `${agentId}-${sessionId}.jsonl`);
+}
+
+// JSONL entry format for canonical history
+type UserHistoryEntry = {
+  type: "history";
+  agentId: string;
+  sessionId: string;
+  timestamp: number;
+  role: "user";
+  content: ContentBlock[];
+};
+
+type AssistantHistoryEntry = {
+  type: "history";
+  agentId: string;
+  sessionId: string;
+  timestamp: number;
+  role: "assistant";
+  content: ContentBlock[];
+  meta?: { provider?: string; model?: string; api?: string; usage?: ModelUsage; stopReason?: string };
+};
+
+type ToolResultHistoryEntry = {
+  type: "history";
+  agentId: string;
+  sessionId: string;
+  timestamp: number;
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: ContentBlock[];
+  isError: boolean;
+  details?: { diff?: string };
+};
+
+type HistoryEntry = UserHistoryEntry | AssistantHistoryEntry | ToolResultHistoryEntry;
+
+/**
+ * Append a raw history entry to the canonical store
+ */
+async function appendRawEntry(
+  agentId: string,
+  sessionId: string,
+  entry: Record<string, unknown>
+): Promise<void> {
+  await ensureHistoryDir();
+  const file = resolveHistoryFile(agentId, sessionId);
+  const line = JSON.stringify({ type: "history", agentId, sessionId, ...entry }) + "\n";
+  await fs.appendFile(file, line, "utf-8");
+}
+
+/**
+ * Turn buffer for accumulating history events into messages
+ * Buffers everything synchronously, then flushes to disk in correct order
+ */
+export type TurnBuffer = {
+  userText: string | null;
+  userTimestamp: number;
+  thinkingText: string;
+  assistantText: string;
+  toolCalls: Array<{ id: string; name: string; args: unknown }>;
+  toolResults: Array<{
+    id: string;
+    name: string;
+    content: string;
+    isError: boolean;
+    details?: { diff?: string };
+    timestamp: number;
+  }>;
+  meta?: {
+    provider?: string;
+    model?: string;
+    api?: string;
+    usage?: ModelUsage;
+    stopReason?: string;
+  };
+  startTimestamp: number;
+  assistantStarted: boolean;
+};
+
+export function createTurnBuffer(): TurnBuffer {
+  return {
+    userText: null,
+    userTimestamp: Date.now(),
+    thinkingText: "",
+    assistantText: "",
+    toolCalls: [],
+    toolResults: [],
+    startTimestamp: Date.now(),
+    assistantStarted: false,
+  };
+}
+
+/**
+ * Flush turn buffer to history store in correct order:
+ * 1. User message
+ * 2. Assistant message (thinking, tool calls, text)
+ * 3. Tool results
+ */
+export async function flushTurnBuffer(
+  agentId: string,
+  sessionId: string,
+  buffer: TurnBuffer
+): Promise<void> {
+  // 1. User message
+  if (buffer.userText) {
+    await appendRawEntry(agentId, sessionId, {
+      role: "user",
+      content: [{ type: "text", text: buffer.userText }],
+      timestamp: buffer.userTimestamp,
+    });
+  }
+
+  // 2. Assistant message
+  const content: ContentBlock[] = [];
+  if (buffer.thinkingText) {
+    content.push({ type: "thinking", thinking: buffer.thinkingText });
+  }
+  for (const tc of buffer.toolCalls) {
+    content.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.args });
+  }
+  if (buffer.assistantText) {
+    content.push({ type: "text", text: buffer.assistantText });
+  }
+
+  if (content.length > 0) {
+    await appendRawEntry(agentId, sessionId, {
+      role: "assistant",
+      content,
+      meta: buffer.meta,
+      timestamp: buffer.startTimestamp,
+    });
+  }
+
+  // 3. Tool results (after assistant message)
+  for (const tr of buffer.toolResults) {
+    await appendRawEntry(agentId, sessionId, {
+      role: "toolResult",
+      toolCallId: tr.id,
+      toolName: tr.name,
+      content: [{ type: "text", text: tr.content }],
+      isError: tr.isError,
+      details: tr.details,
+      timestamp: tr.timestamp,
+    });
+  }
+}
+
+/**
+ * Accumulate a history event into the turn buffer (sync, no I/O)
+ */
+export function bufferHistoryEvent(buffer: TurnBuffer, event: HistoryEvent): void {
+  switch (event.type) {
+    case "user":
+      buffer.userText = event.text;
+      buffer.userTimestamp = event.timestamp;
+      break;
+    case "assistant_text":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp;
+      }
+      buffer.assistantText += event.text;
+      break;
+    case "assistant_thinking":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp;
+      }
+      buffer.thinkingText += event.text;
+      break;
+    case "tool_call":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp;
+      }
+      buffer.toolCalls.push({ id: event.id, name: event.name, args: event.args });
+      break;
+    case "tool_result":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp;
+      }
+      buffer.toolResults.push({
+        id: event.id,
+        name: event.name,
+        content: event.content,
+        isError: event.isError,
+        details: event.details,
+        timestamp: event.timestamp,
+      });
+      break;
+    case "turn_end":
+      break;
+    case "meta":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp;
+      }
+      buffer.meta = {
+        provider: event.provider,
+        model: event.model,
+        api: event.api,
+        usage: event.usage,
+        stopReason: event.stopReason,
+      };
+      break;
+  }
+}
+
+/**
+ * Load simple history (text only) from canonical store
+ */
+export async function getSimpleHistory(
+  agentId: string,
+  sessionId: string
+): Promise<SimpleHistoryMessage[]> {
+  const file = resolveHistoryFile(agentId, sessionId);
+  const messages: SimpleHistoryMessage[] = [];
+
+  try {
+    const content = await fs.readFile(file, "utf-8");
+    const lines = content.trim().split("\n");
+
+    for (const line of lines) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as HistoryEntry;
+        if (entry.type !== "history") continue;
+
+        if (entry.role === "user" || entry.role === "assistant") {
+          const text = entry.content
+            .filter((c): c is { type: "text"; text: string } => c.type === "text")
+            .map((c) => c.text)
+            .join("\n");
+          if (text) {
+            messages.push({ role: entry.role, content: text, timestamp: entry.timestamp });
+          }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // File doesn't exist
+  }
+
+  return messages;
+}
+
+/**
+ * Load full history from canonical store
+ */
+export async function getFullHistory(
+  agentId: string,
+  sessionId: string
+): Promise<FullHistoryMessage[]> {
+  const file = resolveHistoryFile(agentId, sessionId);
+  const messages: FullHistoryMessage[] = [];
+
+  try {
+    const content = await fs.readFile(file, "utf-8");
+    const lines = content.trim().split("\n");
+
+    for (const line of lines) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as HistoryEntry;
+        if (entry.type !== "history") continue;
+
+        if (entry.role === "user") {
+          messages.push({
+            role: "user",
+            content: entry.content,
+            timestamp: entry.timestamp,
+          });
+        } else if (entry.role === "assistant") {
+          messages.push({
+            role: "assistant",
+            content: entry.content,
+            timestamp: entry.timestamp,
+            meta: entry.meta,
+          });
+        } else if (entry.role === "toolResult") {
+          messages.push({
+            role: "toolResult",
+            toolCallId: entry.toolCallId,
+            toolName: entry.toolName,
+            content: entry.content,
+            isError: entry.isError,
+            details: entry.details,
+            timestamp: entry.timestamp,
+          });
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // File doesn't exist
+  }
+
+  return messages;
+}
+
+/**
+ * Check if canonical history exists for a session
+ */
+export async function hasCanonicalHistory(
+  agentId: string,
+  sessionId: string
+): Promise<boolean> {
+  const file = resolveHistoryFile(agentId, sessionId);
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const PI_SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
+
+function resolvePiSessionFile(agentId: string, sessionId: string): string {
+  return path.join(PI_SESSIONS_DIR, `${agentId}-${sessionId}.jsonl`);
+}
+
+/**
+ * Check if legacy Pi session file exists
+ */
+async function hasPiSession(agentId: string, sessionId: string): Promise<boolean> {
+  try {
+    await fs.access(resolvePiSessionFile(agentId, sessionId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Backfill canonical history from legacy Pi session file (one-time migration)
+ * Returns true if backfill was performed, false if not needed
+ */
+export async function backfillFromPiSession(
+  agentId: string,
+  sessionId: string
+): Promise<boolean> {
+  // Skip if canonical already exists or Pi session doesn't exist
+  if (await hasCanonicalHistory(agentId, sessionId)) return false;
+  if (!(await hasPiSession(agentId, sessionId))) return false;
+
+  const piFile = resolvePiSessionFile(agentId, sessionId);
+  let content: string;
+  try {
+    content = await fs.readFile(piFile, "utf-8");
+  } catch {
+    return false;
+  }
+
+  await ensureHistoryDir();
+  const lines = content.trim().split("\n");
+
+  for (const line of lines) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type !== "message") continue;
+
+      const msg = entry.message as Record<string, unknown>;
+      if (!msg || !msg.role) continue;
+
+      const timestamp = (msg.timestamp as number) ?? Date.now();
+      const rawContent = msg.content as unknown[];
+
+      if (msg.role === "user") {
+        const text = extractText(rawContent);
+        if (text) {
+          await appendRawEntry(agentId, sessionId, {
+            role: "user",
+            content: [{ type: "text", text }],
+            timestamp,
+          });
+        }
+      } else if (msg.role === "assistant") {
+        const blocks = convertPiContent(rawContent);
+        if (blocks.length > 0) {
+          await appendRawEntry(agentId, sessionId, {
+            role: "assistant",
+            content: blocks,
+            meta: {
+              api: msg.api as string | undefined,
+              provider: msg.provider as string | undefined,
+              model: msg.model as string | undefined,
+              usage: msg.usage as ModelUsage | undefined,
+              stopReason: msg.stopReason as string | undefined,
+            },
+            timestamp,
+          });
+        }
+      } else if (msg.role === "toolResult") {
+        const text = extractText(rawContent);
+        const details = msg.details as Record<string, unknown> | undefined;
+        await appendRawEntry(agentId, sessionId, {
+          role: "toolResult",
+          toolCallId: msg.toolCallId as string,
+          toolName: msg.toolName as string,
+          content: [{ type: "text", text: text || "" }],
+          isError: (msg.isError as boolean) ?? false,
+          details: details?.diff ? { diff: details.diff as string } : undefined,
+          timestamp,
+        });
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  return true;
+}
+
+function extractText(content: unknown[]): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c): c is { type: "text"; text: string } => {
+      if (!c || typeof c !== "object") return false;
+      const obj = c as Record<string, unknown>;
+      return obj.type === "text" && typeof obj.text === "string";
+    })
+    .map((c) => c.text)
+    .join("\n");
+}
+
+function convertPiContent(content: unknown[]): ContentBlock[] {
+  if (!Array.isArray(content)) return [];
+  const blocks: ContentBlock[] = [];
+  for (const c of content) {
+    const block = c as Record<string, unknown>;
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      blocks.push({ type: "thinking", thinking: block.thinking });
+    } else if (block.type === "text" && typeof block.text === "string") {
+      blocks.push({ type: "text", text: block.text });
+    } else if (block.type === "toolCall" && typeof block.id === "string") {
+      blocks.push({
+        type: "toolCall",
+        id: block.id,
+        name: block.name as string,
+        arguments: block.arguments,
+      });
+    }
+  }
+  return blocks;
+}
