@@ -44,6 +44,7 @@ export const AgentConfigSchema = z.object({
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
   amsg: AmsgConfigSchema.optional(),
+  introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
@@ -219,7 +220,12 @@ export type WsHistoryUpdatedEvent = {
   sessionId: string;
 };
 
-export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent;
+export type WsSessionResetEvent = {
+  type: "session_reset";
+  sessionId: string;
+};
+
+export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent | WsSessionResetEvent;
 
 // History types
 

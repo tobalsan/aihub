@@ -291,14 +291,17 @@ export function ChatView() {
           blocks.push({ type: "text", text: content });
         }
 
-        setSimpleMessages((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
-        ]);
-        setFullMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: content }], timestamp: Date.now() },
-        ]);
+        // Only add assistant message if there's actual content
+        if (content || thinkingContent || streamingToolCalls().length > 0) {
+          setSimpleMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
+          ]);
+          setFullMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: content }], timestamp: Date.now() },
+          ]);
+        }
         setStreamingThinking("");
         setStreamingToolCalls([]);
         setStreamingText("");
@@ -352,6 +355,11 @@ export function ChatView() {
                 : tc
             )
           );
+        },
+        onSessionReset: () => {
+          // Clear messages when session resets (e.g., /new command)
+          setSimpleMessages([]);
+          setFullMessages([]);
         },
       }
     );

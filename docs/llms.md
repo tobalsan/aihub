@@ -77,7 +77,8 @@ All stored in `~/.aihub/`:
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high",
     queueMode?: "queue"|"interrupt",  // Default: queue
     discord?: { token, applicationId?, guildId?, channelId? },
-    amsg?: { id?, enabled? }
+    amsg?: { id?, enabled? },
+    introMessage?: string            // Custom intro for /new (default: "New conversation started.")
   }],
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet

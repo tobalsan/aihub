@@ -90,6 +90,7 @@ export type StreamCallbacks = {
   onToolCall?: (id: string, name: string, args: unknown) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
+  onSessionReset?: (sessionId: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
 };
@@ -110,7 +111,7 @@ export function streamMessage(
   };
 
   ws.onmessage = (e) => {
-    const event: StreamEvent = JSON.parse(e.data);
+    const event = JSON.parse(e.data);
     switch (event.type) {
       case "text":
         onText(event.data);
@@ -126,6 +127,9 @@ export function streamMessage(
         break;
       case "tool_end":
         callbacks?.onToolEnd?.(event.toolName, event.isError ?? false);
+        break;
+      case "session_reset":
+        callbacks?.onSessionReset?.(event.sessionId);
         break;
       case "done":
         onDone();

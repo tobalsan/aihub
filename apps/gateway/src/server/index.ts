@@ -60,6 +60,7 @@ function handleWsConnection(ws: WebSocket) {
         // Resolve sessionId from sessionKey if not explicitly provided
         let sessionId = msg.sessionId;
         let message = msg.message;
+        let isNewSession = false;
         if (!sessionId && msg.sessionKey) {
           const resolved = await resolveSessionId({
             agentId: msg.agentId,
@@ -68,6 +69,16 @@ function handleWsConnection(ws: WebSocket) {
           });
           sessionId = resolved.sessionId;
           message = resolved.message;
+          isNewSession = resolved.isNew;
+        }
+
+        // Handle session reset with empty message (e.g., /new command)
+        if (isNewSession && !message.trim()) {
+          const introMessage = agent.introMessage ?? "New conversation started.";
+          sendWs(ws, { type: "session_reset", sessionId: sessionId ?? "default" });
+          sendWs(ws, { type: "text", data: introMessage });
+          sendWs(ws, { type: "done", meta: { durationMs: 0 } });
+          return;
         }
 
         await runAgent({
