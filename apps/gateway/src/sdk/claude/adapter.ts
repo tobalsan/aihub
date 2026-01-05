@@ -130,8 +130,8 @@ export const claudeAdapter: SdkAdapter = {
             tools: { type: "preset", preset: "claude_code" },
             // Use Claude Code's system prompt
             systemPrompt: { type: "preset", preset: "claude_code" },
-            // Load project settings (CLAUDE.md, etc.)
-            settingSources: ["project"],
+            // Load settings from user (~/.claude/) and project (.claude/)
+            settingSources: ["user", "project"],
             // Stream partial messages for real-time updates
             includePartialMessages: true,
             // Use model from agent config
