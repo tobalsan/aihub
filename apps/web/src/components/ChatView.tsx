@@ -159,6 +159,7 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
 
   let messagesEndRef: HTMLDivElement | undefined;
+  let textareaRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
 
@@ -166,6 +167,14 @@ export function ChatView() {
 
   const scrollToBottom = () => {
     messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const resizeTextarea = () => {
+    if (!textareaRef) return;
+    textareaRef.style.height = "auto";
+    const lineHeight = 22;
+    const maxHeight = lineHeight * 10;
+    textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, maxHeight)}px`;
   };
 
   // Load history based on view mode
@@ -253,6 +262,7 @@ export function ChatView() {
     ]);
 
     setInput("");
+    if (textareaRef) textareaRef.style.height = "auto";
     setIsStreaming(true);
     setStreamingThinking("");
     setStreamingToolCalls([]);
@@ -511,10 +521,14 @@ export function ChatView() {
       <div class="input-area">
         <div class="input-wrapper">
           <textarea
+            ref={textareaRef}
             class="input"
             placeholder="Message..."
             value={input()}
-            onInput={(e) => setInput(e.currentTarget.value)}
+            onInput={(e) => {
+              setInput(e.currentTarget.value);
+              resizeTextarea();
+            }}
             onKeyDown={handleKeyDown}
             disabled={isStreaming()}
             rows={1}
@@ -1000,9 +1014,11 @@ export function ChatView() {
           border: none;
           color: var(--text-primary);
           font-size: 15px;
+          line-height: 22px;
           resize: none;
           outline: none;
           font-family: inherit;
+          overflow-y: auto;
         }
 
         .input::placeholder {
