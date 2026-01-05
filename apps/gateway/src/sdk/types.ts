@@ -1,7 +1,7 @@
 import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel } from "@aihub/shared";
 
 // SDK identifiers
-export type SdkId = "pi" | "claude" | "codex";
+export type SdkId = "pi" | "claude";
 
 // SDK capabilities
 export type SdkCapabilities = {

@@ -30,7 +30,7 @@ export const AmsgConfigSchema = z.object({
 export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
 
 // SDK types
-export const SdkIdSchema = z.enum(["pi", "claude", "codex"]);
+export const SdkIdSchema = z.enum(["pi", "claude"]);
 export type SdkId = z.infer<typeof SdkIdSchema>;
 
 // Agent config

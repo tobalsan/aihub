@@ -105,7 +105,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 | `id` | Unique identifier |
 | `name` | Display name |
 | `workspace` | Agent working directory |
-| `sdk` | Agent SDK: `pi` (default), `claude`, or `codex` |
+| `sdk` | Agent SDK: `pi` (default) or `claude` |
 | `model.provider` | Model provider (required for Pi SDK) |
 | `model.model` | Model name |
 | `model.base_url` | API proxy URL (Claude SDK only) |

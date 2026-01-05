@@ -1,12 +1,10 @@
 import type { SdkAdapter, SdkId } from "./types.js";
 import { piAdapter } from "./pi/adapter.js";
 import { claudeAdapter } from "./claude/adapter.js";
-import { codexAdapter } from "./codex/adapter.js";
 
 const adapters: Record<SdkId, SdkAdapter> = {
   pi: piAdapter,
   claude: claudeAdapter,
-  codex: codexAdapter,
 };
 
 export function getSdkAdapter(id: SdkId): SdkAdapter {

@@ -1,4 +1,4 @@
-export type SdkId = "pi" | "claude" | "codex";
+export type SdkId = "pi" | "claude";
 
 export type Agent = {
   id: string;

@@ -67,9 +67,9 @@ All stored in `~/.aihub/`:
     id: string,
     name: string,
     workspace: string,           // Agent working directory (~ expanded)
-    sdk?: "pi"|"claude"|"codex", // Default: pi
+    sdk?: "pi"|"claude",         // Default: pi
     model: {
-      provider?: string,         // Required for Pi SDK; optional for Claude/Codex
+      provider?: string,         // Required for Pi SDK; optional for Claude
       model: string,
       base_url?: string,         // API proxy URL (Claude SDK only)
       auth_token?: string        // API auth token (Claude SDK only, overrides env)
@@ -253,7 +253,6 @@ This sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for that agent's runs.
 
 - **Pi SDK** (`@mariozechner/pi-coding-agent`): Agent runtime, tools, skills, model registry
 - **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`): Claude SDK integration
-- **Codex SDK** (`@openai/codex-sdk`): Codex SDK integration
 - **Hono**: HTTP server framework
 - **Discord.js**: Discord bot integration
 - **Zod**: Schema validation
