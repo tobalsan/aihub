@@ -25,7 +25,7 @@ export type BootstrapFile = {
 
 // Fallback templates if docs/templates not found
 const FALLBACK_TEMPLATES: Record<BootstrapFileName, string> = {
-  "CLAUDE.md": `@AGENTS.md
+  "CLAUDE.md": `ALWAYS START BY READING AGENTS.md, AND BOOSTRAP.md IF IT EXISTS AT THE ROOT OF THIS FOLDER
 `,
   "AGENTS.md": `# AGENTS.md - Workspace
 
