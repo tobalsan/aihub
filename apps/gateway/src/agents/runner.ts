@@ -21,7 +21,7 @@ import {
   shiftPendingUserMessage,
   popAllPendingUserMessages,
 } from "./sessions.js";
-import { resolveSessionId, clearClaudeSessionId } from "../sessions/index.js";
+import { resolveSessionId, clearClaudeSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
 import { agentEventBus, type AgentStreamEvent, type RunSource } from "./events.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
@@ -108,6 +108,84 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   const sdkId = (agent.sdk ?? getDefaultSdkId()) as SdkId;
   const adapter = getSdkAdapter(sdkId);
   const capabilities = adapter.capabilities;
+
+  // Handle /abort command early - do NOT create new sessions or forward to model
+  if (isAbortTrigger(params.message)) {
+    // Resolve session without creating new one
+    let sessionId: string | undefined;
+    if (params.sessionId) {
+      sessionId = params.sessionId;
+    } else if (params.sessionKey) {
+      const entry = getSessionEntry(params.agentId, params.sessionKey);
+      sessionId = entry?.sessionId;
+    } else {
+      sessionId = "default";
+    }
+
+    // No active session to abort
+    if (!sessionId) {
+      const emit = (event: StreamEvent) => {
+        params.onEvent?.(event);
+        agentEventBus.emitStreamEvent({
+          ...event,
+          agentId: params.agentId,
+          sessionId: "none",
+          sessionKey: params.sessionKey,
+          source: params.source,
+        } as AgentStreamEvent);
+      };
+      emit({ type: "text", data: "No active run." });
+      emit({ type: "done", meta: { durationMs: 0, aborted: false } });
+      return {
+        payloads: [{ text: "No active run." }],
+        meta: { durationMs: 0, sessionId: "none", aborted: false },
+      };
+    }
+
+    // Emit helper for abort flow
+    const emit = (event: StreamEvent) => {
+      params.onEvent?.(event);
+      agentEventBus.emitStreamEvent({
+        ...event,
+        agentId: params.agentId,
+        sessionId,
+        sessionKey: params.sessionKey,
+        source: params.source,
+      } as AgentStreamEvent);
+    };
+
+    const wasStreaming = isStreaming(params.agentId, sessionId);
+    let aborted = false;
+
+    if (wasStreaming) {
+      // Attempt to interrupt via adapter
+      if (capabilities.interrupt && adapter.abort) {
+        const handle = getSessionHandle(params.agentId, sessionId);
+        if (handle) {
+          adapter.abort(handle);
+        }
+      }
+      // Trip the AbortController
+      abortSession(params.agentId, sessionId);
+
+      // Wait for streaming to end
+      const ended = await waitForStreamingEnd(params.agentId, sessionId);
+      if (!ended) {
+        // Force clear stuck state
+        clearSessionHandle(params.agentId, sessionId);
+        setSessionStreaming(params.agentId, sessionId, false);
+      }
+      aborted = true;
+    }
+
+    const ackText = aborted ? "Run aborted." : "No active run.";
+    emit({ type: "text", data: ackText });
+    emit({ type: "done", meta: { durationMs: 0, aborted } });
+    return {
+      payloads: [{ text: ackText }],
+      meta: { durationMs: 0, sessionId, aborted },
+    };
+  }
 
   // Resolve sessionId: explicit > sessionKey resolution > default
   let sessionId: string;

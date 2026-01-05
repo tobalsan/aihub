@@ -9,7 +9,7 @@ import type { WsClientMessage, WsServerMessage, GatewayBindMode } from "@aihub/s
 import { api } from "./api.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import { resolveSessionId, getSessionEntry } from "../sessions/index.js";
+import { resolveSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
 
 const app = new Hono();
 
@@ -57,6 +57,18 @@ function handleWsConnection(ws: WebSocket) {
       }
 
       try {
+        // Handle /abort - skip session resolution to avoid creating new session
+        if (isAbortTrigger(msg.message)) {
+          await runAgent({
+            agentId: msg.agentId,
+            message: msg.message,
+            sessionId: msg.sessionId,
+            sessionKey: msg.sessionKey,
+            onEvent: (event) => sendWs(ws, event),
+          });
+          return;
+        }
+
         // Resolve sessionId from sessionKey if not explicitly provided
         let sessionId = msg.sessionId;
         let message = msg.message;

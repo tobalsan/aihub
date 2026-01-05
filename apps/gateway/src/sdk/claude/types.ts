@@ -12,6 +12,8 @@ export type ClaudeQueryOptions = {
   // Session resumption
   resume?: string;
   forkSession?: boolean;
+  // Permission mode
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
 };
 
 export type SDKMessage =
