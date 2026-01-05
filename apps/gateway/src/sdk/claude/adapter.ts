@@ -1,7 +1,7 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { QueryFunction, SDKMessage } from "./types.js";
-import { ensureBootstrapFiles, ensureClaudeMdSymlink } from "../../agents/workspace.js";
+import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
 
 // Module-level lock for serializing runs that modify env vars
@@ -79,10 +79,8 @@ export const claudeAdapter: SdkAdapter = {
   async run(params: SdkRunParams): Promise<SdkRunResult> {
     const envOverrides = getEnvOverrides(params.agent.model);
 
-    // Ensure bootstrap files exist (AGENTS.md, SOUL.md, etc.)
+    // Ensure bootstrap files exist (CLAUDE.md, AGENTS.md, SOUL.md, etc.)
     await ensureBootstrapFiles(params.workspaceDir);
-    // Create CLAUDE.md -> AGENTS.md symlink so Claude SDK reads our bootstrap
-    await ensureClaudeMdSymlink(params.workspaceDir);
 
     // Handle empty message (e.g., after /new or /reset stripped the trigger)
     // Claude SDK doesn't accept empty prompts, so return early

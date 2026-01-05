@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 // Core files that indicate workspace is initialized (not brand-new)
 const CORE_FILENAMES = [
+  "CLAUDE.md",
   "AGENTS.md",
   "SOUL.md",
   "TOOLS.md",
@@ -24,6 +25,8 @@ export type BootstrapFile = {
 
 // Fallback templates if docs/templates not found
 const FALLBACK_TEMPLATES: Record<BootstrapFileName, string> = {
+  "CLAUDE.md": `@AGENTS.md
+`,
   "AGENTS.md": `# AGENTS.md - Workspace
 
 This folder is the agent's working directory.
@@ -172,30 +175,3 @@ export function buildBootstrapContextFiles(
     .map((f) => ({ path: f.name, content: f.content! }));
 }
 
-/**
- * Ensure CLAUDE.md symlink exists pointing to AGENTS.md.
- * Used by Claude SDK adapter so it reads AGENTS.md as project instructions.
- */
-export async function ensureClaudeMdSymlink(workspaceDir: string): Promise<void> {
-  const claudeMdPath = path.join(workspaceDir, "CLAUDE.md");
-  const agentsMdPath = path.join(workspaceDir, "AGENTS.md");
-
-  // Check if CLAUDE.md already exists (file or symlink)
-  try {
-    const stat = await fs.lstat(claudeMdPath);
-    // If it's already a symlink pointing to AGENTS.md, we're done
-    if (stat.isSymbolicLink()) {
-      const target = await fs.readlink(claudeMdPath);
-      if (target === "AGENTS.md" || target === agentsMdPath) return;
-    }
-    // CLAUDE.md exists as regular file or different symlink - don't touch it
-    return;
-  } catch {
-    // CLAUDE.md doesn't exist - create symlink
-  }
-
-  // Only create symlink if AGENTS.md exists
-  if (await fileExists(agentsMdPath)) {
-    await fs.symlink("AGENTS.md", claudeMdPath);
-  }
-}
