@@ -33,6 +33,21 @@ function formatJson(args: unknown): string {
   }
 }
 
+// Extract text from content block, handling nested structures from older history
+function extractBlockText(text: unknown): string {
+  if (typeof text === "string") return text;
+  if (text && typeof text === "object") {
+    const obj = text as Record<string, unknown>;
+    if (Array.isArray(obj.content)) {
+      return (obj.content as Array<Record<string, unknown>>)
+        .filter((c) => c?.type === "text" && typeof c.text === "string")
+        .map((c) => c.text as string)
+        .join("\n");
+    }
+  }
+  return "";
+}
+
 // Collapsible block component
 function CollapsibleBlock(props: {
   title: string;
@@ -137,6 +152,8 @@ export function ChatView() {
   const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>([]);
   const [input, setInput] = createSignal("");
   const [isStreaming, setIsStreaming] = createSignal(false);
+  const [streamingThinking, setStreamingThinking] = createSignal("");
+  const [streamingToolCalls, setStreamingToolCalls] = createSignal<Array<{ id: string; name: string; arguments: unknown; status: "running" | "done" | "error" }>>([]);
   const [streamingText, setStreamingText] = createSignal("");
   const [activeTools, setActiveTools] = createSignal<ActiveToolCall[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -237,6 +254,8 @@ export function ChatView() {
 
     setInput("");
     setIsStreaming(true);
+    setStreamingThinking("");
+    setStreamingToolCalls([]);
     setStreamingText("");
     setActiveTools([]);
 
@@ -248,16 +267,30 @@ export function ChatView() {
         setStreamingText((prev) => prev + chunk);
       },
       () => {
-        // Add assistant message
+        // Add assistant message - build content blocks from streaming state
         const content = streamingText();
+        const blocks: ContentBlock[] = [];
+        const thinkingContent = streamingThinking();
+        if (thinkingContent) {
+          blocks.push({ type: "thinking", thinking: thinkingContent });
+        }
+        for (const tc of streamingToolCalls()) {
+          blocks.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.arguments });
+        }
+        if (content) {
+          blocks.push({ type: "text", text: content });
+        }
+
         setSimpleMessages((prev) => [
           ...prev,
           { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
         ]);
         setFullMessages((prev) => [
           ...prev,
-          { role: "assistant", content: [{ type: "text", text: content }], timestamp: Date.now() },
+          { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: content }], timestamp: Date.now() },
         ]);
+        setStreamingThinking("");
+        setStreamingToolCalls([]);
         setStreamingText("");
         setActiveTools([]);
         setIsStreaming(false);
@@ -269,12 +302,23 @@ export function ChatView() {
           ...prev,
           { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
         ]);
+        setStreamingThinking("");
+        setStreamingToolCalls([]);
         setStreamingText("");
         setActiveTools([]);
         setIsStreaming(false);
         cleanup = null;
       },
       {
+        onThinking: (chunk) => {
+          setStreamingThinking((prev) => prev + chunk);
+        },
+        onToolCall: (id, name, args) => {
+          setStreamingToolCalls((prev) => [
+            ...prev,
+            { id, name, arguments: args, status: "running" },
+          ]);
+        },
         onToolStart: (toolName) => {
           setActiveTools((prev) => [
             ...prev,
@@ -282,11 +326,20 @@ export function ChatView() {
           ]);
         },
         onToolEnd: (toolName, isError) => {
+          // Update activeTools for the pill display
           setActiveTools((prev) =>
             prev.map((t) =>
               t.toolName === toolName && t.status === "running"
                 ? { ...t, status: isError ? "error" : "done" }
                 : t
+            )
+          );
+          // Also update streamingToolCalls status
+          setStreamingToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.name === toolName && tc.status === "running"
+                ? { ...tc, status: isError ? "error" : "done" }
+                : tc
             )
           );
         },
@@ -373,8 +426,8 @@ export function ChatView() {
               }
               if (msg.role === "toolResult") {
                 const textContent = msg.content
-                  .filter((b): b is { type: "text"; text: string } => b.type === "text")
-                  .map((b) => b.text)
+                  .filter((b) => b.type === "text")
+                  .map((b) => extractBlockText((b as { text: unknown }).text))
                   .join("\n");
                 return (
                   <div class={`message tool-result ${msg.isError ? "error" : ""}`}>
@@ -401,7 +454,43 @@ export function ChatView() {
           </For>
         </Show>
 
-        {isStreaming() && !streamingText() && (
+        {/* Streaming content in full mode - show blocks incrementally */}
+        <Show when={viewMode() === "full" && isStreaming() && (streamingThinking() || streamingToolCalls().length > 0 || streamingText())}>
+          <div class="message assistant full-message streaming">
+            <div class="content-blocks">
+              {streamingThinking() && (
+                <CollapsibleBlock
+                  title="Thinking"
+                  content={streamingThinking()}
+                  defaultCollapsed={false}
+                />
+              )}
+              <For each={streamingToolCalls()}>
+                {(tc) => (
+                  <CollapsibleBlock
+                    title={`${tc.status === "error" ? "✗" : tc.status === "done" ? "✓" : "⟳"} ${tc.name}`}
+                    content={formatJson(tc.arguments)}
+                    defaultCollapsed={false}
+                    mono={true}
+                  />
+                )}
+              </For>
+              {streamingText() && (
+                <div class="block-text markdown-content" innerHTML={renderMarkdown(streamingText())} />
+              )}
+            </div>
+          </div>
+        </Show>
+
+        {/* Streaming content in simple mode - just text */}
+        <Show when={viewMode() === "simple" && isStreaming() && streamingText()}>
+          <div class="message assistant streaming">
+            <div class="content markdown-content" innerHTML={renderMarkdown(streamingText())} />
+          </div>
+        </Show>
+
+        {/* Thinking dots when waiting (nothing received yet) */}
+        {isStreaming() && !streamingThinking() && streamingToolCalls().length === 0 && !streamingText() && (
           <div class="message assistant thinking">
             <div class="thinking-dots">
               <span />
@@ -411,15 +500,10 @@ export function ChatView() {
           </div>
         )}
 
-        <Show when={viewMode() === "full" && activeTools().length > 0}>
+        {/* Keep ActiveToolIndicator for simple mode compatibility */}
+        <Show when={viewMode() === "simple" && activeTools().length > 0}>
           <ActiveToolIndicator tools={activeTools()} />
         </Show>
-
-        {streamingText() && (
-          <div class="message assistant streaming">
-            <div class="content markdown-content" innerHTML={renderMarkdown(streamingText())} />
-          </div>
-        )}
 
         <div ref={messagesEndRef} />
       </div>

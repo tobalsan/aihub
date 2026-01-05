@@ -173,6 +173,7 @@ export const piAdapter: SdkAdapter = {
           } else if (evtType === "thinking_delta") {
             const chunk = assistantEvent?.delta as string;
             if (chunk) {
+              params.onEvent({ type: "thinking", data: chunk });
               params.onHistoryEvent({
                 type: "assistant_thinking",
                 text: chunk,
@@ -189,6 +190,7 @@ export const piAdapter: SdkAdapter = {
         const args = (evt as { args?: unknown }).args;
 
         params.onEvent({ type: "tool_start", toolName });
+        params.onEvent({ type: "tool_call", id: toolCallId, name: toolName, arguments: args });
         params.onHistoryEvent({
           type: "tool_call",
           id: toolCallId,
@@ -202,14 +204,29 @@ export const piAdapter: SdkAdapter = {
         const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
         const toolCallId = (evt as { toolCallId?: string }).toolCallId ?? "";
         const isError = (evt as { isError?: boolean }).isError ?? false;
-        const result = (evt as { result?: string }).result ?? "";
+        const rawResult = (evt as { result?: unknown }).result;
+
+        // Extract text from result - handle both string and structured formats
+        let content = "";
+        if (typeof rawResult === "string") {
+          content = rawResult;
+        } else if (rawResult && typeof rawResult === "object") {
+          // Handle structured content like {content: [{type: "text", text: "..."}]}
+          const obj = rawResult as Record<string, unknown>;
+          if (Array.isArray(obj.content)) {
+            content = (obj.content as Array<Record<string, unknown>>)
+              .filter((c) => c?.type === "text" && typeof c.text === "string")
+              .map((c) => c.text as string)
+              .join("\n");
+          }
+        }
 
         params.onEvent({ type: "tool_end", toolName, isError });
         params.onHistoryEvent({
           type: "tool_result",
           id: toolCallId,
           name: toolName,
-          content: result,
+          content,
           isError,
           timestamp: Date.now(),
         });

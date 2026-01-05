@@ -184,6 +184,8 @@ export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
 // Stream event types (used by WebSocket)
 export type StreamEvent =
   | { type: "text"; data: string }
+  | { type: "thinking"; data: string }
+  | { type: "tool_call"; id: string; name: string; arguments: unknown }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
   | { type: "done"; meta?: { durationMs: number } }

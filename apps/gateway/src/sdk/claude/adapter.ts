@@ -156,6 +156,7 @@ export const claudeAdapter: SdkAdapter = {
                 if (block.type === "tool_use" && block.id && block.name) {
                   toolIdToName.set(block.id, block.name);
                   params.onEvent({ type: "tool_start", toolName: block.name });
+                  params.onEvent({ type: "tool_call", id: block.id, name: block.name, arguments: block.input });
                   params.onHistoryEvent({
                     type: "tool_call",
                     id: block.id,
@@ -164,6 +165,7 @@ export const claudeAdapter: SdkAdapter = {
                     timestamp: Date.now(),
                   });
                 } else if (block.type === "thinking" && block.thinking) {
+                  params.onEvent({ type: "thinking", data: block.thinking });
                   params.onHistoryEvent({
                     type: "assistant_thinking",
                     text: block.thinking,
