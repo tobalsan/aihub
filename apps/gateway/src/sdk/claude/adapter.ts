@@ -138,6 +138,8 @@ export const claudeAdapter: SdkAdapter = {
             model: params.agent.model.model,
             // Resume existing session if available
             resume: existingClaudeSessionId,
+            // Bypass all permission prompts - tools run automatically
+            permissionMode: "bypassPermissions",
           },
         });
 
