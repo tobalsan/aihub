@@ -1,6 +1,7 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { QueryFunction, SDKMessage } from "./types.js";
+import { ensureBootstrapFiles, ensureClaudeMdSymlink } from "../../agents/workspace.js";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
@@ -76,6 +77,11 @@ export const claudeAdapter: SdkAdapter = {
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
     const envOverrides = getEnvOverrides(params.agent.model);
+
+    // Ensure bootstrap files exist (AGENTS.md, SOUL.md, etc.)
+    await ensureBootstrapFiles(params.workspaceDir);
+    // Create CLAUDE.md -> AGENTS.md symlink so Claude SDK reads our bootstrap
+    await ensureClaudeMdSymlink(params.workspaceDir);
 
     return withClaudeEnv(envOverrides, async () => {
       // Dynamic import to avoid requiring the package if not used

@@ -171,3 +171,31 @@ export function buildBootstrapContextFiles(
     .filter((f) => !f.missing && f.content)
     .map((f) => ({ path: f.name, content: f.content! }));
 }
+
+/**
+ * Ensure CLAUDE.md symlink exists pointing to AGENTS.md.
+ * Used by Claude SDK adapter so it reads AGENTS.md as project instructions.
+ */
+export async function ensureClaudeMdSymlink(workspaceDir: string): Promise<void> {
+  const claudeMdPath = path.join(workspaceDir, "CLAUDE.md");
+  const agentsMdPath = path.join(workspaceDir, "AGENTS.md");
+
+  // Check if CLAUDE.md already exists (file or symlink)
+  try {
+    const stat = await fs.lstat(claudeMdPath);
+    // If it's already a symlink pointing to AGENTS.md, we're done
+    if (stat.isSymbolicLink()) {
+      const target = await fs.readlink(claudeMdPath);
+      if (target === "AGENTS.md" || target === agentsMdPath) return;
+    }
+    // CLAUDE.md exists as regular file or different symlink - don't touch it
+    return;
+  } catch {
+    // CLAUDE.md doesn't exist - create symlink
+  }
+
+  // Only create symlink if AGENTS.md exists
+  if (await fileExists(agentsMdPath)) {
+    await fs.symlink("AGENTS.md", claudeMdPath);
+  }
+}
