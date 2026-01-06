@@ -92,6 +92,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
       "amsg": { "id": "agent-1", "enabled": true }
     }
   ],
+  "sessions": { "idleMinutes": 360 },
   "gateway": { "port": 4000, "bind": "tailnet" },
   "scheduler": { "enabled": true, "tickSeconds": 60 },
   "ui": { "port": 3000, "bind": "loopback" }

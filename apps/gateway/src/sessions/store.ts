@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { loadConfig } from "../config/index.js";
 
 export type SessionEntry = {
   sessionId: string;
@@ -9,7 +10,7 @@ export type SessionEntry = {
 };
 
 export const DEFAULT_MAIN_KEY = "main";
-export const DEFAULT_IDLE_MINUTES = 60;
+export const DEFAULT_IDLE_MINUTES = 360;
 export const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
 export const DEFAULT_ABORT_TRIGGERS = ["/abort"];
 
@@ -83,16 +84,21 @@ export async function resolveSessionId(
     agentId,
     sessionKey = DEFAULT_MAIN_KEY,
     message,
-    idleMinutes = DEFAULT_IDLE_MINUTES,
+    idleMinutes,
     resetTriggers = DEFAULT_RESET_TRIGGERS,
   } = params;
 
   ensureLoaded();
 
+  const config = loadConfig();
+  const configuredIdleMinutes = config.sessions?.idleMinutes;
+  const resolvedIdleMinutes =
+    idleMinutes ?? configuredIdleMinutes ?? DEFAULT_IDLE_MINUTES;
+
   const storeKey = `${agentId}:${sessionKey}`;
   const entry = store[storeKey];
   const now = Date.now();
-  const idleMs = idleMinutes * 60_000;
+  const idleMs = resolvedIdleMinutes * 60_000;
   const trimmedMsg = message.trim();
 
   // Check for reset triggers

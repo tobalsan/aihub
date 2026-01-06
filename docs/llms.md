@@ -82,6 +82,7 @@ All stored in `~/.aihub/`:
   }],
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
+  sessions?: { idleMinutes? },        // Default: 360 (6 hours)
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
   ui?: { enabled?, port?, bind?, tailscale? }  // enabled: default true; bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
@@ -164,7 +165,7 @@ Web UI uses both: `send` for user messages, `subscribe` for live background upda
 Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`:
 - **sessionKey**: Logical key (default: "main") stored in `~/.aihub/sessions.json`
 - **sessionId**: Raw UUID, bypasses key resolution if provided directly
-- **idleMinutes**: Sessions expire after 60 minutes of inactivity (creates new session)
+- **idleMinutes**: Sessions expire after 360 minutes (6 hours) of inactivity by default; configurable via `sessions.idleMinutes`
 - **resetTriggers**: `/new` or `/reset` force a new session; the trigger is stripped from message
 
 Store format: `{agentId}:{sessionKey}` -> `{ sessionId, updatedAt }`

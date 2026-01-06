@@ -115,6 +115,12 @@ export const GatewayServerConfigSchema = z.object({
 });
 export type GatewayServerConfig = z.infer<typeof GatewayServerConfigSchema>;
 
+// Sessions config
+export const SessionsConfigSchema = z.object({
+  idleMinutes: z.number().int().min(1).default(360),
+});
+export type SessionsConfig = z.infer<typeof SessionsConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   agents: z.array(AgentConfigSchema),
@@ -126,6 +132,7 @@ export const GatewayConfigSchema = z.object({
     })
     .optional(),
   gateway: GatewayServerConfigSchema.optional(),
+  sessions: SessionsConfigSchema.optional().default({}),
   scheduler: z
     .object({
       enabled: z.boolean().optional().default(true),
