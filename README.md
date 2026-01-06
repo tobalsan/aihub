@@ -16,16 +16,16 @@ cat > ~/.aihub/aihub.json << 'EOF'
     {
       "id": "my-agent",
       "name": "My Agent",
-      "workspace": "~/workspace",
+      "workspace": "~/workspace/my-agent",
       "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" }
     },
     {
       "id": "claude-agent",
       "name": "Claude Agent",
-      "workspace": "~/workspace",
+      "workspace": "~/workspace/claude-agent",
       "sdk": "claude",
       "model": {
-        "model": "claude-sonnet-4-5-20250929",
+        "model": "claude-opus-4-5-20251101",
         "base_url": "http://127.0.0.1:8317",
         "auth_token": "sk-dummy"
       }
