@@ -15,6 +15,18 @@ import type {
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
 
+const timestampFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+function formatTimestamp(timestamp: number): string {
+  return timestampFormatter.format(new Date(timestamp));
+}
+
 // Render markdown to sanitized HTML
 function renderMarkdown(content: string): string {
   const html = marked.parse(content, { breaks: true, async: false }) as string;
@@ -55,6 +67,7 @@ function CollapsibleBlock(props: {
   defaultCollapsed?: boolean;
   isError?: boolean;
   mono?: boolean;
+  timestamp?: number;
 }) {
   const shouldCollapse = props.defaultCollapsed ?? isLongContent(props.content);
   const [collapsed, setCollapsed] = createSignal(shouldCollapse);
@@ -69,12 +82,15 @@ function CollapsibleBlock(props: {
       <Show when={!collapsed()}>
         <div class={`collapse-content ${props.mono ? "mono" : ""}`}>{props.content}</div>
       </Show>
+      {props.timestamp && (
+        <div class="block-time">{formatTimestamp(props.timestamp)}</div>
+      )}
     </div>
   );
 }
 
 // Render content blocks for full mode
-function ContentBlocks(props: { blocks: ContentBlock[] }) {
+function ContentBlocks(props: { blocks: ContentBlock[]; timestamp?: number }) {
   return (
     <div class="content-blocks">
       <For each={props.blocks}>
@@ -88,6 +104,7 @@ function ContentBlocks(props: { blocks: ContentBlock[] }) {
                 title="Thinking"
                 content={block.thinking}
                 defaultCollapsed={true}
+                timestamp={props.timestamp}
               />
             );
           }
@@ -99,6 +116,7 @@ function ContentBlocks(props: { blocks: ContentBlock[] }) {
                 content={argsStr}
                 defaultCollapsed={isLongContent(argsStr)}
                 mono={true}
+                timestamp={props.timestamp}
               />
             );
           }
@@ -153,8 +171,11 @@ export function ChatView() {
   const [input, setInput] = createSignal("");
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [streamingThinking, setStreamingThinking] = createSignal("");
-  const [streamingToolCalls, setStreamingToolCalls] = createSignal<Array<{ id: string; name: string; arguments: unknown; status: "running" | "done" | "error" }>>([]);
+  const [streamingThinkingAt, setStreamingThinkingAt] = createSignal<number | null>(null);
+  const [streamingToolCalls, setStreamingToolCalls] = createSignal<Array<{ id: string; name: string; arguments: unknown; status: "running" | "done" | "error"; timestamp: number }>>([]);
   const [streamingText, setStreamingText] = createSignal("");
+  const [streamingTextAt, setStreamingTextAt] = createSignal<number | null>(null);
+  const [streamingStartedAt, setStreamingStartedAt] = createSignal<number | null>(null);
   const [activeTools, setActiveTools] = createSignal<ActiveToolCall[]>([]);
   const [loading, setLoading] = createSignal(true);
 
@@ -270,9 +291,12 @@ export function ChatView() {
     setInput("");
     if (textareaRef) textareaRef.style.height = "auto";
     setIsStreaming(true);
+    setStreamingStartedAt(Date.now());
     setStreamingThinking("");
+    setStreamingThinkingAt(null);
     setStreamingToolCalls([]);
     setStreamingText("");
+    setStreamingTextAt(null);
     setActiveTools([]);
 
     cleanup = streamMessage(
@@ -281,6 +305,7 @@ export function ChatView() {
       sessionKey(),
       (chunk) => {
         setStreamingText((prev) => prev + chunk);
+        if (!streamingTextAt()) setStreamingTextAt(Date.now());
       },
       () => {
         // Add assistant message - build content blocks from streaming state
@@ -309,10 +334,13 @@ export function ChatView() {
           ]);
         }
         setStreamingThinking("");
+        setStreamingThinkingAt(null);
         setStreamingToolCalls([]);
         setStreamingText("");
+        setStreamingTextAt(null);
         setActiveTools([]);
         setIsStreaming(false);
+        setStreamingStartedAt(null);
         cleanup = null;
       },
       (error) => {
@@ -322,20 +350,24 @@ export function ChatView() {
           { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
         ]);
         setStreamingThinking("");
+        setStreamingThinkingAt(null);
         setStreamingToolCalls([]);
         setStreamingText("");
+        setStreamingTextAt(null);
         setActiveTools([]);
         setIsStreaming(false);
+        setStreamingStartedAt(null);
         cleanup = null;
       },
       {
         onThinking: (chunk) => {
           setStreamingThinking((prev) => prev + chunk);
+          if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
         },
         onToolCall: (id, name, args) => {
           setStreamingToolCalls((prev) => [
             ...prev,
-            { id, name, arguments: args, status: "running" },
+            { id, name, arguments: args, status: "running", timestamp: Date.now() },
           ]);
         },
         onToolStart: (toolName) => {
@@ -421,6 +453,7 @@ export function ChatView() {
                 ) : (
                   <div class="content">{msg.content}</div>
                 )}
+                <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
               </div>
             )}
           </For>
@@ -437,14 +470,16 @@ export function ChatView() {
                 return (
                   <div class="message user">
                     <div class="content">{textContent}</div>
+                    <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
                   </div>
                 );
               }
               if (msg.role === "assistant") {
                 return (
                   <div class="message assistant full-message">
-                    <ContentBlocks blocks={msg.content} />
+                    <ContentBlocks blocks={msg.content} timestamp={msg.timestamp} />
                     {msg.meta && <ModelMetaDisplay meta={msg.meta} />}
+                    <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
                   </div>
                 );
               }
@@ -470,6 +505,7 @@ export function ChatView() {
                         mono={true}
                       />
                     )}
+                    <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
                   </div>
                 );
               }
@@ -487,6 +523,7 @@ export function ChatView() {
                   title="Thinking"
                   content={streamingThinking()}
                   defaultCollapsed={false}
+                  timestamp={streamingThinkingAt() ?? streamingStartedAt() ?? undefined}
                 />
               )}
               <For each={streamingToolCalls()}>
@@ -496,6 +533,7 @@ export function ChatView() {
                     content={formatJson(tc.arguments)}
                     defaultCollapsed={false}
                     mono={true}
+                    timestamp={tc.timestamp}
                   />
                 )}
               </For>
@@ -503,6 +541,9 @@ export function ChatView() {
                 <div class="block-text markdown-content" innerHTML={renderMarkdown(streamingText())} />
               )}
             </div>
+            {streamingStartedAt() && (
+              <div class="message-time">{formatTimestamp(streamingStartedAt()!)}</div>
+            )}
           </div>
         </Show>
 
@@ -510,6 +551,11 @@ export function ChatView() {
         <Show when={viewMode() === "simple" && isStreaming() && streamingText()}>
           <div class="message assistant streaming">
             <div class="content markdown-content" innerHTML={renderMarkdown(streamingText())} />
+            {(streamingTextAt() || streamingStartedAt()) && (
+              <div class="message-time">
+                {formatTimestamp((streamingTextAt() ?? streamingStartedAt()) as number)}
+              </div>
+            )}
           </div>
         </Show>
 
@@ -521,6 +567,9 @@ export function ChatView() {
               <span />
               <span />
             </div>
+            {streamingStartedAt() && (
+              <div class="message-time">{formatTimestamp(streamingStartedAt()!)}</div>
+            )}
           </div>
         )}
 
@@ -750,6 +799,17 @@ export function ChatView() {
           border-color: var(--error);
         }
 
+        .message-time {
+          margin-top: 6px;
+          font-size: 11px;
+          color: var(--text-muted);
+          text-align: right;
+        }
+
+        .message.user .message-time {
+          color: rgba(255, 255, 255, 0.7);
+        }
+
         .message.streaming .content::after {
           content: "";
           display: inline-block;
@@ -853,6 +913,13 @@ export function ChatView() {
         .collapse-content.mono {
           font-family: 'SF Mono', 'Consolas', monospace;
           font-size: 12px;
+        }
+
+        .block-time {
+          padding: 6px 12px 8px;
+          font-size: 11px;
+          color: var(--text-muted);
+          text-align: right;
         }
 
         /* Content blocks */
