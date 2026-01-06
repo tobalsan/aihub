@@ -243,8 +243,14 @@ export function ChatView() {
   };
 
   const handleSend = () => {
+    // Abort current stream if one is running
+    if (cleanup) {
+      cleanup();
+      cleanup = null;
+    }
+
     const text = input().trim();
-    if (!text || isStreaming() || loading()) return;
+    if (!text || loading()) return;
 
     // Add user message to simple view
     const userMsg: Message = {
@@ -538,14 +544,13 @@ export function ChatView() {
               resizeTextarea();
             }}
             onKeyDown={handleKeyDown}
-            disabled={isStreaming()}
             rows={1}
           />
         </div>
         <button
           class="send-btn"
           onClick={handleSend}
-          disabled={!input().trim() || isStreaming() || loading()}
+          disabled={!input().trim() || loading()}
           aria-label="Send message"
         >
           <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none">
