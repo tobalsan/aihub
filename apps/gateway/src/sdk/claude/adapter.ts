@@ -132,7 +132,7 @@ export const claudeAdapter: SdkAdapter = {
             systemPrompt: { 
               type: "preset", 
               preset: "claude_code",
-              append: "Always start by reading AGENTS.md. No need to mention it."
+              append: "Always start by using the Read tool to read file AGENTS.md. At the start of every new session, begin with '٩(◕‿◕｡)۶ '"
             },
             // Load settings from user (~/.claude/) and project (.claude/)
             settingSources: ["user", "project"],
