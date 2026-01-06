@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 // Core files that indicate workspace is initialized (not brand-new)
 const CORE_FILENAMES = [
-  "CLAUDE.md",
   "AGENTS.md",
   "SOUL.md",
   "TOOLS.md",
@@ -25,8 +24,6 @@ export type BootstrapFile = {
 
 // Fallback templates if docs/templates not found
 const FALLBACK_TEMPLATES: Record<BootstrapFileName, string> = {
-  "CLAUDE.md": `ALWAYS START BY READING AGENTS.md, AND BOOSTRAP.md IF IT EXISTS AT THE ROOT OF THIS FOLDER
-`,
   "AGENTS.md": `# AGENTS.md - Workspace
 
 This folder is the agent's working directory.
@@ -174,4 +171,3 @@ export function buildBootstrapContextFiles(
     .filter((f) => !f.missing && f.content)
     .map((f) => ({ path: f.name, content: f.content! }));
 }
-

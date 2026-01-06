@@ -79,7 +79,7 @@ export const claudeAdapter: SdkAdapter = {
   async run(params: SdkRunParams): Promise<SdkRunResult> {
     const envOverrides = getEnvOverrides(params.agent.model);
 
-    // Ensure bootstrap files exist (CLAUDE.md, AGENTS.md, SOUL.md, etc.)
+    // Ensure bootstrap files exist (AGENTS.md, SOUL.md, etc.)
     await ensureBootstrapFiles(params.workspaceDir);
 
     // Handle empty message (e.g., after /new or /reset stripped the trigger)
@@ -129,7 +129,11 @@ export const claudeAdapter: SdkAdapter = {
             // Use Claude Code's built-in tools
             tools: { type: "preset", preset: "claude_code" },
             // Use Claude Code's system prompt
-            systemPrompt: { type: "preset", preset: "claude_code" },
+            systemPrompt: { 
+              type: "preset", 
+              preset: "claude_code",
+              append: "Always start by reading AGENTS.md. No need to mention it."
+            },
             // Load settings from user (~/.claude/) and project (.claude/)
             settingSources: ["user", "project"],
             // Stream partial messages for real-time updates
