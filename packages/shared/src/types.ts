@@ -33,6 +33,13 @@ export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
 export const SdkIdSchema = z.enum(["pi", "claude"]);
 export type SdkId = z.infer<typeof SdkIdSchema>;
 
+// Agent auth config
+export const AgentAuthConfigSchema = z.object({
+  mode: z.enum(["oauth", "api_key", "proxy"]).optional(),
+  profileId: z.string().optional(), // e.g. "anthropic:default"
+});
+export type AgentAuthConfig = z.infer<typeof AgentAuthConfigSchema>;
+
 // Agent config
 export const AgentConfigSchema = z.object({
   id: z.string(),
@@ -40,6 +47,7 @@ export const AgentConfigSchema = z.object({
   workspace: z.string(),
   sdk: SdkIdSchema.optional(), // default "pi"
   model: AgentModelConfigSchema,
+  auth: AgentAuthConfigSchema.optional(), // OAuth/API key auth config
   discord: DiscordConfigSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),

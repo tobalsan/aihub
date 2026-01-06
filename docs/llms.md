@@ -74,6 +74,10 @@ All stored in `~/.aihub/`:
       base_url?: string,         // API proxy URL (Claude SDK only)
       auth_token?: string        // API auth token (Claude SDK only, overrides env)
     },
+    auth?: {                     // Auth config (Pi SDK)
+      mode?: "oauth"|"api_key"|"proxy",
+      profileId?: string         // e.g. "anthropic:default"
+    },
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high",
     queueMode?: "queue"|"interrupt",  // Default: queue
     discord?: { token, applicationId?, guildId?, channelId? },
@@ -227,6 +231,82 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 ## Single-Agent Mode
 
 `aihub gateway --agent-id <id>` filters all services to one agent. Useful for isolated testing.
+
+## Direct OAuth Authentication (Pi SDK)
+
+Pi SDK agents can authenticate via OAuth tokens stored in `~/.aihub/auth.json`. This allows running agents without a separate CLIProxyAPI.
+
+### Supported OAuth Providers
+
+- `anthropic` - Anthropic (Claude Pro/Max)
+- `openai-codex` - OpenAI Codex
+- `github-copilot` - GitHub Copilot
+- `google-gemini-cli` - Google Cloud Code Assist (Gemini CLI)
+- `google-antigravity` - Antigravity (Gemini 3, Claude, GPT-OSS)
+
+Note: Run `aihub auth login` to see current available providers (list from Pi SDK).
+
+### CLI Commands
+
+```bash
+# Login to a provider (interactive)
+pnpm aihub auth login
+
+# Login to a specific provider
+pnpm aihub auth login anthropic
+
+# Check authentication status
+pnpm aihub auth status
+
+# Logout from a provider
+pnpm aihub auth logout anthropic
+```
+
+### OAuth Agent Config
+
+```json
+{
+  "agents": [{
+    "id": "my-agent",
+    "name": "My Agent",
+    "workspace": "~/agents/my-agent",
+    "sdk": "pi",
+    "auth": {
+      "mode": "oauth"
+    },
+    "model": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-5"
+    }
+  }]
+}
+```
+
+The `auth.mode` field is optional and can be:
+- `oauth` - Require OAuth tokens (fails if not logged in via `aihub auth login`)
+- `api_key` - Use only API key credentials or env vars (ignores OAuth tokens)
+- `proxy` - Use existing provider config (same as default; for proxy-backed providers in `models.json`)
+
+When `auth.mode` is not set (or `proxy`), Pi SDK's AuthStorage resolves credentials with priority:
+1. Runtime override (CLI `--api-key`)
+2. API key from `auth.json`
+3. OAuth token from `auth.json` (auto-refreshed)
+4. Environment variable
+5. Fallback resolver (`models.json` custom providers)
+
+The `auth.profileId` field is reserved for future multi-profile support.
+
+**Implementation note:** This feature uses Pi SDK's existing AuthStorage rather than custom credential stores. Migration from legacy `~/.pi/agent/oauth.json` is handled automatically by Pi SDK.
+
+### Storage
+
+Credentials are stored in `~/.aihub/auth.json`:
+```json
+{
+  "anthropic": { "type": "oauth", "access": "...", "refresh": "...", "expires": 1767304352803 },
+  "openai": { "type": "api_key", "key": "sk-..." }
+}
+```
 
 ## Claude SDK Proxy Configuration
 

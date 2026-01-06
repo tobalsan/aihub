@@ -90,9 +90,38 @@ export const piAdapter: SdkAdapter = {
       throw new Error(`Model not found: ${agent.model.provider}/${agent.model.model}`);
     }
 
-    // Get API key
-    const storedKey = await authStorage.getApiKey(model.provider);
-    const apiKey = storedKey ?? getEnvApiKey(model.provider);
+    // Get API key based on auth.mode
+    const authMode = agent.auth?.mode;
+    let apiKey: string | null = null;
+
+    if (authMode === "oauth") {
+      // OAuth mode: require OAuth credentials
+      const cred = authStorage.get(model.provider);
+      if (!cred || cred.type !== "oauth") {
+        throw new Error(
+          `No OAuth credentials for provider: ${model.provider}. Run 'aihub auth login ${model.provider}' first.`
+        );
+      }
+      apiKey = await authStorage.getApiKey(model.provider);
+    } else if (authMode === "api_key") {
+      // API key mode: only use API key credentials or env vars, skip OAuth
+      const cred = authStorage.get(model.provider);
+      if (cred?.type === "api_key") {
+        apiKey = cred.key;
+      } else {
+        apiKey = getEnvApiKey(model.provider) ?? null;
+      }
+      if (!apiKey) {
+        // Format env var name: github-copilot -> GITHUB_COPILOT_API_KEY
+        const envVar = `${model.provider.toUpperCase().replace(/-/g, "_")}_API_KEY`;
+        throw new Error(`No API key for provider: ${model.provider}. Set ${envVar} env var.`);
+      }
+    } else {
+      // Default/proxy: Pi SDK's getApiKey handles OAuth, API keys, and env vars
+      // Priority: runtime override > api_key > oauth (refreshed) > env > fallback (models.json)
+      apiKey = await authStorage.getApiKey(model.provider);
+    }
+
     if (!apiKey) {
       throw new Error(`No API key for provider: ${model.provider}`);
     }

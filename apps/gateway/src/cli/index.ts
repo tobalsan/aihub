@@ -3,7 +3,8 @@ import { Command } from "commander";
 import { spawn, ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, getAgents, getAgent, setSingleAgentMode } from "../config/index.js";
+import { createInterface } from "node:readline";
+import { loadConfig, getAgents, getAgent, setSingleAgentMode, CONFIG_DIR } from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { startDiscordBots, stopDiscordBots } from "../discord/index.js";
 import { startScheduler, stopScheduler } from "../scheduler/index.js";
@@ -163,6 +164,126 @@ program
 
       console.log("\n");
       console.log(`Duration: ${result.meta.durationMs}ms`);
+    } catch (err) {
+      console.error("Error:", err);
+      process.exit(1);
+    }
+  });
+
+// Auth commands
+const authCmd = program.command("auth").description("Manage OAuth authentication");
+
+authCmd
+  .command("login [provider]")
+  .description("Login to an OAuth provider (run without args to see available providers)")
+  .action(async (provider?: string) => {
+    try {
+      const { discoverAuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const { getOAuthProviders } = await import("@mariozechner/pi-ai");
+      const authStorage = discoverAuthStorage(CONFIG_DIR);
+      const providers = getOAuthProviders();
+
+      // If no provider specified, show menu
+      let selectedProvider = provider;
+      if (!selectedProvider) {
+        console.log("Select a provider:\n");
+        providers.forEach((p, i) => console.log(`  ${i + 1}. ${p.name}`));
+        console.log();
+
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const choice = await new Promise<string>((resolve) =>
+          rl.question("Enter number: ", resolve)
+        );
+        rl.close();
+
+        const index = parseInt(choice, 10) - 1;
+        if (index < 0 || index >= providers.length) {
+          console.error("Invalid selection");
+          process.exit(1);
+        }
+        selectedProvider = providers[index].id;
+      }
+
+      // Validate provider
+      const providerInfo = providers.find((p) => p.id === selectedProvider);
+      if (!providerInfo) {
+        console.error(`Unknown provider: ${selectedProvider}`);
+        console.error(`Available: ${providers.map((p) => p.id).join(", ")}`);
+        process.exit(1);
+      }
+
+      console.log(`Logging in to ${providerInfo.name}...`);
+
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      await authStorage.login(selectedProvider as Parameters<typeof authStorage.login>[0], {
+        onAuth: (info) => {
+          console.log(`\nOpen this URL in your browser:\n${info.url}`);
+          if (info.instructions) console.log(info.instructions);
+          console.log();
+        },
+        onPrompt: async (prompt) => {
+          return new Promise((resolve) =>
+            rl.question(`${prompt.message}${prompt.placeholder ? ` (${prompt.placeholder})` : ""}: `, resolve)
+          );
+        },
+        onProgress: (msg) => console.log(msg),
+      });
+      rl.close();
+
+      console.log(`\nLogged in to ${providerInfo.name}`);
+    } catch (err) {
+      console.error("Login failed:", err);
+      process.exit(1);
+    }
+  });
+
+authCmd
+  .command("status")
+  .description("Show authentication status")
+  .action(async () => {
+    try {
+      const { discoverAuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const authStorage = discoverAuthStorage(CONFIG_DIR);
+      const providers = authStorage.list();
+
+      if (providers.length === 0) {
+        console.log("No providers authenticated. Run 'aihub auth login' to authenticate.");
+        return;
+      }
+
+      console.log("Authenticated providers:");
+      for (const provider of providers) {
+        const cred = authStorage.get(provider);
+        if (!cred) continue;
+        if (cred.type === "oauth") {
+          const expires = new Date((cred as { expires: number }).expires);
+          const isExpired = expires.getTime() < Date.now();
+          console.log(`  - ${provider} (oauth) expires: ${expires.toLocaleString()}${isExpired ? " [EXPIRED]" : ""}`);
+        } else {
+          console.log(`  - ${provider} (${cred.type})`);
+        }
+      }
+    } catch (err) {
+      console.error("Error:", err);
+      process.exit(1);
+    }
+  });
+
+authCmd
+  .command("logout <provider>")
+  .description("Logout from a provider")
+  .action(async (provider: string) => {
+    try {
+      const { discoverAuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const authStorage = discoverAuthStorage(CONFIG_DIR);
+
+      if (!authStorage.has(provider)) {
+        console.log(`Not logged in to ${provider}`);
+        return;
+      }
+
+      authStorage.logout(provider);
+      console.log(`Logged out from ${provider}`);
     } catch (err) {
       console.error("Error:", err);
       process.exit(1);
