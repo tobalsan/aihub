@@ -110,8 +110,9 @@ const tailscaleServe = uiConfig.tailscale?.mode === "serve";
 // Otherwise, use the configured bind mode
 const host = tailscaleServe ? "127.0.0.1" : resolveHost(uiConfig.bind);
 
-// Get MagicDNS hostname for HMR when using tailscale serve
+// Get MagicDNS hostname for allowed hosts when using tailscale serve
 const tailnetHostname = tailscaleServe ? getTailnetHostname() : null;
+const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 
 // Resolve gateway target for proxy
 const gatewayHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
@@ -130,8 +131,8 @@ export default defineConfig({
     port,
     // Allow MagicDNS hostname when using tailscale serve
     allowedHosts: tailnetHostname ? [tailnetHostname] : undefined,
-    // HMR needs to connect via the MagicDNS hostname when using tailscale serve
-    hmr: tailnetHostname ? { host: tailnetHostname } : undefined,
+    // Let HMR follow the browser host by default; allow override if needed
+    hmr: hmrHostOverride ? { host: hmrHostOverride } : undefined,
     proxy: {
       "/api": {
         target: gatewayTarget,
