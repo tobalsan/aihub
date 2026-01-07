@@ -5,7 +5,7 @@ export type ClaudeQueryOptions = {
   cwd?: string;
   abortController?: AbortController;
   tools?: string[] | { type: "preset"; preset: "claude_code" };
-  systemPrompt?: string | { type: "preset"; preset: "claude_code" };
+  systemPrompt?: string | { type: "preset"; preset: "claude_code"; append?: string };
   settingSources?: Array<"user" | "project" | "local">;
   includePartialMessages?: boolean;
   model?: string;

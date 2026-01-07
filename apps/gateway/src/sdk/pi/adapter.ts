@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AppMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
@@ -63,7 +63,6 @@ export const piAdapter: SdkAdapter = {
       discoverAuthStorage,
       discoverModels,
       discoverSkills,
-      discoverSlashCommands,
       buildSystemPrompt,
       createCodingTools,
     } = await import("@mariozechner/pi-coding-agent");
@@ -102,7 +101,7 @@ export const piAdapter: SdkAdapter = {
           `No OAuth credentials for provider: ${model.provider}. Run 'aihub auth login ${model.provider}' first.`
         );
       }
-      apiKey = await authStorage.getApiKey(model.provider);
+      apiKey = (await authStorage.getApiKey(model.provider)) ?? null;
     } else if (authMode === "api_key") {
       // API key mode: only use API key credentials or env vars, skip OAuth
       const cred = authStorage.get(model.provider);
@@ -119,7 +118,7 @@ export const piAdapter: SdkAdapter = {
     } else {
       // Default/proxy: Pi SDK's getApiKey handles OAuth, API keys, and env vars
       // Priority: runtime override > api_key > oauth (refreshed) > env > fallback (models.json)
-      apiKey = await authStorage.getApiKey(model.provider);
+      apiKey = (await authStorage.getApiKey(model.provider)) ?? null;
     }
 
     if (!apiKey) {
@@ -127,9 +126,8 @@ export const piAdapter: SdkAdapter = {
     }
     authStorage.setRuntimeApiKey(model.provider, apiKey);
 
-    // Discover skills and slash commands
+    // Discover skills
     const skills = discoverSkills(params.workspaceDir);
-    const slashCommands = discoverSlashCommands(params.workspaceDir);
 
     // Load bootstrap context files
     const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
@@ -161,7 +159,6 @@ export const piAdapter: SdkAdapter = {
       sessionManager,
       settingsManager,
       skills,
-      slashCommands,
       contextFiles,
     });
 
@@ -183,7 +180,7 @@ export const piAdapter: SdkAdapter = {
 
     const unsubscribe = agentSession.subscribe((evt) => {
       if (evt.type === "message_update") {
-        const msg = (evt as { message?: AppMessage }).message;
+        const msg = (evt as { message?: AgentMessage }).message;
         if (msg?.role === "assistant") {
           const assistantEvent = (evt as { assistantMessageEvent?: unknown })
             .assistantMessageEvent as Record<string, unknown> | undefined;
@@ -263,7 +260,7 @@ export const piAdapter: SdkAdapter = {
 
       // Capture meta from message end
       if (evt.type === "message_end") {
-        const msg = (evt as { message?: AppMessage }).message;
+        const msg = (evt as { message?: AgentMessage }).message;
         if (msg?.role === "assistant") {
           const assistantMsg = msg as unknown as Record<string, unknown>;
           params.onHistoryEvent({
@@ -291,7 +288,7 @@ export const piAdapter: SdkAdapter = {
     const lastAssistant = messages
       .slice()
       .reverse()
-      .find((m: AppMessage) => m.role === "assistant") as AssistantMessage | undefined;
+      .find((m: AgentMessage) => m.role === "assistant") as AssistantMessage | undefined;
 
     const finalText = lastAssistant ? extractAssistantText(lastAssistant) : "";
 
@@ -302,7 +299,7 @@ export const piAdapter: SdkAdapter = {
 
   async queueMessage(handle: unknown, message: string): Promise<void> {
     const piSession = handle as PiAgentSession;
-    await piSession.queueMessage(message);
+    await piSession.sendUserMessage(message, { deliverAs: "steer" });
   },
 
   abort(handle: unknown): void {
