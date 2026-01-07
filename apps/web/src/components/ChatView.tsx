@@ -180,14 +180,30 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
 
   let messagesEndRef: HTMLDivElement | undefined;
+  let messagesContainerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
 
   const sessionKey = () => getSessionKey(params.agentId);
 
-  const scrollToBottom = () => {
-    messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+  const [isAtBottom, setIsAtBottom] = createSignal(true);
+  const SCROLL_THRESHOLD = 40;
+
+  const checkIsAtBottom = () => {
+    if (!messagesContainerRef) return true;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef;
+    return scrollHeight - scrollTop - clientHeight <= SCROLL_THRESHOLD;
+  };
+
+  const handleScroll = () => {
+    setIsAtBottom(checkIsAtBottom());
+  };
+
+  const scrollToBottom = (force = false) => {
+    if (force || isAtBottom()) {
+      messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   const resizeTextarea = () => {
@@ -290,6 +306,8 @@ export function ChatView() {
 
     setInput("");
     if (textareaRef) textareaRef.style.height = "auto";
+    scrollToBottom(true);
+    setIsAtBottom(true);
     setIsStreaming(true);
     setStreamingStartedAt(Date.now());
     setStreamingThinking("");
@@ -443,7 +461,7 @@ export function ChatView() {
         </div>
       </header>
 
-      <div class="messages">
+      <div class="messages" ref={messagesContainerRef} onScroll={handleScroll}>
         <Show when={viewMode() === "simple"}>
           <For each={simpleMessages()}>
             {(msg) => (
