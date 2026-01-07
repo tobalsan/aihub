@@ -57,7 +57,37 @@ packages/
 pnpm aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
 pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
+
+# OAuth authentication (Pi SDK agents)
+pnpm aihub auth login           # Interactive provider selection
+pnpm aihub auth login anthropic # Login to specific provider
+pnpm aihub auth status          # Show authenticated providers
+pnpm aihub auth logout <provider>
 ```
+
+## OAuth Authentication
+
+Pi SDK agents can use OAuth tokens instead of API keys. Supported providers: `anthropic`, `openai-codex`, `github-copilot`, `google-gemini-cli`, `google-antigravity`.
+
+```bash
+# Login once
+pnpm aihub auth login anthropic
+
+# Configure agent to use OAuth
+```
+
+```json
+{
+  "agents": [{
+    "id": "my-agent",
+    "workspace": "~/workspace",
+    "auth": { "mode": "oauth" },
+    "model": { "provider": "anthropic", "model": "claude-opus-4-5" }
+  }]
+}
+```
+
+Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 
 ## API
 
@@ -111,6 +141,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 | `model.model` | Model name |
 | `model.base_url` | API proxy URL (Claude SDK only) |
 | `model.auth_token` | API auth token (Claude SDK only, overrides env) |
+| `auth.mode` | `oauth`, `api_key`, or `proxy` (Pi SDK only) |
 | `thinkLevel` | off, minimal, low, medium, high |
 | `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
 | `discord` | Discord bot config |
@@ -203,6 +234,7 @@ pnpm dev:web      # web UI only
 ## Data
 
 - Config: `~/.aihub/aihub.json`
+- Auth: `~/.aihub/auth.json` (OAuth/API key credentials)
 - Models: `~/.aihub/models.json` (optional)
 - Schedules: `~/.aihub/schedules.json`
 - Sessions: `~/.aihub/sessions/*.jsonl`
