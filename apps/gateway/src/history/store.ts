@@ -8,6 +8,10 @@ import type {
 } from "@aihub/shared";
 import type { HistoryEvent } from "../sdk/types.js";
 import { CONFIG_DIR } from "../config/index.js";
+import {
+  getSessionCreatedAt,
+  formatSessionTimestamp,
+} from "../sessions/store.js";
 
 const HISTORY_DIR = path.join(CONFIG_DIR, "history");
 
@@ -15,8 +19,66 @@ async function ensureHistoryDir() {
   await fs.mkdir(HISTORY_DIR, { recursive: true });
 }
 
-function resolveHistoryFile(agentId: string, sessionId: string): string {
-  return path.join(HISTORY_DIR, `${agentId}-${sessionId}.jsonl`);
+const legacyFileName = (agentId: string, sessionId: string) =>
+  `${agentId}-${sessionId}.jsonl`;
+
+const timestampedFileName = (timestamp: number, agentId: string, sessionId: string) =>
+  `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
+
+/**
+ * Find existing timestamped file by scanning directory for pattern *_{agentId}-{sessionId}.jsonl
+ * Returns the most recent (lexicographically last) if multiple exist
+ */
+async function findTimestampedFile(dir: string, agentId: string, sessionId: string): Promise<string | null> {
+  const suffix = `_${agentId}-${sessionId}.jsonl`;
+  try {
+    const files = await fs.readdir(dir);
+    const matches = files.filter((f) => f.endsWith(suffix)).sort();
+    const latest = matches.at(-1);
+    return latest ? path.join(dir, latest) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve history file path with timestamp prefix support.
+ * - For existing files: checks known timestamped path, then scans for any timestamped file, then legacy
+ * - For new files: always creates timestamped filename (uses createdAt or defaults to now)
+ */
+async function resolveHistoryFile(agentId: string, sessionId: string): Promise<string> {
+  await ensureHistoryDir();
+  const createdAt = getSessionCreatedAt(sessionId);
+
+  // Try exact timestamped file first (if we have createdAt)
+  if (createdAt) {
+    const timestampedPath = path.join(HISTORY_DIR, timestampedFileName(createdAt, agentId, sessionId));
+    try {
+      await fs.access(timestampedPath);
+      return timestampedPath;
+    } catch {
+      // Exact timestamped file doesn't exist
+    }
+  }
+
+  // Scan for any existing timestamped file (handles missing createdAt in sessions.json)
+  const existingTimestamped = await findTimestampedFile(HISTORY_DIR, agentId, sessionId);
+  if (existingTimestamped) {
+    return existingTimestamped;
+  }
+
+  // Try legacy file (backwards compat)
+  const legacyPath = path.join(HISTORY_DIR, legacyFileName(agentId, sessionId));
+  try {
+    await fs.access(legacyPath);
+    return legacyPath;
+  } catch {
+    // Neither exists, create new timestamped file
+  }
+
+  // New file: always use timestamped format (use createdAt or default to now)
+  const timestamp = createdAt ?? Date.now();
+  return path.join(HISTORY_DIR, timestampedFileName(timestamp, agentId, sessionId));
 }
 
 // JSONL entry format for canonical history
@@ -62,8 +124,7 @@ async function appendRawEntry(
   sessionId: string,
   entry: Record<string, unknown>
 ): Promise<void> {
-  await ensureHistoryDir();
-  const file = resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId);
   const line = JSON.stringify({ type: "history", agentId, sessionId, ...entry }) + "\n";
   await fs.appendFile(file, line, "utf-8");
 }
@@ -234,7 +295,7 @@ export async function getSimpleHistory(
   agentId: string,
   sessionId: string
 ): Promise<SimpleHistoryMessage[]> {
-  const file = resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId);
   const messages: SimpleHistoryMessage[] = [];
 
   try {
@@ -274,7 +335,7 @@ export async function getFullHistory(
   agentId: string,
   sessionId: string
 ): Promise<FullHistoryMessage[]> {
-  const file = resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId);
   const messages: FullHistoryMessage[] = [];
 
   try {
@@ -329,7 +390,7 @@ export async function hasCanonicalHistory(
   agentId: string,
   sessionId: string
 ): Promise<boolean> {
-  const file = resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId);
   try {
     await fs.access(file);
     return true;
@@ -340,24 +401,41 @@ export async function hasCanonicalHistory(
 
 const PI_SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
-function resolvePiSessionFile(agentId: string, sessionId: string): string {
-  return path.join(PI_SESSIONS_DIR, `${agentId}-${sessionId}.jsonl`);
-}
-
 /**
- * Check if legacy Pi session file exists
+ * Resolve Pi session file path (supports both timestamped and legacy formats)
  */
-async function hasPiSession(agentId: string, sessionId: string): Promise<boolean> {
+async function resolvePiSessionFile(agentId: string, sessionId: string): Promise<string | null> {
+  const createdAt = getSessionCreatedAt(sessionId);
+
+  // Try exact timestamped file first (if we have createdAt)
+  if (createdAt) {
+    const timestampedPath = path.join(PI_SESSIONS_DIR, timestampedFileName(createdAt, agentId, sessionId));
+    try {
+      await fs.access(timestampedPath);
+      return timestampedPath;
+    } catch {
+      // Exact timestamped file doesn't exist
+    }
+  }
+
+  // Scan for any existing timestamped file
+  const existingTimestamped = await findTimestampedFile(PI_SESSIONS_DIR, agentId, sessionId);
+  if (existingTimestamped) {
+    return existingTimestamped;
+  }
+
+  // Try legacy file
+  const legacyPath = path.join(PI_SESSIONS_DIR, legacyFileName(agentId, sessionId));
   try {
-    await fs.access(resolvePiSessionFile(agentId, sessionId));
-    return true;
+    await fs.access(legacyPath);
+    return legacyPath;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
- * Backfill canonical history from legacy Pi session file (one-time migration)
+ * Backfill canonical history from Pi session file (one-time migration)
  * Returns true if backfill was performed, false if not needed
  */
 export async function backfillFromPiSession(
@@ -366,9 +444,10 @@ export async function backfillFromPiSession(
 ): Promise<boolean> {
   // Skip if canonical already exists or Pi session doesn't exist
   if (await hasCanonicalHistory(agentId, sessionId)) return false;
-  if (!(await hasPiSession(agentId, sessionId))) return false;
 
-  const piFile = resolvePiSessionFile(agentId, sessionId);
+  const piFile = await resolvePiSessionFile(agentId, sessionId);
+  if (!piFile) return false;
+
   let content: string;
   try {
     content = await fs.readFile(piFile, "utf-8");

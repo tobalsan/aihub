@@ -11,6 +11,10 @@ import {
   loadBootstrapFiles,
   buildBootstrapContextFiles,
 } from "../../agents/workspace.js";
+import {
+  getSessionCreatedAt,
+  formatSessionTimestamp,
+} from "../../sessions/store.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -18,8 +22,66 @@ async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }
 
-function resolveSessionFile(agentId: string, sessionId: string): string {
-  return path.join(SESSIONS_DIR, `${agentId}-${sessionId}.jsonl`);
+const legacyFileName = (agentId: string, sessionId: string) =>
+  `${agentId}-${sessionId}.jsonl`;
+
+const timestampedFileName = (timestamp: number, agentId: string, sessionId: string) =>
+  `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
+
+/**
+ * Find existing timestamped file by scanning directory for pattern *_{agentId}-{sessionId}.jsonl
+ * Returns the most recent (lexicographically last) if multiple exist
+ */
+async function findTimestampedFile(dir: string, agentId: string, sessionId: string): Promise<string | null> {
+  const suffix = `_${agentId}-${sessionId}.jsonl`;
+  try {
+    const files = await fs.readdir(dir);
+    const matches = files.filter((f) => f.endsWith(suffix)).sort();
+    const latest = matches.at(-1);
+    return latest ? path.join(dir, latest) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve session file path with timestamp prefix support.
+ * - For existing files: checks known timestamped path, then scans for any timestamped file, then legacy
+ * - For new files: always creates timestamped filename (uses createdAt or defaults to now)
+ */
+async function resolveSessionFile(agentId: string, sessionId: string): Promise<string> {
+  await ensureSessionsDir();
+  const createdAt = getSessionCreatedAt(sessionId);
+
+  // Try exact timestamped file first (if we have createdAt)
+  if (createdAt) {
+    const timestampedPath = path.join(SESSIONS_DIR, timestampedFileName(createdAt, agentId, sessionId));
+    try {
+      await fs.access(timestampedPath);
+      return timestampedPath;
+    } catch {
+      // Exact timestamped file doesn't exist
+    }
+  }
+
+  // Scan for any existing timestamped file (handles missing createdAt in sessions.json)
+  const existingTimestamped = await findTimestampedFile(SESSIONS_DIR, agentId, sessionId);
+  if (existingTimestamped) {
+    return existingTimestamped;
+  }
+
+  // Try legacy file (backwards compat)
+  const legacyPath = path.join(SESSIONS_DIR, legacyFileName(agentId, sessionId));
+  try {
+    await fs.access(legacyPath);
+    return legacyPath;
+  } catch {
+    // Neither exists, create new timestamped file
+  }
+
+  // New file: always use timestamped format (use createdAt or default to now)
+  const timestamp = createdAt ?? Date.now();
+  return path.join(SESSIONS_DIR, timestampedFileName(timestamp, agentId, sessionId));
 }
 
 function extractAssistantText(msg: AssistantMessage): string {
@@ -49,8 +111,7 @@ export const piAdapter: SdkAdapter = {
   },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
-    await ensureSessionsDir();
-    const sessionFile = resolveSessionFile(params.agentId, params.sessionId);
+    const sessionFile = await resolveSessionFile(params.agentId, params.sessionId);
 
     // Ensure bootstrap files exist
     await ensureBootstrapFiles(params.workspaceDir);

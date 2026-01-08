@@ -7,6 +7,7 @@ import { loadConfig } from "../config/index.js";
 export type SessionEntry = {
   sessionId: string;
   updatedAt: number;
+  createdAt?: number;
 };
 
 export const DEFAULT_MAIN_KEY = "main";
@@ -71,6 +72,7 @@ export type ResolveSessionResult = {
   sessionId: string;
   message: string; // potentially stripped of reset trigger
   isNew: boolean;
+  createdAt: number;
 };
 
 /**
@@ -123,20 +125,24 @@ export async function resolveSessionId(
   const shouldCreateNew = isReset || isExpired;
 
   let sessionId: string;
+  let createdAt: number;
   if (shouldCreateNew) {
     sessionId = crypto.randomUUID();
+    createdAt = now;
   } else {
     sessionId = entry.sessionId;
+    createdAt = entry.createdAt ?? now; // fallback for legacy entries
   }
 
   // Update store
-  store[storeKey] = { sessionId, updatedAt: now };
+  store[storeKey] = { sessionId, updatedAt: now, createdAt };
   await save();
 
   return {
     sessionId,
     message: strippedMessage,
     isNew: shouldCreateNew,
+    createdAt,
   };
 }
 
@@ -149,4 +155,28 @@ export function getSessionEntry(
 ): SessionEntry | undefined {
   ensureLoaded();
   return store[`${agentId}:${sessionKey}`];
+}
+
+/**
+ * Look up createdAt timestamp for a sessionId (searches all entries)
+ * Returns undefined if not found
+ */
+export function getSessionCreatedAt(sessionId: string): number | undefined {
+  ensureLoaded();
+  for (const entry of Object.values(store)) {
+    if (entry.sessionId === sessionId) {
+      return entry.createdAt;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Format timestamp for session filename prefix
+ * Format: 2026-01-08T14-19-25-394Z (ISO-like but filesystem safe)
+ */
+export function formatSessionTimestamp(timestamp: number): string {
+  const d = new Date(timestamp);
+  const pad = (n: number, len = 2) => n.toString().padStart(len, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}-${pad(d.getUTCMinutes())}-${pad(d.getUTCSeconds())}-${pad(d.getUTCMilliseconds(), 3)}Z`;
 }
