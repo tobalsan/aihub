@@ -16,3 +16,8 @@ tmux send-keys -t 1 "<your question>" C-m
 tmux send-keys -t 2 "<answer>" C-m
 
 Ask early and often if anything is ambiguous.
+
+When updating documentation, always keep in mind:
+- `./docs/llms.md` is the documentation for LLMs.
+- `./README.md` is for humans.
+
