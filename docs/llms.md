@@ -80,7 +80,7 @@ All stored in `~/.aihub/`:
     },
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high",
     queueMode?: "queue"|"interrupt",  // Default: queue
-    discord?: { token, applicationId?, guildId?, channelId? },
+    discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, ... },
     amsg?: { id?, enabled? },
     introMessage?: string            // Custom intro for /new (default: "New conversation started.")
   }],
@@ -206,9 +206,46 @@ Jobs stored in `~/.aihub/schedules.json` with state (nextRunAtMs, lastRunAtMs, l
 
 ### Discord (`src/discord/`)
 
-One bot per agent with discord config. When `channelId` is configured, only that channel is handled; messages in other channels are ignored. Uses `sessionKey: "main"` (shares session with web UI). Handles 2000-char chunking.
+Carbon-based Discord integration with per-guild/channel routing, reactions, and slash commands.
 
-Live broadcast: Main-session responses from other sources (web, amsg, scheduler) are automatically broadcast to the Discord channel. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
+**Config schema:**
+```typescript
+discord: {
+  token: string,
+  applicationId?: string,           // Required for slash commands
+
+  // DM settings
+  dm?: { enabled?, allowFrom?, groupEnabled?, groupChannels? },
+
+  // Guild routing
+  groupPolicy?: "open"|"disabled"|"allowlist",  // Default: open
+  guilds?: Record<guildId, {
+    slug?, requireMention?, reactionNotifications?, reactionAllowlist?,
+    users?, systemPrompt?, channels?: Record<channelId, { enabled?, requireMention?, users?, systemPrompt? }>
+  }>,
+
+  // Behavior
+  historyLimit?: number,            // Default: 20
+  clearHistoryAfterReply?: boolean, // Default: true
+  replyToMode?: "off"|"all"|"first", // Default: off
+  mentionPatterns?: string[],       // Regex patterns to trigger bot
+  broadcastToChannel?: string       // Broadcast main session to channel
+}
+```
+
+**Features:**
+- **Message gating**: Bot filter, DM/guild/channel allowlists, mention requirement, user allowlists
+- **Context enrichment**: Channel topic, thread starter, message history (ring buffer)
+- **Reactions**: `reactionNotifications` modes: off, all, own (bot's messages), allowlist
+- **Slash commands**: `/new`, `/abort`, `/help`, `/ping` (when `applicationId` set)
+- **Typing indicator**: Starts on inbound, 5s keep-alive, stops on done/error, 30s TTL for queued
+- **Chunking**: 2000 char limit with code fence preservation
+
+**Session routing:**
+- DMs use `sessionKey: "main"` (shares with web UI)
+- Guild messages use `sessionId: discord:${channelId}` (per-channel isolation)
+
+**Live broadcast:** Main-session responses from other sources (web, amsg, scheduler) are broadcast to `broadcastToChannel`. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
 
 ### Amsg Watcher (`src/amsg/`)
 
@@ -335,7 +372,7 @@ This sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for that agent's runs.
 - **Pi SDK** (`@mariozechner/pi-coding-agent`): Agent runtime, tools, skills, model registry
 - **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`): Claude SDK integration
 - **Hono**: HTTP server framework
-- **Discord.js**: Discord bot integration
+- **Carbon** (`@buape/carbon`): Discord bot integration (Gateway + REST)
 - **Zod**: Schema validation
 - **Commander**: CLI framework
 

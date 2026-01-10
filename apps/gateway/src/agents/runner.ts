@@ -6,6 +6,7 @@ import type {
   SimpleHistoryMessage,
   FullHistoryMessage,
   HistoryViewMode,
+  AgentContext,
 } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
 import {
@@ -42,6 +43,7 @@ export type RunAgentParams = {
   sessionId?: string;
   sessionKey?: string; // Resolves to sessionId with idle timeout + reset triggers
   thinkLevel?: ThinkLevel;
+  context?: AgentContext; // Structured context (Discord metadata, etc.)
   source?: RunSource;
   onEvent?: (event: StreamEvent) => void;
 };
@@ -341,6 +343,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       message,
       workspaceDir,
       thinkLevel: params.thinkLevel ?? agent.thinkLevel,
+      context: params.context,
       onEvent: emit,
       onHistoryEvent: handleHistoryEvent,
       onSessionHandle: (handle) => {

@@ -15,6 +15,7 @@ import {
   getSessionCreatedAt,
   formatSessionTimestamp,
 } from "../../sessions/store.js";
+import { renderAgentContext } from "../../discord/utils/context.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -234,7 +235,26 @@ export const piAdapter: SdkAdapter = {
       agentSession.abort();
     });
 
-    // Emit user message to history
+    // Render context preamble and emit system_context event if present
+    let contextPreamble = "";
+    if (params.context) {
+      contextPreamble = renderAgentContext(params.context);
+      if (contextPreamble) {
+        params.onHistoryEvent({
+          type: "system_context",
+          context: params.context,
+          rendered: contextPreamble,
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    // Build message with context preamble (if any)
+    const messageToSend = contextPreamble
+      ? `${contextPreamble}\n\n${params.message}`
+      : params.message;
+
+    // Emit user message to history (without context preamble)
     params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
     // Subscribe to streaming events
@@ -339,7 +359,7 @@ export const piAdapter: SdkAdapter = {
     });
 
     try {
-      await agentSession.prompt(params.message);
+      await agentSession.prompt(messageToSend);
     } finally {
       unsubscribe();
     }

@@ -1,4 +1,4 @@
-import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel } from "@aihub/shared";
+import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel, AgentContext } from "@aihub/shared";
 
 // SDK identifiers
 export type SdkId = "pi" | "claude";
@@ -41,6 +41,12 @@ export type HistoryEvent =
       usage?: ModelUsage;
       stopReason?: string;
       timestamp: number;
+    }
+  | {
+      type: "system_context";
+      context: AgentContext;
+      rendered: string; // Pre-rendered preamble for injection
+      timestamp: number;
     };
 
 // Run parameters passed to adapter
@@ -52,6 +58,7 @@ export type SdkRunParams = {
   message: string;
   workspaceDir: string;
   thinkLevel?: ThinkLevel;
+  context?: AgentContext; // Structured context (Discord metadata, etc.)
   onEvent: (event: StreamEvent) => void;
   onHistoryEvent: (event: HistoryEvent) => void;
   onSessionHandle?: (handle: unknown) => void;

@@ -116,8 +116,7 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
       "queueMode": "queue",
       "discord": {
         "token": "...",
-        "guildId": "...",
-        "channelId": "..."
+        "applicationId": "..."
       },
       "amsg": { "id": "agent-1", "enabled": true }
     }
@@ -144,7 +143,7 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 | `auth.mode` | `oauth`, `api_key`, or `proxy` (Pi SDK only) |
 | `thinkLevel` | off, minimal, low, medium, high |
 | `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
-| `discord` | Discord bot config |
+| `discord` | Discord bot config ([docs](docs/discord.md)) |
 | `amsg` | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 
 ### Gateway Options

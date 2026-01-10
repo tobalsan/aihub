@@ -3,6 +3,7 @@ import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
+import { renderAgentContext } from "../../discord/utils/context.js";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
@@ -112,7 +113,26 @@ export const claudeAdapter: SdkAdapter = {
         abortController.abort();
       });
 
-      // Emit user message to history
+      // Render context preamble and emit system_context event if present
+      let contextPreamble = "";
+      if (params.context) {
+        contextPreamble = renderAgentContext(params.context);
+        if (contextPreamble) {
+          params.onHistoryEvent({
+            type: "system_context",
+            context: params.context,
+            rendered: contextPreamble,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      // Build message with context preamble (if any)
+      const messageToSend = contextPreamble
+        ? `${contextPreamble}\n\n${params.message}`
+        : params.message;
+
+      // Emit user message to history (without context preamble)
       params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
       // Look up existing Claude session for resumption (only if model matches)
@@ -122,7 +142,7 @@ export const claudeAdapter: SdkAdapter = {
       try {
         // Query the Claude Agent SDK
         const conversation = query({
-          prompt: params.message,
+          prompt: messageToSend,
           options: {
             cwd: params.workspaceDir,
             abortController,

@@ -17,8 +17,60 @@ export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 export const DiscordConfigSchema = z.object({
   token: z.string(),
   applicationId: z.string().optional(),
+
+  // Legacy fields (backward compat - treated as single-guild/channel mode)
   guildId: z.string().optional(),
   channelId: z.string().optional(),
+
+  // DM settings
+  dm: z
+    .object({
+      enabled: z.boolean().default(true),
+      allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
+      groupEnabled: z.boolean().default(false),
+      groupChannels: z.array(z.union([z.string(), z.number()])).optional(),
+    })
+    .optional(),
+
+  // Guild/channel routing & policy
+  groupPolicy: z.enum(["open", "disabled", "allowlist"]).default("open"),
+  guilds: z
+    .record(
+      z.string(),
+      z.object({
+        slug: z.string().optional(),
+        requireMention: z.boolean().default(true),
+        reactionNotifications: z
+          .enum(["off", "own", "all", "allowlist"])
+          .default("off"),
+        reactionAllowlist: z
+          .array(z.union([z.string(), z.number()]))
+          .optional(),
+        users: z.array(z.union([z.string(), z.number()])).optional(),
+        systemPrompt: z.string().optional(),
+        channels: z
+          .record(
+            z.string(),
+            z.object({
+              enabled: z.boolean().default(true),
+              requireMention: z.boolean().optional(),
+              users: z.array(z.union([z.string(), z.number()])).optional(),
+              systemPrompt: z.string().optional(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .optional(),
+
+  // Behavior
+  historyLimit: z.number().int().min(0).default(20),
+  clearHistoryAfterReply: z.boolean().optional().default(true),
+  replyToMode: z.enum(["off", "all", "first"]).default("off"),
+  mentionPatterns: z.array(z.string()).optional(),
+
+  // AIHub-only: broadcast main-session responses to a Discord channel
+  broadcastToChannel: z.string().optional(),
 });
 export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
 
@@ -318,3 +370,18 @@ export type FullHistoryMessage =
     };
 
 export type HistoryViewMode = "simple" | "full";
+
+// Discord context types for runAgent()
+export type DiscordContextBlock =
+  | { type: "channel_topic"; topic: string }
+  | { type: "channel_name"; name: string }
+  | { type: "thread_starter"; author: string; content: string; timestamp: number }
+  | { type: "history"; messages: Array<{ author: string; content: string; timestamp: number }> }
+  | { type: "reaction"; emoji: string; user: string; messageId: string; action: "add" | "remove" };
+
+export type DiscordContext = {
+  kind: "discord";
+  blocks: DiscordContextBlock[];
+};
+
+export type AgentContext = DiscordContext; // Extensible for future context types

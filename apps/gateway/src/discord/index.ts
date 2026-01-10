@@ -9,7 +9,7 @@ export async function startDiscordBots() {
   for (const agent of agents) {
     if (!agent.discord?.token) continue;
 
-    const bot = createDiscordBot(agent);
+    const bot = await createDiscordBot(agent);
     if (!bot) continue;
 
     try {
