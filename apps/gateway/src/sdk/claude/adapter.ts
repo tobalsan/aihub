@@ -103,6 +103,20 @@ export const claudeAdapter: SdkAdapter = {
 
       let aborted = false;
       let assistantText = "";
+      let emittedAssistantText = false;
+      let pendingResultText: string | undefined;
+
+      const appendAssistantText = (text: string): void => {
+        if (!text) return;
+        assistantText += text;
+        emittedAssistantText = true;
+        params.onEvent({ type: "text", data: text });
+        params.onHistoryEvent({
+          type: "assistant_text",
+          text,
+          timestamp: Date.now(),
+        });
+      };
       const toolIdToName = new Map<string, string>();
       let sentTurnEnd = false;
 
@@ -175,17 +189,25 @@ export const claudeAdapter: SdkAdapter = {
           // Handle partial streaming messages
           if (message.type === "stream_event") {
             const event = message.event;
+
+            // Handle new content block start - add newline before new text blocks
+            // This ensures proper separation when Claude outputs multiple text blocks
+            // (e.g., text -> tool -> text should have newlines between text sections)
+            if (event.type === "content_block_start") {
+              const contentBlock = (event as { content_block?: { type?: string } }).content_block;
+              if (contentBlock?.type === "text" && assistantText.length > 0) {
+                // Add newline to separate from previous content
+                if (!assistantText.endsWith("\n")) {
+                  appendAssistantText("\n");
+                }
+              }
+            }
+
             // Handle content block delta for text streaming
             if (event.type === "content_block_delta") {
               const delta = event.delta;
               if (delta?.type === "text_delta" && delta.text) {
-                assistantText += delta.text;
-                params.onEvent({ type: "text", data: delta.text });
-                params.onHistoryEvent({
-                  type: "assistant_text",
-                  text: delta.text,
-                  timestamp: Date.now(),
-                });
+                appendAssistantText(delta.text);
               }
             }
           }
@@ -195,6 +217,7 @@ export const claudeAdapter: SdkAdapter = {
             const apiMessage = message.message;
             // Process content blocks
             if (apiMessage.content) {
+              const textBlocks: string[] = [];
               for (const block of apiMessage.content) {
                 if (block.type === "tool_use" && block.id && block.name) {
                   toolIdToName.set(block.id, block.name);
@@ -214,7 +237,12 @@ export const claudeAdapter: SdkAdapter = {
                     text: block.thinking,
                     timestamp: Date.now(),
                   });
+                } else if (block.type === "text" && typeof block.text === "string") {
+                  textBlocks.push(block.text);
                 }
+              }
+              if (!emittedAssistantText && textBlocks.length > 0) {
+                appendAssistantText(textBlocks.join("\n"));
               }
             }
 
@@ -270,7 +298,7 @@ export const claudeAdapter: SdkAdapter = {
           // Handle final result
           if (message.type === "result") {
             if (message.subtype === "success") {
-              assistantText = message.result || assistantText;
+              pendingResultText = message.result ?? pendingResultText;
             }
           }
 
@@ -285,6 +313,11 @@ export const claudeAdapter: SdkAdapter = {
           params.onEvent({ type: "error", message: errMessage });
           throw err;
         }
+      }
+
+      if (!assistantText && pendingResultText) {
+        // Fallback only when streaming/text blocks yielded nothing.
+        appendAssistantText(pendingResultText);
       }
 
       if (!sentTurnEnd) {

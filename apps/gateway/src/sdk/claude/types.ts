@@ -33,6 +33,7 @@ export type SDKMessage =
           name?: string;
           input?: unknown;
           thinking?: string;
+          text?: string;
         }>;
         model?: string;
         usage?: {
