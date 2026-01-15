@@ -13,20 +13,20 @@
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",
-    "@anthropic-ai/claude-agent-sdk": "^0.1.76",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
     "@buape/carbon": "^0.13.0",
-    "discord-api-types": "^0.37.119",
-    "@hono/node-server": "^1.13.7",
-    "@mariozechner/pi-agent-core": "^0.37.2",
-    "@mariozechner/pi-ai": "^0.37.2",
-    "@mariozechner/pi-coding-agent": "^0.37.2",
+    "@hono/node-server": "^1.19.9",
+    "@mariozechner/pi-agent-core": "^0.45.7",
+    "@mariozechner/pi-ai": "^0.45.7",
+    "@mariozechner/pi-coding-agent": "^0.45.7",
     "commander": "^12.1.0",
-    "hono": "^4.6.12",
-    "ws": "^8.18.3",
-    "zod": "^3.23.8"
+    "discord-api-types": "^0.37.120",
+    "hono": "^4.11.4",
+    "ws": "^8.19.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "tsx": "^4.19.2"
+    "tsx": "^4.21.0"
   }
 }
