@@ -81,6 +81,14 @@ export const AmsgConfigSchema = z.object({
 });
 export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
 
+// Heartbeat config
+export const HeartbeatConfigSchema = z.object({
+  every: z.string().optional(), // Duration string (e.g., "30m", "1h", "0" to disable)
+  prompt: z.string().optional(), // Custom prompt (replaces default)
+  ackMaxChars: z.number().int().min(0).optional(), // Default: 300
+});
+export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
+
 // SDK types
 export const SdkIdSchema = z.enum(["pi", "claude"]);
 export type SdkId = z.infer<typeof SdkIdSchema>;
@@ -104,6 +112,7 @@ export const AgentConfigSchema = z.object({
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
   amsg: AmsgConfigSchema.optional(),
+  heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
@@ -387,3 +396,17 @@ export type DiscordContext = {
 };
 
 export type AgentContext = DiscordContext; // Extensible for future context types
+
+// Heartbeat event payload (for event emission)
+export const HeartbeatStatusSchema = z.enum(["sent", "ok-empty", "ok-token", "skipped", "failed"]);
+export type HeartbeatStatus = z.infer<typeof HeartbeatStatusSchema>;
+
+export type HeartbeatEventPayload = {
+  ts: number;
+  agentId: string;
+  status: HeartbeatStatus;
+  to?: string; // Discord channel ID
+  preview?: string; // First 200 chars of alert
+  durationMs?: number;
+  reason?: string; // Why it skipped/failed
+};

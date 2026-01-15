@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { StreamEvent } from "@aihub/shared";
 
-export type RunSource = "web" | "discord" | "amsg" | "scheduler" | "cli";
+export type RunSource = "web" | "discord" | "amsg" | "scheduler" | "cli" | "heartbeat";
 
 export type AgentStreamEvent = StreamEvent & {
   agentId: string;

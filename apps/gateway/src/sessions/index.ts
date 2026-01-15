@@ -1,6 +1,7 @@
 export {
   resolveSessionId,
   getSessionEntry,
+  restoreSessionUpdatedAt,
   isAbortTrigger,
   getSessionThinkLevel,
   DEFAULT_MAIN_KEY,

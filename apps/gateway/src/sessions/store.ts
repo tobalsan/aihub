@@ -196,6 +196,26 @@ export function getSessionThinkLevel(
 }
 
 /**
+ * Restore session updatedAt to a previous value.
+ * Used by heartbeat to avoid keeping sessions alive.
+ * No-op if entry doesn't exist (safe for first-run).
+ */
+export async function restoreSessionUpdatedAt(
+  agentId: string,
+  sessionKey: string,
+  originalUpdatedAt: number | undefined
+): Promise<void> {
+  if (originalUpdatedAt === undefined) return;
+  ensureLoaded();
+  const storeKey = `${agentId}:${sessionKey}`;
+  const entry = store[storeKey];
+  if (entry) {
+    entry.updatedAt = originalUpdatedAt;
+    await save();
+  }
+}
+
+/**
  * Set the thinkLevel for a session.
  * Creates entry if it doesn't exist.
  */

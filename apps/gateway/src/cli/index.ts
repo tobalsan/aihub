@@ -9,6 +9,7 @@ import { startServer } from "../server/index.js";
 import { startDiscordBots, stopDiscordBots } from "../discord/index.js";
 import { startScheduler, stopScheduler } from "../scheduler/index.js";
 import { startAmsgWatcher, stopAmsgWatcher } from "../amsg/index.js";
+import { startAllHeartbeats, stopAllHeartbeats } from "../heartbeat/index.js";
 import { runAgent } from "../agents/index.js";
 import type { UiConfig, GatewayBindMode } from "@aihub/shared";
 
@@ -100,10 +101,14 @@ program
       // Start amsg watcher
       startAmsgWatcher();
 
+      // Start heartbeats
+      startAllHeartbeats();
+
       // Handle shutdown
       const shutdown = async () => {
         console.log("\nShutting down...");
         if (webProcess) webProcess.kill("SIGTERM");
+        stopAllHeartbeats();
         stopAmsgWatcher();
         await stopScheduler();
         await stopDiscordBots();
