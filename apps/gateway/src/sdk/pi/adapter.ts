@@ -189,7 +189,7 @@ export const piAdapter: SdkAdapter = {
     authStorage.setRuntimeApiKey(model.provider, apiKey);
 
     // Discover skills
-    const skills = discoverSkills(params.workspaceDir);
+    const { skills } = discoverSkills(params.workspaceDir);
 
     // Load bootstrap context files
     const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
