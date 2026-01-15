@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 import {
   parseDurationMs,
   stripHeartbeatToken,
@@ -6,6 +9,8 @@ import {
   evaluateHeartbeatReply,
   isHeartbeatEnabled,
   getHeartbeatIntervalMs,
+  loadHeartbeatPrompt,
+  DEFAULT_HEARTBEAT_PROMPT,
 } from "./runner.js";
 import type { AgentConfig, HeartbeatConfig } from "@aihub/shared";
 
@@ -349,5 +354,159 @@ describe("getHeartbeatIntervalMs", () => {
   it("returns null for invalid interval", () => {
     const agent = createAgent({ every: "invalid" });
     expect(getHeartbeatIntervalMs(agent)).toBeNull();
+  });
+});
+
+describe("loadHeartbeatPrompt", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    // Create a unique temp directory for each test
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "heartbeat-test-"));
+  });
+
+  afterEach(async () => {
+    // Clean up temp directory
+    try {
+      await fs.rm(tmpDir, { recursive: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  function createAgentWithWorkspace(heartbeat?: HeartbeatConfig): AgentConfig {
+    return {
+      id: "test-agent",
+      name: "Test Agent",
+      workspace: tmpDir,
+      model: { model: "test-model" },
+      queueMode: "queue",
+      heartbeat,
+    };
+  }
+
+  describe("config prompt (priority 1)", () => {
+    it("uses config prompt when set", async () => {
+      const customPrompt = "Check on critical systems every hour.";
+      const agent = createAgentWithWorkspace({ prompt: customPrompt });
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(customPrompt);
+    });
+
+    it("uses config prompt even when HEARTBEAT.md exists", async () => {
+      const customPrompt = "Use this config prompt";
+      const agent = createAgentWithWorkspace({ prompt: customPrompt });
+
+      // Create HEARTBEAT.md in workspace (should be ignored)
+      await fs.writeFile(
+        path.join(tmpDir, "HEARTBEAT.md"),
+        "# This should be ignored\nFile prompt content here."
+      );
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(customPrompt);
+    });
+  });
+
+  describe("HEARTBEAT.md file (priority 2)", () => {
+    it("reads HEARTBEAT.md when config prompt is not set", async () => {
+      const agent = createAgentWithWorkspace({});
+      const fileContent = "# Daily Check\nReview dashboards and report anomalies.";
+
+      await fs.writeFile(path.join(tmpDir, "HEARTBEAT.md"), fileContent);
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(fileContent);
+    });
+
+    it("trims whitespace from HEARTBEAT.md content", async () => {
+      const agent = createAgentWithWorkspace({});
+      const fileContent = "\n\n  Check systems daily.  \n\n";
+
+      await fs.writeFile(path.join(tmpDir, "HEARTBEAT.md"), fileContent);
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe("Check systems daily.");
+    });
+
+    it("falls back to default when HEARTBEAT.md is empty", async () => {
+      const agent = createAgentWithWorkspace({});
+
+      await fs.writeFile(path.join(tmpDir, "HEARTBEAT.md"), "   \n\n   ");
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+    });
+
+    it("falls back to default when HEARTBEAT.md is whitespace only", async () => {
+      const agent = createAgentWithWorkspace({});
+
+      await fs.writeFile(path.join(tmpDir, "HEARTBEAT.md"), "");
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+    });
+  });
+
+  describe("default prompt (priority 3)", () => {
+    it("uses default when no config prompt and no HEARTBEAT.md", async () => {
+      const agent = createAgentWithWorkspace({});
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+    });
+
+    it("uses default when heartbeat config is undefined", async () => {
+      const agent = createAgentWithWorkspace(undefined);
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+    });
+  });
+
+  describe("error handling", () => {
+    it("does not crash when HEARTBEAT.md is missing", async () => {
+      const agent = createAgentWithWorkspace({});
+      // No HEARTBEAT.md file exists
+
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+    });
+
+    it("does not crash when workspace directory does not exist", async () => {
+      const agent: AgentConfig = {
+        id: "test-agent",
+        name: "Test Agent",
+        workspace: "/nonexistent/path/that/does/not/exist",
+        model: { model: "test-model" },
+        queueMode: "queue",
+        heartbeat: {},
+      };
+
+      // Should not throw, should return default
+      const result = await loadHeartbeatPrompt(agent);
+      expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+    });
+
+    it("falls back to default when HEARTBEAT.md has read permission issues", async () => {
+      // Skip on Windows where chmod may not work as expected
+      if (process.platform === "win32") {
+        return;
+      }
+
+      const agent = createAgentWithWorkspace({});
+      const heartbeatPath = path.join(tmpDir, "HEARTBEAT.md");
+
+      await fs.writeFile(heartbeatPath, "Secret content");
+      await fs.chmod(heartbeatPath, 0o000); // Remove all permissions
+
+      try {
+        const result = await loadHeartbeatPrompt(agent);
+        expect(result).toBe(DEFAULT_HEARTBEAT_PROMPT);
+      } finally {
+        // Restore permissions for cleanup
+        await fs.chmod(heartbeatPath, 0o644);
+      }
+    });
   });
 });

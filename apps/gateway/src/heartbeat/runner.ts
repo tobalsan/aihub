@@ -16,7 +16,7 @@ const DEFAULT_HEARTBEAT_EVERY = "30m";
 // Default ackMaxChars threshold
 const DEFAULT_ACK_MAX_CHARS = 300;
 // Default heartbeat prompt
-const DEFAULT_HEARTBEAT_PROMPT =
+export const DEFAULT_HEARTBEAT_PROMPT =
   "Consider outstanding tasks and HEARTBEAT.md guidance from the workspace context (if present). Checkup sometimes on your human during (user local) day time.";
 
 // Global toggle for all heartbeats
@@ -128,7 +128,7 @@ export function evaluateHeartbeatReply(
  * Load heartbeat prompt for an agent.
  * Resolution order: config > HEARTBEAT.md > default
  */
-async function loadHeartbeatPrompt(agent: AgentConfig): Promise<string> {
+export async function loadHeartbeatPrompt(agent: AgentConfig): Promise<string> {
   // 1. Config value
   if (agent.heartbeat?.prompt) {
     return agent.heartbeat.prompt;
