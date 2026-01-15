@@ -407,6 +407,7 @@ export type HeartbeatEventPayload = {
   status: HeartbeatStatus;
   to?: string; // Discord channel ID
   preview?: string; // First 200 chars of alert
+  alertText?: string; // Full alert text (for delivery)
   durationMs?: number;
   reason?: string; // Why it skipped/failed
 };

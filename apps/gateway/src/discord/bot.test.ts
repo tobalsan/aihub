@@ -27,6 +27,15 @@ vi.mock("../agents/index.js", () => {
   };
 });
 
+// Mock heartbeat module
+const heartbeatEventEmitter = new (require("node:events").EventEmitter)();
+vi.mock("../heartbeat/index.js", () => ({
+  onHeartbeatEvent: vi.fn((handler: (event: unknown) => void) => {
+    heartbeatEventEmitter.on("heartbeat", handler);
+    return () => heartbeatEventEmitter.off("heartbeat", handler);
+  }),
+}));
+
 // Mock session utils
 vi.mock("../sessions/index.js", () => ({
   getSessionEntry: vi.fn(() => ({ sessionId: "test-session", updatedAt: Date.now() })),
@@ -937,5 +946,291 @@ describe("Discord slash commands", () => {
         expect.objectContaining({ content: "New conversation started." })
       );
     });
+  });
+});
+
+/**
+ * Heartbeat delivery tests
+ *
+ * Tests that heartbeat alerts are properly delivered to Discord when:
+ * - The heartbeat event has status "sent"
+ * - The bot is ready (botUserId set)
+ * - The gateway is connected
+ */
+describe("Discord heartbeat delivery", () => {
+  let capturedHandlers: CapturedHandlers;
+  let mockClient: ReturnType<typeof createMockClient>;
+  let mockGetGatewayPlugin: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    capturedHandlers = {};
+    mockClient = createMockClient();
+
+    // Import fresh mock
+    const { getGatewayPlugin } = await import("./client.js");
+    mockGetGatewayPlugin = getGatewayPlugin as ReturnType<typeof vi.fn>;
+
+    // Default: gateway is connected
+    mockGetGatewayPlugin.mockReturnValue({ isConnected: true, disconnect: vi.fn() });
+
+    // Capture handlers when createCarbonClient is called
+    mockCreateCarbonClient.mockImplementation((config: {
+      onMessage?: CapturedHandlers["onMessage"];
+      onReaction?: CapturedHandlers["onReaction"];
+      onReady?: CapturedHandlers["onReady"];
+    }) => {
+      capturedHandlers.onMessage = config.onMessage;
+      capturedHandlers.onReaction = config.onReaction;
+      capturedHandlers.onReady = config.onReady;
+      return mockClient;
+    });
+
+    // Remove all heartbeat listeners before each test
+    heartbeatEventEmitter.removeAllListeners();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    heartbeatEventEmitter.removeAllListeners();
+  });
+
+  it("delivers heartbeat alert when bot is ready and gateway connected", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    // Simulate ready to set botUserId
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    // Emit heartbeat event with "sent" status
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "sent",
+      to: "broadcast-channel",
+      alertText: "This is an important alert!",
+      preview: "This is an important",
+    });
+
+    // Allow async handler to run
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Should send message to Discord
+    expect(mockClient.rest.post).toHaveBeenCalledWith(
+      "/channels/broadcast-channel/messages",
+      expect.objectContaining({
+        body: { content: "This is an important alert!" },
+      })
+    );
+  });
+
+  it("skips delivery when bot is not ready (botUserId not set)", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    // Do NOT call onReady - botUserId stays undefined
+
+    // Emit heartbeat event
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "sent",
+      to: "broadcast-channel",
+      alertText: "This should not be delivered",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Should NOT send message
+    expect(mockClient.rest.post).not.toHaveBeenCalled();
+  });
+
+  it("skips delivery when gateway is not connected", async () => {
+    // Gateway not connected
+    mockGetGatewayPlugin.mockReturnValue({ isConnected: false, disconnect: vi.fn() });
+
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "sent",
+      to: "broadcast-channel",
+      alertText: "This should not be delivered",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockClient.rest.post).not.toHaveBeenCalled();
+  });
+
+  it("ignores heartbeat events for other agents", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    // Emit heartbeat for different agent
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "other-agent",
+      status: "sent",
+      to: "some-channel",
+      alertText: "Should be ignored",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockClient.rest.post).not.toHaveBeenCalled();
+  });
+
+  it("ignores heartbeat events with non-sent status", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    // Emit with "ok-token" status (should not deliver)
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "ok-token",
+      to: "broadcast-channel",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockClient.rest.post).not.toHaveBeenCalled();
+  });
+
+  it("splits long messages into 2000 char chunks", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    // Create message longer than 2000 chars
+    const longText = "A".repeat(2500);
+
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "sent",
+      to: "broadcast-channel",
+      alertText: longText,
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Should send multiple messages
+    expect(mockClient.rest.post).toHaveBeenCalledTimes(2);
+
+    // First chunk should be 2000 chars
+    expect(mockClient.rest.post).toHaveBeenNthCalledWith(
+      1,
+      "/channels/broadcast-channel/messages",
+      expect.objectContaining({
+        body: { content: "A".repeat(2000) },
+      })
+    );
+
+    // Second chunk should be remaining 500 chars
+    expect(mockClient.rest.post).toHaveBeenNthCalledWith(
+      2,
+      "/channels/broadcast-channel/messages",
+      expect.objectContaining({
+        body: { content: "A".repeat(500) },
+      })
+    );
+  });
+
+  it("unsubscribes from heartbeat events on stop()", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    // Stop the bot
+    await bot?.stop();
+
+    // Emit heartbeat event after stop
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "sent",
+      to: "broadcast-channel",
+      alertText: "Should not be delivered after stop",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Should NOT send message (unsubscribed)
+    expect(mockClient.rest.post).not.toHaveBeenCalled();
+  });
+
+  it("handles Discord API errors gracefully", async () => {
+    const agent = createTestAgent({ broadcastToChannel: "broadcast-channel" });
+
+    const bot = await createDiscordBot(agent);
+    await bot?.start();
+
+    capturedHandlers.onReady?.(
+      { user: { id: "bot-123", username: "TestBot" } },
+      mockClient
+    );
+
+    // Make Discord API throw error
+    mockClient.rest.post.mockRejectedValueOnce(new Error("Discord API error"));
+
+    // Should not throw
+    heartbeatEventEmitter.emit("heartbeat", {
+      ts: Date.now(),
+      agentId: "test-agent",
+      status: "sent",
+      to: "broadcast-channel",
+      alertText: "This will fail to send",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Should have tried to send
+    expect(mockClient.rest.post).toHaveBeenCalled();
+
+    // Should not throw (no unhandled promise rejection)
   });
 });

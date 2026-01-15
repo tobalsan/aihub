@@ -293,6 +293,7 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
       durationMs,
       to: evaluation.shouldDeliver ? broadcastChannel : undefined,
       preview: evaluation.strippedText.slice(0, 200) || undefined,
+      alertText: evaluation.shouldDeliver ? evaluation.strippedText : undefined,
     };
     emitHeartbeatEvent(payload);
     return payload;

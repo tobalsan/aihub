@@ -1,6 +1,7 @@
 import type { AgentConfig } from "@aihub/shared";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
+import { onHeartbeatEvent } from "../heartbeat/index.js";
 import {
   createCarbonClient,
   getGatewayPlugin,
@@ -32,6 +33,7 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
   // Track accumulated text per session for broadcasting
   const textAccumulators = new Map<string, string>();
   let unsubscribeBroadcast: (() => void) | null = null;
+  let unsubscribeHeartbeat: (() => void) | null = null;
   let botUserId: string | undefined;
 
   // Get config values with defaults
@@ -329,6 +331,39 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
         textAccumulators.delete(accKey);
       }
     });
+
+    // Subscribe to heartbeat events for delivery
+    unsubscribeHeartbeat = onHeartbeatEvent(async (payload) => {
+      // Only handle events for this agent with "sent" status
+      if (payload.agentId !== agent.id) return;
+      if (payload.status !== "sent") return;
+      if (!payload.to || !payload.alertText) return;
+
+      // Check bot readiness
+      if (!botUserId) {
+        console.warn(`[discord:${agent.id}] Heartbeat delivery skipped: bot not ready`);
+        return;
+      }
+
+      const gateway = getGatewayPlugin(client);
+      if (!gateway?.isConnected) {
+        console.warn(`[discord:${agent.id}] Heartbeat delivery skipped: gateway not connected`);
+        return;
+      }
+
+      // Deliver heartbeat alert to Discord
+      try {
+        const chunks = splitMessage(payload.alertText, 2000);
+        for (const chunk of chunks) {
+          await client.rest.post(`/channels/${payload.to}/messages`, {
+            body: { content: chunk },
+          });
+        }
+        console.log(`[discord:${agent.id}] Heartbeat alert delivered to ${payload.to}`);
+      } catch (err) {
+        console.error(`[discord:${agent.id}] Heartbeat delivery error:`, err);
+      }
+    });
   };
 
   return {
@@ -342,6 +377,8 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
     stop: async () => {
       unsubscribeBroadcast?.();
       unsubscribeBroadcast = null;
+      unsubscribeHeartbeat?.();
+      unsubscribeHeartbeat = null;
       textAccumulators.clear();
       stopAllTyping();
       // Disconnect gateway
