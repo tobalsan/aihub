@@ -215,7 +215,7 @@ export const piAdapter: SdkAdapter = {
       authStorage,
       modelRegistry,
       model,
-      thinkingLevel: params.thinkLevel ?? agent.thinkLevel ?? "off",
+      ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
       systemPrompt,
       tools,
       sessionManager,
