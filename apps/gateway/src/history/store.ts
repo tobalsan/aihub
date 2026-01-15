@@ -116,6 +116,14 @@ type ToolResultHistoryEntry = {
 
 type HistoryEntry = UserHistoryEntry | AssistantHistoryEntry | ToolResultHistoryEntry;
 
+// Meta entry for session-level metadata (e.g., thinkingLevel changes)
+type MetaEntry = {
+  type: "meta";
+  key: string;
+  value: unknown;
+  timestamp: number;
+};
+
 /**
  * Append a raw history entry to the canonical store
  */
@@ -126,6 +134,22 @@ async function appendRawEntry(
 ): Promise<void> {
   const file = await resolveHistoryFile(agentId, sessionId);
   const line = JSON.stringify({ type: "history", agentId, sessionId, ...entry }) + "\n";
+  await fs.appendFile(file, line, "utf-8");
+}
+
+/**
+ * Append a meta entry to the session's JSONL file
+ * Format: {"type":"meta","key":"thinkingLevel","value":"medium","timestamp":...}
+ */
+export async function appendSessionMeta(
+  agentId: string,
+  sessionId: string,
+  key: string,
+  value: unknown
+): Promise<void> {
+  const file = await resolveHistoryFile(agentId, sessionId);
+  const entry: MetaEntry = { type: "meta", key, value, timestamp: Date.now() };
+  const line = JSON.stringify(entry) + "\n";
   await fs.appendFile(file, line, "utf-8");
 }
 
