@@ -10,6 +10,7 @@ import type {
   ContentBlock,
   ModelMeta,
   ActiveToolCall,
+  ThinkLevel,
 } from "../api/types";
 
 // Threshold for auto-collapsing content
@@ -168,6 +169,8 @@ export function ChatView() {
   );
   const [simpleMessages, setSimpleMessages] = createSignal<Message[]>([]);
   const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>([]);
+  const [thinkingLevel, setThinkingLevel] = createSignal<ThinkLevel | undefined>();
+  const [pendingThinkLevel, setPendingThinkLevel] = createSignal<ThinkLevel | null>(null);
   const [input, setInput] = createSignal("");
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [streamingThinking, setStreamingThinking] = createSignal("");
@@ -186,6 +189,8 @@ export function ChatView() {
   let subscriptionCleanup: (() => void) | null = null;
 
   const sessionKey = () => getSessionKey(params.agentId);
+
+  const isOAuth = () => agent()?.authMode === "oauth";
 
   const [isAtBottom, setIsAtBottom] = createSignal(true);
   const SCROLL_THRESHOLD = 40;
@@ -218,18 +223,20 @@ export function ChatView() {
   const loadHistory = async (mode: HistoryViewMode) => {
     setLoading(true);
     if (mode === "full") {
-      const history = await fetchFullHistory(params.agentId, sessionKey());
-      setFullMessages(history);
+      const res = await fetchFullHistory(params.agentId, sessionKey());
+      setFullMessages(res.messages);
+      if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
     } else {
-      const history = await fetchSimpleHistory(params.agentId, sessionKey());
+      const res = await fetchSimpleHistory(params.agentId, sessionKey());
       setSimpleMessages(
-        history.map((h) => ({
+        res.messages.map((h) => ({
           id: crypto.randomUUID(),
           role: h.role,
           content: h.content,
           timestamp: h.timestamp,
         }))
       );
+      if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
     }
     setLoading(false);
   };
@@ -288,6 +295,8 @@ export function ChatView() {
 
     const text = input().trim();
     if (!text || loading()) return;
+
+    const levelToSend = pendingThinkLevel() ?? thinkingLevel();
 
     // Add user message to simple view
     const userMsg: Message = {
@@ -350,6 +359,11 @@ export function ChatView() {
             ...prev,
             { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: content }], timestamp: Date.now() },
           ]);
+        }
+        // Update thinkingLevel if pending was used
+        if (pendingThinkLevel()) {
+          setThinkingLevel(pendingThinkLevel()!);
+          setPendingThinkLevel(null);
         }
         setStreamingThinking("");
         setStreamingThinkingAt(null);
@@ -417,7 +431,8 @@ export function ChatView() {
           setSimpleMessages([]);
           setFullMessages([]);
         },
-      }
+      },
+      levelToSend || undefined
     );
   };
 
@@ -443,6 +458,23 @@ export function ChatView() {
             <span class="status-text">{isStreaming() ? "thinking" : "online"}</span>
           </div>
         </div>
+        <Show when={isOAuth()}>
+          <select
+            class="think-dropdown"
+            value={pendingThinkLevel() ?? thinkingLevel() ?? ""}
+            onChange={(e) => {
+              const val = e.currentTarget.value;
+              setPendingThinkLevel(val ? val as ThinkLevel : null);
+            }}
+          >
+            <option value="">Default</option>
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="xhigh">XHigh</option>
+          </select>
+        </Show>
         <div class="view-toggle">
           <button
             class="toggle-btn"
@@ -721,6 +753,21 @@ export function ChatView() {
         .status-text {
           font-size: 12px;
           color: var(--text-muted);
+        }
+
+        .think-dropdown {
+          background: var(--surface-1);
+          color: var(--text-primary);
+          border: 1px solid var(--surface-2);
+          border-radius: var(--radius-sm);
+          padding: 6px 10px;
+          font-size: 12px;
+          cursor: pointer;
+          outline: none;
+        }
+
+        .think-dropdown:focus {
+          border-color: var(--accent);
         }
 
         .view-toggle {

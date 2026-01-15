@@ -1,4 +1,5 @@
 export type SdkId = "pi" | "claude";
+export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type Agent = {
   id: string;
@@ -9,6 +10,7 @@ export type Agent = {
     model: string;
   };
   workspace?: string;
+  authMode?: "oauth" | "api_key" | "proxy";
 };
 
 export type Message = {

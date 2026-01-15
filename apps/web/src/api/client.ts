@@ -6,6 +6,7 @@ import type {
   FullHistoryMessage,
   HistoryViewMode,
   ActiveToolCall,
+  ThinkLevel,
 } from "./types";
 
 const API_BASE = "/api";
@@ -24,28 +25,33 @@ export async function fetchAgent(agentId: string): Promise<Agent> {
   return res.json();
 }
 
+export type HistoryResponse<T> = {
+  messages: T[];
+  thinkingLevel?: ThinkLevel;
+};
+
 export async function fetchSimpleHistory(
   agentId: string,
   sessionKey: string
-): Promise<SimpleHistoryMessage[]> {
+): Promise<HistoryResponse<SimpleHistoryMessage>> {
   const res = await fetch(
     `${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=simple`
   );
-  if (!res.ok) return [];
+  if (!res.ok) return { messages: [] };
   const data = await res.json();
-  return data.messages ?? [];
+  return { messages: data.messages ?? [], thinkingLevel: data.thinkingLevel };
 }
 
 export async function fetchFullHistory(
   agentId: string,
   sessionKey: string
-): Promise<FullHistoryMessage[]> {
+): Promise<HistoryResponse<FullHistoryMessage>> {
   const res = await fetch(
     `${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=full`
   );
-  if (!res.ok) return [];
+  if (!res.ok) return { messages: [] };
   const data = await res.json();
-  return data.messages ?? [];
+  return { messages: data.messages ?? [], thinkingLevel: data.thinkingLevel };
 }
 
 /** @deprecated Use fetchSimpleHistory or fetchFullHistory */
@@ -53,7 +59,8 @@ export async function fetchHistory(
   agentId: string,
   sessionKey: string
 ): Promise<SimpleHistoryMessage[]> {
-  return fetchSimpleHistory(agentId, sessionKey);
+  const res = await fetchSimpleHistory(agentId, sessionKey);
+  return res.messages;
 }
 
 export async function sendMessage(
@@ -102,12 +109,13 @@ export function streamMessage(
   onText: (text: string) => void,
   onDone: () => void,
   onError: (error: string) => void,
-  callbacks?: Partial<StreamCallbacks>
+  callbacks?: Partial<StreamCallbacks>,
+  thinkLevel?: ThinkLevel
 ): () => void {
   const ws = new WebSocket(getWsUrl());
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "send", agentId, sessionKey, message }));
+    ws.send(JSON.stringify({ type: "send", agentId, sessionKey, message, ...(thinkLevel && { thinkLevel }) }));
   };
 
   ws.onmessage = (e) => {
