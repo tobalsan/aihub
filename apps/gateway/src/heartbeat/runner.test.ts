@@ -1229,6 +1229,68 @@ describe("heartbeat lifecycle", () => {
     });
   });
 
+  describe("global toggle affects scheduled ticks", () => {
+    it("scheduled tick skips heartbeat when globally disabled", async () => {
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "1m" },
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // Disable heartbeats globally before first tick
+      module.setHeartbeatsEnabled(false);
+
+      // Advance past interval
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+
+      // runAgent should NOT have been called (disabled)
+      expect(mockRunAgent).not.toHaveBeenCalled();
+
+      // Re-enable and verify heartbeats work again
+      module.setHeartbeatsEnabled(true);
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      module.stopAllHeartbeats();
+    });
+
+    it("toggle can be flipped at runtime and affects all agents", async () => {
+      const agents = [
+        { id: "agent-1", heartbeat: { every: "1m" }, discord: { broadcastToChannel: "ch1" }, workspace: "/t1" },
+        { id: "agent-2", heartbeat: { every: "1m" }, discord: { broadcastToChannel: "ch2" }, workspace: "/t2" },
+      ];
+      mockLoadConfig.mockReturnValue({ agents });
+      mockGetAgent.mockImplementation((id: string) => agents.find((a) => a.id === id));
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // Let first heartbeat cycle run
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(2); // Both agents
+
+      // Disable all
+      module.setHeartbeatsEnabled(false);
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(2); // No additional calls
+
+      // Re-enable
+      module.setHeartbeatsEnabled(true);
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(4); // Both agents again
+
+      module.stopAllHeartbeats();
+    });
+  });
+
   describe("graceful shutdown", () => {
     it("timer uses unref to not block process exit", async () => {
       // This test verifies behavior implicitly - timers with unref() allow process to exit
