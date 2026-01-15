@@ -1340,3 +1340,570 @@ describe("heartbeat lifecycle", () => {
     });
   });
 });
+
+// Tests for heartbeat event emission
+// These tests verify the scope: "Heartbeat status event emission (sent/ok-empty/ok-token/skipped/failed)"
+
+describe("heartbeat event emission", () => {
+  let mockGetAgent: ReturnType<typeof vi.fn>;
+  let mockLoadConfig: ReturnType<typeof vi.fn>;
+  let mockRunAgent: ReturnType<typeof vi.fn>;
+  let mockGetSessionEntry: ReturnType<typeof vi.fn>;
+  let mockRestoreSessionUpdatedAt: ReturnType<typeof vi.fn>;
+  let mockIsStreaming: ReturnType<typeof vi.fn>;
+  let mockResolveSessionId: ReturnType<typeof vi.fn>;
+  let mockResolveWorkspaceDir: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+
+    mockGetAgent = vi.fn();
+    mockLoadConfig = vi.fn().mockReturnValue({ agents: [] });
+    mockRunAgent = vi.fn().mockResolvedValue({ payloads: [{ text: "HEARTBEAT_OK" }] });
+    mockGetSessionEntry = vi.fn().mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+    mockRestoreSessionUpdatedAt = vi.fn().mockResolvedValue(undefined);
+    mockIsStreaming = vi.fn().mockReturnValue(false);
+    mockResolveSessionId = vi.fn().mockResolvedValue({
+      sessionId: "test-session",
+      message: "test",
+      isNew: false,
+      createdAt: 1000,
+    });
+    mockResolveWorkspaceDir = vi.fn().mockReturnValue("/test/workspace");
+  });
+
+  async function getEventModule() {
+    vi.doMock("../config/index.js", () => ({
+      getAgent: mockGetAgent,
+      loadConfig: mockLoadConfig,
+      resolveWorkspaceDir: mockResolveWorkspaceDir,
+    }));
+
+    vi.doMock("../sessions/store.js", () => ({
+      getSessionEntry: mockGetSessionEntry,
+      restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
+      DEFAULT_MAIN_KEY: "main",
+    }));
+
+    vi.doMock("../agents/sessions.js", () => ({
+      isStreaming: mockIsStreaming,
+    }));
+
+    vi.doMock("../sessions/index.js", () => ({
+      resolveSessionId: mockResolveSessionId,
+    }));
+
+    vi.doMock("../agents/runner.js", () => ({
+      runAgent: mockRunAgent,
+    }));
+
+    return await import("./runner.js");
+  }
+
+  describe("onHeartbeatEvent subscription", () => {
+    it("listener receives event when heartbeat runs", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((payload) => {
+        receivedEvents.push(payload);
+      });
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents.length).toBe(1);
+      expect(receivedEvents[0].agentId).toBe("test-agent");
+
+      unsubscribe();
+    });
+
+    it("unsubscribe prevents further events", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((payload) => {
+        receivedEvents.push(payload);
+      });
+
+      await module.runHeartbeat("test-agent");
+      expect(receivedEvents.length).toBe(1);
+
+      unsubscribe();
+
+      await module.runHeartbeat("test-agent");
+      expect(receivedEvents.length).toBe(1); // No additional events
+    });
+
+    it("multiple listeners all receive events", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const events1: HeartbeatEventPayload[] = [];
+      const events2: HeartbeatEventPayload[] = [];
+      const events3: HeartbeatEventPayload[] = [];
+
+      const unsub1 = module.onHeartbeatEvent((p) => events1.push(p));
+      const unsub2 = module.onHeartbeatEvent((p) => events2.push(p));
+      const unsub3 = module.onHeartbeatEvent((p) => events3.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(events1.length).toBe(1);
+      expect(events2.length).toBe(1);
+      expect(events3.length).toBe(1);
+      expect(events1[0]).toEqual(events2[0]);
+      expect(events2[0]).toEqual(events3[0]);
+
+      unsub1();
+      unsub2();
+      unsub3();
+    });
+
+    it("listener errors do not prevent other listeners from receiving events", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const events: HeartbeatEventPayload[] = [];
+
+      // First listener throws
+      const unsub1 = module.onHeartbeatEvent(() => {
+        throw new Error("Listener 1 error");
+      });
+
+      // Second listener should still receive event
+      const unsub2 = module.onHeartbeatEvent((p) => events.push(p));
+
+      // Third listener also throws
+      const unsub3 = module.onHeartbeatEvent(() => {
+        throw new Error("Listener 3 error");
+      });
+
+      // Should not throw despite listener errors
+      await module.runHeartbeat("test-agent");
+
+      // Second listener received the event
+      expect(events.length).toBe(1);
+
+      unsub1();
+      unsub2();
+      unsub3();
+    });
+  });
+
+  describe("event payload structure", () => {
+    it("includes ts, agentId, status for all events", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      const event = receivedEvents[0];
+      expect(event.ts).toBeTypeOf("number");
+      expect(event.ts).toBeGreaterThan(0);
+      expect(event.agentId).toBe("test-agent");
+      expect(event.status).toBeDefined();
+
+      unsubscribe();
+    });
+
+    it("includes durationMs after successful run", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].durationMs).toBeTypeOf("number");
+      expect(receivedEvents[0].durationMs).toBeGreaterThanOrEqual(0);
+
+      unsubscribe();
+    });
+
+    it("includes reason when skipped or failed", async () => {
+      // Test skipped with reason
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: {}, // No broadcastToChannel
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("skipped");
+      expect(receivedEvents[0].reason).toBe("no broadcastToChannel");
+
+      unsubscribe();
+    });
+
+    it("includes to channel ID when delivering alert", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "my-channel-123" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({
+        payloads: [{ text: "Alert! Something needs attention" }],
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("sent");
+      expect(receivedEvents[0].to).toBe("my-channel-123");
+      expect(receivedEvents[0].alertText).toBe("Alert! Something needs attention");
+
+      unsubscribe();
+    });
+
+    it("excludes to and alertText when not delivering", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({
+        payloads: [{ text: "HEARTBEAT_OK" }],
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("ok-token");
+      expect(receivedEvents[0].to).toBeUndefined();
+      expect(receivedEvents[0].alertText).toBeUndefined();
+
+      unsubscribe();
+    });
+  });
+
+  describe("status mapping", () => {
+    it("maps ok-empty for empty reply", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: "" }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("ok-empty");
+
+      unsubscribe();
+    });
+
+    it("maps ok-token for token-only reply", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: "**HEARTBEAT_OK**" }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("ok-token");
+
+      unsubscribe();
+    });
+
+    it("maps sent for alert reply", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({
+        payloads: [{ text: "Important: check the logs immediately!" }],
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("sent");
+
+      unsubscribe();
+    });
+
+    it("maps skipped for streaming session", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockIsStreaming.mockReturnValue(true);
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("skipped");
+      expect(receivedEvents[0].reason).toBe("streaming");
+
+      unsubscribe();
+    });
+
+    it("maps failed for exceptions", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockRejectedValue(new Error("API timeout"));
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("failed");
+      expect(receivedEvents[0].reason).toBe("API timeout");
+
+      unsubscribe();
+    });
+  });
+
+  describe("preview field", () => {
+    it("contains first 200 chars of stripped text", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      // Text longer than 200 chars
+      const longText = "A".repeat(300);
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: longText }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].preview).toBeDefined();
+      expect(receivedEvents[0].preview!.length).toBe(200);
+      expect(receivedEvents[0].preview).toBe("A".repeat(200));
+
+      unsubscribe();
+    });
+
+    it("does not truncate text shorter than 200 chars", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      const shortText = "Short alert message";
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: shortText }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].preview).toBe(shortText);
+      expect(receivedEvents[0].preview!.length).toBeLessThan(200);
+
+      unsubscribe();
+    });
+
+    it("handles exactly 200 chars correctly (boundary)", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      const exactText = "B".repeat(200);
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: exactText }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].preview).toBe(exactText);
+      expect(receivedEvents[0].preview!.length).toBe(200);
+
+      unsubscribe();
+    });
+
+    it("is undefined when stripped text is empty (ok-empty)", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: "" }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("ok-empty");
+      expect(receivedEvents[0].preview).toBeUndefined();
+
+      unsubscribe();
+    });
+
+    it("is undefined when stripped text is empty after token removal (ok-token)", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      mockRunAgent.mockResolvedValue({ payloads: [{ text: "HEARTBEAT_OK" }] });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      expect(receivedEvents[0].status).toBe("ok-token");
+      expect(receivedEvents[0].preview).toBeUndefined();
+
+      unsubscribe();
+    });
+
+    it("strips token before calculating preview", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+      // Long text with token in the middle
+      const prefix = "Alert: ";
+      const suffix = "C".repeat(300);
+      mockRunAgent.mockResolvedValue({
+        payloads: [{ text: `${prefix}HEARTBEAT_OK ${suffix}` }],
+      });
+
+      const module = await getEventModule();
+      const receivedEvents: HeartbeatEventPayload[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => receivedEvents.push(p));
+
+      await module.runHeartbeat("test-agent");
+
+      // Preview should be stripped text (prefix + suffix without token)
+      expect(receivedEvents[0].preview).toBeDefined();
+      expect(receivedEvents[0].preview!.length).toBe(200);
+      expect(receivedEvents[0].preview!.startsWith("Alert:")).toBe(true);
+
+      unsubscribe();
+    });
+  });
+
+  describe("event observability", () => {
+    it("events can be observed without breaking current consumers", async () => {
+      mockGetAgent.mockReturnValue({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      });
+
+      const module = await getEventModule();
+
+      // Simulate consumer that logs events
+      const loggedEvents: string[] = [];
+      const unsubscribe = module.onHeartbeatEvent((p) => {
+        loggedEvents.push(`[${p.status}] ${p.agentId}`);
+      });
+
+      // Run multiple heartbeats
+      await module.runHeartbeat("test-agent");
+      mockRunAgent.mockResolvedValue({
+        payloads: [{ text: "Alert message" }],
+      });
+      await module.runHeartbeat("test-agent");
+
+      expect(loggedEvents.length).toBe(2);
+      expect(loggedEvents[0]).toContain("test-agent");
+      expect(loggedEvents[1]).toContain("test-agent");
+
+      unsubscribe();
+    });
+  });
+});
+
+// Import type for test assertions
+import type { HeartbeatEventPayload } from "@aihub/shared";
