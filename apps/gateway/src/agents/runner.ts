@@ -23,6 +23,9 @@ import {
   popAllPendingUserMessages,
 } from "./sessions.js";
 import { resolveSessionId, clearClaudeSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
+import { parseThinkDirective } from "../sessions/directives.js";
+import { getSessionThinkLevel, setSessionThinkLevel, DEFAULT_MAIN_KEY } from "../sessions/store.js";
+import { appendSessionMeta } from "../history/store.js";
 import { agentEventBus, type AgentStreamEvent, type RunSource } from "./events.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
@@ -59,6 +62,17 @@ export type RunAgentResult = {
 };
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
+
+// Thinking levels in fallback order (highest to lowest)
+const THINK_LEVELS_ORDERED: ThinkLevel[] = ["xhigh", "high", "medium", "low", "minimal", "off"];
+
+/**
+ * Check if error is a thinking level unsupported error
+ */
+function isThinkingLevelError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /thinking.*not.*supported|unsupported.*thinking|budget_tokens.*invalid|reasoning_effort.*invalid/i.test(msg);
+}
 
 // Max wait time for session handle to be set during queue race
 const QUEUE_WAIT_MS = 500;
@@ -222,6 +236,73 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     } as AgentStreamEvent);
   };
 
+  // Resolve sessionKey for thinkLevel persistence (OAuth only)
+  const resolvedSessionKey = params.sessionKey ?? DEFAULT_MAIN_KEY;
+  const isOAuth = agent.auth?.mode === "oauth";
+
+  // Handle /think directive (OAuth agents only)
+  let directiveThinkLevel: ThinkLevel | undefined;
+  if (isOAuth) {
+    const directive = parseThinkDirective(message);
+    if (directive.hasDirective) {
+      // Update message with directive stripped
+      message = directive.message;
+
+      if (directive.thinkLevel) {
+        // /think level - update session state and persist
+        directiveThinkLevel = directive.thinkLevel;
+        await setSessionThinkLevel(params.agentId, resolvedSessionKey, directive.thinkLevel, sessionId);
+        await appendSessionMeta(params.agentId, sessionId, "thinkingLevel", directive.thinkLevel);
+
+        // If no remaining message, just acknowledge and return
+        if (!message.trim()) {
+          const ackText = `Thinking level set to: ${directive.thinkLevel}`;
+          emit({ type: "text", data: ackText });
+          emit({ type: "done", meta: { durationMs: 0 } });
+          return {
+            payloads: [{ text: ackText }],
+            meta: { durationMs: 0, sessionId },
+          };
+        }
+      } else if (directive.rawLevel) {
+        // Invalid level specified
+        const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "min", "mid", "med", "max", "ultra", "none"];
+        const errText = `Invalid thinking level: "${directive.rawLevel}". Valid levels: ${validLevels.join(", ")}`;
+        emit({ type: "text", data: errText });
+        emit({ type: "done", meta: { durationMs: 0 } });
+        return {
+          payloads: [{ text: errText }],
+          meta: { durationMs: 0, sessionId },
+        };
+      } else {
+        // /think with no arg - show current level
+        const currentLevel = getSessionThinkLevel(params.agentId, resolvedSessionKey) ?? agent.thinkLevel ?? "not set";
+        const statusText = `Current thinking level: ${currentLevel}`;
+        emit({ type: "text", data: statusText });
+        emit({ type: "done", meta: { durationMs: 0 } });
+        return {
+          payloads: [{ text: statusText }],
+          meta: { durationMs: 0, sessionId },
+        };
+      }
+    }
+  }
+
+  // Resolve thinkLevel:
+  // - OAuth: API param > Directive > Session > Config > undefined
+  // - Non-OAuth: API param > Config > undefined (no directive/session support)
+  let resolvedThinkLevel: ThinkLevel | undefined;
+  if (isOAuth) {
+    resolvedThinkLevel =
+      params.thinkLevel ??
+      directiveThinkLevel ??
+      getSessionThinkLevel(params.agentId, resolvedSessionKey) ??
+      agent.thinkLevel;
+  } else {
+    // Non-OAuth: still honor API param and config, just no directive/session
+    resolvedThinkLevel = params.thinkLevel ?? agent.thinkLevel;
+  }
+
   const currentlyStreaming = isStreaming(params.agentId, sessionId);
 
   // Handle queue vs interrupt mode when already streaming
@@ -335,18 +416,27 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   };
 
   try {
-    const result = await adapter.run({
+    // Run with fallback retry for unsupported thinking levels
+    let hasEmittedContent = false;
+    let actualThinkLevel = resolvedThinkLevel;
+    let fallbackUsed = false;
+
+    const runParams = {
       agentId: params.agentId,
       agent,
       sessionId,
       sessionKey: params.sessionKey,
       message,
       workspaceDir,
-      thinkLevel: params.thinkLevel ?? agent.thinkLevel,
       context: params.context,
-      onEvent: emit,
+      onEvent: (event: StreamEvent) => {
+        if (event.type === "text" || event.type === "thinking") {
+          hasEmittedContent = true;
+        }
+        emit(event);
+      },
       onHistoryEvent: handleHistoryEvent,
-      onSessionHandle: (handle) => {
+      onSessionHandle: (handle: unknown) => {
         setSessionHandle(params.agentId, sessionId, handle);
         // Inject buffered messages if adapter supports queue
         if (capabilities.queueWhileStreaming && adapter.queueMessage) {
@@ -357,7 +447,48 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         }
       },
       abortSignal: abortController.signal,
-    });
+    };
+
+    let result: Awaited<ReturnType<typeof adapter.run>>;
+    const startIdx = actualThinkLevel ? THINK_LEVELS_ORDERED.indexOf(actualThinkLevel) : -1;
+    const attempted = new Set<ThinkLevel>();
+
+    if (startIdx === -1 || !actualThinkLevel) {
+      // No thinking level set, run normally
+      result = await adapter.run({ ...runParams, thinkLevel: undefined });
+    } else {
+      // Try with fallback on thinking level errors
+      let lastError: unknown;
+      for (let i = startIdx; i < THINK_LEVELS_ORDERED.length; i++) {
+        const level = THINK_LEVELS_ORDERED[i];
+        if (attempted.has(level)) continue;
+        attempted.add(level);
+
+        try {
+          result = await adapter.run({ ...runParams, thinkLevel: level });
+          actualThinkLevel = level;
+          fallbackUsed = level !== resolvedThinkLevel;
+          break;
+        } catch (err) {
+          lastError = err;
+          // Only retry if no content emitted yet and it's a thinking level error
+          if (!hasEmittedContent && isThinkingLevelError(err)) {
+            continue;
+          }
+          throw err;
+        }
+      }
+      // If loop exhausted without success, throw last error
+      if (!result!) {
+        throw lastError ?? new Error("All thinking levels failed");
+      }
+    }
+
+    // Add fallback note if a different level was used
+    if (fallbackUsed && actualThinkLevel !== resolvedThinkLevel) {
+      const note = `\n\n_Note: Used thinking level "${actualThinkLevel}" ("${resolvedThinkLevel}" not supported by model)_`;
+      emit({ type: "text", data: note });
+    }
 
     aborted = result.aborted ?? false;
 
