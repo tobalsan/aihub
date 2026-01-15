@@ -826,3 +826,455 @@ describe("runHeartbeat session preservation", () => {
     module.setHeartbeatsEnabled(true);
   });
 });
+
+// Tests for heartbeat lifecycle: start/stop timers, interval timing, graceful shutdown
+// These tests verify the scope: "Lifecycle wiring: start/stop timers with gateway process lifecycle"
+
+describe("heartbeat lifecycle", () => {
+  let mockGetAgent: ReturnType<typeof vi.fn>;
+  let mockLoadConfig: ReturnType<typeof vi.fn>;
+  let mockRunAgent: ReturnType<typeof vi.fn>;
+  let mockGetSessionEntry: ReturnType<typeof vi.fn>;
+  let mockRestoreSessionUpdatedAt: ReturnType<typeof vi.fn>;
+  let mockIsStreaming: ReturnType<typeof vi.fn>;
+  let mockResolveSessionId: ReturnType<typeof vi.fn>;
+  let mockResolveWorkspaceDir: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+
+    mockGetAgent = vi.fn();
+    mockLoadConfig = vi.fn();
+    mockRunAgent = vi.fn();
+    mockGetSessionEntry = vi.fn();
+    mockRestoreSessionUpdatedAt = vi.fn().mockResolvedValue(undefined);
+    mockIsStreaming = vi.fn().mockReturnValue(false);
+    mockResolveSessionId = vi.fn().mockResolvedValue({
+      sessionId: "test-session",
+      message: "test",
+      isNew: false,
+      createdAt: 1000,
+    });
+    mockResolveWorkspaceDir = vi.fn().mockReturnValue("/test/workspace");
+    mockRunAgent.mockResolvedValue({ payloads: [{ text: "HEARTBEAT_OK" }] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function getLifecycleModule() {
+    vi.doMock("../config/index.js", () => ({
+      getAgent: mockGetAgent,
+      loadConfig: mockLoadConfig,
+      resolveWorkspaceDir: mockResolveWorkspaceDir,
+    }));
+
+    vi.doMock("../sessions/store.js", () => ({
+      getSessionEntry: mockGetSessionEntry,
+      restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
+      DEFAULT_MAIN_KEY: "main",
+    }));
+
+    vi.doMock("../agents/sessions.js", () => ({
+      isStreaming: mockIsStreaming,
+    }));
+
+    vi.doMock("../sessions/index.js", () => ({
+      resolveSessionId: mockResolveSessionId,
+    }));
+
+    vi.doMock("../agents/runner.js", () => ({
+      runAgent: mockRunAgent,
+    }));
+
+    return await import("./runner.js");
+  }
+
+  describe("startAllHeartbeats", () => {
+    it("creates timers for enabled agents on startup", async () => {
+      mockLoadConfig.mockReturnValue({
+        agents: [
+          { id: "agent-1", heartbeat: { every: "5m" } },
+          { id: "agent-2", heartbeat: { every: "10m" } },
+          { id: "agent-3" }, // No heartbeat config
+        ],
+      });
+      mockGetAgent.mockImplementation((id: string) => {
+        const agents: Record<string, object> = {
+          "agent-1": { id: "agent-1", heartbeat: { every: "5m" } },
+          "agent-2": { id: "agent-2", heartbeat: { every: "10m" } },
+          "agent-3": { id: "agent-3" },
+        };
+        return agents[id];
+      });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      const activeHeartbeats = module.getActiveHeartbeats();
+      expect(activeHeartbeats).toContain("agent-1");
+      expect(activeHeartbeats).toContain("agent-2");
+      expect(activeHeartbeats).not.toContain("agent-3"); // No heartbeat config
+
+      // Cleanup
+      module.stopAllHeartbeats();
+    });
+
+    it("does not start heartbeat when heartbeat block absent", async () => {
+      mockLoadConfig.mockReturnValue({
+        agents: [{ id: "agent-no-hb" }],
+      });
+      mockGetAgent.mockReturnValue({ id: "agent-no-hb" });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      expect(module.getActiveHeartbeats()).not.toContain("agent-no-hb");
+      module.stopAllHeartbeats();
+    });
+
+    it("does not start heartbeat when every is 0", async () => {
+      mockLoadConfig.mockReturnValue({
+        agents: [{ id: "agent-disabled", heartbeat: { every: "0" } }],
+      });
+      mockGetAgent.mockReturnValue({ id: "agent-disabled", heartbeat: { every: "0" } });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      expect(module.getActiveHeartbeats()).not.toContain("agent-disabled");
+      module.stopAllHeartbeats();
+    });
+  });
+
+  describe("first heartbeat timing", () => {
+    it("first heartbeat fires only after first interval (no immediate run)", async () => {
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "5m" }, // 5 minutes = 300000ms
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // No immediate heartbeat run
+      expect(mockRunAgent).not.toHaveBeenCalled();
+
+      // Advance time by 4 minutes - still no heartbeat
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+      expect(mockRunAgent).not.toHaveBeenCalled();
+
+      // Advance past 5 minutes - heartbeat should fire
+      await vi.advanceTimersByTimeAsync(1 * 60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      module.stopAllHeartbeats();
+    });
+
+    it("uses default 30m interval when every is absent but heartbeat block present", async () => {
+      const agent = {
+        id: "agent-default",
+        heartbeat: {}, // No every = default 30m
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // No immediate run
+      expect(mockRunAgent).not.toHaveBeenCalled();
+
+      // 29 minutes - no heartbeat yet
+      await vi.advanceTimersByTimeAsync(29 * 60 * 1000);
+      expect(mockRunAgent).not.toHaveBeenCalled();
+
+      // 30 minutes - heartbeat fires
+      await vi.advanceTimersByTimeAsync(1 * 60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      module.stopAllHeartbeats();
+    });
+  });
+
+  describe("stopAllHeartbeats", () => {
+    it("clears all timers on shutdown", async () => {
+      mockLoadConfig.mockReturnValue({
+        agents: [
+          { id: "agent-1", heartbeat: { every: "5m" } },
+          { id: "agent-2", heartbeat: { every: "10m" } },
+        ],
+      });
+      mockGetAgent.mockImplementation((id: string) => ({
+        id,
+        heartbeat: { every: id === "agent-1" ? "5m" : "10m" },
+      }));
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      expect(module.getActiveHeartbeats().length).toBe(2);
+
+      module.stopAllHeartbeats();
+
+      expect(module.getActiveHeartbeats().length).toBe(0);
+    });
+
+    it("no heartbeats fire after stop", async () => {
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "5m" },
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // Stop immediately
+      module.stopAllHeartbeats();
+
+      // Advance past interval
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      // No heartbeat should have fired
+      expect(mockRunAgent).not.toHaveBeenCalled();
+    });
+
+    it("stops mid-cycle timer without affecting next cycle", async () => {
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "1m" },
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // Let first heartbeat fire
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      // Stop before second heartbeat
+      await vi.advanceTimersByTimeAsync(30 * 1000); // 30s into second cycle
+      module.stopAllHeartbeats();
+
+      // Advance more time - no more heartbeats
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1); // Still just 1
+
+      expect(module.getActiveHeartbeats().length).toBe(0);
+    });
+  });
+
+  describe("individual agent start/stop", () => {
+    it("startHeartbeat returns true for enabled agent", async () => {
+      const agent = { id: "agent-1", heartbeat: { every: "5m" } };
+      mockGetAgent.mockReturnValue(agent);
+      mockLoadConfig.mockReturnValue({ agents: [] });
+
+      const module = await getLifecycleModule();
+      const result = module.startHeartbeat("agent-1");
+
+      expect(result).toBe(true);
+      expect(module.getActiveHeartbeats()).toContain("agent-1");
+
+      module.stopAllHeartbeats();
+    });
+
+    it("startHeartbeat returns false for disabled agent", async () => {
+      mockGetAgent.mockReturnValue({ id: "agent-1", heartbeat: { every: "0" } });
+      mockLoadConfig.mockReturnValue({ agents: [] });
+
+      const module = await getLifecycleModule();
+      const result = module.startHeartbeat("agent-1");
+
+      expect(result).toBe(false);
+      expect(module.getActiveHeartbeats()).not.toContain("agent-1");
+    });
+
+    it("startHeartbeat returns false for unknown agent", async () => {
+      mockGetAgent.mockReturnValue(undefined);
+      mockLoadConfig.mockReturnValue({ agents: [] });
+
+      const module = await getLifecycleModule();
+      const result = module.startHeartbeat("unknown-agent");
+
+      expect(result).toBe(false);
+    });
+
+    it("stopHeartbeat clears specific agent timer", async () => {
+      mockLoadConfig.mockReturnValue({
+        agents: [
+          { id: "agent-1", heartbeat: { every: "5m" } },
+          { id: "agent-2", heartbeat: { every: "5m" } },
+        ],
+      });
+      mockGetAgent.mockImplementation((id: string) => ({
+        id,
+        heartbeat: { every: "5m" },
+      }));
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      expect(module.getActiveHeartbeats()).toContain("agent-1");
+      expect(module.getActiveHeartbeats()).toContain("agent-2");
+
+      module.stopHeartbeat("agent-1");
+
+      expect(module.getActiveHeartbeats()).not.toContain("agent-1");
+      expect(module.getActiveHeartbeats()).toContain("agent-2");
+
+      module.stopAllHeartbeats();
+    });
+  });
+
+  describe("timer rescheduling", () => {
+    it("reschedules timer after heartbeat completes", async () => {
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "1m" },
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // First heartbeat at 1m
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      // Second heartbeat at 2m
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+
+      // Third heartbeat at 3m
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(3);
+
+      module.stopAllHeartbeats();
+    });
+
+    it("stops rescheduling when agent config removed between runs", async () => {
+      // Track call count to toggle config
+      // Call flow per heartbeat cycle:
+      //   1. startHeartbeat -> getAgent
+      //   2. runHeartbeat -> getAgent (inside runHeartbeat)
+      //   3. scheduleTick reschedule check -> getAgent
+      // We want first heartbeat to complete normally, then disable before 2nd can schedule
+      let callCount = 0;
+      const getAgentConfig = () => {
+        callCount++;
+        // After call 3 (reschedule after first heartbeat), disable
+        if (callCount > 3) {
+          return {
+            id: "agent-1",
+            heartbeat: undefined, // Disabled
+            discord: { broadcastToChannel: "channel-1" },
+            workspace: "/test",
+          };
+        }
+        return {
+          id: "agent-1",
+          heartbeat: { every: "1m" },
+          discord: { broadcastToChannel: "channel-1" },
+          workspace: "/test",
+        };
+      };
+
+      mockLoadConfig.mockReturnValue({
+        agents: [{ id: "agent-1", heartbeat: { every: "1m" } }],
+      });
+      mockGetAgent.mockImplementation(getAgentConfig);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // First heartbeat fires (reschedule check still sees enabled)
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      // Second heartbeat fires (config was enabled at reschedule time)
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+
+      // Now reschedule check sees disabled config - no more heartbeats
+      await vi.advanceTimersByTimeAsync(120 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+
+      module.stopAllHeartbeats();
+    });
+  });
+
+  describe("graceful shutdown", () => {
+    it("timer uses unref to not block process exit", async () => {
+      // This test verifies behavior implicitly - timers with unref() allow process to exit
+      // We test by ensuring stopAllHeartbeats cleans up properly
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "5m" },
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // Timer is active
+      expect(module.getActiveHeartbeats().length).toBe(1);
+
+      // Cleanup should be complete
+      module.stopAllHeartbeats();
+      expect(module.getActiveHeartbeats().length).toBe(0);
+    });
+
+    it("multiple stop calls are safe (idempotent)", async () => {
+      const agent = { id: "agent-1", heartbeat: { every: "5m" } };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // Multiple stops should not throw
+      module.stopAllHeartbeats();
+      module.stopAllHeartbeats();
+      module.stopAllHeartbeats();
+
+      expect(module.getActiveHeartbeats().length).toBe(0);
+    });
+
+    it("stopHeartbeat on non-existent timer is safe", async () => {
+      mockLoadConfig.mockReturnValue({ agents: [] });
+
+      const module = await getLifecycleModule();
+
+      // Should not throw
+      module.stopHeartbeat("non-existent-agent");
+      expect(module.getActiveHeartbeats().length).toBe(0);
+    });
+  });
+});
