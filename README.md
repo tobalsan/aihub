@@ -87,6 +87,20 @@ pnpm aihub auth login anthropic
 }
 ```
 
+**API Key auth (e.g. OpenRouter):**
+
+```json
+{
+  "env": { "OPENROUTER_API_KEY": "sk-or-..." },
+  "agents": [{
+    "id": "my-agent",
+    "workspace": "~/workspace",
+    "auth": { "mode": "api_key" },
+    "model": { "provider": "openrouter", "model": "anthropic/claude-sonnet-4" }
+  }]
+}
+```
+
 Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 
 ## API
@@ -124,7 +138,8 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
   "sessions": { "idleMinutes": 360 },
   "gateway": { "port": 4000, "bind": "tailnet" },
   "scheduler": { "enabled": true, "tickSeconds": 60 },
-  "ui": { "port": 3000, "bind": "loopback" }
+  "ui": { "port": 3000, "bind": "loopback" },
+  "env": { "OPENROUTER_API_KEY": "sk-or-..." }
 }
 ```
 
@@ -169,6 +184,21 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 - Both `gateway.bind` and `ui.bind` must be `loopback` (or omitted)
 - MagicDNS hostname (e.g. `https://machine.tail1234.ts.net`) only works from other devices
 - Local access requires `http://127.0.0.1:<port>` (gateway: 4000, ui: 3000 by default)
+
+### Environment Variables
+
+Set env vars in config (applied at load time, only if not already set):
+
+```json
+{
+  "env": {
+    "OPENROUTER_API_KEY": "sk-or-...",
+    "GROQ_API_KEY": "gsk-..."
+  }
+}
+```
+
+Shell env vars take precedence over config values.
 
 ## Scheduling
 

@@ -21,6 +21,15 @@ export function loadConfig(): GatewayConfig {
   const json = JSON.parse(raw);
   const result = GatewayConfigSchema.parse(json);
 
+  // Apply env vars from config (only if not already set in process.env)
+  if (result.env) {
+    for (const [key, value] of Object.entries(result.env)) {
+      if (!process.env[key]?.trim()) {
+        process.env[key] = value;
+      }
+    }
+  }
+
   // Apply defaults
   for (const agent of result.agents) {
     if (!agent.queueMode) agent.queueMode = "queue";

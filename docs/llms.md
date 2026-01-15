@@ -78,7 +78,7 @@ All stored in `~/.aihub/`:
       mode?: "oauth"|"api_key"|"proxy",
       profileId?: string         // e.g. "anthropic:default"
     },
-    thinkLevel?: "off"|"minimal"|"low"|"medium"|"high",
+    thinkLevel?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh",
     queueMode?: "queue"|"interrupt",  // Default: queue
     discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, ... },
     amsg?: { id?, enabled? },
@@ -366,6 +366,33 @@ For Claude SDK agents, you can configure a proxy URL and auth token directly in 
 ```
 
 This sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for that agent's runs. Runs with proxy config are serialized to prevent env var cross-contamination.
+
+## Environment Variables in Config
+
+You can set environment variables directly in `aihub.json` using the `env` field:
+
+```json
+{
+  "env": {
+    "OPENROUTER_API_KEY": "sk-or-...",
+    "GROQ_API_KEY": "gsk-...",
+    "ANTHROPIC_API_KEY": "sk-ant-..."
+  },
+  "agents": [...]
+}
+```
+
+**Behavior:**
+- Env vars are applied at config load time (before any agent runs)
+- Only applied if not already set in `process.env` (shell env takes precedence)
+- Supports any env var recognized by Pi SDK (provider API keys, etc.)
+
+**Common env vars for Pi SDK providers:**
+- `ANTHROPIC_API_KEY` - Anthropic
+- `OPENAI_API_KEY` - OpenAI
+- `OPENROUTER_API_KEY` - OpenRouter
+- `GROQ_API_KEY` - Groq
+- `GEMINI_API_KEY` - Google Gemini
 
 ## Key Dependencies
 

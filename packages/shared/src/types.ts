@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Think levels
-export const ThinkLevelSchema = z.enum(["off", "minimal", "low", "medium", "high"]);
+export const ThinkLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
 export type ThinkLevel = z.infer<typeof ThinkLevelSchema>;
 
 // Agent model config
@@ -205,6 +205,7 @@ export const GatewayConfigSchema = z.object({
     })
     .optional(),
   ui: UiConfigSchema.optional(),
+  env: z.record(z.string(), z.string()).optional(), // Env vars to set (only if not already set)
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 
@@ -266,6 +267,7 @@ export type WsSendMessage = {
   sessionId?: string; // explicit session ID (bypasses sessionKey resolution)
   sessionKey?: string; // logical key (resolved to sessionId with idle timeout)
   message: string;
+  thinkLevel?: ThinkLevel; // per-request think level override
 };
 
 export type WsSubscribeMessage = {
