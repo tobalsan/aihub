@@ -97,6 +97,8 @@ function handleWsConnection(ws: WebSocket) {
           agentId: msg.agentId,
           message,
           sessionId: sessionId ?? "default",
+          sessionKey: msg.sessionKey ?? "main",
+          thinkLevel: msg.thinkLevel,
           onEvent: (event) => sendWs(ws, event),
         });
       } catch (err) {

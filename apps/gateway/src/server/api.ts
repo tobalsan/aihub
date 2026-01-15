@@ -8,7 +8,7 @@ import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir } from ".
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
-import { resolveSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
+import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
 
 const api = new Hono();
 
@@ -22,6 +22,7 @@ api.get("/agents", (c) => {
       model: a.model,
       sdk: a.sdk ?? "pi",
       workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
+      authMode: a.auth?.mode,
     }))
   );
 });
@@ -39,6 +40,7 @@ api.get("/agents/:id", (c) => {
     model: agent.model,
     sdk: agent.sdk ?? "pi",
     workspace: agent.workspace ? resolveWorkspaceDir(agent.workspace) : undefined,
+    authMode: agent.auth?.mode,
   });
 });
 
@@ -105,6 +107,7 @@ api.post("/agents/:id/messages", async (c) => {
       agentId: agent.id,
       message,
       sessionId,
+      sessionKey: parsed.data.sessionKey ?? "main",
       thinkLevel: parsed.data.thinkLevel,
     });
     return c.json(result);
@@ -135,7 +138,12 @@ api.get("/agents/:id/history", async (c) => {
       ? await getFullSessionHistory(agentId, entry.sessionId)
       : await getSessionHistory(agentId, entry.sessionId);
 
-  return c.json({ messages, sessionId: entry.sessionId, view });
+  // Only include thinkingLevel for OAuth agents
+  const thinkingLevel = agent.auth?.mode === "oauth"
+    ? getSessionThinkLevel(agentId, sessionKey)
+    : undefined;
+
+  return c.json({ messages, sessionId: entry.sessionId, view, thinkingLevel });
 });
 
 // GET /api/schedules - list schedules
