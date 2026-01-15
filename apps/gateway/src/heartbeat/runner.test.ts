@@ -1177,6 +1177,40 @@ describe("heartbeat lifecycle", () => {
       module.stopAllHeartbeats();
     });
 
+    it("continues rescheduling after runAgent fails", async () => {
+      const agent = {
+        id: "agent-1",
+        heartbeat: { every: "1m" },
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+      mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+
+      // First call throws, subsequent calls succeed
+      mockRunAgent
+        .mockRejectedValueOnce(new Error("Agent error"))
+        .mockResolvedValue({ payloads: [{ text: "HEARTBEAT_OK" }] });
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      // First heartbeat at 1m - throws error
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      // Second heartbeat at 2m - timer should have rescheduled despite error
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+
+      // Third heartbeat at 3m - continues working
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(mockRunAgent).toHaveBeenCalledTimes(3);
+
+      module.stopAllHeartbeats();
+    });
+
     it("stops rescheduling when agent config removed between runs", async () => {
       // Track call count to toggle config
       // Call flow per heartbeat cycle:
