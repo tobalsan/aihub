@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -508,5 +508,321 @@ describe("loadHeartbeatPrompt", () => {
         await fs.chmod(heartbeatPath, 0o644);
       }
     });
+  });
+});
+
+// Tests for runHeartbeat session preservation
+// These tests verify the scope: "Session preservation: restore updatedAt so heartbeat doesn't keep sessions alive"
+
+// Mock modules
+const mockGetAgent = vi.fn();
+const mockGetSessionEntry = vi.fn();
+const mockRestoreSessionUpdatedAt = vi.fn();
+const mockIsStreaming = vi.fn();
+const mockResolveSessionId = vi.fn();
+const mockRunAgent = vi.fn();
+const mockResolveWorkspaceDir = vi.fn();
+
+describe("runHeartbeat session preservation", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+
+    // Reset mocks to default behavior
+    mockGetAgent.mockReset();
+    mockGetSessionEntry.mockReset();
+    mockRestoreSessionUpdatedAt.mockReset();
+    mockIsStreaming.mockReset();
+    mockResolveSessionId.mockReset();
+    mockRunAgent.mockReset();
+    mockResolveWorkspaceDir.mockReset();
+
+    // Default mock implementations
+    mockRestoreSessionUpdatedAt.mockResolvedValue(undefined);
+    mockIsStreaming.mockReturnValue(false);
+    mockResolveWorkspaceDir.mockReturnValue("/test/workspace");
+    mockResolveSessionId.mockResolvedValue({
+      sessionId: "test-session-id",
+      message: "test prompt",
+      isNew: false,
+      createdAt: 1000,
+    });
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "HEARTBEAT_OK" }],
+    });
+  });
+
+  // Helper to get a mocked runHeartbeat
+  async function getRunHeartbeatWithMocks() {
+    vi.doMock("../config/index.js", () => ({
+      getAgent: mockGetAgent,
+      loadConfig: () => ({ agents: [] }),
+      resolveWorkspaceDir: mockResolveWorkspaceDir,
+    }));
+
+    vi.doMock("../sessions/store.js", () => ({
+      getSessionEntry: mockGetSessionEntry,
+      restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
+      DEFAULT_MAIN_KEY: "main",
+    }));
+
+    vi.doMock("../agents/sessions.js", () => ({
+      isStreaming: mockIsStreaming,
+    }));
+
+    vi.doMock("../sessions/index.js", () => ({
+      resolveSessionId: mockResolveSessionId,
+    }));
+
+    vi.doMock("../agents/runner.js", () => ({
+      runAgent: mockRunAgent,
+    }));
+
+    const module = await import("./runner.js");
+    return module.runHeartbeat;
+  }
+
+  it("captures original updatedAt before attempting run", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "existing-session",
+      updatedAt: originalUpdatedAt,
+      createdAt: 500,
+    });
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    await runHeartbeat("test-agent");
+
+    // Verify getSessionEntry was called to capture original updatedAt
+    expect(mockGetSessionEntry).toHaveBeenCalledWith("test-agent", "main");
+  });
+
+  it("restores updatedAt when session is streaming (queue busy)", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "streaming-session",
+      updatedAt: originalUpdatedAt,
+    });
+    mockIsStreaming.mockReturnValue(true);
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("streaming");
+    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
+      "test-agent",
+      "main",
+      originalUpdatedAt
+    );
+  });
+
+  it("restores updatedAt when no broadcastToChannel configured", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: {}, // No broadcastToChannel
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "test-session",
+      updatedAt: originalUpdatedAt,
+    });
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("no broadcastToChannel");
+    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
+      "test-agent",
+      "main",
+      originalUpdatedAt
+    );
+  });
+
+  it("restores updatedAt when reply is ok-empty", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "test-session",
+      updatedAt: originalUpdatedAt,
+    });
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "" }], // Empty reply
+    });
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("ok-empty");
+    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
+      "test-agent",
+      "main",
+      originalUpdatedAt
+    );
+  });
+
+  it("restores updatedAt when reply is ok-token", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "test-session",
+      updatedAt: originalUpdatedAt,
+    });
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "HEARTBEAT_OK" }],
+    });
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("ok-token");
+    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
+      "test-agent",
+      "main",
+      originalUpdatedAt
+    );
+  });
+
+  it("does NOT restore updatedAt when alert should be delivered (sent status)", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "test-session",
+      updatedAt: originalUpdatedAt,
+    });
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "Hey! Something important happened!" }], // No HEARTBEAT_OK token
+    });
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("sent");
+    // Should NOT restore since we're delivering an alert
+    expect(mockRestoreSessionUpdatedAt).not.toHaveBeenCalled();
+  });
+
+  it("restores updatedAt when runAgent throws error", async () => {
+    const originalUpdatedAt = 1000;
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({
+      sessionId: "test-session",
+      updatedAt: originalUpdatedAt,
+    });
+    mockRunAgent.mockRejectedValue(new Error("Agent error"));
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("failed");
+    expect(result.reason).toBe("Agent error");
+    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
+      "test-agent",
+      "main",
+      originalUpdatedAt
+    );
+  });
+
+  it("safely handles when session entry does not exist (first run)", async () => {
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue(undefined); // No existing session
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "HEARTBEAT_OK" }],
+    });
+
+    const runHeartbeat = await getRunHeartbeatWithMocks();
+
+    // Should not throw
+    const result = await runHeartbeat("test-agent");
+
+    expect(result.status).toBe("ok-token");
+    // restoreSessionUpdatedAt called with undefined originalUpdatedAt - should be no-op
+    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
+      "test-agent",
+      "main",
+      undefined
+    );
+  });
+
+  it("does not restore updatedAt when global heartbeats disabled (no run attempted)", async () => {
+    // Import fresh module to test global disable
+    vi.resetModules();
+
+    vi.doMock("../config/index.js", () => ({
+      getAgent: () => ({
+        id: "test-agent",
+        heartbeat: {},
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      }),
+      loadConfig: () => ({ agents: [] }),
+      resolveWorkspaceDir: () => "/test",
+    }));
+
+    const mockRestore = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("../sessions/store.js", () => ({
+      getSessionEntry: () => ({ sessionId: "s", updatedAt: 1000 }),
+      restoreSessionUpdatedAt: mockRestore,
+      DEFAULT_MAIN_KEY: "main",
+    }));
+
+    vi.doMock("../agents/sessions.js", () => ({
+      isStreaming: () => false,
+    }));
+
+    const module = await import("./runner.js");
+    module.setHeartbeatsEnabled(false);
+
+    const result = await module.runHeartbeat("test-agent");
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("disabled");
+    // Restore should NOT be called because we exit before capturing original
+    // Actually, looking at the code, global disable check happens AFTER capturing
+    // So this should NOT call restore (we don't capture yet when disabled)
+    expect(mockRestore).not.toHaveBeenCalled();
+
+    // Reset global state
+    module.setHeartbeatsEnabled(true);
   });
 });
