@@ -2,12 +2,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ThinkLevel } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 
 export type SessionEntry = {
   sessionId: string;
   updatedAt: number;
   createdAt?: number;
+  thinkLevel?: ThinkLevel;
 };
 
 export const DEFAULT_MAIN_KEY = "main";
@@ -179,4 +181,44 @@ export function formatSessionTimestamp(timestamp: number): string {
   const d = new Date(timestamp);
   const pad = (n: number, len = 2) => n.toString().padStart(len, "0");
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}-${pad(d.getUTCMinutes())}-${pad(d.getUTCSeconds())}-${pad(d.getUTCMilliseconds(), 3)}Z`;
+}
+
+/**
+ * Get the thinkLevel for a session
+ */
+export function getSessionThinkLevel(
+  agentId: string,
+  sessionKey: string
+): ThinkLevel | undefined {
+  ensureLoaded();
+  const storeKey = `${agentId}:${sessionKey}`;
+  return store[storeKey]?.thinkLevel;
+}
+
+/**
+ * Set the thinkLevel for a session.
+ * Creates entry if it doesn't exist.
+ */
+export async function setSessionThinkLevel(
+  agentId: string,
+  sessionKey: string,
+  level: ThinkLevel,
+  sessionId?: string
+): Promise<void> {
+  ensureLoaded();
+  const storeKey = `${agentId}:${sessionKey}`;
+  const entry = store[storeKey];
+  if (entry) {
+    entry.thinkLevel = level;
+  } else {
+    // Create entry if missing (use provided sessionId or generate new)
+    const now = Date.now();
+    store[storeKey] = {
+      sessionId: sessionId ?? crypto.randomUUID(),
+      updatedAt: now,
+      createdAt: now,
+      thinkLevel: level,
+    };
+  }
+  await save();
 }

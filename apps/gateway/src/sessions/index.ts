@@ -2,6 +2,7 @@ export {
   resolveSessionId,
   getSessionEntry,
   isAbortTrigger,
+  getSessionThinkLevel,
   DEFAULT_MAIN_KEY,
   DEFAULT_IDLE_MINUTES,
   DEFAULT_RESET_TRIGGERS,
