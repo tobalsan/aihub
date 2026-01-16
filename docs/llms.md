@@ -80,7 +80,8 @@ All stored in `~/.aihub/`:
     },
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh",
     queueMode?: "queue"|"interrupt",  // Default: queue
-    discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, ... },
+    discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, broadcastToChannel?, ... },
+    heartbeat?: { every?, prompt?, ackMaxChars? },
     amsg?: { id?, enabled? },
     introMessage?: string            // Custom intro for /new (default: "New conversation started.")
   }],
@@ -246,6 +247,41 @@ discord: {
 - Guild messages use `sessionId: discord:${channelId}` (per-channel isolation)
 
 **Live broadcast:** Main-session responses from other sources (web, amsg, scheduler) are broadcast to `broadcastToChannel`. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
+
+### Heartbeat (`src/heartbeat/`)
+
+Periodic agent check-in with Discord alert delivery.
+
+**Config:**
+```typescript
+heartbeat?: {
+  every?: string,      // Duration: "30m", "1h", "0" (disabled). Default: "30m"
+  prompt?: string,     // Custom prompt (overrides HEARTBEAT.md)
+  ackMaxChars?: number // Max chars after token strip. Default: 300
+}
+```
+
+**Flow:**
+1. Timer fires at `every` interval
+2. Prompt resolved: `heartbeat.prompt` > `{workspace}/HEARTBEAT.md` > default
+3. Agent runs with `source: "heartbeat"`, `sessionKey: "main"`
+4. Reply evaluated:
+   - Contains `HEARTBEAT_OK` + content ≤ `ackMaxChars` → status `ok-token`, no delivery
+   - Empty reply → status `ok-empty`, no delivery
+   - No token or substantial content → status `sent`, delivered to Discord
+5. Session `updatedAt` preserved (heartbeat doesn't reset idle timer)
+
+**Token matching:** Strips HTML/Markdown wrappers (`<b>HEARTBEAT_OK</b>`, `**HEARTBEAT_OK**`, etc.)
+
+**Discord delivery:** Requires `discord.broadcastToChannel`. Bot must be ready and gateway connected.
+
+**Skips when:**
+- Agent not found
+- Heartbeats globally disabled (`setHeartbeatsEnabled(false)`)
+- Main session is streaming
+- No `broadcastToChannel` configured
+
+**Events:** `onHeartbeatEvent(payload)` for status monitoring. Payload: `{ ts, agentId, status, to?, preview?, alertText?, durationMs?, reason? }`
 
 ### Amsg Watcher (`src/amsg/`)
 

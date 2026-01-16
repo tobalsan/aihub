@@ -159,6 +159,7 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 | `thinkLevel` | off, minimal, low, medium, high |
 | `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
 | `discord` | Discord bot config ([docs](docs/discord.md)) |
+| `heartbeat` | Periodic check-in config (see below) |
 | `amsg` | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 
 ### Gateway Options
@@ -221,6 +222,39 @@ curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d
   "payload": { "message": "Generate standup summary" }
 }'
 ```
+
+## Heartbeat
+
+Periodic agent check-ins with Discord delivery for alerts.
+
+```json
+{
+  "agents": [{
+    "id": "my-agent",
+    "heartbeat": {
+      "every": "30m",
+      "prompt": "Check on your human",
+      "ackMaxChars": 300
+    },
+    "discord": {
+      "token": "...",
+      "broadcastToChannel": "123456789"
+    }
+  }]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `every` | Interval (`30m`, `1h`, `0` to disable). Default: `30m` |
+| `prompt` | Custom prompt. Falls back to `HEARTBEAT.md` in workspace, then default |
+| `ackMaxChars` | Max chars after token strip to still be "ok". Default: 300 |
+
+**How it works:**
+1. Agent is prompted at the interval
+2. Agent replies with `HEARTBEAT_OK` token if all is well
+3. If no token (or substantial content beyond `ackMaxChars`), the reply is delivered to Discord as an alert
+4. Heartbeat runs don't affect session `updatedAt` (preserves idle timeout)
 
 ## Custom Models
 
