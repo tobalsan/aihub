@@ -296,8 +296,8 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
       // Only handle events for this agent
       if (event.agentId !== agent.id) return;
 
-      // Skip if originated from Discord (avoid echo loop)
-      if (event.source === "discord") return;
+      // Skip if originated from Discord (avoid echo loop) or heartbeat (has its own delivery)
+      if (event.source === "discord" || event.source === "heartbeat") return;
 
       // Only broadcast main session events
       const mainEntry = getSessionEntry(agent.id, DEFAULT_MAIN_KEY);
