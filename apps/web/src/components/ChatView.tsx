@@ -2,7 +2,7 @@ import { createSignal, createEffect, createResource, createMemo, For, onCleanup,
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent, subscribeToSession } from "../api/client";
+import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent, subscribeToSession, type DoneMeta } from "../api/client";
 import type {
   Message,
   HistoryViewMode,
@@ -181,6 +181,8 @@ export function ChatView() {
   const [streamingStartedAt, setStreamingStartedAt] = createSignal<number | null>(null);
   const [activeTools, setActiveTools] = createSignal<ActiveToolCall[]>([]);
   const [loading, setLoading] = createSignal(true);
+  const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
+  const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<Array<{ text: string; timestamp: number }>>([]);
 
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -224,18 +226,40 @@ export function ChatView() {
     setLoading(true);
     if (mode === "full") {
       const res = await fetchFullHistory(params.agentId, sessionKey());
-      setFullMessages(res.messages);
+      const pending = pendingQueuedMessages();
+      const merged = pending.length
+        ? [
+            ...res.messages,
+            ...pending.map((msg) => ({
+              role: "user" as const,
+              content: [{ type: "text", text: msg.text }],
+              timestamp: msg.timestamp,
+            })),
+          ]
+        : res.messages;
+      setFullMessages(merged);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
     } else {
       const res = await fetchSimpleHistory(params.agentId, sessionKey());
-      setSimpleMessages(
-        res.messages.map((h) => ({
-          id: crypto.randomUUID(),
-          role: h.role,
-          content: h.content,
-          timestamp: h.timestamp,
-        }))
-      );
+      const base = res.messages.map((h) => ({
+        id: crypto.randomUUID(),
+        role: h.role,
+        content: h.content,
+        timestamp: h.timestamp,
+      }));
+      const pending = pendingQueuedMessages();
+      const merged = pending.length
+        ? [
+            ...base,
+            ...pending.map((msg) => ({
+              id: crypto.randomUUID(),
+              role: "user" as const,
+              content: msg.text,
+              timestamp: msg.timestamp,
+            })),
+          ]
+        : base;
+      setSimpleMessages(merged);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
     }
     setLoading(false);
@@ -258,7 +282,13 @@ export function ChatView() {
       onHistoryUpdated: () => {
         // Refetch history when background run completes
         if (!isStreaming()) {
+          if (pendingQueuedMessages().length > 0) {
+            setPendingQueuedMessages((prev) => prev.slice(1));
+          }
           loadHistory(viewMode());
+          setPendingHistoryRefresh(false);
+        } else {
+          setPendingHistoryRefresh(true);
         }
       },
     });
@@ -286,19 +316,39 @@ export function ChatView() {
     }
   };
 
-  const handleSend = () => {
-    // Abort current stream if one is running
-    if (cleanup) {
-      cleanup();
-      cleanup = null;
-    }
+  // Helper to reset streaming state (used by onDone and onError)
+  const resetStreamingState = () => {
+    setStreamingThinking("");
+    setStreamingThinkingAt(null);
+    setStreamingToolCalls([]);
+    setStreamingText("");
+    setStreamingTextAt(null);
+    setActiveTools([]);
+    setIsStreaming(false);
+    setStreamingStartedAt(null);
+  };
 
+  const maybeRefreshHistory = () => {
+    if (pendingQueuedMessages().length > 0) return;
+    if (pendingHistoryRefresh()) {
+      loadHistory(viewMode());
+      setPendingHistoryRefresh(false);
+    }
+  };
+
+  // Check if stream has any content (used to guard against wiping real stream)
+  const hasStreamingContent = () =>
+    streamingText() || streamingThinking() || streamingToolCalls().length > 0;
+
+  const handleSend = () => {
     const text = input().trim();
     if (!text || loading()) return;
 
     const levelToSend = pendingThinkLevel() ?? thinkingLevel();
+    const currentAgent = agent();
+    const queueMode = currentAgent?.queueMode ?? "queue";
 
-    // Add user message to simple view
+    // Add user message to both views
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
@@ -306,8 +356,6 @@ export function ChatView() {
       timestamp: Date.now(),
     };
     setSimpleMessages((prev) => [...prev, userMsg]);
-
-    // Add to full view too
     setFullMessages((prev) => [
       ...prev,
       { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
@@ -317,6 +365,108 @@ export function ChatView() {
     if (textareaRef) textareaRef.style.height = "auto";
     scrollToBottom(true);
     setIsAtBottom(true);
+
+    // If streaming in queue mode, send message without interrupting current stream
+    if (isStreaming() && queueMode === "queue") {
+      const trackSequentialQueue = (currentAgent?.sdk ?? "pi") === "claude";
+      if (trackSequentialQueue) {
+        setPendingQueuedMessages((prev) => [...prev, { text, timestamp: Date.now() }]);
+      }
+      let queuedText = "";
+      let queuedThinking = "";
+      const queuedToolCalls: Array<{ id: string; name: string; arguments: unknown; status: "running" | "done" | "error"; timestamp: number }> = [];
+
+      // Send queued message with minimal handlers (queue ack doesn't affect streaming state)
+      const queueCleanup = streamMessage(
+        params.agentId,
+        text,
+        sessionKey(),
+        (chunk) => {
+          queuedText += chunk;
+        },
+        (meta?: DoneMeta) => {
+          if (meta?.queued) {
+            if (queueCleanup) queueCleanup();
+            return;
+          }
+
+          if (trackSequentialQueue) {
+            setPendingQueuedMessages((prev) => (prev.length ? prev.slice(0, -1) : prev));
+          }
+
+          const blocks: ContentBlock[] = [];
+          if (queuedThinking) {
+            blocks.push({ type: "thinking", thinking: queuedThinking });
+          }
+          for (const tc of queuedToolCalls) {
+            blocks.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.arguments });
+          }
+          if (queuedText) {
+            blocks.push({ type: "text", text: queuedText });
+          }
+
+          if (queuedText || queuedThinking || queuedToolCalls.length > 0) {
+            setSimpleMessages((prev) => [
+              ...prev,
+              { id: crypto.randomUUID(), role: "assistant", content: queuedText, timestamp: Date.now() },
+            ]);
+            setFullMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: queuedText }], timestamp: Date.now() },
+            ]);
+          }
+          if (pendingThinkLevel()) {
+            setThinkingLevel(pendingThinkLevel()!);
+            setPendingThinkLevel(null);
+          }
+
+          if (queueCleanup) queueCleanup();
+        },
+        (error) => {
+          const content = `Error: ${error}`;
+          setSimpleMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
+          ]);
+          if (queueCleanup) queueCleanup();
+        },
+        {
+          onThinking: (chunk) => {
+            queuedThinking += chunk;
+          },
+          onToolCall: (id, name, args) => {
+            queuedToolCalls.push({ id, name, arguments: args, status: "running", timestamp: Date.now() });
+          },
+          onToolEnd: (toolName, isError) => {
+            for (const tc of queuedToolCalls) {
+              if (tc.name === toolName && tc.status === "running") {
+                tc.status = isError ? "error" : "done";
+              }
+            }
+          },
+          onSessionReset: () => {
+            // Queued /new or /reset triggered - clear messages and streaming state
+            setSimpleMessages([]);
+            setFullMessages([]);
+            resetStreamingState();
+            setPendingQueuedMessages([]);
+            if (cleanup) {
+              cleanup();
+              cleanup = null;
+            }
+          },
+        },
+        levelToSend || undefined
+      );
+      return;
+    }
+
+    // Interrupt mode or not streaming: abort current stream if running
+    if (cleanup) {
+      cleanup();
+      cleanup = null;
+    }
+
     setIsStreaming(true);
     setStreamingStartedAt(Date.now());
     setStreamingThinking("");
@@ -334,7 +484,16 @@ export function ChatView() {
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
       },
-      () => {
+      (meta?: DoneMeta) => {
+        // Queued ack arrived unexpectedly - reset state only if no real stream content
+        if (meta?.queued) {
+          if (!hasStreamingContent()) {
+            resetStreamingState();
+            cleanup = null;
+          }
+          return;
+        }
+
         // Add assistant message - build content blocks from streaming state
         const content = streamingText();
         const blocks: ContentBlock[] = [];
@@ -365,15 +524,9 @@ export function ChatView() {
           setThinkingLevel(pendingThinkLevel()!);
           setPendingThinkLevel(null);
         }
-        setStreamingThinking("");
-        setStreamingThinkingAt(null);
-        setStreamingToolCalls([]);
-        setStreamingText("");
-        setStreamingTextAt(null);
-        setActiveTools([]);
-        setIsStreaming(false);
-        setStreamingStartedAt(null);
+        resetStreamingState();
         cleanup = null;
+        maybeRefreshHistory();
       },
       (error) => {
         const content = `Error: ${error}`;
@@ -381,15 +534,9 @@ export function ChatView() {
           ...prev,
           { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
         ]);
-        setStreamingThinking("");
-        setStreamingThinkingAt(null);
-        setStreamingToolCalls([]);
-        setStreamingText("");
-        setStreamingTextAt(null);
-        setActiveTools([]);
-        setIsStreaming(false);
-        setStreamingStartedAt(null);
+        resetStreamingState();
         cleanup = null;
+        maybeRefreshHistory();
       },
       {
         onThinking: (chunk) => {
@@ -430,6 +577,7 @@ export function ChatView() {
           // Clear messages when session resets (e.g., /new command)
           setSimpleMessages([]);
           setFullMessages([]);
+          setPendingQueuedMessages([]);
         },
       },
       levelToSend || undefined

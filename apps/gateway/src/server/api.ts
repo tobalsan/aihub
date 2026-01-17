@@ -23,6 +23,7 @@ api.get("/agents", (c) => {
       sdk: a.sdk ?? "pi",
       workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
       authMode: a.auth?.mode,
+      queueMode: a.queueMode ?? "queue",
     }))
   );
 });
@@ -41,6 +42,7 @@ api.get("/agents/:id", (c) => {
     sdk: agent.sdk ?? "pi",
     workspace: agent.workspace ? resolveWorkspaceDir(agent.workspace) : undefined,
     authMode: agent.auth?.mode,
+    queueMode: agent.queueMode ?? "queue",
   });
 });
 

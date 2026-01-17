@@ -266,7 +266,7 @@ export type StreamEvent =
   | { type: "tool_call"; id: string; name: string; arguments: unknown }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
-  | { type: "done"; meta?: { durationMs: number; aborted?: boolean } }
+  | { type: "done"; meta?: { durationMs: number; aborted?: boolean; queued?: boolean } }
   | { type: "error"; message: string };
 
 // WebSocket protocol types

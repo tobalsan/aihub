@@ -91,6 +91,12 @@ export function setSessionKey(agentId: string, key: string): void {
   localStorage.setItem(`${SESSION_KEY_PREFIX}${agentId}`, key);
 }
 
+export type DoneMeta = {
+  durationMs?: number;
+  aborted?: boolean;
+  queued?: boolean;
+};
+
 export type StreamCallbacks = {
   onText: (text: string) => void;
   onThinking?: (text: string) => void;
@@ -98,7 +104,7 @@ export type StreamCallbacks = {
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
   onSessionReset?: (sessionId: string) => void;
-  onDone: () => void;
+  onDone: (meta?: DoneMeta) => void;
   onError: (error: string) => void;
 };
 
@@ -107,7 +113,7 @@ export function streamMessage(
   message: string,
   sessionKey: string,
   onText: (text: string) => void,
-  onDone: () => void,
+  onDone: (meta?: DoneMeta) => void,
   onError: (error: string) => void,
   callbacks?: Partial<StreamCallbacks>,
   thinkLevel?: ThinkLevel
@@ -140,7 +146,7 @@ export function streamMessage(
         callbacks?.onSessionReset?.(event.sessionId);
         break;
       case "done":
-        onDone();
+        onDone(event.meta);
         break;
       case "error":
         onError(event.message);

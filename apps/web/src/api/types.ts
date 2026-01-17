@@ -1,6 +1,8 @@
 export type SdkId = "pi" | "claude";
 export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export type QueueMode = "queue" | "interrupt";
+
 export type Agent = {
   id: string;
   name: string;
@@ -11,6 +13,7 @@ export type Agent = {
   };
   workspace?: string;
   authMode?: "oauth" | "api_key" | "proxy";
+  queueMode?: QueueMode; // default "queue"
 };
 
 export type Message = {
@@ -37,7 +40,7 @@ export type StreamEvent =
   | { type: "tool_call"; id: string; name: string; arguments: unknown }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
-  | { type: "done"; meta?: { durationMs: number; aborted?: boolean } }
+  | { type: "done"; meta?: { durationMs: number; aborted?: boolean; queued?: boolean } }
   | { type: "error"; message: string };
 
 // History view mode

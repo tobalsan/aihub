@@ -328,7 +328,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         ? "Message queued into current run"
         : "Message queued for next run";
       emit({ type: "text", data: queueNote });
-      emit({ type: "done", meta: { durationMs: 0 } });
+      emit({ type: "done", meta: { durationMs: 0, queued: true } });
       return {
         payloads: [{ text: queueNote }],
         meta: { durationMs: 0, sessionId, queued: true },
@@ -364,6 +364,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
   const started = Date.now();
   let aborted = false;
+  let runCompleted = false;
 
   // Turn buffers for assembling history events (sync, no I/O during streaming)
   let currentTurn: TurnBuffer | null = null;
@@ -515,9 +516,22 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
     const durationMs = Date.now() - started;
     emit({ type: "done", meta: { durationMs } });
+    runCompleted = true;
+
+    return {
+      payloads: result.text ? [{ text: result.text }] : [],
+      meta: { durationMs, sessionId, aborted },
+    };
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    emit({ type: "error", message: errMessage });
+    throw err;
+  } finally {
+    clearSessionHandle(params.agentId, sessionId);
+    setSessionStreaming(params.agentId, sessionId, false);
 
     // Drain pending queue if adapter lacks native queue support
-    if (!capabilities.queueWhileStreaming) {
+    if (runCompleted && !capabilities.queueWhileStreaming) {
       const pendingMessages = popPendingMessages(params.agentId, sessionId);
       for (const pendingMsg of pendingMessages) {
         // Run next message - omit onEvent to use agentEventBus only
@@ -532,18 +546,6 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         });
       }
     }
-
-    return {
-      payloads: result.text ? [{ text: result.text }] : [],
-      meta: { durationMs, sessionId, aborted },
-    };
-  } catch (err) {
-    const errMessage = err instanceof Error ? err.message : String(err);
-    emit({ type: "error", message: errMessage });
-    throw err;
-  } finally {
-    clearSessionHandle(params.agentId, sessionId);
-    setSessionStreaming(params.agentId, sessionId, false);
   }
 }
 
