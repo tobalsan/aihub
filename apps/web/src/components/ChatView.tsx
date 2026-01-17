@@ -1077,6 +1077,26 @@ export function ChatView() {
           font-weight: 600;
         }
 
+        .markdown-content table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 0.5em 0;
+          font-size: 0.9em;
+        }
+
+        .markdown-content th,
+        .markdown-content td {
+          padding: 8px 12px;
+          text-align: left;
+          border: 1px solid var(--surface-2);
+        }
+
+        .markdown-content th {
+          background: var(--surface-2);
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+
         /* Model meta */
         .model-meta {
           display: flex;
