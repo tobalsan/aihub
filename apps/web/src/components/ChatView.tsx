@@ -7,6 +7,7 @@ import type {
   Message,
   HistoryViewMode,
   FullHistoryMessage,
+  FullToolResultMessage,
   ContentBlock,
   ModelMeta,
   ActiveToolCall,
@@ -90,8 +91,40 @@ function CollapsibleBlock(props: {
   );
 }
 
+// Render a tool result inline
+function ToolResultDisplay(props: { result: FullToolResultMessage }) {
+  const textContent = props.result.content
+    .filter((b) => b.type === "text")
+    .map((b) => extractBlockText((b as { text: unknown }).text))
+    .join("\n");
+
+  return (
+    <div class={`tool-result-inline ${props.result.isError ? "error" : ""}`}>
+      <CollapsibleBlock
+        title={`${props.result.isError ? "✗" : "✓"} ${props.result.toolName}`}
+        content={textContent || "(no output)"}
+        defaultCollapsed={isLongContent(textContent)}
+        isError={props.result.isError}
+        mono={true}
+      />
+      {props.result.details?.diff && (
+        <CollapsibleBlock
+          title="Diff"
+          content={props.result.details.diff}
+          defaultCollapsed={true}
+          mono={true}
+        />
+      )}
+    </div>
+  );
+}
+
 // Render content blocks for full mode
-function ContentBlocks(props: { blocks: ContentBlock[]; timestamp?: number }) {
+function ContentBlocks(props: {
+  blocks: ContentBlock[];
+  timestamp?: number;
+  toolResultsMap?: Map<string, FullToolResultMessage>;
+}) {
   return (
     <div class="content-blocks">
       <For each={props.blocks}>
@@ -111,14 +144,18 @@ function ContentBlocks(props: { blocks: ContentBlock[]; timestamp?: number }) {
           }
           if (block.type === "toolCall") {
             const argsStr = formatJson(block.arguments);
+            const result = props.toolResultsMap?.get(block.id);
             return (
-              <CollapsibleBlock
-                title={`Tool: ${block.name}`}
-                content={argsStr}
-                defaultCollapsed={isLongContent(argsStr)}
-                mono={true}
-                timestamp={props.timestamp}
-              />
+              <div class="tool-call-group">
+                <CollapsibleBlock
+                  title={`Tool: ${block.name}`}
+                  content={argsStr}
+                  defaultCollapsed={isLongContent(argsStr)}
+                  mono={true}
+                  timestamp={props.timestamp}
+                />
+                {result && <ToolResultDisplay result={result} />}
+              </div>
             );
           }
           return null;
@@ -193,6 +230,17 @@ export function ChatView() {
   const sessionKey = () => getSessionKey(params.agentId);
 
   const isOAuth = () => agent()?.authMode === "oauth";
+
+  // Build a map of toolCallId -> toolResult for grouping tool calls with their results
+  const toolResultsMap = createMemo(() => {
+    const map = new Map<string, FullToolResultMessage>();
+    for (const msg of fullMessages()) {
+      if (msg.role === "toolResult") {
+        map.set(msg.toolCallId, msg);
+      }
+    }
+    return map;
+  });
 
   const [isAtBottom, setIsAtBottom] = createSignal(true);
   const SCROLL_THRESHOLD = 40;
@@ -675,37 +723,15 @@ export function ChatView() {
               if (msg.role === "assistant") {
                 return (
                   <div class="message assistant full-message">
-                    <ContentBlocks blocks={msg.content} timestamp={msg.timestamp} />
+                    <ContentBlocks blocks={msg.content} timestamp={msg.timestamp} toolResultsMap={toolResultsMap()} />
                     {msg.meta && <ModelMetaDisplay meta={msg.meta} />}
                     <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
                   </div>
                 );
               }
+              // Skip toolResult messages - they are now rendered inline with their tool calls
               if (msg.role === "toolResult") {
-                const textContent = msg.content
-                  .filter((b) => b.type === "text")
-                  .map((b) => extractBlockText((b as { text: unknown }).text))
-                  .join("\n");
-                return (
-                  <div class={`message tool-result ${msg.isError ? "error" : ""}`}>
-                    <CollapsibleBlock
-                      title={`${msg.isError ? "✗" : "✓"} ${msg.toolName}`}
-                      content={textContent || "(no output)"}
-                      defaultCollapsed={isLongContent(textContent)}
-                      isError={msg.isError}
-                      mono={true}
-                    />
-                    {msg.details?.diff && (
-                      <CollapsibleBlock
-                        title="Diff"
-                        content={msg.details.diff}
-                        defaultCollapsed={true}
-                        mono={true}
-                      />
-                    )}
-                    <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
-                  </div>
-                );
+                return null;
               }
               return null;
             }}
@@ -1140,6 +1166,23 @@ export function ChatView() {
           display: flex;
           flex-direction: column;
           gap: 8px;
+        }
+
+        /* Tool call with result grouped together */
+        .tool-call-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .tool-result-inline {
+          margin-left: 12px;
+          border-left: 2px solid var(--surface-3);
+          padding-left: 8px;
+        }
+
+        .tool-result-inline.error {
+          border-left-color: var(--error);
         }
 
         .block-text {
