@@ -314,9 +314,10 @@ export function ChatView() {
   };
 
   // Load history when agent is loaded or view mode changes
+  // Skip if streaming - the user message was already added locally and server data is stale
   createEffect(() => {
     const mode = viewMode(); // track viewMode
-    if (agent()) loadHistory(mode);
+    if (agent() && !isStreaming()) loadHistory(mode);
   });
 
   // Subscribe to live updates for background runs
