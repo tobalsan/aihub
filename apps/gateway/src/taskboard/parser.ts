@@ -33,9 +33,15 @@ export function parseMarkdownContent(
     content = fmMatch[2];
   }
 
-  // Extract title from first # heading
-  const titleMatch = content.match(/^#\s+(.+)$/m);
-  const title = titleMatch?.[1]?.trim() || extractTitleFromFilename(fallbackTitle);
+  // Extract title: frontmatter.title > first line (strip # if heading) > filename
+  const firstLineMatch = content.match(/^\s*(.+)$/m);
+  const firstLine = firstLineMatch?.[1]?.trim() || "";
+  // Strip leading # if it's a heading
+  const titleFromContent = firstLine.replace(/^#+\s*/, "");
+  const title =
+    (frontmatter.title as string) ||
+    titleFromContent ||
+    extractTitleFromFilename(fallbackTitle);
 
   return { frontmatter, content, title };
 }
