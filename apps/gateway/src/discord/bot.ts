@@ -69,7 +69,8 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
           content: data.content ?? "",
           timestamp: Date.now(),
         },
-        historyLimit
+        historyLimit,
+        data.id
       );
     }
 

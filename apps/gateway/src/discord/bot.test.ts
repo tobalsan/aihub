@@ -428,7 +428,8 @@ describe("Discord bot integration", () => {
             author: "testuser",
             content: "Regular chat message",
           }),
-          20 // default historyLimit
+          20, // default historyLimit
+          "msg-1"
         );
       });
 
