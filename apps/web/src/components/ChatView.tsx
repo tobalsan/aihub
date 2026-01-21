@@ -282,7 +282,7 @@ export function ChatView() {
             ...res.messages,
             ...pending.map((msg) => ({
               role: "user" as const,
-              content: [{ type: "text", text: msg.text }],
+              content: [{ type: "text" as const, text: msg.text }],
               timestamp: msg.timestamp,
             })),
           ]
