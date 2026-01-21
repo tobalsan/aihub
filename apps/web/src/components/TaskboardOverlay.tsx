@@ -1,10 +1,11 @@
-import { createSignal, createEffect, onCleanup, Show, For } from "solid-js";
+import { createSignal, createEffect, createMemo, onCleanup, Show, For } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { fetchTaskboard, fetchTaskboardItem } from "../api/client";
 import type { TodoItem, ProjectItem, TaskboardItemResponse } from "../api/types";
 
 type TaskboardItem = TodoItem | ProjectItem;
+type NavigableItem = { type: "todo" | "project"; item: TaskboardItem };
 
 function renderMarkdown(content: string): string {
   const html = marked.parse(content, { breaks: true, async: false }) as string;
@@ -22,6 +23,26 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
   const [detailLoading, setDetailLoading] = createSignal(false);
   const [detail, setDetail] = createSignal<TaskboardItemResponse | null>(null);
   const [activeTab, setActiveTab] = createSignal<string>("main");
+
+  // Keyboard navigation state
+  const [selectedIndex, setSelectedIndex] = createSignal(-1);
+
+  // Build flat list of all navigable items in display order
+  const navigableItems = createMemo((): NavigableItem[] => {
+    const items: NavigableItem[] = [];
+    // Personal todos
+    for (const item of todos().todo) {
+      items.push({ type: "todo", item });
+    }
+    // Projects - doing first, then todo
+    for (const item of projects().doing) {
+      items.push({ type: "project", item });
+    }
+    for (const item of projects().todo) {
+      items.push({ type: "project", item });
+    }
+    return items;
+  });
 
   const loadData = async () => {
     setLoading(true);
@@ -64,7 +85,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
     await loadDetail(selected.type, selected.item.id, tab === "main" ? undefined : tab);
   };
 
-  // Handle ESC key
+  // Handle keyboard navigation
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       if (selectedItem()) {
@@ -72,11 +93,31 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
       } else {
         props.onClose();
       }
+      return;
+    }
+
+    // Only handle arrow/enter in list view
+    if (selectedItem()) return;
+
+    const items = navigableItems();
+    if (items.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < items.length - 1 ? prev + 1 : prev));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+    } else if (e.key === "Enter" && selectedIndex() >= 0) {
+      e.preventDefault();
+      const selected = items[selectedIndex()];
+      handleItemClick(selected.type, selected.item);
     }
   };
 
   createEffect(() => {
     if (props.isOpen) {
+      setSelectedIndex(-1);
       loadData();
       document.addEventListener("keydown", handleKeyDown);
     }
@@ -87,6 +128,15 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
   const isProjectItem = (item: TaskboardItem): item is ProjectItem => {
     return "companions" in item;
+  };
+
+  // Check if an item is currently selected via keyboard
+  const isItemSelected = (type: "todo" | "project", item: TaskboardItem): boolean => {
+    const idx = selectedIndex();
+    if (idx < 0) return false;
+    const items = navigableItems();
+    const navItem = items[idx];
+    return navItem?.type === type && navItem.item.id === item.id;
   };
 
   return (
@@ -130,7 +180,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                   <div class="items-group">
                     <For each={todos().todo}>
                       {(item) => (
-                        <button class="task-item" onClick={() => handleItemClick("todo", item)}>
+                        <button class="task-item" classList={{ selected: isItemSelected("todo", item) }} onClick={() => handleItemClick("todo", item)}>
                           <span class="task-title">{item.title}</span>
                           <span class="task-badge todo">todo</span>
                         </button>
@@ -151,7 +201,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                     <div class="items-group">
                       <For each={projects().doing}>
                         {(item) => (
-                          <button class="task-item" onClick={() => handleItemClick("project", item)}>
+                          <button class="task-item" classList={{ selected: isItemSelected("project", item) }} onClick={() => handleItemClick("project", item)}>
                             <span class="task-title">{item.title}</span>
                             <span class="task-badge doing">doing</span>
                           </button>
@@ -165,7 +215,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                     <div class="items-group">
                       <For each={projects().todo}>
                         {(item) => (
-                          <button class="task-item" onClick={() => handleItemClick("project", item)}>
+                          <button class="task-item" classList={{ selected: isItemSelected("project", item) }} onClick={() => handleItemClick("project", item)}>
                             <span class="task-title">{item.title}</span>
                             <span class="task-badge todo">todo</span>
                           </button>
@@ -351,6 +401,12 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           .task-item:hover {
             background: var(--surface-2, #27272a);
             border-color: var(--surface-3, #3f3f46);
+          }
+
+          .task-item.selected {
+            background: var(--surface-2, #27272a);
+            border-color: var(--accent, #6366f1);
+            outline: none;
           }
 
           .task-title {
