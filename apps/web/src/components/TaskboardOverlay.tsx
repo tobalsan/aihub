@@ -12,6 +12,11 @@ function renderMarkdown(content: string): string {
   return DOMPurify.sanitize(html);
 }
 
+function extractId(id: string): string {
+  const match = id.match(/(PER|PRO)-\d+/);
+  return match ? match[0] : id;
+}
+
 export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
@@ -181,6 +186,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                     <For each={todos().todo}>
                       {(item) => (
                         <button class="task-item" classList={{ selected: isItemSelected("todo", item) }} onClick={() => handleItemClick("todo", item)}>
+                          <span class="task-id">{extractId(item.id)}</span>
                           <span class="task-title">{item.title}</span>
                           <span class="task-badge todo">todo</span>
                         </button>
@@ -202,6 +208,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                       <For each={projects().doing}>
                         {(item) => (
                           <button class="task-item" classList={{ selected: isItemSelected("project", item) }} onClick={() => handleItemClick("project", item)}>
+                            <span class="task-id">{extractId(item.id)}</span>
                             <span class="task-title">{item.title}</span>
                             <span class="task-badge doing">doing</span>
                           </button>
@@ -216,6 +223,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                       <For each={projects().todo}>
                         {(item) => (
                           <button class="task-item" classList={{ selected: isItemSelected("project", item) }} onClick={() => handleItemClick("project", item)}>
+                            <span class="task-id">{extractId(item.id)}</span>
                             <span class="task-title">{item.title}</span>
                             <span class="task-badge todo">todo</span>
                           </button>
@@ -407,6 +415,19 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             background: var(--surface-2, #27272a);
             border-color: var(--accent, #6366f1);
             outline: none;
+          }
+
+          .task-id {
+            font-size: 11px;
+            font-weight: 500;
+            padding: 3px 0;
+            border-radius: 4px;
+            background: var(--surface-2, #27272a);
+            color: var(--text-muted, #52525b);
+            font-family: 'SF Mono', 'Consolas', monospace;
+            flex-shrink: 0;
+            width: 58px;
+            text-align: center;
           }
 
           .task-title {
