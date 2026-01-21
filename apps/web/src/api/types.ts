@@ -131,3 +131,43 @@ export type ActiveToolCall = {
   toolName: string;
   status: "running" | "done" | "error";
 };
+
+// Taskboard types
+export type TodoItem = {
+  id: string;
+  title: string;
+  status: "todo";
+  created?: string;
+  due?: string;
+  path: string;
+};
+
+export type ProjectItem = {
+  id: string;
+  title: string;
+  status: "todo" | "doing";
+  created?: string;
+  due?: string;
+  project?: string;
+  path: string;
+  companions: string[];
+};
+
+export type TaskboardResponse = {
+  todos: {
+    todo: TodoItem[];
+    doing: TodoItem[];
+  };
+  projects: {
+    todo: ProjectItem[];
+    doing: ProjectItem[];
+  };
+};
+
+export type TaskboardItemResponse = {
+  id: string;
+  title: string;
+  content: string;
+  frontmatter: Record<string, unknown>;
+  companions: string[];
+};

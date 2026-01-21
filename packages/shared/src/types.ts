@@ -190,6 +190,13 @@ export const SessionsConfigSchema = z.object({
 });
 export type SessionsConfig = z.infer<typeof SessionsConfigSchema>;
 
+// Taskboard config
+export const TaskboardConfigSchema = z.object({
+  todosPath: z.string().optional(),
+  projectsPath: z.string().optional(),
+});
+export type TaskboardConfig = z.infer<typeof TaskboardConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   agents: z.array(AgentConfigSchema),
@@ -214,6 +221,7 @@ export const GatewayConfigSchema = z.object({
     })
     .optional(),
   ui: UiConfigSchema.optional(),
+  taskboard: TaskboardConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(), // Env vars to set (only if not already set)
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
@@ -410,4 +418,44 @@ export type HeartbeatEventPayload = {
   alertText?: string; // Full alert text (for delivery)
   durationMs?: number;
   reason?: string; // Why it skipped/failed
+};
+
+// Taskboard types
+export type TodoItem = {
+  id: string;
+  title: string;
+  status: "todo";
+  created?: string;
+  due?: string;
+  path: string;
+};
+
+export type ProjectItem = {
+  id: string;
+  title: string;
+  status: "todo" | "doing";
+  created?: string;
+  due?: string;
+  project?: string;
+  path: string;
+  companions: string[];
+};
+
+export type TaskboardResponse = {
+  todos: {
+    todo: TodoItem[];
+    doing: TodoItem[];
+  };
+  projects: {
+    todo: ProjectItem[];
+    doing: ProjectItem[];
+  };
+};
+
+export type TaskboardItemResponse = {
+  id: string;
+  title: string;
+  content: string;
+  frontmatter: Record<string, unknown>;
+  companions: string[];
 };

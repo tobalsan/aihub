@@ -4,11 +4,12 @@ import {
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
 } from "@aihub/shared";
-import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir } from "../config/index.js";
+import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir, getConfig } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
+import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 
 const api = new Hono();
 
@@ -195,6 +196,34 @@ api.delete("/schedules/:id", async (c) => {
     return c.json({ error: "Schedule not found" }, 404);
   }
   return c.json({ ok: true });
+});
+
+// GET /api/taskboard - list all todos and projects (excluding done)
+api.get("/taskboard", async (c) => {
+  const config = getConfig();
+  const result = await scanTaskboard(config.taskboard);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+  return c.json(result.data);
+});
+
+// GET /api/taskboard/:type/:id - get full content of a specific item
+api.get("/taskboard/:type/:id", async (c) => {
+  const type = c.req.param("type");
+  const id = c.req.param("id");
+  const companion = c.req.query("companion");
+
+  if (type !== "todo" && type !== "project") {
+    return c.json({ error: "Invalid type. Must be 'todo' or 'project'" }, 400);
+  }
+
+  const config = getConfig();
+  const result = await getTaskboardItem(config.taskboard, type, id, companion);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
 });
 
 export { api };

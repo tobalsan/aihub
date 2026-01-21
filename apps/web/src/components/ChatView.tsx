@@ -13,6 +13,7 @@ import type {
   ActiveToolCall,
   ThinkLevel,
 } from "../api/types";
+import { TaskboardOverlay } from "./TaskboardOverlay";
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
@@ -220,6 +221,7 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
   const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<Array<{ text: string; timestamp: number }>>([]);
+  const [taskboardOpen, setTaskboardOpen] = createSignal(false);
 
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -349,6 +351,21 @@ export function ChatView() {
     streamingText();
     activeTools();
     scrollToBottom();
+  });
+
+  // Global keyboard shortcut for taskboard (Cmd/Ctrl + K)
+  const handleGlobalKeyDown = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      setTaskboardOpen(true);
+    }
+  };
+
+  createEffect(() => {
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("keydown", handleGlobalKeyDown);
+    });
   });
 
   onCleanup(() => {
@@ -672,6 +689,17 @@ export function ChatView() {
             <option value="xhigh">XHigh</option>
           </select>
         </Show>
+        <button
+          class="taskboard-btn"
+          onClick={() => setTaskboardOpen(true)}
+          aria-label="Open taskboard"
+          title="Tasks (Cmd+K)"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+          </svg>
+        </button>
         <div class="view-toggle">
           <button
             class="toggle-btn"
@@ -833,6 +861,8 @@ export function ChatView() {
         </button>
       </div>
 
+      <TaskboardOverlay isOpen={taskboardOpen()} onClose={() => setTaskboardOpen(false)} />
+
       <style>{`
         .chat-view {
           --accent: #6366f1;
@@ -886,6 +916,25 @@ export function ChatView() {
         }
 
         .back-btn:hover {
+          background: var(--surface-2);
+          color: var(--text-primary);
+        }
+
+        .taskboard-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: var(--radius-sm);
+          background: var(--surface-1);
+          border: 1px solid var(--surface-2);
+          color: var(--text-secondary);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+        }
+
+        .taskboard-btn:hover {
           background: var(--surface-2);
           color: var(--text-primary);
         }

@@ -67,6 +67,10 @@ export function getAgents() {
   return loadConfig().agents;
 }
 
+export function getConfig(): GatewayConfig {
+  return loadConfig();
+}
+
 /** Get agents filtered by single-agent mode */
 export function getActiveAgents() {
   const agents = loadConfig().agents;

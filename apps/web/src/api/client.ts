@@ -7,6 +7,8 @@ import type {
   HistoryViewMode,
   ActiveToolCall,
   ThinkLevel,
+  TaskboardResponse,
+  TaskboardItemResponse,
 } from "./types";
 
 const API_BASE = "/api";
@@ -231,4 +233,40 @@ export function subscribeToSession(
     }
     ws.close();
   };
+}
+
+// Taskboard API functions
+export type TaskboardResult =
+  | { ok: true; data: TaskboardResponse }
+  | { ok: false; error: string };
+
+export async function fetchTaskboard(): Promise<TaskboardResult> {
+  const res = await fetch(`${API_BASE}/taskboard`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch taskboard" }));
+    return { ok: false, error: data.error ?? "Failed to fetch taskboard" };
+  }
+  const data = await res.json();
+  return { ok: true, data };
+}
+
+export type TaskboardItemResult =
+  | { ok: true; data: TaskboardItemResponse }
+  | { ok: false; error: string };
+
+export async function fetchTaskboardItem(
+  type: "todo" | "project",
+  id: string,
+  companion?: string
+): Promise<TaskboardItemResult> {
+  const url = companion
+    ? `${API_BASE}/taskboard/${type}/${id}?companion=${encodeURIComponent(companion)}`
+    : `${API_BASE}/taskboard/${type}/${id}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch item" }));
+    return { ok: false, error: data.error ?? "Failed to fetch item" };
+  }
+  const data = await res.json();
+  return { ok: true, data };
 }
