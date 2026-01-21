@@ -1,6 +1,7 @@
-import { createResource, For, Show } from "solid-js";
+import { createSignal, createEffect, createResource, For, Show, onCleanup } from "solid-js";
 import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
+import { TaskboardOverlay } from "./TaskboardOverlay";
 
 function shortenPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/)?.[0];
@@ -10,11 +11,38 @@ function shortenPath(path: string): string {
 
 export function AgentList() {
   const [agents] = createResource(fetchAgents);
+  const [taskboardOpen, setTaskboardOpen] = createSignal(false);
+
+  // Global keyboard shortcut for taskboard (Cmd/Ctrl + K)
+  const handleGlobalKeyDown = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      setTaskboardOpen(true);
+    }
+  };
+
+  createEffect(() => {
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("keydown", handleGlobalKeyDown);
+    });
+  });
 
   return (
     <div class="agent-list">
       <header class="header">
         <h1>AIHub</h1>
+        <button
+          class="taskboard-btn"
+          onClick={() => setTaskboardOpen(true)}
+          aria-label="Open taskboard"
+          title="Tasks (Cmd+K)"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+          </svg>
+        </button>
       </header>
 
       <Show when={agents.loading}>
@@ -45,6 +73,8 @@ export function AgentList() {
         </div>
       </Show>
 
+      <TaskboardOverlay isOpen={taskboardOpen()} onClose={() => setTaskboardOpen(false)} />
+
       <style>{`
         .agent-list {
           height: 100%;
@@ -53,6 +83,9 @@ export function AgentList() {
         }
 
         .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
           padding: 16px;
           border-bottom: 1px solid #222;
         }
@@ -60,6 +93,25 @@ export function AgentList() {
         .header h1 {
           font-size: 24px;
           font-weight: 600;
+        }
+
+        .taskboard-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: 8px;
+          background: #1a1a1a;
+          border: 1px solid #333;
+          color: #888;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+        }
+
+        .taskboard-btn:hover {
+          background: #252525;
+          color: #fff;
         }
 
         .loading, .error {
