@@ -17,6 +17,20 @@ function extractId(id: string): string {
   return match ? match[0] : id;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatDate(item: TaskboardItem): string | null {
+  const dateStr = item.due ?? item.created;
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const match = dateStr.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (match) {
+    const month = MONTHS[parseInt(match[1], 10) - 1];
+    const day = parseInt(match[2], 10);
+    return `${month}, ${day}`;
+  }
+  return dateStr;
+}
+
 export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
@@ -188,6 +202,9 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                         <button class="task-item" classList={{ selected: isItemSelected("todo", item) }} onClick={() => handleItemClick("todo", item)}>
                           <span class="task-id">{extractId(item.id)}</span>
                           <span class="task-title">{item.title}</span>
+                          <Show when={formatDate(item)}>
+                            <span class="task-date">{formatDate(item)}</span>
+                          </Show>
                           <span class="task-badge todo">todo</span>
                         </button>
                       )}
@@ -210,6 +227,9 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                           <button class="task-item" classList={{ selected: isItemSelected("project", item) }} onClick={() => handleItemClick("project", item)}>
                             <span class="task-id">{extractId(item.id)}</span>
                             <span class="task-title">{item.title}</span>
+                            <Show when={formatDate(item)}>
+                              <span class="task-date">{formatDate(item)}</span>
+                            </Show>
                             <span class="task-badge doing">doing</span>
                           </button>
                         )}
@@ -225,6 +245,9 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
                           <button class="task-item" classList={{ selected: isItemSelected("project", item) }} onClick={() => handleItemClick("project", item)}>
                             <span class="task-id">{extractId(item.id)}</span>
                             <span class="task-title">{item.title}</span>
+                            <Show when={formatDate(item)}>
+                              <span class="task-date">{formatDate(item)}</span>
+                            </Show>
                             <span class="task-badge todo">todo</span>
                           </button>
                         )}
@@ -434,6 +457,12 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             flex: 1;
             font-size: 14px;
             color: var(--text-primary, #fafafa);
+          }
+
+          .task-date {
+            font-size: 11px;
+            color: var(--text-muted, #52525b);
+            flex-shrink: 0;
           }
 
           .task-badge {

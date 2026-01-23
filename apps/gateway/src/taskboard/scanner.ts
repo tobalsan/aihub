@@ -83,18 +83,31 @@ async function getCompanions(filePath: string): Promise<string[]> {
 }
 
 /**
+ * Extracts date from filename (format: PRO-{N}_{YYYYMMDD}_{slug}.md).
+ * Returns YYYY-MM-DD format or undefined if not found.
+ */
+function extractDateFromFilename(filename: string): string | undefined {
+  const match = filename.match(/^(?:PRO|PER)-\d+_(\d{4})(\d{2})(\d{2})_/);
+  if (match) {
+    return `${match[1]}-${match[2]}-${match[3]}`;
+  }
+  return undefined;
+}
+
+/**
  * Parses a todo file into a TodoItem.
  */
 async function parseTodoFile(filePath: string): Promise<TodoItem> {
   const { frontmatter, title } = await parseMarkdownFile(filePath);
   const id = path.basename(filePath, ".md");
+  const filenameDate = extractDateFromFilename(id);
 
   return {
     id,
     title,
     status: "todo",
-    created: frontmatter.created as string | undefined,
-    due: frontmatter.due as string | undefined,
+    created: (typeof frontmatter.created === "string" ? frontmatter.created : undefined) ?? filenameDate,
+    due: typeof frontmatter.due === "string" ? frontmatter.due : undefined,
     path: path.basename(filePath),
   };
 }
@@ -109,13 +122,14 @@ async function parseProjectFile(
   const { frontmatter, title } = await parseMarkdownFile(filePath);
   const id = path.basename(filePath, ".md");
   const companions = await getCompanions(filePath);
+  const filenameDate = extractDateFromFilename(id);
 
   return {
     id,
     title,
     status,
-    created: frontmatter.created as string | undefined,
-    due: frontmatter.due as string | undefined,
+    created: (typeof frontmatter.created === "string" ? frontmatter.created : undefined) ?? filenameDate,
+    due: typeof frontmatter.due === "string" ? frontmatter.due : undefined,
     project: frontmatter.project as string | undefined,
     path: path.basename(filePath),
     companions,

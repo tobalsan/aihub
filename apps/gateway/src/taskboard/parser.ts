@@ -61,7 +61,7 @@ function parseYamlFrontmatter(yaml: string): Record<string, unknown> {
     const [, key, rawValue] = match;
     const value = rawValue.trim();
 
-    if (value === "" || value === "~" || value === "null") {
+    if (value === "" || value === "~" || value === "null" || value === "[]") {
       result[key] = undefined;
     } else if (value === "true") {
       result[key] = true;
