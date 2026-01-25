@@ -14,6 +14,7 @@ import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
 import { listSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
+import { spawnSubagent, interruptSubagent } from "../subagents/runner.js";
 
 const api = new Hono();
 
@@ -264,6 +265,51 @@ api.get("/projects/:id/subagents", async (c) => {
   const result = await listSubagents(config, id);
   if (!result.ok) {
     return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/subagents - spawn subagent
+api.post("/projects/:id/subagents", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const slug = typeof body.slug === "string" ? body.slug : "";
+  const cli = typeof body.cli === "string" ? body.cli : "";
+  const prompt = typeof body.prompt === "string" ? body.prompt : "";
+  const mode = typeof body.mode === "string" ? body.mode : undefined;
+  const baseBranch = typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+  const resume = typeof body.resume === "boolean" ? body.resume : undefined;
+
+  if (!slug || !cli || !prompt) {
+    return c.json({ error: "Missing required fields" }, 400);
+  }
+
+  const config = getConfig();
+  const result = await spawnSubagent(config, {
+    projectId: id,
+    slug,
+    cli: cli as "claude" | "codex" | "droid" | "gemini",
+    prompt,
+    mode: mode as "main-run" | "worktree" | undefined,
+    baseBranch,
+    resume,
+  });
+  if (!result.ok) {
+    const status = result.error.startsWith("Project not found") ? 404 : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data, 201);
+});
+
+// POST /api/projects/:id/subagents/:slug/interrupt - interrupt subagent
+api.post("/projects/:id/subagents/:slug/interrupt", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const config = getConfig();
+  const result = await interruptSubagent(config, id, slug);
+  if (!result.ok) {
+    const status = result.error.startsWith("Project not found") ? 404 : 400;
+    return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
 });
