@@ -112,7 +112,11 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 | `/api/agents/:id/history` | GET | Session history (?sessionKey=main&view=simple\|full) |
 | `/api/schedules` | GET/POST | List/create schedules |
 | `/api/schedules/:id` | PATCH/DELETE | Update/delete schedule |
+| `/api/projects` | GET/POST | List/create projects |
+| `/api/projects/:id` | GET/PATCH | Get/update project |
 | `/ws` | WS | WebSocket streaming (send + subscribe) |
+
+Project API details: `docs/projects_api.md`
 
 ## Configuration
 
@@ -139,6 +143,7 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
   "gateway": { "port": 4000, "bind": "tailnet" },
   "scheduler": { "enabled": true, "tickSeconds": 60 },
   "ui": { "port": 3000, "bind": "loopback" },
+  "projects": { "root": "~/projects" },
   "env": { "OPENROUTER_API_KEY": "sk-or-..." }
 }
 ```

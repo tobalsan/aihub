@@ -54,6 +54,7 @@ All stored in `~/.aihub/`:
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
 - `schedules.json` - Persisted schedule jobs with state
+- `projects.json` - Project ID counter (`{ lastId }`)
 - `sessions.json` - Session key -> sessionId mapping with timestamps
 - `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
 - (Pi SDK) auth/settings files under `~/.aihub/` (created after a successful agent run)
@@ -90,6 +91,7 @@ All stored in `~/.aihub/`:
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
+  projects?: { root? },            // Projects root (default: ~/projects)
   ui?: { enabled?, port?, bind?, tailscale? }  // enabled: default true; bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
   // Note: tailscale.mode=serve requires gateway.bind and ui.bind to be loopback
 }
@@ -300,6 +302,10 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | POST | `/api/schedules` | Create schedule |
 | PATCH | `/api/schedules/:id` | Update schedule |
 | DELETE | `/api/schedules/:id` | Delete schedule |
+| GET | `/api/projects` | List projects |
+| POST | `/api/projects` | Create project |
+| GET | `/api/projects/:id` | Get project |
+| PATCH | `/api/projects/:id` | Update project |
 
 ## Single-Agent Mode
 
