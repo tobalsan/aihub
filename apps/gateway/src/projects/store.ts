@@ -200,7 +200,7 @@ export async function createProject(
 
   await fs.mkdir(dirPath);
 
-  const created = new Date().toISOString().slice(0, 10);
+  const created = new Date().toISOString();
   const frontmatter = {
     id,
     title: input.title,
