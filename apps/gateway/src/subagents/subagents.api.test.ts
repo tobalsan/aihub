@@ -198,4 +198,76 @@ describe("subagents API", () => {
 
     process.env.PATH = prevPath;
   });
+
+  it("interrupts a running subagent", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Interrupt" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-interrupt");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+    }));
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-interrupt");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      "echo '{\"type\":\"thread.started\",\"thread_id\":\"s2\"}'",
+      "sleep 5",
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "beta",
+        cli: "codex",
+        prompt: "hi",
+        mode: "main-run",
+      }),
+    }));
+    expect(spawnRes.status).toBe(201);
+
+    const interruptRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/beta/interrupt`, { method: "POST" })
+    );
+    expect(interruptRes.status).toBe(200);
+
+    const workDir = path.join(projectsRoot, ".workspaces", created.id, "beta");
+    const historyPath = path.join(workDir, "history.jsonl");
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      try {
+        const history = await fs.readFile(historyPath, "utf8");
+        if (history.includes("\"worker.interrupt\"")) break;
+      } catch {
+        // wait
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const history = await fs.readFile(historyPath, "utf8");
+    expect(history).toContain("\"worker.interrupt\"");
+
+    process.env.PATH = prevPath;
+  });
 });
