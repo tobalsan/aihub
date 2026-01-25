@@ -13,6 +13,7 @@ import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
+import { listSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
 
 const api = new Hono();
 
@@ -251,6 +252,46 @@ api.patch("/projects/:id", async (c) => {
   const result = await updateProject(config, id, parsed.data);
   if (!result.ok) {
     const status = result.error.startsWith("Project already exists") ? 409 : 404;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
+});
+
+// GET /api/projects/:id/subagents - list subagents
+api.get("/projects/:id/subagents", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await listSubagents(config, id);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
+});
+
+// GET /api/projects/:id/subagents/:slug/logs - subagent logs
+api.get("/projects/:id/subagents/:slug/logs", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const sinceParam = c.req.query("since") ?? "0";
+  const since = Number(sinceParam);
+  if (!Number.isFinite(since) || since < 0) {
+    return c.json({ error: "Invalid since cursor" }, 400);
+  }
+  const config = getConfig();
+  const result = await getSubagentLogs(config, id, slug, since);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
+});
+
+// GET /api/projects/:id/branches - list git branches
+api.get("/projects/:id/branches", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await listProjectBranches(config, id);
+  if (!result.ok) {
+    const status = result.error === "Project repo not set" ? 400 : 404;
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);

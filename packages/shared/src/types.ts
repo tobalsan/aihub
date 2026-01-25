@@ -294,6 +294,10 @@ export const UpdateProjectRequestSchema = z.object({
   appetite: z.union([ProjectAppetiteSchema, z.literal("")]).optional(),
   status: ProjectStatusSchema.optional(),
   content: z.string().optional(),
+  repo: z.union([z.string(), z.literal("")]).optional(),
+  runAgent: z.union([z.string(), z.literal("")]).optional(),
+  runMode: z.union([z.string(), z.literal("")]).optional(),
+  sessionKeys: z.record(z.string()).nullable().optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
 
