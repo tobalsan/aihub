@@ -14,6 +14,9 @@ export type ClaudeQueryOptions = {
   forkSession?: boolean;
   // Permission mode
   permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
+  // MCP servers + tool allowlist
+  mcpServers?: Record<string, unknown>;
+  allowedTools?: string[];
 };
 
 export type SDKMessage =
@@ -70,6 +73,6 @@ export type SDKMessage =
 export type Query = AsyncGenerator<SDKMessage, void>;
 
 export type QueryFunction = (params: {
-  prompt: string;
+  prompt: string | AsyncGenerator<{ type: string; message: { role: string; content: string } }, void>;
   options?: ClaudeQueryOptions;
 }) => Query;

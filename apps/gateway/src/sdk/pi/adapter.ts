@@ -16,6 +16,7 @@ import {
   formatSessionTimestamp,
 } from "../../sessions/store.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
+import { createPiSubagentTools } from "../../subagents/pi_tools.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -196,7 +197,7 @@ export const piAdapter: SdkAdapter = {
     const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
 
     // Create tools
-    const tools = createCodingTools(params.workspaceDir);
+    const tools = createCodingTools(params.workspaceDir).concat(createPiSubagentTools());
 
     // Build system prompt
     const systemPrompt = buildSystemPrompt({

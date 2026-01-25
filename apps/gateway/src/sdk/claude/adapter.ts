@@ -4,6 +4,7 @@ import type { QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
+import { createSubagentMcpServer, SUBAGENT_MCP_SERVER, SUBAGENT_TOOL_NAMES } from "../../subagents/claude_tools.js";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
@@ -154,9 +155,21 @@ export const claudeAdapter: SdkAdapter = {
       const existingClaudeSessionId = getClaudeSessionId(params.agentId, params.sessionId, requestedModel);
 
       try {
+        const subagentServer = createSubagentMcpServer();
+        const allowedTools = Object.values(SUBAGENT_TOOL_NAMES).map(
+          (name) => `mcp__${SUBAGENT_MCP_SERVER}__${name}`
+        );
+
+        async function* promptStream() {
+          yield {
+            type: "user",
+            message: { role: "user", content: messageToSend },
+          };
+        }
+
         // Query the Claude Agent SDK
         const conversation = query({
-          prompt: messageToSend,
+          prompt: promptStream(),
           options: {
             cwd: params.workspaceDir,
             abortController,
@@ -178,6 +191,10 @@ export const claudeAdapter: SdkAdapter = {
             resume: existingClaudeSessionId,
             // Bypass all permission prompts - tools run automatically
             permissionMode: "bypassPermissions",
+            mcpServers: {
+              [SUBAGENT_MCP_SERVER]: subagentServer,
+            },
+            allowedTools,
           },
         });
 
