@@ -197,6 +197,12 @@ export const TaskboardConfigSchema = z.object({
 });
 export type TaskboardConfig = z.infer<typeof TaskboardConfigSchema>;
 
+// Projects config
+export const ProjectsConfigSchema = z.object({
+  root: z.string().optional(),
+});
+export type ProjectsConfig = z.infer<typeof ProjectsConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   agents: z.array(AgentConfigSchema),
@@ -222,6 +228,7 @@ export const GatewayConfigSchema = z.object({
     .optional(),
   ui: UiConfigSchema.optional(),
   taskboard: TaskboardConfigSchema.optional(),
+  projects: ProjectsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(), // Env vars to set (only if not already set)
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
@@ -242,6 +249,53 @@ export const AgentStatusSchema = z.object({
   lastActivity: z.number().optional(),
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
+
+// Projects API types
+export const ProjectStatusSchema = z.enum([
+  "not_now",
+  "maybe",
+  "shaping",
+  "todo",
+  "in_progress",
+  "review",
+  "done",
+]);
+export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
+
+export const ProjectDomainSchema = z.enum(["life", "admin", "coding"]);
+export type ProjectDomain = z.infer<typeof ProjectDomainSchema>;
+
+export const ProjectExecutionModeSchema = z.enum([
+  "manual",
+  "exploratory",
+  "auto",
+  "full_auto",
+]);
+export type ProjectExecutionMode = z.infer<typeof ProjectExecutionModeSchema>;
+
+export const ProjectAppetiteSchema = z.enum(["small", "big"]);
+export type ProjectAppetite = z.infer<typeof ProjectAppetiteSchema>;
+
+export const CreateProjectRequestSchema = z.object({
+  title: z.string(),
+  domain: ProjectDomainSchema,
+  owner: z.string(),
+  executionMode: ProjectExecutionModeSchema,
+  appetite: ProjectAppetiteSchema,
+  status: ProjectStatusSchema.optional(),
+});
+export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
+
+export const UpdateProjectRequestSchema = z.object({
+  title: z.string().optional(),
+  domain: ProjectDomainSchema.optional(),
+  owner: z.string().optional(),
+  executionMode: ProjectExecutionModeSchema.optional(),
+  appetite: ProjectAppetiteSchema.optional(),
+  status: ProjectStatusSchema.optional(),
+  content: z.string().optional(),
+});
+export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
 
 export const CreateScheduleRequestSchema = z.object({
   name: z.string(),

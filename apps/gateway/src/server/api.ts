@@ -3,6 +3,8 @@ import {
   SendMessageRequestSchema,
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
+  CreateProjectRequestSchema,
+  UpdateProjectRequestSchema,
 } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir, getConfig } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
@@ -10,6 +12,7 @@ import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
+import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
 
 const api = new Hono();
 
@@ -196,6 +199,61 @@ api.delete("/schedules/:id", async (c) => {
     return c.json({ error: "Schedule not found" }, 404);
   }
   return c.json({ ok: true });
+});
+
+// GET /api/projects - list projects (frontmatter only)
+api.get("/projects", async (c) => {
+  const config = getConfig();
+  const result = await listProjects(config);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects - create project
+api.post("/projects", async (c) => {
+  const body = await c.req.json();
+  const parsed = CreateProjectRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const config = getConfig();
+  const result = await createProject(config, parsed.data);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+  return c.json(result.data, 201);
+});
+
+// GET /api/projects/:id - get project (full README)
+api.get("/projects/:id", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await getProject(config, id);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
+});
+
+// PATCH /api/projects/:id - update project (frontmatter + README)
+api.patch("/projects/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = UpdateProjectRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const config = getConfig();
+  const result = await updateProject(config, id, parsed.data);
+  if (!result.ok) {
+    const status = result.error.startsWith("Project already exists") ? 409 : 404;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
 });
 
 // GET /api/taskboard - list all todos and projects (excluding done)
