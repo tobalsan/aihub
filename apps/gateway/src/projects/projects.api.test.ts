@@ -83,6 +83,7 @@ describe("projects API", () => {
         title: "Project Mgmt API",
         content: "# Project Mgmt API\n\nUpdated content.\n",
         status: "shaping",
+        repo: "/tmp/repo",
       }),
     }));
 
