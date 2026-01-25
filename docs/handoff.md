@@ -1,233 +1,115 @@
-# Discord Enhancement Handoff Document
+# Hand-off
 
-## Plan Reference
-**Full plan:** `~/.claude/plans/glowing-noodling-moonbeam.md`
+Date: 2026-01-25
+Repo: `/Users/thinh/code/aihub`
 
 ## Initial Context
+Goal: add a project management/overview system with Kanban and per-project agent sessions. First step: implement Projects API. Projects live in `~/projects` (configurable), flat folder (no status subfolders). Status stored in YAML frontmatter. Status flow: NOT NOW, MAYBE, SHAPING, TODO, IN PROGRESS, REVIEW, DONE. Projects are folders named `PRO-<id>_<slug>` with `README.md` containing YAML frontmatter + markdown body. Additional files (scope/progress/prompt) only for Ralph loops and created ad hoc later.
 
-AIHub is a lightweight, self-hosted multi-agent gateway at `/Users/thinh/code/aihub`. The goal was to update AIHub's Discord integration to mirror clawdbot's Discord behavior:
+Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Single-row horizontally scrolling columns. Collapsible columns with up to two expanded at a time. Card click opens near-maximized overlay with details + monitoring pane. No drag/drop in v1; status moves via detail view.
 
-- Per-guild/per-channel gating (mention required, allowlists, enabled/disabled, prompt snippets)
-- Thread-aware context (thread starter)
-- Channel metadata (topic/name) included in context
-- Guild history context (configurable, optionally cleared after reply)
-- Reaction events as system-style agent inputs
-- Native slash commands
-- Continuous typing indicator with queue mode support
+## Decisions (Key)
+- Projects root config: `projects.root` in `~/.aihub/aihub.json`. Default `~/projects`.
+- Project folder naming: `PRO-<n>_<slug>` (no spaces), slug = lowercase, non-alnum→`_`, collapsed.
+- Frontmatter fields: `id, title, status, created, domain, owner, executionMode, appetite`.
+- `title` field name (not `name`).
+- `status` default on create: `maybe`.
+- `domain` values: `life|admin|coding`.
+- `executionMode` values: `manual|exploratory|auto|full_auto`.
+- `appetite` values: `small|big` (small = 1–2 days, big = full week).
+- `owner` is free string (e.g., "Thinh"), not validated.
+- Project ID counter stored at `~/.aihub/projects.json` as `{ "lastId": N }`.
+- List endpoint returns frontmatter only (for snappy UI). Full README only on `GET /api/projects/:id`.
+- Update supports title + frontmatter + README content. If title changes, folder renamed.
+- `created` frontmatter uses full ISO timestamp (not date-only).
+- API create fields optional except `title` (frontmatter omits missing fields).
+- Unset metadata by sending empty string; server deletes frontmatter field.
+- CLI should use HTTP API (default), not direct FS; base URL from config + env override.
+- CLI output: Markdown tables by default; `--json/-j` for JSON.
+- CLI update content supports `--content` string and stdin when `--content -`.
+- No `updated` field for now.
+- Kanban columns order: Not now → Maybe → Shaping → Todo → In Progress → Review → Done.
+- Sort cards by created ascending (oldest first).
+- Detail overlay: ESC closes; click backdrop closes.
+- Dates shown as: Created today / yesterday / last week / X days ago.
+- Markdown rendered in detail; leading YAML frontmatter + H1 stripped to avoid duplicate title.
+- Metadata dropdowns for domain/owner/execution mode use custom menus (not native selects) so long owner names don’t reflow layout. Owner options = agents + Thinh.
+- Appetite + status selects live in a header above the two-pane layout.
 
-## Implementation Status
+## Implemented
+### 1) Projects API (Gateway)
+- Files added:
+  - `apps/gateway/src/projects/store.ts`
+  - `apps/gateway/src/projects/index.ts`
+- API routes added in `apps/gateway/src/server/api.ts`:
+  - `GET /api/projects` (list frontmatter)
+  - `POST /api/projects` (create)
+  - `GET /api/projects/:id` (full README)
+  - `PATCH /api/projects/:id` (update, rename on title change)
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | Extend runAgent() to support context payload | ✅ Complete |
-| 1 | Library Migration (Discord.js → Carbon) | ✅ Complete |
-| 2 | Core Message Handling (parity gating) | ✅ Complete |
-| 3 | Context Enrichment (thread/topic/history) | ✅ Complete |
-| 4 | Reactions as System Events | ✅ Complete |
-| 5 | Slash Commands | ✅ Complete (but not working - see Current Issue) |
-| 6 | Reply + Typing + Chunking | ✅ Complete |
-| 7 | Broadcaster hardening | ✅ Complete |
-| Tests | Write tests and verify implementation | ✅ Complete (112 tests) |
+Create behavior:
+- Allocates ID from `~/.aihub/projects.json`.
+- Creates `PRO-<n>_<slug>` directory.
+- Writes `README.md` with YAML frontmatter + `# <title>` body.
+- Frontmatter includes `status=maybe`, `created` ISO timestamp; other fields only if provided.
 
-## What Has Been Done
+Update behavior:
+- Reads `README.md`, merges fields, optional content update.
+- Renames folder if title slug changes.
+- Empty string for domain/owner/executionMode/appetite deletes field.
 
-### Phase 0-3: Previously Completed
-See original implementation notes in plan file.
+### 2) Shared types (schemas)
+- `packages/shared/src/types.ts`:
+  - Added `ProjectsConfigSchema` with `root`.
+  - Added project schemas: `ProjectStatusSchema`, `ProjectDomainSchema`, `ProjectExecutionModeSchema`, `ProjectAppetiteSchema`.
+  - `CreateProjectRequestSchema` only requires `title`.
+  - `UpdateProjectRequestSchema` accepts empty string for domain/owner/executionMode/appetite.
 
-### Phase 4: Reactions as System Events
-- Created `apps/gateway/src/discord/handlers/reactions.ts`
-- Gating modes: `off` (default), `all`, `own`, `allowlist`
-- Reactions trigger `runAgent()` with `context.blocks=[{type:"reaction",...}]`
-- Uses same channel session: `discord:${channelId}`
+### 3) Projects CLI
+- New CLI: `apps/gateway/src/cli/projects.ts`.
+- Root script: `"projects": "pnpm --filter @aihub/gateway exec tsx src/cli/projects.ts"`.
+- Commands: list/create/get/update/move.
+- Base URL resolution: env `AIHUB_API_URL` override; else config `gateway.host/bind` + port.
 
-### Phase 5: Slash Commands
-- Created `apps/gateway/src/discord/handlers/commands.ts`
-- Commands: `/new`, `/abort`, `/help`, `/ping`
-- Uses Carbon's `Command` class
-- Commands deployed via `client.handleDeployRequest()` on ready
-- Added `discord-api-types` dependency
+### 4) Tests
+- Integration test: `apps/gateway/src/projects/projects.api.test.ts` (temp HOME + temp root; create/update; cleanup). Adjusted to allow sync/async `Hono.request` type.
+- `vitest.config.ts` alias `@aihub/shared` → `packages/shared/src/index.ts`.
 
-### Phase 6: Reply + Typing + Chunking
-- Created `apps/gateway/src/discord/utils/chunk.ts` - code fence preservation
-- Created `apps/gateway/src/discord/utils/typing.ts` - 5s keep-alive, 30s TTL
-- Implemented `replyToMode`: `off`, `first`, `all`
+### 5) Docs
+- New: `docs/projects_api.md`.
+- `README.md` updated with project API + CLI + `projects.root` config.
+- `docs/llms.md` updated for projects config and endpoints.
 
-### Phase 7: Broadcaster
-- No changes needed - already used new chunking, isolated sessions, no echo
+### 6) Kanban Web UI (Basic v1)
+- New component: `apps/web/src/components/ProjectsBoard.tsx`.
+- Routes in `apps/web/src/App.tsx`: `/projects`, `/projects/:id`.
+- Taskboard button now links to `/projects` (AgentList + ChatView); Cmd/Ctrl+K navigates there.
+- API client/types added for projects: `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`.
 
-### Tests
-- 112 tests passing across 6 test files
-- Unit tests for: allowlist, chunk, context, message handler, reactions
-- Integration tests in `bot.test.ts`
+Kanban UI details:
+- Horizontal scroll single-row board; columns colored and collapsible (2 expanded max).
+- Cards show id/title/meta and created relative time.
+- Detail overlay: near-maximized, two panes (detail + monitoring placeholder), ESC/backdrop closes.
+- Header above panes: ID pill + title, appetite + status dropdowns.
+- Meta row under header: created + editable domain/owner/execution mode (custom dropdown menus) with muted icons.
+- Markdown rendered for body with frontmatter + leading H1 stripped.
 
-### Documentation Updates
-1. **`docs/discord.md`** - New comprehensive Discord setup guide
-   - Prerequisites, basic setup, configuration examples
-   - Group Policy explanation (controls both guilds AND channels)
-   - Channel defaults: `enabled: true`, `requireMention` inherits from guild
-   - History & Reply settings explained
+## Commits
+- `feat(projects): add projects API and tests`
+- `fix(projects): store created timestamp`
+- `docs(projects): document projects API`
+- `feat(projects): add projects CLI`
+- `feat(web): add projects kanban view`
 
-2. **`docs/llms.md`** - Updated Discord section
-   - Changed from discord.js to Carbon
-   - Full config schema documented
-   - Updated dependencies
+## Known Issues / Notes
+- If gateway running old build, API schema might still require domain/owner/executionMode/appetite. Rebuild shared + gateway, restart.
+  - `pnpm --filter @aihub/shared build`
+  - `pnpm --filter @aihub/gateway build`
+- Detail overlay status/appetite changes are immediate; no optimistic UI beyond local signals.
 
-3. **`README.md`** - Link to Discord docs, updated example config
+## Next (Not Done)
+- Wire monitoring pane to live agent session view.
+- Implement project creation UI in Kanban.
+- Optional: drag/drop status moves, filters, search.
+- Persist column collapse state (localStorage) if desired.
 
-### Bug Fixes Applied
-
-1. **applicationId Auto-Fetch**
-   - Problem: Carbon requires `clientId`, but config had optional `applicationId`
-   - Solution: Fetch from Discord API (`/oauth2/applications/@me`) if not provided
-   - Location: `apps/gateway/src/discord/bot.ts:264-282`
-   - Made `createDiscordBot` async
-
-2. **Channel Opt-In Model**
-   - Problem: Channels were opt-out (all allowed unless `enabled: false`)
-   - User wanted opt-in like clawdbot (channels blocked unless listed)
-   - Solution: When `groupPolicy: "allowlist"`, channels not in config are rejected
-   - Location: `apps/gateway/src/discord/handlers/message.ts:158-168`
-   - New rejection reason: `channel_not_in_allowlist`
-
-## Current File Structure
-
-```
-apps/gateway/src/discord/
-├── bot.ts              # Main bot logic, message/reaction handling, broadcaster
-├── client.ts           # Carbon client wrapper with GatewayPlugin
-├── index.ts            # Exports startDiscordBots(), stopDiscordBots()
-├── handlers/
-│   ├── commands.ts     # Slash command handlers (/new, /abort, /help, /ping)
-│   ├── message.ts      # Message pipeline with gating logic
-│   └── reactions.ts    # Reaction pipeline with gating logic
-└── utils/
-    ├── allowlist.ts    # Allowlist matching utilities
-    ├── channel.ts      # Channel metadata fetching
-    ├── chunk.ts        # Message chunking with code fence preservation
-    ├── context.ts      # Discord context building/rendering
-    ├── history.ts      # Per-channel history ring buffer
-    ├── threads.ts      # Thread starter resolution + caching
-    └── typing.ts       # Continuous typing indicator controller
-```
-
-## Current Issue: Slash Commands Not Working
-
-### Symptom
-Slash commands like `/new` are sent as regular text messages instead of being handled as Discord interactions. The bot receives `/new` as message content, not as an interaction.
-
-### Root Cause
-Carbon's `InteractionCreateListener` is not being used. The gateway receives `INTERACTION_CREATE` events but we weren't listening for them. Commands are registered/deployed, but incoming interactions aren't routed to them.
-
-### Attempted Fix (Incomplete)
-Added `InteractionCreateListener` to `client.ts`:
-
-```typescript
-import { InteractionCreateListener } from "@buape/carbon";
-
-// In createCarbonClient():
-if (config.commands?.length) {
-  listeners.push(
-    new (class extends InteractionCreateListener {
-      async handle(data, client) {
-        await client.handleInteraction(data, {});
-      }
-    })()
-  );
-}
-```
-
-### Build Error
-```
-src/discord/client.ts(131,34): error TS2322: Type '...' is not assignable to type 'BaseListener[]'.
-  Type '(Anonymous class)' is not assignable to type 'BaseListener'.
-    Types of property 'handle' are incompatible.
-      Type '(data: APIInteraction, client: Client) => Promise<void>' is not assignable to
-      type '(data: ListenerEventAdditionalData, client: Client) => Promise<void>'.
-```
-
-### Analysis
-Carbon has a type inconsistency:
-- `InteractionCreateListener.handle()` expects `APIInteraction`
-- `BaseListener.handle()` expects `ListenerEventAdditionalData`
-- These types are incompatible, so `InteractionCreateListener` doesn't properly extend `BaseListener`
-
-### Next Steps to Fix
-Options:
-1. **Type assertion** - Use `as unknown as BaseListener` (user rejected as "hack")
-2. **Separate listener array** - Pass interaction listener separately if Carbon supports it
-3. **Upstream fix** - Check if Carbon has a different way to handle gateway interactions
-4. **Manual event handling** - Use raw gateway event handling instead of Carbon's listener system
-
-Need to investigate Carbon's architecture more or check if there's a gateway-specific way to handle interactions.
-
-## Key Design Decisions
-
-1. **groupPolicy controls both guilds AND channels**
-   - `open`: all guilds/channels allowed
-   - `allowlist`: only configured guilds allowed, AND only configured channels within those guilds
-   - `disabled`: no guilds allowed (DM-only)
-
-2. **Channel defaults**
-   - `enabled`: defaults to `true`
-   - `requireMention`: inherits from guild config, which defaults to `true`
-   - Minimal config: `"CHANNEL_ID": {}`
-
-3. **applicationId auto-detection**
-   - Fetched from Discord API if not in config
-   - Logged if fetch fails: "Failed to get application ID. Set 'applicationId' in config."
-
-4. **Session routing**
-   - DMs: `sessionKey: "main"` (shares with web UI)
-   - Guild channels: `sessionId: discord:${channelId}` (isolated per channel)
-
-## Config Example (Correct Format)
-
-```json
-{
-  "discord": {
-    "token": "BOT_TOKEN",
-    "applicationId": "APP_ID",
-    "groupPolicy": "allowlist",
-    "guilds": {
-      "1456395729663819808": {
-        "requireMention": false,
-        "channels": {
-          "1456399514842959973": {}
-        }
-      }
-    }
-  }
-}
-```
-
-**Common mistake:** Putting channel ID directly in guild config instead of under `channels`:
-```json
-// WRONG:
-"guilds": { "GUILD_ID": { "requireMention": false, "CHANNEL_ID": {} } }
-
-// CORRECT:
-"guilds": { "GUILD_ID": { "requireMention": false, "channels": { "CHANNEL_ID": {} } } }
-```
-
-## Build & Test Commands
-
-```bash
-cd /Users/thinh/code/aihub
-pnpm build                                    # Build all
-pnpm vitest run src/discord                   # Run Discord tests (in apps/gateway)
-```
-
-## Files Modified in This Session
-
-- `apps/gateway/src/discord/bot.ts` - Made async, added applicationId fetch
-- `apps/gateway/src/discord/client.ts` - Attempting to add InteractionCreateListener (build broken)
-- `apps/gateway/src/discord/handlers/message.ts` - Added channel allowlist check
-- `apps/gateway/src/discord/handlers/message.test.ts` - Added channel allowlist tests
-- `apps/gateway/src/discord/bot.test.ts` - Added global fetch mock for applicationId
-- `docs/discord.md` - Created comprehensive Discord setup guide
-- `docs/llms.md` - Updated Discord section
-- `README.md` - Added link to Discord docs
-
-## Current Build Status: BROKEN
-
-The build fails due to the TypeScript error in `client.ts` when adding `InteractionCreateListener`. Need to resolve the type incompatibility without using type hacks like `as unknown as X`.

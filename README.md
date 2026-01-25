@@ -68,6 +68,14 @@ pnpm projects move <id> <status>
 # Override API URL
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm projects list
 
+# Global shortcut (apm)
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/apm <<'EOF'
+#!/usr/bin/env sh
+exec pnpm --dir /Users/thinh/code/aihub projects "$@"
+EOF
+chmod +x ~/.local/bin/apm
+
 # OAuth authentication (Pi SDK agents)
 pnpm aihub auth login           # Interactive provider selection
 pnpm aihub auth login anthropic # Login to specific provider
