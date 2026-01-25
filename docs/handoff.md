@@ -34,7 +34,8 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Dates shown as: Created today / yesterday / last week / X days ago.
 - Markdown rendered in detail; leading YAML frontmatter + H1 stripped to avoid duplicate title.
 - Metadata dropdowns for domain/owner/execution mode use custom menus (not native selects) so long owner names don’t reflow layout. Owner options = agents + Thinh.
-- Appetite + status selects live in a header above the two-pane layout.
+- Appetite + status now in metadata row (same style + icons).
+- Owner + execution mode moved to top of right (monitoring) pane.
 
 ## Implemented
 ### 1) Projects API (Gateway)
@@ -79,6 +80,7 @@ Update behavior:
 - New: `docs/projects_api.md`.
 - `README.md` updated with project API + CLI + `projects.root` config.
 - `docs/llms.md` updated for projects config and endpoints.
+- README mentions global `apm` shim for `pnpm projects`.
 
 ### 6) Kanban Web UI (Basic v1)
 - New component: `apps/web/src/components/ProjectsBoard.tsx`.
@@ -90,9 +92,12 @@ Kanban UI details:
 - Horizontal scroll single-row board; columns colored and collapsible (2 expanded max).
 - Cards show id/title/meta and created relative time.
 - Detail overlay: near-maximized, two panes (detail + monitoring placeholder), ESC/backdrop closes.
-- Header above panes: ID pill + title, appetite + status dropdowns.
-- Meta row under header: created + editable domain/owner/execution mode (custom dropdown menus) with muted icons.
+- Header above panes: ID pill + title.
+- Meta row under header: status, created, appetite, domain (icons + dropdowns).
+- Owner + execution mode at top of monitoring pane (icons + dropdowns).
 - Markdown rendered for body with frontmatter + leading H1 stripped.
+- Markdown styling: bullets/spacing, hr spacing, header margins.
+- Markdown body container now seamless (no border/background).
 
 ## Commits
 - `feat(projects): add projects API and tests`
@@ -100,15 +105,18 @@ Kanban UI details:
 - `docs(projects): document projects API`
 - `feat(projects): add projects CLI`
 - `feat(web): add projects kanban view`
+- `refine project detail metadata layout`
+- `style project markdown body`
+- `docs: add apm shortcut`
 
 ## Known Issues / Notes
 - If gateway running old build, API schema might still require domain/owner/executionMode/appetite. Rebuild shared + gateway, restart.
   - `pnpm --filter @aihub/shared build`
   - `pnpm --filter @aihub/gateway build`
-- Detail overlay status/appetite changes are immediate; no optimistic UI beyond local signals.
+- Status/metadata menu close on outside click; may want escape/blur handling later.
 
 ## Next (Not Done)
-- Wire monitoring pane to live agent session view.
+- Implement monitoring pane with live agent session view.
 - Implement project creation UI in Kanban.
 - Optional: drag/drop status moves, filters, search.
 - Persist column collapse state (localStorage) if desired.
