@@ -13,7 +13,7 @@ export const SUBAGENT_TOOL_NAMES = {
 export function createSubagentMcpServer(handlers?: SubagentToolHandlers) {
   const ops = handlers ?? createSubagentToolHandlers();
 
-  const spawnSchema = z.object({
+  const spawnSchema = {
     projectId: z.string(),
     slug: z.string(),
     cli: z.enum(["claude", "codex", "droid", "gemini"]),
@@ -21,18 +21,18 @@ export function createSubagentMcpServer(handlers?: SubagentToolHandlers) {
     mode: z.enum(["main-run", "worktree"]).optional(),
     baseBranch: z.string().optional(),
     resume: z.boolean().optional(),
-  });
+  };
 
-  const statusSchema = z.object({
+  const statusSchema = {
     projectId: z.string(),
     slug: z.string(),
-  });
+  };
 
-  const logsSchema = z.object({
+  const logsSchema = {
     projectId: z.string(),
     slug: z.string(),
     since: z.number().optional(),
-  });
+  };
 
   const interruptSchema = statusSchema;
 

@@ -37,7 +37,7 @@ const logsParams = {
 const interruptParams = statusParams;
 
 function okText(data: unknown) {
-  return [{ type: "text", text: JSON.stringify(data) }];
+  return [{ type: "text" as const, text: JSON.stringify(data) }];
 }
 
 export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentTool[] {
@@ -50,14 +50,23 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       description: "Spawn an external CLI subagent",
       parameters: spawnParams,
       execute: async (_toolCallId, params) => {
+        const input = params as {
+          projectId: string;
+          slug: string;
+          cli: string;
+          prompt: string;
+          mode?: string;
+          baseBranch?: string;
+          resume?: boolean;
+        };
         const result = await ops.spawn({
-          projectId: params.projectId as string,
-          slug: params.slug as string,
-          cli: params.cli as any,
-          prompt: params.prompt as string,
-          mode: params.mode as any,
-          baseBranch: params.baseBranch as string | undefined,
-          resume: params.resume as boolean | undefined,
+          projectId: input.projectId,
+          slug: input.slug,
+          cli: input.cli as any,
+          prompt: input.prompt,
+          mode: input.mode as any,
+          baseBranch: input.baseBranch,
+          resume: input.resume,
         });
         if (!result.ok) throw new Error(result.error);
         return { content: okText(result.data), details: result.data };
@@ -69,9 +78,10 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       description: "Get status for a subagent",
       parameters: statusParams,
       execute: async (_toolCallId, params) => {
+        const input = params as { projectId: string; slug: string };
         const result = await ops.status({
-          projectId: params.projectId as string,
-          slug: params.slug as string,
+          projectId: input.projectId,
+          slug: input.slug,
         });
         if (!result.ok) throw new Error(result.error);
         return { content: okText(result.data), details: result.data };
@@ -83,10 +93,11 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       description: "Fetch logs for a subagent",
       parameters: logsParams,
       execute: async (_toolCallId, params) => {
+        const input = params as { projectId: string; slug: string; since?: number };
         const result = await ops.logs({
-          projectId: params.projectId as string,
-          slug: params.slug as string,
-          since: typeof params.since === "number" ? params.since : undefined,
+          projectId: input.projectId,
+          slug: input.slug,
+          since: typeof input.since === "number" ? input.since : undefined,
         });
         if (!result.ok) throw new Error(result.error);
         return { content: okText(result.data), details: result.data };
@@ -98,9 +109,10 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       description: "Interrupt a running subagent",
       parameters: interruptParams,
       execute: async (_toolCallId, params) => {
+        const input = params as { projectId: string; slug: string };
         const result = await ops.interrupt({
-          projectId: params.projectId as string,
-          slug: params.slug as string,
+          projectId: input.projectId,
+          slug: input.slug,
         });
         if (!result.ok) throw new Error(result.error);
         return { content: okText(result.data), details: result.data };

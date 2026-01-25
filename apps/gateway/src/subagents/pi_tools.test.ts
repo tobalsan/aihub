@@ -31,7 +31,9 @@ describe("pi subagent tools", () => {
       resume: undefined,
     });
     expect(result.content[0].type).toBe("text");
-    expect(result.content[0].text).toContain("\"slug\":\"alpha\"");
+    if (result.content[0].type === "text") {
+      expect(result.content[0].text).toContain("\"slug\":\"alpha\"");
+    }
   });
 
   it("subagent.spawn throws on error", async () => {
@@ -70,6 +72,8 @@ describe("pi subagent tools", () => {
       slug: "beta",
       since: 123,
     });
-    expect(result.content[0].text).toContain("\"cursor\":10");
+    if (result.content[0].type === "text") {
+      expect(result.content[0].text).toContain("\"cursor\":10");
+    }
   });
 });
