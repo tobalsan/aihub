@@ -2,8 +2,21 @@ import { For, Show, createEffect, createMemo, createResource, createSignal, onCl
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { fetchProjects, fetchProject, updateProject, fetchAgents } from "../api/client";
-import type { ProjectListItem, ProjectDetail } from "../api/types";
+import {
+  fetchProjects,
+  fetchProject,
+  updateProject,
+  fetchAgents,
+  fetchFullHistory,
+  streamMessage,
+  fetchSubagents,
+  fetchSubagentLogs,
+  fetchProjectBranches,
+  spawnSubagent,
+  interruptSubagent,
+} from "../api/client";
+import type { ProjectListItem, ProjectDetail, FullHistoryMessage, ContentBlock, SubagentListItem, SubagentLogEvent } from "../api/types";
+import { buildProjectSummary, buildStartPrompt } from "./projectMonitoring";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -17,12 +30,43 @@ const COLUMNS: ColumnDef[] = [
   { id: "done", title: "Done", color: "#53b97c" },
 ];
 
+const CLI_OPTIONS = [
+  { id: "cli:claude", label: "Claude CLI", cli: "claude" },
+  { id: "cli:codex", label: "Codex CLI", cli: "codex" },
+  { id: "cli:droid", label: "Droid CLI", cli: "droid" },
+  { id: "cli:gemini", label: "Gemini CLI", cli: "gemini" },
+];
+
 function getFrontmatterString(
   frontmatter: Record<string, unknown> | undefined,
   key: string
 ): string | undefined {
   const value = frontmatter?.[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function getFrontmatterRecord(
+  frontmatter: Record<string, unknown> | undefined,
+  key: string
+): Record<string, string> | undefined {
+  const value = frontmatter?.[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, string>;
+}
+
+const timestampFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+function formatTimestamp(ts: string | number | undefined): string {
+  if (!ts) return "";
+  const date = typeof ts === "number" ? new Date(ts) : new Date(ts);
+  if (Number.isNaN(date.getTime())) return "";
+  return timestampFormatter.format(date);
 }
 
 function formatCreated(raw?: string): string {
@@ -50,6 +94,72 @@ function renderMarkdown(content: string): string {
     .replace(/^\s*#\s+.+\n+/, "");
   const html = marked.parse(stripped, { breaks: true, async: false }) as string;
   return DOMPurify.sanitize(html);
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function formatJson(args: unknown): string {
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+function extractBlockText(text: unknown): string {
+  if (typeof text === "string") return text;
+  if (text && typeof text === "object") {
+    const obj = text as Record<string, unknown>;
+    if (Array.isArray(obj.content)) {
+      return (obj.content as Array<Record<string, unknown>>)
+        .filter((c) => c?.type === "text" && typeof c.text === "string")
+        .map((c) => c.text as string)
+        .join("\n");
+    }
+  }
+  return "";
+}
+
+function getTextBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .filter((b) => b.type === "text")
+    .map((b) => extractBlockText((b as { text: unknown }).text))
+    .join("\n");
+}
+
+function buildAihubLogs(messages: FullHistoryMessage[]): Array<{ ts?: string; type: string; text: string }> {
+  const entries: Array<{ ts?: string; type: string; text: string }> = [];
+  for (const msg of messages) {
+    const ts = formatTimestamp(msg.timestamp);
+    if (msg.role === "user") {
+      const text = getTextBlocks(msg.content);
+      if (text) entries.push({ ts, type: "user", text });
+      continue;
+    }
+    if (msg.role === "assistant") {
+      for (const block of msg.content) {
+        if (block.type === "text" && block.text) {
+          entries.push({ ts, type: "assistant", text: block.text });
+        } else if (block.type === "toolCall") {
+          entries.push({ ts, type: "tool_call", text: `${block.name}\n${formatJson(block.arguments)}` });
+        }
+      }
+      continue;
+    }
+    if (msg.role === "toolResult") {
+      const text = getTextBlocks(msg.content);
+      if (text) entries.push({ ts, type: "tool_output", text });
+      if (msg.details?.diff) {
+        entries.push({ ts, type: "diff", text: msg.details.diff });
+      }
+    }
+  }
+  return entries;
 }
 
 function getStatus(item: ProjectListItem): string {
@@ -94,11 +204,90 @@ export function ProjectsBoard() {
   const [detailOwner, setDetailOwner] = createSignal("");
   const [detailMode, setDetailMode] = createSignal("");
   const [detailAppetite, setDetailAppetite] = createSignal("");
+  const [detailRunAgent, setDetailRunAgent] = createSignal("");
+  const [detailRunMode, setDetailRunMode] = createSignal("main-run");
+  const [detailRepo, setDetailRepo] = createSignal("");
+  const [detailSessionKeys, setDetailSessionKeys] = createSignal<Record<string, string>>({});
+  const [detailSlug, setDetailSlug] = createSignal("");
+  const [detailBranch, setDetailBranch] = createSignal("main");
+  const [branches, setBranches] = createSignal<string[]>([]);
+  const [branchesError, setBranchesError] = createSignal<string | null>(null);
+  const [mainTab, setMainTab] = createSignal<"logs" | "diffs">("logs");
+  const [subTab, setSubTab] = createSignal<"logs" | "diffs">("logs");
+  const [mainInput, setMainInput] = createSignal("");
+  const [mainLogs, setMainLogs] = createSignal<SubagentLogEvent[]>([]);
+  const [mainCursor, setMainCursor] = createSignal(0);
+  const [aihubLogs, setAihubLogs] = createSignal<Array<{ ts?: string; type: string; text: string }>>([]);
+  const [aihubLive, setAihubLive] = createSignal("");
+  const [aihubStreaming, setAihubStreaming] = createSignal(false);
+  const [mainError, setMainError] = createSignal("");
+  const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
+  const [subagentError, setSubagentError] = createSignal<string | null>(null);
+  const [selectedSubagent, setSelectedSubagent] = createSignal<string | null>(null);
+  const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
+  const [subagentCursor, setSubagentCursor] = createSignal(0);
   const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
+
+  let mainStreamCleanup: (() => void) | null = null;
 
   const ownerOptions = createMemo(() => {
     const names = (agents() ?? []).map((agent) => agent.name);
     return ["Thinh", ...names.filter((name) => name !== "Thinh")];
+  });
+
+  const runAgentOptions = createMemo(() => {
+    const aihub = (agents() ?? []).map((agent) => ({
+      id: `aihub:${agent.id}`,
+      label: agent.name,
+    }));
+    return [...aihub, ...CLI_OPTIONS];
+  });
+
+  const selectedRunAgent = createMemo(() => {
+    const value = detailRunAgent();
+    if (!value) return null;
+    if (value.startsWith("aihub:")) return { type: "aihub" as const, id: value.slice(6) };
+    if (value.startsWith("cli:")) return { type: "cli" as const, id: value.slice(4) };
+    return null;
+  });
+
+  const mainSlug = createMemo(() => {
+    if (selectedRunAgent()?.type !== "cli") return "";
+    if (detailRunMode() === "worktree") return detailSlug().trim();
+    return "main";
+  });
+
+  const mainSubagent = createMemo(() => {
+    const slug = mainSlug();
+    if (!slug) return null;
+    return subagents().find((item) => item.slug === slug) ?? null;
+  });
+
+  const hasMainRun = createMemo(() => {
+    const agent = selectedRunAgent();
+    if (!agent) return false;
+    if (agent.type === "aihub") {
+      return Boolean(detailSessionKeys()[agent.id]);
+    }
+    return Boolean(mainSubagent());
+  });
+
+  const canStart = createMemo(() => {
+    const agent = selectedRunAgent();
+    if (!agent) return false;
+    if (agent.type === "aihub") return true;
+    if (!detailRepo()) return false;
+    if (detailRunMode() === "worktree" && !detailSlug().trim()) return false;
+    return true;
+  });
+
+  const mainStatus = createMemo(() => {
+    const agent = selectedRunAgent();
+    if (!agent) return "idle";
+    if (agent.type === "aihub") {
+      return aihubStreaming() ? "running" : hasMainRun() ? "idle" : "idle";
+    }
+    return mainSubagent()?.status ?? "idle";
   });
 
   const grouped = createMemo(() => {
@@ -137,7 +326,39 @@ export function ProjectsBoard() {
       setDetailOwner(getFrontmatterString(current.frontmatter, "owner") ?? "");
       setDetailMode(normalizeMode(getFrontmatterString(current.frontmatter, "executionMode")));
       setDetailAppetite(getFrontmatterString(current.frontmatter, "appetite") ?? "");
+      setDetailRunAgent(getFrontmatterString(current.frontmatter, "runAgent") ?? "");
+      setDetailRunMode(getFrontmatterString(current.frontmatter, "runMode") ?? "main-run");
+      setDetailRepo(getFrontmatterString(current.frontmatter, "repo") ?? "");
+      setDetailSessionKeys(getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {});
+      if (!detailSlug()) {
+        const nextSlug = slugify(current.title);
+        if (nextSlug) setDetailSlug(nextSlug);
+      }
       setOpenMenu(null);
+    }
+  });
+
+  createEffect(() => {
+    if (!params.id) return;
+    setMainLogs([]);
+    setMainCursor(0);
+    setAihubLogs([]);
+    setAihubLive("");
+    setAihubStreaming(false);
+    setMainError("");
+    setSubagents([]);
+    setSelectedSubagent(null);
+    setSubagentLogs([]);
+    setSubagentCursor(0);
+    setDetailSlug("");
+  });
+
+  createEffect(() => {
+    if (!detail() || detailRunAgent()) return;
+    const options = runAgentOptions();
+    if (options.length > 0) {
+      const aihub = options.find((opt) => opt.id.startsWith("aihub:"));
+      setDetailRunAgent(aihub?.id ?? options[0].id);
     }
   });
 
@@ -153,6 +374,13 @@ export function ProjectsBoard() {
     onCleanup(() => window.removeEventListener("keydown", handler));
   });
 
+  onCleanup(() => {
+    if (mainStreamCleanup) {
+      mainStreamCleanup();
+      mainStreamCleanup = null;
+    }
+  });
+
   createEffect(() => {
     if (!openMenu()) return;
     const handler = (e: MouseEvent) => {
@@ -163,6 +391,128 @@ export function ProjectsBoard() {
     };
     window.addEventListener("mousedown", handler);
     onCleanup(() => window.removeEventListener("mousedown", handler));
+  });
+
+  createEffect(() => {
+    const projectId = params.id;
+    const repo = detailRepo();
+    if (!projectId || !repo) {
+      setBranches([]);
+      setBranchesError(null);
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      const res = await fetchProjectBranches(projectId);
+      if (!active) return;
+      if (res.ok) {
+        setBranches(res.data.branches);
+        setBranchesError(null);
+        if (!res.data.branches.includes(detailBranch())) {
+          setDetailBranch(res.data.branches.includes("main") ? "main" : res.data.branches[0] ?? "main");
+        }
+      } else {
+        setBranches([]);
+        setBranchesError(res.error);
+      }
+    };
+    load();
+  });
+
+  createEffect(() => {
+    const projectId = params.id;
+    if (!projectId) return;
+    let active = true;
+    const load = async () => {
+      const res = await fetchSubagents(projectId);
+      if (!active) return;
+      if (res.ok) {
+        setSubagents(res.data.items);
+        setSubagentError(null);
+      } else {
+        setSubagentError(res.error);
+      }
+    };
+    load();
+    const timer = setInterval(load, 2000);
+    onCleanup(() => {
+      active = false;
+      clearInterval(timer);
+    });
+  });
+
+  createEffect(() => {
+    const project = detail();
+    const agent = selectedRunAgent();
+    if (!project || !agent || agent.type !== "aihub") return;
+    const sessionKey = detailSessionKeys()[agent.id];
+    if (!sessionKey) return;
+    const load = async () => {
+      const res = await fetchFullHistory(agent.id, sessionKey);
+      setAihubLogs(buildAihubLogs(res.messages));
+    };
+    load();
+  });
+
+  createEffect(() => {
+    const projectId = params.id;
+    const agent = selectedRunAgent();
+    const slug = mainSlug();
+    if (!projectId || !agent || agent.type !== "cli" || !slug) return;
+    setMainLogs([]);
+    setMainCursor(0);
+    let active = true;
+    let cursor = 0;
+    const poll = async () => {
+      const res = await fetchSubagentLogs(projectId, slug, cursor);
+      if (!active) return;
+      if (res.ok) {
+        if (res.data.events.length > 0) {
+          setMainLogs((prev) => [...prev, ...res.data.events]);
+        }
+        cursor = res.data.cursor;
+        setMainCursor(cursor);
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    onCleanup(() => {
+      active = false;
+      clearInterval(timer);
+    });
+  });
+
+  createEffect(() => {
+    const projectId = params.id;
+    const slug = selectedSubagent();
+    if (!projectId || !slug) return;
+    setSubagentLogs([]);
+    setSubagentCursor(0);
+    let active = true;
+    let cursor = 0;
+    const poll = async () => {
+      const res = await fetchSubagentLogs(projectId, slug, cursor);
+      if (!active) return;
+      if (res.ok) {
+        if (res.data.events.length > 0) {
+          setSubagentLogs((prev) => [...prev, ...res.data.events]);
+        }
+        cursor = res.data.cursor;
+        setSubagentCursor(cursor);
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    onCleanup(() => {
+      active = false;
+      clearInterval(timer);
+    });
+  });
+
+  createEffect(() => {
+    if (selectedRunAgent()?.type === "aihub" && mainTab() !== "logs") {
+      setMainTab("logs");
+    }
   });
 
   const toggleColumn = (id: string) => {
@@ -208,12 +558,198 @@ export function ProjectsBoard() {
     await refetchDetail();
   };
 
+  const handleRunAgentChange = async (id: string, runAgent: string) => {
+    setDetailRunAgent(runAgent);
+    await updateProject(id, { runAgent });
+    await refetchDetail();
+  };
+
+  const handleRunModeChange = async (id: string, runMode: string) => {
+    setDetailRunMode(runMode);
+    await updateProject(id, { runMode });
+    await refetchDetail();
+  };
+
+  const handleRepoSave = async (id: string) => {
+    await updateProject(id, { repo: detailRepo() });
+    await refetchDetail();
+  };
+
   const openDetail = (id: string) => {
     navigate(`/projects/${id}`);
   };
 
   const closeDetail = () => {
     navigate("/projects");
+  };
+
+  const startAihubRun = async (project: ProjectDetail) => {
+    const agent = selectedRunAgent();
+    if (!agent || agent.type !== "aihub") return;
+    const sessionKeys = detailSessionKeys();
+    let sessionKey = sessionKeys[agent.id];
+    if (!sessionKey) {
+      sessionKey = `project:${project.id}:${agent.id}`;
+      const nextKeys = { ...sessionKeys, [agent.id]: sessionKey };
+      setDetailSessionKeys(nextKeys);
+      await updateProject(project.id, { sessionKeys: nextKeys, runAgent: detailRunAgent() });
+      await refetchDetail();
+    }
+    const summary = buildProjectSummary(
+      project.title,
+      getFrontmatterString(project.frontmatter, "status") ?? "",
+      project.content
+    );
+    const prompt = buildStartPrompt(summary);
+    setMainError("");
+    setAihubLogs([]);
+    setAihubLive("");
+    if (mainStreamCleanup) {
+      mainStreamCleanup();
+      mainStreamCleanup = null;
+    }
+    setAihubStreaming(true);
+    setAihubLogs((prev) => [
+      ...prev,
+      { ts: formatTimestamp(Date.now()), type: "user", text: prompt },
+    ]);
+    mainStreamCleanup = streamMessage(
+      agent.id,
+      prompt,
+      sessionKey,
+      (text) => {
+        setAihubLive((prev) => prev + text);
+      },
+      async () => {
+        setAihubStreaming(false);
+        setAihubLive("");
+        const res = await fetchFullHistory(agent.id, sessionKey);
+        setAihubLogs(buildAihubLogs(res.messages));
+        mainStreamCleanup = null;
+      },
+      (error) => {
+        setMainError(error);
+        setAihubStreaming(false);
+        setAihubLive("");
+        mainStreamCleanup = null;
+      },
+      {
+        onToolCall: (_id, name, args) => {
+          setAihubLogs((prev) => [
+            ...prev,
+            { ts: formatTimestamp(Date.now()), type: "tool_call", text: `${name}\n${formatJson(args)}` },
+          ]);
+        },
+      }
+    );
+  };
+
+  const sendAihubMessage = async (project: ProjectDetail, message: string) => {
+    const agent = selectedRunAgent();
+    if (!agent || agent.type !== "aihub") return;
+    const sessionKey = detailSessionKeys()[agent.id];
+    if (!sessionKey) return;
+    setMainError("");
+    setAihubLive("");
+    if (mainStreamCleanup) {
+      mainStreamCleanup();
+      mainStreamCleanup = null;
+    }
+    setAihubStreaming(true);
+    setAihubLogs((prev) => [
+      ...prev,
+      { ts: formatTimestamp(Date.now()), type: "user", text: message },
+    ]);
+    mainStreamCleanup = streamMessage(
+      agent.id,
+      message,
+      sessionKey,
+      (text) => {
+        setAihubLive((prev) => prev + text);
+      },
+      async () => {
+        setAihubStreaming(false);
+        setAihubLive("");
+        const res = await fetchFullHistory(agent.id, sessionKey);
+        setAihubLogs(buildAihubLogs(res.messages));
+        mainStreamCleanup = null;
+      },
+      (error) => {
+        setMainError(error);
+        setAihubStreaming(false);
+        setAihubLive("");
+        mainStreamCleanup = null;
+      }
+    );
+  };
+
+  const runCli = async (project: ProjectDetail, message: string, resume: boolean) => {
+    const agent = selectedRunAgent();
+    if (!agent || agent.type !== "cli") return;
+    const slug = mainSlug();
+    if (!slug) {
+      setMainError("Slug required");
+      return;
+    }
+    setMainError("");
+    const res = await spawnSubagent(project.id, {
+      slug,
+      cli: agent.id,
+      prompt: message,
+      mode: detailRunMode() === "worktree" ? "worktree" : "main-run",
+      baseBranch: detailBranch(),
+      resume,
+    });
+    if (!res.ok) {
+      setMainError(res.error);
+    }
+  };
+
+  const handleStart = async (project: ProjectDetail) => {
+    const agent = selectedRunAgent();
+    if (!agent) return;
+    if (agent.type === "aihub") {
+      await startAihubRun(project);
+      return;
+    }
+    if (detailRunAgent()) {
+      await updateProject(project.id, { runAgent: detailRunAgent(), runMode: detailRunMode() });
+    }
+    await runCli(project, "Start.", false);
+  };
+
+  const handleSend = async (project: ProjectDetail) => {
+    const message = mainInput().trim();
+    if (!message) return;
+    setMainInput("");
+    const agent = selectedRunAgent();
+    if (!agent) return;
+    if (agent.type === "aihub") {
+      await sendAihubMessage(project, message);
+      return;
+    }
+    await runCli(project, message, true);
+  };
+
+  const handleStop = async (project: ProjectDetail) => {
+    const agent = selectedRunAgent();
+    if (!agent) return;
+    if (agent.type === "cli") {
+      const slug = mainSlug();
+      if (!slug) return;
+      await interruptSubagent(project.id, slug);
+      return;
+    }
+    const sessionKey = detailSessionKeys()[agent.id];
+    if (!sessionKey) return;
+    streamMessage(
+      agent.id,
+      "/abort",
+      sessionKey,
+      () => {},
+      () => {},
+      () => {}
+    );
   };
 
   return (
@@ -454,9 +990,249 @@ export function ProjectsBoard() {
                       </div>
                     </Show>
                   </div>
+                  <div class="meta-field">
+                    <label class="meta-label">Agent</label>
+                    <select
+                      class="meta-select"
+                      value={detailRunAgent()}
+                      onChange={(e) => handleRunAgentChange(params.id ?? "", e.currentTarget.value)}
+                    >
+                      <For each={runAgentOptions()}>
+                        {(opt) => (
+                          <option value={opt.id}>{opt.label}</option>
+                        )}
+                      </For>
+                    </select>
+                  </div>
+                  <Show when={selectedRunAgent()?.type === "cli"}>
+                    <div class="meta-field">
+                      <label class="meta-label">Run mode</label>
+                      <select
+                        class="meta-select"
+                        value={detailRunMode()}
+                        onChange={(e) => handleRunModeChange(params.id ?? "", e.currentTarget.value)}
+                      >
+                        <option value="main-run">main-run</option>
+                        <option value="worktree">worktree</option>
+                      </select>
+                    </div>
+                  </Show>
+                  <Show when={detailDomain() === "coding"}>
+                    <div class="meta-field meta-field-wide">
+                      <label class="meta-label">Repo</label>
+                      <input
+                        class="meta-input"
+                        value={detailRepo()}
+                        onInput={(e) => setDetailRepo(e.currentTarget.value)}
+                        onBlur={() => handleRepoSave(params.id ?? "")}
+                        placeholder="/abs/path/to/repo"
+                      />
+                    </div>
+                  </Show>
+                  <Show when={selectedRunAgent()?.type === "cli"}>
+                    <div class="meta-field">
+                      <label class="meta-label">Base branch</label>
+                      <select
+                        class="meta-select"
+                        value={detailBranch()}
+                        onChange={(e) => setDetailBranch(e.currentTarget.value)}
+                        disabled={branches().length === 0}
+                      >
+                        <For each={branches().length > 0 ? branches() : ["main"]}>
+                          {(branch) => <option value={branch}>{branch}</option>}
+                        </For>
+                      </select>
+                    </div>
+                  </Show>
+                  <Show when={selectedRunAgent()?.type === "cli" && detailRunMode() === "worktree"}>
+                    <div class="meta-field">
+                      <label class="meta-label">Slug</label>
+                      <input
+                        class="meta-input"
+                        value={detailSlug()}
+                        onInput={(e) => setDetailSlug(e.currentTarget.value)}
+                        placeholder="short-slug"
+                      />
+                    </div>
+                  </Show>
                 </div>
-                <h3>Monitoring</h3>
-                <p>Session pane coming soon.</p>
+                <div class="monitoring-main">
+                  <div class="monitoring-header-row">
+                    <div class={`status-pill ${mainStatus()}`}>
+                      <span class="status-dot" />
+                      <span class="status-text">{mainStatus()}</span>
+                    </div>
+                    <Show when={!hasMainRun()}>
+                      <button class="start-btn" onClick={() => handleStart(project)} disabled={!canStart()}>
+                        Start
+                      </button>
+                    </Show>
+                    <Show when={hasMainRun()}>
+                      <button
+                        class="stop-btn"
+                        onClick={() => handleStop(project)}
+                        disabled={mainStatus() !== "running"}
+                      >
+                        Stop
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={branchesError()}>
+                    <div class="monitoring-error">{branchesError()}</div>
+                  </Show>
+                  <Show when={!hasMainRun()}>
+                    <div class="monitoring-empty">
+                      <p>Start a run to see logs.</p>
+                    </div>
+                  </Show>
+                  <Show when={hasMainRun()}>
+                    <div class="monitoring-tabs">
+                      <button
+                        class={`tab-btn ${mainTab() === "logs" ? "active" : ""}`}
+                        onClick={() => setMainTab("logs")}
+                      >
+                        Logs
+                      </button>
+                      <Show when={selectedRunAgent()?.type === "cli"}>
+                        <button
+                          class={`tab-btn ${mainTab() === "diffs" ? "active" : ""}`}
+                          onClick={() => setMainTab("diffs")}
+                        >
+                          Diffs
+                        </button>
+                      </Show>
+                    </div>
+                    <div class="log-pane">
+                      <Show when={selectedRunAgent()?.type === "aihub"}>
+                        <For each={aihubLogs()}>
+                          {(entry) => (
+                            <div class={`log-line ${entry.type}`}>
+                              <span class="log-time">{entry.ts}</span>
+                              <span class="log-kind">{entry.type}</span>
+                              <pre class="log-text">{entry.text}</pre>
+                            </div>
+                          )}
+                        </For>
+                        <Show when={aihubLive()}>
+                          <div class="log-line live">
+                            <span class="log-time">live</span>
+                            <span class="log-kind">assistant</span>
+                            <pre class="log-text">{aihubLive()}</pre>
+                          </div>
+                        </Show>
+                      </Show>
+                      <Show when={selectedRunAgent()?.type === "cli"}>
+                        <For
+                          each={
+                            mainTab() === "diffs"
+                              ? mainLogs().filter((ev) => ev.type === "diff")
+                              : mainLogs()
+                          }
+                        >
+                          {(entry) => (
+                            <div class={`log-line ${entry.type}`}>
+                              <span class="log-time">{entry.ts ? formatTimestamp(entry.ts) : ""}</span>
+                              <span class="log-kind">{entry.type}</span>
+                              <pre class="log-text">{entry.text ?? ""}</pre>
+                            </div>
+                          )}
+                        </For>
+                      </Show>
+                      <Show when={selectedRunAgent()?.type === "cli" && mainLogs().length === 0}>
+                        <div class="log-empty">No logs yet.</div>
+                      </Show>
+                      <Show when={selectedRunAgent()?.type === "aihub" && aihubLogs().length === 0 && !aihubLive()}>
+                        <div class="log-empty">No logs yet.</div>
+                      </Show>
+                    </div>
+                    <div class="monitoring-input">
+                      <textarea
+                        class="monitoring-textarea"
+                        rows={1}
+                        value={mainInput()}
+                        placeholder="Send a follow-up..."
+                        onInput={(e) => setMainInput(e.currentTarget.value)}
+                      />
+                      <button class="monitoring-send" onClick={() => handleSend(project)} disabled={!mainInput().trim()}>
+                        Send
+                      </button>
+                    </div>
+                    <Show when={mainError()}>
+                      <div class="monitoring-error">{mainError()}</div>
+                    </Show>
+                  </Show>
+                </div>
+                <Show when={detailDomain() === "coding"}>
+                  <div class="subagents-panel">
+                    <div class="subagents-header">
+                      <h4>Subagents</h4>
+                    </div>
+                    <Show when={subagentError()}>
+                      <div class="monitoring-error">{subagentError()}</div>
+                    </Show>
+                    <div class="subagents-list">
+                      <For each={subagents().filter((item) => item.slug !== mainSlug())}>
+                        {(item) => (
+                          <button
+                            class={`subagent-row ${selectedSubagent() === item.slug ? "active" : ""}`}
+                            onClick={() => setSelectedSubagent(item.slug)}
+                          >
+                            <div class="subagent-title">{item.slug}</div>
+                            <div class="subagent-meta">
+                              <span>{item.cli ?? "cli"}</span>
+                              <span class={`subagent-status ${item.status}`}>{item.status}</span>
+                              <span>{item.lastActive ? formatTimestamp(item.lastActive) : ""}</span>
+                            </div>
+                          </button>
+                        )}
+                      </For>
+                      <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
+                        <div class="log-empty">No subagents yet.</div>
+                      </Show>
+                    </div>
+                    <Show when={selectedSubagent()}>
+                      <div class="subagent-logs">
+                        <div class="monitoring-tabs">
+                          <button
+                            class={`tab-btn ${subTab() === "logs" ? "active" : ""}`}
+                            onClick={() => setSubTab("logs")}
+                          >
+                            Logs
+                          </button>
+                          <button
+                            class={`tab-btn ${subTab() === "diffs" ? "active" : ""}`}
+                            onClick={() => setSubTab("diffs")}
+                          >
+                            Diffs
+                          </button>
+                        </div>
+                        <div class="log-pane">
+                          <For
+                            each={
+                              subTab() === "diffs"
+                                ? subagentLogs().filter((ev) => ev.type === "diff")
+                                : subagentLogs()
+                            }
+                          >
+                            {(entry) => (
+                              <div class={`log-line ${entry.type}`}>
+                                <span class="log-time">{entry.ts ? formatTimestamp(entry.ts) : ""}</span>
+                                <span class="log-kind">{entry.type}</span>
+                                <pre class="log-text">{entry.text ?? ""}</pre>
+                              </div>
+                            )}
+                          </For>
+                          <Show when={subagentLogs().length === 0}>
+                            <div class="log-empty">No logs yet.</div>
+                          </Show>
+                        </div>
+                        <button class="stop-btn subagent-stop" onClick={() => interruptSubagent(project.id, selectedSubagent() ?? "")}>
+                          Stop
+                        </button>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
               </div>
             </div>
           </div>
@@ -842,9 +1618,38 @@ export function ProjectsBoard() {
         }
 
         .monitoring-meta {
-          display: flex;
-          flex-wrap: wrap;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
           gap: 12px;
+          align-items: end;
+        }
+
+        .meta-label {
+          display: block;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #7f8a9a;
+          margin-bottom: 6px;
+        }
+
+        .meta-select,
+        .meta-input {
+          width: 100%;
+          background: #151c26;
+          color: #e0e6ef;
+          border: 1px solid #2a3240;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+        }
+
+        .meta-input::placeholder {
+          color: #7f8a9a;
+        }
+
+        .meta-field-wide {
+          grid-column: span 2;
         }
 
         .detail-body {
@@ -882,16 +1687,261 @@ export function ProjectsBoard() {
           margin: 0.35em 0;
         }
 
-        .monitoring h3 {
-          font-size: 14px;
+        .monitoring-main {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          border: 1px solid #233041;
+          border-radius: 14px;
+          padding: 12px;
+          background: #0f1520;
+        }
+
+        .monitoring-header-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .status-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #9aa3b2;
+        }
+
+        .status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #5b6470;
+        }
+
+        .status-pill.running .status-dot {
+          background: #53b97c;
+          box-shadow: 0 0 8px rgba(83, 185, 124, 0.6);
+        }
+
+        .start-btn,
+        .stop-btn {
+          background: #1b2431;
+          border: 1px solid #2b3648;
+          color: #e0e6ef;
+          border-radius: 10px;
+          padding: 8px 14px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .start-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .stop-btn {
+          background: #2a1b1b;
+          border-color: #3c2525;
+          color: #f1b7b7;
+        }
+
+        .monitoring-tabs {
+          display: flex;
+          gap: 8px;
+        }
+
+        .tab-btn {
+          background: #141b26;
+          border: 1px solid #2a3240;
+          color: #98a3b2;
+          border-radius: 999px;
+          padding: 6px 12px;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          cursor: pointer;
+        }
+
+        .tab-btn.active {
+          background: #2b3648;
+          color: #e0e6ef;
+        }
+
+        .log-pane {
+          background: #0d121a;
+          border: 1px solid #1f2631;
+          border-radius: 12px;
+          padding: 10px;
+          max-height: 260px;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          font-family: "SF Mono", "Menlo", monospace;
+          font-size: 12px;
+          color: #cfd6e2;
+        }
+
+        .log-line {
+          display: grid;
+          grid-template-columns: 70px 80px 1fr;
+          gap: 10px;
+          align-items: start;
+        }
+
+        .log-line.live {
+          color: #e8f6ff;
+        }
+
+        .log-time {
+          color: #7d8796;
+          font-size: 10px;
+        }
+
+        .log-kind {
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 9px;
+          color: #8b96a5;
+        }
+
+        .log-text {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+
+        .log-empty {
+          color: #7f8a9a;
+          font-size: 12px;
+        }
+
+        .monitoring-input {
+          display: flex;
+          gap: 8px;
+          align-items: flex-end;
+        }
+
+        .monitoring-textarea {
+          flex: 1;
+          background: #111722;
+          border: 1px solid #273042;
+          border-radius: 10px;
+          padding: 8px 10px;
+          color: #e0e6ef;
+          font-size: 12px;
+          resize: none;
+        }
+
+        .monitoring-send {
+          background: #1b2431;
+          border: 1px solid #2b3648;
+          color: #e0e6ef;
+          border-radius: 10px;
+          padding: 8px 12px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .monitoring-send:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .monitoring-empty p {
+          margin: 0;
+          color: #8d97a6;
+          font-size: 12px;
+        }
+
+        .monitoring-error {
+          color: #f1b7b7;
+          background: #2a1b1b;
+          border: 1px solid #3c2525;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+        }
+
+        .subagents-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          border: 1px solid #233041;
+          border-radius: 14px;
+          padding: 12px;
+          background: #0f1520;
+        }
+
+        .subagents-header h4 {
+          font-size: 12px;
           text-transform: uppercase;
           letter-spacing: 0.16em;
           color: #8d97a6;
         }
 
-        .monitoring p {
-          color: #aab2bf;
-          font-size: 14px;
+        .subagents-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .subagent-row {
+          background: #141b26;
+          border: 1px solid #1f2631;
+          border-radius: 10px;
+          padding: 8px 10px;
+          text-align: left;
+          color: inherit;
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .subagent-row.active {
+          border-color: #3b6ecc;
+          background: #1a2230;
+        }
+
+        .subagent-title {
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .subagent-meta {
+          display: flex;
+          gap: 10px;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #8b96a5;
+        }
+
+        .subagent-status.running {
+          color: #53b97c;
+        }
+
+        .subagent-status.error {
+          color: #f08b57;
+        }
+
+        .subagent-status.replied {
+          color: #9db7ff;
+        }
+
+        .subagent-logs {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .subagent-stop {
+          align-self: flex-end;
         }
 
         @media (max-width: 900px) {
