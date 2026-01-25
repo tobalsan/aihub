@@ -196,4 +196,41 @@ export type ProjectUpdatePayload = {
   appetite?: string;
   status?: string;
   content?: string;
+  repo?: string;
+  runAgent?: string;
+  runMode?: string;
+  sessionKeys?: Record<string, string> | null;
+};
+
+export type SubagentStatus = "running" | "replied" | "error" | "idle";
+
+export type SubagentListItem = {
+  slug: string;
+  cli?: string;
+  runMode?: string;
+  status: SubagentStatus;
+  lastActive?: string;
+  baseBranch?: string;
+  worktreePath?: string;
+};
+
+export type SubagentLogEvent = {
+  ts?: string;
+  type: string;
+  text?: string;
+  tool?: { name?: string; id?: string };
+  diff?: { path?: string; summary?: string };
+};
+
+export type SubagentListResponse = {
+  items: SubagentListItem[];
+};
+
+export type SubagentLogsResponse = {
+  cursor: number;
+  events: SubagentLogEvent[];
+};
+
+export type ProjectBranchesResponse = {
+  branches: string[];
 };

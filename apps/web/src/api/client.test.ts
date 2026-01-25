@@ -1,0 +1,116 @@
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import {
+  fetchProjectBranches,
+  fetchSubagents,
+  fetchSubagentLogs,
+  spawnSubagent,
+  interruptSubagent,
+} from "./client";
+
+type FetchResponse = {
+  ok: boolean;
+  json: () => Promise<unknown>;
+};
+
+describe("api client (projects/subagents)", () => {
+  const fetchMock = vi.fn<[], Promise<FetchResponse>>();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches subagents list", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ slug: "main", status: "running" }] }),
+    });
+
+    const res = await fetchSubagents("PRO-1");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-1/subagents");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.items[0]?.slug).toBe("main");
+    }
+  });
+
+  it("fetches subagent logs", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ cursor: 10, events: [{ type: "stdout", text: "hi" }] }),
+    });
+
+    const res = await fetchSubagentLogs("PRO-1", "main", 5);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-1/subagents/main/logs?since=5");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.cursor).toBe(10);
+      expect(res.data.events[0]?.type).toBe("stdout");
+    }
+  });
+
+  it("fetches project branches", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ branches: ["main", "dev"] }),
+    });
+
+    const res = await fetchProjectBranches("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/branches");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.branches).toContain("main");
+    }
+  });
+
+  it("spawns subagent", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ slug: "alpha" }),
+    });
+
+    const res = await spawnSubagent("PRO-2", {
+      slug: "alpha",
+      cli: "claude",
+      prompt: "hello",
+      mode: "worktree",
+      baseBranch: "main",
+      resume: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-2/subagents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "alpha",
+        cli: "claude",
+        prompt: "hello",
+        mode: "worktree",
+        baseBranch: "main",
+        resume: true,
+      }),
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("interrupts subagent", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ slug: "main" }),
+    });
+
+    const res = await interruptSubagent("PRO-3", "main");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-3/subagents/main/interrupt", {
+      method: "POST",
+    });
+    expect(res.ok).toBe(true);
+  });
+});

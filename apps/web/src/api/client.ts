@@ -12,6 +12,9 @@ import type {
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
+  SubagentListResponse,
+  SubagentLogsResponse,
+  ProjectBranchesResponse,
 } from "./types";
 
 const API_BASE = "/api";
@@ -301,4 +304,99 @@ export async function updateProject(
     throw new Error(data.error ?? "Failed to update project");
   }
   return res.json();
+}
+
+export type SubagentListResult =
+  | { ok: true; data: SubagentListResponse }
+  | { ok: false; error: string };
+
+export async function fetchSubagents(projectId: string): Promise<SubagentListResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch subagents" }));
+    return { ok: false, error: data.error ?? "Failed to fetch subagents" };
+  }
+  const data = (await res.json()) as SubagentListResponse;
+  return { ok: true, data };
+}
+
+export type SubagentLogsResult =
+  | { ok: true; data: SubagentLogsResponse }
+  | { ok: false; error: string };
+
+export async function fetchSubagentLogs(
+  projectId: string,
+  slug: string,
+  since: number
+): Promise<SubagentLogsResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/logs?since=${since}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch logs" }));
+    return { ok: false, error: data.error ?? "Failed to fetch logs" };
+  }
+  const data = (await res.json()) as SubagentLogsResponse;
+  return { ok: true, data };
+}
+
+export type ProjectBranchesResult =
+  | { ok: true; data: ProjectBranchesResponse }
+  | { ok: false; error: string };
+
+export async function fetchProjectBranches(projectId: string): Promise<ProjectBranchesResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/branches`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch branches" }));
+    return { ok: false, error: data.error ?? "Failed to fetch branches" };
+  }
+  const data = (await res.json()) as ProjectBranchesResponse;
+  return { ok: true, data };
+}
+
+export type SpawnSubagentInput = {
+  slug: string;
+  cli: string;
+  prompt: string;
+  mode?: "main-run" | "worktree";
+  baseBranch?: string;
+  resume?: boolean;
+};
+
+export type SpawnSubagentResult =
+  | { ok: true; data: { slug: string } }
+  | { ok: false; error: string };
+
+export async function spawnSubagent(
+  projectId: string,
+  input: SpawnSubagentInput
+): Promise<SpawnSubagentResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to spawn subagent" }));
+    return { ok: false, error: data.error ?? "Failed to spawn subagent" };
+  }
+  const data = (await res.json()) as { slug: string };
+  return { ok: true, data };
+}
+
+export type InterruptSubagentResult =
+  | { ok: true; data: { slug: string } }
+  | { ok: false; error: string };
+
+export async function interruptSubagent(
+  projectId: string,
+  slug: string
+): Promise<InterruptSubagentResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/interrupt`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to interrupt subagent" }));
+    return { ok: false, error: data.error ?? "Failed to interrupt subagent" };
+  }
+  const data = (await res.json()) as { slug: string };
+  return { ok: true, data };
 }
