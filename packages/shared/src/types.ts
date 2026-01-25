@@ -278,10 +278,10 @@ export type ProjectAppetite = z.infer<typeof ProjectAppetiteSchema>;
 
 export const CreateProjectRequestSchema = z.object({
   title: z.string(),
-  domain: ProjectDomainSchema,
-  owner: z.string(),
-  executionMode: ProjectExecutionModeSchema,
-  appetite: ProjectAppetiteSchema,
+  domain: ProjectDomainSchema.optional(),
+  owner: z.string().optional(),
+  executionMode: ProjectExecutionModeSchema.optional(),
+  appetite: ProjectAppetiteSchema.optional(),
   status: ProjectStatusSchema.optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;

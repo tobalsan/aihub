@@ -53,6 +53,8 @@ Body:
 }
 ```
 
+Only `title` is required. Omitted fields are left unset in frontmatter.
+
 ### Get project
 `GET /api/projects/:id`
 

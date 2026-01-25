@@ -12,7 +12,8 @@
     "typecheck": "tsc -b",
     "format": "prettier --write .",
     "test": "vitest run",
-    "aihub": "node apps/gateway/dist/cli/index.js"
+    "aihub": "node apps/gateway/dist/cli/index.js",
+    "projects": "pnpm --filter @aihub/gateway exec tsx src/cli/projects.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

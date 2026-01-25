@@ -58,6 +58,16 @@ pnpm aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
 pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
+# Projects CLI (uses gateway API)
+pnpm projects list [--status <status>] [--owner <owner>] [--domain <domain>]
+pnpm projects create --title "My Project" [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>]
+pnpm projects get <id>
+pnpm projects update <id> [--title <title>] [--status <status>] [--content <text>|-]
+pnpm projects move <id> <status>
+
+# Override API URL
+AIHUB_API_URL=http://127.0.0.1:4000 pnpm projects list
+
 # OAuth authentication (Pi SDK agents)
 pnpm aihub auth login           # Interactive provider selection
 pnpm aihub auth login anthropic # Login to specific provider

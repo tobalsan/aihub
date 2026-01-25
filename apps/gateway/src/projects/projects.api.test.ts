@@ -54,10 +54,6 @@ describe("projects API", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Add Project Mgmt v1",
-        domain: "coding",
-        owner: "Thinh",
-        executionMode: "exploratory",
-        appetite: "small",
       }),
     });
 

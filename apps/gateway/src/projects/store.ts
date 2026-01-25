@@ -201,16 +201,16 @@ export async function createProject(
   await fs.mkdir(dirPath);
 
   const created = new Date().toISOString();
-  const frontmatter = {
+  const frontmatter: Record<string, unknown> = {
     id,
     title: input.title,
     status: input.status ?? "maybe",
     created,
-    domain: input.domain,
-    owner: input.owner,
-    executionMode: input.executionMode,
-    appetite: input.appetite,
   };
+  if (input.domain) frontmatter.domain = input.domain;
+  if (input.owner) frontmatter.owner = input.owner;
+  if (input.executionMode) frontmatter.executionMode = input.executionMode;
+  if (input.appetite) frontmatter.appetite = input.appetite;
   const content = `# ${input.title}\n`;
   const readme = formatMarkdown(frontmatter, content);
   await fs.writeFile(path.join(dirPath, "README.md"), readme, "utf8");
