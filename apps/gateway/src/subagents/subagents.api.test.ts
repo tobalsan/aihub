@@ -125,4 +125,77 @@ describe("subagents API", () => {
     expect(branches.branches).toContain("main");
     expect(branches.branches).toContain("dev");
   });
+
+  it("spawns subagent via API and writes logs", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Spawn" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-spawn");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+    }));
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      "echo '{\"type\":\"thread.started\",\"thread_id\":\"s1\"}'",
+      "echo '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"ok\"}}'",
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "alpha",
+        cli: "codex",
+        prompt: "hi",
+        mode: "main-run",
+      }),
+    }));
+    expect(spawnRes.status).toBe(201);
+
+    const workDir = path.join(projectsRoot, ".workspaces", created.id, "alpha");
+    const historyPath = path.join(workDir, "history.jsonl");
+    const logsPath = path.join(workDir, "logs.jsonl");
+
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      try {
+        const history = await fs.readFile(historyPath, "utf8");
+        if (history.includes("\"worker.finished\"")) break;
+      } catch {
+        // wait
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    const logs = await fs.readFile(logsPath, "utf8");
+    expect(logs).toContain("thread.started");
+
+    const state = JSON.parse(await fs.readFile(path.join(workDir, "state.json"), "utf8"));
+    expect(state.session_id).toBe("s1");
+
+    process.env.PATH = prevPath;
+  });
 });
