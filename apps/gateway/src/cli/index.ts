@@ -11,6 +11,7 @@ import { startScheduler, stopScheduler } from "../scheduler/index.js";
 import { startAmsgWatcher, stopAmsgWatcher } from "../amsg/index.js";
 import { startAllHeartbeats, stopAllHeartbeats } from "../heartbeat/index.js";
 import { runAgent } from "../agents/index.js";
+import { registerSubagentCommands } from "./subagent.js";
 import type { UiConfig, GatewayBindMode } from "@aihub/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -174,6 +175,8 @@ program
       process.exit(1);
     }
   });
+
+registerSubagentCommands(program);
 
 // Auth commands
 const authCmd = program.command("auth").description("Manage OAuth authentication");
