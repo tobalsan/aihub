@@ -171,3 +171,29 @@ export type TaskboardItemResponse = {
   frontmatter: Record<string, unknown>;
   companions: string[];
 };
+
+// Projects API types
+export type ProjectListItem = {
+  id: string;
+  title: string;
+  path: string;
+  frontmatter: Record<string, unknown>;
+};
+
+export type ProjectDetail = {
+  id: string;
+  title: string;
+  path: string;
+  frontmatter: Record<string, unknown>;
+  content: string;
+};
+
+export type ProjectUpdatePayload = {
+  title?: string;
+  domain?: string;
+  owner?: string;
+  executionMode?: string;
+  appetite?: string;
+  status?: string;
+  content?: string;
+};

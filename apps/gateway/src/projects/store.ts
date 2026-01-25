@@ -255,16 +255,25 @@ export async function updateProject(
     finalDirName = nextDirName;
   }
 
-  const nextFrontmatter = {
+  const nextFrontmatter: Record<string, unknown> = {
     ...parsed.frontmatter,
     id,
     title: nextTitle,
     ...(input.status ? { status: input.status } : {}),
-    ...(input.domain ? { domain: input.domain } : {}),
-    ...(input.owner ? { owner: input.owner } : {}),
-    ...(input.executionMode ? { executionMode: input.executionMode } : {}),
     ...(input.appetite ? { appetite: input.appetite } : {}),
   };
+
+  if (input.domain === "") delete nextFrontmatter.domain;
+  else if (input.domain) nextFrontmatter.domain = input.domain;
+
+  if (input.owner === "") delete nextFrontmatter.owner;
+  else if (input.owner) nextFrontmatter.owner = input.owner;
+
+  if (input.executionMode === "") delete nextFrontmatter.executionMode;
+  else if (input.executionMode) nextFrontmatter.executionMode = input.executionMode;
+
+  if (input.appetite === "") delete nextFrontmatter.appetite;
+  else if (input.appetite) nextFrontmatter.appetite = input.appetite;
   const nextContent = input.content ?? parsed.content;
   const readme = formatMarkdown(nextFrontmatter, nextContent);
   const finalReadmePath = path.join(root, finalDirName, "README.md");

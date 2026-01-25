@@ -1,6 +1,7 @@
 import { Router, Route } from "@solidjs/router";
 import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
+import { ProjectsBoard } from "./components/ProjectsBoard";
 
 function Layout(props: { children?: any }) {
   return (
@@ -24,6 +25,8 @@ export default function App() {
     <Router root={Layout}>
       <Route path="/" component={AgentList} />
       <Route path="/chat/:agentId/:view?" component={ChatView} />
+      <Route path="/projects" component={ProjectsBoard} />
+      <Route path="/projects/:id" component={ProjectsBoard} />
     </Router>
   );
 }

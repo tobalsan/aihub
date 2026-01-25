@@ -288,10 +288,10 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
 export const UpdateProjectRequestSchema = z.object({
   title: z.string().optional(),
-  domain: ProjectDomainSchema.optional(),
-  owner: z.string().optional(),
-  executionMode: ProjectExecutionModeSchema.optional(),
-  appetite: ProjectAppetiteSchema.optional(),
+  domain: z.union([ProjectDomainSchema, z.literal("")]).optional(),
+  owner: z.union([z.string(), z.literal("")]).optional(),
+  executionMode: z.union([ProjectExecutionModeSchema, z.literal("")]).optional(),
+  appetite: z.union([ProjectAppetiteSchema, z.literal("")]).optional(),
   status: ProjectStatusSchema.optional(),
   content: z.string().optional(),
 });

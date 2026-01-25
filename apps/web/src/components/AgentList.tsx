@@ -1,7 +1,6 @@
-import { createSignal, createEffect, createResource, For, Show, onCleanup } from "solid-js";
-import { A } from "@solidjs/router";
+import { createEffect, createResource, For, Show, onCleanup } from "solid-js";
+import { A, useNavigate } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
-import { TaskboardOverlay } from "./TaskboardOverlay";
 
 function shortenPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/)?.[0];
@@ -11,13 +10,13 @@ function shortenPath(path: string): string {
 
 export function AgentList() {
   const [agents] = createResource(fetchAgents);
-  const [taskboardOpen, setTaskboardOpen] = createSignal(false);
+  const navigate = useNavigate();
 
   // Global keyboard shortcut for taskboard (Cmd/Ctrl + K)
   const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "k") {
       e.preventDefault();
-      setTaskboardOpen(true);
+      navigate("/projects");
     }
   };
 
@@ -32,9 +31,9 @@ export function AgentList() {
     <div class="agent-list">
       <header class="header">
         <h1>AIHub</h1>
-        <button
+        <A
           class="taskboard-btn"
-          onClick={() => setTaskboardOpen(true)}
+          href="/projects"
           aria-label="Open taskboard"
           title="Tasks (Cmd+K)"
         >
@@ -42,7 +41,7 @@ export function AgentList() {
             <path d="M9 11l3 3L22 4" />
             <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
           </svg>
-        </button>
+        </A>
       </header>
 
       <Show when={agents.loading}>
@@ -72,8 +71,6 @@ export function AgentList() {
           </For>
         </div>
       </Show>
-
-      <TaskboardOverlay isOpen={taskboardOpen()} onClose={() => setTaskboardOpen(false)} />
 
       <style>{`
         .agent-list {

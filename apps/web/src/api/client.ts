@@ -9,6 +9,9 @@ import type {
   ThinkLevel,
   TaskboardResponse,
   TaskboardItemResponse,
+  ProjectListItem,
+  ProjectDetail,
+  ProjectUpdatePayload,
 } from "./types";
 
 const API_BASE = "/api";
@@ -269,4 +272,33 @@ export async function fetchTaskboardItem(
   }
   const data = await res.json();
   return { ok: true, data };
+}
+
+// Projects API functions
+export async function fetchProjects(): Promise<ProjectListItem[]> {
+  const res = await fetch(`${API_BASE}/projects`);
+  if (!res.ok) throw new Error("Failed to fetch projects");
+  return res.json();
+}
+
+export async function fetchProject(id: string): Promise<ProjectDetail> {
+  const res = await fetch(`${API_BASE}/projects/${id}`);
+  if (!res.ok) throw new Error("Failed to fetch project");
+  return res.json();
+}
+
+export async function updateProject(
+  id: string,
+  payload: ProjectUpdatePayload
+): Promise<ProjectDetail> {
+  const res = await fetch(`${API_BASE}/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to update project" }));
+    throw new Error(data.error ?? "Failed to update project");
+  }
+  return res.json();
 }

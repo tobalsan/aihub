@@ -13,7 +13,6 @@ import type {
   ActiveToolCall,
   ThinkLevel,
 } from "../api/types";
-import { TaskboardOverlay } from "./TaskboardOverlay";
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
@@ -221,7 +220,6 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
   const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<Array<{ text: string; timestamp: number }>>([]);
-  const [taskboardOpen, setTaskboardOpen] = createSignal(false);
 
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -357,7 +355,7 @@ export function ChatView() {
   const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "k") {
       e.preventDefault();
-      setTaskboardOpen(true);
+      navigate("/projects");
     }
   };
 
@@ -672,9 +670,9 @@ export function ChatView() {
             <span class="status-text">{isStreaming() ? "thinking" : "online"}</span>
           </div>
         </div>
-        <button
+        <A
           class="taskboard-btn"
-          onClick={() => setTaskboardOpen(true)}
+          href="/projects"
           aria-label="Open taskboard"
           title="Tasks (Cmd+K)"
         >
@@ -682,7 +680,7 @@ export function ChatView() {
             <path d="M9 11l3 3L22 4" />
             <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
           </svg>
-        </button>
+        </A>
         <Show when={isOAuth()}>
           <select
             class="think-dropdown"
@@ -860,8 +858,6 @@ export function ChatView() {
           </svg>
         </button>
       </div>
-
-      <TaskboardOverlay isOpen={taskboardOpen()} onClose={() => setTaskboardOpen(false)} />
 
       <style>{`
         .chat-view {

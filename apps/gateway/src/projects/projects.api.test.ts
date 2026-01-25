@@ -6,7 +6,7 @@ import os from "node:os";
 describe("projects API", () => {
   let tmpDir: string;
   let projectsRoot: string;
-  let api: { request: (input: RequestInfo, init?: RequestInit) => Promise<Response> };
+  let api: { request: (input: RequestInfo, init?: RequestInit) => Response | Promise<Response> };
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
@@ -49,13 +49,13 @@ describe("projects API", () => {
   });
 
   it("creates and updates project files in temp root", async () => {
-    const createRes = await api.request("/projects", {
+    const createRes = await Promise.resolve(api.request("/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Add Project Mgmt v1",
       }),
-    });
+    }));
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
@@ -65,18 +65,18 @@ describe("projects API", () => {
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
     await expect(fs.stat(createdReadme)).resolves.toBeDefined();
 
-    const listRes = await api.request("/projects");
+    const listRes = await Promise.resolve(api.request("/projects"));
     expect(listRes.status).toBe(200);
     const list = await listRes.json();
     expect(list.length).toBe(1);
     expect(list[0].id).toBe(created.id);
 
-    const getRes = await api.request(`/projects/${created.id}`);
+    const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
     expect(getRes.status).toBe(200);
     const fetched = await getRes.json();
     expect(fetched.content).toContain("# Add Project Mgmt v1");
 
-    const updateRes = await api.request(`/projects/${created.id}`, {
+    const updateRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -84,7 +84,7 @@ describe("projects API", () => {
         content: "# Project Mgmt API\n\nUpdated content.\n",
         status: "shaping",
       }),
-    });
+    }));
 
     expect(updateRes.status).toBe(200);
     const updated = await updateRes.json();
