@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import type { GatewayConfig } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
@@ -38,6 +39,17 @@ function getProjectsRoot(config: GatewayConfig): string {
   return expandPath(root);
 }
 
+function buildProjectSummary(title: string, status: string, content: string): string {
+  const lines = [
+    "Let's tackle the following project:",
+    "",
+    title,
+    status,
+    content,
+  ];
+  return lines.join("\n").trimEnd();
+}
+
 async function dirExists(dirPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(dirPath);
@@ -66,6 +78,121 @@ async function appendHistory(historyPath: string, event: Record<string, unknown>
 
 async function writeJson(filePath: string, data: unknown): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+}
+
+function isExecutableFile(p: string): Promise<boolean> {
+  return fs
+    .stat(p)
+    .then((st) => {
+      if (st.isDirectory()) return false;
+      if (os.platform() === "win32") return true;
+      return (st.mode & 0o111) !== 0;
+    })
+    .catch(() => false);
+}
+
+async function resolveFromPath(execName: string): Promise<string | null> {
+  const envPath = process.env.PATH ?? "";
+  const parts = envPath.split(path.delimiter).filter((p) => p);
+  for (const part of parts) {
+    const candidate = path.join(part, execName);
+    if (await isExecutableFile(candidate)) return candidate;
+  }
+  return null;
+}
+
+function isSafeShellWord(value: string): boolean {
+  if (!value) return false;
+  if (/[\\/\s]/.test(value)) return false;
+  return /^[a-zA-Z0-9._+-]+$/.test(value);
+}
+
+async function resolveShell(): Promise<string | null> {
+  const shell = process.env.SHELL;
+  if (shell && (await isExecutableFile(shell))) return shell;
+  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
+    if (await isExecutableFile(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function canFindViaShell(execName: string): Promise<boolean> {
+  const shell = await resolveShell();
+  if (!shell) return false;
+  const child = spawn(shell, ["-l", "-i", "-c", `type ${execName} >/dev/null 2>&1`], {
+    stdio: "ignore",
+  });
+  return new Promise((resolve) => {
+    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  });
+}
+
+async function resolveViaShell(execName: string, args: string[]): Promise<{ command: string; args: string[] } | null> {
+  if (!isSafeShellWord(execName)) return null;
+  if (!(await canFindViaShell(execName))) return null;
+  const shell = await resolveShell();
+  if (!shell) return null;
+  const shellArgs = ["-l", "-i", "-c", `${execName} \"$@\"`, "--", ...args];
+  return { command: shell, args: shellArgs };
+}
+
+function commonCandidatePaths(execName: string): string[] {
+  const home = homedir();
+  const candidates: string[] = [];
+
+  if (home) {
+    switch (execName) {
+      case "claude":
+        candidates.push(
+          path.join(home, ".claude", "local", "claude"),
+          path.join(home, ".claude", "local", "bin", "claude"),
+          path.join(home, ".local", "bin", "claude")
+        );
+        break;
+      case "codex":
+        candidates.push(path.join(home, ".local", "bin", "codex"), path.join(home, ".cargo", "bin", "codex"));
+        break;
+      case "gemini":
+        candidates.push(path.join(home, ".local", "bin", "gemini"));
+        break;
+      case "droid":
+        candidates.push(path.join(home, ".local", "bin", "droid"));
+        break;
+    }
+
+    candidates.push(
+      path.join(home, ".local", "bin", execName),
+      path.join(home, "bin", execName),
+      path.join(home, ".cargo", "bin", execName)
+    );
+  }
+
+  if (os.platform() === "darwin") {
+    candidates.push(path.join("/opt", "homebrew", "bin", execName), path.join("/usr", "local", "bin", execName));
+  } else {
+    candidates.push(path.join("/usr", "local", "bin", execName));
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+async function resolveCliCommand(execName: string, args: string[]): Promise<{ command: string; args: string[] }> {
+  if (execName.includes("/") || execName.includes("\\")) {
+    if (await isExecutableFile(execName)) return { command: execName, args };
+  }
+
+  const fromPath = await resolveFromPath(execName);
+  if (fromPath) return { command: fromPath, args };
+
+  for (const candidate of commonCandidatePaths(execName)) {
+    if (await isExecutableFile(candidate)) return { command: candidate, args };
+  }
+
+  const shell = await resolveViaShell(execName, args);
+  if (shell) return shell;
+
+  throw new Error(`${execName} not found`);
 }
 
 function buildArgs(cli: SubagentCli, prompt: string, sessionId: string | undefined): string[] {
@@ -121,11 +248,15 @@ export async function spawnSubagent(
   }
 
   const readmePath = path.join(root, dirName, "README.md");
-  const { frontmatter } = await parseMarkdownFile(readmePath);
+  const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
   if (!repo) {
     return { ok: false, error: "Project repo not set" };
   }
+
+  const resolvedTitle = typeof frontmatter.title === "string" ? frontmatter.title : title ?? "";
+  const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
+  const summary = buildProjectSummary(resolvedTitle, status, content ?? "");
 
   const mode: SubagentMode = input.mode ?? "worktree";
   const workspacesRoot = path.join(root, ".workspaces", input.projectId);
@@ -165,8 +296,15 @@ export async function spawnSubagent(
     }
   }
 
-  const args = buildArgs(input.cli, input.prompt, existingSessionId);
-  const child = spawn(input.cli, args, { cwd: worktreePath, stdio: ["ignore", "pipe", "ignore"] });
+  const prompt = summary ? `${summary}\n\n${input.prompt}` : input.prompt;
+  const args = buildArgs(input.cli, prompt, existingSessionId);
+  let resolved;
+  try {
+    resolved = await resolveCliCommand(input.cli, args);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "CLI not found" };
+  }
+  const child = spawn(resolved.command, resolved.args, { cwd: worktreePath, stdio: ["ignore", "pipe", "ignore"] });
 
   const startedAt = new Date().toISOString();
   const state = {
