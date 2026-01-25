@@ -157,6 +157,7 @@ describe("subagents API", () => {
     const script = [
       "#!/bin/sh",
       "echo '{\"type\":\"thread.started\",\"thread_id\":\"s1\"}'",
+      "echo \"$@\"",
       "echo '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"ok\"}}'",
     ].join("\n");
     await fs.writeFile(codexPath, script, { mode: 0o755 });
@@ -192,6 +193,7 @@ describe("subagents API", () => {
 
     const logs = await fs.readFile(logsPath, "utf8");
     expect(logs).toContain("thread.started");
+    expect(logs).toContain("Let's tackle the following project:");
 
     const state = JSON.parse(await fs.readFile(path.join(workDir, "state.json"), "utf8"));
     expect(state.session_id).toBe("s1");
@@ -420,6 +422,58 @@ describe("subagents API", () => {
       }
     }
     await expect(fs.stat(gitPath)).resolves.toBeDefined();
+
+    process.env.PATH = prevPath;
+  });
+
+  it("resolves cli from common install locations", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Resolve" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-resolve");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+    }));
+    expect(patchRes.status).toBe(200);
+
+    const claudeDir = path.join(tmpDir, ".claude", "local");
+    await fs.mkdir(claudeDir, { recursive: true });
+    const claudePath = path.join(claudeDir, "claude");
+    const script = [
+      "#!/bin/sh",
+      "echo '{\"type\":\"thread.started\",\"thread_id\":\"s1\"}'",
+    ].join("\n");
+    await fs.writeFile(claudePath, script, { mode: 0o755 });
+
+    const prevPath = process.env.PATH;
+    process.env.PATH = "";
+
+    const spawnRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "epsilon",
+        cli: "claude",
+        prompt: "hi",
+        mode: "main-run",
+      }),
+    }));
+    expect(spawnRes.status).toBe(201);
 
     process.env.PATH = prevPath;
   });
