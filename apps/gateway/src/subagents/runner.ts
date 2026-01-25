@@ -182,6 +182,7 @@ export async function spawnSubagent(
 
   await writeJson(statePath, state);
   await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
+  await fs.appendFile(logsPath, "", "utf8");
   await appendHistory(historyPath, {
     ts: startedAt,
     type: "worker.started",
