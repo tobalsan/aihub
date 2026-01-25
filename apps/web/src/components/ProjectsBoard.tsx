@@ -66,6 +66,11 @@ function normalizeMode(raw?: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
+function getStatusLabel(status: string): string {
+  const match = COLUMNS.find((col) => col.id === status);
+  return match ? match.title : status;
+}
+
 function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
   const aRaw = getFrontmatterString(a.frontmatter, "created");
   const bRaw = getFrontmatterString(b.frontmatter, "created");
@@ -89,7 +94,7 @@ export function ProjectsBoard() {
   const [detailOwner, setDetailOwner] = createSignal("");
   const [detailMode, setDetailMode] = createSignal("");
   const [detailAppetite, setDetailAppetite] = createSignal("");
-  const [openMenu, setOpenMenu] = createSignal<"domain" | "owner" | "mode" | null>(null);
+  const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
 
   const ownerOptions = createMemo(() => {
     const names = (agents() ?? []).map((agent) => agent.name);
@@ -304,28 +309,6 @@ export function ProjectsBoard() {
                         <span class="id-pill">{project.id}</span>
                         <h2>{project.title}</h2>
                       </div>
-                      <div class="detail-actions">
-                        <select
-                          class="status-select"
-                          value={detailAppetite()}
-                          onChange={(e) => handleAppetiteChange(project.id, e.currentTarget.value)}
-                        >
-                          <option value="">appetite</option>
-                          <option value="small">small</option>
-                          <option value="big">big</option>
-                        </select>
-                        <select
-                          class="status-select"
-                          value={detailStatus()}
-                          onChange={(e) => handleStatusChange(project.id, e.currentTarget.value)}
-                        >
-                          <For each={COLUMNS}>
-                            {(col) => (
-                              <option value={col.id}>{col.title}</option>
-                            )}
-                          </For>
-                        </select>
-                      </div>
                     </>
                   );
                 }}
@@ -349,6 +332,28 @@ export function ProjectsBoard() {
                     return (
                       <>
                         <div class="detail-meta">
+                          <div class="meta-field">
+                            <button
+                              class="meta-button"
+                              onClick={() => setOpenMenu(openMenu() === "status" ? null : "status")}
+                            >
+                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12l4 4L19 6" />
+                              </svg>
+                              {detailStatus() ? getStatusLabel(detailStatus()) : "status"}
+                            </button>
+                            <Show when={openMenu() === "status"}>
+                              <div class="meta-menu">
+                                <For each={COLUMNS}>
+                                  {(col) => (
+                                    <button class="meta-item" onClick={() => handleStatusChange(project.id, col.id)}>
+                                      {col.title}
+                                    </button>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
                           <span class="meta-chip">
                             <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                               <circle cx="12" cy="12" r="9" />
@@ -356,6 +361,27 @@ export function ProjectsBoard() {
                             </svg>
                             {formatCreatedRelative(getFrontmatterString(fm, "created"))}
                           </span>
+                          <div class="meta-field">
+                            <button
+                              class="meta-button"
+                              onClick={() => setOpenMenu(openMenu() === "appetite" ? null : "appetite")}
+                            >
+                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 3v18" />
+                                <path d="M7 8h10" />
+                                <path d="M6 13h12" />
+                                <path d="M5 18h14" />
+                              </svg>
+                              {detailAppetite() || "appetite"}
+                            </button>
+                            <Show when={openMenu() === "appetite"}>
+                              <div class="meta-menu">
+                                <button class="meta-item" onClick={() => handleAppetiteChange(project.id, "")}>unset</button>
+                                <button class="meta-item" onClick={() => handleAppetiteChange(project.id, "small")}>small</button>
+                                <button class="meta-item" onClick={() => handleAppetiteChange(project.id, "big")}>big</button>
+                              </div>
+                            </Show>
+                          </div>
                           <div class="meta-field">
                             <button
                               class="meta-button"
@@ -375,50 +401,6 @@ export function ProjectsBoard() {
                               </div>
                             </Show>
                           </div>
-                          <div class="meta-field">
-                            <button
-                              class="meta-button"
-                              onClick={() => setOpenMenu(openMenu() === "owner" ? null : "owner")}
-                            >
-                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="12" cy="8" r="4" />
-                                <path d="M4 20c2.5-4 13.5-4 16 0" />
-                              </svg>
-                              {detailOwner() || "owner"}
-                            </button>
-                            <Show when={openMenu() === "owner"}>
-                              <div class="meta-menu">
-                                <button class="meta-item" onClick={() => handleOwnerChange(project.id, "")}>unset</button>
-                                <For each={ownerOptions()}>
-                                  {(owner) => (
-                                    <button class="meta-item" onClick={() => handleOwnerChange(project.id, owner)}>
-                                      {owner}
-                                    </button>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                          </div>
-                          <div class="meta-field">
-                            <button
-                              class="meta-button"
-                              onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
-                            >
-                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M4 6h16M8 6v12M16 12v6" />
-                              </svg>
-                              {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
-                            </button>
-                            <Show when={openMenu() === "mode"}>
-                              <div class="meta-menu">
-                                <button class="meta-item" onClick={() => handleModeChange(project.id, "")}>unset</button>
-                                <button class="meta-item" onClick={() => handleModeChange(project.id, "manual")}>manual</button>
-                                <button class="meta-item" onClick={() => handleModeChange(project.id, "exploratory")}>exploratory</button>
-                                <button class="meta-item" onClick={() => handleModeChange(project.id, "auto")}>auto</button>
-                                <button class="meta-item" onClick={() => handleModeChange(project.id, "full_auto")}>full auto</button>
-                              </div>
-                            </Show>
-                          </div>
                         </div>
                         <div class="detail-body" innerHTML={renderMarkdown(project.content)} />
                       </>
@@ -427,6 +409,52 @@ export function ProjectsBoard() {
                 </Show>
               </div>
               <div class="monitoring">
+                <div class="monitoring-meta">
+                  <div class="meta-field">
+                    <button
+                      class="meta-button"
+                      onClick={() => setOpenMenu(openMenu() === "owner" ? null : "owner")}
+                    >
+                      <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="8" r="4" />
+                        <path d="M4 20c2.5-4 13.5-4 16 0" />
+                      </svg>
+                      {detailOwner() || "owner"}
+                    </button>
+                    <Show when={openMenu() === "owner"}>
+                      <div class="meta-menu">
+                        <button class="meta-item" onClick={() => handleOwnerChange(params.id ?? "", "")}>unset</button>
+                        <For each={ownerOptions()}>
+                          {(owner) => (
+                            <button class="meta-item" onClick={() => handleOwnerChange(params.id ?? "", owner)}>
+                              {owner}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                  <div class="meta-field">
+                    <button
+                      class="meta-button"
+                      onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
+                    >
+                      <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 6h16M8 6v12M16 12v6" />
+                      </svg>
+                      {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
+                    </button>
+                    <Show when={openMenu() === "mode"}>
+                      <div class="meta-menu">
+                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "")}>unset</button>
+                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "manual")}>manual</button>
+                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "exploratory")}>exploratory</button>
+                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "auto")}>auto</button>
+                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "full_auto")}>full auto</button>
+                      </div>
+                    </Show>
+                  </div>
+                </div>
                 <h3>Monitoring</h3>
                 <p>Session pane coming soon.</p>
               </div>
@@ -811,6 +839,12 @@ export function ProjectsBoard() {
 
         .meta-item:hover {
           background: #232c3a;
+        }
+
+        .monitoring-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
         }
 
         .detail-body {
