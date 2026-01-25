@@ -850,21 +850,36 @@ export function ProjectsBoard() {
         .detail-body {
           flex: 1;
           overflow: auto;
-          background: #0c111a;
-          border-radius: 12px;
-          border: 1px solid #202836;
-          padding: 12px;
+          background: transparent;
+          border: none;
+          padding: 0;
           color: #d4dbe5;
           font-size: 14px;
           line-height: 1.5;
         }
 
         .detail-body :is(h1, h2, h3) {
-          margin: 0.6em 0 0.4em;
+          margin: 1em 0 0.5em;
         }
 
         .detail-body p {
           margin: 0 0 0.8em;
+        }
+
+        .detail-body hr {
+          border: none;
+          border-top: 1px solid #2a3240;
+          margin: 1.2em 0;
+        }
+
+        .detail-body ul,
+        .detail-body ol {
+          margin: 0 0 1em 1.2em;
+          padding: 0;
+        }
+
+        .detail-body li {
+          margin: 0.35em 0;
         }
 
         .monitoring h3 {
