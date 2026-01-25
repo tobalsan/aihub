@@ -358,4 +358,69 @@ describe("subagents API", () => {
 
     process.env.PATH = prevPath;
   });
+
+  it("creates worktree when mode is worktree", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Worktree" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-worktree");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+    }));
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-worktree");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      "echo '{\"type\":\"thread.started\",\"thread_id\":\"s1\"}'",
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "delta",
+        cli: "codex",
+        prompt: "hi",
+        mode: "worktree",
+        baseBranch: "main",
+      }),
+    }));
+    expect(spawnRes.status).toBe(201);
+
+    const workDir = path.join(projectsRoot, ".workspaces", created.id, "delta");
+    const gitPath = path.join(workDir, ".git");
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      try {
+        await fs.stat(gitPath);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    await expect(fs.stat(gitPath)).resolves.toBeDefined();
+
+    process.env.PATH = prevPath;
+  });
 });
