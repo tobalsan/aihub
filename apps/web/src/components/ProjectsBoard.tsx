@@ -1475,7 +1475,7 @@ export function ProjectsBoard() {
 
         .overlay-panel {
           position: relative;
-          width: min(1200px, 96vw);
+          width: min(1920px, 96vw);
           height: min(90vh, 900px);
           background: #0f141c;
           border: 1px solid #273042;
@@ -1537,7 +1537,7 @@ export function ProjectsBoard() {
 
         .overlay-content {
           display: grid;
-          grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 16px;
           height: 100%;
         }
