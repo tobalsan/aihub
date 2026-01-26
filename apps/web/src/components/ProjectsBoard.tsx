@@ -217,6 +217,7 @@ export function ProjectsBoard() {
   const [mainInput, setMainInput] = createSignal("");
   const [customStartEnabled, setCustomStartEnabled] = createSignal(false);
   const [customStartPrompt, setCustomStartPrompt] = createSignal("");
+  const [subagentsExpanded, setSubagentsExpanded] = createSignal(false);
   const [mainLogs, setMainLogs] = createSignal<SubagentLogEvent[]>([]);
   const [mainCursor, setMainCursor] = createSignal(0);
   const [aihubLogs, setAihubLogs] = createSignal<Array<{ ts?: string; type: string; text: string }>>([]);
@@ -1077,196 +1078,133 @@ export function ProjectsBoard() {
                     </div>
                   </Show>
                 </div>
-                <div class="monitoring-main">
-                  <div class="monitoring-header-row">
-                    <div class={`status-pill ${mainStatus()}`}>
-                      <span class="status-dot" />
-                      <span class="status-text">{mainStatus()}</span>
-                    </div>
-                    <label class="start-custom-toggle">
-                      <input
-                        type="checkbox"
-                        checked={customStartEnabled()}
-                        onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
-                      />
-                      <span>custom prompt</span>
-                    </label>
-                    <Show when={!hasMainRun()}>
-                      <button
-                        class="start-btn"
-                        onClick={() => {
-                          const current = detail() as ProjectDetail | null;
-                          if (current) handleStart(current);
-                        }}
-                        disabled={!canStart()}
-                      >
-                        Start
-                      </button>
-                    </Show>
-                    <Show when={hasMainRun()}>
-                      <button
-                        class="stop-btn"
-                        onClick={() => {
-                          const current = detail() as ProjectDetail | null;
-                          if (current) handleStop(current);
-                        }}
-                        disabled={mainStatus() !== "running"}
-                      >
-                        Stop
-                      </button>
-                    </Show>
-                  </div>
-                  <Show when={branchesError()}>
-                    <div class="monitoring-error">{branchesError()}</div>
+                <div
+                  class={`monitoring-columns ${
+                    detailDomain() === "coding"
+                      ? subagentsExpanded()
+                        ? "subagents-only"
+                        : "split"
+                      : "main-only"
+                  }`}
+                >
+                  <Show when={detailDomain() === "coding" && subagentsExpanded()}>
+                    <button
+                      class="main-toggle-rail"
+                      onClick={() => setSubagentsExpanded(false)}
+                      aria-label="Show main agent"
+                    >
+                      <span>Main</span>
+                    </button>
                   </Show>
-                  <Show when={!hasMainRun()}>
-                    <div class="monitoring-empty">
-                      <p>Start a run to see logs.</p>
-                    </div>
-                  </Show>
-                  <Show when={customStartEnabled()}>
-                    <textarea
-                      class="custom-start-textarea"
-                      rows={2}
-                      value={customStartPrompt()}
-                      placeholder="Add a one-off custom prompt..."
-                      onInput={(e) => setCustomStartPrompt(e.currentTarget.value)}
-                    />
-                  </Show>
-                  <Show when={hasMainRun()}>
-                    <div class="monitoring-tabs">
-                      <button
-                        class={`tab-btn ${mainTab() === "logs" ? "active" : ""}`}
-                        onClick={() => setMainTab("logs")}
-                      >
-                        Logs
-                      </button>
-                      <Show when={selectedRunAgent()?.type === "cli"}>
+                  <Show when={detailDomain() !== "coding" || !subagentsExpanded()}>
+                    <div class="monitoring-main">
+                      <div class="monitoring-header-row">
+                      <div class={`status-pill ${mainStatus()}`}>
+                        <span class="status-dot" />
+                        <span class="status-text">{mainStatus()}</span>
+                      </div>
+                      <Show when={detailDomain() === "coding"}>
                         <button
-                          class={`tab-btn ${mainTab() === "diffs" ? "active" : ""}`}
-                          onClick={() => setMainTab("diffs")}
+                          class="collapse-btn"
+                          onClick={() => setSubagentsExpanded(true)}
+                          disabled={subagentsExpanded()}
+                          aria-label="Expand subagents panel"
                         >
-                          Diffs
+                          Subagents
+                        </button>
+                      </Show>
+                      <label class="start-custom-toggle">
+                        <input
+                          type="checkbox"
+                          checked={customStartEnabled()}
+                          onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
+                        />
+                        <span>custom prompt</span>
+                      </label>
+                      <Show when={!hasMainRun()}>
+                        <button
+                          class="start-btn"
+                          onClick={() => {
+                            const current = detail() as ProjectDetail | null;
+                            if (current) handleStart(current);
+                          }}
+                          disabled={!canStart()}
+                        >
+                          Start
+                        </button>
+                      </Show>
+                      <Show when={hasMainRun()}>
+                        <button
+                          class="stop-btn"
+                          onClick={() => {
+                            const current = detail() as ProjectDetail | null;
+                            if (current) handleStop(current);
+                          }}
+                          disabled={mainStatus() !== "running"}
+                        >
+                          Stop
                         </button>
                       </Show>
                     </div>
-                    <div class="log-pane">
-                      <Show when={selectedRunAgent()?.type === "aihub"}>
-                        <For each={aihubLogs()}>
-                          {(entry) => (
-                            <div class={`log-line ${entry.type}`}>
-                              <span class="log-time">{entry.ts}</span>
-                              <span class="log-kind">{entry.type}</span>
-                              <pre class="log-text">{entry.text}</pre>
-                            </div>
-                          )}
-                        </For>
-                        <Show when={aihubLive()}>
-                          <div class="log-line live">
-                            <span class="log-time">live</span>
-                            <span class="log-kind">assistant</span>
-                            <pre class="log-text">{aihubLive()}</pre>
-                          </div>
-                        </Show>
-                      </Show>
-                      <Show when={selectedRunAgent()?.type === "cli"}>
-                        <For
-                          each={
-                            mainTab() === "diffs"
-                              ? mainLogs().filter((ev) => ev.type === "diff")
-                              : mainLogs()
-                          }
-                        >
-                          {(entry) => (
-                            <div class={`log-line ${entry.type}`}>
-                              <span class="log-time">{entry.ts ? formatTimestamp(entry.ts) : ""}</span>
-                              <span class="log-kind">{entry.type}</span>
-                              <pre class="log-text">{entry.text ?? ""}</pre>
-                            </div>
-                          )}
-                        </For>
-                      </Show>
-                      <Show when={selectedRunAgent()?.type === "cli" && mainLogs().length === 0}>
-                        <div class="log-empty">No logs yet.</div>
-                      </Show>
-                      <Show when={selectedRunAgent()?.type === "aihub" && aihubLogs().length === 0 && !aihubLive()}>
-                        <div class="log-empty">No logs yet.</div>
-                      </Show>
-                    </div>
-                    <div class="monitoring-input">
+                    <Show when={branchesError()}>
+                      <div class="monitoring-error">{branchesError()}</div>
+                    </Show>
+                    <Show when={!hasMainRun()}>
+                      <div class="monitoring-empty">
+                        <p>Start a run to see logs.</p>
+                      </div>
+                    </Show>
+                    <Show when={customStartEnabled()}>
                       <textarea
-                        class="monitoring-textarea"
-                        rows={1}
-                        value={mainInput()}
-                        placeholder="Send a follow-up..."
-                        onInput={(e) => setMainInput(e.currentTarget.value)}
+                        class="custom-start-textarea"
+                        rows={2}
+                        value={customStartPrompt()}
+                        placeholder="Add a one-off custom prompt..."
+                        onInput={(e) => setCustomStartPrompt(e.currentTarget.value)}
                       />
-                      <button
-                        class="monitoring-send"
-                        onClick={() => {
-                          const current = detail() as ProjectDetail | null;
-                          if (current) handleSend(current);
-                        }}
-                        disabled={!mainInput().trim()}
-                      >
-                        Send
-                      </button>
-                    </div>
-                    <Show when={mainError()}>
-                      <div class="monitoring-error">{mainError()}</div>
                     </Show>
-                  </Show>
-                </div>
-                <Show when={detailDomain() === "coding"}>
-                  <div class="subagents-panel">
-                    <div class="subagents-header">
-                      <h4>Subagents</h4>
-                    </div>
-                    <Show when={subagentError()}>
-                      <div class="monitoring-error">{subagentError()}</div>
-                    </Show>
-                    <div class="subagents-list">
-                      <For each={subagents().filter((item) => item.slug !== mainSlug())}>
-                        {(item) => (
+                    <Show when={hasMainRun()}>
+                      <div class="monitoring-tabs">
+                        <button
+                          class={`tab-btn ${mainTab() === "logs" ? "active" : ""}`}
+                          onClick={() => setMainTab("logs")}
+                        >
+                          Logs
+                        </button>
+                        <Show when={selectedRunAgent()?.type === "cli"}>
                           <button
-                            class={`subagent-row ${selectedSubagent() === item.slug ? "active" : ""}`}
-                            onClick={() => setSelectedSubagent(item.slug)}
-                          >
-                            <div class="subagent-title">{item.slug}</div>
-                            <div class="subagent-meta">
-                              <span>{item.cli ?? "cli"}</span>
-                              <span class={`subagent-status ${item.status}`}>{item.status}</span>
-                              <span>{item.lastActive ? formatTimestamp(item.lastActive) : ""}</span>
-                            </div>
-                          </button>
-                        )}
-                      </For>
-                      <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
-                        <div class="log-empty">No subagents yet.</div>
-                      </Show>
-                    </div>
-                    <Show when={selectedSubagent()}>
-                      <div class="subagent-logs">
-                        <div class="monitoring-tabs">
-                          <button
-                            class={`tab-btn ${subTab() === "logs" ? "active" : ""}`}
-                            onClick={() => setSubTab("logs")}
-                          >
-                            Logs
-                          </button>
-                          <button
-                            class={`tab-btn ${subTab() === "diffs" ? "active" : ""}`}
-                            onClick={() => setSubTab("diffs")}
+                            class={`tab-btn ${mainTab() === "diffs" ? "active" : ""}`}
+                            onClick={() => setMainTab("diffs")}
                           >
                             Diffs
                           </button>
-                        </div>
-                        <div class="log-pane">
+                        </Show>
+                      </div>
+                      <div class="log-pane">
+                        <Show when={selectedRunAgent()?.type === "aihub"}>
+                          <For each={aihubLogs()}>
+                            {(entry) => (
+                              <div class={`log-line ${entry.type}`}>
+                                <span class="log-time">{entry.ts}</span>
+                                <span class="log-kind">{entry.type}</span>
+                                <pre class="log-text">{entry.text}</pre>
+                              </div>
+                            )}
+                          </For>
+                          <Show when={aihubLive()}>
+                            <div class="log-line live">
+                              <span class="log-time">live</span>
+                              <span class="log-kind">assistant</span>
+                              <pre class="log-text">{aihubLive()}</pre>
+                            </div>
+                          </Show>
+                        </Show>
+                        <Show when={selectedRunAgent()?.type === "cli"}>
                           <For
                             each={
-                              subTab() === "diffs"
-                                ? subagentLogs().filter((ev) => ev.type === "diff")
-                                : subagentLogs()
+                              mainTab() === "diffs"
+                                ? mainLogs().filter((ev) => ev.type === "diff")
+                                : mainLogs()
                             }
                           >
                             {(entry) => (
@@ -1277,25 +1215,127 @@ export function ProjectsBoard() {
                               </div>
                             )}
                           </For>
-                          <Show when={subagentLogs().length === 0}>
-                            <div class="log-empty">No logs yet.</div>
-                          </Show>
-                        </div>
+                        </Show>
+                        <Show when={selectedRunAgent()?.type === "cli" && mainLogs().length === 0}>
+                          <div class="log-empty">No logs yet.</div>
+                        </Show>
+                        <Show when={selectedRunAgent()?.type === "aihub" && aihubLogs().length === 0 && !aihubLive()}>
+                          <div class="log-empty">No logs yet.</div>
+                        </Show>
+                      </div>
+                      <div class="monitoring-input">
+                        <textarea
+                          class="monitoring-textarea"
+                          rows={1}
+                          value={mainInput()}
+                          placeholder="Send a follow-up..."
+                          onInput={(e) => setMainInput(e.currentTarget.value)}
+                        />
                         <button
-                          class="stop-btn subagent-stop"
+                          class="monitoring-send"
                           onClick={() => {
                             const current = detail() as ProjectDetail | null;
-                            if (current && selectedSubagent()) {
-                              interruptSubagent(current.id, selectedSubagent()!);
-                            }
+                            if (current) handleSend(current);
                           }}
+                          disabled={!mainInput().trim()}
                         >
-                          Stop
+                          Send
                         </button>
                       </div>
+                      <Show when={mainError()}>
+                        <div class="monitoring-error">{mainError()}</div>
+                      </Show>
                     </Show>
                   </div>
-                </Show>
+                  </Show>
+                  <Show when={detailDomain() === "coding"}>
+                    <div class={`subagents-panel ${subagentsExpanded() ? "expanded" : "collapsed"}`}>
+                      <button
+                        class="subagents-toggle"
+                        onClick={() => setSubagentsExpanded((prev) => !prev)}
+                      >
+                        <span>Subagents</span>
+                        <span class="subagents-count">{subagents().length}</span>
+                      </button>
+                      <Show when={subagentsExpanded()}>
+                        <div class="subagents-body">
+                          <Show when={subagentError()}>
+                            <div class="monitoring-error">{subagentError()}</div>
+                          </Show>
+                          <div class="subagents-list">
+                            <For each={subagents().filter((item) => item.slug !== mainSlug())}>
+                              {(item) => (
+                                <button
+                                  class={`subagent-row ${selectedSubagent() === item.slug ? "active" : ""}`}
+                                  onClick={() => setSelectedSubagent(item.slug)}
+                                >
+                                  <div class="subagent-title">{item.slug}</div>
+                                  <div class="subagent-meta">
+                                    <span>{item.cli ?? "cli"}</span>
+                                    <span class={`subagent-status ${item.status}`}>{item.status}</span>
+                                    <span>{item.lastActive ? formatTimestamp(item.lastActive) : ""}</span>
+                                  </div>
+                                </button>
+                              )}
+                            </For>
+                            <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
+                              <div class="log-empty">No subagents yet.</div>
+                            </Show>
+                          </div>
+                          <Show when={selectedSubagent()}>
+                            <div class="subagent-logs">
+                              <div class="monitoring-tabs">
+                                <button
+                                  class={`tab-btn ${subTab() === "logs" ? "active" : ""}`}
+                                  onClick={() => setSubTab("logs")}
+                                >
+                                  Logs
+                                </button>
+                                <button
+                                  class={`tab-btn ${subTab() === "diffs" ? "active" : ""}`}
+                                  onClick={() => setSubTab("diffs")}
+                                >
+                                  Diffs
+                                </button>
+                              </div>
+                              <div class="log-pane">
+                                <For
+                                  each={
+                                    subTab() === "diffs"
+                                      ? subagentLogs().filter((ev) => ev.type === "diff")
+                                      : subagentLogs()
+                                  }
+                                >
+                                  {(entry) => (
+                                    <div class={`log-line ${entry.type}`}>
+                                      <span class="log-time">{entry.ts ? formatTimestamp(entry.ts) : ""}</span>
+                                      <span class="log-kind">{entry.type}</span>
+                                      <pre class="log-text">{entry.text ?? ""}</pre>
+                                    </div>
+                                  )}
+                                </For>
+                                <Show when={subagentLogs().length === 0}>
+                                  <div class="log-empty">No logs yet.</div>
+                                </Show>
+                              </div>
+                              <button
+                                class="stop-btn subagent-stop"
+                                onClick={() => {
+                                  const current = detail() as ProjectDetail | null;
+                                  if (current && selectedSubagent()) {
+                                    interruptSubagent(current.id, selectedSubagent()!);
+                                  }
+                                }}
+                              >
+                                Stop
+                              </button>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
               </div>
             </div>
           </div>
@@ -1758,13 +1798,71 @@ export function ProjectsBoard() {
           border-radius: 14px;
           padding: 12px;
           background: #0f1520;
+          flex: 1;
+          min-height: 0;
         }
+
+        .monitoring-columns {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 12px;
+          flex: 1;
+          min-height: 0;
+        }
+
+        .monitoring-columns.main-only {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .monitoring-columns.subagents-only {
+          grid-template-columns: 58px minmax(0, 1fr);
+        }
+
+        .monitoring-columns.split {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .main-toggle-rail {
+          width: 58px;
+          padding: 8px 6px;
+          border: 1px solid #233041;
+          border-radius: 14px;
+          background: #0f1520;
+          color: #98a3b2;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          writing-mode: vertical-rl;
+          text-orientation: mixed;
+        }
+
 
         .monitoring-header-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 12px;
+        }
+
+        .collapse-btn {
+          background: #141b26;
+          border: 1px solid #2a3240;
+          color: #98a3b2;
+          border-radius: 999px;
+          padding: 6px 10px;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          cursor: pointer;
+        }
+
+        .collapse-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .start-custom-toggle {
@@ -1853,7 +1951,6 @@ export function ProjectsBoard() {
           border: 1px solid #1f2631;
           border-radius: 12px;
           padding: 10px;
-          max-height: 260px;
           overflow: auto;
           display: flex;
           flex-direction: column;
@@ -1861,6 +1958,8 @@ export function ProjectsBoard() {
           font-family: "SF Mono", "Menlo", monospace;
           font-size: 12px;
           color: #cfd6e2;
+          flex: 1;
+          min-height: 0;
         }
 
         .log-line {
@@ -1901,6 +2000,7 @@ export function ProjectsBoard() {
           display: flex;
           gap: 8px;
           align-items: flex-end;
+          margin-top: auto;
         }
 
         .monitoring-textarea {
@@ -1962,19 +2062,68 @@ export function ProjectsBoard() {
           border-radius: 14px;
           padding: 12px;
           background: #0f1520;
+          min-height: 0;
         }
 
-        .subagents-header h4 {
-          font-size: 12px;
+        .subagents-panel.collapsed {
+          width: 58px;
+          padding: 8px 6px;
+          align-items: center;
+        }
+
+        .subagents-panel.expanded {
+          width: 320px;
+        }
+
+        .monitoring-columns.subagents-only .subagents-panel.expanded {
+          width: 100%;
+        }
+
+        .subagents-toggle {
+          width: 100%;
+          background: #141b26;
+          border: 1px solid #1f2631;
+          color: #98a3b2;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 11px;
           text-transform: uppercase;
-          letter-spacing: 0.16em;
-          color: #8d97a6;
+          letter-spacing: 0.12em;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+        }
+
+        .subagents-panel.collapsed .subagents-toggle {
+          writing-mode: vertical-rl;
+          text-orientation: mixed;
+          height: 100%;
+          justify-content: center;
+        }
+
+        .subagents-count {
+          background: #1b2431;
+          border-radius: 999px;
+          padding: 2px 6px;
+          font-size: 10px;
+        }
+
+        .subagents-body {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: 0;
+          flex: 1;
         }
 
         .subagents-list {
           display: flex;
           flex-direction: column;
           gap: 6px;
+          overflow: auto;
+          min-height: 0;
         }
 
         .subagent-row {
