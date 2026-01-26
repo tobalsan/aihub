@@ -2011,6 +2011,15 @@ export function ProjectsBoard() {
           margin: 0.35em 0;
         }
 
+        .detail-body a {
+          color: #9db7ff;
+          text-decoration: none;
+        }
+
+        .detail-body a:hover {
+          color: #c7d6ff;
+        }
+
         .monitoring-main {
           display: flex;
           flex-direction: column;
