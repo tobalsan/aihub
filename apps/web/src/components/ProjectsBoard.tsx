@@ -718,7 +718,13 @@ export function ProjectsBoard() {
     if (detailRunAgent()) {
       await updateProject(project.id, { runAgent: detailRunAgent(), runMode: detailRunMode() });
     }
-    await runCli(project, "Start.", false);
+    const summary = buildProjectSummary(
+      project.title,
+      getFrontmatterString(project.frontmatter, "status") ?? "",
+      project.content
+    );
+    const prompt = buildStartPrompt(summary);
+    await runCli(project, prompt, false);
   };
 
   const handleSend = async (project: ProjectDetail) => {
