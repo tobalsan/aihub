@@ -357,8 +357,11 @@ export function ProjectsBoard() {
     if (!detail() || detailRunAgent()) return;
     const options = runAgentOptions();
     if (options.length > 0) {
+      const isShaping = detailStatus() === "shaping";
+      const projectManager = options.find((opt) => opt.label === "Project Manager");
       const aihub = options.find((opt) => opt.id.startsWith("aihub:"));
-      setDetailRunAgent(aihub?.id ?? options[0].id);
+      const defaultOption = isShaping && projectManager ? projectManager : aihub ?? options[0];
+      setDetailRunAgent(defaultOption.id);
     }
   });
 
