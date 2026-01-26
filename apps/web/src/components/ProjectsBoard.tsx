@@ -162,6 +162,14 @@ function buildAihubLogs(messages: FullHistoryMessage[]): Array<{ ts?: string; ty
   return entries;
 }
 
+function resizeTextarea(el: HTMLTextAreaElement | undefined) {
+  if (!el) return;
+  el.style.height = "auto";
+  const lineHeight = 20;
+  const maxHeight = lineHeight * 10;
+  el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+}
+
 function getStatus(item: ProjectListItem): string {
   return getFrontmatterString(item.frontmatter, "status") ?? "maybe";
 }
@@ -232,6 +240,7 @@ export function ProjectsBoard() {
   const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
 
   let mainStreamCleanup: (() => void) | null = null;
+  let monitoringTextareaRef: HTMLTextAreaElement | undefined;
 
   const ownerOptions = createMemo(() => {
     const names = (agents() ?? []).map((agent) => agent.name);
@@ -744,6 +753,7 @@ export function ProjectsBoard() {
     const message = mainInput().trim();
     if (!message) return;
     setMainInput("");
+    resizeTextarea(monitoringTextareaRef);
     const agent = selectedRunAgent();
     if (!agent) return;
     if (agent.type === "aihub") {
@@ -1225,11 +1235,15 @@ export function ProjectsBoard() {
                       </div>
                       <div class="monitoring-input">
                       <textarea
+                        ref={monitoringTextareaRef}
                         class="monitoring-textarea"
                         rows={1}
                         value={mainInput()}
                         placeholder="Send a follow-up..."
-                        onInput={(e) => setMainInput(e.currentTarget.value)}
+                        onInput={(e) => {
+                          setMainInput(e.currentTarget.value);
+                          resizeTextarea(monitoringTextareaRef);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
