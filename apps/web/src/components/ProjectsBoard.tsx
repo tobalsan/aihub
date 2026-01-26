@@ -1224,13 +1224,20 @@ export function ProjectsBoard() {
                         </Show>
                       </div>
                       <div class="monitoring-input">
-                        <textarea
-                          class="monitoring-textarea"
-                          rows={1}
-                          value={mainInput()}
-                          placeholder="Send a follow-up..."
-                          onInput={(e) => setMainInput(e.currentTarget.value)}
-                        />
+                      <textarea
+                        class="monitoring-textarea"
+                        rows={1}
+                        value={mainInput()}
+                        placeholder="Send a follow-up..."
+                        onInput={(e) => setMainInput(e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            const current = detail() as ProjectDetail | null;
+                            if (current) handleSend(current);
+                          }
+                        }}
+                      />
                         <button
                           class="monitoring-send"
                           onClick={() => {
