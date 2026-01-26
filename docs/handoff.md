@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-25
+Date: 2026-01-26
 Repo: `/Users/thinh/code/aihub`
 
 ## Initial Context
@@ -36,6 +36,17 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Metadata dropdowns for domain/owner/execution mode use custom menus (not native selects) so long owner names don’t reflow layout. Owner options = agents + Thinh.
 - Appetite + status now in metadata row (same style + icons).
 - Owner + execution mode moved to top of right (monitoring) pane.
+- Monitoring pane uses project frontmatter for run config:
+  - `runAgent`: `aihub:<agentId>` or `cli:<claude|codex|droid|gemini>`
+  - `runMode`: `main-run|worktree` (CLI only)
+  - `sessionKeys`: map `{ [agentId]: sessionKey }` for AIHub runs
+  - `repo`: required for domain=coding (repo root path)
+- CLI agents use Subtask-style workspaces: `{projects.root}/.workspaces/PRO-<id>/<slug>`.
+- `logs.jsonl` stores raw CLI stdout JSONL (parse for UI); history uses subtask event schema.
+- Start prompt prepends project summary + subagent tool doc (see `docs/agent_interfacing_specs.md`).
+- Main CLI worktree branch: `PRO-<id>/<slug>`; slug required for worktree, collision errors.
+- Base branch selection per run (default main), not persisted.
+- Monitoring pane defaults to `Project Manager` when `runAgent` missing and project status = shaping.
 
 ## Implemented
 ### 1) Projects API (Gateway)
@@ -98,6 +109,36 @@ Kanban UI details:
 - Markdown rendered for body with frontmatter + leading H1 stripped.
 - Markdown styling: bullets/spacing, hr spacing, header margins.
 - Markdown body container now seamless (no border/background).
+- Detail overlay max width: 1920px; detail + monitoring panels are equal width.
+
+### 7) Subagents + Monitoring (Gateway)
+- New subagent API + runner:
+  - `apps/gateway/src/subagents/index.ts` (list/logs/branches)
+  - `apps/gateway/src/subagents/runner.ts` (spawn/interrupt, worktree, resume, logs/history/progress)
+- New API routes in `apps/gateway/src/server/api.ts`:
+  - `GET /api/projects/:id/subagents`
+  - `POST /api/projects/:id/subagents`
+  - `POST /api/projects/:id/subagents/:slug/interrupt`
+  - `GET /api/projects/:id/subagents/:slug/logs?since=...`
+  - `GET /api/projects/:id/branches`
+- CLI subagent commands: `apps/gateway/src/cli/subagent.ts` (spawn/status/logs/interrupt).
+- Tool integration:
+  - Pi: `apps/gateway/src/subagents/pi_tools.ts`
+  - Claude: `apps/gateway/src/subagents/claude_tools.ts`
+  - Shared handlers: `apps/gateway/src/subagents/tool_handlers.ts`
+- Project frontmatter updates wired in `apps/gateway/src/projects/store.ts` (repo/runAgent/runMode/sessionKeys).
+
+### 8) Monitoring UI + client wiring (Web)
+- Monitoring pane fully wired in `apps/web/src/components/ProjectsBoard.tsx`.
+- API client + types for subagents/branches:
+  - `apps/web/src/api/client.ts`
+  - `apps/web/src/api/types.ts`
+- Prompt helpers: `apps/web/src/components/projectMonitoring.ts`
+- Tests: `apps/web/src/api/client.test.ts`, `apps/web/src/components/projectMonitoring.test.ts`
+
+### 9) Docs
+- New: `docs/agent_interfacing_decisions.md`
+- New: `docs/agent_interfacing_specs.md`
 
 ## Commits
 - `feat(projects): add projects API and tests`
@@ -108,16 +149,29 @@ Kanban UI details:
 - `refine project detail metadata layout`
 - `style project markdown body`
 - `docs: add apm shortcut`
+- `feat(web): add subagent api client`
+- `feat(web): add monitoring prompt helpers`
+- `feat(web): build monitoring pane UI`
+- `fix(gateway): align subagent tool typings`
+- `feat(web): revamp monitoring logs`
+- `style(web): refine project markdown links`
 
 ## Known Issues / Notes
 - If gateway running old build, API schema might still require domain/owner/executionMode/appetite. Rebuild shared + gateway, restart.
   - `pnpm --filter @aihub/shared build`
   - `pnpm --filter @aihub/gateway build`
 - Status/metadata menu close on outside click; may want escape/blur handling later.
+- Monitoring UI notes:
+  - AIHub runs: logs derived from full history; diffs only for CLI runs.
+  - CLI runs: main-run uses slug `main`, worktree uses slug input.
+  - Start prompt uses project summary + subagent tool doc for both AIHub/CLI; optional custom prompt appended (not persisted).
+  - Main/subagent panes are mutually exclusive; collapsed vertical bar toggles between them.
+  - Session input: Enter sends, Shift+Enter newline; auto-expands up to 10 lines.
+  - Log UI: single-column, color-coded by role; tool calls collapsed by default with icons; read/write/bash grouped with output; expanded content has darker background; no timestamps.
+  - Repo input hidden when AIHub agent is selected.
+  - Stop for AIHub sends `/abort`; CLI uses interrupt API.
 
 ## Next (Not Done)
-- Implement monitoring pane with live agent session view.
 - Implement project creation UI in Kanban.
 - Optional: drag/drop status moves, filters, search.
 - Persist column collapse state (localStorage) if desired.
-
