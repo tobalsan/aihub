@@ -1031,7 +1031,7 @@ export function ProjectsBoard() {
                       </select>
                     </div>
                   </Show>
-                  <Show when={detailDomain() === "coding"}>
+                  <Show when={detailDomain() === "coding" && selectedRunAgent()?.type === "cli"}>
                     <div class="meta-field meta-field-wide">
                       <label class="meta-label">Repo</label>
                       <input
