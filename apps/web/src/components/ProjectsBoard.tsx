@@ -132,30 +132,103 @@ function getTextBlocks(blocks: ContentBlock[]): string {
     .join("\n");
 }
 
-function buildAihubLogs(messages: FullHistoryMessage[]): Array<{ ts?: string; type: string; text: string }> {
-  const entries: Array<{ ts?: string; type: string; text: string }> = [];
+function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
+  const entries: LogItem[] = [];
+  const toolResults = new Map<string, FullToolResultMessage>();
   for (const msg of messages) {
-    const ts = formatTimestamp(msg.timestamp);
+    if (msg.role === "toolResult") {
+      toolResults.set(msg.toolCallId, msg);
+    }
+  }
+  const skipResults = new Set<string>();
+
+  for (const msg of messages) {
     if (msg.role === "user") {
       const text = getTextBlocks(msg.content);
-      if (text) entries.push({ ts, type: "user", text });
+      if (text) entries.push({ tone: "user", body: text });
       continue;
     }
     if (msg.role === "assistant") {
       for (const block of msg.content) {
         if (block.type === "text" && block.text) {
-          entries.push({ ts, type: "assistant", text: block.text });
+          entries.push({ tone: "assistant", body: block.text });
         } else if (block.type === "toolCall") {
-          entries.push({ ts, type: "tool_call", text: `${block.name}\n${formatJson(block.arguments)}` });
+          const toolName = block.name;
+          const args = block.arguments as Record<string, unknown>;
+  if (toolName === "read") {
+            const path = typeof args?.path === "string" ? args.path : "";
+            const output = toolResults.get(block.id);
+            const body = output ? getTextBlocks(output.content) : "";
+            entries.push({
+              tone: "muted",
+              icon: "read",
+              title: `read ${path}`.trim(),
+              body,
+              collapsible: true,
+            });
+            skipResults.add(block.id);
+            continue;
+          }
+          if (toolName === "bash") {
+            const command = typeof args?.command === "string" ? args.command : "";
+            const params = typeof args?.args === "string" ? args.args : "";
+            const output = toolResults.get(block.id);
+            const body = output ? getTextBlocks(output.content) : "";
+            const summary = ["Bash", command, params].filter((part) => part.trim()).join(" ");
+            entries.push({
+              tone: "muted",
+              icon: "bash",
+              title: summary,
+              body,
+              collapsible: true,
+            });
+            skipResults.add(block.id);
+            continue;
+          }
+          if (toolName === "write") {
+            const path = typeof args?.path === "string" ? args.path : "";
+            const content = typeof args?.content === "string" ? args.content : "";
+            entries.push({
+              tone: "muted",
+              icon: "write",
+              title: `write ${path}`.trim(),
+              body: content,
+              collapsible: true,
+            });
+            skipResults.add(block.id);
+            continue;
+          }
+          entries.push({
+            tone: "muted",
+            icon: "tool",
+            title: `Tool: ${toolName}`,
+            body: formatJson(block.arguments),
+            collapsible: true,
+          });
         }
       }
       continue;
     }
     if (msg.role === "toolResult") {
+      if (skipResults.has(msg.toolCallId)) continue;
       const text = getTextBlocks(msg.content);
-      if (text) entries.push({ ts, type: "tool_output", text });
+      if (text) {
+        entries.push({
+          tone: "muted",
+          icon: "output",
+          title: "Tool output",
+          body: text,
+          collapsible: text.length > 80,
+        });
+      }
       if (msg.details?.diff) {
-        entries.push({ ts, type: "diff", text: msg.details.diff });
+        entries.push({
+          tone: "muted",
+          icon: "diff",
+          title: "Diff",
+          body: msg.details.diff,
+          collapsible: true,
+        });
       }
     }
   }
@@ -168,6 +241,151 @@ function resizeTextarea(el: HTMLTextAreaElement | undefined) {
   const lineHeight = 20;
   const maxHeight = lineHeight * 10;
   el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+}
+
+function toLogItem(entry: SubagentLogEvent): LogItem {
+  const tone = logTone(entry.type);
+  const body = entry.text ?? "";
+  const title = logLabel(entry.type, body);
+  const icon =
+    entry.type === "tool_call"
+      ? "tool"
+      : entry.type === "tool_output"
+        ? "output"
+        : entry.type === "diff"
+          ? "diff"
+          : entry.type === "session" || entry.type === "message"
+            ? "system"
+            : entry.type === "error" || entry.type === "stderr"
+              ? "error"
+              : undefined;
+  return {
+    tone,
+    icon,
+    title: title || undefined,
+    body,
+    collapsible: tone === "muted" && body.length > 80,
+  };
+}
+
+function renderLogItem(item: LogItem) {
+  if (item.collapsible && item.body.length > 0) {
+    const summaryText = item.title ?? item.body.split("\n")[0] ?? "Details";
+    return (
+      <details class={`log-line ${item.tone} collapsible`} open={false}>
+        <summary class="log-summary">
+          {logIcon(item.icon)}
+          <span>{summaryText}</span>
+        </summary>
+        <pre class="log-text">{item.body}</pre>
+      </details>
+    );
+  }
+  return (
+    <div class={`log-line ${item.tone}`}>
+      {logIcon(item.icon)}
+      <div class="log-stack">
+        {item.title && <div class="log-title">{item.title}</div>}
+        <pre class="log-text">{item.body}</pre>
+      </div>
+    </div>
+  );
+}
+
+type LogItem = {
+  tone: "assistant" | "user" | "muted" | "error";
+  icon?: "read" | "write" | "bash" | "tool" | "output" | "diff" | "system" | "error";
+  title?: string;
+  body: string;
+  collapsible?: boolean;
+};
+
+function logTone(type: string): "assistant" | "user" | "muted" | "error" {
+  if (type === "user") return "user";
+  if (type === "assistant") return "assistant";
+  if (type === "error" || type === "stderr") return "error";
+  if (type === "tool_call" || type === "tool_output" || type === "diff" || type === "session" || type === "message") {
+    return "muted";
+  }
+  return "assistant";
+}
+
+function logIcon(icon?: LogItem["icon"]) {
+  if (icon === "bash") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 5h16v14H4z" />
+        <path d="M7 9l3 3-3 3" />
+        <path d="M12 15h4" />
+      </svg>
+    );
+  }
+  if (icon === "read") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 19h12a4 4 0 0 0 0-8h-1" />
+        <path d="M4 19V5h9a4 4 0 0 1 4 4v2" />
+      </svg>
+    );
+  }
+  if (icon === "write") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5l4 4L8 20l-4 1 1-4L16.5 3.5z" />
+      </svg>
+    );
+  }
+  if (icon === "tool") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3z" />
+      </svg>
+    );
+  }
+  if (icon === "output") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 6L9 17l-5-5" />
+      </svg>
+    );
+  }
+  if (icon === "diff") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M8 7v10M16 7v10M3 12h5M16 12h5" />
+      </svg>
+    );
+  }
+  if (icon === "system") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 5h16v10H7l-3 3V5z" />
+      </svg>
+    );
+  }
+  if (icon === "error") {
+    return (
+      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 8v5M12 16h.01" />
+        <circle cx="12" cy="12" r="9" />
+      </svg>
+    );
+  }
+  return null;
+}
+
+function logLabel(type: string, text: string): string {
+  if (type === "tool_call") {
+    const name = text.split("\n")[0]?.trim();
+    return name ? `Tool: ${name}` : "Tool call";
+  }
+  if (type === "tool_output") return "Tool output";
+  if (type === "diff") return "Diff";
+  if (type === "session") return "Session";
+  if (type === "message") return "System";
+  if (type === "error" || type === "stderr") return "Error";
+  return "";
 }
 
 function getStatus(item: ProjectListItem): string {
@@ -228,7 +446,7 @@ export function ProjectsBoard() {
   const [subagentsExpanded, setSubagentsExpanded] = createSignal(false);
   const [mainLogs, setMainLogs] = createSignal<SubagentLogEvent[]>([]);
   const [mainCursor, setMainCursor] = createSignal(0);
-  const [aihubLogs, setAihubLogs] = createSignal<Array<{ ts?: string; type: string; text: string }>>([]);
+  const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
   const [mainError, setMainError] = createSignal("");
@@ -1193,19 +1411,13 @@ export function ProjectsBoard() {
                       <div class="log-pane">
                         <Show when={selectedRunAgent()?.type === "aihub"}>
                           <For each={aihubLogs()}>
-                            {(entry) => (
-                              <div class={`log-line ${entry.type}`}>
-                                <span class="log-time">{entry.ts}</span>
-                                <span class="log-kind">{entry.type}</span>
-                                <pre class="log-text">{entry.text}</pre>
-                              </div>
-                            )}
+                            {(entry) => renderLogItem(entry)}
                           </For>
                           <Show when={aihubLive()}>
-                            <div class="log-line live">
-                              <span class="log-time">live</span>
-                              <span class="log-kind">assistant</span>
-                              <pre class="log-text">{aihubLive()}</pre>
+                            <div class="log-line assistant live">
+                              <div class="log-stack">
+                                <pre class="log-text">{aihubLive()}</pre>
+                              </div>
                             </div>
                           </Show>
                         </Show>
@@ -1217,13 +1429,7 @@ export function ProjectsBoard() {
                                 : mainLogs()
                             }
                           >
-                            {(entry) => (
-                              <div class={`log-line ${entry.type}`}>
-                                <span class="log-time">{entry.ts ? formatTimestamp(entry.ts) : ""}</span>
-                                <span class="log-kind">{entry.type}</span>
-                                <pre class="log-text">{entry.text ?? ""}</pre>
-                              </div>
-                            )}
+                            {(entry) => renderLogItem(toLogItem(entry))}
                           </For>
                         </Show>
                         <Show when={selectedRunAgent()?.type === "cli" && mainLogs().length === 0}>
@@ -1327,13 +1533,7 @@ export function ProjectsBoard() {
                                       : subagentLogs()
                                   }
                                 >
-                                  {(entry) => (
-                                    <div class={`log-line ${entry.type}`}>
-                                      <span class="log-time">{entry.ts ? formatTimestamp(entry.ts) : ""}</span>
-                                      <span class="log-kind">{entry.type}</span>
-                                      <pre class="log-text">{entry.text ?? ""}</pre>
-                                    </div>
-                                  )}
+                                  {(entry) => renderLogItem(toLogItem(entry))}
                                 </For>
                                 <Show when={subagentLogs().length === 0}>
                                   <div class="log-empty">No logs yet.</div>
@@ -1984,26 +2184,83 @@ export function ProjectsBoard() {
         }
 
         .log-line {
-          display: grid;
-          grid-template-columns: 70px 80px 1fr;
+          display: flex;
           gap: 10px;
-          align-items: start;
+          align-items: flex-start;
+          padding: 6px 8px;
+          border-radius: 10px;
+          background: rgba(17, 23, 34, 0.6);
+        }
+
+        .log-line.collapsible {
+          padding: 0;
+          display: block;
+        }
+
+        .log-summary {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 6px 8px;
+          cursor: pointer;
+          list-style: none;
+          width: 100%;
+        }
+
+        .log-summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .log-line.collapsible .log-text {
+          background: rgba(8, 11, 16, 0.6);
+          border-radius: 10px;
+          padding: 8px;
+        }
+
+        .log-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 0;
+          flex: 1;
+        }
+
+        .log-title {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: inherit;
+        }
+
+        .log-line.assistant {
+          color: #d6e4ff;
+        }
+
+        .log-line.user {
+          color: #c8f2e6;
+          background: rgba(17, 34, 28, 0.5);
+        }
+
+        .log-line.muted {
+          color: #8b96a5;
+          background: rgba(20, 25, 34, 0.6);
+        }
+
+        .log-line.error {
+          color: #f5b0b0;
+          background: rgba(42, 27, 27, 0.6);
         }
 
         .log-line.live {
           color: #e8f6ff;
         }
 
-        .log-time {
-          color: #7d8796;
-          font-size: 10px;
-        }
-
-        .log-kind {
-          text-transform: uppercase;
-          letter-spacing: 0.12em;
-          font-size: 9px;
-          color: #8b96a5;
+        .log-icon {
+          width: 14px;
+          height: 14px;
+          opacity: 0.8;
+          margin-top: 2px;
+          flex: 0 0 auto;
         }
 
         .log-text {
