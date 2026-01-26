@@ -215,6 +215,8 @@ export function ProjectsBoard() {
   const [mainTab, setMainTab] = createSignal<"logs" | "diffs">("logs");
   const [subTab, setSubTab] = createSignal<"logs" | "diffs">("logs");
   const [mainInput, setMainInput] = createSignal("");
+  const [customStartEnabled, setCustomStartEnabled] = createSignal(false);
+  const [customStartPrompt, setCustomStartPrompt] = createSignal("");
   const [mainLogs, setMainLogs] = createSignal<SubagentLogEvent[]>([]);
   const [mainCursor, setMainCursor] = createSignal(0);
   const [aihubLogs, setAihubLogs] = createSignal<Array<{ ts?: string; type: string; text: string }>>([]);
@@ -586,7 +588,7 @@ export function ProjectsBoard() {
     navigate("/projects");
   };
 
-  const startAihubRun = async (project: ProjectDetail) => {
+  const startAihubRun = async (project: ProjectDetail, customPrompt: string) => {
     const agent = selectedRunAgent();
     if (!agent || agent.type !== "aihub") return;
     const sessionKeys = detailSessionKeys();
@@ -603,7 +605,8 @@ export function ProjectsBoard() {
       getFrontmatterString(project.frontmatter, "status") ?? "",
       project.content
     );
-    const prompt = buildStartPrompt(summary);
+    const basePrompt = buildStartPrompt(summary);
+    const prompt = customPrompt ? `${basePrompt}\n\n${customPrompt}` : basePrompt;
     setMainError("");
     setAihubLogs([]);
     setAihubLive("");
@@ -711,8 +714,9 @@ export function ProjectsBoard() {
   const handleStart = async (project: ProjectDetail) => {
     const agent = selectedRunAgent();
     if (!agent) return;
+    const custom = customStartEnabled() ? customStartPrompt().trim() : "";
     if (agent.type === "aihub") {
-      await startAihubRun(project);
+      await startAihubRun(project, custom);
       return;
     }
     if (detailRunAgent()) {
@@ -723,7 +727,8 @@ export function ProjectsBoard() {
       getFrontmatterString(project.frontmatter, "status") ?? "",
       project.content
     );
-    const prompt = buildStartPrompt(summary);
+    const basePrompt = buildStartPrompt(summary);
+    const prompt = custom ? `${basePrompt}\n\n${custom}` : basePrompt;
     await runCli(project, prompt, false);
   };
 
@@ -1071,6 +1076,14 @@ export function ProjectsBoard() {
                       <span class="status-dot" />
                       <span class="status-text">{mainStatus()}</span>
                     </div>
+                    <label class="start-custom-toggle">
+                      <input
+                        type="checkbox"
+                        checked={customStartEnabled()}
+                        onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
+                      />
+                      <span>custom prompt</span>
+                    </label>
                     <Show when={!hasMainRun()}>
                       <button class="start-btn" onClick={() => handleStart(project)} disabled={!canStart()}>
                         Start
@@ -1093,6 +1106,15 @@ export function ProjectsBoard() {
                     <div class="monitoring-empty">
                       <p>Start a run to see logs.</p>
                     </div>
+                  </Show>
+                  <Show when={customStartEnabled()}>
+                    <textarea
+                      class="custom-start-textarea"
+                      rows={2}
+                      value={customStartPrompt()}
+                      placeholder="Add a one-off custom prompt..."
+                      onInput={(e) => setCustomStartPrompt(e.currentTarget.value)}
+                    />
                   </Show>
                   <Show when={hasMainRun()}>
                     <div class="monitoring-tabs">
@@ -1713,6 +1735,20 @@ export function ProjectsBoard() {
           gap: 12px;
         }
 
+        .start-custom-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #8b96a5;
+        }
+
+        .start-custom-toggle input {
+          accent-color: #3b6ecc;
+        }
+
         .status-pill {
           display: inline-flex;
           align-items: center;
@@ -1844,6 +1880,16 @@ export function ProjectsBoard() {
           color: #e0e6ef;
           font-size: 12px;
           resize: none;
+        }
+
+        .custom-start-textarea {
+          background: #111722;
+          border: 1px solid #273042;
+          border-radius: 10px;
+          padding: 8px 10px;
+          color: #e0e6ef;
+          font-size: 12px;
+          resize: vertical;
         }
 
         .monitoring-send {
