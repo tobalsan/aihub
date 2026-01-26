@@ -265,11 +265,18 @@ export function ProjectsBoard() {
     return subagents().find((item) => item.slug === slug) ?? null;
   });
 
+  const resolvedSessionKey = createMemo(() => {
+    const project = detail();
+    const agent = selectedRunAgent();
+    if (!project || !agent || agent.type !== "aihub") return "";
+    return detailSessionKeys()[agent.id] ?? `project:${project.id}:${agent.id}`;
+  });
+
   const hasMainRun = createMemo(() => {
     const agent = selectedRunAgent();
     if (!agent) return false;
     if (agent.type === "aihub") {
-      return Boolean(detailSessionKeys()[agent.id]);
+      return aihubStreaming() || aihubLogs().length > 0 || Boolean(detailSessionKeys()[agent.id]);
     }
     return Boolean(mainSubagent());
   });
@@ -450,7 +457,8 @@ export function ProjectsBoard() {
     const project = detail();
     const agent = selectedRunAgent();
     if (!project || !agent || agent.type !== "aihub") return;
-    const sessionKey = detailSessionKeys()[agent.id];
+    if (aihubStreaming()) return;
+    const sessionKey = resolvedSessionKey();
     if (!sessionKey) return;
     const load = async () => {
       const res = await fetchFullHistory(agent.id, sessionKey);
@@ -592,9 +600,8 @@ export function ProjectsBoard() {
     const agent = selectedRunAgent();
     if (!agent || agent.type !== "aihub") return;
     const sessionKeys = detailSessionKeys();
-    let sessionKey = sessionKeys[agent.id];
-    if (!sessionKey) {
-      sessionKey = `project:${project.id}:${agent.id}`;
+    let sessionKey = sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
+    if (!sessionKeys[agent.id]) {
       const nextKeys = { ...sessionKeys, [agent.id]: sessionKey };
       setDetailSessionKeys(nextKeys);
       await updateProject(project.id, { sessionKeys: nextKeys, runAgent: detailRunAgent() });
@@ -653,7 +660,7 @@ export function ProjectsBoard() {
   const sendAihubMessage = async (project: ProjectDetail, message: string) => {
     const agent = selectedRunAgent();
     if (!agent || agent.type !== "aihub") return;
-    const sessionKey = detailSessionKeys()[agent.id];
+    const sessionKey = resolvedSessionKey();
     if (!sessionKey) return;
     setMainError("");
     setAihubLive("");
@@ -754,7 +761,7 @@ export function ProjectsBoard() {
       await interruptSubagent(project.id, slug);
       return;
     }
-    const sessionKey = detailSessionKeys()[agent.id];
+    const sessionKey = resolvedSessionKey();
     if (!sessionKey) return;
     streamMessage(
       agent.id,
@@ -1085,14 +1092,24 @@ export function ProjectsBoard() {
                       <span>custom prompt</span>
                     </label>
                     <Show when={!hasMainRun()}>
-                      <button class="start-btn" onClick={() => handleStart(project)} disabled={!canStart()}>
+                      <button
+                        class="start-btn"
+                        onClick={() => {
+                          const current = detail() as ProjectDetail | null;
+                          if (current) handleStart(current);
+                        }}
+                        disabled={!canStart()}
+                      >
                         Start
                       </button>
                     </Show>
                     <Show when={hasMainRun()}>
                       <button
                         class="stop-btn"
-                        onClick={() => handleStop(project)}
+                        onClick={() => {
+                          const current = detail() as ProjectDetail | null;
+                          if (current) handleStop(current);
+                        }}
                         disabled={mainStatus() !== "running"}
                       >
                         Stop
@@ -1184,7 +1201,14 @@ export function ProjectsBoard() {
                         placeholder="Send a follow-up..."
                         onInput={(e) => setMainInput(e.currentTarget.value)}
                       />
-                      <button class="monitoring-send" onClick={() => handleSend(project)} disabled={!mainInput().trim()}>
+                      <button
+                        class="monitoring-send"
+                        onClick={() => {
+                          const current = detail() as ProjectDetail | null;
+                          if (current) handleSend(current);
+                        }}
+                        disabled={!mainInput().trim()}
+                      >
                         Send
                       </button>
                     </div>
@@ -1257,7 +1281,15 @@ export function ProjectsBoard() {
                             <div class="log-empty">No logs yet.</div>
                           </Show>
                         </div>
-                        <button class="stop-btn subagent-stop" onClick={() => interruptSubagent(project.id, selectedSubagent() ?? "")}>
+                        <button
+                          class="stop-btn subagent-stop"
+                          onClick={() => {
+                            const current = detail() as ProjectDetail | null;
+                            if (current && selectedSubagent()) {
+                              interruptSubagent(current.id, selectedSubagent()!);
+                            }
+                          }}
+                        >
                           Stop
                         </button>
                       </div>
