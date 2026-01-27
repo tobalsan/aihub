@@ -14,6 +14,7 @@ export type SubagentListItem = {
   lastActive?: string;
   baseBranch?: string;
   worktreePath?: string;
+  lastError?: string;
 };
 
 export type SubagentLogEvent = {
@@ -194,6 +195,7 @@ export async function listSubagents(
       lastActive: progress?.last_active,
       baseBranch: state?.base_branch,
       worktreePath: state?.worktree_path,
+      lastError: state?.last_error,
     });
   }
 

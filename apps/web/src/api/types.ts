@@ -212,6 +212,7 @@ export type SubagentListItem = {
   lastActive?: string;
   baseBranch?: string;
   worktreePath?: string;
+  lastError?: string;
 };
 
 export type SubagentLogEvent = {

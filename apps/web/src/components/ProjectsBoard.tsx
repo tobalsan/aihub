@@ -547,6 +547,12 @@ export function ProjectsBoard() {
     return subagents().find((item) => item.slug === slug) ?? null;
   });
 
+  const selectedSubagentError = createMemo(() => {
+    const slug = selectedSubagent();
+    if (!slug) return "";
+    return subagents().find((item) => item.slug === slug)?.lastError ?? "";
+  });
+
   const resolvedSessionKey = createMemo(() => {
     const project = detail();
     const agent = selectedRunAgent();
@@ -826,6 +832,13 @@ export function ProjectsBoard() {
     if (!pendingAihubHistoryRefresh()) return;
     refreshAihubHistory(agent.id, sessionKey);
     setPendingAihubHistoryRefresh(false);
+  });
+
+  createEffect(() => {
+    const agent = selectedRunAgent();
+    if (!agent || agent.type !== "cli") return;
+    const err = mainSubagent()?.lastError;
+    if (err) setMainError(err);
   });
 
   createEffect(() => {
@@ -1649,10 +1662,13 @@ export function ProjectsBoard() {
                                 </button>
                               )}
                             </For>
-                            <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
-                              <div class="log-empty">No subagents yet.</div>
-                            </Show>
-                          </div>
+                          <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
+                            <div class="log-empty">No subagents yet.</div>
+                          </Show>
+                        </div>
+                          <Show when={selectedSubagentError()}>
+                            <div class="monitoring-error">{selectedSubagentError()}</div>
+                          </Show>
                           <Show when={selectedSubagent()}>
                             <div class="subagent-logs">
                               <div class="monitoring-tabs">

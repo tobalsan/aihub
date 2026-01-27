@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import os from "node:os";
+import path from "node:path";
 import { execSync } from "node:child_process";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -195,6 +196,10 @@ export function startServer(port?: number, host?: string) {
   const resolvedPort = port ?? config.gateway?.port ?? 4000;
   // host arg > config.gateway.host > resolve from bind > default loopback
   const resolvedHost = host ?? config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
+  const nodeBin = path.dirname(process.execPath);
+  if (nodeBin && !process.env.PATH?.split(path.delimiter).includes(nodeBin)) {
+    process.env.PATH = `${nodeBin}${path.delimiter}${process.env.PATH ?? ""}`;
+  }
 
   console.log(`Starting gateway server on ${resolvedHost}:${resolvedPort}`);
 
