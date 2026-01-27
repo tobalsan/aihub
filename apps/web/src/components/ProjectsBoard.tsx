@@ -1141,7 +1141,7 @@ export function ProjectsBoard() {
       await refetchDetail();
     }
     const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
-    const basePath = project.path.replace(/\/$/, "");
+    const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
     const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
     let prompt = `/drill-specs ${readmePath}`;
     if (status !== "shaping") {
@@ -1191,7 +1191,13 @@ export function ProjectsBoard() {
         onToolCall: (_id, name, args) => {
           setAihubLogs((prev) => [
             ...prev,
-            { ts: formatTimestamp(Date.now()), type: "tool_call", text: `${name}\n${formatJson(args)}` },
+            {
+              tone: "muted",
+              icon: "tool",
+              title: name ? `Tool: ${name}` : "Tool",
+              body: formatJson(args),
+              collapsible: true,
+            },
           ]);
         },
       }

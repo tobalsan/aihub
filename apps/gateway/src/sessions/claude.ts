@@ -63,6 +63,21 @@ export function getClaudeSessionId(
 }
 
 /**
+ * Get Claude SDK session_id without model verification.
+ * Used for history backfill when model is not available.
+ */
+export function getClaudeSessionIdForSession(
+  agentId: string,
+  sessionId: string
+): string | undefined {
+  ensureLoaded();
+  const entry = store[makeKey(agentId, sessionId)];
+  if (!entry) return undefined;
+  if (typeof entry === "string") return entry;
+  return entry.claudeSessionId;
+}
+
+/**
  * Save Claude SDK session_id for an agent session.
  */
 export async function setClaudeSessionId(

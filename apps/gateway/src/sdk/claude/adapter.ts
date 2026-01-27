@@ -1,13 +1,21 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
+import path from "node:path";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { createSubagentMcpServer, SUBAGENT_MCP_SERVER, SUBAGENT_TOOL_NAMES } from "../../subagents/claude_tools.js";
+import { CONFIG_DIR } from "../../config/index.js";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
+
+const DEFAULT_CLAUDE_CONFIG_DIR = path.join(CONFIG_DIR, "sessions");
+
+function ensureClaudeConfigDir() {
+  process.env.CLAUDE_CONFIG_DIR = DEFAULT_CLAUDE_CONFIG_DIR;
+}
 
 type EnvOverrides = {
   base_url?: string;
@@ -79,6 +87,7 @@ export const claudeAdapter: SdkAdapter = {
   },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
+    ensureClaudeConfigDir();
     const envOverrides = getEnvOverrides(params.agent.model);
 
     // Ensure bootstrap files exist (AGENTS.md, SOUL.md, etc.)

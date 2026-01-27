@@ -38,6 +38,7 @@ import {
   getFullHistory as getCanonicalFullHistory,
   hasCanonicalHistory,
   backfillFromPiSession,
+  backfillFromClaudeSessionIfNeeded,
 } from "../history/store.js";
 
 export type RunAgentParams = {
@@ -569,6 +570,7 @@ export async function getSessionHistory(
 ): Promise<SimpleHistoryMessage[]> {
   // One-time backfill from Pi session if canonical doesn't exist
   await backfillFromPiSession(agentId, sessionId);
+  await backfillFromClaudeSessionIfNeeded(agentId, sessionId);
 
   // Try canonical history
   if (await hasCanonicalHistory(agentId, sessionId)) {
@@ -589,6 +591,7 @@ export async function getFullSessionHistory(
 ): Promise<FullHistoryMessage[]> {
   // One-time backfill from Pi session if canonical doesn't exist
   await backfillFromPiSession(agentId, sessionId);
+  await backfillFromClaudeSessionIfNeeded(agentId, sessionId);
 
   // Try canonical history
   if (await hasCanonicalHistory(agentId, sessionId)) {

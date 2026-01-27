@@ -48,33 +48,62 @@ export function parseMarkdownContent(
 
 /**
  * Simple YAML frontmatter parser (handles key: value pairs).
- * Supports strings, numbers, booleans, and simple arrays.
+ * Supports strings, numbers, booleans, and one-level nested maps.
  */
 function parseYamlFrontmatter(yaml: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   const lines = yaml.split(/\r?\n/);
 
-  for (const line of lines) {
+  const parseValue = (rawValue: string): unknown => {
+    const value = rawValue.trim();
+    if (value === "" || value === "~" || value === "null" || value === "[]") {
+      return undefined;
+    }
+    if ((value.startsWith("{") && value.endsWith("}")) || (value.startsWith("[") && value.endsWith("]"))) {
+      try {
+        return JSON.parse(value) as unknown;
+      } catch {
+        // fall through
+      }
+    }
+    if (value === "true") return true;
+    if (value === "false") return false;
+    if (/^-?\d+$/.test(value)) return parseInt(value, 10);
+    if (/^-?\d+\.\d+$/.test(value)) return parseFloat(value);
+    return value.replace(/^["'](.*)["']$/, "$1");
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
     const match = line.match(/^(\w+):\s*(.*)$/);
     if (!match) continue;
 
     const [, key, rawValue] = match;
     const value = rawValue.trim();
 
-    if (value === "" || value === "~" || value === "null" || value === "[]") {
-      result[key] = undefined;
-    } else if (value === "true") {
-      result[key] = true;
-    } else if (value === "false") {
-      result[key] = false;
-    } else if (/^-?\d+$/.test(value)) {
-      result[key] = parseInt(value, 10);
-    } else if (/^-?\d+\.\d+$/.test(value)) {
-      result[key] = parseFloat(value);
-    } else {
-      // Strip quotes if present
-      result[key] = value.replace(/^["'](.*)["']$/, "$1");
+    if (value === "") {
+      const nested: Record<string, unknown> = {};
+      let foundNested = false;
+      let j = i + 1;
+      while (j < lines.length) {
+        const nextLine = lines[j];
+        if (!nextLine.trim()) break;
+        const nestedMatch = nextLine.match(/^\s+(\w+):\s*(.*)$/);
+        if (!nestedMatch) break;
+        foundNested = true;
+        nested[nestedMatch[1]] = parseValue(nestedMatch[2] ?? "");
+        j += 1;
+      }
+      if (foundNested) {
+        result[key] = nested;
+        i = j - 1;
+      } else {
+        result[key] = undefined;
+      }
+      continue;
     }
+
+    result[key] = parseValue(value);
   }
 
   return result;
