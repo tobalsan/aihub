@@ -661,6 +661,7 @@ export function ProjectsBoard() {
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
+  let mainLogPaneRef: HTMLDivElement | undefined;
   let aihubSubscriptionCleanup: (() => void) | null = null;
 
   const ownerOptions = createMemo(() => {
@@ -889,6 +890,7 @@ export function ProjectsBoard() {
     }
     const notes = aihubLocalNotes();
     setAihubLogs(notes.length > 0 ? [...merged, ...notes] : merged);
+    scrollMainLogToBottom();
   };
 
   createEffect(() => {
@@ -1125,6 +1127,14 @@ export function ProjectsBoard() {
     navigate(`/projects/${id}`);
   };
 
+  const scrollMainLogToBottom = () => {
+    if (!mainLogPaneRef) return;
+    requestAnimationFrame(() => {
+      if (!mainLogPaneRef) return;
+      mainLogPaneRef.scrollTop = mainLogPaneRef.scrollHeight;
+    });
+  };
+
   const closeDetail = () => {
     navigate("/projects");
   };
@@ -1165,8 +1175,9 @@ export function ProjectsBoard() {
     setPendingAihubUserMessages((prev) => [...prev, prompt]);
     setAihubLogs((prev) => [
       ...prev,
-      { ts: formatTimestamp(Date.now()), type: "user", text: prompt },
+      { tone: "user", body: prompt },
     ]);
+    scrollMainLogToBottom();
     mainStreamCleanup = streamMessage(
       agent.id,
       prompt,
@@ -1219,8 +1230,9 @@ export function ProjectsBoard() {
     setPendingAihubUserMessages((prev) => [...prev, message]);
     setAihubLogs((prev) => [
       ...prev,
-      { ts: formatTimestamp(Date.now()), type: "user", text: message },
+      { tone: "user", body: message },
     ]);
+    scrollMainLogToBottom();
     mainStreamCleanup = streamMessage(
       agent.id,
       message,
@@ -1793,7 +1805,7 @@ export function ProjectsBoard() {
                           </button>
                         </Show>
                       </div>
-                      <div class="log-pane">
+                      <div class="log-pane" ref={mainLogPaneRef}>
                         <Show when={selectedRunAgent()?.type === "aihub"}>
                           <For each={aihubLogs()}>
                             {(entry) => renderLogItem(entry)}
