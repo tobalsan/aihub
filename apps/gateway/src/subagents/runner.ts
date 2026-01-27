@@ -198,7 +198,7 @@ async function resolveCliCommand(execName: string, args: string[]): Promise<{ co
 function buildArgs(cli: SubagentCli, prompt: string, sessionId: string | undefined): string[] {
   switch (cli) {
     case "claude": {
-      const args = ["-p", prompt, "--output-format", "stream-json", "--dangerously-skip-permissions"];
+      const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"];
       if (sessionId) return ["-r", sessionId, ...args];
       return args;
     }
@@ -305,7 +305,7 @@ export async function spawnSubagent(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "CLI not found" };
   }
-  const child = spawn(resolved.command, resolved.args, { cwd: worktreePath, stdio: ["ignore", "pipe", "ignore"] });
+  const child = spawn(resolved.command, resolved.args, { cwd: worktreePath, stdio: ["ignore", "pipe", "pipe"] });
 
   child.on("error", async () => {
     const finishedAt = new Date().toISOString();
@@ -369,9 +369,26 @@ export async function spawnSubagent(
     }
   });
 
-  child.on("exit", async (code) => {
+  child.stderr?.on("data", async (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return;
+    const stamped = lines
+      .map((line) => JSON.stringify({ type: "stderr", text: line }))
+      .join("\n");
+    await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+    await writeJson(progressPath, { last_active: new Date().toISOString(), tool_calls: 0 });
+  });
+
+  child.on("exit", async (code, signal) => {
     const finishedAt = new Date().toISOString();
     const outcome = code === 0 ? "replied" : "error";
+    const exitMessage =
+      code !== null && code !== 0
+        ? `process exited (code ${code})`
+        : signal
+          ? `process exited (signal ${signal})`
+          : "process exited";
     const data: Record<string, unknown> = {
       run_id: `${Date.now()}`,
       duration_ms: 0,
@@ -379,7 +396,7 @@ export async function spawnSubagent(
       outcome,
     };
     if (outcome === "error") {
-      data.error_message = "process exited";
+      data.error_message = exitMessage;
     }
     await appendHistory(historyPath, {
       ts: finishedAt,
@@ -390,7 +407,7 @@ export async function spawnSubagent(
       try {
         const raw = await fs.readFile(statePath, "utf8");
         const current = JSON.parse(raw) as Record<string, unknown>;
-        current.last_error = "process exited";
+        current.last_error = exitMessage;
         await writeJson(statePath, current);
       } catch {
         // ignore
