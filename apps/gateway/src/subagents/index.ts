@@ -111,7 +111,7 @@ async function readLastOutcome(historyPath: string): Promise<"replied" | "error"
   return null;
 }
 
-function normalizeLogLine(line: string): SubagentLogEvent {
+function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
   const trimmed = line.trimEnd();
   if (!trimmed) {
     return { type: "stdout", text: "" };
@@ -120,6 +120,60 @@ function normalizeLogLine(line: string): SubagentLogEvent {
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
     const topType = typeof parsed.type === "string" ? parsed.type : "";
+    if (topType === "system") {
+      return { type: "skip" };
+    }
+    if (topType === "assistant" || topType === "user") {
+      const message = parsed.message as Record<string, unknown> | undefined;
+      const role = typeof message?.role === "string" ? message.role : topType;
+      const content = Array.isArray(message?.content) ? message?.content : [];
+      const events: SubagentLogEvent[] = [];
+      for (const entry of content) {
+        if (!entry || typeof entry !== "object") continue;
+        const item = entry as Record<string, unknown>;
+        const itemType = typeof item.type === "string" ? item.type : "";
+        if (itemType === "text" || itemType === "input_text" || itemType === "output_text") {
+          const text = typeof item.text === "string" ? item.text : "";
+          if (text) {
+            events.push({ type: role === "assistant" ? "assistant" : "user", text });
+          }
+          continue;
+        }
+        if (itemType === "tool_use") {
+          const name = typeof item.name === "string" ? item.name : "";
+          const id = typeof item.id === "string" ? item.id : "";
+          const input = item.input as Record<string, unknown> | undefined;
+          const text = input ? JSON.stringify(input) : "";
+          events.push({ type: "tool_call", text, tool: { name, id } });
+          continue;
+        }
+        if (itemType === "tool_result") {
+          const toolId = typeof item.tool_use_id === "string" ? item.tool_use_id : "";
+          let text = "";
+          if (typeof item.content === "string") {
+            text = item.content;
+          } else if (Array.isArray(item.content)) {
+            text = item.content
+              .map((block) => {
+                if (!block || typeof block !== "object") return "";
+                const contentItem = block as Record<string, unknown>;
+                return typeof contentItem.text === "string" ? contentItem.text : "";
+              })
+              .filter(Boolean)
+              .join("\n");
+          }
+          if (text) {
+            events.push({ type: "tool_output", text, tool: { id: toolId } });
+          }
+          continue;
+        }
+      }
+      return events.length > 0 ? events : { type: "skip" };
+    }
+    if (topType === "result") {
+      const text = typeof parsed.result === "string" ? parsed.result : "";
+      return text ? { type: "assistant", text } : { type: "skip" };
+    }
     if (
       topType === "session_meta" ||
       topType === "turn_context" ||
@@ -345,7 +399,15 @@ export async function getSubagentLogs(
   const slice = buffer.subarray(Math.max(0, since));
   const text = slice.toString("utf8");
   const lines = text.split(/\r?\n/).filter((line) => line.length > 0);
-  const events = lines.map((line) => normalizeLogLine(line));
+  const events: SubagentLogEvent[] = [];
+  for (const line of lines) {
+    const normalized = normalizeLogLine(line);
+    if (Array.isArray(normalized)) {
+      events.push(...normalized);
+    } else if (normalized.type !== "skip") {
+      events.push(normalized);
+    }
+  }
 
   return { ok: true, data: { cursor: size, events } };
 }

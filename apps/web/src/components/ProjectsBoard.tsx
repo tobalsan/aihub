@@ -361,6 +361,18 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         if (toolId) skipOutputs.add(toolId);
         continue;
       }
+      if (toolKey === "edit" || toolKey === "notebookedit") {
+        const body = output?.text ?? event.text ?? "";
+        entries.push({
+          tone: "muted",
+          icon: "write",
+          title: toolName || "edit",
+          body: body || formatJson(args ?? {}),
+          collapsible: true,
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
       entries.push({
         tone: "muted",
         icon: "tool",
