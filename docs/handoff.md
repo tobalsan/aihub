@@ -146,6 +146,13 @@ Kanban UI details:
 - New: `docs/agent_interfacing_specs.md`
 
 ## Commits
+- `feat(web): persist column collapse state`
+- `feat(web): add new session button for monitoring`
+- `fix(web): show aihub messages immediately`
+- `fix(web): disable stop when idle`
+- `fix(web): align project meta row and panel sizing`
+- `fix(gateway): show cli stderr and enable claude stream-json`
+- `fix(web): format claude cli logs`
 - `feat(projects): add projects API and tests`
 - `fix(projects): store created timestamp`
 - `docs(projects): document projects API`
@@ -170,6 +177,12 @@ Kanban UI details:
 
 ## Known Issues / Notes
 - Claude SDK runs in Projects monitoring UI can show duplicated/garbled live logs because both local streaming and subscription events update the same live buffer. Fixed by ignoring subscription callbacks while a local stream is active (`apps/web/src/components/ProjectsBoard.tsx`).
+- Projects board: column collapse state persisted to localStorage (`aihub:projects:expanded-columns`).
+- Projects monitoring: AIHub runs now have a "New" button to reset sessionKey; Start returns after reset.
+- Projects monitoring: AIHub user messages show immediately, log auto-scrolls on send/history refresh and when re-expanding main pane.
+- Projects monitoring: Stop button disabled when idle; subagent stop disabled unless running.
+- Projects detail overlay: meta row aligned and panels fit container (overlay-content flex sizing).
+- CLI monitoring: stderr lines streamed into logs; Claude CLI uses `--verbose` for stream-json; Claude stream-json logs are now normalized into user/assistant/tool call/output entries with tool grouping.
 - If gateway running old build, API schema might still require domain/owner/executionMode/appetite. Rebuild shared + gateway, restart.
   - `pnpm --filter @aihub/shared build`
   - `pnpm --filter @aihub/gateway build`
