@@ -697,6 +697,11 @@ export function ProjectsBoard() {
     return subagents().find((item) => item.slug === slug) ?? null;
   });
 
+  const isMonitoringHidden = createMemo(() => {
+    const status = detailStatus();
+    return status === "not_now" || status === "maybe";
+  });
+
   const selectedSubagentError = createMemo(() => {
     const slug = selectedSubagent();
     if (!slug) return "";
@@ -1613,103 +1618,106 @@ export function ProjectsBoard() {
                       </div>
                     </Show>
                   </div>
-                  <Show when={detailStatus() !== "shaping"}>
+                  <Show when={!isMonitoringHidden()}>
+                    <Show when={detailStatus() !== "shaping"}>
+                      <div class="meta-field">
+                        <button
+                          class="meta-button"
+                          onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
+                        >
+                          <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 6h16M8 6v12M16 12v6" />
+                          </svg>
+                          {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
+                        </button>
+                        <Show when={openMenu() === "mode"}>
+                          <div class="meta-menu">
+                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "")}>unset</button>
+                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "manual")}>manual</button>
+                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "exploratory")}>exploratory</button>
+                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "auto")}>auto</button>
+                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "full_auto")}>full auto</button>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
                     <div class="meta-field">
-                      <button
-                        class="meta-button"
-                        onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
-                      >
-                        <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M4 6h16M8 6v12M16 12v6" />
-                        </svg>
-                        {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
-                      </button>
-                      <Show when={openMenu() === "mode"}>
-                        <div class="meta-menu">
-                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "")}>unset</button>
-                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "manual")}>manual</button>
-                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "exploratory")}>exploratory</button>
-                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "auto")}>auto</button>
-                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "full_auto")}>full auto</button>
-                        </div>
-                      </Show>
-                    </div>
-                  </Show>
-                  <div class="meta-field">
-                    <label class="meta-label">Agent</label>
-                    <select
-                      class="meta-select"
-                      value={detailRunAgent()}
-                      onChange={(e) => handleRunAgentChange(params.id ?? "", e.currentTarget.value)}
-                    >
-                      <For each={runAgentOptions()}>
-                        {(opt) => (
-                          <option value={opt.id}>{opt.label}</option>
-                        )}
-                      </For>
-                    </select>
-                  </div>
-                  <Show when={selectedRunAgent()?.type === "cli"}>
-                    <div class="meta-field">
-                      <label class="meta-label">Run mode</label>
+                      <label class="meta-label">Agent</label>
                       <select
                         class="meta-select"
-                        value={detailRunMode()}
-                        onChange={(e) => handleRunModeChange(params.id ?? "", e.currentTarget.value)}
+                        value={detailRunAgent()}
+                        onChange={(e) => handleRunAgentChange(params.id ?? "", e.currentTarget.value)}
                       >
-                        <option value="main-run">main-run</option>
-                        <option value="worktree">worktree</option>
-                      </select>
-                    </div>
-                  </Show>
-                  <Show when={detailDomain() === "coding" && selectedRunAgent()?.type === "cli"}>
-                    <div class="meta-field meta-field-wide">
-                      <label class="meta-label">Repo</label>
-                      <input
-                        class="meta-input"
-                        value={detailRepo()}
-                        onInput={(e) => setDetailRepo(e.currentTarget.value)}
-                        onBlur={() => handleRepoSave(params.id ?? "")}
-                        placeholder="/abs/path/to/repo"
-                      />
-                    </div>
-                  </Show>
-                  <Show when={selectedRunAgent()?.type === "cli"}>
-                    <div class="meta-field">
-                      <label class="meta-label">Base branch</label>
-                      <select
-                        class="meta-select"
-                        value={detailBranch()}
-                        onChange={(e) => setDetailBranch(e.currentTarget.value)}
-                        disabled={branches().length === 0}
-                      >
-                        <For each={branches().length > 0 ? branches() : ["main"]}>
-                          {(branch) => <option value={branch}>{branch}</option>}
+                        <For each={runAgentOptions()}>
+                          {(opt) => (
+                            <option value={opt.id}>{opt.label}</option>
+                          )}
                         </For>
                       </select>
                     </div>
-                  </Show>
-                  <Show when={selectedRunAgent()?.type === "cli" && detailRunMode() === "worktree"}>
-                    <div class="meta-field">
-                      <label class="meta-label">Slug</label>
-                      <input
-                        class="meta-input"
-                        value={detailSlug()}
-                        onInput={(e) => setDetailSlug(e.currentTarget.value)}
-                        placeholder="short-slug"
-                      />
-                    </div>
+                    <Show when={selectedRunAgent()?.type === "cli"}>
+                      <div class="meta-field">
+                        <label class="meta-label">Run mode</label>
+                        <select
+                          class="meta-select"
+                          value={detailRunMode()}
+                          onChange={(e) => handleRunModeChange(params.id ?? "", e.currentTarget.value)}
+                        >
+                          <option value="main-run">main-run</option>
+                          <option value="worktree">worktree</option>
+                        </select>
+                      </div>
+                    </Show>
+                    <Show when={detailDomain() === "coding" && selectedRunAgent()?.type === "cli"}>
+                      <div class="meta-field meta-field-wide">
+                        <label class="meta-label">Repo</label>
+                        <input
+                          class="meta-input"
+                          value={detailRepo()}
+                          onInput={(e) => setDetailRepo(e.currentTarget.value)}
+                          onBlur={() => handleRepoSave(params.id ?? "")}
+                          placeholder="/abs/path/to/repo"
+                        />
+                      </div>
+                    </Show>
+                    <Show when={selectedRunAgent()?.type === "cli"}>
+                      <div class="meta-field">
+                        <label class="meta-label">Base branch</label>
+                        <select
+                          class="meta-select"
+                          value={detailBranch()}
+                          onChange={(e) => setDetailBranch(e.currentTarget.value)}
+                          disabled={branches().length === 0}
+                        >
+                          <For each={branches().length > 0 ? branches() : ["main"]}>
+                            {(branch) => <option value={branch}>{branch}</option>}
+                          </For>
+                        </select>
+                      </div>
+                    </Show>
+                    <Show when={selectedRunAgent()?.type === "cli" && detailRunMode() === "worktree"}>
+                      <div class="meta-field">
+                        <label class="meta-label">Slug</label>
+                        <input
+                          class="meta-input"
+                          value={detailSlug()}
+                          onInput={(e) => setDetailSlug(e.currentTarget.value)}
+                          placeholder="short-slug"
+                        />
+                      </div>
+                    </Show>
                   </Show>
                 </div>
-                <div
-                  class={`monitoring-columns ${
-                    detailDomain() === "coding"
-                      ? subagentsExpanded()
-                        ? "subagents-only"
-                        : "split"
-                      : "main-only"
-                  }`}
-                >
+                <Show when={!isMonitoringHidden()}>
+                  <div
+                    class={`monitoring-columns ${
+                      detailDomain() === "coding"
+                        ? subagentsExpanded()
+                          ? "subagents-only"
+                          : "split"
+                        : "main-only"
+                    }`}
+                  >
                   <Show when={detailDomain() === "coding" && subagentsExpanded()}>
                     <button
                       class="main-toggle-rail"
@@ -1961,7 +1969,8 @@ export function ProjectsBoard() {
                       </Show>
                     </div>
                   </Show>
-                </div>
+                  </div>
+                </Show>
               </div>
             </div>
           </div>
