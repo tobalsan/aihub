@@ -2251,7 +2251,8 @@ export function ProjectsBoard() {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 16px;
-          height: 100%;
+          flex: 1;
+          min-height: 0;
         }
 
         .detail,
@@ -2264,6 +2265,7 @@ export function ProjectsBoard() {
           display: flex;
           flex-direction: column;
           gap: 12px;
+          min-height: 0;
         }
 
         .detail-actions {
@@ -2291,6 +2293,7 @@ export function ProjectsBoard() {
           color: #9aa3b2;
           text-transform: uppercase;
           letter-spacing: 0.08em;
+          align-items: center;
         }
 
         .meta-chip {
@@ -2301,6 +2304,8 @@ export function ProjectsBoard() {
 
         .meta-field {
           position: relative;
+          display: inline-flex;
+          align-items: center;
         }
 
         .meta-button {
