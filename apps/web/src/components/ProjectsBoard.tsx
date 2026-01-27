@@ -1130,14 +1130,20 @@ export function ProjectsBoard() {
       await updateProject(project.id, { sessionKeys: nextKeys, runAgent: detailRunAgent() });
       await refetchDetail();
     }
-    const summary = buildProjectSummary(
-      project.title,
-      getFrontmatterString(project.frontmatter, "status") ?? "",
-      project.path,
-      project.content
-    );
-    const basePrompt = buildStartPrompt(summary);
-    const prompt = customPrompt ? `${basePrompt}\n\n${customPrompt}` : basePrompt;
+    const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
+    const basePath = project.path.replace(/\/$/, "");
+    const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
+    let prompt = `/drill-specs ${readmePath}`;
+    if (status !== "shaping") {
+      const summary = buildProjectSummary(
+        project.title,
+        getFrontmatterString(project.frontmatter, "status") ?? "",
+        project.path,
+        project.content
+      );
+      const basePrompt = buildStartPrompt(summary);
+      prompt = customPrompt ? `${basePrompt}\n\n${customPrompt}` : basePrompt;
+    }
     setMainError("");
     setAihubLogs([]);
     setAihubLive("");
@@ -1254,6 +1260,13 @@ export function ProjectsBoard() {
     }
     if (detailRunAgent()) {
       await updateProject(project.id, { runAgent: detailRunAgent(), runMode: detailRunMode() });
+    }
+    const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
+    if (status === "shaping") {
+      const basePath = project.path.replace(/\/$/, "");
+      const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
+      await runCli(project, `/drill-specs ${readmePath}`, false);
+      return;
     }
     const summary = buildProjectSummary(
       project.title,
@@ -1526,26 +1539,28 @@ export function ProjectsBoard() {
                       </div>
                     </Show>
                   </div>
-                  <div class="meta-field">
-                    <button
-                      class="meta-button"
-                      onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
-                    >
-                      <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M4 6h16M8 6v12M16 12v6" />
-                      </svg>
-                      {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
-                    </button>
-                    <Show when={openMenu() === "mode"}>
-                      <div class="meta-menu">
-                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "")}>unset</button>
-                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "manual")}>manual</button>
-                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "exploratory")}>exploratory</button>
-                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "auto")}>auto</button>
-                        <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "full_auto")}>full auto</button>
-                      </div>
-                    </Show>
-                  </div>
+                  <Show when={detailStatus() !== "shaping"}>
+                    <div class="meta-field">
+                      <button
+                        class="meta-button"
+                        onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
+                      >
+                        <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M4 6h16M8 6v12M16 12v6" />
+                        </svg>
+                        {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
+                      </button>
+                      <Show when={openMenu() === "mode"}>
+                        <div class="meta-menu">
+                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "")}>unset</button>
+                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "manual")}>manual</button>
+                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "exploratory")}>exploratory</button>
+                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "auto")}>auto</button>
+                          <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "full_auto")}>full auto</button>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
                   <div class="meta-field">
                     <label class="meta-label">Agent</label>
                     <select
