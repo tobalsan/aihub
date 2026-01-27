@@ -169,6 +169,7 @@ Kanban UI details:
 - `fix(gateway): expand ~ for branches`
 
 ## Known Issues / Notes
+- Claude SDK runs in Projects monitoring UI can show duplicated/garbled live logs because both local streaming and subscription events update the same live buffer. Fixed by ignoring subscription callbacks while a local stream is active (`apps/web/src/components/ProjectsBoard.tsx`).
 - If gateway running old build, API schema might still require domain/owner/executionMode/appetite. Rebuild shared + gateway, restart.
   - `pnpm --filter @aihub/shared build`
   - `pnpm --filter @aihub/gateway build`
