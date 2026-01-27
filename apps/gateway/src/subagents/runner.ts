@@ -306,6 +306,15 @@ export async function spawnSubagent(
   }
   const child = spawn(resolved.command, resolved.args, { cwd: worktreePath, stdio: ["ignore", "pipe", "ignore"] });
 
+  child.on("error", async () => {
+    const finishedAt = new Date().toISOString();
+    await appendHistory(historyPath, {
+      ts: finishedAt,
+      type: "worker.finished",
+      data: { run_id: `${Date.now()}`, outcome: "error", error_message: "spawn failed" },
+    });
+  });
+
   const startedAt = new Date().toISOString();
   const state = {
     session_id: existingSessionId ?? "",
@@ -379,15 +388,6 @@ export async function spawnSubagent(
         // ignore
       }
     }
-  });
-
-  child.on("error", async () => {
-    const finishedAt = new Date().toISOString();
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data: { run_id: `${Date.now()}`, outcome: "error", error_message: "spawn failed" },
-    });
   });
 
   return { ok: true, data: { slug: input.slug } };
