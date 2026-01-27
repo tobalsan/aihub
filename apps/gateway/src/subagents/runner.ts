@@ -331,6 +331,13 @@ export async function spawnSubagent(
   await writeJson(statePath, state);
   await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
   await fs.appendFile(logsPath, "", "utf8");
+  if (input.prompt.trim().length > 0) {
+    const userLine = JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: input.prompt },
+    });
+    await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
+  }
   await appendHistory(historyPath, {
     ts: startedAt,
     type: "worker.started",
