@@ -937,10 +937,12 @@ export function ProjectsBoard() {
     }
     aihubSubscriptionCleanup = subscribeToSession(agent.id, sessionKey, {
       onText: (text) => {
+        if (mainStreamCleanup) return;
         setAihubStreaming(true);
         setAihubLive((prev) => prev + text);
       },
       onToolCall: (_id, name, args) => {
+        if (mainStreamCleanup) return;
         setAihubStreaming(true);
         setAihubLogs((prev) => [
           ...prev,
@@ -948,12 +950,15 @@ export function ProjectsBoard() {
         ]);
       },
       onToolStart: () => {
+        if (mainStreamCleanup) return;
         setAihubStreaming(true);
       },
       onToolEnd: () => {
+        if (mainStreamCleanup) return;
         setAihubStreaming(true);
       },
       onDone: () => {
+        if (mainStreamCleanup) return;
         setAihubStreaming(false);
         setAihubLive("");
         refreshAihubHistory(agent.id, sessionKey);
