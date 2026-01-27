@@ -11,6 +11,7 @@ export type ProjectListItem = {
   id: string;
   title: string;
   path: string;
+  absolutePath: string;
   frontmatter: Record<string, unknown>;
 };
 
@@ -18,6 +19,7 @@ export type ProjectDetail = {
   id: string;
   title: string;
   path: string;
+  absolutePath: string;
   frontmatter: Record<string, unknown>;
   content: string;
 };
@@ -150,6 +152,7 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
         id,
         title: resolvedTitle,
         path: dirName,
+        absolutePath: path.join(root, dirName),
         frontmatter: { ...frontmatter, id, title: resolvedTitle },
       });
     } catch {
@@ -181,6 +184,7 @@ export async function getProject(
       id: resolvedId,
       title: resolvedTitle,
       path: dirName,
+      absolutePath: path.join(root, dirName),
       frontmatter: { ...frontmatter, id: resolvedId, title: resolvedTitle },
       content,
     },
@@ -221,6 +225,7 @@ export async function createProject(
       id,
       title: input.title,
       path: dirName,
+      absolutePath: dirPath,
       frontmatter,
       content,
     },
@@ -297,6 +302,7 @@ export async function updateProject(
       id,
       title: nextTitle,
       path: finalDirName,
+      absolutePath: path.join(root, finalDirName),
       frontmatter: nextFrontmatter,
       content: nextContent,
     },

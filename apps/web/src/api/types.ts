@@ -177,6 +177,7 @@ export type ProjectListItem = {
   id: string;
   title: string;
   path: string;
+  absolutePath: string;
   frontmatter: Record<string, unknown>;
 };
 
@@ -184,6 +185,7 @@ export type ProjectDetail = {
   id: string;
   title: string;
   path: string;
+  absolutePath: string;
   frontmatter: Record<string, unknown>;
   content: string;
 };

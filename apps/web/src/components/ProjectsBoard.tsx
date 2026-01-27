@@ -1413,10 +1413,22 @@ export function ProjectsBoard() {
               <Show when={detail()}>
                 {(data) => {
                   const project = data() as ProjectDetail;
+                  const [copied, setCopied] = createSignal(false);
                   return (
                     <>
                       <div class="title-block">
-                        <span class="id-pill">{project.id}</span>
+                        <span
+                          class="id-pill"
+                          classList={{ copied: copied() }}
+                          onClick={() => {
+                            navigator.clipboard.writeText(project.absolutePath);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 600);
+                          }}
+                          title="Click to copy project path"
+                        >
+                          {project.id}
+                        </span>
                         <h2>{project.title}</h2>
                       </div>
                     </>
@@ -2147,6 +2159,20 @@ export function ProjectsBoard() {
           text-transform: uppercase;
           padding: 6px 10px;
           border-radius: 999px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .id-pill:hover {
+          background: #1a2330;
+          border-color: #3a4250;
+          color: #b0b8c6;
+        }
+
+        .id-pill.copied {
+          background: #2a4a3a;
+          border-color: #4a7a5a;
+          color: #a0e0b0;
         }
 
         .overlay-content {
