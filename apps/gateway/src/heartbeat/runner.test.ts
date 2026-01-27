@@ -1297,8 +1297,8 @@ describe("heartbeat lifecycle", () => {
 
     it("toggle can be flipped at runtime and affects all agents", async () => {
       const agents = [
-        { id: "agent-1", heartbeat: { every: "1m" }, discord: { broadcastToChannel: "ch1" }, workspace: "/t1" },
-        { id: "agent-2", heartbeat: { every: "1m" }, discord: { broadcastToChannel: "ch2" }, workspace: "/t2" },
+        { id: "agent-1", heartbeat: { every: "1m", prompt: "ping" }, discord: { broadcastToChannel: "ch1" }, workspace: "/t1" },
+        { id: "agent-2", heartbeat: { every: "1m", prompt: "ping" }, discord: { broadcastToChannel: "ch2" }, workspace: "/t2" },
       ];
       mockLoadConfig.mockReturnValue({ agents });
       mockGetAgent.mockImplementation((id: string) => agents.find((a) => a.id === id));
