@@ -77,18 +77,23 @@ function formatCreated(raw?: string): string {
   return date.toLocaleString();
 }
 
+
 function formatCreatedRelative(raw?: string): string {
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
-  const diffMs = Date.now() - date.getTime();
-  const days = Math.max(0, Math.floor(diffMs / 86400000));
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const created = new Date(date);
+  created.setHours(0, 0, 0, 0);
+  
+  const days = Math.floor((today.getTime() - created.getTime()) / 86400000);
   if (days === 0) return "Created today";
   if (days === 1) return "Created yesterday";
   if (days === 7) return "Created last week";
   return `Created ${days} days ago`;
 }
-
 function renderMarkdown(content: string): string {
   const stripped = content
     .replace(/^\s*---[\s\S]*?\n---\s*\n?/, "")
