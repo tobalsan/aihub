@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-26
+Date: 2026-01-27
 Repo: `/Users/thinh/code/aihub`
 
 ## Initial Context
@@ -47,6 +47,9 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Main CLI worktree branch: `PRO-<id>/<slug>`; slug required for worktree, collision errors.
 - Base branch selection per run (default main), not persisted.
 - Monitoring pane defaults to `Project Manager` when `runAgent` missing and project status = shaping.
+- Shaping runs use `/drill-specs <README.md>` as the start prompt (AIHub + CLI). Execution mode selector hidden when status = shaping.
+- CLI runs add safety bypass flags: codex `--dangerously-bypass-approvals-and-sandbox`, claude `--dangerously-skip-permissions`.
+- Branch listing and repo handling expand `~` to home in gateway.
 
 ## Implemented
 ### 1) Projects API (Gateway)
@@ -135,6 +138,8 @@ Kanban UI details:
   - `apps/web/src/api/types.ts`
 - Prompt helpers: `apps/web/src/components/projectMonitoring.ts`
 - Tests: `apps/web/src/api/client.test.ts`, `apps/web/src/components/projectMonitoring.test.ts`
+- CLI logs (Codex JSONL) parsed into UI-friendly events; tool calls/output grouped like AIHub.
+- Monitoring list now surfaces subagent error state (last_error).
 
 ### 9) Docs
 - New: `docs/agent_interfacing_decisions.md`
@@ -155,6 +160,13 @@ Kanban UI details:
 - `fix(gateway): align subagent tool typings`
 - `feat(web): revamp monitoring logs`
 - `style(web): refine project markdown links`
+- `feat: format codex cli logs`
+- `feat(gateway): bypass cli approvals`
+- `feat(web): shaping drill-specs start`
+- `fix(web): surface subagent errors`
+- `fix(gateway): expand repo path for subagent runs`
+- `fix(gateway): handle cli spawn errors early`
+- `fix(gateway): expand ~ for branches`
 
 ## Known Issues / Notes
 - If gateway running old build, API schema might still require domain/owner/executionMode/appetite. Rebuild shared + gateway, restart.
@@ -165,6 +177,7 @@ Kanban UI details:
   - AIHub runs: logs derived from full history; diffs only for CLI runs.
   - CLI runs: main-run uses slug `main`, worktree uses slug input.
   - Start prompt uses project summary + subagent tool doc for both AIHub/CLI; optional custom prompt appended (not persisted).
+  - Shaping runs: `/drill-specs <README.md>` start prompt; execution mode hidden.
   - Main/subagent panes are mutually exclusive; collapsed vertical bar toggles between them.
   - Session input: Enter sends, Shift+Enter newline; auto-expands up to 10 lines.
   - Log UI: single-column, color-coded by role; tool calls collapsed by default with icons; read/write/bash grouped with output; expanded content has darker background; no timestamps.
