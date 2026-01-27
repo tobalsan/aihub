@@ -153,10 +153,16 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
         if (block.type === "text" && block.text) {
           entries.push({ tone: "assistant", body: block.text });
         } else if (block.type === "toolCall") {
-          const toolName = block.name;
+          const toolName = block.name ?? "";
+          const toolKey = toolName.toLowerCase();
           const args = block.arguments as Record<string, unknown>;
-  if (toolName === "read") {
-            const path = typeof args?.path === "string" ? args.path : "";
+          if (toolKey === "read") {
+            const path =
+              typeof args?.path === "string"
+                ? args.path
+                : typeof args?.file_path === "string"
+                  ? args.file_path
+                  : "";
             const output = toolResults.get(block.id);
             const body = output ? getTextBlocks(output.content) : "";
             entries.push({
@@ -169,12 +175,15 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             skipResults.add(block.id);
             continue;
           }
-          if (toolName === "bash") {
+          if (toolKey === "bash") {
             const command = typeof args?.command === "string" ? args.command : "";
             const params = typeof args?.args === "string" ? args.args : "";
+            const description = typeof args?.description === "string" ? args.description : "";
             const output = toolResults.get(block.id);
             const body = output ? getTextBlocks(output.content) : "";
-            const summary = ["Bash", command, params].filter((part) => part.trim()).join(" ");
+            const summary = ["Bash", command, params, description]
+              .filter((part) => part.trim())
+              .join(" ");
             entries.push({
               tone: "muted",
               icon: "bash",
@@ -185,8 +194,13 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             skipResults.add(block.id);
             continue;
           }
-          if (toolName === "write") {
-            const path = typeof args?.path === "string" ? args.path : "";
+          if (toolKey === "write") {
+            const path =
+              typeof args?.path === "string"
+                ? args.path
+                : typeof args?.file_path === "string"
+                  ? args.file_path
+                  : "";
             const content = typeof args?.content === "string" ? args.content : "";
             entries.push({
               tone: "muted",
@@ -198,13 +212,16 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             skipResults.add(block.id);
             continue;
           }
+          const output = toolResults.get(block.id);
+          const outputText = output ? getTextBlocks(output.content) : "";
           entries.push({
             tone: "muted",
             icon: "tool",
             title: `Tool: ${toolName}`,
-            body: formatJson(block.arguments),
+            body: outputText || formatJson(block.arguments),
             collapsible: true,
           });
+          if (output) skipResults.add(block.id);
         }
       }
       continue;
