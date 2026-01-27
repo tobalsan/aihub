@@ -198,7 +198,7 @@ async function resolveCliCommand(execName: string, args: string[]): Promise<{ co
 function buildArgs(cli: SubagentCli, prompt: string, sessionId: string | undefined): string[] {
   switch (cli) {
     case "claude": {
-      const args = ["-p", prompt, "--output-format", "stream-json"];
+      const args = ["-p", prompt, "--output-format", "stream-json", "--dangerously-skip-permissions"];
       if (sessionId) return ["-r", sessionId, ...args];
       return args;
     }
@@ -212,8 +212,9 @@ function buildArgs(cli: SubagentCli, prompt: string, sessionId: string | undefin
       return ["-p", prompt, "--output-format", "stream-json"];
     }
     case "codex": {
-      if (sessionId) return ["exec", "--json", "resume", sessionId, prompt];
-      return ["exec", "--json", prompt];
+      const base = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox"];
+      if (sessionId) return [...base, "resume", sessionId, prompt];
+      return [...base, prompt];
     }
   }
 }
