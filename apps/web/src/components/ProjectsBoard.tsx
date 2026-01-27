@@ -38,6 +38,34 @@ const CLI_OPTIONS = [
   { id: "cli:gemini", label: "Gemini CLI", cli: "gemini" },
 ];
 
+const COLUMN_STORAGE_KEY = "aihub:projects:expanded-columns";
+const COLUMN_IDS = new Set(COLUMNS.map((col) => col.id));
+
+function normalizeExpanded(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const next: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    if (!COLUMN_IDS.has(entry) || seen.has(entry)) continue;
+    seen.add(entry);
+    next.push(entry);
+    if (next.length >= 2) break;
+  }
+  return next;
+}
+
+function readExpandedFromStorage(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+    if (!raw) return [];
+    return normalizeExpanded(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
 function getFrontmatterString(
   frontmatter: Record<string, unknown> | undefined,
   key: string
@@ -635,7 +663,7 @@ export function ProjectsBoard() {
     () => params.id,
     async (id) => (id ? fetchProject(id) : null)
   );
-  const [expanded, setExpanded] = createSignal<string[]>([]);
+  const [expanded, setExpanded] = createSignal<string[]>(readExpandedFromStorage());
   const [detailStatus, setDetailStatus] = createSignal("maybe");
   const [detailDomain, setDetailDomain] = createSignal("");
   const [detailOwner, setDetailOwner] = createSignal("");
@@ -791,6 +819,13 @@ export function ProjectsBoard() {
       items.some((item) => getStatus(item) === col.id)
     ).map((col) => col.id);
     setExpanded(withItems.slice(0, 2).length > 0 ? withItems.slice(0, 2) : COLUMNS.slice(0, 2).map((col) => col.id));
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    const value = expanded();
+    if (value.length === 0) return;
+    localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(value));
   });
 
   createEffect(() => {
