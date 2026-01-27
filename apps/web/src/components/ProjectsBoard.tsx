@@ -253,6 +253,150 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   return entries;
 }
 
+function parseToolArgs(raw: string): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
+  const entries: LogItem[] = [];
+  const toolOutputs = new Map<string, SubagentLogEvent>();
+  for (const event of events) {
+    if (event.type === "tool_output" && event.tool?.id) {
+      toolOutputs.set(event.tool.id, event);
+    }
+  }
+  const skipOutputs = new Set<string>();
+
+  for (const event of events) {
+    if (event.type === "skip") continue;
+    if (event.type === "user") {
+      if (event.text) entries.push({ tone: "user", body: event.text });
+      continue;
+    }
+    if (event.type === "assistant") {
+      if (event.text) entries.push({ tone: "assistant", body: event.text });
+      continue;
+    }
+    if (event.type === "tool_call") {
+      const toolId = event.tool?.id ?? "";
+      const output = toolId ? toolOutputs.get(toolId) : undefined;
+      const toolName = (event.tool?.name ?? "").trim();
+      const toolKey = toolName.toLowerCase();
+      const args = parseToolArgs(event.text ?? "");
+      if (toolKey === "exec_command" || toolKey === "bash") {
+        const command =
+          typeof args?.cmd === "string"
+            ? args.cmd
+            : typeof args?.command === "string"
+              ? args.command
+              : "";
+        const summary = ["Bash", command].filter((part) => part.trim()).join(" ");
+        const body = output?.text ?? "";
+        entries.push({
+          tone: "muted",
+          icon: "bash",
+          title: summary || "Bash",
+          body: body || formatJson(args ?? {}),
+          collapsible: true,
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
+      if (toolKey === "read" || toolKey === "read_file") {
+        const path =
+          typeof args?.path === "string"
+            ? args.path
+            : typeof args?.file_path === "string"
+              ? args.file_path
+              : "";
+        const body = output?.text ?? "";
+        entries.push({
+          tone: "muted",
+          icon: "read",
+          title: `read ${path}`.trim(),
+          body: body || "",
+          collapsible: true,
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
+      if (toolKey === "write" || toolKey === "write_file") {
+        const path =
+          typeof args?.path === "string"
+            ? args.path
+            : typeof args?.file_path === "string"
+              ? args.file_path
+              : "";
+        const content = typeof args?.content === "string" ? args.content : event.text ?? "";
+        entries.push({
+          tone: "muted",
+          icon: "write",
+          title: `write ${path}`.trim(),
+          body: content,
+          collapsible: true,
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
+      if (toolKey === "apply_patch") {
+        const body = output?.text ? `${event.text ?? ""}\n\n${output.text}`.trim() : event.text ?? "";
+        entries.push({
+          tone: "muted",
+          icon: "write",
+          title: "apply_patch",
+          body,
+          collapsible: true,
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
+      entries.push({
+        tone: "muted",
+        icon: "tool",
+        title: toolName ? `Tool: ${toolName}` : "Tool",
+        body: output?.text || event.text || "",
+        collapsible: true,
+      });
+      if (toolId) skipOutputs.add(toolId);
+      continue;
+    }
+    if (event.type === "tool_output") {
+      if (event.tool?.id && skipOutputs.has(event.tool.id)) continue;
+      if (event.text) {
+        entries.push({
+          tone: "muted",
+          icon: "output",
+          title: "Tool output",
+          body: event.text,
+          collapsible: event.text.length > 80,
+        });
+      }
+      continue;
+    }
+    if (event.type === "diff" && event.text) {
+      entries.push({
+        tone: "muted",
+        icon: "diff",
+        title: "Diff",
+        body: event.text,
+        collapsible: true,
+      });
+      continue;
+    }
+    if (event.text) {
+      entries.push(toLogItem(event));
+    }
+  }
+
+  return entries;
+}
+
 function extractUserTexts(messages: FullHistoryMessage[]): string[] {
   const texts: string[] = [];
   for (const msg of messages) {
@@ -586,6 +730,11 @@ export function ProjectsBoard() {
     }
     return mainSubagent()?.status ?? "idle";
   });
+
+  const cliLogItems = createMemo(() => buildCliLogs(mainLogs()));
+  const cliDiffItems = createMemo(() => buildCliLogs(mainLogs().filter((ev) => ev.type === "diff")));
+  const subagentLogItems = createMemo(() => buildCliLogs(subagentLogs()));
+  const subagentDiffItems = createMemo(() => buildCliLogs(subagentLogs().filter((ev) => ev.type === "diff")));
 
   const grouped = createMemo(() => {
     const items = projects() ?? [];
@@ -1579,14 +1728,8 @@ export function ProjectsBoard() {
                           </Show>
                         </Show>
                         <Show when={selectedRunAgent()?.type === "cli"}>
-                          <For
-                            each={
-                              mainTab() === "diffs"
-                                ? mainLogs().filter((ev) => ev.type === "diff")
-                                : mainLogs()
-                            }
-                          >
-                            {(entry) => renderLogItem(toLogItem(entry))}
+                          <For each={mainTab() === "diffs" ? cliDiffItems() : cliLogItems()}>
+                            {(entry) => renderLogItem(entry)}
                           </For>
                         </Show>
                         <Show when={selectedRunAgent()?.type === "cli" && mainLogs().length === 0}>
@@ -1686,14 +1829,8 @@ export function ProjectsBoard() {
                                 </button>
                               </div>
                               <div class="log-pane">
-                                <For
-                                  each={
-                                    subTab() === "diffs"
-                                      ? subagentLogs().filter((ev) => ev.type === "diff")
-                                      : subagentLogs()
-                                  }
-                                >
-                                  {(entry) => renderLogItem(toLogItem(entry))}
+                                <For each={subTab() === "diffs" ? subagentDiffItems() : subagentLogItems()}>
+                                  {(entry) => renderLogItem(entry)}
                                 </For>
                                 <Show when={subagentLogs().length === 0}>
                                   <div class="log-empty">No logs yet.</div>

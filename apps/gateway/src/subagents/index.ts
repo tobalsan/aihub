@@ -119,6 +119,120 @@ function normalizeLogLine(line: string): SubagentLogEvent {
 
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const topType = typeof parsed.type === "string" ? parsed.type : "";
+    if (
+      topType === "session_meta" ||
+      topType === "turn_context" ||
+      topType === "thread.started" ||
+      topType === "turn.started" ||
+      topType === "turn.completed"
+    ) {
+      return { type: "skip" };
+    }
+    if (topType === "item.completed") {
+      const item = parsed.item as Record<string, unknown> | undefined;
+      if (item?.type === "agent_message") {
+        return { type: "assistant", text: typeof item?.text === "string" ? item.text : "" };
+      }
+      if (item?.type === "command_execution") {
+        const output = typeof item?.aggregated_output === "string" ? item.aggregated_output : "";
+        return {
+          type: "tool_output",
+          text: output,
+          tool: { id: typeof item?.id === "string" ? item.id : "" },
+        };
+      }
+      if (item?.type === "error") {
+        return { type: "error", text: typeof item?.message === "string" ? item.message : "" };
+      }
+      return { type: "skip" };
+    }
+    if (topType === "item.started") {
+      const item = parsed.item as Record<string, unknown> | undefined;
+      if (item?.type === "command_execution") {
+        const command = typeof item?.command === "string" ? item.command : "";
+        const payload = JSON.stringify({ cmd: command });
+        return {
+          type: "tool_call",
+          text: payload,
+          tool: {
+            name: "exec_command",
+            id: typeof item?.id === "string" ? item.id : "",
+          },
+        };
+      }
+      return { type: "skip" };
+    }
+    if (topType === "event_msg") {
+      const payload = parsed.payload as Record<string, unknown> | undefined;
+      const payloadType = typeof payload?.type === "string" ? payload.type : "";
+      if (payloadType === "user_message") {
+        return { type: "user", text: typeof payload?.message === "string" ? payload.message : "" };
+      }
+      if (payloadType === "agent_message") {
+        return { type: "assistant", text: typeof payload?.message === "string" ? payload.message : "" };
+      }
+      return { type: "skip" };
+    }
+    if (topType === "response_item") {
+      const payload = parsed.payload as Record<string, unknown> | undefined;
+      const payloadType = typeof payload?.type === "string" ? payload.type : "";
+      if (payloadType === "message") {
+        const role = typeof payload?.role === "string" ? payload.role : "";
+        if (role !== "assistant") return { type: "skip" };
+        const content = payload?.content;
+        let text = "";
+        if (Array.isArray(content)) {
+          text = content
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") return "";
+              const item = entry as Record<string, unknown>;
+              if (item.type === "output_text" || item.type === "input_text" || item.type === "text") {
+                return typeof item.text === "string" ? item.text : "";
+              }
+              return "";
+            })
+            .filter(Boolean)
+            .join("\n");
+        }
+        return { type: "assistant", text };
+      }
+      if (payloadType === "function_call") {
+        return {
+          type: "tool_call",
+          text: typeof payload?.arguments === "string" ? payload.arguments : "",
+          tool: {
+            name: typeof payload?.name === "string" ? payload.name : "",
+            id: typeof payload?.call_id === "string" ? payload.call_id : "",
+          },
+        };
+      }
+      if (payloadType === "function_call_output") {
+        return {
+          type: "tool_output",
+          text: typeof payload?.output === "string" ? payload.output : "",
+          tool: { id: typeof payload?.call_id === "string" ? payload.call_id : "" },
+        };
+      }
+      if (payloadType === "custom_tool_call") {
+        return {
+          type: "tool_call",
+          text: typeof payload?.input === "string" ? payload.input : "",
+          tool: {
+            name: typeof payload?.name === "string" ? payload.name : "",
+            id: typeof payload?.call_id === "string" ? payload.call_id : "",
+          },
+        };
+      }
+      if (payloadType === "custom_tool_call_output") {
+        return {
+          type: "tool_output",
+          text: typeof payload?.output === "string" ? payload.output : "",
+          tool: { id: typeof payload?.call_id === "string" ? payload.call_id : "" },
+        };
+      }
+      return { type: "skip" };
+    }
     const text =
       typeof parsed.text === "string"
         ? parsed.text
