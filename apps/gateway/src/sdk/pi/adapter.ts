@@ -198,13 +198,20 @@ export const piAdapter: SdkAdapter = {
 
     // Create tools
     const tools = createCodingTools(params.workspaceDir).concat(createPiSubagentTools());
+    const subagentToolPrompt = [
+      "Additional tools:",
+      "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
+      "- subagent.status { projectId, slug }",
+      "- subagent.logs { projectId, slug, since? }",
+      "- subagent.interrupt { projectId, slug }",
+    ].join("\n");
 
     // Build system prompt
     const systemPrompt = buildSystemPrompt({
       cwd: params.workspaceDir,
       contextFiles,
       skills,
-      tools,
+      appendPrompt: subagentToolPrompt,
     });
 
     const sessionManager = SessionManager.open(sessionFile, CONFIG_DIR);
