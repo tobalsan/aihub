@@ -8,6 +8,7 @@ import {
   updateProject,
   fetchAgents,
   fetchFullHistory,
+  subscribeToSession,
   streamMessage,
   fetchSubagents,
   fetchSubagentLogs,
@@ -252,12 +253,44 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   return entries;
 }
 
+function extractUserTexts(messages: FullHistoryMessage[]): string[] {
+  const texts: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== "user") continue;
+    const text = getTextBlocks(msg.content);
+    if (text) texts.push(text);
+  }
+  return texts;
+}
+
 function resizeTextarea(el: HTMLTextAreaElement | undefined) {
   if (!el) return;
   el.style.height = "auto";
   const lineHeight = 20;
   const maxHeight = lineHeight * 10;
   el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+}
+
+function mergePendingAihubMessages(
+  messages: FullHistoryMessage[],
+  pending: string[]
+): { merged: LogItem[]; remaining: string[] } {
+  if (pending.length === 0) return { merged: buildAihubLogs(messages), remaining: [] };
+  const historyUsers = extractUserTexts(messages);
+  let cursor = 0;
+  const remaining: string[] = [];
+  for (const text of pending) {
+    const idx = historyUsers.indexOf(text, cursor);
+    if (idx === -1) {
+      remaining.push(text);
+    } else {
+      cursor = idx + 1;
+    }
+  }
+  const base = buildAihubLogs(messages);
+  const merged =
+    remaining.length > 0 ? [...base, ...remaining.map((text) => ({ tone: "user", body: text }))] : base;
+  return { merged, remaining };
 }
 
 function toLogItem(entry: SubagentLogEvent): LogItem {
@@ -466,6 +499,9 @@ export function ProjectsBoard() {
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
+  const [aihubLocalNotes, setAihubLocalNotes] = createSignal<LogItem[]>([]);
+  const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<string[]>([]);
+  const [pendingAihubHistoryRefresh, setPendingAihubHistoryRefresh] = createSignal(false);
   const [mainError, setMainError] = createSignal("");
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
   const [subagentError, setSubagentError] = createSignal<string | null>(null);
@@ -476,6 +512,7 @@ export function ProjectsBoard() {
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
+  let aihubSubscriptionCleanup: (() => void) | null = null;
 
   const ownerOptions = createMemo(() => {
     const names = (agents() ?? []).map((agent) => agent.name);
@@ -599,6 +636,9 @@ export function ProjectsBoard() {
     setAihubLogs([]);
     setAihubLive("");
     setAihubStreaming(false);
+    setAihubLocalNotes([]);
+    setPendingAihubUserMessages([]);
+    setPendingAihubHistoryRefresh(false);
     setMainError("");
     setSubagents([]);
     setSelectedSubagent(null);
@@ -635,6 +675,10 @@ export function ProjectsBoard() {
     if (mainStreamCleanup) {
       mainStreamCleanup();
       mainStreamCleanup = null;
+    }
+    if (aihubSubscriptionCleanup) {
+      aihubSubscriptionCleanup();
+      aihubSubscriptionCleanup = null;
     }
   });
 
@@ -676,6 +720,17 @@ export function ProjectsBoard() {
     load();
   });
 
+  const refreshAihubHistory = async (agentId: string, sessionKey: string) => {
+    const res = await fetchFullHistory(agentId, sessionKey);
+    const pending = pendingAihubUserMessages();
+    const { merged, remaining } = mergePendingAihubMessages(res.messages, pending);
+    if (remaining.length !== pending.length) {
+      setPendingAihubUserMessages(remaining);
+    }
+    const notes = aihubLocalNotes();
+    setAihubLogs(notes.length > 0 ? [...merged, ...notes] : merged);
+  };
+
   createEffect(() => {
     const projectId = params.id;
     if (!projectId) return;
@@ -706,10 +761,71 @@ export function ProjectsBoard() {
     const sessionKey = resolvedSessionKey();
     if (!sessionKey) return;
     const load = async () => {
-      const res = await fetchFullHistory(agent.id, sessionKey);
-      setAihubLogs(buildAihubLogs(res.messages));
+      await refreshAihubHistory(agent.id, sessionKey);
     };
     load();
+  });
+
+  createEffect(() => {
+    const agent = selectedRunAgent();
+    const sessionKey = resolvedSessionKey();
+    if (!params.id || !agent || agent.type !== "aihub" || !sessionKey) {
+      if (aihubSubscriptionCleanup) {
+        aihubSubscriptionCleanup();
+        aihubSubscriptionCleanup = null;
+      }
+      return;
+    }
+    if (aihubSubscriptionCleanup) {
+      aihubSubscriptionCleanup();
+      aihubSubscriptionCleanup = null;
+    }
+    aihubSubscriptionCleanup = subscribeToSession(agent.id, sessionKey, {
+      onText: (text) => {
+        setAihubStreaming(true);
+        setAihubLive((prev) => prev + text);
+      },
+      onToolCall: (_id, name, args) => {
+        setAihubStreaming(true);
+        setAihubLogs((prev) => [
+          ...prev,
+          { tone: "muted", icon: "tool", title: `Tool: ${name}`, body: formatJson(args), collapsible: true },
+        ]);
+      },
+      onToolStart: () => {
+        setAihubStreaming(true);
+      },
+      onToolEnd: () => {
+        setAihubStreaming(true);
+      },
+      onDone: () => {
+        setAihubStreaming(false);
+        setAihubLive("");
+        refreshAihubHistory(agent.id, sessionKey);
+        setPendingAihubHistoryRefresh(false);
+      },
+      onHistoryUpdated: () => {
+        if (aihubStreaming()) {
+          setPendingAihubHistoryRefresh(true);
+          return;
+        }
+        refreshAihubHistory(agent.id, sessionKey);
+        setPendingAihubHistoryRefresh(false);
+      },
+      onError: (error) => {
+        setMainError(error);
+      },
+    });
+  });
+
+  createEffect(() => {
+    const agent = selectedRunAgent();
+    const sessionKey = resolvedSessionKey();
+    if (!agent || agent.type !== "aihub" || !sessionKey) return;
+    if (aihubStreaming()) return;
+    if (!pendingAihubHistoryRefresh()) return;
+    refreshAihubHistory(agent.id, sessionKey);
+    setPendingAihubHistoryRefresh(false);
   });
 
   createEffect(() => {
@@ -867,6 +983,7 @@ export function ProjectsBoard() {
       mainStreamCleanup = null;
     }
     setAihubStreaming(true);
+    setPendingAihubUserMessages((prev) => [...prev, prompt]);
     setAihubLogs((prev) => [
       ...prev,
       { ts: formatTimestamp(Date.now()), type: "user", text: prompt },
@@ -878,11 +995,11 @@ export function ProjectsBoard() {
       (text) => {
         setAihubLive((prev) => prev + text);
       },
-      async () => {
+      async (meta) => {
+        if (meta?.queued) return;
         setAihubStreaming(false);
         setAihubLive("");
-        const res = await fetchFullHistory(agent.id, sessionKey);
-        setAihubLogs(buildAihubLogs(res.messages));
+        await refreshAihubHistory(agent.id, sessionKey);
         mainStreamCleanup = null;
       },
       (error) => {
@@ -914,6 +1031,7 @@ export function ProjectsBoard() {
       mainStreamCleanup = null;
     }
     setAihubStreaming(true);
+    setPendingAihubUserMessages((prev) => [...prev, message]);
     setAihubLogs((prev) => [
       ...prev,
       { ts: formatTimestamp(Date.now()), type: "user", text: message },
@@ -925,11 +1043,11 @@ export function ProjectsBoard() {
       (text) => {
         setAihubLive((prev) => prev + text);
       },
-      async () => {
+      async (meta) => {
+        if (meta?.queued) return;
         setAihubStreaming(false);
         setAihubLive("");
-        const res = await fetchFullHistory(agent.id, sessionKey);
-        setAihubLogs(buildAihubLogs(res.messages));
+        await refreshAihubHistory(agent.id, sessionKey);
         mainStreamCleanup = null;
       },
       (error) => {
@@ -1004,11 +1122,18 @@ export function ProjectsBoard() {
     if (agent.type === "cli") {
       const slug = mainSlug();
       if (!slug) return;
+      setMainLogs((prev) => [
+        ...prev,
+        { type: "message", text: "Stop requested." },
+      ]);
       await interruptSubagent(project.id, slug);
       return;
     }
     const sessionKey = resolvedSessionKey();
     if (!sessionKey) return;
+    const note: LogItem = { tone: "muted", icon: "system", title: "System", body: "Stop requested." };
+    setAihubLocalNotes((prev) => [...prev, note]);
+    setAihubLogs((prev) => [...prev, note]);
     streamMessage(
       agent.id,
       "/abort",
@@ -1561,6 +1686,10 @@ export function ProjectsBoard() {
                                 onClick={() => {
                                   const current = detail() as ProjectDetail | null;
                                   if (current && selectedSubagent()) {
+                                    setSubagentLogs((prev) => [
+                                      ...prev,
+                                      { type: "message", text: "Stop requested." },
+                                    ]);
                                     interruptSubagent(current.id, selectedSubagent()!);
                                   }
                                 }}
