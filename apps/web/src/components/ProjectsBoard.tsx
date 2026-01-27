@@ -713,7 +713,7 @@ export function ProjectsBoard() {
     const agent = selectedRunAgent();
     if (!agent) return false;
     if (agent.type === "aihub") {
-      return aihubStreaming() || aihubLogs().length > 0 || Boolean(detailSessionKeys()[agent.id]);
+      return aihubStreaming() || aihubLogs().length > 0;
     }
     return Boolean(mainSubagent());
   });
@@ -1295,6 +1295,28 @@ export function ProjectsBoard() {
     await runCli(project, prompt, false);
   };
 
+  const handleNew = async (project: ProjectDetail) => {
+    const agent = selectedRunAgent();
+    if (!agent || agent.type !== "aihub") return;
+    if (mainStreamCleanup) {
+      mainStreamCleanup();
+      mainStreamCleanup = null;
+    }
+    const nextKey = `project:${project.id}:${agent.id}:${Date.now()}`;
+    const nextKeys = { ...detailSessionKeys(), [agent.id]: nextKey };
+    setDetailSessionKeys(nextKeys);
+    setAihubLogs([]);
+    setAihubLive("");
+    setAihubStreaming(false);
+    setAihubLocalNotes([]);
+    setPendingAihubUserMessages([]);
+    setPendingAihubHistoryRefresh(false);
+    setMainError("");
+    setMainInput("");
+    await updateProject(project.id, { sessionKeys: nextKeys, runAgent: detailRunAgent() });
+    await refetchDetail();
+  };
+
   const handleSend = async (project: ProjectDetail) => {
     const message = mainInput().trim();
     if (!message) return;
@@ -1675,7 +1697,7 @@ export function ProjectsBoard() {
                   </Show>
                   <Show when={detailDomain() !== "coding" || !subagentsExpanded()}>
                     <div class="monitoring-main">
-                      <div class="monitoring-header-row">
+                    <div class="monitoring-header-row">
                       <div class={`status-pill ${mainStatus()}`}>
                         <span class="status-dot" />
                         <span class="status-text">{mainStatus()}</span>
@@ -1698,30 +1720,44 @@ export function ProjectsBoard() {
                         />
                         <span>custom prompt</span>
                       </label>
-                      <Show when={!hasMainRun()}>
-                        <button
-                          class="start-btn"
-                          onClick={() => {
-                            const current = detail() as ProjectDetail | null;
-                            if (current) handleStart(current);
-                          }}
-                          disabled={!canStart()}
-                        >
-                          Start
-                        </button>
-                      </Show>
-                      <Show when={hasMainRun()}>
-                        <button
-                          class="stop-btn"
-                          onClick={() => {
-                            const current = detail() as ProjectDetail | null;
-                            if (current) handleStop(current);
-                          }}
-                          disabled={mainStatus() !== "running"}
-                        >
-                          Stop
-                        </button>
-                      </Show>
+                      <div class="monitoring-actions">
+                        <Show when={!hasMainRun()}>
+                          <button
+                            class="start-btn"
+                            onClick={() => {
+                              const current = detail() as ProjectDetail | null;
+                              if (current) handleStart(current);
+                            }}
+                            disabled={!canStart()}
+                          >
+                            Start
+                          </button>
+                        </Show>
+                        <Show when={hasMainRun() && selectedRunAgent()?.type === "aihub"}>
+                          <button
+                            class="start-btn"
+                            onClick={() => {
+                              const current = detail() as ProjectDetail | null;
+                              if (current) handleNew(current);
+                            }}
+                            disabled={mainStatus() === "running"}
+                          >
+                            New
+                          </button>
+                        </Show>
+                        <Show when={hasMainRun()}>
+                          <button
+                            class="stop-btn"
+                            onClick={() => {
+                              const current = detail() as ProjectDetail | null;
+                              if (current) handleStop(current);
+                            }}
+                            disabled={mainStatus() !== "running"}
+                          >
+                            Stop
+                          </button>
+                        </Show>
+                      </div>
                     </div>
                     <Show when={branchesError()}>
                       <div class="monitoring-error">{branchesError()}</div>
@@ -2434,6 +2470,12 @@ export function ProjectsBoard() {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
+        }
+
+        .monitoring-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .collapse-btn {
