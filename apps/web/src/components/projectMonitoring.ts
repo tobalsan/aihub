@@ -6,12 +6,13 @@ const SUBAGENT_TOOL_DOC = [
   "- subagent.interrupt { projectId, slug }",
 ].join("\n");
 
-export function buildProjectSummary(title: string, status: string, content: string): string {
+export function buildProjectSummary(title: string, status: string, path: string, content: string): string {
   return [
     "Let's tackle the following project:",
     "",
     title,
     status,
+    `Project folder: ${path}`,
     content,
   ]
     .join("\n")

@@ -971,6 +971,7 @@ export function ProjectsBoard() {
     const summary = buildProjectSummary(
       project.title,
       getFrontmatterString(project.frontmatter, "status") ?? "",
+      project.path,
       project.content
     );
     const basePrompt = buildStartPrompt(summary);
@@ -1095,6 +1096,7 @@ export function ProjectsBoard() {
     const summary = buildProjectSummary(
       project.title,
       getFrontmatterString(project.frontmatter, "status") ?? "",
+      project.path,
       project.content
     );
     const basePrompt = buildStartPrompt(summary);
