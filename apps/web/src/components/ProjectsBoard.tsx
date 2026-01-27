@@ -703,6 +703,12 @@ export function ProjectsBoard() {
     return subagents().find((item) => item.slug === slug)?.lastError ?? "";
   });
 
+  const selectedSubagentStatus = createMemo(() => {
+    const slug = selectedSubagent();
+    if (!slug) return "idle";
+    return subagents().find((item) => item.slug === slug)?.status ?? "idle";
+  });
+
   const resolvedSessionKey = createMemo(() => {
     const project = detail();
     const agent = selectedRunAgent();
@@ -817,6 +823,12 @@ export function ProjectsBoard() {
       const aihub = options.find((opt) => opt.id.startsWith("aihub:"));
       const defaultOption = isShaping && projectManager ? projectManager : aihub ?? options[0];
       setDetailRunAgent(defaultOption.id);
+    }
+  });
+
+  createEffect(() => {
+    if (!subagentsExpanded()) {
+      scrollMainLogToBottom();
     }
   });
 
@@ -1939,6 +1951,7 @@ export function ProjectsBoard() {
                                     interruptSubagent(current.id, selectedSubagent()!);
                                   }
                                 }}
+                                disabled={selectedSubagentStatus() !== "running"}
                               >
                                 Stop
                               </button>
@@ -2564,6 +2577,14 @@ export function ProjectsBoard() {
           background: #2a1b1b;
           border-color: #3c2525;
           color: #f1b7b7;
+        }
+
+        .stop-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          background: #1b2431;
+          border-color: #2b3648;
+          color: #8b96a5;
         }
 
         .monitoring-tabs {
