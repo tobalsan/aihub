@@ -249,7 +249,7 @@ export async function spawnSubagent(
 
   const readmePath = path.join(root, dirName, "README.md");
   const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
-  const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
+  const repo = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   if (!repo) {
     return { ok: false, error: "Project repo not set" };
   }
