@@ -672,6 +672,7 @@ export function ProjectsBoard() {
   const [detailRunAgent, setDetailRunAgent] = createSignal("");
   const [detailRunMode, setDetailRunMode] = createSignal("main-run");
   const [detailRepo, setDetailRepo] = createSignal("");
+  const [repoToast, setRepoToast] = createSignal("");
   const [detailSessionKeys, setDetailSessionKeys] = createSignal<Record<string, string>>({});
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
@@ -703,6 +704,9 @@ export function ProjectsBoard() {
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
   let mainLogPaneRef: HTMLDivElement | undefined;
   let aihubSubscriptionCleanup: (() => void) | null = null;
+  let repoToastTimer: number | null = null;
+  let savedRepo = "";
+  let validatedRepo = "";
 
   const ownerOptions = createMemo(() => {
     const names = (agents() ?? []).map((agent) => agent.name);
@@ -838,7 +842,9 @@ export function ProjectsBoard() {
       setDetailAppetite(getFrontmatterString(current.frontmatter, "appetite") ?? "");
       setDetailRunAgent(getFrontmatterString(current.frontmatter, "runAgent") ?? "");
       setDetailRunMode(getFrontmatterString(current.frontmatter, "runMode") ?? "main-run");
-      setDetailRepo(getFrontmatterString(current.frontmatter, "repo") ?? "");
+      const repo = getFrontmatterString(current.frontmatter, "repo") ?? "";
+      setDetailRepo(repo);
+      savedRepo = repo;
       setDetailSessionKeys(getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {});
       if (!detailSlug()) {
         const nextSlug = slugify(current.title);
@@ -864,6 +870,10 @@ export function ProjectsBoard() {
     setSubagentLogs([]);
     setSubagentCursor(0);
     setDetailSlug("");
+    setDetailRepo("");
+    setRepoToast("");
+    savedRepo = "";
+    validatedRepo = "";
   });
 
   createEffect(() => {
@@ -905,6 +915,10 @@ export function ProjectsBoard() {
       aihubSubscriptionCleanup();
       aihubSubscriptionCleanup = null;
     }
+    if (repoToastTimer) {
+      window.clearTimeout(repoToastTimer);
+      repoToastTimer = null;
+    }
   });
 
   createEffect(() => {
@@ -921,28 +935,52 @@ export function ProjectsBoard() {
 
   createEffect(() => {
     const projectId = params.id;
-    const repo = detailRepo();
+    const repo = detailRepo().trim();
     if (!projectId || !repo) {
       setBranches([]);
       setBranchesError(null);
+      validatedRepo = "";
       return;
     }
+    setBranchesError(null);
     let active = true;
-    const load = async () => {
+    const timer = window.setTimeout(async () => {
+      const shouldUpdate = repo !== savedRepo.trim();
+      if (shouldUpdate) {
+        try {
+          await updateProject(projectId, { repo });
+          savedRepo = repo;
+        } catch (error) {
+          if (!active) return;
+          setBranches([]);
+          setBranchesError(error instanceof Error ? error.message : "Failed to update repo");
+          return;
+        }
+      }
       const res = await fetchProjectBranches(projectId);
       if (!active) return;
       if (res.ok) {
         setBranches(res.data.branches);
         setBranchesError(null);
+        if (shouldUpdate && repo !== validatedRepo) {
+          validatedRepo = repo;
+          setRepoToast("Repo valid");
+          if (repoToastTimer) window.clearTimeout(repoToastTimer);
+          repoToastTimer = window.setTimeout(() => setRepoToast(""), 1200);
+        }
         if (!res.data.branches.includes(detailBranch())) {
           setDetailBranch(res.data.branches.includes("main") ? "main" : res.data.branches[0] ?? "main");
         }
       } else {
         setBranches([]);
         setBranchesError(res.error);
+        validatedRepo = "";
       }
-    };
-    load();
+    }, 400);
+    onCleanup(() => {
+      active = false;
+      window.clearTimeout(timer);
+    });
   });
 
   const refreshAihubHistory = async (agentId: string, sessionKey: string) => {
@@ -1184,6 +1222,7 @@ export function ProjectsBoard() {
 
   const handleRepoSave = async (id: string) => {
     await updateProject(id, { repo: detailRepo() });
+    savedRepo = detailRepo().trim();
     await refetchDetail();
   };
 
@@ -1715,7 +1754,7 @@ export function ProjectsBoard() {
                         </select>
                       </div>
                     </Show>
-                    <Show when={detailDomain() === "coding" && selectedRunAgent()?.type === "cli"}>
+                    <Show when={detailDomain() === "coding"}>
                       <div class="meta-field meta-field-wide">
                         <label class="meta-label">Repo</label>
                         <input
@@ -1828,6 +1867,9 @@ export function ProjectsBoard() {
                         </Show>
                       </div>
                     </div>
+                    <Show when={repoToast()}>
+                      <div class="repo-toast">{repoToast()}</div>
+                    </Show>
                     <Show when={branchesError()}>
                       <div class="monitoring-error">{branchesError()}</div>
                     </Show>
@@ -2823,6 +2865,16 @@ export function ProjectsBoard() {
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 12px;
+        }
+
+        .repo-toast {
+          color: #bfe9c7;
+          background: #183024;
+          border: 1px solid #234936;
+          border-radius: 10px;
+          padding: 6px 10px;
+          font-size: 12px;
+          margin: 6px 0;
         }
 
         .subagents-panel {
