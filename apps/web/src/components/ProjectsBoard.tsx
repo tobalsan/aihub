@@ -1985,26 +1985,28 @@ export function ProjectsBoard() {
                           <Show when={subagentError()}>
                             <div class="monitoring-error">{subagentError()}</div>
                           </Show>
-                          <div class="subagents-list">
-                            <For each={subagents().filter((item) => item.slug !== mainSlug())}>
-                              {(item) => (
-                                <button
-                                  class={`subagent-row ${selectedSubagent() === item.slug ? "active" : ""}`}
-                                  onClick={() => setSelectedSubagent(item.slug)}
-                                >
-                                  <div class="subagent-title">{item.slug}</div>
-                                  <div class="subagent-meta">
-                                    <span>{item.cli ?? "cli"}</span>
-                                    <span class={`subagent-status ${item.status}`}>{item.status}</span>
-                                    <span>{item.lastActive ? formatTimestamp(item.lastActive) : ""}</span>
-                                  </div>
-                                </button>
-                              )}
-                            </For>
-                          <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
-                            <div class="log-empty">No subagents yet.</div>
+                          <Show when={!selectedSubagent()}>
+                            <div class="subagents-list">
+                              <For each={subagents().filter((item) => item.slug !== mainSlug())}>
+                                {(item) => (
+                                  <button
+                                    class={`subagent-row ${selectedSubagent() === item.slug ? "active" : ""}`}
+                                    onClick={() => setSelectedSubagent(item.slug)}
+                                  >
+                                    <div class="subagent-title">{item.slug}</div>
+                                    <div class="subagent-meta">
+                                      <span>{item.cli ?? "cli"}</span>
+                                      <span class={`subagent-status ${item.status}`}>{item.status}</span>
+                                      <span>{item.lastActive ? formatTimestamp(item.lastActive) : ""}</span>
+                                    </div>
+                                  </button>
+                                )}
+                              </For>
+                              <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
+                                <div class="log-empty">No subagents yet.</div>
+                              </Show>
+                            </div>
                           </Show>
-                        </div>
                           <Show when={selectedSubagentError()}>
                             <div class="monitoring-error">{selectedSubagentError()}</div>
                           </Show>
@@ -3003,6 +3005,8 @@ export function ProjectsBoard() {
           display: flex;
           flex-direction: column;
           gap: 8px;
+          flex: 1;
+          min-height: 0;
         }
 
         .subagent-stop {
