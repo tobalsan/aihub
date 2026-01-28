@@ -6,6 +6,7 @@ import {
   fetchProjects,
   fetchProject,
   updateProject,
+  createProject,
   fetchAgents,
   fetchFullHistory,
   subscribeToSession,
@@ -699,6 +700,11 @@ export function ProjectsBoard() {
   const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
   const [subagentCursor, setSubagentCursor] = createSignal(0);
   const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
+  const [createModalOpen, setCreateModalOpen] = createSignal(false);
+  const [createTitle, setCreateTitle] = createSignal("");
+  const [createDescription, setCreateDescription] = createSignal("");
+  const [createError, setCreateError] = createSignal("");
+  const [createToast, setCreateToast] = createSignal("");
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
@@ -1474,6 +1480,77 @@ export function ProjectsBoard() {
     );
   };
 
+  const openCreateModal = () => {
+    setCreateModalOpen(true);
+    setCreateTitle("");
+    setCreateDescription("");
+    setCreateError("");
+  };
+
+  const closeCreateModal = () => {
+    setCreateModalOpen(false);
+    setCreateTitle("");
+    setCreateDescription("");
+    setCreateError("");
+  };
+
+  const validateTitle = (title: string): string | null => {
+    const trimmed = title.trim();
+    if (!trimmed) return "Title is required";
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length < 2) return "Title must contain at least two words";
+    return null;
+  };
+
+  const handleCreateSubmit = async () => {
+    const error = validateTitle(createTitle());
+    if (error) {
+      setCreateError(error);
+      return;
+    }
+
+    setCreateError("");
+    const result = await createProject({
+      title: createTitle().trim(),
+      description: createDescription().trim() || undefined,
+    });
+
+    if (!result.ok) {
+      setCreateError(result.error);
+      setCreateToast(result.error);
+      setTimeout(() => setCreateToast(""), 3000);
+      return;
+    }
+
+    closeCreateModal();
+    await refetch();
+  };
+
+  createEffect(() => {
+    if (!createModalOpen()) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeCreateModal();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
+  createEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "c" && !createModalOpen() && !params.id) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        openCreateModal();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
   return (
     <div class="projects-page">
       <header class="projects-header">
@@ -1505,10 +1582,19 @@ export function ProjectsBoard() {
                 class={`column ${isExpanded() ? "expanded" : "collapsed"}`}
                 style={{ "--col": column.color }}
               >
-                <button class="column-header" onClick={() => toggleColumn(column.id)}>
-                  <div class="column-title">{column.title}</div>
-                  <div class="column-count">{items().length}</div>
-                </button>
+                <div class="column-header-wrapper">
+                  <button class="column-header" onClick={() => toggleColumn(column.id)}>
+                    <div class="column-title">{column.title}</div>
+                    <div class="column-count">{items().length}</div>
+                  </button>
+                  <Show when={column.id === "maybe" && isExpanded()}>
+                    <button class="create-btn" onClick={openCreateModal} title="Create project (c)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                    </button>
+                  </Show>
+                </div>
                 <Show when={isExpanded()}>
                   <div class="column-body">
                     <Show when={items().length === 0}>
@@ -2064,6 +2150,64 @@ export function ProjectsBoard() {
         </div>
       </Show>
 
+      <Show when={createModalOpen()}>
+        <div class="overlay" role="dialog" aria-modal="true">
+          <div class="overlay-backdrop" onClick={closeCreateModal} />
+          <div class="create-modal">
+            <div class="create-modal-header">
+              <h2>Create project</h2>
+              <button class="overlay-close" onClick={closeCreateModal} aria-label="Close">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="create-modal-body">
+              <Show when={createToast()}>
+                <div class="create-toast">{createToast()}</div>
+              </Show>
+              <div class="create-field">
+                <label class="create-label">
+                  Title <span class="create-required">*</span>
+                </label>
+                <input
+                  class="create-input"
+                  type="text"
+                  value={createTitle()}
+                  onInput={(e) => {
+                    setCreateTitle(e.currentTarget.value);
+                    setCreateError("");
+                  }}
+                  placeholder="Enter project title (at least two words)"
+                  autofocus
+                />
+                <Show when={createError()}>
+                  <div class="create-error">{createError()}</div>
+                </Show>
+              </div>
+              <div class="create-field">
+                <label class="create-label">Description</label>
+                <textarea
+                  class="create-textarea"
+                  value={createDescription()}
+                  onInput={(e) => setCreateDescription(e.currentTarget.value)}
+                  placeholder="Enter project description (optional)"
+                  rows={6}
+                />
+              </div>
+            </div>
+            <div class="create-modal-footer">
+              <button class="create-cancel" onClick={closeCreateModal}>
+                Cancel
+              </button>
+              <button class="create-submit" onClick={handleCreateSubmit}>
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
       <style>{`
         .projects-page {
           width: 100vw;
@@ -2154,15 +2298,41 @@ export function ProjectsBoard() {
           padding-bottom: 12px;
         }
 
+        .column-header-wrapper {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 4px;
+        }
+
         .column-header {
           border: none;
           background: transparent;
           color: inherit;
           display: flex;
+          flex: 1;
           align-items: center;
           justify-content: space-between;
-          padding: 14px 16px;
+          padding: 14px 12px;
           cursor: pointer;
+        }
+
+        .create-btn {
+          background: color-mix(in oklch, var(--col) 25%, #1d2430 75%);
+          border: 1px solid color-mix(in oklch, var(--col) 45%, #2a3240 55%);
+          color: color-mix(in oklch, var(--col) 90%, #e7edf5 10%);
+          border-radius: 8px;
+          padding: 8px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.15s ease;
+        }
+
+        .create-btn:hover {
+          background: color-mix(in oklch, var(--col) 35%, #1d2430 65%);
+          border-color: color-mix(in oklch, var(--col) 55%, #2a3240 45%);
         }
 
         .column-title {
@@ -2294,6 +2464,156 @@ export function ProjectsBoard() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .overlay-close:hover {
+          background: #1a2330;
+          border-color: #3a4250;
+        }
+
+        .create-modal {
+          position: relative;
+          width: min(480px, 90vw);
+          background: #0f141c;
+          border: 1px solid #273042;
+          border-radius: 16px;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .create-modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 20px 24px;
+          border-bottom: 1px solid #1d2430;
+        }
+
+        .create-modal-header h2 {
+          font-size: 18px;
+          font-weight: 700;
+          color: #e7edf5;
+          margin: 0;
+        }
+
+        .create-modal-body {
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .create-toast {
+          color: #f1b7b7;
+          background: #2a1b1b;
+          border: 1px solid #3c2525;
+          border-radius: 10px;
+          padding: 10px 14px;
+          font-size: 13px;
+        }
+
+        .create-field {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .create-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #98a3b2;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .create-required {
+          color: #f08b57;
+        }
+
+        .create-input {
+          background: #141b26;
+          border: 1px solid #2a3240;
+          color: #e7edf5;
+          border-radius: 10px;
+          padding: 10px 14px;
+          font-size: 14px;
+          font-family: inherit;
+        }
+
+        .create-input:focus {
+          outline: none;
+          border-color: #3b6ecc;
+          background: #1a2330;
+        }
+
+        .create-textarea {
+          background: #141b26;
+          border: 1px solid #2a3240;
+          color: #e7edf5;
+          border-radius: 10px;
+          padding: 10px 14px;
+          font-size: 14px;
+          font-family: inherit;
+          resize: vertical;
+          min-height: 100px;
+        }
+
+        .create-textarea:focus {
+          outline: none;
+          border-color: #3b6ecc;
+          background: #1a2330;
+        }
+
+        .create-error {
+          color: #f1b7b7;
+          font-size: 13px;
+          margin-top: -4px;
+        }
+
+        .create-modal-footer {
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          padding: 16px 24px;
+          border-top: 1px solid #1d2430;
+        }
+
+        .create-cancel {
+          background: #141b26;
+          border: 1px solid #2a3240;
+          color: #98a3b2;
+          border-radius: 10px;
+          padding: 10px 20px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .create-cancel:hover {
+          background: #1a2330;
+          border-color: #3a4250;
+          color: #b0b8c6;
+        }
+
+        .create-submit {
+          background: #3b6ecc;
+          border: 1px solid #5080d6;
+          color: #ffffff;
+          border-radius: 10px;
+          padding: 10px 20px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .create-submit:hover {
+          background: #4a7cd6;
+          border-color: #6090e0;
         }
 
         .overlay-header {

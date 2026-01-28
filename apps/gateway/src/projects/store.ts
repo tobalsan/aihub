@@ -195,10 +195,16 @@ export async function createProject(
   config: GatewayConfig,
   input: CreateProjectRequest
 ): Promise<ProjectItemResult> {
+  const trimmedTitle = input.title.trim();
+  const wordCount = trimmedTitle.split(/\s+/).filter(Boolean).length;
+  if (wordCount < 2) {
+    return { ok: false, error: "Title must contain at least two words" };
+  }
+
   const root = getProjectsRoot(config);
   await ensureDir(root);
   const id = await allocateProjectId();
-  const slug = slugifyTitle(input.title);
+  const slug = slugifyTitle(trimmedTitle);
   const dirName = `${id}_${slug}`;
   const dirPath = path.join(root, dirName);
 
@@ -207,7 +213,7 @@ export async function createProject(
   const created = new Date().toISOString();
   const frontmatter: Record<string, unknown> = {
     id,
-    title: input.title,
+    title: trimmedTitle,
     status: input.status ?? "maybe",
     created,
   };
@@ -215,7 +221,9 @@ export async function createProject(
   if (input.owner) frontmatter.owner = input.owner;
   if (input.executionMode) frontmatter.executionMode = input.executionMode;
   if (input.appetite) frontmatter.appetite = input.appetite;
-  const content = `# ${input.title}\n`;
+  const content = input.description
+    ? `# ${trimmedTitle}\n\n${input.description}\n`
+    : `# ${trimmedTitle}\n`;
   const readme = formatMarkdown(frontmatter, content);
   await fs.writeFile(path.join(dirPath, "README.md"), readme, "utf8");
 
@@ -223,7 +231,7 @@ export async function createProject(
     ok: true,
     data: {
       id,
-      title: input.title,
+      title: trimmedTitle,
       path: dirName,
       absolutePath: dirPath,
       frontmatter,

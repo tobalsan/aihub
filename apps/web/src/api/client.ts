@@ -284,6 +284,29 @@ export async function fetchProjects(): Promise<ProjectListItem[]> {
   return res.json();
 }
 
+export type CreateProjectInput = {
+  title: string;
+  description?: string;
+};
+
+export type CreateProjectResult =
+  | { ok: true; data: ProjectDetail }
+  | { ok: false; error: string };
+
+export async function createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
+  const res = await fetch(`${API_BASE}/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to create project" }));
+    return { ok: false, error: data.error ?? "Failed to create project" };
+  }
+  const data = (await res.json()) as ProjectDetail;
+  return { ok: true, data };
+}
+
 export async function fetchProject(id: string): Promise<ProjectDetail> {
   const res = await fetch(`${API_BASE}/projects/${id}`);
   if (!res.ok) throw new Error("Failed to fetch project");
