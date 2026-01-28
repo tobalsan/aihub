@@ -1969,7 +1969,13 @@ export function ProjectsBoard() {
                     <div class={`subagents-panel ${subagentsExpanded() ? "expanded" : "collapsed"}`}>
                       <button
                         class="subagents-toggle"
-                        onClick={() => setSubagentsExpanded((prev) => !prev)}
+                        onClick={() => {
+                          if (selectedSubagent()) {
+                            setSelectedSubagent(null);
+                            return;
+                          }
+                          setSubagentsExpanded((prev) => !prev);
+                        }}
                       >
                         <span>Subagents</span>
                         <span class="subagents-count">{subagents().length}</span>
