@@ -9,7 +9,7 @@ import { startServer } from "../server/index.js";
 import { startDiscordBots, stopDiscordBots } from "../discord/index.js";
 import { startScheduler, stopScheduler } from "../scheduler/index.js";
 import { startAmsgWatcher, stopAmsgWatcher } from "../amsg/index.js";
-import { startAllHeartbeats, stopAllHeartbeats } from "../heartbeat/index.js";
+import { startAllHeartbeats, stopAllHeartbeats, runHeartbeat } from "../heartbeat/index.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import type { UiConfig, GatewayBindMode } from "@aihub/shared";
@@ -170,6 +170,37 @@ program
 
       console.log("\n");
       console.log(`Duration: ${result.meta.durationMs}ms`);
+    } catch (err) {
+      console.error("Error:", err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("heartbeat <agentId>")
+  .description("Trigger a heartbeat for an agent")
+  .action(async (agentId: string) => {
+    try {
+      loadConfig();
+      const agent = getAgent(agentId);
+      if (!agent) {
+        console.error(`Agent not found: ${agentId}`);
+        process.exit(1);
+      }
+
+      console.log(`Running heartbeat for ${agent.name}...`);
+      const result = await runHeartbeat(agentId);
+
+      console.log(`Status: ${result.status}`);
+      if (result.durationMs !== undefined) {
+        console.log(`Duration: ${result.durationMs}ms`);
+      }
+      if (result.reason) {
+        console.log(`Reason: ${result.reason}`);
+      }
+      if (result.preview) {
+        console.log(`Preview: ${result.preview}`);
+      }
     } catch (err) {
       console.error("Error:", err);
       process.exit(1);
