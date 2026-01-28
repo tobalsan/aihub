@@ -174,6 +174,14 @@ Kanban UI details:
 - `fix(gateway): expand repo path for subagent runs`
 - `fix(gateway): handle cli spawn errors early`
 - `fix(gateway): expand ~ for branches`
+- `feat(web): create project from kanban`
+- `fix(web): remove redundant subagents button`
+- `fix(web): show repo input for all agents`
+- `fix(web): validate repo on input (clear error + toast on valid)`
+- `fix(web): allow closing subagent logs`
+- `fix(web): keep subagent logs scrollable`
+- `fix(web): auto-scroll monitoring logs`
+- `fix(cli): route heartbeat through gateway API`
 
 ## Known Issues / Notes
 - Claude SDK runs in Projects monitoring UI can show duplicated/garbled live logs because both local streaming and subscription events update the same live buffer. Fixed by ignoring subscription callbacks while a local stream is active (`apps/web/src/components/ProjectsBoard.tsx`).
@@ -195,10 +203,10 @@ Kanban UI details:
   - Main/subagent panes are mutually exclusive; collapsed vertical bar toggles between them.
   - Session input: Enter sends, Shift+Enter newline; auto-expands up to 10 lines.
   - Log UI: single-column, color-coded by role; tool calls collapsed by default with icons; read/write/bash grouped with output; expanded content has darker background; no timestamps.
-  - Repo input hidden when AIHub agent is selected.
-  - Stop for AIHub sends `/abort`; CLI uses interrupt API.
+  - Repo input shown for any agent (domain=coding).
+- Stop for AIHub sends `/abort`; CLI uses interrupt API.
+- Manual CLI heartbeats now call gateway API; requires gateway + Discord bot running for delivery.
 
 ## Next (Not Done)
-- Implement project creation UI in Kanban.
 - Optional: drag/drop status moves, filters, search.
 - Persist column collapse state (localStorage) if desired.

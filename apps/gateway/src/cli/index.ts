@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { spawn, ChildProcess } from "node:child_process";
+import { spawn, ChildProcess, execSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -9,7 +10,7 @@ import { startServer } from "../server/index.js";
 import { startDiscordBots, stopDiscordBots } from "../discord/index.js";
 import { startScheduler, stopScheduler } from "../scheduler/index.js";
 import { startAmsgWatcher, stopAmsgWatcher } from "../amsg/index.js";
-import { startAllHeartbeats, stopAllHeartbeats, runHeartbeat } from "../heartbeat/index.js";
+import { startAllHeartbeats, stopAllHeartbeats } from "../heartbeat/index.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import type { UiConfig, GatewayBindMode } from "@aihub/shared";
@@ -24,6 +25,51 @@ function resolveUiHost(bind?: string): string {
   if (bind === "lan") return "0.0.0.0";
   // For tailnet bind with tailscale serve, Vite preview must bind to loopback
   return "127.0.0.1";
+}
+
+function pickTailnetIPv4(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const [, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family !== "IPv4" || addr.internal) continue;
+      const octets = addr.address.split(".").map(Number);
+      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
+        return addr.address;
+      }
+    }
+  }
+  return null;
+}
+
+function getTailscaleIP(): string | null {
+  try {
+    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const status = JSON.parse(output);
+    const ips = status?.Self?.TailscaleIPs as string[] | undefined;
+    return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBindHost(bind?: GatewayBindMode): string {
+  if (!bind || bind === "loopback") return "127.0.0.1";
+  if (bind === "lan") return "0.0.0.0";
+  if (bind === "tailnet") {
+    return pickTailnetIPv4() ?? getTailscaleIP() ?? "127.0.0.1";
+  }
+  return "127.0.0.1";
+}
+
+function getApiBaseUrl(): string {
+  const envUrl = process.env.AIHUB_API_URL;
+  if (envUrl) return envUrl;
+
+  const config = loadConfig();
+  const host = config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
+  const port = config.gateway?.port ?? 4000;
+  return `http://${host}:${port}`;
 }
 
 function startWebUI(uiConfig: UiConfig): ChildProcess | null {
@@ -189,7 +235,26 @@ program
       }
 
       console.log(`Running heartbeat for ${agent.name}...`);
-      const result = await runHeartbeat(agentId);
+      const baseUrl = getApiBaseUrl();
+      const url = new URL(`/api/agents/${agentId}/heartbeat`, baseUrl).toString();
+      let res;
+      try {
+        res = await fetch(url, { method: "POST" });
+      } catch (err) {
+        console.error(`Failed to reach gateway at ${baseUrl}`);
+        process.exit(1);
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Failed to run heartbeat" }));
+        console.error(data.error ?? "Failed to run heartbeat");
+        process.exit(1);
+      }
+      const result = (await res.json()) as {
+        status?: string;
+        durationMs?: number;
+        reason?: string;
+        alertText?: string;
+      };
 
       console.log(`Status: ${result.status}`);
       if (result.durationMs !== undefined) {
@@ -198,8 +263,8 @@ program
       if (result.reason) {
         console.log(`Reason: ${result.reason}`);
       }
-      if (result.preview) {
-        console.log(`Preview: ${result.preview}`);
+      if (result.alertText) {
+        console.log(`\n${result.alertText}`);
       }
     } catch (err) {
       console.error("Error:", err);

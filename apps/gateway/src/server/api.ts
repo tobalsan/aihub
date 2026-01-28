@@ -8,6 +8,7 @@ import {
 } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir, getConfig } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
+import { runHeartbeat } from "../heartbeat/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
@@ -122,6 +123,18 @@ api.post("/agents/:id/messages", async (c) => {
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
+});
+
+// POST /api/agents/:id/heartbeat - trigger heartbeat for agent
+api.post("/agents/:id/heartbeat", async (c) => {
+  const agentId = c.req.param("id");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId)) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+
+  const result = await runHeartbeat(agentId);
+  return c.json(result);
 });
 
 // GET /api/agents/:id/history - get session history
