@@ -709,6 +709,7 @@ export function ProjectsBoard() {
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
   let mainLogPaneRef: HTMLDivElement | undefined;
+  let subagentLogPaneRef: HTMLDivElement | undefined;
   let aihubSubscriptionCleanup: (() => void) | null = null;
   let repoToastTimer: number | null = null;
   let savedRepo = "";
@@ -1166,6 +1167,27 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
+    if (subagentsExpanded()) return;
+    const agent = selectedRunAgent();
+    if (!agent) return;
+    if (agent.type === "cli") {
+      mainLogs().length;
+    } else {
+      aihubLogs().length;
+      aihubLive();
+    }
+    scrollMainLogToBottom();
+  });
+
+  createEffect(() => {
+    const slug = selectedSubagent();
+    if (!slug) return;
+    subagentLogs().length;
+    subTab();
+    scrollSubagentLogToBottom();
+  });
+
+  createEffect(() => {
     if (selectedRunAgent()?.type === "aihub" && mainTab() !== "logs") {
       setMainTab("logs");
     }
@@ -1241,6 +1263,14 @@ export function ProjectsBoard() {
     requestAnimationFrame(() => {
       if (!mainLogPaneRef) return;
       mainLogPaneRef.scrollTop = mainLogPaneRef.scrollHeight;
+    });
+  };
+
+  const scrollSubagentLogToBottom = () => {
+    if (!subagentLogPaneRef) return;
+    requestAnimationFrame(() => {
+      if (!subagentLogPaneRef) return;
+      subagentLogPaneRef.scrollTop = subagentLogPaneRef.scrollHeight;
     });
   };
 
@@ -2112,7 +2142,7 @@ export function ProjectsBoard() {
                                   Diffs
                                 </button>
                               </div>
-                              <div class="log-pane">
+                              <div class="log-pane" ref={subagentLogPaneRef}>
                                 <For each={subTab() === "diffs" ? subagentDiffItems() : subagentLogItems()}>
                                   {(entry) => renderLogItem(entry)}
                                 </For>
