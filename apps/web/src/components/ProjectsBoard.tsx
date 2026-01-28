@@ -1781,16 +1781,6 @@ export function ProjectsBoard() {
                         <span class="status-dot" />
                         <span class="status-text">{mainStatus()}</span>
                       </div>
-                      <Show when={detailDomain() === "coding"}>
-                        <button
-                          class="collapse-btn"
-                          onClick={() => setSubagentsExpanded(true)}
-                          disabled={subagentsExpanded()}
-                          aria-label="Expand subagents panel"
-                        >
-                          Subagents
-                        </button>
-                      </Show>
                       <label class="start-custom-toggle">
                         <input
                           type="checkbox"
