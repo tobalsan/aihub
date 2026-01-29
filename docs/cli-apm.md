@@ -93,6 +93,14 @@ Options:
 - `--slug <slug>`: override slug for CLI worktree resumes.
 - `-j, --json`: JSON output.
 
+### `apm status <id>`
+Show run status and recent messages.
+
+Options:
+- `--limit <n>`: number of recent messages (default 10).
+- `--slug <slug>`: override slug for CLI worktree status.
+- `-j, --json`: JSON output.
+
 ## Examples
 
 ```
@@ -113,4 +121,7 @@ apm start PRO-19 --custom-prompt "Focus on the rollout plan."
 
 # Resume with a follow-up message
 apm resume PRO-19 --message "Continue from where you left off."
+
+# Status with last 5 messages
+apm status PRO-19 --limit 5
 ```
