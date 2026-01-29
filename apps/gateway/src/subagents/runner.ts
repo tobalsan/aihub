@@ -374,6 +374,17 @@ export async function spawnSubagent(
           // ignore
         }
       }
+      if (input.cli === "claude") {
+        try {
+          const ev = JSON.parse(line) as { type?: string; session_id?: string };
+          if (ev.type === "system" && ev.session_id) {
+            const next = { ...state, session_id: ev.session_id };
+            await writeJson(statePath, next);
+          }
+        } catch {
+          // ignore
+        }
+      }
     }
   });
 
