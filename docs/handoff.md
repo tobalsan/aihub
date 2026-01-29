@@ -185,6 +185,7 @@ Kanban UI details:
 - `feat(web): auto-advance todo to in_progress on start`
 - `feat(shared): centralize project start prompt builder`
 - `feat(gateway): add /api/projects/:id/start endpoint (UI-parity start)`
+- `docs: add apm CLI usage guide`
 - `fix(cli): route heartbeat through gateway API`
 
 ## Known Issues / Notes
@@ -213,6 +214,7 @@ Kanban UI details:
 - Start prompt now appends repo path when set.
 - Starting a run while status=todo auto-updates status to in_progress.
 - Project start prompt logic now shared between web + gateway.
+- `apm` CLI docs now live at `docs/cli-apm.md`.
 
 ## Next (Not Done)
 - Optional: drag/drop status moves, filters, search.
