@@ -259,7 +259,14 @@ export async function spawnSubagent(
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
   const summary = buildProjectSummary(resolvedTitle, status, content ?? "");
 
-  const mode: SubagentMode = input.mode ?? "worktree";
+  let mode: SubagentMode = input.mode ?? "worktree";
+  if (mode === "worktree") {
+    try {
+      await fs.stat(path.join(repo, ".git"));
+    } catch {
+      mode = "main-run";
+    }
+  }
   const workspacesRoot = path.join(root, ".workspaces", input.projectId);
   const workspaceDir = path.join(workspacesRoot, input.slug);
 

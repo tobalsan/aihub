@@ -58,6 +58,15 @@ async function dirExists(dirPath: string): Promise<boolean> {
   }
 }
 
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function findProjectDir(root: string, id: string): Promise<string | null> {
   if (!(await dirExists(root))) return null;
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -426,7 +435,11 @@ export async function listProjectBranches(
   const { frontmatter } = await parseMarkdownFile(readmePath);
   const repo = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   if (!repo) {
-    return { ok: false, error: "Project repo not set" };
+    return { ok: true, data: { branches: [] } };
+  }
+
+  if (!(await pathExists(path.join(repo, ".git")))) {
+    return { ok: true, data: { branches: [] } };
   }
 
   try {
@@ -440,6 +453,6 @@ export async function listProjectBranches(
       .filter((line) => line.length > 0);
     return { ok: true, data: { branches } };
   } catch {
-    return { ok: false, error: "Failed to list branches" };
+    return { ok: true, data: { branches: [] } };
   }
 }
