@@ -131,6 +131,12 @@ function renderMarkdown(content: string): string {
   return DOMPurify.sanitize(html);
 }
 
+function stripMarkdownMeta(content: string): string {
+  return content
+    .replace(/^\s*---[\s\S]*?\n---\s*\n?/, "")
+    .replace(/^\s*#\s+.+\n+/, "");
+}
+
 function slugify(value: string): string {
   return value
     .toLowerCase()
@@ -674,6 +680,10 @@ export function ProjectsBoard() {
   const [detailRunMode, setDetailRunMode] = createSignal("main-run");
   const [detailRepo, setDetailRepo] = createSignal("");
   const [repoToast, setRepoToast] = createSignal("");
+  const [detailTitle, setDetailTitle] = createSignal("");
+  const [editingTitle, setEditingTitle] = createSignal(false);
+  const [detailContent, setDetailContent] = createSignal("");
+  const [editingContent, setEditingContent] = createSignal(false);
   const [detailSessionKeys, setDetailSessionKeys] = createSignal<Record<string, string>>({});
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
@@ -853,6 +863,8 @@ export function ProjectsBoard() {
       setDetailRepo(repo);
       savedRepo = repo;
       setDetailSessionKeys(getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {});
+      if (!editingTitle()) setDetailTitle(current.title);
+      if (!editingContent()) setDetailContent(stripMarkdownMeta(current.content));
       if (!detailSlug()) {
         const nextSlug = slugify(current.title);
         if (nextSlug) setDetailSlug(nextSlug);
@@ -1252,6 +1264,22 @@ export function ProjectsBoard() {
     await updateProject(id, { repo: detailRepo() });
     savedRepo = detailRepo().trim();
     await refetchDetail();
+  };
+
+  const handleTitleSave = async (id: string) => {
+    const newTitle = detailTitle().trim();
+    if (!newTitle) return;
+    await updateProject(id, { title: newTitle });
+    await refetch();
+    await refetchDetail();
+    setEditingTitle(false);
+  };
+
+  const handleContentSave = async (id: string) => {
+    await updateProject(id, { content: detailContent() });
+    await refetch();
+    await refetchDetail();
+    setEditingContent(false);
   };
 
   const openDetail = (id: string) => {
@@ -1719,7 +1747,31 @@ export function ProjectsBoard() {
                         >
                           {project.id}
                         </span>
-                        <h2>{project.title}</h2>
+                        <Show when={editingTitle()} fallback={
+                          <h2
+                            class="editable-title"
+                            onDblClick={() => setEditingTitle(true)}
+                            title="Double-click to edit"
+                          >
+                            {detailTitle() || project.title}
+                          </h2>
+                        }>
+                          <input
+                            class="title-input"
+                            value={detailTitle()}
+                            onInput={(e) => setDetailTitle(e.currentTarget.value)}
+                            onBlur={() => handleTitleSave(project.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleTitleSave(project.id);
+                              if (e.key === "Escape") {
+                                e.stopPropagation();
+                                setDetailTitle(project.title);
+                                setEditingTitle(false);
+                              }
+                            }}
+                            autofocus
+                          />
+                        </Show>
                       </div>
                     </>
                   );
@@ -1814,7 +1866,32 @@ export function ProjectsBoard() {
                             </Show>
                           </div>
                         </div>
-                        <div class="detail-body" innerHTML={renderMarkdown(project.content)} />
+                        <Show when={editingContent()} fallback={
+                          <div
+                            class="detail-body"
+                            innerHTML={renderMarkdown(detailContent() || project.content)}
+                            onDblClick={() => setEditingContent(true)}
+                            title="Double-click to edit"
+                          />
+                        }>
+                          <textarea
+                            class="content-textarea"
+                            value={detailContent()}
+                            onInput={(e) => setDetailContent(e.currentTarget.value)}
+                            onBlur={() => handleContentSave(project.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                e.stopPropagation();
+                                setDetailContent(stripMarkdownMeta(project.content));
+                                setEditingContent(false);
+                              } else if (e.key === "Enter" && e.metaKey) {
+                                e.preventDefault();
+                                handleContentSave(project.id);
+                              }
+                            }}
+                            autofocus
+                          />
+                        </Show>
                       </>
                     );
                   }}
@@ -2683,6 +2760,7 @@ export function ProjectsBoard() {
           display: flex;
           align-items: center;
           gap: 12px;
+          flex: 1;
           min-width: 0;
         }
 
@@ -2692,6 +2770,32 @@ export function ProjectsBoard() {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+
+        .editable-title {
+          cursor: text;
+          border-radius: 4px;
+          padding: 2px 6px;
+          margin: -2px -6px;
+          transition: background 0.15s ease;
+        }
+
+        .editable-title:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .title-input {
+          font-size: 20px;
+          font-weight: 700;
+          background: #151c26;
+          color: #e0e6ef;
+          border: 1px solid #3b6ecc;
+          border-radius: 6px;
+          padding: 4px 8px;
+          outline: none;
+          flex: 1;
+          min-width: 0;
+          margin-right: 52px;
         }
 
         .id-pill {
@@ -2881,6 +2985,32 @@ export function ProjectsBoard() {
           color: #d4dbe5;
           font-size: 14px;
           line-height: 1.5;
+          cursor: text;
+          border-radius: 8px;
+          transition: background 0.15s ease;
+        }
+
+        .detail-body:hover {
+          background: rgba(255, 255, 255, 0.02);
+        }
+
+        .content-textarea {
+          flex: 1;
+          width: 100%;
+          background: #151c26;
+          color: #d4dbe5;
+          border: 1px solid #3b6ecc;
+          border-radius: 8px;
+          padding: 12px;
+          font-size: 14px;
+          line-height: 1.5;
+          font-family: inherit;
+          resize: none;
+          outline: none;
+        }
+
+        .content-textarea::placeholder {
+          color: #7f8a9a;
         }
 
         .detail-body :is(h1, h2, h3) {
