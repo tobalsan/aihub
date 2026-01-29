@@ -27,6 +27,9 @@ Status values:
 Domain values:
 - `life`, `admin`, `coding`.
 
+### `apm agent list`
+List all configured AIHub agents (same output as `pnpm aihub agent list`).
+
 ### `apm create`
 Create a project.
 
@@ -58,6 +61,7 @@ Options:
 - `--run-agent <agent>`: agent used by monitoring start.
   - `aihub:<agentId>` (AIHub agent)
   - `cli:claude|cli:codex|cli:droid|cli:gemini` (external CLI)
+  - Use `apm agent list` to see configured AIHub agents.
 - `--run-mode <mode>`: `main-run` or `worktree` (CLI runs only).
   - `main-run`: use the main repo working tree, slug is `main`.
   - `worktree`: create/use a git worktree at `projects/.workspaces/...`, slug required.

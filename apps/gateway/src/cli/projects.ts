@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import os from "node:os";
 import { execSync } from "node:child_process";
-import { loadConfig } from "../config/index.js";
+import { loadConfig, getAgents } from "../config/index.js";
 
 type ProjectItem = {
   id: string;
@@ -147,6 +147,24 @@ program
       return;
     }
     console.log(renderTable(items));
+  });
+
+program
+  .command("agent")
+  .description("Manage agents")
+  .command("list")
+  .description("List all configured agents")
+  .action(() => {
+    try {
+      const agents = getAgents();
+      console.log("Configured agents:");
+      for (const agent of agents) {
+        console.log(`  - ${agent.id}: ${agent.name} (${agent.model.provider}/${agent.model.model})`);
+      }
+    } catch (err) {
+      console.error("Error:", err);
+      process.exit(1);
+    }
   });
 
 program
