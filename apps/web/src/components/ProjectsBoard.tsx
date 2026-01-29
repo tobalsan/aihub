@@ -1303,6 +1303,10 @@ export function ProjectsBoard() {
       const basePrompt = buildStartPrompt(summary);
       prompt = customPrompt ? `${basePrompt}\n\n${customPrompt}` : basePrompt;
     }
+    const repo = detailRepo().trim();
+    if (repo) {
+      prompt = `${prompt}\n\nRepo path: ${repo}`;
+    }
     setMainError("");
     setAihubLogs([]);
     setAihubLive("");
@@ -1432,7 +1436,12 @@ export function ProjectsBoard() {
     if (status === "shaping") {
       const basePath = project.path.replace(/\/$/, "");
       const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
-      await runCli(project, `/drill-specs ${readmePath}`, false);
+      let prompt = `/drill-specs ${readmePath}`;
+      const repo = detailRepo().trim();
+      if (repo) {
+        prompt = `${prompt}\n\nRepo path: ${repo}`;
+      }
+      await runCli(project, prompt, false);
       return;
     }
     const summary = buildProjectSummary(
@@ -1442,7 +1451,11 @@ export function ProjectsBoard() {
       project.content
     );
     const basePrompt = buildStartPrompt(summary);
-    const prompt = custom ? `${basePrompt}\n\n${custom}` : basePrompt;
+    let prompt = custom ? `${basePrompt}\n\n${custom}` : basePrompt;
+    const repo = detailRepo().trim();
+    if (repo) {
+      prompt = `${prompt}\n\nRepo path: ${repo}`;
+    }
     await runCli(project, prompt, false);
   };
 
