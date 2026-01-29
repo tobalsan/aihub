@@ -211,6 +211,9 @@ program
   .option("--execution-mode <mode>", "Execution mode (manual|exploratory|auto|full_auto)")
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
+  .option("--run-agent <agent>", "Run agent (aihub:<id> or cli:<name>)")
+  .option("--run-mode <mode>", "Run mode (main-run|worktree)")
+  .option("--repo <path>", "Repo path")
   .option("--content <content>", "Content string or '-' for stdin")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
@@ -221,6 +224,9 @@ program
     if (opts.executionMode) body.executionMode = opts.executionMode;
     if (opts.appetite) body.appetite = opts.appetite;
     if (opts.status) body.status = opts.status;
+    if (opts.runAgent !== undefined) body.runAgent = opts.runAgent;
+    if (opts.runMode !== undefined) body.runMode = opts.runMode;
+    if (opts.repo !== undefined) body.repo = opts.repo;
     if (opts.content !== undefined) {
       body.content = opts.content === "-" ? await readStdin() : opts.content;
     }
