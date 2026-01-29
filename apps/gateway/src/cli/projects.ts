@@ -12,6 +12,11 @@ type ProjectItem = {
   content?: string;
 };
 
+type SimpleHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 function slugifyTitle(title: string): string {
   const slug = title
     .toLowerCase()
@@ -19,6 +24,10 @@ function slugifyTitle(title: string): string {
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
   return slug || "project";
+}
+
+function normalizeProjectId(id: string): string {
+  return id.replace(/^pro-/i, "PRO-");
 }
 
 function pickTailnetIPv4(): string | null {
@@ -120,6 +129,17 @@ async function requestJson(path: string, init?: RequestInit): Promise<Response> 
   const base = getApiBaseUrl();
   const url = new URL(`/api${path}`, base).toString();
   return fetch(url, init);
+}
+
+function formatMessages(items: SimpleHistoryMessage[]): string {
+  if (items.length === 0) return "No messages.";
+  return items.map((item) => `- ${item.role}: ${item.content}`).join("\n");
+}
+
+function mapSubagentStatus(status: string | undefined): "running" | "idle" | "error" {
+  if (status === "running") return "running";
+  if (status === "error") return "error";
+  return "idle";
 }
 
 const program = new Command();
@@ -305,8 +325,9 @@ program
   .option("--slug <slug>", "Slug override (CLI worktree resume)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
+    const normalizedId = normalizeProjectId(id);
     const message = opts.message === "-" ? await readStdin() : opts.message;
-    const projectRes = await requestJson(`/projects/${id}`);
+    const projectRes = await requestJson(`/projects/${normalizedId}`);
     const projectData = await projectRes.json();
     if (!projectRes.ok) {
       console.error(projectData.error ?? "Request failed");
@@ -350,7 +371,7 @@ program
       const cli = runAgent.slice(4);
       const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
       const slug = runMode === "worktree" ? (opts.slug ?? slugifyTitle(project.title)) : "main";
-      const res = await requestJson(`/projects/${id}/subagents`, {
+      const res = await requestJson(`/projects/${normalizedId}/subagents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -371,6 +392,113 @@ program
         return;
       }
       console.log(`Resumed CLI run (slug: ${slug})`);
+      return;
+    }
+
+    console.error(`Unsupported runAgent: ${runAgent}`);
+    process.exit(1);
+  });
+
+program
+  .command("status")
+  .argument("<id>", "Project ID")
+  .option("--limit <n>", "Number of messages to return", "10")
+  .option("--slug <slug>", "Slug override (CLI worktree)")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    const normalizedId = normalizeProjectId(id);
+    const limit = Math.max(0, Number(opts.limit) || 10);
+    const projectRes = await requestJson(`/projects/${normalizedId}`);
+    const projectData = await projectRes.json();
+    if (!projectRes.ok) {
+      console.error(projectData.error ?? "Request failed");
+      process.exit(1);
+    }
+
+    const project = projectData as ProjectItem;
+    const frontmatter = project.frontmatter ?? {};
+    const runAgent = typeof frontmatter.runAgent === "string" ? frontmatter.runAgent : "";
+    if (!runAgent) {
+      console.error("runAgent not set. Use `apm update <id> --run-agent ...` or `apm start <id>` first.");
+      process.exit(1);
+    }
+
+    if (runAgent.startsWith("aihub:")) {
+      const agentId = runAgent.slice(6);
+      const sessionKeys =
+        typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+          ? (frontmatter.sessionKeys as Record<string, string>)
+          : {};
+      const sessionKey = sessionKeys[agentId] ?? `project:${project.id}:${agentId}`;
+      const statusRes = await requestJson(`/agents/${agentId}/status`);
+      const statusData = await statusRes.json();
+      if (!statusRes.ok) {
+        console.error(statusData.error ?? "Failed to fetch agent status");
+        process.exit(1);
+      }
+      const historyRes = await requestJson(
+        `/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=simple`
+      );
+      const historyData = await historyRes.json();
+      const messages = Array.isArray(historyData.messages) ? (historyData.messages as SimpleHistoryMessage[]) : [];
+      const recent = messages.slice(-limit);
+      const payload = {
+        type: "aihub",
+        agentId,
+        sessionKey,
+        status: statusData.isStreaming ? "running" : "idle",
+        messages: recent,
+      };
+      if (opts.json) {
+        console.log(JSON.stringify(payload, null, 2));
+        return;
+      }
+      console.log(`Status: ${payload.status}`);
+      console.log(formatMessages(recent));
+      return;
+    }
+
+    if (runAgent.startsWith("cli:")) {
+      const cli = runAgent.slice(4);
+      const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
+      const slug = runMode === "worktree" ? (opts.slug ?? slugifyTitle(project.title)) : "main";
+      const subagentsRes = await requestJson(`/projects/${normalizedId}/subagents`);
+      const subagentsData = await subagentsRes.json();
+      if (!subagentsRes.ok) {
+        console.error(subagentsData.error ?? "Failed to fetch subagents");
+        process.exit(1);
+      }
+      const items = Array.isArray(subagentsData.items) ? subagentsData.items : [];
+      const item = items.find((entry: { slug?: string }) => entry.slug === slug);
+      const status = mapSubagentStatus(item?.status);
+      const logsRes = await requestJson(`/projects/${normalizedId}/subagents/${slug}/logs?since=0`);
+      const logsData = await logsRes.json();
+      if (!logsRes.ok) {
+        console.error(logsData.error ?? "Failed to fetch logs");
+        process.exit(1);
+      }
+      const events = Array.isArray(logsData.events) ? logsData.events : [];
+      const messages = events
+        .filter((ev: { type?: string; text?: string }) => ev.type === "user" || ev.type === "assistant")
+        .map((ev: { type?: string; text?: string }) => ({
+          role: ev.type === "user" ? "user" : "assistant",
+          content: ev.text ?? "",
+        }))
+        .filter((ev: SimpleHistoryMessage) => ev.content.length > 0);
+      const recent = messages.slice(-limit);
+      const payload = {
+        type: "cli",
+        cli,
+        slug,
+        status,
+        messages: recent,
+      };
+      if (opts.json) {
+        console.log(JSON.stringify(payload, null, 2));
+        return;
+      }
+      console.log(`Status: ${payload.status}`);
+      console.log(formatMessages(recent));
       return;
     }
 
