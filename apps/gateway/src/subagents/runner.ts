@@ -250,16 +250,17 @@ export async function spawnSubagent(
 
   const readmePath = path.join(root, dirName, "README.md");
   const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
-  const repo = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
-  if (!repo) {
-    return { ok: false, error: "Project repo not set" };
-  }
+  const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+  const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
   const resolvedTitle = typeof frontmatter.title === "string" ? frontmatter.title : title ?? "";
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
   const summary = buildProjectSummary(resolvedTitle, status, content ?? "");
 
   let mode: SubagentMode = input.mode ?? "worktree";
+  if (!repo) {
+    mode = "main-run";
+  }
   if (mode === "worktree") {
     try {
       await fs.stat(path.join(repo, ".git"));
@@ -278,7 +279,7 @@ export async function spawnSubagent(
     await fs.mkdir(workspaceDir, { recursive: true });
   }
 
-  let worktreePath = repo;
+  let worktreePath = repo || workspaceDir;
   let baseBranch = input.baseBranch ?? "main";
   if (mode === "worktree") {
     const branch = `${input.projectId}/${input.slug}`;
