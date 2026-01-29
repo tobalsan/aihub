@@ -181,6 +181,10 @@ Kanban UI details:
 - `fix(web): allow closing subagent logs`
 - `fix(web): keep subagent logs scrollable`
 - `fix(web): auto-scroll monitoring logs`
+- `feat(web): include repo path in start prompt`
+- `feat(web): auto-advance todo to in_progress on start`
+- `feat(shared): centralize project start prompt builder`
+- `feat(gateway): add /api/projects/:id/start endpoint (UI-parity start)`
 - `fix(cli): route heartbeat through gateway API`
 
 ## Known Issues / Notes
@@ -206,6 +210,9 @@ Kanban UI details:
   - Repo input shown for any agent (domain=coding).
 - Stop for AIHub sends `/abort`; CLI uses interrupt API.
 - Manual CLI heartbeats now call gateway API; requires gateway + Discord bot running for delivery.
+- Start prompt now appends repo path when set.
+- Starting a run while status=todo auto-updates status to in_progress.
+- Project start prompt logic now shared between web + gateway.
 
 ## Next (Not Done)
 - Optional: drag/drop status moves, filters, search.

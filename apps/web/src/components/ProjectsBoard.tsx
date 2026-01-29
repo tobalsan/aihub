@@ -18,7 +18,7 @@ import {
   interruptSubagent,
 } from "../api/client";
 import type { ProjectListItem, ProjectDetail, FullHistoryMessage, ContentBlock, SubagentListItem, SubagentLogEvent } from "../api/types";
-import { buildProjectSummary, buildStartPrompt } from "./projectMonitoring";
+import { buildProjectStartPrompt } from "./projectMonitoring";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -1320,21 +1320,15 @@ export function ProjectsBoard() {
     const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
     const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
     const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
-    let prompt = `/drill-specs ${readmePath}`;
-    if (status !== "shaping") {
-      const summary = buildProjectSummary(
-        project.title,
-        getFrontmatterString(project.frontmatter, "status") ?? "",
-        project.path,
-        project.content
-      );
-      const basePrompt = buildStartPrompt(summary);
-      prompt = customPrompt ? `${basePrompt}\n\n${customPrompt}` : basePrompt;
-    }
-    const repo = detailRepo().trim();
-    if (repo) {
-      prompt = `${prompt}\n\nRepo path: ${repo}`;
-    }
+    const prompt = buildProjectStartPrompt({
+      title: project.title,
+      status: getFrontmatterString(project.frontmatter, "status") ?? "",
+      path: project.path,
+      content: project.content,
+      readmePath,
+      repo: detailRepo(),
+      customPrompt,
+    });
     setMainError("");
     setAihubLogs([]);
     setAihubLive("");
@@ -1474,26 +1468,27 @@ export function ProjectsBoard() {
     if (status === "shaping") {
       const basePath = project.path.replace(/\/$/, "");
       const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
-      let prompt = `/drill-specs ${readmePath}`;
-      const repo = detailRepo().trim();
-      if (repo) {
-        prompt = `${prompt}\n\nRepo path: ${repo}`;
-      }
+      const prompt = buildProjectStartPrompt({
+        title: project.title,
+        status: getFrontmatterString(project.frontmatter, "status") ?? "",
+        path: project.path,
+        content: project.content,
+        readmePath,
+        repo: detailRepo(),
+        customPrompt: custom,
+      });
       await runCli(project, prompt, false);
       return;
     }
-    const summary = buildProjectSummary(
-      project.title,
-      getFrontmatterString(project.frontmatter, "status") ?? "",
-      project.path,
-      project.content
-    );
-    const basePrompt = buildStartPrompt(summary);
-    let prompt = custom ? `${basePrompt}\n\n${custom}` : basePrompt;
-    const repo = detailRepo().trim();
-    if (repo) {
-      prompt = `${prompt}\n\nRepo path: ${repo}`;
-    }
+    const prompt = buildProjectStartPrompt({
+      title: project.title,
+      status: getFrontmatterString(project.frontmatter, "status") ?? "",
+      path: project.path,
+      content: project.content,
+      readmePath: project.path,
+      repo: detailRepo(),
+      customPrompt: custom,
+    });
     const started = await runCli(project, prompt, false);
     if (started) {
       await markInProgress();

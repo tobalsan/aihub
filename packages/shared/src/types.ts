@@ -302,6 +302,11 @@ export const UpdateProjectRequestSchema = z.object({
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
 
+export const StartProjectRunRequestSchema = z.object({
+  customPrompt: z.string().optional(),
+});
+export type StartProjectRunRequest = z.infer<typeof StartProjectRunRequestSchema>;
+
 export const CreateScheduleRequestSchema = z.object({
   name: z.string(),
   agentId: z.string(),

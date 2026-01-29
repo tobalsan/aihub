@@ -5,7 +5,10 @@ import {
   UpdateScheduleRequestSchema,
   CreateProjectRequestSchema,
   UpdateProjectRequestSchema,
+  StartProjectRunRequestSchema,
 } from "@aihub/shared";
+import type { UpdateProjectRequest } from "@aihub/shared";
+import { buildProjectStartPrompt, normalizeProjectStatus } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir, getConfig } from "../config/index.js";
 import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
 import { runHeartbeat } from "../heartbeat/index.js";
@@ -18,6 +21,20 @@ import { listSubagents, getSubagentLogs, listProjectBranches } from "../subagent
 import { spawnSubagent, interruptSubagent } from "../subagents/runner.js";
 
 const api = new Hono();
+
+function normalizeRunAgent(value?: string): { type: "aihub"; id: string } | { type: "cli"; id: string } | null {
+  if (!value) return null;
+  if (value.startsWith("aihub:")) return { type: "aihub", id: value.slice(6) };
+  if (value.startsWith("cli:")) return { type: "cli", id: value.slice(4) };
+  return null;
+}
+
+function slugifyTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", (c) => {
@@ -214,6 +231,137 @@ api.delete("/schedules/:id", async (c) => {
     return c.json({ error: "Schedule not found" }, 404);
   }
   return c.json({ ok: true });
+});
+
+// POST /api/projects/:id/start - start project run using stored metadata
+api.post("/projects/:id/start", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = StartProjectRunRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const config = getConfig();
+  const projectResult = await getProject(config, id);
+  if (!projectResult.ok) {
+    return c.json({ error: projectResult.error }, 404);
+  }
+  const project = projectResult.data;
+  const frontmatter = project.frontmatter ?? {};
+
+  const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
+  const normalizedStatus = normalizeProjectStatus(status);
+
+  const runAgentValue = typeof frontmatter.runAgent === "string" ? frontmatter.runAgent : "";
+  const initialRunAgent = normalizeRunAgent(runAgentValue);
+  const hasValidRunAgent = Boolean(initialRunAgent);
+  let runAgentSelection = initialRunAgent;
+  if (!runAgentSelection) {
+    const agents = getActiveAgents();
+    if (agents.length === 0) {
+      return c.json({ error: "No active agents available" }, 400);
+    }
+    const preferred =
+      normalizedStatus === "shaping"
+        ? agents.find((agent) => agent.name === "Project Manager")
+        : null;
+    const selected = preferred ?? agents[0];
+    runAgentSelection = { type: "aihub", id: selected.id };
+  }
+
+  let nextRunAgentValue = runAgentValue;
+  if (!nextRunAgentValue || !hasValidRunAgent) {
+    nextRunAgentValue =
+      runAgentSelection.type === "aihub" ? `aihub:${runAgentSelection.id}` : `cli:${runAgentSelection.id}`;
+  }
+
+  const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
+  const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
+  const absReadmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
+  const relBasePath = project.path.replace(/\/$/, "");
+  const relReadmePath = relBasePath.endsWith("README.md") ? relBasePath : `${relBasePath}/README.md`;
+  const readmePath = runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
+
+  const prompt = buildProjectStartPrompt({
+    title: project.title,
+    status,
+    path: project.path,
+    content: project.content,
+    readmePath,
+    repo,
+    customPrompt: parsed.data.customPrompt,
+  });
+
+  const updates: Partial<UpdateProjectRequest> = {};
+
+  if (runAgentSelection.type === "aihub") {
+    const agent = getAgent(runAgentSelection.id);
+    if (!agent || !isAgentActive(runAgentSelection.id)) {
+      return c.json({ error: "Agent not found" }, 404);
+    }
+    const sessionKeys =
+      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+        ? (frontmatter.sessionKeys as Record<string, string>)
+        : {};
+    const sessionKey = sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
+    if (!sessionKeys[agent.id]) {
+      updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
+    }
+    if (!runAgentValue || !hasValidRunAgent) {
+      updates.runAgent = nextRunAgentValue;
+    }
+    if (normalizedStatus === "todo") {
+      updates.status = "in_progress";
+    }
+
+    runAgent({
+      agentId: agent.id,
+      message: prompt,
+      sessionKey,
+    }).catch((err) => {
+      console.error(`[projects:${project.id}] start run failed:`, err);
+    });
+
+    if (Object.keys(updates).length > 0) {
+      await updateProject(config, project.id, updates);
+    }
+
+    return c.json({ ok: true, type: "aihub", sessionKey });
+  }
+
+  if (!["claude", "codex", "droid", "gemini"].includes(runAgentSelection.id)) {
+    return c.json({ error: `Unsupported CLI: ${runAgentSelection.id}` }, 400);
+  }
+
+  const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
+  const slug = runMode === "worktree" ? slugifyTitle(project.title) : "main";
+  if (!slug) {
+    return c.json({ error: "Slug required" }, 400);
+  }
+
+  const result = await spawnSubagent(config, {
+    projectId: project.id,
+    slug,
+    cli: runAgentSelection.id as "claude" | "codex" | "droid" | "gemini",
+    prompt,
+    mode: runMode === "worktree" ? "worktree" : "main-run",
+    baseBranch: "main",
+  });
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+
+  updates.runAgent = nextRunAgentValue;
+  updates.runMode = runMode;
+  if (normalizedStatus === "todo") {
+    updates.status = "in_progress";
+  }
+  if (Object.keys(updates).length > 0) {
+    await updateProject(config, project.id, updates);
+  }
+
+  return c.json({ ok: true, type: "cli", slug, runMode });
 });
 
 // GET /api/projects - list projects (frontmatter only)
