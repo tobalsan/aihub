@@ -43,7 +43,9 @@ export function getTailnetHostname(): string {
  */
 export function enableTailscaleServe(port: number, path: string = "/aihub"): void {
   const cmd = getTailscaleCmd();
-  execSync(`${cmd} serve --bg --yes --set-path=${path} ${port}`, {
+  const normalizedPath = path.endsWith("/") && path !== "/" ? path.slice(0, -1) : path;
+  const target = `http://127.0.0.1:${port}${normalizedPath}`;
+  execSync(`${cmd} serve --bg --yes --set-path=${normalizedPath} ${target}`, {
     encoding: "utf-8",
     timeout: 15000,
   });

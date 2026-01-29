@@ -187,6 +187,7 @@ Kanban UI details:
 - `feat(gateway): add /api/projects/:id/start endpoint (UI-parity start)`
 - `docs: add apm CLI usage guide`
 - `fix(cli): route heartbeat through gateway API`
+- `fix(web): tailscale serve base + api/ws mapping`
 
 ## Known Issues / Notes
 - Claude SDK runs in Projects monitoring UI can show duplicated/garbled live logs because both local streaming and subscription events update the same live buffer. Fixed by ignoring subscription callbacks while a local stream is active (`apps/web/src/components/ProjectsBoard.tsx`).
@@ -213,6 +214,7 @@ Kanban UI details:
 - Manual CLI heartbeats now call gateway API; requires gateway + Discord bot running for delivery.
 - Start prompt now appends repo path when set.
 - Starting a run while status=todo auto-updates status to in_progress.
+- Tailscale serve: UI uses base `/aihub` (no trailing slash). Serve config must map `/aihub` -> `http://127.0.0.1:3000/aihub` and `/api`,`/ws` -> gateway port (web dev script now sets these).
 - Project start prompt logic now shared between web + gateway.
 - `apm` CLI docs now live at `docs/cli-apm.md`.
 

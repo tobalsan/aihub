@@ -25,12 +25,21 @@ interface UiConfig {
   };
 }
 
-function loadUiConfig(): UiConfig {
+interface GatewayConfig {
+  port?: number;
+  bind?: UiBindMode;
+}
+
+interface Config {
+  ui?: UiConfig;
+  gateway?: GatewayConfig;
+}
+
+function loadConfig(): Config {
   try {
     const configPath = path.join(os.homedir(), ".aihub", "aihub.json");
     const raw = fs.readFileSync(configPath, "utf-8");
-    const config = JSON.parse(raw);
-    return config.ui ?? {};
+    return JSON.parse(raw);
   } catch {
     return {};
   }
@@ -64,11 +73,14 @@ function resolveHost(bind?: UiBindMode): string {
 }
 
 async function main() {
-  const uiConfig = loadUiConfig();
+  const config = loadConfig();
+  const uiConfig = config.ui ?? {};
+  const gatewayConfig = config.gateway ?? {};
   const port = uiConfig.port ?? 3000;
   const host = resolveHost(uiConfig.bind);
   const tailscaleMode = uiConfig.tailscale?.mode ?? "off";
   const resetOnExit = uiConfig.tailscale?.resetOnExit ?? true;
+  const gatewayPort = gatewayConfig.port ?? 4000;
 
   let tailscaleHostname: string | null = null;
 
@@ -77,6 +89,8 @@ async function main() {
     try {
       console.log(`[dev] Enabling Tailscale serve on port ${port} (path /aihub)...`);
       enableTailscaleServe(port, "/aihub");
+      enableTailscaleServe(gatewayPort, "/api");
+      enableTailscaleServe(gatewayPort, "/ws");
       tailscaleHostname = getTailnetHostname();
       console.log(`[dev] HTTPS available at: https://${tailscaleHostname}/aihub`);
     } catch (err) {

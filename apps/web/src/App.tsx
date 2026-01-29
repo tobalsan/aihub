@@ -21,8 +21,9 @@ function Layout(props: { children?: any }) {
 }
 
 export default function App() {
+  const base = import.meta.env.BASE_URL;
   return (
-    <Router root={Layout}>
+    <Router root={Layout} base={base}>
       <Route path="/" component={AgentList} />
       <Route path="/chat/:agentId/:view?" component={ChatView} />
       <Route path="/projects" component={ProjectsBoard} />

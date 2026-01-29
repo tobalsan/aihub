@@ -118,8 +118,10 @@ const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 const gatewayHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
 const gatewayPort = gatewayConfig.port ?? 4000;
 const gatewayTarget = `http://${gatewayHost}:${gatewayPort}`;
+const base = tailscaleServe ? "/aihub" : "/";
 
 export default defineConfig({
+  base,
   plugins: [solid()],
   build: {
     rollupOptions: {
