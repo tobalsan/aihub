@@ -92,7 +92,7 @@ function startWebUI(uiConfig: UiConfig): ChildProcess | null {
 
   // Log URL
   if (useTailscaleServe) {
-    console.log(`Web UI: https://<tailnet>/ (via tailscale serve)`);
+    console.log(`Web UI: https://<tailnet>/aihub (via tailscale serve)`);
   } else {
     const displayHost = host === "0.0.0.0" ? "localhost" : host;
     console.log(`Web UI: http://${displayHost}:${port}/`);

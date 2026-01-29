@@ -75,10 +75,10 @@ async function main() {
   // Enable tailscale serve if configured
   if (tailscaleMode === "serve") {
     try {
-      console.log(`[dev] Enabling Tailscale serve on port ${port}...`);
-      enableTailscaleServe(port);
+      console.log(`[dev] Enabling Tailscale serve on port ${port} (path /aihub)...`);
+      enableTailscaleServe(port, "/aihub");
       tailscaleHostname = getTailnetHostname();
-      console.log(`[dev] HTTPS available at: https://${tailscaleHostname}/`);
+      console.log(`[dev] HTTPS available at: https://${tailscaleHostname}/aihub`);
     } catch (err) {
       console.error("[dev] Failed to enable Tailscale serve:", err);
       console.log("[dev] Continuing without HTTPS...");

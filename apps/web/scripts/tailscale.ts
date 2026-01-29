@@ -41,9 +41,9 @@ export function getTailnetHostname(): string {
 /**
  * Enable tailscale serve on a port (HTTPS proxy)
  */
-export function enableTailscaleServe(port: number): void {
+export function enableTailscaleServe(port: number, path: string = "/aihub"): void {
   const cmd = getTailscaleCmd();
-  execSync(`${cmd} serve --bg --yes ${port}`, {
+  execSync(`${cmd} serve --bg --yes --set-path=${path} ${port}`, {
     encoding: "utf-8",
     timeout: 15000,
   });
