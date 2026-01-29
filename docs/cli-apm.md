@@ -85,6 +85,14 @@ Options:
 - `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
 - `-j, --json`: JSON output.
 
+### `apm resume <id>`
+Resume an existing run (same as sending a message in the monitoring panel).
+
+Options:
+- `-m, --message <message>`: required. Use `-` for stdin.
+- `--slug <slug>`: override slug for CLI worktree resumes.
+- `-j, --json`: JSON output.
+
 ## Examples
 
 ```
@@ -102,4 +110,7 @@ cat README.md | apm update PRO-19 --content -
 
 # Start a run with a custom prompt
 apm start PRO-19 --custom-prompt "Focus on the rollout plan."
+
+# Resume with a follow-up message
+apm resume PRO-19 --message "Continue from where you left off."
 ```

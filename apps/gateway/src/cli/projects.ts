@@ -12,6 +12,15 @@ type ProjectItem = {
   content?: string;
 };
 
+function slugifyTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return slug || "project";
+}
+
 function pickTailnetIPv4(): string | null {
   const interfaces = os.networkInterfaces();
   for (const [, addrs] of Object.entries(interfaces)) {
@@ -287,6 +296,86 @@ program
       return;
     }
     console.log(renderTable([data as ProjectItem]));
+  });
+
+program
+  .command("resume")
+  .argument("<id>", "Project ID")
+  .requiredOption("-m, --message <message>", "Message to send (use '-' for stdin)")
+  .option("--slug <slug>", "Slug override (CLI worktree resume)")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    const message = opts.message === "-" ? await readStdin() : opts.message;
+    const projectRes = await requestJson(`/projects/${id}`);
+    const projectData = await projectRes.json();
+    if (!projectRes.ok) {
+      console.error(projectData.error ?? "Request failed");
+      process.exit(1);
+    }
+
+    const project = projectData as ProjectItem;
+    const frontmatter = project.frontmatter ?? {};
+    const runAgent = typeof frontmatter.runAgent === "string" ? frontmatter.runAgent : "";
+    if (!runAgent) {
+      console.error("runAgent not set. Use `apm update <id> --run-agent ...` or `apm start <id>` first.");
+      process.exit(1);
+    }
+
+    if (runAgent.startsWith("aihub:")) {
+      const agentId = runAgent.slice(6);
+      const sessionKeys =
+        typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+          ? (frontmatter.sessionKeys as Record<string, string>)
+          : {};
+      const sessionKey = sessionKeys[agentId] ?? `project:${project.id}:${agentId}`;
+      const res = await requestJson(`/agents/${agentId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, sessionKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error(data.error ?? "Request failed");
+        process.exit(1);
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+      console.log(`Sent message (sessionKey: ${sessionKey})`);
+      return;
+    }
+
+    if (runAgent.startsWith("cli:")) {
+      const cli = runAgent.slice(4);
+      const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
+      const slug = runMode === "worktree" ? (opts.slug ?? slugifyTitle(project.title)) : "main";
+      const res = await requestJson(`/projects/${id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          cli,
+          prompt: message,
+          mode: runMode === "worktree" ? "worktree" : "main-run",
+          resume: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error(data.error ?? "Request failed");
+        process.exit(1);
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+      console.log(`Resumed CLI run (slug: ${slug})`);
+      return;
+    }
+
+    console.error(`Unsupported runAgent: ${runAgent}`);
+    process.exit(1);
   });
 
 program
