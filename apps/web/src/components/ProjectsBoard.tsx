@@ -1399,13 +1399,13 @@ export function ProjectsBoard() {
     );
   };
 
-  const runCli = async (project: ProjectDetail, message: string, resume: boolean) => {
+  const runCli = async (project: ProjectDetail, message: string, resume: boolean): Promise<boolean> => {
     const agent = selectedRunAgent();
-    if (!agent || agent.type !== "cli") return;
+    if (!agent || agent.type !== "cli") return false;
     const slug = mainSlug();
     if (!slug) {
       setMainError("Slug required");
-      return;
+      return false;
     }
     setMainError("");
     const res = await spawnSubagent(project.id, {
@@ -1418,21 +1418,31 @@ export function ProjectsBoard() {
     });
     if (!res.ok) {
       setMainError(res.error);
+      return false;
     }
+    return true;
   };
 
   const handleStart = async (project: ProjectDetail) => {
     const agent = selectedRunAgent();
     if (!agent) return;
     const custom = customStartEnabled() ? customStartPrompt().trim() : "";
+    const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
+    const markInProgress = async () => {
+      if (status !== "todo") return;
+      setDetailStatus("in_progress");
+      await updateProject(project.id, { status: "in_progress" });
+      await refetch();
+      await refetchDetail();
+    };
     if (agent.type === "aihub") {
       await startAihubRun(project, custom);
+      await markInProgress();
       return;
     }
     if (detailRunAgent()) {
       await updateProject(project.id, { runAgent: detailRunAgent(), runMode: detailRunMode() });
     }
-    const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
     if (status === "shaping") {
       const basePath = project.path.replace(/\/$/, "");
       const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
@@ -1456,7 +1466,10 @@ export function ProjectsBoard() {
     if (repo) {
       prompt = `${prompt}\n\nRepo path: ${repo}`;
     }
-    await runCli(project, prompt, false);
+    const started = await runCli(project, prompt, false);
+    if (started) {
+      await markInProgress();
+    }
   };
 
   const handleNew = async (project: ProjectDetail) => {
