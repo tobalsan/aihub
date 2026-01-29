@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "aihub": "node apps/gateway/dist/cli/index.js",
-    "projects": "pnpm --filter @aihub/gateway exec tsx src/cli/projects.ts"
+    "projects": "pnpm --filter @aihub/gateway exec tsx src/cli/projects.ts",
+    "subagent": "pnpm --filter @aihub/gateway exec tsx src/cli/subagent.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

@@ -18,7 +18,7 @@ import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
 import { listSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
-import { spawnSubagent, interruptSubagent } from "../subagents/runner.js";
+import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
 
 const api = new Hono();
 
@@ -470,6 +470,20 @@ api.post("/projects/:id/subagents/:slug/interrupt", async (c) => {
   const result = await interruptSubagent(config, id, slug);
   if (!result.ok) {
     const status = result.error.startsWith("Project not found") ? 404 : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/subagents/:slug/kill - kill subagent
+api.post("/projects/:id/subagents/:slug/kill", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const config = getConfig();
+  const result = await killSubagent(config, id, slug);
+  if (!result.ok) {
+    const status =
+      result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);

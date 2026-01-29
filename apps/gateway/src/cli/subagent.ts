@@ -31,11 +31,17 @@ type InterruptArgs = {
   slug: string;
 };
 
+type KillArgs = {
+  projectId: string;
+  slug: string;
+};
+
 type Handlers = {
   spawn: (args: SpawnArgs) => Promise<Response>;
   logs: (args: LogsArgs) => Promise<Response>;
   status: (args: StatusArgs) => Promise<Response>;
   interrupt: (args: InterruptArgs) => Promise<Response>;
+  kill: (args: KillArgs) => Promise<Response>;
 };
 
 function pickTailnetIPv4(): string | null {
@@ -122,6 +128,8 @@ export function createSubagentHandlers(options?: {
     },
     interrupt: (args) =>
       requestJson(`/projects/${args.projectId}/subagents/${args.slug}/interrupt`, { method: "POST" }),
+    kill: (args) =>
+      requestJson(`/projects/${args.projectId}/subagents/${args.slug}/kill`, { method: "POST" }),
   };
 }
 
@@ -196,6 +204,20 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .action(async (opts) => {
       const res = await handlers.interrupt({ projectId: opts.project, slug: opts.slug });
+      const text = await res.text();
+      if (!res.ok) {
+        console.error(text);
+        process.exit(1);
+      }
+      console.log(text);
+    });
+
+  subagent
+    .command("kill")
+    .argument("<projectId>", "Project ID")
+    .argument("<slug>", "Subagent slug")
+    .action(async (projectId, slug) => {
+      const res = await handlers.kill({ projectId, slug });
       const text = await res.text();
       if (!res.ok) {
         console.error(text);

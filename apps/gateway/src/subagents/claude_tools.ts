@@ -8,6 +8,7 @@ export const SUBAGENT_TOOL_NAMES = {
   status: "subagent.status",
   logs: "subagent.logs",
   interrupt: "subagent.interrupt",
+  kill: "subagent.kill",
 };
 
 export function createSubagentMcpServer(handlers?: SubagentToolHandlers) {
@@ -35,6 +36,7 @@ export function createSubagentMcpServer(handlers?: SubagentToolHandlers) {
   };
 
   const interruptSchema = statusSchema;
+  const killSchema = statusSchema;
 
   return createSdkMcpServer({
     name: SUBAGENT_MCP_SERVER,
@@ -57,6 +59,11 @@ export function createSubagentMcpServer(handlers?: SubagentToolHandlers) {
       }),
       tool(SUBAGENT_TOOL_NAMES.interrupt, "Interrupt a running subagent", interruptSchema, async (args) => {
         const result = await ops.interrupt(args);
+        if (!result.ok) throw new Error(result.error);
+        return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
+      }),
+      tool(SUBAGENT_TOOL_NAMES.kill, "Kill and remove a subagent workspace", killSchema, async (args) => {
+        const result = await ops.kill(args);
         if (!result.ok) throw new Error(result.error);
         return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
       }),

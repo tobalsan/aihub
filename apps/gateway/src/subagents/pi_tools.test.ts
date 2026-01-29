@@ -9,6 +9,7 @@ describe("pi subagent tools", () => {
       status: vi.fn(),
       logs: vi.fn(),
       interrupt: vi.fn(),
+      kill: vi.fn(),
     };
     const tools = createPiSubagentTools(handlers);
     const tool = tools.find((t) => t.name === "subagent.spawn");
@@ -42,6 +43,7 @@ describe("pi subagent tools", () => {
       status: vi.fn(),
       logs: vi.fn(),
       interrupt: vi.fn(),
+      kill: vi.fn(),
     };
     const tools = createPiSubagentTools(handlers);
     const tool = tools.find((t) => t.name === "subagent.spawn");
@@ -56,6 +58,7 @@ describe("pi subagent tools", () => {
       status: vi.fn(),
       logs: vi.fn().mockResolvedValue({ ok: true, data: { cursor: 10, events: [] } }),
       interrupt: vi.fn(),
+      kill: vi.fn(),
     };
     const tools = createPiSubagentTools(handlers);
     const tool = tools.find((t) => t.name === "subagent.logs");

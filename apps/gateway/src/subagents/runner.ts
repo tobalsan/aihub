@@ -27,6 +27,10 @@ export type InterruptSubagentResult =
   | { ok: true; data: { slug: string } }
   | { ok: false; error: string };
 
+export type KillSubagentResult =
+  | { ok: true; data: { slug: string } }
+  | { ok: false; error: string };
+
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
     return path.join(homedir(), p.slice(2));
@@ -469,4 +473,110 @@ export async function interruptSubagent(
   }
 
   return { ok: false, error: `Subagent not running: ${slug}` };
+}
+
+export async function killSubagent(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string
+): Promise<KillSubagentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const workspaceDir = path.join(root, ".workspaces", projectId, slug);
+  if (!(await dirExists(workspaceDir))) {
+    return { ok: false, error: `Subagent not found: ${slug}` };
+  }
+
+  const statePath = path.join(workspaceDir, "state.json");
+  let state: { supervisor_pid?: number; run_mode?: string; worktree_path?: string } | null = null;
+  try {
+    const raw = await fs.readFile(statePath, "utf8");
+    state = JSON.parse(raw) as { supervisor_pid?: number; run_mode?: string; worktree_path?: string };
+  } catch {
+    state = null;
+  }
+
+  if (state?.supervisor_pid) {
+    try {
+      process.kill(state.supervisor_pid, "SIGTERM");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    } catch {
+      // ignore
+    }
+  }
+
+  const workspacesRoot = path.join(root, ".workspaces", projectId);
+  const worktreePath = typeof state?.worktree_path === "string" ? state.worktree_path : "";
+  let runMode = typeof state?.run_mode === "string" ? state.run_mode : "";
+  if (!runMode) {
+    const workspaceHasGit = await fs
+      .stat(path.join(workspaceDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    const worktreeHasGit = worktreePath
+      ? await fs
+          .stat(path.join(worktreePath, ".git"))
+          .then(() => true)
+          .catch(() => false)
+      : false;
+    if (
+      worktreePath &&
+      path.resolve(worktreePath).startsWith(path.resolve(workspacesRoot)) &&
+      (await dirExists(worktreePath)) &&
+      worktreeHasGit
+    ) {
+      runMode = "worktree";
+    } else if (workspaceHasGit) {
+      runMode = "worktree";
+    }
+  }
+  if (!runMode) runMode = "main-run";
+
+  if (runMode === "worktree") {
+    const readmePath = path.join(root, dirName, "README.md");
+    const { frontmatter } = await parseMarkdownFile(readmePath);
+    const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+    const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+    if (!repo) {
+      return { ok: false, error: "Project repo not set" };
+    }
+
+    const resolvedWorktreePath = worktreePath || workspaceDir;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("git", ["-C", repo, "worktree", "remove", resolvedWorktreePath, "--force"], {
+          stdio: "ignore",
+        });
+        child.on("exit", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error("git worktree remove failed"));
+        });
+        child.on("error", reject);
+      });
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "git worktree remove failed" };
+    }
+
+    try {
+      await new Promise<void>((resolve) => {
+        const child = spawn("git", ["-C", repo, "branch", "-D", `${projectId}/${slug}`], {
+          stdio: "ignore",
+        });
+        child.on("exit", (code) => {
+          if (code === 0) resolve();
+          else resolve();
+        });
+        child.on("error", () => resolve());
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  await fs.rm(workspaceDir, { recursive: true, force: true });
+  return { ok: true, data: { slug } };
 }

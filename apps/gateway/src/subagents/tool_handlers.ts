@@ -1,7 +1,7 @@
 import type { GatewayConfig } from "@aihub/shared";
 import { getConfig } from "../config/index.js";
 import { listSubagents, getSubagentLogs } from "./index.js";
-import { spawnSubagent, interruptSubagent, type SpawnSubagentInput } from "./runner.js";
+import { spawnSubagent, interruptSubagent, killSubagent, type SpawnSubagentInput } from "./runner.js";
 
 export type SubagentToolResult<T> =
   | { ok: true; data: T }
@@ -12,6 +12,7 @@ export type SubagentToolHandlers = {
   status: (input: { projectId: string; slug: string }) => Promise<SubagentToolResult<unknown>>;
   logs: (input: { projectId: string; slug: string; since?: number }) => Promise<SubagentToolResult<unknown>>;
   interrupt: (input: { projectId: string; slug: string }) => Promise<SubagentToolResult<{ slug: string }>>;
+  kill: (input: { projectId: string; slug: string }) => Promise<SubagentToolResult<{ slug: string }>>;
 };
 
 export function createSubagentToolHandlers(overrides?: {
@@ -20,12 +21,14 @@ export function createSubagentToolHandlers(overrides?: {
   list?: typeof listSubagents;
   logs?: typeof getSubagentLogs;
   interrupt?: typeof interruptSubagent;
+  kill?: typeof killSubagent;
 }): SubagentToolHandlers {
   const resolveConfig = overrides?.getConfig ?? getConfig;
   const spawn = overrides?.spawn ?? spawnSubagent;
   const list = overrides?.list ?? listSubagents;
   const logs = overrides?.logs ?? getSubagentLogs;
   const interrupt = overrides?.interrupt ?? interruptSubagent;
+  const kill = overrides?.kill ?? killSubagent;
 
   return {
     async spawn(input) {
@@ -48,6 +51,10 @@ export function createSubagentToolHandlers(overrides?: {
     async interrupt(input) {
       const config = resolveConfig();
       return interrupt(config, input.projectId, input.slug);
+    },
+    async kill(input) {
+      const config = resolveConfig();
+      return kill(config, input.projectId, input.slug);
     },
   };
 }

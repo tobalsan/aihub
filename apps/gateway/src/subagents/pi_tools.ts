@@ -35,6 +35,7 @@ const logsParams = {
 } as any;
 
 const interruptParams = statusParams;
+const killParams = statusParams;
 
 function okText(data: unknown) {
   return [{ type: "text" as const, text: JSON.stringify(data) }];
@@ -111,6 +112,21 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       execute: async (_toolCallId, params) => {
         const input = params as { projectId: string; slug: string };
         const result = await ops.interrupt({
+          projectId: input.projectId,
+          slug: input.slug,
+        });
+        if (!result.ok) throw new Error(result.error);
+        return { content: okText(result.data), details: result.data };
+      },
+    },
+    {
+      name: "subagent.kill",
+      label: "Kill subagent",
+      description: "Kill and remove a subagent workspace",
+      parameters: killParams,
+      execute: async (_toolCallId, params) => {
+        const input = params as { projectId: string; slug: string };
+        const result = await ops.kill({
           projectId: input.projectId,
           slug: input.slug,
         });

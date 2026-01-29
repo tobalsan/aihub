@@ -46,4 +46,22 @@ describe("subagent CLI handlers", () => {
     await handlers.logs({ projectId: "PRO-2", slug: "beta", since: 123 });
     expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-2/subagents/beta/logs?since=123");
   });
+
+  it("kill posts to kill endpoint", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ slug: "gamma" }), { status: 200 });
+    };
+
+    const handlers = createSubagentHandlers({
+      baseUrl: "http://localhost:4000",
+      fetchImpl,
+    });
+
+    await handlers.kill({ projectId: "PRO-3", slug: "gamma" });
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-3/subagents/gamma/kill");
+    expect(calls[0].init?.method).toBe("POST");
+  });
 });
