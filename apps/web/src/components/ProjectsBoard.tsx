@@ -316,11 +316,21 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   for (const event of events) {
     if (event.type === "skip") continue;
     if (event.type === "user") {
-      if (event.text) entries.push({ tone: "user", body: event.text });
+      if (event.text) {
+        const last = entries[entries.length - 1];
+        if (!last || last.tone !== "user" || last.body !== event.text) {
+          entries.push({ tone: "user", body: event.text });
+        }
+      }
       continue;
     }
     if (event.type === "assistant") {
-      if (event.text) entries.push({ tone: "assistant", body: event.text });
+      if (event.text) {
+        const last = entries[entries.length - 1];
+        if (!last || last.tone !== "assistant" || last.body !== event.text) {
+          entries.push({ tone: "assistant", body: event.text });
+        }
+      }
       continue;
     }
     if (event.type === "tool_call") {
