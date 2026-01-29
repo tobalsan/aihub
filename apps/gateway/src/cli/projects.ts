@@ -289,4 +289,40 @@ program
     console.log(renderTable([data as ProjectItem]));
   });
 
+program
+  .command("start")
+  .argument("<id>", "Project ID")
+  .option("--custom-prompt <prompt>", "Custom prompt (use '-' for stdin)")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    const body: Record<string, unknown> = {};
+    if (opts.customPrompt !== undefined) {
+      body.customPrompt = opts.customPrompt === "-" ? await readStdin() : opts.customPrompt;
+    }
+
+    const res = await requestJson(`/projects/${id}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(data.error ?? "Request failed");
+      process.exit(1);
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    if (data.type === "aihub") {
+      console.log(`Started AIHub run (sessionKey: ${data.sessionKey})`);
+      return;
+    }
+    if (data.type === "cli") {
+      console.log(`Started CLI run (slug: ${data.slug}, mode: ${data.runMode})`);
+      return;
+    }
+    console.log(JSON.stringify(data, null, 2));
+  });
+
 program.parseAsync(process.argv);

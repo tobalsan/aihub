@@ -78,6 +78,13 @@ Shortcut for status update.
 Options:
 - `-j, --json`: JSON output.
 
+### `apm start <id>`
+Start a project run using stored metadata.
+
+Options:
+- `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
+- `-j, --json`: JSON output.
+
 ## Examples
 
 ```
@@ -92,4 +99,7 @@ apm update PRO-19 --run-agent aihub:project_manager --repo ~/code/aihub --run-mo
 
 # Update README via stdin
 cat README.md | apm update PRO-19 --content -
+
+# Start a run with a custom prompt
+apm start PRO-19 --custom-prompt "Focus on the rollout plan."
 ```
