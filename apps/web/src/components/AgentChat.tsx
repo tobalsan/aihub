@@ -1,9 +1,10 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import {
   fetchFullHistory,
   fetchSubagents,
   fetchSubagentLogs,
   getSessionKey,
+  spawnSubagent,
   streamMessage,
   subscribeToSession,
 } from "../api/client";
@@ -12,6 +13,7 @@ import type {
   FullHistoryMessage,
   FullToolResultMessage,
   SubagentLogEvent,
+  SubagentStatus,
 } from "../api/types";
 
 type AgentChatProps = {
@@ -21,6 +23,8 @@ type AgentChatProps = {
   subagentInfo?: {
     projectId: string;
     slug: string;
+    cli?: string;
+    status?: SubagentStatus;
   };
   onBack: () => void;
 };
@@ -427,6 +431,15 @@ function extractUserTexts(messages: FullHistoryMessage[]): string[] {
   return texts;
 }
 
+function extractCliUserTexts(events: SubagentLogEvent[]): string[] {
+  const texts: string[] = [];
+  for (const event of events) {
+    if (event.type !== "user") continue;
+    if (event.text) texts.push(event.text);
+  }
+  return texts;
+}
+
 function mergePendingAihubMessages(
   messages: FullHistoryMessage[],
   pending: string[]
@@ -455,17 +468,48 @@ export function AgentChat(props: AgentChatProps) {
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
+  const [aihubPending, setAihubPending] = createSignal(false);
   const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<string[]>([]);
   const [cliLogs, setCliLogs] = createSignal<SubagentLogEvent[]>([]);
   const [cliCursor, setCliCursor] = createSignal(0);
+  const [pendingCliUserMessages, setPendingCliUserMessages] = createSignal<string[]>([]);
+  const [subagentAwaitingResponse, setSubagentAwaitingResponse] = createSignal(false);
+  const [subagentSending, setSubagentSending] = createSignal(false);
 
   let streamCleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
   let pollInterval: number | null = null;
   let logPaneRef: HTMLDivElement | undefined;
+  let textareaRef: HTMLTextAreaElement | undefined;
 
   const sessionKey = createMemo(() => (props.agentId ? getSessionKey(props.agentId) : "main"));
   const cliTokens = new Set(["claude", "codex", "droid", "gemini"]);
+  const canSendLead = createMemo(() => props.agentType === "lead" && props.agentId && !aihubStreaming());
+  const canSendSubagent = createMemo(
+    () =>
+      props.agentType === "subagent" &&
+      props.subagentInfo &&
+      props.subagentInfo.cli &&
+      props.subagentInfo.status !== "running" &&
+      !subagentSending()
+  );
+
+  onMount(() => {
+    resizeTextarea("");
+  });
+
+  const resizeTextarea = (value = input()) => {
+    if (!textareaRef) return;
+    const lineHeight = 20;
+    const maxHeight = lineHeight * 10;
+    const lines = Math.max(1, value.split("\n").length);
+    const height = Math.min(lines * lineHeight + 24, maxHeight + 24);
+    textareaRef.style.height = `${height}px`;
+  };
+
+  const markAihubStreaming = () => {
+    if (aihubPending()) setAihubPending(false);
+  };
 
   const loadAihubHistory = async () => {
     if (!props.agentId) return;
@@ -507,7 +551,25 @@ export function AgentChat(props: AgentChatProps) {
       const res = await fetchSubagentLogs(props.subagentInfo.projectId, activeSlug, cliCursor());
       if (!res.ok) return;
       if (res.data.events.length > 0) {
-        setCliLogs((prev) => [...prev, ...res.data.events]);
+        const next = [...cliLogs(), ...res.data.events];
+        setCliLogs(next);
+        if (res.data.events.some((event) => event.type !== "user")) {
+          setSubagentAwaitingResponse(false);
+        }
+        if (pendingCliUserMessages().length > 0) {
+          const historyUsers = extractCliUserTexts(next);
+          let cursor = 0;
+          const remaining: string[] = [];
+          for (const text of pendingCliUserMessages()) {
+            const idx = historyUsers.indexOf(text, cursor);
+            if (idx === -1) {
+              remaining.push(text);
+            } else {
+              cursor = idx + 1;
+            }
+          }
+          setPendingCliUserMessages(remaining);
+        }
       }
       setCliCursor(res.data.cursor);
     };
@@ -528,9 +590,16 @@ export function AgentChat(props: AgentChatProps) {
     setAihubLogs([]);
     setAihubLive("");
     setAihubStreaming(false);
+    setAihubPending(false);
     setPendingAihubUserMessages([]);
     setCliLogs([]);
     setCliCursor(0);
+    setPendingCliUserMessages([]);
+    setSubagentAwaitingResponse(false);
+    setSubagentSending(false);
+    if (textareaRef) {
+      resizeTextarea("");
+    }
 
     if (streamCleanup) {
       streamCleanup();
@@ -567,42 +636,99 @@ export function AgentChat(props: AgentChatProps) {
     aihubLogs();
     aihubLive();
     cliLogs();
+    pendingCliUserMessages();
+    aihubPending();
     if (logPaneRef) {
       logPaneRef.scrollTop = logPaneRef.scrollHeight;
     }
   });
 
   const handleSend = () => {
-    if (!props.agentId) return;
     const text = input().trim();
-    if (!text || aihubStreaming()) return;
+    if (!text) return;
+
+    if (props.agentType === "subagent") {
+      if (!props.subagentInfo || !props.subagentInfo.cli || subagentSending()) return;
+      setSubagentSending(true);
+      setError("");
+      setPendingCliUserMessages((prev) => [...prev, text]);
+      setSubagentAwaitingResponse(true);
+      setInput("");
+      resizeTextarea("");
+      const mode = props.subagentInfo.slug === "main" ? "main-run" : "worktree";
+      void spawnSubagent(props.subagentInfo.projectId, {
+        slug: props.subagentInfo.slug,
+        cli: props.subagentInfo.cli,
+        prompt: text,
+        mode,
+        resume: true,
+      }).then((res) => {
+        if (!res.ok) {
+          setError(res.error);
+          setPendingCliUserMessages((prev) => {
+            const idx = prev.indexOf(text);
+            if (idx === -1) return prev;
+            return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+          });
+          setSubagentAwaitingResponse(false);
+        }
+        setSubagentSending(false);
+      });
+      return;
+    }
+
+    if (!props.agentId || aihubStreaming()) return;
 
     setPendingAihubUserMessages((prev) => [...prev, text]);
+    setAihubLogs((prev) => [...prev, { tone: "user", body: text }]);
     setInput("");
     setError("");
     setAihubLive("");
     setAihubStreaming(true);
+    setAihubPending(true);
+    resizeTextarea("");
 
     streamCleanup?.();
     streamCleanup = streamMessage(
       props.agentId,
       text,
       sessionKey(),
-      (chunk) => setAihubLive((prev) => prev + chunk),
+      (chunk) => {
+        markAihubStreaming();
+        setAihubLive((prev) => prev + chunk);
+      },
       () => {
         setAihubStreaming(false);
         setAihubLive("");
+        setAihubPending(false);
         loadAihubHistory();
       },
       (err) => {
         setError(err);
         setAihubStreaming(false);
+        setAihubPending(false);
+      },
+      {
+        onThinking: () => markAihubStreaming(),
+        onToolStart: () => markAihubStreaming(),
+        onSessionReset: () => {
+          setAihubLogs([]);
+          setAihubLive("");
+          setAihubStreaming(false);
+          setAihubPending(false);
+          setPendingAihubUserMessages([]);
+        },
       }
     );
   };
 
   const aihubLogItems = createMemo(() => aihubLogs());
-  const cliLogItems = createMemo(() => buildCliLogs(cliLogs()));
+  const cliDisplayEvents = createMemo(() => {
+    const pending = pendingCliUserMessages();
+    if (pending.length === 0) return cliLogs();
+    return [...cliLogs(), ...pending.map((text) => ({ type: "user", text }))];
+  });
+  const cliLogItems = createMemo(() => buildCliLogs(cliDisplayEvents()));
 
   return (
     <div class="agent-chat">
@@ -630,6 +756,15 @@ export function AgentChat(props: AgentChatProps) {
                 </div>
               </div>
             </Show>
+            <Show when={aihubPending()}>
+              <div class="log-line pending">
+                <span class="log-spinner" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </div>
+            </Show>
           </div>
         </Show>
 
@@ -637,6 +772,15 @@ export function AgentChat(props: AgentChatProps) {
           <div class="log-pane" ref={logPaneRef}>
             <Show when={cliLogItems().length > 0} fallback={<div class="log-empty">No logs yet.</div>}>
               {cliLogItems().map((item) => renderLogItem(item))}
+            </Show>
+            <Show when={pendingCliUserMessages().length > 0 || subagentSending() || subagentAwaitingResponse()}>
+              <div class="log-line pending">
+                <span class="log-spinner" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </div>
             </Show>
           </div>
         </Show>
@@ -647,14 +791,19 @@ export function AgentChat(props: AgentChatProps) {
       </Show>
 
       <div class="chat-input">
-        <input
-          type="text"
+        <textarea
           placeholder="Type a message..."
-          disabled={props.agentType !== "lead" || !props.agentId || aihubStreaming()}
+          disabled={!canSendLead() && !canSendSubagent()}
           value={input()}
-          onInput={(e) => setInput(e.currentTarget.value)}
+          ref={textareaRef}
+          rows={1}
+          onInput={(e) => {
+            const value = e.currentTarget.value;
+            setInput(value);
+            resizeTextarea(value);
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               handleSend();
             }
@@ -662,7 +811,7 @@ export function AgentChat(props: AgentChatProps) {
         />
         <button
           type="button"
-          disabled={props.agentType !== "lead" || !props.agentId || aihubStreaming()}
+          disabled={!canSendLead() && !canSendSubagent()}
           onClick={handleSend}
         >
           Send
@@ -733,23 +882,71 @@ export function AgentChat(props: AgentChatProps) {
           border-top: 1px solid #2a2a2a;
         }
 
-        .chat-input input {
+        .chat-input textarea {
           flex: 1;
           background: #0a0a0a;
           border: 1px solid #2a2a2a;
           border-radius: 8px;
-          padding: 10px 14px;
+          padding: 12px 14px;
           color: #fff;
           font-size: 13px;
           outline: none;
+          resize: none;
+          min-height: 44px;
+          line-height: 20px;
         }
 
-        .chat-input input:focus {
+        .chat-input textarea:focus {
           border-color: #444;
         }
 
-        .chat-input input:disabled {
+        .chat-input textarea:disabled {
           opacity: 0.5;
+        }
+
+        .log-line.pending {
+          opacity: 0.9;
+          align-items: center;
+        }
+
+        .log-spinner {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 12px;
+          padding: 0 6px;
+          border-radius: 999px;
+          background: rgba(6, 78, 59, 0.35);
+          box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.35);
+        }
+
+        .log-spinner span {
+          width: 4px;
+          height: 4px;
+          border-radius: 999px;
+          background: rgba(45, 212, 191, 0.95);
+          box-shadow: 0 0 6px rgba(20, 184, 166, 0.85);
+          animation: chat-pulse 1s ease-in-out infinite;
+        }
+
+        .log-spinner span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+
+        .log-spinner span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+
+        @keyframes chat-pulse {
+          0%,
+          100% {
+            transform: translateY(0);
+            opacity: 0.4;
+          }
+          50% {
+            transform: translateY(-3px);
+            opacity: 1;
+          }
         }
 
         .chat-input button {
