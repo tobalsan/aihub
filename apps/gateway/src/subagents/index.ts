@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { GatewayConfig } from "@aihub/shared";
+import type { GatewayConfig, SubagentGlobalListItem } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";
@@ -377,6 +377,59 @@ export async function listSubagents(
   }
 
   return { ok: true, data: { items } };
+}
+
+export async function listAllSubagents(
+  config: GatewayConfig
+): Promise<SubagentGlobalListItem[]> {
+  const root = getProjectsRoot(config);
+  if (!(await dirExists(root))) return [];
+
+  const projectDirs = await fs.readdir(root, { withFileTypes: true });
+  const items: SubagentGlobalListItem[] = [];
+
+  for (const entry of projectDirs) {
+    if (!entry.isDirectory()) continue;
+    if (!entry.name.startsWith("PRO-")) continue;
+    const projectId = entry.name.split("_")[0];
+    const workspacesRoot = path.join(root, ".workspaces", projectId);
+    if (!(await dirExists(workspacesRoot))) continue;
+
+    const entries = await fs.readdir(workspacesRoot, { withFileTypes: true });
+    for (const workspace of entries) {
+      if (!workspace.isDirectory()) continue;
+      const slug = workspace.name;
+      const dir = path.join(workspacesRoot, slug);
+      const state = await readJson<{
+        supervisor_pid?: number;
+        last_error?: string;
+        cli?: string;
+      }>(path.join(dir, "state.json"));
+      const progress = await readJson<{ last_active?: string }>(path.join(dir, "progress.json"));
+      const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
+
+      let status: SubagentStatus = "idle";
+      if (state?.last_error && state.last_error.trim()) {
+        status = "error";
+      } else if (isProcessAlive(state?.supervisor_pid)) {
+        status = "running";
+      } else if (outcome === "error") {
+        status = "error";
+      } else if (outcome === "replied") {
+        status = "replied";
+      }
+
+      items.push({
+        projectId,
+        slug,
+        cli: state?.cli,
+        status,
+        lastActive: progress?.last_active,
+      });
+    }
+  }
+
+  return items;
 }
 
 export async function getSubagentLogs(

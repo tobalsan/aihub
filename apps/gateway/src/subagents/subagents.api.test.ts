@@ -126,6 +126,39 @@ describe("subagents API", () => {
     expect(branches.branches).toContain("dev");
   });
 
+  it("lists all subagents across projects", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Global Subagents" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "main");
+    await fs.mkdir(workspaceDir, { recursive: true });
+
+    const now = new Date().toISOString();
+    await fs.writeFile(
+      path.join(workspaceDir, "state.json"),
+      JSON.stringify({ supervisor_pid: 0, last_error: "", cli: "codex" }, null, 2)
+    );
+    await fs.writeFile(
+      path.join(workspaceDir, "progress.json"),
+      JSON.stringify({ last_active: now }, null, 2)
+    );
+    await fs.writeFile(
+      path.join(workspaceDir, "history.jsonl"),
+      JSON.stringify({ ts: now, type: "worker.finished", data: { run_id: "r1", outcome: "replied" } }) + "\n"
+    );
+
+    const listRes = await Promise.resolve(api.request("/subagents"));
+    expect(listRes.status).toBe(200);
+    const list = await listRes.json();
+    const match = list.items.find((item: { projectId: string; slug: string }) => item.projectId === created.id);
+    expect(match?.slug).toBe("main");
+  });
+
   it("spawns subagent via API and writes logs", async () => {
     const createRes = await Promise.resolve(api.request("/projects", {
       method: "POST",

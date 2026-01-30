@@ -206,6 +206,18 @@ export type ProjectUpdatePayload = {
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";
 
+export type SubagentGlobalListItem = {
+  projectId: string;
+  slug: string;
+  cli?: string;
+  status: SubagentStatus;
+  lastActive?: string;
+};
+
+export type SubagentGlobalListResponse = {
+  items: SubagentGlobalListItem[];
+};
+
 export type SubagentListItem = {
   slug: string;
   cli?: string;

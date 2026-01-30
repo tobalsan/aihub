@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchProjectBranches,
+  fetchAllSubagents,
   fetchSubagents,
   fetchSubagentLogs,
   spawnSubagent,
@@ -37,6 +38,18 @@ describe("api client (projects/subagents)", () => {
     if (res.ok) {
       expect(res.data.items[0]?.slug).toBe("main");
     }
+  });
+
+  it("fetches all subagents", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ projectId: "PRO-1", slug: "main", status: "idle" }] }),
+    });
+
+    const res = await fetchAllSubagents();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/subagents");
+    expect(res.items[0]?.projectId).toBe("PRO-1");
   });
 
   it("fetches subagent logs", async () => {

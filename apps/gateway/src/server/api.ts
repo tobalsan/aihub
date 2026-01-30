@@ -17,7 +17,7 @@ import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
-import { listSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
+import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
 
 const api = new Hono();
@@ -428,6 +428,13 @@ api.get("/projects/:id/subagents", async (c) => {
     return c.json({ error: result.error }, 404);
   }
   return c.json(result.data);
+});
+
+// GET /api/subagents - list all subagents
+api.get("/subagents", async (c) => {
+  const config = getConfig();
+  const items = await listAllSubagents(config);
+  return c.json({ items });
 });
 
 // POST /api/projects/:id/subagents - spawn subagent

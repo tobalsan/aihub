@@ -12,6 +12,7 @@ import type {
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
+  SubagentGlobalListResponse,
   SubagentListResponse,
   SubagentLogsResponse,
   ProjectBranchesResponse,
@@ -326,6 +327,12 @@ export async function updateProject(
     const data = await res.json().catch(() => ({ error: "Failed to update project" }));
     throw new Error(data.error ?? "Failed to update project");
   }
+  return res.json();
+}
+
+export async function fetchAllSubagents(): Promise<SubagentGlobalListResponse> {
+  const res = await fetch(`${API_BASE}/subagents`);
+  if (!res.ok) throw new Error("Failed to fetch subagents");
   return res.json();
 }
 

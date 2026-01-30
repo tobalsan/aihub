@@ -307,6 +307,14 @@ export const StartProjectRunRequestSchema = z.object({
 });
 export type StartProjectRunRequest = z.infer<typeof StartProjectRunRequestSchema>;
 
+export type SubagentGlobalListItem = {
+  projectId: string;
+  slug: string;
+  cli?: string;
+  status: "running" | "replied" | "error" | "idle";
+  lastActive?: string;
+};
+
 export const CreateScheduleRequestSchema = z.object({
   name: z.string(),
   agentId: z.string(),

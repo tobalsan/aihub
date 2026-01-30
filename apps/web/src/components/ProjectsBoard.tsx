@@ -19,6 +19,7 @@ import {
 } from "../api/client";
 import type { ProjectListItem, ProjectDetail, FullHistoryMessage, ContentBlock, SubagentListItem, SubagentLogEvent } from "../api/types";
 import { buildProjectStartPrompt } from "./projectMonitoring";
+import { AgentSidebar } from "./AgentSidebar";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -726,6 +727,8 @@ export function ProjectsBoard() {
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
   const [filterText, setFilterText] = createSignal("");
+  const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
@@ -1651,7 +1654,15 @@ export function ProjectsBoard() {
   });
 
   return (
-    <div class="projects-page">
+    <div class="app-layout">
+      <AgentSidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        selectedAgent={selectedAgent}
+        onSelectAgent={setSelectedAgent}
+      />
+      <main class="kanban-main">
+        <div class="projects-page">
       <header class="projects-header">
         <h1 class="header-title">AIHub</h1>
         <input
@@ -2356,9 +2367,21 @@ export function ProjectsBoard() {
       </Show>
 
       <style>{`
+        .app-layout {
+          display: flex;
+          height: 100vh;
+          overflow: hidden;
+        }
+
+        .kanban-main {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+        }
+
         .projects-page {
-          width: 100vw;
-          margin-left: calc(50% - 50vw);
+          width: 100%;
           height: 100%;
           display: flex;
           flex-direction: column;
@@ -3551,6 +3574,8 @@ export function ProjectsBoard() {
           }
         }
       `}</style>
+        </div>
+      </main>
     </div>
   );
 }

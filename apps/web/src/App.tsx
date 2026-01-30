@@ -12,8 +12,7 @@ function Layout(props: { children?: any }) {
           height: 100%;
           display: flex;
           flex-direction: column;
-          max-width: 1024px;
-          margin: 0 auto;
+          width: 100%;
         }
       `}</style>
     </>
