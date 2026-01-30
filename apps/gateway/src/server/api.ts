@@ -448,7 +448,14 @@ api.get("/subagents", async (c) => {
 // GET /api/activity - recent activity feed
 api.get("/activity", async (c) => {
   const config = getConfig();
-  const events = await getRecentActivity(config);
+  const offsetParam = c.req.query("offset") ?? "0";
+  const limitParam = c.req.query("limit") ?? "20";
+  const offset = Number(offsetParam);
+  const limit = Number(limitParam);
+  if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(limit) || limit < 1) {
+    return c.json({ error: "Invalid pagination params" }, 400);
+  }
+  const events = await getRecentActivity(config, { offset, limit });
   return c.json({ events });
 });
 

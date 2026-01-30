@@ -287,8 +287,12 @@ export async function fetchProjects(): Promise<ProjectListItem[]> {
   return res.json();
 }
 
-export async function fetchActivity(): Promise<ActivityResponse> {
-  const res = await fetch(`${API_BASE}/activity`);
+export async function fetchActivity(offset = 0, limit = 20): Promise<ActivityResponse> {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+  const res = await fetch(`${API_BASE}/activity?${params.toString()}`);
   if (!res.ok) throw new Error("Failed to fetch activity");
   return res.json();
 }

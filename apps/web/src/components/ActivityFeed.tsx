@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createResource, onCleanup } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { fetchActivity } from "../api/client";
 import type { ActivityEvent } from "../api/types";
 
@@ -17,14 +17,62 @@ function formatRelativeTime(ts: string): string {
 }
 
 export function ActivityFeed() {
-  const [events, { refetch }] = createResource(fetchActivity);
+  const [items, setItems] = createSignal<ActivityEvent[]>([]);
+  const [offset, setOffset] = createSignal(0);
+  const [loading, setLoading] = createSignal(false);
+  const [hasMore, setHasMore] = createSignal(true);
+  const pageSize = 20;
 
-  createEffect(() => {
-    const interval = setInterval(() => refetch(), 10000);
+  const mergeById = (base: ActivityEvent[], next: ActivityEvent[]) => {
+    const seen = new Set(base.map((event) => event.id));
+    const merged = [...base];
+    for (const event of next) {
+      if (seen.has(event.id)) continue;
+      merged.push(event);
+      seen.add(event.id);
+    }
+    return merged;
+  };
+
+  const loadPage = async (nextOffset: number, append: boolean) => {
+    if (loading()) return;
+    setLoading(true);
+    try {
+      const res = await fetchActivity(nextOffset, pageSize);
+      const page = res.events ?? [];
+      if (append) {
+        setItems((prev) => mergeById(prev, page));
+      } else {
+        setItems((prev) => {
+          const deduped = mergeById(page, prev.filter((event) => !page.some((e) => e.id === event.id)));
+          return deduped;
+        });
+      }
+      setHasMore(page.length === pageSize);
+      setOffset(nextOffset + page.length);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const list = () => items();
+
+  onMount(() => {
+    void loadPage(0, false);
+    const interval = setInterval(() => {
+      void loadPage(0, false);
+    }, 10000);
     onCleanup(() => clearInterval(interval));
   });
 
-  const list = () => (events()?.events ?? []) as ActivityEvent[];
+  const handleScroll = (e: Event) => {
+    if (!hasMore() || loading()) return;
+    const target = e.currentTarget as HTMLDivElement;
+    const threshold = 120;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight <= threshold) {
+      void loadPage(offset(), true);
+    }
+  };
 
   return (
     <div class="activity-feed">
@@ -35,7 +83,7 @@ export function ActivityFeed() {
           LIVE
         </div>
       </div>
-      <div class="activity-list">
+      <div class="activity-list" onScroll={handleScroll}>
         <Show when={list().length > 0} fallback={<div class="activity-empty">No activity yet.</div>}>
           <For each={list()}>
             {(event) => (
@@ -50,6 +98,15 @@ export function ActivityFeed() {
               </div>
             )}
           </For>
+        </Show>
+        <Show when={hasMore()}>
+          <div class="activity-loading">
+            <span class="feed-spinner" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          </div>
         </Show>
       </div>
 
@@ -135,9 +192,49 @@ export function ActivityFeed() {
           margin-top: 4px;
         }
 
+        .activity-loading {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 12px 0 20px;
+        }
+
+        .feed-spinner {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 12px;
+          padding: 0 6px;
+          border-radius: 999px;
+          background: rgba(6, 78, 59, 0.35);
+          box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.35);
+        }
+
+        .feed-spinner span {
+          width: 4px;
+          height: 4px;
+          border-radius: 999px;
+          background: rgba(45, 212, 191, 0.95);
+          box-shadow: 0 0 6px rgba(20, 184, 166, 0.85);
+          animation: feed-pulse 1s ease-in-out infinite;
+        }
+
+        .feed-spinner span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+
+        .feed-spinner span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+
         @keyframes pulse {
           0%, 100% { opacity: 0.4; }
           50% { opacity: 1; }
+        }
+
+        @keyframes feed-pulse {
+          0%, 100% { transform: translateY(0); opacity: 0.4; }
+          50% { transform: translateY(-3px); opacity: 1; }
         }
       `}</style>
     </div>

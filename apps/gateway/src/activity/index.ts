@@ -21,6 +21,7 @@ export type ActivityEvent = {
 const lastProjectStatuses = new Map<string, string>();
 const lastAgentMessageTs = new Map<string, number>();
 const lastSubagentActivity = new Map<string, string>();
+const cachedEvents: ActivityEvent[] = [];
 
 function formatStatus(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -46,10 +47,13 @@ function subagentColor(status: string): ActivityColor {
 }
 
 export async function getRecentActivity(
-  config: GatewayConfig
+  config: GatewayConfig,
+  options?: { offset?: number; limit?: number }
 ): Promise<ActivityEvent[]> {
   const events: ActivityEvent[] = [];
   const nowIso = new Date().toISOString();
+  const limit = Math.min(Math.max(options?.limit ?? 20, 1), 100);
+  const offset = Math.max(options?.offset ?? 0, 0);
 
   const projects = await listProjects(config);
   if (projects.ok) {
@@ -120,7 +124,19 @@ export async function getRecentActivity(
     });
   }
 
-  return events
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 20);
+  if (events.length > 0) {
+    const merged = [...events, ...cachedEvents];
+    const seen = new Set<string>();
+    const deduped: ActivityEvent[] = [];
+    for (const event of merged) {
+      if (seen.has(event.id)) continue;
+      seen.add(event.id);
+      deduped.push(event);
+    }
+    deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    cachedEvents.length = 0;
+    cachedEvents.push(...deduped.slice(0, 100));
+  }
+
+  return cachedEvents.slice(offset, offset + limit);
 }
