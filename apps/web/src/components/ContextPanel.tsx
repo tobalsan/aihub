@@ -1,6 +1,7 @@
-import { Accessor, Show, createEffect, createSignal } from "solid-js";
+import { Accessor, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
+import { fetchAgents, fetchAllSubagents } from "../api/client";
 
 type ContextPanelProps = {
   collapsed: Accessor<boolean>;
@@ -13,6 +14,47 @@ type PanelMode = "feed" | "chat";
 
 export function ContextPanel(props: ContextPanelProps) {
   const [mode, setMode] = createSignal<PanelMode>("feed");
+  const [agents] = createResource(fetchAgents);
+  const [subagents] = createResource(fetchAllSubagents);
+
+  const agentType = createMemo(() => {
+    const selected = props.selectedAgent();
+    if (!selected) return null;
+    if (selected.startsWith("PRO-")) return "subagent" as const;
+    return "lead" as const;
+  });
+
+  const subagentInfo = createMemo(() => {
+    const selected = props.selectedAgent();
+    if (!selected || !selected.startsWith("PRO-")) return undefined;
+    const [projectId, token] = selected.split("/");
+    if (!projectId || !token) return undefined;
+    const items = subagents()?.items ?? [];
+    const match = items.find(
+      (item) => item.projectId === projectId && (item.slug === token || item.cli === token)
+    );
+    if (!match) {
+      const projectItems = items.filter((item) => item.projectId === projectId);
+      if (projectItems.length === 1) {
+        return { projectId, slug: projectItems[0].slug };
+      }
+    }
+    return { projectId, slug: match?.slug ?? token };
+  });
+
+  const agentName = createMemo(() => {
+    const selected = props.selectedAgent();
+    if (!selected) return null;
+    if (selected.startsWith("PRO-")) {
+      const [projectId, token] = selected.split("/");
+      const match = subagents()?.items.find(
+        (item) => item.projectId === projectId && (item.slug === token || item.cli === token)
+      );
+      return `${projectId}/${match?.cli ?? token}`;
+    }
+    const match = agents()?.find((agent) => agent.id === selected);
+    return match?.name ?? selected;
+  });
 
   createEffect(() => {
     if (props.selectedAgent()) {
@@ -80,7 +122,13 @@ export function ContextPanel(props: ContextPanelProps) {
           <ActivityFeed />
         </Show>
         <Show when={mode() === "chat"}>
-          <AgentChat agentName={props.selectedAgent()} onBack={handleBack} />
+          <AgentChat
+            agentId={agentType() === "lead" ? props.selectedAgent() : null}
+            agentName={agentName()}
+            agentType={agentType()}
+            subagentInfo={subagentInfo()}
+            onBack={handleBack}
+          />
         </Show>
       </div>
 

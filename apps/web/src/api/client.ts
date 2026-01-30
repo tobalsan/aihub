@@ -12,6 +12,8 @@ import type {
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
+  ActivityResponse,
+  AgentStatusResponse,
   SubagentGlobalListResponse,
   SubagentListResponse,
   SubagentLogsResponse,
@@ -282,6 +284,18 @@ export async function fetchTaskboardItem(
 export async function fetchProjects(): Promise<ProjectListItem[]> {
   const res = await fetch(`${API_BASE}/projects`);
   if (!res.ok) throw new Error("Failed to fetch projects");
+  return res.json();
+}
+
+export async function fetchActivity(): Promise<ActivityResponse> {
+  const res = await fetch(`${API_BASE}/activity`);
+  if (!res.ok) throw new Error("Failed to fetch activity");
+  return res.json();
+}
+
+export async function fetchAgentStatuses(): Promise<AgentStatusResponse> {
+  const res = await fetch(`${API_BASE}/agents/status`);
+  if (!res.ok) throw new Error("Failed to fetch agent statuses");
   return res.json();
 }
 

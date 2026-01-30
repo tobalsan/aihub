@@ -953,7 +953,7 @@ describe("heartbeat lifecycle", () => {
     it("first heartbeat fires only after first interval (no immediate run)", async () => {
       const agent = {
         id: "agent-1",
-        heartbeat: { every: "5m" }, // 5 minutes = 300000ms
+        heartbeat: { every: "5m", prompt: "Ping" }, // 5 minutes = 300000ms
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };

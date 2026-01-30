@@ -10,7 +10,7 @@ import {
 import type { UpdateProjectRequest } from "@aihub/shared";
 import { buildProjectStartPrompt, normalizeProjectStatus } from "@aihub/shared";
 import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir, getConfig } from "../config/index.js";
-import { runAgent, getAllSessionsForAgent, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
+import { runAgent, getAllSessionsForAgent, getAgentStatuses, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
 import { runHeartbeat } from "../heartbeat/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
@@ -19,6 +19,7 @@ import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
 import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
+import { getRecentActivity } from "../activity/index.js";
 
 const api = new Hono();
 
@@ -50,6 +51,13 @@ api.get("/agents", (c) => {
       queueMode: a.queueMode ?? "queue",
     }))
   );
+});
+
+// GET /api/agents/status - get all agent streaming statuses
+api.get("/agents/status", (c) => {
+  const agents = getActiveAgents();
+  const statuses = getAgentStatuses(agents.map((agent) => agent.id));
+  return c.json({ statuses });
 });
 
 // GET /api/agents/:id - get single agent
@@ -435,6 +443,13 @@ api.get("/subagents", async (c) => {
   const config = getConfig();
   const items = await listAllSubagents(config);
   return c.json({ items });
+});
+
+// GET /api/activity - recent activity feed
+api.get("/activity", async (c) => {
+  const config = getConfig();
+  const events = await getRecentActivity(config);
+  return c.json({ events });
 });
 
 // POST /api/projects/:id/subagents - spawn subagent

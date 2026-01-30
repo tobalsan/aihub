@@ -510,4 +510,18 @@ describe("subagents API", () => {
 
     process.env.PATH = prevPath;
   });
+
+  it("returns agent statuses", async () => {
+    const res = await Promise.resolve(api.request("/agents/status"));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.statuses["test-agent"]).toBe("idle");
+  });
+
+  it("returns activity feed", async () => {
+    const res = await Promise.resolve(api.request("/activity"));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data.events)).toBe(true);
+  });
 });

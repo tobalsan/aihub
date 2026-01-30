@@ -271,22 +271,25 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 ---
 
-### Phase 4: Wire Real Data
+### Phase 4: Wire Real Data ✓ Complete
 
 **Goal**: Connect UI to real backend data.
 
 **Changes**:
-- Activity feed pulls from real events:
-  - Agent actions via WebSocket/polling
-  - Project moves from projects API
-  - Commits (if available)
-- Agent chat connects to existing session logic
-- Subagents appear/disappear dynamically based on API
-- Lead agent status from agent API
+- Added `/api/activity` (lightweight, in-memory tracking) and `/api/agents/status`.
+- Activity feed now polls backend events.
+- Agent chat wired to real sessions (lead) and logs (subagents).
+- Lead agent status dots now reflect streaming state.
 
 **Files**:
-- `apps/web/src/api/client.ts` (add activity feed endpoint)
-- `apps/gateway/src/server/api.ts` (add activity endpoint if needed)
+- `apps/gateway/src/activity/index.ts`
+- `apps/gateway/src/agents/sessions.ts` (status aggregation)
+- `apps/gateway/src/server/api.ts`
+- `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`
+- `apps/web/src/components/ActivityFeed.tsx`
+- `apps/web/src/components/AgentChat.tsx`
+- `apps/web/src/components/AgentSidebar.tsx`
+- `apps/web/src/components/ContextPanel.tsx`
 
 ---
 

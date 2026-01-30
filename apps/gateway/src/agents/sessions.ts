@@ -134,3 +134,22 @@ export function getAllSessionsForAgent(agentId: string): AgentSession[] {
   }
   return result;
 }
+
+export function getAgentStatuses(agentIds?: string[]): Record<string, "streaming" | "idle"> {
+  const statuses: Record<string, "streaming" | "idle"> = {};
+  if (agentIds && agentIds.length > 0) {
+    for (const agentId of agentIds) {
+      const sessions = getAllSessionsForAgent(agentId);
+      statuses[agentId] = sessions.some((session) => session.isStreaming) ? "streaming" : "idle";
+    }
+    return statuses;
+  }
+  for (const session of sessions.values()) {
+    if (!statuses[session.agentId]) {
+      statuses[session.agentId] = session.isStreaming ? "streaming" : "idle";
+    } else if (session.isStreaming) {
+      statuses[session.agentId] = "streaming";
+    }
+  }
+  return statuses;
+}

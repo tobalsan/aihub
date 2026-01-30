@@ -205,6 +205,12 @@ Kanban UI details:
 - New components: `ContextPanel`, `ActivityFeed`, `AgentChat`.
 - Right panel auto-collapses on <1400px, hidden on mobile, and stays open when left sidebar is collapsed.
 
+### 12) UI v2 Phase 4 — Real Data Wiring
+- Added `/api/agents/status` and `/api/activity` endpoints.
+- Activity feed now polls backend events (simple in-memory tracking).
+- Context panel chat wired: AIHub chat uses history + streaming; subagent view is read-only logs.
+- Lead agent status dots now reflect streaming state.
+
 ## Commits
 - `feat(web): persist column collapse state`
 - `feat(web): add new session button for monitoring`
@@ -286,7 +292,7 @@ See `docs/ui_v2.md` for full spec.
 1. ~~**Phase 1**: Kanban as homepage~~ ✓ Done
 2. ~~**Phase 2**: Left sidebar — agents list with status~~ ✓ Done
 3. ~~**Phase 3**: Right panel — context panel (activity feed / chat)~~ ✓ Done
-4. **Phase 4**: Wire real data — activity events, agent status
+4. ~~**Phase 4**: Wire real data — activity events, agent status~~ ✓ Done
 5. **Phase 5**: Project detail — replace monitoring with agent runs list
 6. **Phase 6**: Mobile + polish — fullscreen overlays, transitions
 

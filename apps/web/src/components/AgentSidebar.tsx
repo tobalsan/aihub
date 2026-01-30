@@ -1,5 +1,5 @@
 import { Accessor, For, Show, createEffect, createResource, onCleanup } from "solid-js";
-import { fetchAgents, fetchAllSubagents } from "../api/client";
+import { fetchAgents, fetchAllSubagents, fetchAgentStatuses } from "../api/client";
 import type { SubagentGlobalListItem } from "../api/types";
 
 type AgentSidebarProps = {
@@ -10,12 +10,17 @@ type AgentSidebarProps = {
 };
 
 function toSubagentId(item: SubagentGlobalListItem): string {
+  return `${item.projectId}/${item.slug}`;
+}
+
+function toSubagentLabel(item: SubagentGlobalListItem): string {
   return `${item.projectId}/${item.cli ?? item.slug}`;
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const [agents] = createResource(fetchAgents);
   const [subagents, { refetch }] = createResource(fetchAllSubagents);
+  const [agentStatuses, { refetch: refetchStatuses }] = createResource(fetchAgentStatuses);
 
   createEffect(() => {
     const interval = setInterval(() => {
@@ -23,6 +28,16 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }, 5000);
     onCleanup(() => clearInterval(interval));
   });
+
+  createEffect(() => {
+    const interval = setInterval(() => {
+      refetchStatuses();
+    }, 5000);
+    onCleanup(() => clearInterval(interval));
+  });
+
+  const getAgentStatus = (agentId: string) =>
+    agentStatuses()?.statuses[agentId] === "streaming" ? "running" : "idle";
 
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
@@ -40,10 +55,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 <button
                   class="agent-item"
                   type="button"
-                  classList={{ selected: props.selectedAgent() === agent.name }}
-                  onClick={() => props.onSelectAgent(agent.name)}
+                  classList={{ selected: props.selectedAgent() === agent.id }}
+                  onClick={() => props.onSelectAgent(agent.id)}
                 >
-                  <span class="status-dot" />
+                  <span class={`status-dot ${getAgentStatus(agent.id) === "running" ? "running" : ""}`} />
                   <span class="agent-label">{agent.name}</span>
                 </button>
               )}
@@ -57,6 +72,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             <For each={subagents()?.items ?? []}>
               {(item) => {
                 const id = toSubagentId(item);
+                const label = toSubagentLabel(item);
                 return (
                   <button
                     class="agent-item"
@@ -65,7 +81,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                     onClick={() => props.onSelectAgent(id)}
                   >
                     <span class={`status-dot ${item.status === "running" ? "running" : ""}`} />
-                    <span class="agent-label">{id}</span>
+                    <span class="agent-label">{label}</span>
                   </button>
                 );
               }}

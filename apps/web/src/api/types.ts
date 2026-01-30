@@ -237,6 +237,24 @@ export type SubagentLogEvent = {
   diff?: { path?: string; summary?: string };
 };
 
+export type ActivityEvent = {
+  id: string;
+  type: "project_status" | "agent_message" | "subagent_action";
+  actor: string;
+  action: string;
+  projectId?: string;
+  timestamp: string;
+  color: "green" | "purple" | "blue" | "yellow";
+};
+
+export type ActivityResponse = {
+  events: ActivityEvent[];
+};
+
+export type AgentStatusResponse = {
+  statuses: Record<string, "streaming" | "idle">;
+};
+
 export type SubagentListResponse = {
   items: SubagentListItem[];
 };

@@ -1,22 +1,31 @@
-import { For } from "solid-js";
+import { For, Show, createEffect, createResource, onCleanup } from "solid-js";
+import { fetchActivity } from "../api/client";
+import type { ActivityEvent } from "../api/types";
 
-type ActivityEvent = {
-  actor: string;
-  action: string;
-  color: "green" | "purple" | "blue" | "yellow";
-  time: string;
-};
-
-const SAMPLE_EVENTS: ActivityEvent[] = [
-  { actor: "CTO", action: "moved PRO-24 to In Progress", color: "green", time: "2 min ago" },
-  { actor: "PRO-24/codex", action: "committed to PRO-24", color: "purple", time: "5 min ago" },
-  { actor: "Project Manager", action: "commented on PRO-15", color: "blue", time: "12 min ago" },
-  { actor: "PRO-7/claude", action: "pushed 3 commits to PRO-7", color: "green", time: "18 min ago" },
-  { actor: "Executive Assistant", action: "created PRO-22", color: "yellow", time: "25 min ago" },
-  { actor: "CTO", action: "approved PRO-12", color: "green", time: "45 min ago" },
-];
+function formatRelativeTime(ts: string): string {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export function ActivityFeed() {
+  const [events, { refetch }] = createResource(fetchActivity);
+
+  createEffect(() => {
+    const interval = setInterval(() => refetch(), 10000);
+    onCleanup(() => clearInterval(interval));
+  });
+
+  const list = () => (events()?.events ?? []) as ActivityEvent[];
+
   return (
     <div class="activity-feed">
       <div class="activity-header">
@@ -27,19 +36,21 @@ export function ActivityFeed() {
         </div>
       </div>
       <div class="activity-list">
-        <For each={SAMPLE_EVENTS}>
-          {(event) => (
-            <div class="activity-item">
-              <span class={`activity-dot ${event.color}`} />
-              <div class="activity-text">
-                <p>
-                  <strong>{event.actor}</strong> {event.action}
-                </p>
-                <span class="activity-time">{event.time}</span>
+        <Show when={list().length > 0} fallback={<div class="activity-empty">No activity yet.</div>}>
+          <For each={list()}>
+            {(event) => (
+              <div class="activity-item">
+                <span class={`activity-dot ${event.color}`} />
+                <div class="activity-text">
+                  <p>
+                    <strong>{event.actor}</strong> {event.action}
+                  </p>
+                  <span class="activity-time">{formatRelativeTime(event.timestamp)}</span>
+                </div>
               </div>
-            </div>
-          )}
-        </For>
+            )}
+          </For>
+        </Show>
       </div>
 
       <style>{`
@@ -83,6 +94,12 @@ export function ActivityFeed() {
           flex: 1;
           overflow-y: auto;
           padding: 8px 0;
+        }
+
+        .activity-empty {
+          padding: 16px;
+          font-size: 12px;
+          color: #666;
         }
 
         .activity-item {
