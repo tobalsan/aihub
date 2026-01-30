@@ -255,6 +255,12 @@ Kanban UI details:
 - `fix(cli): route heartbeat through gateway API`
 - `fix(web): tailscale serve base + api/ws mapping`
 
+## Recent Improvements
+- Context panel: persisted mode + selected agent across refresh; wider panel on large screens.
+- Right chat: optimistic user sends, `/new` reset handling, auto-scroll, subagent resume input, and pending spinner.
+- Chat input: textarea with Shift+Enter newline and auto-grow up to 10 lines.
+- Activity feed: backend cache + pagination; infinite scroll (20 initial) with 10s polling.
+
 ## Known Issues / Notes
 - Claude SDK runs in Projects monitoring UI can show duplicated/garbled live logs because both local streaming and subscription events update the same live buffer. Fixed by ignoring subscription callbacks while a local stream is active (`apps/web/src/components/ProjectsBoard.tsx`).
 - Projects board: column collapse state persisted to localStorage (`aihub:projects:expanded-columns`).
