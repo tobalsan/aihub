@@ -24,7 +24,8 @@ export default function App() {
   const base = import.meta.env.BASE_URL;
   return (
     <Router root={Layout} base={base}>
-      <Route path="/" component={AgentList} />
+      <Route path="/" component={ProjectsBoard} />
+      <Route path="/agents" component={AgentList} />
       <Route path="/chat/:agentId/:view?" component={ChatView} />
       <Route path="/projects" component={ProjectsBoard} />
       <Route path="/projects/:id" component={ProjectsBoard} />

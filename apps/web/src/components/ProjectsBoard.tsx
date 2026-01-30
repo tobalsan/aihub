@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
-import { A, useNavigate, useParams } from "@solidjs/router";
+import { useNavigate, useParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -1653,15 +1653,7 @@ export function ProjectsBoard() {
   return (
     <div class="projects-page">
       <header class="projects-header">
-        <A href="/" class="back-btn" aria-label="Go back">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-        </A>
-        <div class="header-title">
-          <h1>Projects</h1>
-          <span class="header-subtitle">Kanban</span>
-        </div>
+        <h1 class="header-title">AIHub</h1>
         <input
           class="filter-input"
           type="text"
@@ -2387,29 +2379,10 @@ export function ProjectsBoard() {
           z-index: 5;
         }
 
-        .back-btn {
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
-          background: #131821;
-          border: 1px solid #232a35;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          color: #b8c0cc;
-        }
-
-        .header-title h1 {
+        .header-title {
           font-size: 20px;
           font-weight: 700;
           letter-spacing: 0.02em;
-        }
-
-        .header-subtitle {
-          font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.2em;
-          color: #7f8a9a;
         }
 
         .filter-input {
