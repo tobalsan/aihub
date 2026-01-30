@@ -1,7 +1,57 @@
 # Hand-off
 
-Date: 2026-01-27
+Date: 2026-01-27 (updated 2026-01-30)
 Repo: `/Users/thinh/code/aihub`
+
+---
+
+## Executive Summary: UI v2 Redesign
+
+**Status**: Planning complete, ready for implementation.
+
+### What Changed
+
+Shifting from **project-centric** to **agent-centric** model:
+
+| Aspect | v1 (Current) | v2 (Planned) |
+|--------|--------------|--------------|
+| Homepage | Agent list | Kanban board |
+| Primary entity | Projects | Agents |
+| Project creation | Manual form | Agent-assisted via chat |
+| Monitoring | Per-project pane | Unified chat = monitoring |
+| Navigation | Drill-down to projects | Agents always visible in sidebar |
+
+### New Layout: Three-Column
+
+```
+[Agents Sidebar] [Kanban (primary)] [Context Panel: Feed/Chat]
+     250px            flex 1              400px
+```
+
+- **Left sidebar**: Lead agents + subagents with status
+- **Center**: Kanban board (unchanged, now homepage)
+- **Right panel**: Activity feed OR agent chat (mode-switching)
+- **Both sidebars collapsible**, auto-collapse on narrow screens
+- **Mobile**: Fullscreen overlays for chat/feed
+
+### Agent Model
+
+- **Lead agents** (CTO, PM, etc.): Persistent sessions, can create projects
+- **Subagents** (CLI processes): Ephemeral, assigned to projects, killable
+
+### Implementation Phases
+
+1. ~~Kanban as homepage~~ ✓
+2. Left sidebar — agents
+3. Right panel — context panel (feed/chat)
+4. Wire real data
+5. Project detail — agent runs list
+6. Mobile + polish
+
+**Full spec**: `docs/ui_v2.md`
+**Mockup**: `docs/mockups/option-e-three-column.html`
+
+---
 
 ## Initial Context
 Goal: add a project management/overview system with Kanban and per-project agent sessions. First step: implement Projects API. Projects live in `~/projects` (configurable), flat folder (no status subfolders). Status stored in YAML frontmatter. Status flow: NOT NOW, MAYBE, SHAPING, TODO, IN PROGRESS, REVIEW, DONE. Projects are folders named `PRO-<id>_<slug>` with `README.md` containing YAML frontmatter + markdown body. Additional files (scope/progress/prompt) only for Ralph loops and created ad hoc later.
@@ -219,5 +269,18 @@ Kanban UI details:
 - `apm` CLI docs now live at `docs/cli-apm.md`.
 
 ## Next (Not Done)
-- Optional: drag/drop status moves, filters, search.
-- Persist column collapse state (localStorage) if desired.
+
+### UI v2 Implementation (Priority)
+See `docs/ui_v2.md` for full spec.
+
+1. ~~**Phase 1**: Kanban as homepage~~ ✓ Done
+2. **Phase 2**: Left sidebar — agents list with status
+3. **Phase 3**: Right panel — context panel (activity feed / chat)
+4. **Phase 4**: Wire real data — activity events, agent status
+5. **Phase 5**: Project detail — replace monitoring with agent runs list
+6. **Phase 6**: Mobile + polish — fullscreen overlays, transitions
+
+### Deferred
+- Drag/drop status moves on Kanban
+- Comments feature (async agent communication)
+- Quick create (floating button / keyboard shortcut)

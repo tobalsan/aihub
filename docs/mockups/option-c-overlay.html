@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIHub - Option C: Overlay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: white;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Layout */
+    .app { display: flex; height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background: #1a1a1a;
+      border-right: 1px solid #2a2a2a;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 16px;
+      font-size: 18px;
+      font-weight: 600;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .sidebar-section {
+      padding: 16px;
+    }
+    .sidebar-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      transition: background 0.15s;
+    }
+    .agent-item:hover { background: #2a2a2a; }
+    .agent-item.active { background: #2a2a2a; }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-dot.working { background: #22c55e; }
+    .status-dot.idle { background: #666; }
+    .agent-name { font-size: 14px; }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      transition: opacity 0.2s ease;
+    }
+    .main.dimmed { opacity: 0.5; }
+
+    /* Header */
+    .header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    /* Kanban */
+    .kanban {
+      flex: 1;
+      display: flex;
+      gap: 16px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+    .column {
+      flex: 1;
+      min-width: 280px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+    }
+    .column-header {
+      padding: 12px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .column-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .column-dot.yellow { background: #eab308; }
+    .column-dot.purple { background: #a855f7; }
+    .column-dot.green { background: #22c55e; }
+    .column-cards {
+      padding: 12px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .card {
+      background: #2a2a2a;
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .card-title {
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .card-meta {
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* Backdrop */
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.3);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+      z-index: 10;
+    }
+    .backdrop.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* Chat overlay */
+    .chat-overlay {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 450px;
+      height: 100vh;
+      background: #1a1a1a;
+      border-left: 1px solid #2a2a2a;
+      box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
+      transform: translateX(100%);
+      transition: transform 0.2s ease;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+    }
+    .chat-overlay.open { transform: translateX(0); }
+
+    .chat-header {
+      padding: 16px;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chat-agent-name { font-weight: 600; }
+    .chat-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: #666;
+      font-size: 20px;
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .chat-close:hover {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .message {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .message.agent {
+      background: #2a2a2a;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    .message.user {
+      background: #3b82f6;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+
+    .chat-input-area {
+      padding: 16px;
+      border-top: 1px solid #2a2a2a;
+    }
+    .chat-input {
+      width: 100%;
+      padding: 12px 16px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      outline: none;
+    }
+    .chat-input:focus { border-color: #3b82f6; }
+    .chat-input::placeholder { color: #666; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">AIHub</div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">LEAD AGENTS</div>
+        <div class="agent-item" data-agent="CTO">
+          <span class="status-dot working"></span>
+          <span class="agent-name">CTO</span>
+        </div>
+        <div class="agent-item" data-agent="Executive Assistant">
+          <span class="status-dot idle"></span>
+          <span class="agent-name">Executive Assistant</span>
+        </div>
+        <div class="agent-item" data-agent="Project Manager">
+          <span class="status-dot idle"></span>
+          <span class="agent-name">Project Manager</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">SUBAGENTS</div>
+        <div class="agent-item" data-agent="PRO-24/codex">
+          <span class="status-dot working"></span>
+          <span class="agent-name">PRO-24/codex</span>
+        </div>
+        <div class="agent-item" data-agent="PRO-7/claude">
+          <span class="status-dot idle"></span>
+          <span class="agent-name">PRO-7/claude</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="main" id="main">
+      <div class="header">AIHub</div>
+
+      <div class="kanban">
+        <!-- Maybe column -->
+        <div class="column">
+          <div class="column-header">
+            <span class="column-dot yellow"></span>
+            MAYBE
+          </div>
+          <div class="column-cards">
+            <div class="card">
+              <div class="card-title">Add dark mode toggle</div>
+              <div class="card-meta">PRO-31</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Integrate analytics dashboard</div>
+              <div class="card-meta">PRO-32</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- In Progress column -->
+        <div class="column">
+          <div class="column-header">
+            <span class="column-dot purple"></span>
+            IN PROGRESS
+          </div>
+          <div class="column-cards">
+            <div class="card">
+              <div class="card-title">Implement chat overlay</div>
+              <div class="card-meta">PRO-24</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Fix sidebar navigation</div>
+              <div class="card-meta">PRO-25</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Update API endpoints</div>
+              <div class="card-meta">PRO-26</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Done column -->
+        <div class="column">
+          <div class="column-header">
+            <span class="column-dot green"></span>
+            DONE
+          </div>
+          <div class="column-cards">
+            <div class="card">
+              <div class="card-title">Setup project structure</div>
+              <div class="card-meta">PRO-1</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Create kanban board</div>
+              <div class="card-meta">PRO-7</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backdrop -->
+  <div class="backdrop" id="backdrop"></div>
+
+  <!-- Chat overlay -->
+  <div class="chat-overlay" id="chatOverlay">
+    <div class="chat-header">
+      <span class="chat-agent-name" id="chatAgentName">CTO</span>
+      <button class="chat-close" id="chatClose">&times;</button>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="message agent">Hello! How can I help you today?</div>
+      <div class="message user">Can you review the latest PR?</div>
+      <div class="message agent">Sure, I'll take a look at PRO-24. Give me a moment to analyze the changes.</div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" class="chat-input" placeholder="Type a message..." />
+    </div>
+  </div>
+
+  <script>
+    const chatOverlay = document.getElementById('chatOverlay');
+    const backdrop = document.getElementById('backdrop');
+    const main = document.getElementById('main');
+    const chatAgentName = document.getElementById('chatAgentName');
+    const agentItems = document.querySelectorAll('.agent-item');
+    const chatClose = document.getElementById('chatClose');
+
+    let currentAgent = null;
+
+    function openChat(agentName) {
+      currentAgent = agentName;
+      chatAgentName.textContent = agentName;
+      chatOverlay.classList.add('open');
+      backdrop.classList.add('visible');
+      main.classList.add('dimmed');
+
+      agentItems.forEach(item => {
+        item.classList.toggle('active', item.dataset.agent === agentName);
+      });
+    }
+
+    function closeChat() {
+      currentAgent = null;
+      chatOverlay.classList.remove('open');
+      backdrop.classList.remove('visible');
+      main.classList.remove('dimmed');
+
+      agentItems.forEach(item => item.classList.remove('active'));
+    }
+
+    agentItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const agentName = item.dataset.agent;
+        if (currentAgent === agentName) {
+          closeChat();
+        } else {
+          openChat(agentName);
+        }
+      });
+    });
+
+    chatClose.addEventListener('click', closeChat);
+    backdrop.addEventListener('click', closeChat);
+  </script>
+</body>
+</html>

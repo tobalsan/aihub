@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Option B - Split Layout</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: white;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background: #1a1a1a;
+      border-right: 1px solid #2a2a2a;
+      padding: 16px;
+      flex-shrink: 0;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .agent-list {
+      margin-bottom: 24px;
+    }
+
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .agent-item:hover {
+      background: #2a2a2a;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot.green {
+      background: #22c55e;
+    }
+
+    .status-dot.gray {
+      background: #666;
+    }
+
+    .agent-name {
+      font-size: 14px;
+    }
+
+    /* Kanban */
+    .kanban {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .kanban-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .kanban-columns {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      flex: 1;
+      overflow-x: auto;
+    }
+
+    .column {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .column-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .column-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .column-dot.yellow { background: #eab308; }
+    .column-dot.purple { background: #a855f7; }
+    .column-dot.green { background: #22c55e; }
+
+    .column-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .card-title {
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .card-id {
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* Chat Panel */
+    .chat-panel {
+      width: 400px;
+      background: #1a1a1a;
+      border-left: 1px solid #2a2a2a;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .chat-panel.hidden {
+      display: none;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .chat-agent-name {
+      font-weight: 600;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .close-btn:hover {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .message.agent {
+      background: #2a2a2a;
+      align-self: flex-start;
+    }
+
+    .message.user {
+      background: #3b82f6;
+      align-self: flex-end;
+    }
+
+    .chat-input-area {
+      padding: 16px;
+      border-top: 1px solid #2a2a2a;
+    }
+
+    .chat-input {
+      width: 100%;
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 12px;
+      color: white;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .chat-input::placeholder {
+      color: #666;
+    }
+
+    .chat-input:focus {
+      border-color: #3b82f6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="agent-list">
+        <div class="section-title">LEAD AGENTS</div>
+        <div class="agent-item" data-agent="CTO">
+          <div class="status-dot green"></div>
+          <span class="agent-name">CTO</span>
+        </div>
+        <div class="agent-item" data-agent="Executive Assistant">
+          <div class="status-dot gray"></div>
+          <span class="agent-name">Executive Assistant</span>
+        </div>
+        <div class="agent-item" data-agent="Project Manager">
+          <div class="status-dot gray"></div>
+          <span class="agent-name">Project Manager</span>
+        </div>
+      </div>
+      <div class="agent-list">
+        <div class="section-title">SUBAGENTS</div>
+        <div class="agent-item" data-agent="PRO-24/codex">
+          <div class="status-dot green"></div>
+          <span class="agent-name">PRO-24/codex</span>
+        </div>
+        <div class="agent-item" data-agent="PRO-7/claude">
+          <div class="status-dot gray"></div>
+          <span class="agent-name">PRO-7/claude</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kanban -->
+    <div class="kanban">
+      <div class="kanban-header">AIHub</div>
+      <div class="kanban-columns">
+        <div class="column">
+          <div class="column-header">
+            <div class="column-dot yellow"></div>
+            MAYBE
+          </div>
+          <div class="column-cards">
+            <div class="card">
+              <div class="card-title">Add dark mode toggle</div>
+              <div class="card-id">PRO-31</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Mobile responsive layout</div>
+              <div class="card-id">PRO-32</div>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <div class="column-header">
+            <div class="column-dot purple"></div>
+            IN PROGRESS
+          </div>
+          <div class="column-cards">
+            <div class="card">
+              <div class="card-title">Implement agent chat</div>
+              <div class="card-id">PRO-24</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Realtime sync</div>
+              <div class="card-id">PRO-28</div>
+            </div>
+            <div class="card">
+              <div class="card-title">API rate limiting</div>
+              <div class="card-id">PRO-29</div>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <div class="column-header">
+            <div class="column-dot green"></div>
+            DONE
+          </div>
+          <div class="column-cards">
+            <div class="card">
+              <div class="card-title">Auth integration</div>
+              <div class="card-id">PRO-7</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Database schema</div>
+              <div class="card-id">PRO-12</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat Panel -->
+    <div class="chat-panel" id="chatPanel">
+      <div class="chat-header">
+        <span class="chat-agent-name" id="chatAgentName">CTO</span>
+        <button class="close-btn" id="closeChat">✕</button>
+      </div>
+      <div class="chat-messages">
+        <div class="message agent">Working on PRO-24. Setting up the WebSocket connection now.</div>
+        <div class="message user">What's the status?</div>
+        <div class="message agent">Almost done. Just need to handle reconnection logic.</div>
+      </div>
+      <div class="chat-input-area">
+        <input type="text" class="chat-input" placeholder="Send a message...">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const chatPanel = document.getElementById('chatPanel');
+    const chatAgentName = document.getElementById('chatAgentName');
+    const closeChat = document.getElementById('closeChat');
+    const agentItems = document.querySelectorAll('.agent-item');
+
+    closeChat.addEventListener('click', () => {
+      chatPanel.classList.add('hidden');
+    });
+
+    agentItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const agentName = item.dataset.agent;
+        chatAgentName.textContent = agentName;
+        chatPanel.classList.remove('hidden');
+      });
+    });
+  </script>
+</body>
+</html>

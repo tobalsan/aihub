@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIHub - Routes Mockup</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: white;
+      height: 100vh;
+      display: flex;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background: #1a1a1a;
+      border-right: 1px solid #2a2a2a;
+      padding: 16px;
+      flex-shrink: 0;
+    }
+    .sidebar h2 {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+    .sidebar-section { margin-bottom: 24px; }
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .agent-item:hover { background: #2a2a2a; }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot.green { background: #22c55e; }
+    .dot.gray { background: #666; }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .back-btn {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .back-btn:hover { background: #2a2a2a; }
+
+    /* Kanban */
+    .kanban {
+      flex: 1;
+      display: flex;
+      gap: 16px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+    .column {
+      width: 300px;
+      flex-shrink: 0;
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .column-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .column-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .column-dot.yellow { background: #eab308; }
+    .column-dot.purple { background: #a855f7; }
+    .column-dot.green { background: #22c55e; }
+    .card {
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .card-id { color: #666; font-size: 12px; }
+    .card-title { font-size: 14px; margin: 4px 0 8px; }
+    .card-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #666;
+    }
+    .card-tag {
+      background: #2a2a2a;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Chat */
+    .chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .messages {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+    }
+    .message {
+      max-width: 70%;
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+    }
+    .message.user {
+      background: #2563eb;
+      margin-left: auto;
+    }
+    .message.agent {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+    }
+    .chat-input {
+      padding: 16px 24px;
+      border-top: 1px solid #2a2a2a;
+      display: flex;
+      gap: 12px;
+    }
+    .chat-input input {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: white;
+      font-size: 14px;
+    }
+    .chat-input input:focus { outline: none; border-color: #444; }
+    .chat-input button {
+      background: #2563eb;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      color: white;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .chat-input button:hover { background: #1d4ed8; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h2>LEAD AGENTS</h2>
+      <div class="agent-item" onclick="showChat('CTO')">
+        <span class="dot green"></span>
+        <span>CTO</span>
+      </div>
+      <div class="agent-item" onclick="showChat('Executive Assistant')">
+        <span class="dot gray"></span>
+        <span>Executive Assistant</span>
+      </div>
+      <div class="agent-item" onclick="showChat('Project Manager')">
+        <span class="dot gray"></span>
+        <span>Project Manager</span>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h2>SUBAGENTS</h2>
+      <div class="agent-item" onclick="showChat('PRO-24/codex')">
+        <span class="dot green"></span>
+        <span>PRO-24/codex</span>
+      </div>
+      <div class="agent-item" onclick="showChat('PRO-7/claude')">
+        <span class="dot gray"></span>
+        <span>PRO-7/claude</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- Kanban View -->
+    <div id="kanban-view">
+      <div class="header">
+        <h1>AIHub</h1>
+      </div>
+      <div class="kanban">
+        <div class="column">
+          <div class="column-header">
+            <span class="column-dot yellow"></span>
+            <span>MAYBE</span>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-12</div>
+            <div class="card-title">Add dark mode toggle</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-15</div>
+            <div class="card-title">Refactor auth module</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <div class="column-header">
+            <span class="column-dot purple"></span>
+            <span>IN PROGRESS</span>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-24</div>
+            <div class="card-title">Implement real-time sync</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-7</div>
+            <div class="card-title">Fix websocket reconnect</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-18</div>
+            <div class="card-title">Add user preferences</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <div class="column-header">
+            <span class="column-dot green"></span>
+            <span>DONE</span>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-3</div>
+            <div class="card-title">Setup CI pipeline</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-id">PRO-5</div>
+            <div class="card-title">Database migration</div>
+            <div class="card-meta">
+              <span class="card-tag">CODING</span>
+              <span>Created 3 days ago</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat View -->
+    <div id="chat-view" class="hidden">
+      <div class="header">
+        <button class="back-btn" onclick="showKanban()">←</button>
+        <h1 id="chat-agent-name">Agent</h1>
+      </div>
+      <div class="chat">
+        <div class="messages" id="messages">
+          <div class="message agent">Hello! How can I assist you today?</div>
+          <div class="message user">Can you check the status of PRO-24?</div>
+          <div class="message agent">PRO-24 is currently in progress. The real-time sync implementation is about 60% complete. Would you like more details?</div>
+        </div>
+        <div class="chat-input">
+          <input type="text" placeholder="Type a message..." />
+          <button>Send</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function showChat(agentName) {
+      document.getElementById('kanban-view').classList.add('hidden');
+      document.getElementById('chat-view').classList.remove('hidden');
+      document.getElementById('chat-agent-name').textContent = agentName;
+    }
+
+    function showKanban() {
+      document.getElementById('chat-view').classList.add('hidden');
+      document.getElementById('kanban-view').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

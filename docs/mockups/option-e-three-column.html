@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIHub - Three Column Layout</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: white;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .layout {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* Left Sidebar */
+    .sidebar {
+      width: 250px;
+      min-width: 250px;
+      background: #1a1a1a;
+      border-right: 1px solid #2a2a2a;
+      display: flex;
+      flex-direction: column;
+      transition: width 0.2s ease, min-width 0.2s ease;
+      overflow: hidden;
+    }
+
+    .sidebar.collapsed {
+      width: 50px;
+      min-width: 50px;
+    }
+
+    .sidebar.collapsed:hover {
+      width: 250px;
+      min-width: 250px;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      display: flex;
+      justify-content: flex-end;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .collapse-btn {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    .collapse-btn:hover {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    .agent-list {
+      margin-bottom: 24px;
+    }
+
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 4px;
+    }
+
+    .agent-item:hover {
+      background: #2a2a2a;
+    }
+
+    .agent-item.selected {
+      background: #2a2a2a;
+    }
+
+    .agent-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .agent-dot.online { background: #22c55e; }
+    .agent-dot.offline { background: #666; }
+
+    .agent-name {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sidebar.collapsed .agent-name,
+    .sidebar.collapsed .section-title {
+      opacity: 0;
+    }
+
+    .sidebar.collapsed:hover .agent-name,
+    .sidebar.collapsed:hover .section-title {
+      opacity: 1;
+    }
+
+    /* Center Kanban */
+    .kanban {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .kanban-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .kanban-header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .kanban-board {
+      flex: 1;
+      display: flex;
+      gap: 20px;
+      padding: 20px 24px;
+      overflow-x: auto;
+    }
+
+    .column {
+      flex: 1;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .column-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid;
+    }
+
+    .column-header.maybe { border-color: #eab308; }
+    .column-header.in-progress { border-color: #a855f7; }
+    .column-header.done { border-color: #22c55e; }
+
+    .column-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .column-count {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 16px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .card:hover {
+      border-color: #444;
+    }
+
+    .card-id {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-tag {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: #2a2a2a;
+      border-radius: 4px;
+      color: #aaa;
+    }
+
+    .card-date {
+      font-size: 11px;
+      color: #666;
+    }
+
+    /* Right Panel */
+    .right-panel {
+      width: 400px;
+      min-width: 400px;
+      background: #1a1a1a;
+      border-left: 1px solid #2a2a2a;
+      display: flex;
+      flex-direction: column;
+      transition: width 0.2s ease, min-width 0.2s ease;
+      overflow: hidden;
+    }
+
+    .right-panel.collapsed {
+      width: 50px;
+      min-width: 50px;
+    }
+
+    .right-panel.collapsed:hover {
+      width: 400px;
+      min-width: 400px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid #2a2a2a;
+      gap: 8px;
+    }
+
+    .right-collapse-btn {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .right-collapse-btn:hover {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    .panel-tabs {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .panel-tab {
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .panel-tab:hover {
+      background: #2a2a2a;
+      color: #aaa;
+    }
+
+    .panel-tab.active {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    /* Collapsed state tabs */
+    .right-panel.collapsed .panel-tabs {
+      opacity: 0;
+    }
+
+    .right-panel.collapsed:hover .panel-tabs {
+      opacity: 1;
+    }
+
+    /* Collapsed icons */
+    .collapsed-icons {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      gap: 8px;
+    }
+
+    .right-panel.collapsed .collapsed-icons {
+      display: flex;
+    }
+
+    .right-panel.collapsed:hover .collapsed-icons {
+      display: none;
+    }
+
+    .collapsed-icon {
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 10px;
+      border-radius: 6px;
+      width: 42px;
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .collapsed-icon:hover {
+      background: #2a2a2a;
+      color: #aaa;
+    }
+
+    .collapsed-icon.active {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    .panel-content {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .right-panel.collapsed .panel-content {
+      opacity: 0;
+    }
+
+    .right-panel.collapsed:hover .panel-content {
+      opacity: 1;
+    }
+
+    /* Media queries for responsive collapse */
+    @media (max-width: 1399px) {
+      .sidebar {
+        width: 50px;
+        min-width: 50px;
+      }
+
+      .sidebar:hover {
+        width: 250px;
+        min-width: 250px;
+      }
+
+      .sidebar .agent-name,
+      .sidebar .section-title {
+        opacity: 0;
+      }
+
+      .sidebar:hover .agent-name,
+      .sidebar:hover .section-title {
+        opacity: 1;
+      }
+
+      .right-panel {
+        width: 50px;
+        min-width: 50px;
+      }
+
+      .right-panel:hover {
+        width: 400px;
+        min-width: 400px;
+      }
+
+      .right-panel .panel-tabs {
+        opacity: 0;
+      }
+
+      .right-panel:hover .panel-tabs {
+        opacity: 1;
+      }
+
+      .right-panel .collapsed-icons {
+        display: flex;
+      }
+
+      .right-panel:hover .collapsed-icons {
+        display: none;
+      }
+
+      .right-panel .panel-content {
+        opacity: 0;
+      }
+
+      .right-panel:hover .panel-content {
+        opacity: 1;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .right-panel {
+        display: none !important;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 100;
+        width: 50px;
+        min-width: 50px;
+      }
+
+      .sidebar:hover {
+        width: 250px;
+        min-width: 250px;
+        box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+      }
+
+      .kanban {
+        margin-left: 50px;
+      }
+
+      /* Floating activity button - mobile only */
+      .mobile-activity-btn {
+        display: flex !important;
+      }
+    }
+
+    /* Desktop: hide mobile elements */
+    @media (min-width: 769px) {
+      .mobile-activity-btn {
+        display: none !important;
+      }
+    }
+
+    /* Mobile floating activity button */
+    .mobile-activity-btn {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      background: #3b82f6;
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 900;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    .mobile-activity-btn:hover {
+      background: #2563eb;
+    }
+
+    /* Full-screen overlay base styles */
+    .fullscreen-overlay {
+      display: flex;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: #0a0a0a;
+      flex-direction: column;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+
+    .fullscreen-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .fullscreen-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid #2a2a2a;
+      background: #1a1a1a;
+    }
+
+    .fullscreen-back-btn {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 20px;
+      padding: 8px;
+      border-radius: 6px;
+    }
+
+    .fullscreen-back-btn:hover {
+      background: #2a2a2a;
+      color: white;
+    }
+
+    .fullscreen-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .fullscreen-header .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #22c55e;
+    }
+
+    /* Full-screen chat */
+    .fullscreen-chat-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .fullscreen-chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .fullscreen-chat-input {
+      display: flex;
+      gap: 8px;
+      padding: 16px;
+      border-top: 1px solid #2a2a2a;
+      background: #1a1a1a;
+    }
+
+    .fullscreen-chat-input input {
+      flex: 1;
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: white;
+      font-size: 14px;
+    }
+
+    .fullscreen-chat-input input:focus {
+      outline: none;
+      border-color: #444;
+    }
+
+    .fullscreen-chat-input button {
+      background: #3b82f6;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 20px;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .fullscreen-chat-input button:hover {
+      background: #2563eb;
+    }
+
+    /* Full-screen activity feed */
+    .fullscreen-feed-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .fullscreen-feed-content .activity-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 16px;
+    }
+
+    .fullscreen-feed-content .activity-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    .fullscreen-feed-content .activity-dot.green { background: #22c55e; }
+    .fullscreen-feed-content .activity-dot.purple { background: #a855f7; }
+    .fullscreen-feed-content .activity-dot.blue { background: #3b82f6; }
+    .fullscreen-feed-content .activity-dot.yellow { background: #eab308; }
+
+    .fullscreen-feed-content .activity-text {
+      flex: 1;
+    }
+
+    .fullscreen-feed-content .activity-text p {
+      font-size: 14px;
+      color: #ddd;
+      margin-bottom: 4px;
+    }
+
+    .fullscreen-feed-content .activity-time {
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* Activity Feed */
+    .activity-feed {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .activity-feed.hidden { display: none; }
+
+    .activity-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 16px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .activity-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #22c55e;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .activity-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .activity-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 16px;
+    }
+
+    .activity-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    .activity-dot.green { background: #22c55e; }
+    .activity-dot.purple { background: #a855f7; }
+    .activity-dot.blue { background: #3b82f6; }
+    .activity-dot.yellow { background: #eab308; }
+
+    .activity-text {
+      flex: 1;
+    }
+
+    .activity-text p {
+      font-size: 13px;
+      color: #ddd;
+      margin-bottom: 4px;
+    }
+
+    .activity-time {
+      font-size: 11px;
+      color: #666;
+    }
+
+    /* Agent Chat */
+    .agent-chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .agent-chat.hidden { display: none; }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .back-btn {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+    }
+
+    .back-btn:hover {
+      color: white;
+    }
+
+    .chat-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .chat-empty {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .message {
+      max-width: 85%;
+    }
+
+    .message.from-agent {
+      align-self: flex-start;
+    }
+
+    .message.from-user {
+      align-self: flex-end;
+    }
+
+    .message-bubble {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .message.from-agent .message-bubble {
+      background: #2a2a2a;
+    }
+
+    .message.from-user .message-bubble {
+      background: #3b82f6;
+    }
+
+    .message-time {
+      font-size: 10px;
+      color: #666;
+      margin-top: 4px;
+      padding: 0 4px;
+    }
+
+    .chat-input {
+      display: flex;
+      gap: 8px;
+      padding: 16px;
+      border-top: 1px solid #2a2a2a;
+    }
+
+    .chat-input input {
+      flex: 1;
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: white;
+      font-size: 13px;
+    }
+
+    .chat-input input:focus {
+      outline: none;
+      border-color: #444;
+    }
+
+    .chat-input button {
+      background: #3b82f6;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: white;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .chat-input button:hover {
+      background: #2563eb;
+    }
+
+    /* Modal Overlay */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+
+    .overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 24px;
+      min-width: 400px;
+      max-width: 600px;
+      transform: scale(0.95);
+      transition: transform 0.2s;
+    }
+
+    .overlay.visible .modal {
+      transform: scale(1);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .modal-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 20px;
+      padding: 4px;
+    }
+
+    .close-btn:hover {
+      color: white;
+    }
+
+    .modal-body {
+      color: #aaa;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Left Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <button class="collapse-btn" onclick="toggleSidebar()">«</button>
+      </div>
+      <div class="sidebar-content">
+        <div class="agent-list">
+          <div class="section-title">LEAD AGENTS</div>
+          <div class="agent-item" data-agent="CTO" onclick="selectAgent(this, 'CTO')">
+            <span class="agent-dot online"></span>
+            <span class="agent-name">CTO</span>
+          </div>
+          <div class="agent-item" data-agent="Executive Assistant" onclick="selectAgent(this, 'Executive Assistant')">
+            <span class="agent-dot offline"></span>
+            <span class="agent-name">Executive Assistant</span>
+          </div>
+          <div class="agent-item" data-agent="Project Manager" onclick="selectAgent(this, 'Project Manager')">
+            <span class="agent-dot offline"></span>
+            <span class="agent-name">Project Manager</span>
+          </div>
+        </div>
+        <div class="agent-list">
+          <div class="section-title">SUBAGENTS</div>
+          <div class="agent-item" data-agent="PRO-24/codex" onclick="selectAgent(this, 'PRO-24/codex')">
+            <span class="agent-dot online"></span>
+            <span class="agent-name">PRO-24/codex</span>
+          </div>
+          <div class="agent-item" data-agent="PRO-7/claude" onclick="selectAgent(this, 'PRO-7/claude')">
+            <span class="agent-dot offline"></span>
+            <span class="agent-name">PRO-7/claude</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Kanban -->
+    <main class="kanban">
+      <header class="kanban-header">
+        <h1>AIHub</h1>
+      </header>
+      <div class="kanban-board">
+        <div class="column">
+          <div class="column-header maybe">
+            <span class="column-title">MAYBE</span>
+            <span class="column-count">3</span>
+          </div>
+          <div class="cards">
+            <div class="card" onclick="openModal('PRO-15', 'Add dark mode toggle')">
+              <div class="card-id">PRO-15</div>
+              <div class="card-title">Add dark mode toggle</div>
+              <div class="card-footer">
+                <span class="card-tag">frontend</span>
+                <span class="card-date">Created 5 days ago</span>
+              </div>
+            </div>
+            <div class="card" onclick="openModal('PRO-18', 'Implement webhook notifications')">
+              <div class="card-id">PRO-18</div>
+              <div class="card-title">Implement webhook notifications</div>
+              <div class="card-footer">
+                <span class="card-tag">backend</span>
+                <span class="card-date">Created 3 days ago</span>
+              </div>
+            </div>
+            <div class="card" onclick="openModal('PRO-22', 'API rate limiting')">
+              <div class="card-id">PRO-22</div>
+              <div class="card-title">API rate limiting</div>
+              <div class="card-footer">
+                <span class="card-tag">infra</span>
+                <span class="card-date">Created 1 day ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <div class="column-header in-progress">
+            <span class="column-title">IN PROGRESS</span>
+            <span class="column-count">2</span>
+          </div>
+          <div class="cards">
+            <div class="card" onclick="openModal('PRO-24', 'Refactor authentication flow')">
+              <div class="card-id">PRO-24</div>
+              <div class="card-title">Refactor authentication flow</div>
+              <div class="card-footer">
+                <span class="card-tag">auth</span>
+                <span class="card-date">Created 2 days ago</span>
+              </div>
+            </div>
+            <div class="card" onclick="openModal('PRO-7', 'Database migration scripts')">
+              <div class="card-id">PRO-7</div>
+              <div class="card-title">Database migration scripts</div>
+              <div class="card-footer">
+                <span class="card-tag">database</span>
+                <span class="card-date">Created 8 days ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <div class="column-header done">
+            <span class="column-title">DONE</span>
+            <span class="column-count">3</span>
+          </div>
+          <div class="cards">
+            <div class="card" onclick="openModal('PRO-12', 'Setup CI/CD pipeline')">
+              <div class="card-id">PRO-12</div>
+              <div class="card-title">Setup CI/CD pipeline</div>
+              <div class="card-footer">
+                <span class="card-tag">devops</span>
+                <span class="card-date">Created 10 days ago</span>
+              </div>
+            </div>
+            <div class="card" onclick="openModal('PRO-9', 'User profile page')">
+              <div class="card-id">PRO-9</div>
+              <div class="card-title">User profile page</div>
+              <div class="card-footer">
+                <span class="card-tag">frontend</span>
+                <span class="card-date">Created 12 days ago</span>
+              </div>
+            </div>
+            <div class="card" onclick="openModal('PRO-5', 'Initial project setup')">
+              <div class="card-id">PRO-5</div>
+              <div class="card-title">Initial project setup</div>
+              <div class="card-footer">
+                <span class="card-tag">setup</span>
+                <span class="card-date">Created 14 days ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Panel -->
+    <aside class="right-panel" id="rightPanel">
+      <div class="panel-header">
+        <button class="right-collapse-btn" id="rightCollapseBtn" onclick="toggleRightPanel()">»</button>
+        <div class="panel-tabs">
+          <button class="panel-tab active" id="feedTab" onclick="showFeed()">Feed</button>
+          <button class="panel-tab" id="chatTab" onclick="showChat()">Chat</button>
+        </div>
+      </div>
+      <div class="collapsed-icons">
+        <button class="collapsed-icon active" id="feedIconBtn" onclick="expandAndShowFeed()" title="Activity Feed">📋</button>
+        <button class="collapsed-icon" id="chatIconBtn" onclick="expandAndShowChat()" title="Chat">💬</button>
+      </div>
+      <div class="panel-content">
+        <!-- Activity Feed -->
+        <div class="activity-feed" id="activityFeed">
+          <div class="activity-header">
+            <h3>Activity</h3>
+            <div class="live-badge">
+              <span class="live-dot"></span>
+              LIVE
+            </div>
+          </div>
+          <div class="activity-list">
+            <div class="activity-item">
+              <span class="activity-dot green"></span>
+              <div class="activity-text">
+                <p><strong>CTO</strong> moved PRO-24 to In Progress</p>
+                <span class="activity-time">2 min ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot purple"></span>
+              <div class="activity-text">
+                <p><strong>PRO-24/codex</strong> committed to PRO-24</p>
+                <span class="activity-time">5 min ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot blue"></span>
+              <div class="activity-text">
+                <p><strong>Project Manager</strong> commented on PRO-15</p>
+                <span class="activity-time">12 min ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot green"></span>
+              <div class="activity-text">
+                <p><strong>PRO-7/claude</strong> pushed 3 commits to PRO-7</p>
+                <span class="activity-time">18 min ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot yellow"></span>
+              <div class="activity-text">
+                <p><strong>Executive Assistant</strong> created PRO-22</p>
+                <span class="activity-time">25 min ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot green"></span>
+              <div class="activity-text">
+                <p><strong>CTO</strong> approved PRO-12</p>
+                <span class="activity-time">45 min ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot purple"></span>
+              <div class="activity-text">
+                <p><strong>PRO-24/codex</strong> requested review on PRO-24</p>
+                <span class="activity-time">1 hour ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot blue"></span>
+              <div class="activity-text">
+                <p><strong>Project Manager</strong> moved PRO-9 to Done</p>
+                <span class="activity-time">2 hours ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot green"></span>
+              <div class="activity-text">
+                <p><strong>CTO</strong> assigned PRO-18 to Executive Assistant</p>
+                <span class="activity-time">3 hours ago</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <span class="activity-dot yellow"></span>
+              <div class="activity-text">
+                <p><strong>PRO-7/claude</strong> resolved merge conflict on PRO-7</p>
+                <span class="activity-time">4 hours ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent Chat -->
+        <div class="agent-chat hidden" id="agentChat">
+          <div class="chat-header">
+            <button class="back-btn" onclick="showFeed()">&larr;</button>
+            <h3 id="chatAgentName">Agent</h3>
+          </div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-empty" id="chatEmpty">Select an agent to chat</div>
+          </div>
+          <div class="chat-input">
+            <input type="text" placeholder="Type a message..." id="messageInput">
+            <button onclick="sendMessage()">Send</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Mobile Floating Activity Button -->
+  <button class="mobile-activity-btn" id="mobileActivityBtn" onclick="openFullscreenFeed()">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+      <polyline points="14 2 14 8 20 8"></polyline>
+      <line x1="16" y1="13" x2="8" y2="13"></line>
+      <line x1="16" y1="17" x2="8" y2="17"></line>
+      <polyline points="10 9 9 9 8 9"></polyline>
+    </svg>
+  </button>
+
+  <!-- Full-screen Chat Overlay (mobile) -->
+  <div class="fullscreen-overlay" id="fullscreenChat">
+    <div class="fullscreen-header">
+      <button class="fullscreen-back-btn" onclick="closeFullscreenChat()">&larr;</button>
+      <h3 id="fullscreenChatAgentName">Agent</h3>
+    </div>
+    <div class="fullscreen-chat-content">
+      <div class="fullscreen-chat-messages" id="fullscreenChatMessages">
+        <div class="chat-empty">Select an agent to chat</div>
+      </div>
+      <div class="fullscreen-chat-input">
+        <input type="text" placeholder="Type a message..." id="fullscreenMessageInput">
+        <button onclick="sendFullscreenMessage()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full-screen Activity Feed Overlay (mobile) -->
+  <div class="fullscreen-overlay" id="fullscreenFeed">
+    <div class="fullscreen-header">
+      <button class="fullscreen-back-btn" onclick="closeFullscreenFeed()">&larr;</button>
+      <h3>Activity</h3>
+      <div class="live-badge">
+        <span class="live-dot"></span>
+        LIVE
+      </div>
+    </div>
+    <div class="fullscreen-feed-content" id="fullscreenFeedContent">
+      <!-- Activity items will be cloned here -->
+    </div>
+  </div>
+
+  <!-- Modal Overlay -->
+  <div class="overlay" id="overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 id="modalTitle">Project Title</h2>
+        <button class="close-btn" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Project details would go here. This is a placeholder for the project detail view.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedAgent = null;
+    let sidebarCollapsed = false;
+    let rightPanelCollapsed = false;
+
+    const agentMessages = {
+      'CTO': [
+        { from: 'agent', text: 'The authentication refactor is progressing well. We should have it ready for review by EOD.', time: '10:30 AM' },
+        { from: 'user', text: 'Great, any blockers I should know about?', time: '10:32 AM' },
+        { from: 'agent', text: 'Just waiting on the new OAuth credentials from the security team. I\'ve pinged them.', time: '10:33 AM' },
+      ],
+      'Executive Assistant': [
+        { from: 'agent', text: 'I\'ve scheduled the sprint review for Friday at 2 PM.', time: '9:15 AM' },
+        { from: 'user', text: 'Can you also prepare the agenda?', time: '9:20 AM' },
+        { from: 'agent', text: 'Already on it. I\'ll have it ready by tomorrow morning.', time: '9:21 AM' },
+      ],
+      'Project Manager': [
+        { from: 'agent', text: 'PRO-15 needs more clarification on the requirements. Should we schedule a quick sync?', time: '11:00 AM' },
+        { from: 'user', text: 'Yes, let\'s do 15 minutes tomorrow', time: '11:05 AM' },
+        { from: 'agent', text: 'Scheduled for 10 AM. I\'ll send the invite shortly.', time: '11:06 AM' },
+      ],
+      'PRO-24/codex': [
+        { from: 'agent', text: 'Pushed the initial auth refactor commits. Running tests now.', time: '2:00 PM' },
+        { from: 'user', text: 'How\'s the test coverage looking?', time: '2:15 PM' },
+        { from: 'agent', text: 'Currently at 87%. Working on edge cases for the token refresh flow.', time: '2:16 PM' },
+        { from: 'agent', text: 'All tests passing. Ready for review.', time: '2:45 PM' },
+      ],
+      'PRO-7/claude': [
+        { from: 'agent', text: 'Migration scripts are ready. Tested on staging successfully.', time: '1:30 PM' },
+        { from: 'user', text: 'Any data loss concerns?', time: '1:35 PM' },
+        { from: 'agent', text: 'None. All migrations are reversible and we have full backups.', time: '1:36 PM' },
+      ],
+    };
+
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      sidebarCollapsed = !sidebarCollapsed;
+      sidebar.classList.toggle('collapsed', sidebarCollapsed);
+    }
+
+    function toggleRightPanel() {
+      const rightPanel = document.getElementById('rightPanel');
+      const collapseBtn = document.getElementById('rightCollapseBtn');
+      rightPanelCollapsed = !rightPanelCollapsed;
+      rightPanel.classList.toggle('collapsed', rightPanelCollapsed);
+      collapseBtn.textContent = rightPanelCollapsed ? '«' : '»';
+      updateCollapsedIcons();
+    }
+
+    function updateCollapsedIcons() {
+      const feedIcon = document.getElementById('feedIconBtn');
+      const chatIcon = document.getElementById('chatIconBtn');
+      const feedTab = document.getElementById('feedTab');
+      const chatTab = document.getElementById('chatTab');
+
+      if (feedTab.classList.contains('active')) {
+        feedIcon.classList.add('active');
+        chatIcon.classList.remove('active');
+      } else {
+        feedIcon.classList.remove('active');
+        chatIcon.classList.add('active');
+      }
+    }
+
+    function expandAndShowFeed() {
+      const rightPanel = document.getElementById('rightPanel');
+      const collapseBtn = document.getElementById('rightCollapseBtn');
+      rightPanelCollapsed = false;
+      rightPanel.classList.remove('collapsed');
+      collapseBtn.textContent = '»';
+      showFeed();
+    }
+
+    function expandAndShowChat() {
+      const rightPanel = document.getElementById('rightPanel');
+      const collapseBtn = document.getElementById('rightCollapseBtn');
+      rightPanelCollapsed = false;
+      rightPanel.classList.remove('collapsed');
+      collapseBtn.textContent = '»';
+      showChat();
+    }
+
+    function isMobile() {
+      return window.innerWidth < 768;
+    }
+
+    function selectAgent(element, agentName) {
+      document.querySelectorAll('.agent-item').forEach(el => el.classList.remove('selected'));
+      element.classList.add('selected');
+      selectedAgent = agentName;
+
+      if (isMobile()) {
+        openFullscreenChat(agentName);
+      } else {
+        showChat();
+        loadAgentChat(agentName);
+      }
+    }
+
+    // Full-screen chat (mobile)
+    function openFullscreenChat(agentName) {
+      const overlay = document.getElementById('fullscreenChat');
+      document.getElementById('fullscreenChatAgentName').textContent = agentName;
+      loadFullscreenChat(agentName);
+      overlay.classList.add('visible');
+    }
+
+    function closeFullscreenChat() {
+      document.getElementById('fullscreenChat').classList.remove('visible');
+    }
+
+    function loadFullscreenChat(agentName) {
+      const messagesContainer = document.getElementById('fullscreenChatMessages');
+      const messages = agentMessages[agentName];
+
+      if (messages && messages.length > 0) {
+        messagesContainer.innerHTML = messages.map(msg => `
+          <div class="message from-${msg.from}">
+            <div class="message-bubble">${msg.text}</div>
+            <div class="message-time">${msg.time}</div>
+          </div>
+        `).join('');
+      } else {
+        messagesContainer.innerHTML = '<div class="chat-empty">No messages yet</div>';
+      }
+    }
+
+    function sendFullscreenMessage() {
+      const input = document.getElementById('fullscreenMessageInput');
+      const text = input.value.trim();
+      if (!text || !selectedAgent) return;
+
+      const messagesContainer = document.getElementById('fullscreenChatMessages');
+      const chatEmpty = messagesContainer.querySelector('.chat-empty');
+      if (chatEmpty) chatEmpty.remove();
+
+      const messageEl = document.createElement('div');
+      messageEl.className = 'message from-user';
+      messageEl.innerHTML = `
+        <div class="message-bubble">${text}</div>
+        <div class="message-time">Just now</div>
+      `;
+      messagesContainer.appendChild(messageEl);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      input.value = '';
+    }
+
+    // Full-screen activity feed (mobile)
+    function openFullscreenFeed() {
+      const overlay = document.getElementById('fullscreenFeed');
+      const feedContent = document.getElementById('fullscreenFeedContent');
+      const activityList = document.querySelector('.activity-list');
+
+      // Clone activity items
+      feedContent.innerHTML = activityList.innerHTML;
+      overlay.classList.add('visible');
+    }
+
+    function closeFullscreenFeed() {
+      document.getElementById('fullscreenFeed').classList.remove('visible');
+    }
+
+    function showFeed() {
+      document.getElementById('feedTab').classList.add('active');
+      document.getElementById('chatTab').classList.remove('active');
+      document.getElementById('activityFeed').classList.remove('hidden');
+      document.getElementById('agentChat').classList.add('hidden');
+      updateCollapsedIcons();
+    }
+
+    function showChat() {
+      document.getElementById('feedTab').classList.remove('active');
+      document.getElementById('chatTab').classList.add('active');
+      document.getElementById('activityFeed').classList.add('hidden');
+      document.getElementById('agentChat').classList.remove('hidden');
+      updateCollapsedIcons();
+    }
+
+    function loadAgentChat(agentName) {
+      document.getElementById('chatAgentName').textContent = agentName;
+      const messagesContainer = document.getElementById('chatMessages');
+      const chatEmpty = document.getElementById('chatEmpty');
+
+      const messages = agentMessages[agentName];
+      if (messages && messages.length > 0) {
+        chatEmpty.style.display = 'none';
+        messagesContainer.innerHTML = messages.map(msg => `
+          <div class="message from-${msg.from}">
+            <div class="message-bubble">${msg.text}</div>
+            <div class="message-time">${msg.time}</div>
+          </div>
+        `).join('');
+      } else {
+        chatEmpty.style.display = 'flex';
+        messagesContainer.innerHTML = '<div class="chat-empty">No messages yet</div>';
+      }
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('messageInput');
+      const text = input.value.trim();
+      if (!text || !selectedAgent) return;
+
+      const messagesContainer = document.getElementById('chatMessages');
+      const chatEmpty = messagesContainer.querySelector('.chat-empty');
+      if (chatEmpty) chatEmpty.style.display = 'none';
+
+      const messageEl = document.createElement('div');
+      messageEl.className = 'message from-user';
+      messageEl.innerHTML = `
+        <div class="message-bubble">${text}</div>
+        <div class="message-time">Just now</div>
+      `;
+      messagesContainer.appendChild(messageEl);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      input.value = '';
+    }
+
+    function openModal(id, title) {
+      document.getElementById('modalTitle').textContent = `${id}: ${title}`;
+      document.getElementById('overlay').classList.add('visible');
+    }
+
+    function closeModal(event) {
+      if (!event || event.target === document.getElementById('overlay')) {
+        document.getElementById('overlay').classList.remove('visible');
+      }
+    }
+
+    document.getElementById('messageInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    document.getElementById('fullscreenMessageInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendFullscreenMessage();
+    });
+  </script>
+</body>
+</html>
