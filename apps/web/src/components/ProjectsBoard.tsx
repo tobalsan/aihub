@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -731,6 +731,7 @@ export function ProjectsBoard() {
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
+  const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
@@ -740,6 +741,37 @@ export function ProjectsBoard() {
   let repoToastTimer: number | null = null;
   let savedRepo = "";
   let validatedRepo = "";
+
+  onMount(() => {
+    const saved = localStorage.getItem(selectedAgentStorageKey);
+    if (saved) setSelectedAgent(saved);
+  });
+
+  createEffect(() => {
+    const value = selectedAgent();
+    if (value) {
+      localStorage.setItem(selectedAgentStorageKey, value);
+    } else {
+      localStorage.removeItem(selectedAgentStorageKey);
+    }
+  });
+
+  createEffect(() => {
+    const value = selectedAgent();
+    if (!value) return;
+    if (value.startsWith("PRO-")) {
+      const items = subagents()?.items ?? [];
+      if (items.length === 0) return;
+      const [projectId, token] = value.split("/");
+      const exists = items.some((item) => item.projectId === projectId && (item.slug === token || item.cli === token));
+      if (!exists) setSelectedAgent(null);
+      return;
+    }
+    const list = agents() ?? [];
+    if (list.length === 0) return;
+    const exists = list.some((agent) => agent.id === value);
+    if (!exists) setSelectedAgent(null);
+  });
 
   const ownerOptions = createMemo(() => {
     const names = (agents() ?? []).map((agent) => agent.name);

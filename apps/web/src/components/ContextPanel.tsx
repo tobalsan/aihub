@@ -1,4 +1,4 @@
-import { Accessor, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
+import { Accessor, Show, createEffect, createMemo, createResource, createSignal, onMount } from "solid-js";
 import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
 import { fetchAgents, fetchAllSubagents } from "../api/client";
@@ -16,6 +16,7 @@ export function ContextPanel(props: ContextPanelProps) {
   const [mode, setMode] = createSignal<PanelMode>("feed");
   const [agents] = createResource(fetchAgents);
   const [subagents] = createResource(fetchAllSubagents);
+  const storageKey = "aihub:context-panel:mode";
 
   const agentType = createMemo(() => {
     const selected = props.selectedAgent();
@@ -36,10 +37,10 @@ export function ContextPanel(props: ContextPanelProps) {
     if (!match) {
       const projectItems = items.filter((item) => item.projectId === projectId);
       if (projectItems.length === 1) {
-        return { projectId, slug: projectItems[0].slug };
+        return { projectId, slug: projectItems[0].slug, cli: projectItems[0].cli, status: projectItems[0].status };
       }
     }
-    return { projectId, slug: match?.slug ?? token };
+    return { projectId, slug: match?.slug ?? token, cli: match?.cli, status: match?.status };
   });
 
   const agentName = createMemo(() => {
@@ -60,6 +61,17 @@ export function ContextPanel(props: ContextPanelProps) {
     if (props.selectedAgent()) {
       setMode("chat");
     }
+  });
+
+  onMount(() => {
+    const saved = localStorage.getItem(storageKey);
+    if (saved === "feed" || saved === "chat") {
+      setMode(saved);
+    }
+  });
+
+  createEffect(() => {
+    localStorage.setItem(storageKey, mode());
   });
 
   const expandAndShow = (nextMode: PanelMode) => {
@@ -134,7 +146,7 @@ export function ContextPanel(props: ContextPanelProps) {
 
       <style>{`
         .context-panel {
-          width: 400px;
+          width: 520px;
           background: #1a1a1a;
           border-left: 1px solid #2a2a2a;
           display: flex;
@@ -148,7 +160,7 @@ export function ContextPanel(props: ContextPanelProps) {
         }
 
         .context-panel.collapsed:hover {
-          width: 400px;
+          width: 520px;
         }
 
         .panel-header {
