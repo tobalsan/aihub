@@ -725,6 +725,7 @@ export function ProjectsBoard() {
   const [createDescription, setCreateDescription] = createSignal("");
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
+  const [filterText, setFilterText] = createSignal("");
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
@@ -826,9 +827,18 @@ export function ProjectsBoard() {
 
   const grouped = createMemo(() => {
     const items = projects() ?? [];
+    const filter = filterText().toLowerCase().trim();
     const byStatus = new Map<string, ProjectListItem[]>();
     for (const col of COLUMNS) byStatus.set(col.id, []);
     for (const item of items) {
+      // Filter by title OR domain
+      if (filter) {
+        const title = (item.title ?? "").toLowerCase();
+        const domain = (getFrontmatterString(item.frontmatter, "domain") ?? "").toLowerCase();
+        if (!title.includes(filter) && !domain.includes(filter)) {
+          continue;
+        }
+      }
       const status = getStatus(item);
       if (!byStatus.has(status)) byStatus.set(status, []);
       byStatus.get(status)?.push(item);
@@ -1652,6 +1662,13 @@ export function ProjectsBoard() {
           <h1>Projects</h1>
           <span class="header-subtitle">Kanban</span>
         </div>
+        <input
+          class="filter-input"
+          type="text"
+          placeholder="Filter by title or domain..."
+          value={filterText()}
+          onInput={(e) => setFilterText(e.currentTarget.value)}
+        />
       </header>
 
       <Show when={projects.loading}>
@@ -2393,6 +2410,27 @@ export function ProjectsBoard() {
           text-transform: uppercase;
           letter-spacing: 0.2em;
           color: #7f8a9a;
+        }
+
+        .filter-input {
+          margin-left: auto;
+          padding: 8px 12px;
+          font-size: 14px;
+          border-radius: 8px;
+          border: 1px solid #232a35;
+          background: #131821;
+          color: #e5e7eb;
+          width: 220px;
+          outline: none;
+          transition: border-color 0.15s;
+        }
+
+        .filter-input::placeholder {
+          color: #6b7280;
+        }
+
+        .filter-input:focus {
+          border-color: #3b6ecc;
         }
 
         .projects-loading,
