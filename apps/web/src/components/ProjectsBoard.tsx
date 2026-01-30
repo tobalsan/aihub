@@ -20,6 +20,7 @@ import {
 import type { ProjectListItem, ProjectDetail, FullHistoryMessage, ContentBlock, SubagentListItem, SubagentLogEvent } from "../api/types";
 import { buildProjectStartPrompt } from "./projectMonitoring";
 import { AgentSidebar } from "./AgentSidebar";
+import { ContextPanel } from "./ContextPanel";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -729,6 +730,7 @@ export function ProjectsBoard() {
   const [filterText, setFilterText] = createSignal("");
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
 
   let mainStreamCleanup: (() => void) | null = null;
   let monitoringTextareaRef: HTMLTextAreaElement | undefined;
@@ -1654,7 +1656,7 @@ export function ProjectsBoard() {
   });
 
   return (
-    <div class="app-layout">
+    <div class="app-layout" classList={{ "left-collapsed": sidebarCollapsed() }}>
       <AgentSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
@@ -3576,6 +3578,12 @@ export function ProjectsBoard() {
       `}</style>
         </div>
       </main>
+      <ContextPanel
+        collapsed={rightPanelCollapsed}
+        onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
+        selectedAgent={selectedAgent}
+        onClearSelection={() => setSelectedAgent(null)}
+      />
     </div>
   );
 }

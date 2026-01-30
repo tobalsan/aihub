@@ -252,21 +252,22 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 ---
 
-### Phase 3: Right Panel — Context Panel
+### Phase 3: Right Panel — Context Panel ✓ Complete
 
 **Goal**: Add context panel with Feed/Chat modes.
 
 **Changes**:
 - New component: `ContextPanel.tsx`
 - Activity Feed view (placeholder events initially)
-- Agent Chat view (reuse existing chat components)
+- Agent Chat view (placeholder shell)
 - Mode tabs + collapsed icon bar
-- Collapsible with hover-expand
+- Collapsible with hover-expand; auto-collapse under 1400px
 
 **Files**:
 - `apps/web/src/components/ContextPanel.tsx` (new)
 - `apps/web/src/components/ActivityFeed.tsx` (new)
-- `apps/web/src/components/AgentChat.tsx` (new or refactor existing)
+- `apps/web/src/components/AgentChat.tsx` (new)
+- `apps/web/src/components/ProjectsBoard.tsx` (integrate panel)
 
 ---
 

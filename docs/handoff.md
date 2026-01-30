@@ -200,6 +200,11 @@ Kanban UI details:
 - New sidebar component: `apps/web/src/components/AgentSidebar.tsx`.
 - Kanban layout now supports left sidebar; main width no longer capped.
 
+### 11) UI v2 Phase 3 — Right Context Panel
+- Added context panel with Feed/Chat modes.
+- New components: `ContextPanel`, `ActivityFeed`, `AgentChat`.
+- Right panel auto-collapses on <1400px, hidden on mobile, and stays open when left sidebar is collapsed.
+
 ## Commits
 - `feat(web): persist column collapse state`
 - `feat(web): add new session button for monitoring`
@@ -280,7 +285,7 @@ See `docs/ui_v2.md` for full spec.
 
 1. ~~**Phase 1**: Kanban as homepage~~ ✓ Done
 2. ~~**Phase 2**: Left sidebar — agents list with status~~ ✓ Done
-3. **Phase 3**: Right panel — context panel (activity feed / chat)
+3. ~~**Phase 3**: Right panel — context panel (activity feed / chat)~~ ✓ Done
 4. **Phase 4**: Wire real data — activity events, agent status
 5. **Phase 5**: Project detail — replace monitoring with agent runs list
 6. **Phase 6**: Mobile + polish — fullscreen overlays, transitions

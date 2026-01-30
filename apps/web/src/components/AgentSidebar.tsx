@@ -40,8 +40,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 <button
                   class="agent-item"
                   type="button"
-                  classList={{ selected: props.selectedAgent() === agent.id }}
-                  onClick={() => props.onSelectAgent(agent.id)}
+                  classList={{ selected: props.selectedAgent() === agent.name }}
+                  onClick={() => props.onSelectAgent(agent.name)}
                 >
                   <span class="status-dot" />
                   <span class="agent-label">{agent.name}</span>
