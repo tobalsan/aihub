@@ -195,6 +195,11 @@ Kanban UI details:
 - New: `docs/agent_interfacing_decisions.md`
 - New: `docs/agent_interfacing_specs.md`
 
+### 10) UI v2 Phase 2 — Agents Sidebar
+- Added global subagent list endpoint: `GET /api/subagents`.
+- New sidebar component: `apps/web/src/components/AgentSidebar.tsx`.
+- Kanban layout now supports left sidebar; main width no longer capped.
+
 ## Commits
 - `feat(web): persist column collapse state`
 - `feat(web): add new session button for monitoring`
@@ -274,7 +279,7 @@ Kanban UI details:
 See `docs/ui_v2.md` for full spec.
 
 1. ~~**Phase 1**: Kanban as homepage~~ ✓ Done
-2. **Phase 2**: Left sidebar — agents list with status
+2. ~~**Phase 2**: Left sidebar — agents list with status~~ ✓ Done
 3. **Phase 3**: Right panel — context panel (activity feed / chat)
 4. **Phase 4**: Wire real data — activity events, agent status
 5. **Phase 5**: Project detail — replace monitoring with agent runs list

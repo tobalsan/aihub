@@ -226,7 +226,7 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 ---
 
-### Phase 2: Left Sidebar — Agents
+### Phase 2: Left Sidebar — Agents ✓ Complete
 
 **Goal**: Add agent sidebar to main layout.
 
@@ -239,11 +239,16 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 **Data**:
 - Lead agents: from config/API
-- Subagents: from existing subagent API (active sessions)
+- Subagents: `GET /api/subagents` (global list)
 
 **Files**:
+- `apps/gateway/src/subagents/index.ts` (global list)
+- `apps/gateway/src/server/api.ts` (new route)
+- `packages/shared/src/types.ts` (types)
+- `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`
 - `apps/web/src/components/AgentSidebar.tsx` (new)
 - `apps/web/src/components/ProjectsBoard.tsx` (integrate sidebar)
+- `apps/web/src/App.tsx` (full-width layout)
 
 ---
 
