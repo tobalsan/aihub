@@ -676,6 +676,8 @@ export function ProjectsBoard() {
   const [selectedRunKey, setSelectedRunKey] = createSignal<string | null>(null);
   const [aihubRunMeta, setAihubRunMeta] = createSignal<Record<string, { lastTs?: number }>>({});
   const [aihubRunLogs, setAihubRunLogs] = createSignal<Record<string, LogItem[]>>({});
+  const [runLogAtBottom, setRunLogAtBottom] = createSignal(true);
+  const [initialRunScroll, setInitialRunScroll] = createSignal(false);
   const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [createTitle, setCreateTitle] = createSignal("");
@@ -1104,12 +1106,12 @@ export function ProjectsBoard() {
 
   createEffect(() => {
     const projectId = params.id;
-    const run = selectedRun();
-    if (!projectId || !run || run.type !== "subagent" || !run.slug) {
+    const key = selectedRunKey();
+    if (!projectId || !key || !key.startsWith("subagent:")) {
       setSubagentLogs([]);
       return;
     }
-    const slug = run.slug;
+    const slug = key.slice("subagent:".length);
     setSubagentLogs([]);
     let active = true;
     let cursor = 0;
@@ -1119,6 +1121,10 @@ export function ProjectsBoard() {
       if (res.ok) {
         if (res.data.events.length > 0) {
           setSubagentLogs((prev) => [...prev, ...res.data.events]);
+          const isRunning = selectedRun()?.status === "running";
+          if (isRunning && runLogAtBottom()) {
+            scrollSubagentLogToBottom();
+          }
         }
         cursor = res.data.cursor;
       }
@@ -1132,12 +1138,20 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    const run = selectedRun();
-    if (!run || run.type !== "subagent") return;
-    const logs = subagentLogs();
-    if (logs.length >= 0) {
+    selectedRunKey();
+    setRunLogAtBottom(true);
+    setInitialRunScroll(true);
+  });
+
+  createEffect(() => {
+    selectedRunLogItems();
+    if (!initialRunScroll()) return;
+    if (!selectedRun()) return;
+    if (selectedRunLogItems().length === 0) return;
+    requestAnimationFrame(() => {
       scrollSubagentLogToBottom();
-    }
+      setInitialRunScroll(false);
+    });
   });
 
   const toggleColumn = (id: string) => {
@@ -1740,7 +1754,17 @@ export function ProjectsBoard() {
                       when={selectedRun()}
                       fallback={<div class="log-empty">Select a run to view logs.</div>}
                     >
-                      <div class="log-pane" ref={subagentLogPaneRef}>
+                      <div
+                        class="log-pane"
+                        ref={subagentLogPaneRef}
+                        onScroll={(e) => {
+                          const target = e.currentTarget as HTMLDivElement;
+                          const threshold = 120;
+                          const atBottom =
+                            target.scrollHeight - target.scrollTop - target.clientHeight <= threshold;
+                          setRunLogAtBottom(atBottom);
+                        }}
+                      >
                         <For each={selectedRunLogItems()}>
                           {(entry) => renderLogItem(entry)}
                         </For>
