@@ -658,7 +658,7 @@ export function ChatView() {
   return (
     <div class="chat-view">
       <header class="header">
-        <A href="/" class="back-btn" aria-label="Go back">
+        <A href="/agents" class="back-btn" aria-label="Go back">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
