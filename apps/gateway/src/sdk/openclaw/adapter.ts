@@ -23,6 +23,24 @@ function getPayload(msg: Record<string, unknown>): Record<string, unknown> | und
   return undefined;
 }
 
+function extractMessageText(payload: Record<string, unknown>): string {
+  // Handle string message (legacy format)
+  if (typeof payload.message === "string") {
+    return payload.message;
+  }
+  // Handle object message format: { role, content: [{ type: "text", text: "..." }] }
+  const message = payload.message as Record<string, unknown> | undefined;
+  if (!message) return "";
+  const content = message.content;
+  if (!Array.isArray(content)) return "";
+  for (const block of content) {
+    if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+      return block.text;
+    }
+  }
+  return "";
+}
+
 function getRunId(data?: Record<string, unknown>): string | undefined {
   if (!data) return undefined;
   if (typeof data.runId === "string") return data.runId;
@@ -246,7 +264,7 @@ export class OpenClawConnector implements SdkAdapter {
 
           if (eventType === "chat") {
             const state = asString(payload.state);
-            const message = asString(payload.message) ?? "";
+            const message = extractMessageText(payload);
             const eventRunId = getRunId(payload);
             if (activeRunId && eventRunId && eventRunId !== activeRunId) {
               if (debugEnabled) {
