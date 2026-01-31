@@ -17,6 +17,14 @@ function toSubagentLabel(item: SubagentGlobalListItem): string {
   return `${item.projectId}/${item.cli ?? item.slug}`;
 }
 
+function getInitials(name: string): string {
+  const words = name.trim().split(/\s+/);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
 export function AgentSidebar(props: AgentSidebarProps) {
   const [agents] = createResource(fetchAgents);
   const [subagents, { refetch }] = createResource(fetchAllSubagents);
@@ -51,17 +59,23 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <div class="section-title">LEAD AGENTS</div>
           <Show when={agents()}>
             <For each={agents() ?? []}>
-              {(agent) => (
-                <button
-                  class="agent-item"
-                  type="button"
-                  classList={{ selected: props.selectedAgent() === agent.id }}
-                  onClick={() => props.onSelectAgent(agent.id)}
-                >
-                  <span class={`status-dot ${getAgentStatus(agent.id) === "running" ? "running" : ""}`} />
-                  <span class="agent-label">{agent.name}</span>
-                </button>
-              )}
+              {(agent) => {
+                const isRunning = getAgentStatus(agent.id) === "running";
+                return (
+                  <button
+                    class="agent-item"
+                    type="button"
+                    classList={{ selected: props.selectedAgent() === agent.id }}
+                    onClick={() => props.onSelectAgent(agent.id)}
+                  >
+                    <span class={`agent-avatar ${isRunning ? "running" : ""}`}>
+                      {getInitials(agent.name)}
+                    </span>
+                    <span class="agent-label">{agent.name}</span>
+                    <span class={`status-dot ${isRunning ? "running" : ""}`} />
+                  </button>
+                );
+              }}
             </For>
           </Show>
         </div>
@@ -73,6 +87,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
               {(item) => {
                 const id = toSubagentId(item);
                 const label = toSubagentLabel(item);
+                const initials = getInitials(item.cli ?? item.slug);
+                const isRunning = item.status === "running";
                 return (
                   <button
                     class="agent-item"
@@ -80,8 +96,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
                     classList={{ selected: props.selectedAgent() === id }}
                     onClick={() => props.onSelectAgent(id)}
                   >
-                    <span class={`status-dot ${item.status === "running" ? "running" : ""}`} />
+                    <span class={`agent-avatar ${isRunning ? "running" : ""}`}>
+                      {initials}
+                    </span>
                     <span class="agent-label">{label}</span>
+                    <span class={`status-dot ${isRunning ? "running" : ""}`} />
                   </button>
                 );
               }}
@@ -111,6 +130,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
         .sidebar-header {
           padding: 12px 10px;
+          display: flex;
+          justify-content: flex-end;
         }
 
         .collapse-btn {
@@ -175,17 +196,48 @@ export function AgentSidebar(props: AgentSidebarProps) {
           outline-offset: 2px;
         }
 
+        .agent-avatar {
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          background: #3a3a3a;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 600;
+          color: #ccc;
+          letter-spacing: 0.02em;
+          transition: background 0.2s ease;
+        }
+
+        .agent-avatar.running {
+          background: #166534;
+          color: #a7f3d0;
+        }
+
         .status-dot {
           width: 8px;
           height: 8px;
           border-radius: 999px;
           background: #666;
           flex: 0 0 auto;
+          margin-left: auto;
         }
 
         .status-dot.running {
           background: #22c55e;
           animation: status-pulse 1.6s ease-in-out infinite;
+        }
+
+        @keyframes status-pulse {
+          0%, 100% {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+          }
+          50% {
+            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+          }
         }
 
         .agent-label {
@@ -208,9 +260,14 @@ export function AgentSidebar(props: AgentSidebarProps) {
           max-width: 0;
         }
 
+        .agent-sidebar.collapsed .status-dot {
+          display: none;
+        }
+
         .agent-sidebar.collapsed .agent-item {
           justify-content: center;
           gap: 0;
+          padding: 4px;
         }
 
         .agent-sidebar.collapsed:hover .section-title {
@@ -226,16 +283,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
         .agent-sidebar.collapsed:hover .agent-item {
           justify-content: flex-start;
           gap: 10px;
+          padding: 6px 8px;
         }
 
-        @keyframes status-pulse {
-          0%,
-          100% {
-            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
-          }
-          50% {
-            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
-          }
+        .agent-sidebar.collapsed:hover .status-dot {
+          display: block;
         }
 
         @media (max-width: 768px) {
