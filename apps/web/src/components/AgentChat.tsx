@@ -38,6 +38,15 @@ type LogItem = {
   collapsible?: boolean;
 };
 
+type ImageAttachment = {
+  id: string;
+  file: File;
+  name: string;
+};
+
+const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/jpg"]);
+const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
+
 function formatJson(args: unknown): string {
   try {
     return JSON.stringify(args, null, 2);
@@ -466,6 +475,7 @@ function mergePendingAihubMessages(
 export function AgentChat(props: AgentChatProps) {
   const [input, setInput] = createSignal("");
   const [error, setError] = createSignal("");
+  const [attachments, setAttachments] = createSignal<ImageAttachment[]>([]);
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
@@ -482,6 +492,7 @@ export function AgentChat(props: AgentChatProps) {
   let pollInterval: number | null = null;
   let logPaneRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
+  let fileInputRef: HTMLInputElement | undefined;
 
   const sessionKey = createMemo(() => (props.agentId ? getSessionKey(props.agentId) : "main"));
   const cliTokens = new Set(["claude", "codex", "droid", "gemini"]);
@@ -494,10 +505,36 @@ export function AgentChat(props: AgentChatProps) {
       props.subagentInfo.status !== "running" &&
       !subagentSending()
   );
+  const canAttach = createMemo(() => props.agentType === "lead" && Boolean(props.agentId));
 
   onMount(() => {
     resizeTextarea("");
   });
+
+  const isSupportedImage = (file: File) => {
+    if (supportedImageTypes.has(file.type)) return true;
+    const ext = file.name.toLowerCase().split(".").pop();
+    return ext ? supportedImageExtensions.has(ext) : false;
+  };
+
+  const addAttachments = (files: FileList | File[]) => {
+    const next: ImageAttachment[] = [];
+    for (const file of Array.from(files)) {
+      if (!isSupportedImage(file)) continue;
+      next.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        file,
+        name: file.name,
+      });
+    }
+    if (next.length > 0) {
+      setAttachments((prev) => [...prev, ...next]);
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id));
+  };
 
   const resizeTextarea = (value = input()) => {
     if (!textareaRef) return;
@@ -592,6 +629,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubLive("");
     setAihubStreaming(false);
     setAihubPending(false);
+    setAttachments([]);
     setPendingAihubUserMessages([]);
     setCliLogs([]);
     setCliCursor(0);
@@ -655,6 +693,7 @@ export function AgentChat(props: AgentChatProps) {
       setPendingCliUserMessages((prev) => [...prev, text]);
       setSubagentAwaitingResponse(true);
       setInput("");
+      setAttachments([]);
       resizeTextarea("");
       const mode = props.subagentInfo.slug === "main" ? "main-run" : "worktree";
       void spawnSubagent(props.subagentInfo.projectId, {
@@ -683,6 +722,7 @@ export function AgentChat(props: AgentChatProps) {
     setPendingAihubUserMessages((prev) => [...prev, text]);
     setAihubLogs((prev) => [...prev, { tone: "user", body: text }]);
     setInput("");
+    setAttachments([]);
     setError("");
     setAihubLive("");
     setAihubStreaming(true);
@@ -740,7 +780,20 @@ export function AgentChat(props: AgentChatProps) {
         <h3>{props.agentName ?? "Select an agent"}</h3>
       </div>
 
-      <div class="chat-messages">
+      <div
+        class="chat-messages"
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!canAttach()) return;
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (!canAttach()) return;
+          const files = e.dataTransfer?.files;
+          if (!files || files.length === 0) return;
+          addAttachments(files);
+        }}
+      >
         <Show when={!props.agentName}>
           <div class="chat-empty">Select an agent to chat</div>
         </Show>
@@ -791,32 +844,83 @@ export function AgentChat(props: AgentChatProps) {
         <div class="chat-error">{error()}</div>
       </Show>
 
+      <Show when={attachments().length > 0}>
+        <div class="chat-attachments">
+          {attachments().map((item) => (
+            <div class="attachment-pill">
+              <span class="attachment-name" title={item.name}>
+                {item.name}
+              </span>
+              <button
+                type="button"
+                class="attachment-remove"
+                aria-label={`Remove ${item.name}`}
+                onClick={() => removeAttachment(item.id)}
+              >
+                x
+              </button>
+            </div>
+          ))}
+        </div>
+      </Show>
+
       <div class="chat-input">
-        <textarea
-          placeholder="Type a message..."
-          disabled={!canSendLead() && !canSendSubagent()}
-          value={input()}
-          ref={textareaRef}
-          rows={1}
-          onInput={(e) => {
-            const value = e.currentTarget.value;
-            setInput(value);
-            resizeTextarea(value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-        />
-        <button
-          type="button"
-          disabled={!canSendLead() && !canSendSubagent()}
-          onClick={handleSend}
-        >
-          Send
-        </button>
+        <div class="chat-controls">
+          <input
+            ref={fileInputRef}
+            class="chat-file-input"
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/jpg"
+            multiple
+            onChange={(e) => {
+              if (!canAttach()) return;
+              const files = e.currentTarget.files;
+              if (!files || files.length === 0) return;
+              addAttachments(files);
+              e.currentTarget.value = "";
+            }}
+          />
+          <button
+            type="button"
+            class="attach-btn"
+            aria-label="Attach images"
+            disabled={!canAttach()}
+            onClick={() => fileInputRef?.click()}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M16.5 6.5v9.1a4.5 4.5 0 0 1-9 0V6.3a3.3 3.3 0 0 1 6.6 0v8.8a2.1 2.1 0 1 1-4.2 0V7.2h1.6v7.9a.5.5 0 1 0 1 0V6.3a1.7 1.7 0 0 0-3.4 0v9.3a2.9 2.9 0 0 0 5.8 0V6.5h1.6z"
+              />
+            </svg>
+          </button>
+          <textarea
+            placeholder="Type a message..."
+            disabled={!canSendLead() && !canSendSubagent()}
+            value={input()}
+            ref={textareaRef}
+            rows={1}
+            onInput={(e) => {
+              const value = e.currentTarget.value;
+              setInput(value);
+              resizeTextarea(value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+          />
+          <button
+            type="button"
+            class="send-btn"
+            disabled={!canSendLead() && !canSendSubagent()}
+            onClick={handleSend}
+          >
+            Send
+          </button>
+        </div>
       </div>
 
       <style>{`
@@ -884,9 +988,47 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-input {
           display: flex;
-          gap: 8px;
+          flex-direction: column;
+          gap: 10px;
           padding: 16px;
           border-top: 1px solid #2a2a2a;
+        }
+
+        .chat-controls {
+          display: flex;
+          gap: 8px;
+          align-items: flex-end;
+        }
+
+        .chat-file-input {
+          display: none;
+        }
+
+        .attach-btn {
+          width: 36px;
+          height: 36px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 8px;
+          border: 1px solid #2a2a2a;
+          background: #121212;
+          color: #cfd6e2;
+          cursor: pointer;
+        }
+
+        .attach-btn svg {
+          width: 18px;
+          height: 18px;
+        }
+
+        .attach-btn:hover {
+          background: #1c1c1c;
+        }
+
+        .attach-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .chat-input textarea {
@@ -909,6 +1051,45 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-input textarea:disabled {
           opacity: 0.5;
+        }
+
+        .chat-attachments {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 8px 16px 0;
+        }
+
+        .attachment-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 8px;
+          border-radius: 999px;
+          background: #1b1b1b;
+          border: 1px solid #2a2a2a;
+          max-width: 180px;
+        }
+
+        .attachment-name {
+          font-size: 12px;
+          color: #cfd6e2;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .attachment-remove {
+          border: none;
+          background: none;
+          color: #888;
+          cursor: pointer;
+          font-size: 12px;
+          padding: 0;
+        }
+
+        .attachment-remove:hover {
+          color: #f5b0b0;
         }
 
         .log-line.pending {
@@ -956,7 +1137,7 @@ export function AgentChat(props: AgentChatProps) {
           }
         }
 
-        .chat-input button {
+        .chat-input .send-btn {
           background: #3b82f6;
           border: none;
           border-radius: 8px;
@@ -966,11 +1147,11 @@ export function AgentChat(props: AgentChatProps) {
           cursor: pointer;
         }
 
-        .chat-input button:hover {
+        .chat-input .send-btn:hover {
           background: #2563eb;
         }
 
-        .chat-input button:disabled {
+        .chat-input .send-btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
         }
