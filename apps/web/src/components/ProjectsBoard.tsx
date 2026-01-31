@@ -9,16 +9,11 @@ import {
   createProject,
   fetchAgents,
   fetchFullHistory,
-  subscribeToSession,
-  streamMessage,
   fetchSubagents,
   fetchSubagentLogs,
   fetchProjectBranches,
-  spawnSubagent,
-  interruptSubagent,
 } from "../api/client";
 import type { ProjectListItem, ProjectDetail, FullHistoryMessage, ContentBlock, SubagentListItem, SubagentLogEvent } from "../api/types";
-import { buildProjectStartPrompt } from "./projectMonitoring";
 import { AgentSidebar } from "./AgentSidebar";
 import { ContextPanel } from "./ContextPanel";
 
@@ -86,28 +81,6 @@ function getFrontmatterRecord(
   return value as Record<string, string>;
 }
 
-const timestampFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
-
-function formatTimestamp(ts: string | number | undefined): string {
-  if (!ts) return "";
-  const date = typeof ts === "number" ? new Date(ts) : new Date(ts);
-  if (Number.isNaN(date.getTime())) return "";
-  return timestampFormatter.format(date);
-}
-
-function formatCreated(raw?: string): string {
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return raw;
-  return date.toLocaleString();
-}
-
 
 function formatCreatedRelative(raw?: string): string {
   if (!raw) return "";
@@ -124,6 +97,21 @@ function formatCreatedRelative(raw?: string): string {
   if (days === 1) return "Created yesterday";
   if (days === 7) return "Created last week";
   return `Created ${days} days ago`;
+}
+
+function formatRunRelative(raw?: string | number): string {
+  if (!raw) return "";
+  const ts = typeof raw === "number" ? raw : Date.parse(raw);
+  if (Number.isNaN(ts)) return "";
+  const diff = Date.now() - ts;
+  if (diff < 60000) return "Just now";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(diff / 3600000);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  if (hours < 48) return "Yesterday";
+  const days = Math.floor(diff / 86400000);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 function renderMarkdown(content: string): string {
   const stripped = content
@@ -461,46 +449,6 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   return entries;
 }
 
-function extractUserTexts(messages: FullHistoryMessage[]): string[] {
-  const texts: string[] = [];
-  for (const msg of messages) {
-    if (msg.role !== "user") continue;
-    const text = getTextBlocks(msg.content);
-    if (text) texts.push(text);
-  }
-  return texts;
-}
-
-function resizeTextarea(el: HTMLTextAreaElement | undefined) {
-  if (!el) return;
-  el.style.height = "auto";
-  const lineHeight = 20;
-  const maxHeight = lineHeight * 10;
-  el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-}
-
-function mergePendingAihubMessages(
-  messages: FullHistoryMessage[],
-  pending: string[]
-): { merged: LogItem[]; remaining: string[] } {
-  if (pending.length === 0) return { merged: buildAihubLogs(messages), remaining: [] };
-  const historyUsers = extractUserTexts(messages);
-  let cursor = 0;
-  const remaining: string[] = [];
-  for (const text of pending) {
-    const idx = historyUsers.indexOf(text, cursor);
-    if (idx === -1) {
-      remaining.push(text);
-    } else {
-      cursor = idx + 1;
-    }
-  }
-  const base = buildAihubLogs(messages);
-  const merged =
-    remaining.length > 0 ? [...base, ...remaining.map((text) => ({ tone: "user", body: text }))] : base;
-  return { merged, remaining };
-}
-
 function toLogItem(entry: SubagentLogEvent): LogItem {
   const tone = logTone(entry.type);
   const body = entry.text ?? "";
@@ -556,6 +504,17 @@ type LogItem = {
   title?: string;
   body: string;
   collapsible?: boolean;
+};
+
+type AgentRunItem = {
+  key: string;
+  type: "subagent" | "aihub";
+  label: string;
+  status: "running" | "idle";
+  time?: number;
+  slug?: string;
+  agentId?: string;
+  sessionKey?: string;
 };
 
 function logTone(type: string): "assistant" | "user" | "muted" | "error" {
@@ -691,7 +650,6 @@ export function ProjectsBoard() {
   const [detailRunAgent, setDetailRunAgent] = createSignal("");
   const [detailRunMode, setDetailRunMode] = createSignal("main-run");
   const [detailRepo, setDetailRepo] = createSignal("");
-  const [repoToast, setRepoToast] = createSignal("");
   const [detailTitle, setDetailTitle] = createSignal("");
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [detailContent, setDetailContent] = createSignal("");
@@ -700,27 +658,12 @@ export function ProjectsBoard() {
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
   const [branches, setBranches] = createSignal<string[]>([]);
-  const [branchesError, setBranchesError] = createSignal<string | null>(null);
-  const [mainTab, setMainTab] = createSignal<"logs" | "diffs">("logs");
-  const [subTab, setSubTab] = createSignal<"logs" | "diffs">("logs");
-  const [mainInput, setMainInput] = createSignal("");
-  const [customStartEnabled, setCustomStartEnabled] = createSignal(false);
-  const [customStartPrompt, setCustomStartPrompt] = createSignal("");
-  const [subagentsExpanded, setSubagentsExpanded] = createSignal(false);
-  const [mainLogs, setMainLogs] = createSignal<SubagentLogEvent[]>([]);
-  const [mainCursor, setMainCursor] = createSignal(0);
-  const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
-  const [aihubLive, setAihubLive] = createSignal("");
-  const [aihubStreaming, setAihubStreaming] = createSignal(false);
-  const [aihubLocalNotes, setAihubLocalNotes] = createSignal<LogItem[]>([]);
-  const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<string[]>([]);
-  const [pendingAihubHistoryRefresh, setPendingAihubHistoryRefresh] = createSignal(false);
-  const [mainError, setMainError] = createSignal("");
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
   const [subagentError, setSubagentError] = createSignal<string | null>(null);
-  const [selectedSubagent, setSelectedSubagent] = createSignal<string | null>(null);
   const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
-  const [subagentCursor, setSubagentCursor] = createSignal(0);
+  const [selectedRunKey, setSelectedRunKey] = createSignal<string | null>(null);
+  const [aihubRunMeta, setAihubRunMeta] = createSignal<Record<string, { lastTs?: number }>>({});
+  const [aihubRunLogs, setAihubRunLogs] = createSignal<Record<string, LogItem[]>>({});
   const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [createTitle, setCreateTitle] = createSignal("");
@@ -733,14 +676,8 @@ export function ProjectsBoard() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
-  let mainStreamCleanup: (() => void) | null = null;
-  let monitoringTextareaRef: HTMLTextAreaElement | undefined;
-  let mainLogPaneRef: HTMLDivElement | undefined;
   let subagentLogPaneRef: HTMLDivElement | undefined;
-  let aihubSubscriptionCleanup: (() => void) | null = null;
-  let repoToastTimer: number | null = null;
   let savedRepo = "";
-  let validatedRepo = "";
 
   onMount(() => {
     const saved = localStorage.getItem(selectedAgentStorageKey);
@@ -794,73 +731,62 @@ export function ProjectsBoard() {
     return null;
   });
 
-  const mainSlug = createMemo(() => {
-    if (selectedRunAgent()?.type !== "cli") return "";
-    if (detailRunMode() === "worktree") return detailSlug().trim();
-    return "main";
-  });
-
-  const mainSubagent = createMemo(() => {
-    const slug = mainSlug();
-    if (!slug) return null;
-    return subagents().find((item) => item.slug === slug) ?? null;
-  });
-
   const isMonitoringHidden = createMemo(() => {
     const status = detailStatus();
     return status === "not_now" || status === "maybe";
   });
 
-  const selectedSubagentError = createMemo(() => {
-    const slug = selectedSubagent();
-    if (!slug) return "";
-    return subagents().find((item) => item.slug === slug)?.lastError ?? "";
-  });
-
-  const selectedSubagentStatus = createMemo(() => {
-    const slug = selectedSubagent();
-    if (!slug) return "idle";
-    return subagents().find((item) => item.slug === slug)?.status ?? "idle";
-  });
-
-  const resolvedSessionKey = createMemo(() => {
-    const project = detail();
-    const agent = selectedRunAgent();
-    if (!project || !agent || agent.type !== "aihub") return "";
-    return detailSessionKeys()[agent.id] ?? `project:${project.id}:${agent.id}`;
-  });
-
-  const hasMainRun = createMemo(() => {
-    const agent = selectedRunAgent();
-    if (!agent) return false;
-    if (agent.type === "aihub") {
-      return aihubStreaming() || aihubLogs().length > 0;
-    }
-    return Boolean(mainSubagent());
-  });
-
-  const canStart = createMemo(() => {
-    const agent = selectedRunAgent();
-    if (!agent) return false;
-    if (agent.type === "aihub") return true;
-    if (!detailRepo()) return false;
-    if (detailRunMode() === "worktree" && !detailSlug().trim()) return false;
-    return true;
-  });
-
-  const mainStatus = createMemo(() => {
-    const agent = selectedRunAgent();
-    if (!agent) return "idle";
-    if (agent.type === "aihub") {
-      return aihubStreaming() ? "running" : hasMainRun() ? "idle" : "idle";
-    }
-    return mainSubagent()?.status ?? "idle";
-  });
-
-  const cliLogItems = createMemo(() => buildCliLogs(mainLogs()));
-  const cliDiffItems = createMemo(() => buildCliLogs(mainLogs().filter((ev) => ev.type === "diff")));
   const subagentLogItems = createMemo(() => buildCliLogs(subagentLogs()));
-  const subagentDiffItems = createMemo(() => buildCliLogs(subagentLogs().filter((ev) => ev.type === "diff")));
+  const agentRuns = createMemo<AgentRunItem[]>(() => {
+    const project = detail();
+    if (!project) return [];
+    const runs: AgentRunItem[] = [];
+    for (const item of subagents()) {
+      const time = item.lastActive ? Date.parse(item.lastActive) : Number.NaN;
+      runs.push({
+        key: `subagent:${item.slug}`,
+        type: "subagent",
+        label: `${project.id}/${item.cli ?? item.slug}`,
+        status: item.status === "running" ? "running" : "idle",
+        time: Number.isNaN(time) ? undefined : time,
+        slug: item.slug,
+      });
+    }
+    const sessionKeys = detailSessionKeys();
+    for (const agentId of Object.keys(sessionKeys)) {
+      const sessionKey = sessionKeys[agentId];
+      if (!sessionKey) continue;
+      runs.push({
+        key: `aihub:${agentId}`,
+        type: "aihub",
+        label: `aihub:${agentId}`,
+        status: "idle",
+        time: aihubRunMeta()[agentId]?.lastTs,
+        agentId,
+        sessionKey,
+      });
+    }
+    runs.sort((a, b) => {
+      if (a.status !== b.status) return a.status === "running" ? -1 : 1;
+      const aTime = a.time ?? 0;
+      const bTime = b.time ?? 0;
+      return bTime - aTime;
+    });
+    return runs;
+  });
+  const selectedRun = createMemo(() => {
+    const key = selectedRunKey();
+    if (!key) return null;
+    return agentRuns().find((run) => run.key === key) ?? null;
+  });
+  const selectedRunLogItems = createMemo(() => {
+    const run = selectedRun();
+    if (!run) return [];
+    if (run.type === "aihub") {
+      return aihubRunLogs()[run.agentId ?? ""] ?? [];
+    }
+    return subagentLogItems();
+  });
 
   const grouped = createMemo(() => {
     const items = projects() ?? [];
@@ -880,10 +806,18 @@ export function ProjectsBoard() {
       if (!byStatus.has(status)) byStatus.set(status, []);
       byStatus.get(status)?.push(item);
     }
-    for (const [status, list] of byStatus) {
+    for (const [, list] of byStatus) {
       list.sort(sortByCreatedAsc);
     }
     return byStatus;
+  });
+
+  createEffect(() => {
+    const key = selectedRunKey();
+    if (!key) return;
+    if (!agentRuns().some((run) => run.key === key)) {
+      setSelectedRunKey(null);
+    }
   });
 
   createEffect(() => {
@@ -932,24 +866,14 @@ export function ProjectsBoard() {
 
   createEffect(() => {
     if (!params.id) return;
-    setMainLogs([]);
-    setMainCursor(0);
-    setAihubLogs([]);
-    setAihubLive("");
-    setAihubStreaming(false);
-    setAihubLocalNotes([]);
-    setPendingAihubUserMessages([]);
-    setPendingAihubHistoryRefresh(false);
-    setMainError("");
     setSubagents([]);
-    setSelectedSubagent(null);
     setSubagentLogs([]);
-    setSubagentCursor(0);
+    setSelectedRunKey(null);
+    setAihubRunMeta({});
+    setAihubRunLogs({});
     setDetailSlug("");
     setDetailRepo("");
-    setRepoToast("");
     savedRepo = "";
-    validatedRepo = "";
   });
 
   createEffect(() => {
@@ -965,12 +889,6 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    if (!subagentsExpanded()) {
-      scrollMainLogToBottom();
-    }
-  });
-
-  createEffect(() => {
     if (!params.id) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -980,21 +898,6 @@ export function ProjectsBoard() {
     };
     window.addEventListener("keydown", handler);
     onCleanup(() => window.removeEventListener("keydown", handler));
-  });
-
-  onCleanup(() => {
-    if (mainStreamCleanup) {
-      mainStreamCleanup();
-      mainStreamCleanup = null;
-    }
-    if (aihubSubscriptionCleanup) {
-      aihubSubscriptionCleanup();
-      aihubSubscriptionCleanup = null;
-    }
-    if (repoToastTimer) {
-      window.clearTimeout(repoToastTimer);
-      repoToastTimer = null;
-    }
   });
 
   createEffect(() => {
@@ -1014,11 +917,8 @@ export function ProjectsBoard() {
     const repo = detailRepo().trim();
     if (!projectId || !repo) {
       setBranches([]);
-      setBranchesError(null);
-      validatedRepo = "";
       return;
     }
-    setBranchesError(null);
     let active = true;
     const timer = window.setTimeout(async () => {
       const shouldUpdate = repo !== savedRepo.trim();
@@ -1026,10 +926,9 @@ export function ProjectsBoard() {
         try {
           await updateProject(projectId, { repo });
           savedRepo = repo;
-        } catch (error) {
+        } catch {
           if (!active) return;
           setBranches([]);
-          setBranchesError(error instanceof Error ? error.message : "Failed to update repo");
           return;
         }
       }
@@ -1037,20 +936,11 @@ export function ProjectsBoard() {
       if (!active) return;
       if (res.ok) {
         setBranches(res.data.branches);
-        setBranchesError(null);
-        if (shouldUpdate && repo !== validatedRepo) {
-          validatedRepo = repo;
-          setRepoToast("Repo valid");
-          if (repoToastTimer) window.clearTimeout(repoToastTimer);
-          repoToastTimer = window.setTimeout(() => setRepoToast(""), 1200);
-        }
         if (!res.data.branches.includes(detailBranch())) {
           setDetailBranch(res.data.branches.includes("main") ? "main" : res.data.branches[0] ?? "main");
         }
       } else {
         setBranches([]);
-        setBranchesError(res.error);
-        validatedRepo = "";
       }
     }, 400);
     onCleanup(() => {
@@ -1058,18 +948,6 @@ export function ProjectsBoard() {
       window.clearTimeout(timer);
     });
   });
-
-  const refreshAihubHistory = async (agentId: string, sessionKey: string) => {
-    const res = await fetchFullHistory(agentId, sessionKey);
-    const pending = pendingAihubUserMessages();
-    const { merged, remaining } = mergePendingAihubMessages(res.messages, pending);
-    if (remaining.length !== pending.length) {
-      setPendingAihubUserMessages(remaining);
-    }
-    const notes = aihubLocalNotes();
-    setAihubLogs(notes.length > 0 ? [...merged, ...notes] : merged);
-    scrollMainLogToBottom();
-  };
 
   createEffect(() => {
     const projectId = params.id;
@@ -1095,125 +973,48 @@ export function ProjectsBoard() {
 
   createEffect(() => {
     const project = detail();
-    const agent = selectedRunAgent();
-    if (!project || !agent || agent.type !== "aihub") return;
-    if (aihubStreaming()) return;
-    const sessionKey = resolvedSessionKey();
-    if (!sessionKey) return;
-    const load = async () => {
-      await refreshAihubHistory(agent.id, sessionKey);
-    };
-    load();
-  });
-
-  createEffect(() => {
-    const agent = selectedRunAgent();
-    const sessionKey = resolvedSessionKey();
-    if (!params.id || !agent || agent.type !== "aihub" || !sessionKey) {
-      if (aihubSubscriptionCleanup) {
-        aihubSubscriptionCleanup();
-        aihubSubscriptionCleanup = null;
-      }
+    const sessionKeys = detailSessionKeys();
+    if (!project) return;
+    const agentIds = Object.keys(sessionKeys);
+    if (agentIds.length === 0) {
+      setAihubRunMeta({});
+      setAihubRunLogs({});
       return;
     }
-    if (aihubSubscriptionCleanup) {
-      aihubSubscriptionCleanup();
-      aihubSubscriptionCleanup = null;
-    }
-    aihubSubscriptionCleanup = subscribeToSession(agent.id, sessionKey, {
-      onText: (text) => {
-        if (mainStreamCleanup) return;
-        setAihubStreaming(true);
-        setAihubLive((prev) => prev + text);
-      },
-      onToolCall: (_id, name, args) => {
-        if (mainStreamCleanup) return;
-        setAihubStreaming(true);
-        setAihubLogs((prev) => [
-          ...prev,
-          { tone: "muted", icon: "tool", title: `Tool: ${name}`, body: formatJson(args), collapsible: true },
-        ]);
-      },
-      onToolStart: () => {
-        if (mainStreamCleanup) return;
-        setAihubStreaming(true);
-      },
-      onToolEnd: () => {
-        if (mainStreamCleanup) return;
-        setAihubStreaming(true);
-      },
-      onDone: () => {
-        if (mainStreamCleanup) return;
-        setAihubStreaming(false);
-        setAihubLive("");
-        refreshAihubHistory(agent.id, sessionKey);
-        setPendingAihubHistoryRefresh(false);
-      },
-      onHistoryUpdated: () => {
-        if (aihubStreaming()) {
-          setPendingAihubHistoryRefresh(true);
-          return;
-        }
-        refreshAihubHistory(agent.id, sessionKey);
-        setPendingAihubHistoryRefresh(false);
-      },
-      onError: (error) => {
-        setMainError(error);
-      },
-    });
-  });
-
-  createEffect(() => {
-    const agent = selectedRunAgent();
-    const sessionKey = resolvedSessionKey();
-    if (!agent || agent.type !== "aihub" || !sessionKey) return;
-    if (aihubStreaming()) return;
-    if (!pendingAihubHistoryRefresh()) return;
-    refreshAihubHistory(agent.id, sessionKey);
-    setPendingAihubHistoryRefresh(false);
-  });
-
-  createEffect(() => {
-    const agent = selectedRunAgent();
-    if (!agent || agent.type !== "cli") return;
-    const err = mainSubagent()?.lastError;
-    if (err) setMainError(err);
-  });
-
-  createEffect(() => {
-    const projectId = params.id;
-    const agent = selectedRunAgent();
-    const slug = mainSlug();
-    if (!projectId || !agent || agent.type !== "cli" || !slug) return;
-    setMainLogs([]);
-    setMainCursor(0);
     let active = true;
-    let cursor = 0;
-    const poll = async () => {
-      const res = await fetchSubagentLogs(projectId, slug, cursor);
-      if (!active) return;
-      if (res.ok) {
-        if (res.data.events.length > 0) {
-          setMainLogs((prev) => [...prev, ...res.data.events]);
+    const load = async () => {
+      const nextMeta: Record<string, { lastTs?: number }> = {};
+      const nextLogs: Record<string, LogItem[]> = {};
+      for (const agentId of agentIds) {
+        const sessionKey = sessionKeys[agentId];
+        if (!sessionKey) continue;
+        const res = await fetchFullHistory(agentId, sessionKey);
+        if (!active) return;
+        nextLogs[agentId] = buildAihubLogs(res.messages);
+        const last = res.messages[res.messages.length - 1];
+        if (last?.timestamp) {
+          nextMeta[agentId] = { lastTs: last.timestamp };
         }
-        cursor = res.data.cursor;
-        setMainCursor(cursor);
       }
+      if (!active) return;
+      setAihubRunMeta(nextMeta);
+      setAihubRunLogs(nextLogs);
     };
-    poll();
-    const timer = setInterval(poll, 2000);
+    load();
     onCleanup(() => {
       active = false;
-      clearInterval(timer);
     });
   });
 
   createEffect(() => {
     const projectId = params.id;
-    const slug = selectedSubagent();
-    if (!projectId || !slug) return;
+    const run = selectedRun();
+    if (!projectId || !run || run.type !== "subagent" || !run.slug) {
+      setSubagentLogs([]);
+      return;
+    }
+    const slug = run.slug;
     setSubagentLogs([]);
-    setSubagentCursor(0);
     let active = true;
     let cursor = 0;
     const poll = async () => {
@@ -1224,7 +1025,6 @@ export function ProjectsBoard() {
           setSubagentLogs((prev) => [...prev, ...res.data.events]);
         }
         cursor = res.data.cursor;
-        setSubagentCursor(cursor);
       }
     };
     poll();
@@ -1236,29 +1036,11 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    if (subagentsExpanded()) return;
-    const agent = selectedRunAgent();
-    if (!agent) return;
-    if (agent.type === "cli") {
-      mainLogs().length;
-    } else {
-      aihubLogs().length;
-      aihubLive();
-    }
-    scrollMainLogToBottom();
-  });
-
-  createEffect(() => {
-    const slug = selectedSubagent();
-    if (!slug) return;
-    subagentLogs().length;
-    subTab();
-    scrollSubagentLogToBottom();
-  });
-
-  createEffect(() => {
-    if (selectedRunAgent()?.type === "aihub" && mainTab() !== "logs") {
-      setMainTab("logs");
+    const run = selectedRun();
+    if (!run || run.type !== "subagent") return;
+    const logs = subagentLogs();
+    if (logs.length >= 0) {
+      scrollSubagentLogToBottom();
     }
   });
 
@@ -1343,14 +1125,6 @@ export function ProjectsBoard() {
     navigate(`/projects/${id}`);
   };
 
-  const scrollMainLogToBottom = () => {
-    if (!mainLogPaneRef) return;
-    requestAnimationFrame(() => {
-      if (!mainLogPaneRef) return;
-      mainLogPaneRef.scrollTop = mainLogPaneRef.scrollHeight;
-    });
-  };
-
   const scrollSubagentLogToBottom = () => {
     if (!subagentLogPaneRef) return;
     requestAnimationFrame(() => {
@@ -1361,259 +1135,6 @@ export function ProjectsBoard() {
 
   const closeDetail = () => {
     navigate("/projects");
-  };
-
-  const startAihubRun = async (project: ProjectDetail, customPrompt: string) => {
-    const agent = selectedRunAgent();
-    if (!agent || agent.type !== "aihub") return;
-    const sessionKeys = detailSessionKeys();
-    let sessionKey = sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
-    if (!sessionKeys[agent.id]) {
-      const nextKeys = { ...sessionKeys, [agent.id]: sessionKey };
-      setDetailSessionKeys(nextKeys);
-      await updateProject(project.id, { sessionKeys: nextKeys, runAgent: detailRunAgent() });
-      await refetchDetail();
-    }
-    const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
-    const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
-    const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
-    const prompt = buildProjectStartPrompt({
-      title: project.title,
-      status: getFrontmatterString(project.frontmatter, "status") ?? "",
-      path: project.path,
-      content: project.content,
-      readmePath,
-      repo: detailRepo(),
-      customPrompt,
-    });
-    setMainError("");
-    setAihubLogs([]);
-    setAihubLive("");
-    if (mainStreamCleanup) {
-      mainStreamCleanup();
-      mainStreamCleanup = null;
-    }
-    setAihubStreaming(true);
-    setPendingAihubUserMessages((prev) => [...prev, prompt]);
-    setAihubLogs((prev) => [
-      ...prev,
-      { tone: "user", body: prompt },
-    ]);
-    scrollMainLogToBottom();
-    mainStreamCleanup = streamMessage(
-      agent.id,
-      prompt,
-      sessionKey,
-      (text) => {
-        setAihubLive((prev) => prev + text);
-      },
-      async (meta) => {
-        if (meta?.queued) return;
-        setAihubStreaming(false);
-        setAihubLive("");
-        await refreshAihubHistory(agent.id, sessionKey);
-        mainStreamCleanup = null;
-      },
-      (error) => {
-        setMainError(error);
-        setAihubStreaming(false);
-        setAihubLive("");
-        mainStreamCleanup = null;
-      },
-      {
-        onToolCall: (_id, name, args) => {
-          setAihubLogs((prev) => [
-            ...prev,
-            {
-              tone: "muted",
-              icon: "tool",
-              title: name ? `Tool: ${name}` : "Tool",
-              body: formatJson(args),
-              collapsible: true,
-            },
-          ]);
-        },
-      }
-    );
-  };
-
-  const sendAihubMessage = async (project: ProjectDetail, message: string) => {
-    const agent = selectedRunAgent();
-    if (!agent || agent.type !== "aihub") return;
-    const sessionKey = resolvedSessionKey();
-    if (!sessionKey) return;
-    setMainError("");
-    setAihubLive("");
-    if (mainStreamCleanup) {
-      mainStreamCleanup();
-      mainStreamCleanup = null;
-    }
-    setAihubStreaming(true);
-    setPendingAihubUserMessages((prev) => [...prev, message]);
-    setAihubLogs((prev) => [
-      ...prev,
-      { tone: "user", body: message },
-    ]);
-    scrollMainLogToBottom();
-    mainStreamCleanup = streamMessage(
-      agent.id,
-      message,
-      sessionKey,
-      (text) => {
-        setAihubLive((prev) => prev + text);
-      },
-      async (meta) => {
-        if (meta?.queued) return;
-        setAihubStreaming(false);
-        setAihubLive("");
-        await refreshAihubHistory(agent.id, sessionKey);
-        mainStreamCleanup = null;
-      },
-      (error) => {
-        setMainError(error);
-        setAihubStreaming(false);
-        setAihubLive("");
-        mainStreamCleanup = null;
-      }
-    );
-  };
-
-  const runCli = async (project: ProjectDetail, message: string, resume: boolean): Promise<boolean> => {
-    const agent = selectedRunAgent();
-    if (!agent || agent.type !== "cli") return false;
-    const slug = mainSlug();
-    if (!slug) {
-      setMainError("Slug required");
-      return false;
-    }
-    setMainError("");
-    const res = await spawnSubagent(project.id, {
-      slug,
-      cli: agent.id,
-      prompt: message,
-      mode: detailRunMode() === "worktree" ? "worktree" : "main-run",
-      baseBranch: detailBranch(),
-      resume,
-    });
-    if (!res.ok) {
-      setMainError(res.error);
-      return false;
-    }
-    return true;
-  };
-
-  const handleStart = async (project: ProjectDetail) => {
-    const agent = selectedRunAgent();
-    if (!agent) return;
-    const custom = customStartEnabled() ? customStartPrompt().trim() : "";
-    const status = normalizeStatus(getFrontmatterString(project.frontmatter, "status"));
-    const markInProgress = async () => {
-      if (status !== "todo") return;
-      setDetailStatus("in_progress");
-      await updateProject(project.id, { status: "in_progress" });
-      await refetch();
-      await refetchDetail();
-    };
-    if (agent.type === "aihub") {
-      await startAihubRun(project, custom);
-      await markInProgress();
-      return;
-    }
-    if (detailRunAgent()) {
-      await updateProject(project.id, { runAgent: detailRunAgent(), runMode: detailRunMode() });
-    }
-    if (status === "shaping") {
-      const basePath = project.path.replace(/\/$/, "");
-      const readmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
-      const prompt = buildProjectStartPrompt({
-        title: project.title,
-        status: getFrontmatterString(project.frontmatter, "status") ?? "",
-        path: project.path,
-        content: project.content,
-        readmePath,
-        repo: detailRepo(),
-        customPrompt: custom,
-      });
-      await runCli(project, prompt, false);
-      return;
-    }
-    const prompt = buildProjectStartPrompt({
-      title: project.title,
-      status: getFrontmatterString(project.frontmatter, "status") ?? "",
-      path: project.path,
-      content: project.content,
-      readmePath: project.path,
-      repo: detailRepo(),
-      customPrompt: custom,
-    });
-    const started = await runCli(project, prompt, false);
-    if (started) {
-      await markInProgress();
-    }
-  };
-
-  const handleNew = async (project: ProjectDetail) => {
-    const agent = selectedRunAgent();
-    if (!agent || agent.type !== "aihub") return;
-    if (mainStreamCleanup) {
-      mainStreamCleanup();
-      mainStreamCleanup = null;
-    }
-    const nextKey = `project:${project.id}:${agent.id}:${Date.now()}`;
-    const nextKeys = { ...detailSessionKeys(), [agent.id]: nextKey };
-    setDetailSessionKeys(nextKeys);
-    setAihubLogs([]);
-    setAihubLive("");
-    setAihubStreaming(false);
-    setAihubLocalNotes([]);
-    setPendingAihubUserMessages([]);
-    setPendingAihubHistoryRefresh(false);
-    setMainError("");
-    setMainInput("");
-    await updateProject(project.id, { sessionKeys: nextKeys, runAgent: detailRunAgent() });
-    await refetchDetail();
-  };
-
-  const handleSend = async (project: ProjectDetail) => {
-    const message = mainInput().trim();
-    if (!message) return;
-    setMainInput("");
-    resizeTextarea(monitoringTextareaRef);
-    const agent = selectedRunAgent();
-    if (!agent) return;
-    if (agent.type === "aihub") {
-      await sendAihubMessage(project, message);
-      return;
-    }
-    await runCli(project, message, true);
-  };
-
-  const handleStop = async (project: ProjectDetail) => {
-    const agent = selectedRunAgent();
-    if (!agent) return;
-    if (agent.type === "cli") {
-      const slug = mainSlug();
-      if (!slug) return;
-      setMainLogs((prev) => [
-        ...prev,
-        { type: "message", text: "Stop requested." },
-      ]);
-      await interruptSubagent(project.id, slug);
-      return;
-    }
-    const sessionKey = resolvedSessionKey();
-    if (!sessionKey) return;
-    const note: LogItem = { tone: "muted", icon: "system", title: "System", body: "Stop requested." };
-    setAihubLocalNotes((prev) => [...prev, note]);
-    setAihubLogs((prev) => [...prev, note]);
-    streamMessage(
-      agent.id,
-      "/abort",
-      sessionKey,
-      () => {},
-      () => {},
-      () => {}
-    );
   };
 
   const openCreateModal = () => {
@@ -2072,270 +1593,57 @@ export function ProjectsBoard() {
                     </Show>
                   </Show>
                 </div>
-                <Show when={!isMonitoringHidden()}>
-                  <div
-                    class={`monitoring-columns ${
-                      detailDomain() === "coding"
-                        ? subagentsExpanded()
-                          ? "subagents-only"
-                          : "split"
-                        : "main-only"
-                    }`}
-                  >
-                  <Show when={detailDomain() === "coding" && subagentsExpanded()}>
-                    <button
-                      class="main-toggle-rail"
-                      onClick={() => setSubagentsExpanded(false)}
-                      aria-label="Show main agent"
+                <div class="runs-panel">
+                  <div class="runs-header">
+                    <h3 class="runs-title">Agent Runs</h3>
+                  </div>
+                  <Show when={subagentError()}>
+                    <div class="monitoring-error">{subagentError()}</div>
+                  </Show>
+                  <div class="runs-list">
+                    <Show when={agentRuns().length > 0} fallback={<div class="log-empty">No runs yet.</div>}>
+                      <For each={agentRuns()}>
+                        {(run) => {
+                          const relative = formatRunRelative(run.time);
+                          const timeLabel = relative
+                            ? run.status === "running"
+                              ? `Started ${relative}`
+                              : relative
+                            : "No activity yet";
+                          return (
+                            <button
+                              class={`run-row ${selectedRunKey() === run.key ? "active" : ""}`}
+                              onClick={() =>
+                                setSelectedRunKey((prev) => (prev === run.key ? null : run.key))
+                              }
+                            >
+                              <span class={`status-dot ${run.status === "running" ? "running" : ""}`} />
+                              <div class="run-content">
+                                <div class="run-title">{run.label}</div>
+                                <div class="run-time">{timeLabel}</div>
+                              </div>
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </Show>
+                  </div>
+                  <div class="runs-logs">
+                    <Show
+                      when={selectedRun()}
+                      fallback={<div class="log-empty">Select a run to view logs.</div>}
                     >
-                      <span>Main</span>
-                    </button>
-                  </Show>
-                  <Show when={detailDomain() !== "coding" || !subagentsExpanded()}>
-                    <div class="monitoring-main">
-                    <div class="monitoring-header-row">
-                      <div class={`status-pill ${mainStatus()}`}>
-                        <span class="status-dot" />
-                        <span class="status-text">{mainStatus()}</span>
-                      </div>
-                      <label class="start-custom-toggle">
-                        <input
-                          type="checkbox"
-                          checked={customStartEnabled()}
-                          onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
-                        />
-                        <span>custom prompt</span>
-                      </label>
-                      <div class="monitoring-actions">
-                        <Show when={!hasMainRun()}>
-                          <button
-                            class="start-btn"
-                            onClick={() => {
-                              const current = detail() as ProjectDetail | null;
-                              if (current) handleStart(current);
-                            }}
-                            disabled={!canStart()}
-                          >
-                            Start
-                          </button>
-                        </Show>
-                        <Show when={hasMainRun() && selectedRunAgent()?.type === "aihub"}>
-                          <button
-                            class="start-btn"
-                            onClick={() => {
-                              const current = detail() as ProjectDetail | null;
-                              if (current) handleNew(current);
-                            }}
-                            disabled={mainStatus() === "running"}
-                          >
-                            New
-                          </button>
-                        </Show>
-                        <Show when={hasMainRun()}>
-                          <button
-                            class="stop-btn"
-                            onClick={() => {
-                              const current = detail() as ProjectDetail | null;
-                              if (current) handleStop(current);
-                            }}
-                            disabled={mainStatus() !== "running"}
-                          >
-                            Stop
-                          </button>
-                        </Show>
-                      </div>
-                    </div>
-                    <Show when={repoToast()}>
-                      <div class="repo-toast">{repoToast()}</div>
-                    </Show>
-                    <Show when={branchesError()}>
-                      <div class="monitoring-error">{branchesError()}</div>
-                    </Show>
-                    <Show when={!hasMainRun()}>
-                      <div class="monitoring-empty">
-                        <p>Start a run to see logs.</p>
-                      </div>
-                    </Show>
-                    <Show when={customStartEnabled()}>
-                      <textarea
-                        class="custom-start-textarea"
-                        rows={2}
-                        value={customStartPrompt()}
-                        placeholder="Add a one-off custom prompt..."
-                        onInput={(e) => setCustomStartPrompt(e.currentTarget.value)}
-                      />
-                    </Show>
-                    <Show when={hasMainRun()}>
-                      <div class="monitoring-tabs">
-                        <button
-                          class={`tab-btn ${mainTab() === "logs" ? "active" : ""}`}
-                          onClick={() => setMainTab("logs")}
-                        >
-                          Logs
-                        </button>
-                        <Show when={selectedRunAgent()?.type === "cli"}>
-                          <button
-                            class={`tab-btn ${mainTab() === "diffs" ? "active" : ""}`}
-                            onClick={() => setMainTab("diffs")}
-                          >
-                            Diffs
-                          </button>
-                        </Show>
-                      </div>
-                      <div class="log-pane" ref={mainLogPaneRef}>
-                        <Show when={selectedRunAgent()?.type === "aihub"}>
-                          <For each={aihubLogs()}>
-                            {(entry) => renderLogItem(entry)}
-                          </For>
-                          <Show when={aihubLive()}>
-                            <div class="log-line assistant live">
-                              <div class="log-stack">
-                                <pre class="log-text">{aihubLive()}</pre>
-                              </div>
-                            </div>
-                          </Show>
-                        </Show>
-                        <Show when={selectedRunAgent()?.type === "cli"}>
-                          <For each={mainTab() === "diffs" ? cliDiffItems() : cliLogItems()}>
-                            {(entry) => renderLogItem(entry)}
-                          </For>
-                        </Show>
-                        <Show when={selectedRunAgent()?.type === "cli" && mainLogs().length === 0}>
-                          <div class="log-empty">No logs yet.</div>
-                        </Show>
-                        <Show when={selectedRunAgent()?.type === "aihub" && aihubLogs().length === 0 && !aihubLive()}>
+                      <div class="log-pane" ref={subagentLogPaneRef}>
+                        <For each={selectedRunLogItems()}>
+                          {(entry) => renderLogItem(entry)}
+                        </For>
+                        <Show when={selectedRunLogItems().length === 0}>
                           <div class="log-empty">No logs yet.</div>
                         </Show>
                       </div>
-                      <div class="monitoring-input">
-                      <textarea
-                        ref={monitoringTextareaRef}
-                        class="monitoring-textarea"
-                        rows={1}
-                        value={mainInput()}
-                        placeholder="Send a follow-up..."
-                        onInput={(e) => {
-                          setMainInput(e.currentTarget.value);
-                          resizeTextarea(monitoringTextareaRef);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            const current = detail() as ProjectDetail | null;
-                            if (current) handleSend(current);
-                          }
-                        }}
-                      />
-                        <button
-                          class="monitoring-send"
-                          onClick={() => {
-                            const current = detail() as ProjectDetail | null;
-                            if (current) handleSend(current);
-                          }}
-                          disabled={!mainInput().trim()}
-                        >
-                          Send
-                        </button>
-                      </div>
-                      <Show when={mainError()}>
-                        <div class="monitoring-error">{mainError()}</div>
-                      </Show>
                     </Show>
                   </div>
-                  </Show>
-                  <Show when={detailDomain() === "coding"}>
-                    <div class={`subagents-panel ${subagentsExpanded() ? "expanded" : "collapsed"}`}>
-                      <button
-                        class="subagents-toggle"
-                        onClick={() => {
-                          if (selectedSubagent()) {
-                            setSelectedSubagent(null);
-                            return;
-                          }
-                          setSubagentsExpanded((prev) => !prev);
-                        }}
-                      >
-                        <span>Subagents</span>
-                        <span class="subagents-count">{subagents().length}</span>
-                      </button>
-                      <Show when={subagentsExpanded()}>
-                        <div class="subagents-body">
-                          <Show when={subagentError()}>
-                            <div class="monitoring-error">{subagentError()}</div>
-                          </Show>
-                          <Show when={!selectedSubagent()}>
-                            <div class="subagents-list">
-                              <For each={subagents().filter((item) => item.slug !== mainSlug())}>
-                                {(item) => (
-                                  <button
-                                    class={`subagent-row ${selectedSubagent() === item.slug ? "active" : ""}`}
-                                    onClick={() => setSelectedSubagent(item.slug)}
-                                  >
-                                    <div class="subagent-title">{item.slug}</div>
-                                    <div class="subagent-meta">
-                                      <span>{item.cli ?? "cli"}</span>
-                                      <span class={`subagent-status ${item.status}`}>{item.status}</span>
-                                      <span>{item.lastActive ? formatTimestamp(item.lastActive) : ""}</span>
-                                    </div>
-                                  </button>
-                                )}
-                              </For>
-                              <Show when={subagents().filter((item) => item.slug !== mainSlug()).length === 0}>
-                                <div class="log-empty">No subagents yet.</div>
-                              </Show>
-                            </div>
-                          </Show>
-                          <Show when={selectedSubagentError()}>
-                            <div class="monitoring-error">{selectedSubagentError()}</div>
-                          </Show>
-                          <Show when={selectedSubagent()}>
-                            <div class="subagent-logs">
-                              <div class="monitoring-tabs">
-                                <button
-                                  class={`tab-btn ${subTab() === "logs" ? "active" : ""}`}
-                                  onClick={() => setSubTab("logs")}
-                                >
-                                  Logs
-                                </button>
-                                <button
-                                  class={`tab-btn ${subTab() === "diffs" ? "active" : ""}`}
-                                  onClick={() => setSubTab("diffs")}
-                                >
-                                  Diffs
-                                </button>
-                              </div>
-                              <div class="log-pane" ref={subagentLogPaneRef}>
-                                <For each={subTab() === "diffs" ? subagentDiffItems() : subagentLogItems()}>
-                                  {(entry) => renderLogItem(entry)}
-                                </For>
-                                <Show when={subagentLogs().length === 0}>
-                                  <div class="log-empty">No logs yet.</div>
-                                </Show>
-                              </div>
-                              <button
-                                class="stop-btn subagent-stop"
-                                onClick={() => {
-                                  const current = detail() as ProjectDetail | null;
-                                  if (current && selectedSubagent()) {
-                                    setSubagentLogs((prev) => [
-                                      ...prev,
-                                      { type: "message", text: "Stop requested." },
-                                    ]);
-                                    interruptSubagent(current.id, selectedSubagent()!);
-                                  }
-                                }}
-                                disabled={selectedSubagentStatus() !== "running"}
-                              >
-                                Stop
-                              </button>
-                            </div>
-                          </Show>
-                        </div>
-                      </Show>
-                    </div>
-                  </Show>
-                  </div>
-                </Show>
+                </div>
               </div>
             </div>
           </div>
@@ -3231,6 +2539,11 @@ export function ProjectsBoard() {
           background: #5b6470;
         }
 
+        .status-dot.running {
+          background: #53b97c;
+          box-shadow: 0 0 8px rgba(83, 185, 124, 0.6);
+        }
+
         .status-pill.running .status-dot {
           background: #53b97c;
           box-shadow: 0 0 8px rgba(83, 185, 124, 0.6);
@@ -3452,6 +2765,89 @@ export function ProjectsBoard() {
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 12px;
+        }
+
+        .runs-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          min-height: 0;
+          flex: 1;
+        }
+
+        .runs-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .runs-title {
+          font-size: 13px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #e7edf5;
+          margin: 0;
+        }
+
+        .runs-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          overflow: auto;
+          max-height: 220px;
+        }
+
+        .run-row {
+          background: #141b26;
+          border: 1px solid #1f2631;
+          border-radius: 10px;
+          padding: 10px 12px;
+          text-align: left;
+          color: inherit;
+          cursor: pointer;
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+        }
+
+        .run-row.active {
+          border-color: #3b6ecc;
+          background: #1a2230;
+        }
+
+        .run-row .status-dot {
+          width: 8px;
+          height: 8px;
+          margin-top: 4px;
+          flex: 0 0 auto;
+        }
+
+        .run-content {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 0;
+        }
+
+        .run-title {
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .run-time {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #8b96a5;
+        }
+
+        .runs-logs {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          flex: 1;
+          min-height: 0;
         }
 
         .repo-toast {
