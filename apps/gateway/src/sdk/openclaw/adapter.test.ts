@@ -35,7 +35,6 @@ describe("openclaw adapter", () => {
     const token = "token-123";
 
     wss.on("connection", (ws) => {
-      ws.send(JSON.stringify({ type: "event", event: "connect.challenge", payload: {} }));
       ws.on("message", (data) => {
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
         if (msg.type !== "req") return;
@@ -43,7 +42,14 @@ describe("openclaw adapter", () => {
         const params = msg.params as Record<string, unknown> | undefined;
         if (method === "connect") {
           received.push("connect");
-          expect(params?.token).toBe(token);
+          expect(params?.minProtocol).toBe(3);
+          expect(params?.maxProtocol).toBe(3);
+          const client = params?.client as Record<string, unknown> | undefined;
+          expect(client?.id).toBe("gateway-client");
+          expect(client?.mode).toBe("backend");
+          const auth = params?.auth as Record<string, unknown> | undefined;
+          expect(auth?.token).toBe(token);
+          ws.send(JSON.stringify({ type: "res", id: msg.id, ok: true, payload: { type: "hello-ok" } }));
           return;
         }
         if (method === "chat.history") {
@@ -56,6 +62,7 @@ describe("openclaw adapter", () => {
           received.push("chat.send");
           expect(params?.sessionKey).toBe("session-1");
           expect(params?.deliver).toBe(false);
+          expect(typeof params?.idempotencyKey).toBe("string");
           ws.send(
             JSON.stringify({
               type: "res",
@@ -157,10 +164,13 @@ describe("openclaw adapter", () => {
     const token = "token-err";
 
     wss.on("connection", (ws) => {
-      ws.send(JSON.stringify({ type: "event", event: "connect.challenge", payload: {} }));
       ws.on("message", (data) => {
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
         if (msg.type !== "req") return;
+        if (msg.method === "connect") {
+          ws.send(JSON.stringify({ type: "res", id: msg.id, ok: true, payload: { type: "hello-ok" } }));
+          return;
+        }
         if (msg.method === "chat.send") {
           ws.send(
             JSON.stringify({

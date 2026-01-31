@@ -5,6 +5,9 @@ import { renderAgentContext } from "../../discord/utils/context.js";
 import { randomUUID } from "node:crypto";
 
 const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
+const PROTOCOL_VERSION = 3;
+const CLIENT_ID = "gateway-client";
+const CLIENT_MODE = "backend";
 
 type OpenClawConfig = AgentConfig["openclaw"];
 
@@ -48,7 +51,7 @@ export class OpenClawConnector implements SdkAdapter {
     }
 
     const gatewayUrl = openclaw.gatewayUrl ?? DEFAULT_GATEWAY_URL;
-    const sessionKey = openclaw.sessionKey ?? params.sessionKey;
+    const sessionKey = openclaw.sessionKey ?? params.sessionKey ?? "main";
 
     let assistantText = "";
     let aborted = false;
@@ -57,10 +60,12 @@ export class OpenClawConnector implements SdkAdapter {
     let activeRunId: string | undefined;
     let turnEnded = false;
     let settled = false;
-    let handshakeDone = false;
     let toolSeq = 0;
     const toolQueues = new Map<string, string[]>();
     let sendRequestId: string | undefined;
+    let connectRequestId: string | undefined;
+    let connectSent = false;
+    let chatSent = false;
 
     const emitAssistantText = (text: string) => {
       if (!text) return;
@@ -116,6 +121,64 @@ export class OpenClawConnector implements SdkAdapter {
 
     return new Promise<SdkRunResult>((resolve, reject) => {
       const ws = new WebSocket(gatewayUrl);
+      const clientVersion = process.env.npm_package_version ?? "dev";
+
+      const sendConnect = () => {
+        if (connectSent) return;
+        connectSent = true;
+        const requestId = randomUUID();
+        connectRequestId = requestId;
+        ws.send(
+          JSON.stringify({
+            type: "req",
+            id: requestId,
+            method: "connect",
+            params: {
+              minProtocol: PROTOCOL_VERSION,
+              maxProtocol: PROTOCOL_VERSION,
+              client: {
+                id: CLIENT_ID,
+                displayName: "aihub-openclaw",
+                version: clientVersion,
+                platform: process.platform,
+                mode: CLIENT_MODE,
+              },
+              role: "operator",
+              scopes: ["operator.read", "operator.write"],
+              auth: { token: openclaw.token },
+              userAgent: `aihub-openclaw/${clientVersion}`,
+            },
+          })
+        );
+      };
+
+      const sendChat = () => {
+        if (chatSent) return;
+        chatSent = true;
+        ws.send(
+          JSON.stringify({
+            type: "req",
+            id: randomUUID(),
+            method: "chat.history",
+            params: { sessionKey, limit: 200 },
+          })
+        );
+        const reqId = randomUUID();
+        sendRequestId = reqId;
+        ws.send(
+          JSON.stringify({
+            type: "req",
+            id: reqId,
+            method: "chat.send",
+            params: {
+              sessionKey,
+              message: messageToSend,
+              deliver: false,
+              idempotencyKey: randomUUID(),
+            },
+          })
+        );
+      };
 
       const finish = (err?: Error) => {
         if (settled) return;
@@ -144,6 +207,10 @@ export class OpenClawConnector implements SdkAdapter {
         }
       });
 
+      ws.on("open", () => {
+        sendConnect();
+      });
+
       ws.on("message", (data) => {
         let msg: Record<string, unknown>;
         try {
@@ -162,41 +229,9 @@ export class OpenClawConnector implements SdkAdapter {
           if (!activeRunId && runId) activeRunId = runId;
 
           if (eventType === "connect.challenge") {
-            if (handshakeDone) return;
-            handshakeDone = true;
-            ws.send(
-              JSON.stringify({
-                type: "req",
-                id: randomUUID(),
-                method: "connect",
-                params: { token: openclaw.token },
-              })
-            );
-            const historyParams: Record<string, unknown> = { limit: 200 };
-            if (sessionKey) historyParams.sessionKey = sessionKey;
-            ws.send(
-              JSON.stringify({
-                type: "req",
-                id: randomUUID(),
-                method: "chat.history",
-                params: historyParams,
-              })
-            );
-            const sendParams: Record<string, unknown> = {
-              message: messageToSend,
-              deliver: false,
-            };
-            if (sessionKey) sendParams.sessionKey = sessionKey;
-            const reqId = randomUUID();
-            sendRequestId = reqId;
-            ws.send(
-              JSON.stringify({
-                type: "req",
-                id: reqId,
-                method: "chat.send",
-                params: sendParams,
-              })
-            );
+            if (!connectSent) {
+              sendConnect();
+            }
             return;
           }
 
@@ -228,8 +263,15 @@ export class OpenClawConnector implements SdkAdapter {
               return;
             }
 
+            if (state === "aborted") {
+              aborted = true;
+              endTurn();
+              finish();
+              return;
+            }
+
             if (state === "error") {
-              const errMessage = message || "OpenClaw error";
+              const errMessage = asString(payload.errorMessage) || message || "OpenClaw error";
               endTurn();
               fail(errMessage);
             }
@@ -283,7 +325,25 @@ export class OpenClawConnector implements SdkAdapter {
 
         if (frameType === "res") {
           const id = asString(msg.id);
+          if (id && connectRequestId && id === connectRequestId) {
+            const ok = msg.ok === true;
+            if (!ok) {
+              const err = msg.error as Record<string, unknown> | undefined;
+              const errMessage = asString(err?.message) ?? "OpenClaw connect failed";
+              fail(errMessage);
+              return;
+            }
+            sendChat();
+            return;
+          }
           if (id && sendRequestId && id === sendRequestId) {
+            const ok = msg.ok === true;
+            if (!ok) {
+              const err = msg.error as Record<string, unknown> | undefined;
+              const errMessage = asString(err?.message) ?? "OpenClaw chat.send failed";
+              fail(errMessage);
+              return;
+            }
             const payload = getPayload(msg);
             const runId = getRunId(payload);
             if (!activeRunId && runId) activeRunId = runId;
