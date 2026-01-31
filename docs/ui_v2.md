@@ -1,6 +1,8 @@
 # AIHub UI v2 Spec
 
-Date: 2026-01-30
+Date: 2026-01-30 (updated 2026-01-31)
+
+**Status**: ✅ Implementation complete (all 6 phases).
 
 ## Goal
 
@@ -293,14 +295,15 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 ---
 
-### Phase 5: Project Detail — Agent Runs
+### Phase 5: Project Detail — Agent Runs ✓ Complete
 
 **Goal**: Replace monitoring pane with Agent Runs list.
 
 **Changes**:
 - Project detail overlay shows "Agent Runs" instead of active session
-- List: active + past runs for this project
-- Click run → opens session logs
+- List: active + past runs for this project (from subagents + sessionKeys)
+- Click run → opens session logs with relative timestamps
+- Removed ~600 lines of unused streaming/monitoring logic
 - Preserve existing overlay behavior (ESC, backdrop close)
 
 **Files**:
@@ -308,20 +311,26 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 ---
 
-### Phase 6: Mobile & Polish
+### Phase 6: Mobile & Polish ✓ Complete
 
 **Goal**: Responsive behavior + visual refinement.
 
 **Changes**:
-- Fullscreen chat overlay for mobile
-- Fullscreen feed overlay for mobile
-- Floating activity button (mobile only)
-- Transitions, spacing, animations
-- Keyboard shortcuts
+- Mobile breakpoint (≤768px): right panel hidden, sidebar fixed/collapsed
+- Fullscreen chat overlay for mobile (click agent)
+- Fullscreen feed overlay for mobile (floating activity button)
+- Floating activity button (bottom-right, mobile only)
+- ESC key closes mobile overlays
+- Overlay animations (fade + scale transitions)
+- Focus-visible states for accessibility
+- Smooth collapse/expand transitions
 
 **Files**:
-- Various component files
-- CSS/Tailwind responsive classes
+- `apps/web/src/components/ProjectsBoard.tsx`
+- `apps/web/src/components/AgentSidebar.tsx`
+- `apps/web/src/components/ContextPanel.tsx`
+- `apps/web/src/components/AgentChat.tsx`
+- `apps/web/src/components/ActivityFeed.tsx`
 
 ---
 

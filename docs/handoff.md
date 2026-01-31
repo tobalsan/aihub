@@ -1,13 +1,13 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-01-30)
+Date: 2026-01-27 (updated 2026-01-31)
 Repo: `/Users/thinh/code/aihub`
 
 ---
 
 ## Executive Summary: UI v2 Redesign
 
-**Status**: Planning complete, ready for implementation.
+**Status**: ✅ Implementation complete.
 
 ### What Changed
 
@@ -42,11 +42,11 @@ Shifting from **project-centric** to **agent-centric** model:
 ### Implementation Phases
 
 1. ~~Kanban as homepage~~ ✓
-2. Left sidebar — agents
-3. Right panel — context panel (feed/chat)
-4. Wire real data
-5. Project detail — agent runs list
-6. Mobile + polish
+2. ~~Left sidebar — agents~~ ✓
+3. ~~Right panel — context panel (feed/chat)~~ ✓
+4. ~~Wire real data~~ ✓
+5. ~~Project detail — agent runs list~~ ✓
+6. ~~Mobile + polish~~ ✓
 
 **Full spec**: `docs/ui_v2.md`
 **Mockup**: `docs/mockups/option-e-three-column.html`
@@ -290,19 +290,27 @@ Kanban UI details:
 - Project start prompt logic now shared between web + gateway.
 - `apm` CLI docs now live at `docs/cli-apm.md`.
 
+### 13) UI v2 Phase 5 — Project Detail Agent Runs
+- Replaced monitoring pane with Agent Runs list in project detail overlay.
+- Shows active + past runs from subagents and sessionKeys.
+- Click run to expand logs; relative timestamps.
+- Removed ~600 lines of unused streaming/monitoring logic.
+
+### 14) UI v2 Phase 6 — Mobile & Polish
+- Mobile responsive breakpoints (≤768px): right panel hidden, sidebar fixed/collapsed.
+- Fullscreen chat overlay when clicking agent on mobile.
+- Floating activity button (bottom-right) opens fullscreen feed overlay.
+- ESC key closes mobile overlays.
+- Added overlay animations (fade + scale), focus-visible states for accessibility.
+- Smooth transitions on collapse/expand.
+
 ## Next (Not Done)
 
-### UI v2 Implementation (Priority)
-See `docs/ui_v2.md` for full spec.
-
-1. ~~**Phase 1**: Kanban as homepage~~ ✓ Done
-2. ~~**Phase 2**: Left sidebar — agents list with status~~ ✓ Done
-3. ~~**Phase 3**: Right panel — context panel (activity feed / chat)~~ ✓ Done
-4. ~~**Phase 4**: Wire real data — activity events, agent status~~ ✓ Done
-5. **Phase 5**: Project detail — replace monitoring with agent runs list
-6. **Phase 6**: Mobile + polish — fullscreen overlays, transitions
+### UI v2 — Complete ✓
+All 6 phases implemented. See `docs/ui_v2.md` for full spec.
 
 ### Deferred
 - Drag/drop status moves on Kanban
 - Comments feature (async agent communication)
 - Quick create (floating button / keyboard shortcut)
+- Notifications (agent needs attention, task finished)
