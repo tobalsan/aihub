@@ -30,7 +30,7 @@ export function AgentList() {
   return (
     <div class="agent-list">
       <header class="header">
-        <h1>AIHub</h1>
+        <A class="home-link" href="/projects">AIHub</A>
         <A
           class="taskboard-btn"
           href="/projects"
@@ -90,6 +90,17 @@ export function AgentList() {
         .header h1 {
           font-size: 24px;
           font-weight: 600;
+        }
+
+        .home-link {
+          font-size: 24px;
+          font-weight: 600;
+          color: #fff;
+          text-decoration: none;
+        }
+
+        .home-link:hover {
+          color: #e5e7eb;
         }
 
         .taskboard-btn {
