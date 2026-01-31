@@ -61,7 +61,7 @@ describe("openclaw adapter", () => {
         if (method === "chat.send") {
           received.push("chat.send");
           expect(params?.sessionKey).toBe("session-1");
-          expect(params?.deliver).toBe(false);
+          expect(params?.deliver).toBe(true);
           expect(typeof params?.idempotencyKey).toBe("string");
           ws.send(
             JSON.stringify({

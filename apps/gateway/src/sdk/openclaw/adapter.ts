@@ -50,6 +50,8 @@ export class OpenClawConnector implements SdkAdapter {
       throw new Error(`OpenClaw config missing for agent: ${params.agentId}`);
     }
 
+    const debugEnabled =
+      process.env.OPENCLAW_DEBUG === "1" || process.env.OPENCLAW_DEBUG === "true";
     const gatewayUrl = openclaw.gatewayUrl ?? DEFAULT_GATEWAY_URL;
     const sessionKey = openclaw.sessionKey ?? params.sessionKey ?? "main";
 
@@ -173,7 +175,7 @@ export class OpenClawConnector implements SdkAdapter {
             params: {
               sessionKey,
               message: messageToSend,
-              deliver: false,
+              deliver: true,
               idempotencyKey: randomUUID(),
             },
           })
@@ -208,13 +210,20 @@ export class OpenClawConnector implements SdkAdapter {
       });
 
       ws.on("open", () => {
+        if (debugEnabled) {
+          console.debug("[openclaw] ws open", { gatewayUrl });
+        }
         sendConnect();
       });
 
       ws.on("message", (data) => {
         let msg: Record<string, unknown>;
+        let raw = "";
         try {
-          const raw = typeof data === "string" ? data : data.toString();
+          raw = typeof data === "string" ? data : data.toString();
+          if (debugEnabled) {
+            console.debug("[openclaw] recv", raw);
+          }
           msg = JSON.parse(raw) as Record<string, unknown>;
         } catch (err) {
           fail("OpenClaw sent invalid JSON", err instanceof Error ? err : undefined);
@@ -239,7 +248,16 @@ export class OpenClawConnector implements SdkAdapter {
             const state = asString(payload.state);
             const message = asString(payload.message) ?? "";
             const eventRunId = getRunId(payload);
-            if (activeRunId && eventRunId && eventRunId !== activeRunId) return;
+            if (activeRunId && eventRunId && eventRunId !== activeRunId) {
+              if (debugEnabled) {
+                console.debug("[openclaw] skip event runId mismatch", {
+                  activeRunId,
+                  eventRunId,
+                  state,
+                });
+              }
+              return;
+            }
 
             if (state === "delta") {
               seenDelta = true;
@@ -327,6 +345,9 @@ export class OpenClawConnector implements SdkAdapter {
           const id = asString(msg.id);
           if (id && connectRequestId && id === connectRequestId) {
             const ok = msg.ok === true;
+            if (debugEnabled) {
+              console.debug("[openclaw] connect response", { ok });
+            }
             if (!ok) {
               const err = msg.error as Record<string, unknown> | undefined;
               const errMessage = asString(err?.message) ?? "OpenClaw connect failed";
@@ -338,6 +359,9 @@ export class OpenClawConnector implements SdkAdapter {
           }
           if (id && sendRequestId && id === sendRequestId) {
             const ok = msg.ok === true;
+            if (debugEnabled) {
+              console.debug("[openclaw] chat.send response", { ok });
+            }
             if (!ok) {
               const err = msg.error as Record<string, unknown> | undefined;
               const errMessage = asString(err?.message) ?? "OpenClaw chat.send failed";
@@ -359,7 +383,10 @@ export class OpenClawConnector implements SdkAdapter {
         }
       });
 
-      ws.on("close", () => {
+      ws.on("close", (code, reason) => {
+        if (debugEnabled) {
+          console.debug("[openclaw] ws close", { code, reason: reason.toString() });
+        }
         if (settled) return;
         if (aborted) {
           endTurn();
