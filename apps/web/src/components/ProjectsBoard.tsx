@@ -690,6 +690,7 @@ export function ProjectsBoard() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
   const [mobileOverlay, setMobileOverlay] = createSignal<"chat" | "feed" | null>(null);
+  const [mobileDetailTab, setMobileDetailTab] = createSignal<"details" | "runs">("details");
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
@@ -1239,6 +1240,7 @@ export function ProjectsBoard() {
   };
 
   const openDetail = (id: string) => {
+    setMobileDetailTab("details");
     navigate(`/projects/${id}`);
   };
 
@@ -1330,13 +1332,34 @@ export function ProjectsBoard() {
   });
 
   return (
-    <div class="app-layout" classList={{ "left-collapsed": sidebarCollapsed() }}>
+    <div
+      class="app-layout"
+      classList={{ "left-collapsed": sidebarCollapsed() }}
+      onClick={(e) => {
+        if (!isMobile() || sidebarCollapsed()) return;
+        const target = e.target as HTMLElement;
+        if (target.closest(".agent-sidebar") || target.closest(".mobile-sidebar-toggle")) return;
+        setSidebarCollapsed(true);
+      }}
+    >
       <AgentSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         selectedAgent={selectedAgent}
         onSelectAgent={handleSelectAgent}
       />
+      <Show when={isMobile()}>
+        <button
+          class="mobile-sidebar-toggle"
+          type="button"
+          onClick={() => setSidebarCollapsed((prev) => !prev)}
+          aria-label="Toggle sidebar"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12h18M3 6h18M3 18h18" />
+          </svg>
+        </button>
+      </Show>
       <main class="kanban-main">
         <div class="projects-page">
       <header class="projects-header">
@@ -1482,8 +1505,26 @@ export function ProjectsBoard() {
                 <h2>Loading...</h2>
               </Show>
             </div>
+            <Show when={isMobile()}>
+              <div class="mobile-detail-tabs">
+                <button
+                  type="button"
+                  classList={{ active: mobileDetailTab() === "details" }}
+                  onClick={() => setMobileDetailTab("details")}
+                >
+                  Details
+                </button>
+                <button
+                  type="button"
+                  classList={{ active: mobileDetailTab() === "runs" }}
+                  onClick={() => setMobileDetailTab("runs")}
+                >
+                  Agent Runs
+                </button>
+              </div>
+            </Show>
             <div class="overlay-content">
-              <div class="detail">
+              <div class="detail" classList={{ "mobile-hidden": isMobile() && mobileDetailTab() !== "details" }}>
                 <Show when={detail.loading}>
                   <div class="projects-loading">Loading...</div>
                 </Show>
@@ -1598,7 +1639,7 @@ export function ProjectsBoard() {
                   }}
                 </Show>
               </div>
-              <div class="monitoring">
+              <div class="monitoring" classList={{ "mobile-hidden": isMobile() && mobileDetailTab() !== "runs" }}>
                 <div class="monitoring-meta">
                   <div class="meta-field">
                     <button
@@ -1844,6 +1885,10 @@ export function ProjectsBoard() {
           display: flex;
           height: 100vh;
           overflow: hidden;
+        }
+
+        .mobile-sidebar-toggle {
+          display: none;
         }
 
         .kanban-main {
@@ -2353,7 +2398,7 @@ export function ProjectsBoard() {
           border: 1px solid #273042;
           border-radius: 16px;
           padding: 16px;
-          overflow: hidden;
+          overflow-y: auto;
           display: flex;
           flex-direction: column;
           gap: 12px;
@@ -3123,15 +3168,61 @@ export function ProjectsBoard() {
           align-self: flex-end;
         }
 
-        @media (max-width: 900px) {
+        .mobile-detail-tabs {
+          display: none;
+        }
+
+        @media (max-width: 768px) {
+          .mobile-hidden {
+            display: none !important;
+          }
+
           .overlay-panel {
-            height: 92vh;
+            height: auto;
+            max-height: 92vh;
             padding: 16px;
+            overflow-y: auto;
           }
 
           .overlay-content {
-            grid-template-columns: 1fr;
-            grid-template-rows: minmax(0, 1fr) minmax(0, 0.6fr);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+
+          .overlay-content .detail,
+          .overlay-content .monitoring {
+            flex: none;
+          }
+
+          .mobile-detail-tabs {
+            display: flex;
+            gap: 8px;
+            padding-bottom: 8px;
+          }
+
+          .mobile-detail-tabs button {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid #2a3240;
+            background: transparent;
+            color: #8b96a5;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+          }
+
+          .mobile-detail-tabs button.active {
+            background: #1a2330;
+            border-color: #3b82f6;
+            color: #e0e6ef;
+          }
+
+          .mobile-detail-tabs button:focus-visible {
+            outline: 2px solid rgba(59, 130, 246, 0.6);
+            outline-offset: 2px;
           }
 
           .board {
@@ -3188,12 +3279,13 @@ export function ProjectsBoard() {
           flex-direction: column;
           background: #0f141c;
           animation: overlay-in 0.2s ease;
+          min-height: 0;
         }
 
         @media (max-width: 768px) {
           .app-layout {
             display: block;
-            padding-left: 50px;
+            padding-left: 0;
           }
 
           .kanban-main {
@@ -3202,6 +3294,34 @@ export function ProjectsBoard() {
 
           .projects-header {
             padding: 16px;
+            padding-left: 56px;
+          }
+
+          .mobile-sidebar-toggle {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 840;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid #2a2a2a;
+            background: #1a1a1a;
+            color: #e6e6e6;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .mobile-sidebar-toggle:focus-visible {
+            outline: 2px solid rgba(59, 130, 246, 0.6);
+            outline-offset: 2px;
+          }
+
+          .mobile-sidebar-toggle svg {
+            width: 16px;
+            height: 16px;
           }
         }
 

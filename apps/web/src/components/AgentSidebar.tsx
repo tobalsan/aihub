@@ -245,12 +245,19 @@ export function AgentSidebar(props: AgentSidebarProps) {
             left: 0;
             height: 100vh;
             z-index: 850;
+            box-shadow: 12px 0 24px rgba(0, 0, 0, 0.35);
+            transform: translateX(0);
+            transition: transform 0.2s ease, width 0.2s ease, box-shadow 0.2s ease;
+          }
+
+          .agent-sidebar.collapsed {
+            transform: translateX(-100%);
             box-shadow: none;
           }
 
-          .agent-sidebar:not(.collapsed),
           .agent-sidebar.collapsed:hover {
-            box-shadow: 12px 0 24px rgba(0, 0, 0, 0.35);
+            transform: translateX(-100%);
+            width: 50px;
           }
         }
       `}</style>
