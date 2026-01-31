@@ -26,7 +26,7 @@ describe("api client (activity/status)", () => {
 
     const res = await fetchActivity();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/activity");
+    expect(fetchMock).toHaveBeenCalledWith("/api/activity?offset=0&limit=20");
     expect(res.events.length).toBe(1);
   });
 

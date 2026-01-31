@@ -981,7 +981,7 @@ describe("heartbeat lifecycle", () => {
     it("uses default 30m interval when every is absent but heartbeat block present", async () => {
       const agent = {
         id: "agent-default",
-        heartbeat: {}, // No every = default 30m
+        heartbeat: { prompt: "Ping" }, // No every = default 30m
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
@@ -1057,7 +1057,7 @@ describe("heartbeat lifecycle", () => {
     it("stops mid-cycle timer without affecting next cycle", async () => {
       const agent = {
         id: "agent-1",
-        heartbeat: { every: "1m" },
+        heartbeat: { every: "1m", prompt: "Ping" },
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
