@@ -279,7 +279,12 @@ export class OpenClawConnector implements SdkAdapter {
 
             if (state === "delta") {
               seenDelta = true;
-              emitAssistantText(message);
+              // message is cumulative - only emit the new portion
+              if (message.length > assistantText.length && message.startsWith(assistantText)) {
+                emitAssistantText(message.slice(assistantText.length));
+              } else if (!assistantText) {
+                emitAssistantText(message);
+              }
               return;
             }
 
