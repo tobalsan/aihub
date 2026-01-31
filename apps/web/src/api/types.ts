@@ -1,4 +1,4 @@
-export type SdkId = "pi" | "claude";
+export type SdkId = "pi" | "claude" | "openclaw";
 export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type QueueMode = "queue" | "interrupt";

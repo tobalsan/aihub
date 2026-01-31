@@ -90,8 +90,16 @@ export const HeartbeatConfigSchema = z.object({
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 
 // SDK types
-export const SdkIdSchema = z.enum(["pi", "claude"]);
+export const SdkIdSchema = z.enum(["pi", "claude", "openclaw"]);
 export type SdkId = z.infer<typeof SdkIdSchema>;
+
+// OpenClaw config
+export const OpenClawConfigSchema = z.object({
+  gatewayUrl: z.string().optional(),
+  token: z.string(),
+  sessionKey: z.string().optional(),
+});
+export type OpenClawConfig = z.infer<typeof OpenClawConfigSchema>;
 
 // Agent auth config
 export const AgentAuthConfigSchema = z.object({
@@ -107,6 +115,7 @@ export const AgentConfigSchema = z.object({
   workspace: z.string(),
   sdk: SdkIdSchema.optional(), // default "pi"
   model: AgentModelConfigSchema,
+  openclaw: OpenClawConfigSchema.optional(),
   auth: AgentAuthConfigSchema.optional(), // OAuth/API key auth config
   discord: DiscordConfigSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),

@@ -432,7 +432,8 @@ export function ChatView() {
 
     // If streaming in queue mode, send message without interrupting current stream
     if (isStreaming() && queueMode === "queue") {
-      const trackSequentialQueue = (currentAgent?.sdk ?? "pi") === "claude";
+      const sdkId = currentAgent?.sdk ?? "pi";
+      const trackSequentialQueue = sdkId === "claude" || sdkId === "openclaw";
       if (trackSequentialQueue) {
         setPendingQueuedMessages((prev) => [...prev, { text, timestamp: Date.now() }]);
       }

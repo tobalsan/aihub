@@ -1,7 +1,7 @@
 import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel, AgentContext } from "@aihub/shared";
 
 // SDK identifiers
-export type SdkId = "pi" | "claude";
+export type SdkId = "pi" | "claude" | "openclaw";
 
 // SDK capabilities
 export type SdkCapabilities = {
