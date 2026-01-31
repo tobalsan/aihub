@@ -68,7 +68,7 @@ All stored in `~/.aihub/`:
     id: string,
     name: string,
     workspace: string,           // Agent working directory (~ expanded)
-    sdk?: "pi"|"claude",         // Default: pi
+    sdk?: "pi"|"claude"|"openclaw",  // Default: pi
     model: {
       provider?: string,         // Required for Pi SDK; optional for Claude
       model: string,
@@ -386,6 +386,40 @@ Credentials are stored in `~/.aihub/auth.json`:
   "openai": { "type": "api_key", "key": "sk-..." }
 }
 ```
+
+## OpenClaw Connector
+
+The OpenClaw SDK adapter connects AIHub to an [OpenClaw](https://github.com/openclaw/openclaw) gateway via WebSocket, allowing you to interact with OpenClaw agents through the AIHub web UI.
+
+**Config:**
+```json
+{
+  "agents": [{
+    "id": "cloud",
+    "name": "Cloud",
+    "workspace": "~/agents/cloud",
+    "sdk": "openclaw",
+    "openclaw": {
+      "gatewayUrl": "ws://127.0.0.1:18789",
+      "token": "your-gateway-token",
+      "sessionKey": "agent:main:main"
+    },
+    "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
+  }]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `openclaw.gatewayUrl` | WebSocket URL (default: `ws://127.0.0.1:18789`) |
+| `openclaw.token` | Gateway auth token |
+| `openclaw.sessionKey` | Target session (use `openclaw sessions list` to find) |
+
+**Protocol:** Uses OpenClaw WebSocket protocol v3 with `backend` client mode. Streams `chat` events with `state: delta/final` for responses, `agent` events for tool calls.
+
+**Notes:**
+- `workspace` and `model` are required for schema validation but `model` doesn't control the actual model (configured in OpenClaw)
+- Set `OPENCLAW_DEBUG=1` to log raw WebSocket frames
 
 ## Claude SDK Proxy Configuration
 

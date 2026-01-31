@@ -29,6 +29,18 @@ cat > ~/.aihub/aihub.json << 'EOF'
         "base_url": "http://127.0.0.1:8317",
         "auth_token": "sk-dummy"
       }
+    },
+    {
+      "id": "openclaw-agent",
+      "name": "Cloud",
+      "workspace": "~/workspace/cloud",
+      "sdk": "openclaw",
+      "openclaw": {
+        "gatewayUrl": "ws://127.0.0.1:18789",
+        "token": "your-openclaw-gateway-token",
+        "sessionKey": "agent:main:main"
+      },
+      "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
     }
   ]
 }
@@ -121,6 +133,46 @@ pnpm aihub auth login anthropic
 
 Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 
+## OpenClaw Connector
+
+Connect to an [OpenClaw](https://github.com/openclaw/openclaw) gateway to use an OpenClaw agent from AIHub. This allows you to interact with OpenClaw agents through the AIHub web UI while sharing the same conversation context.
+
+```json
+{
+  "agents": [{
+    "id": "cloud",
+    "name": "Cloud",
+    "workspace": "~/workspace/cloud",
+    "sdk": "openclaw",
+    "openclaw": {
+      "gatewayUrl": "ws://127.0.0.1:18789",
+      "token": "your-openclaw-gateway-token",
+      "sessionKey": "agent:main:main"
+    },
+    "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
+  }]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `openclaw.gatewayUrl` | WebSocket URL of the OpenClaw gateway (default: `ws://127.0.0.1:18789`) |
+| `openclaw.token` | Gateway authentication token (from your OpenClaw config) |
+| `openclaw.sessionKey` | Target session key to connect to |
+
+**Finding the session key:**
+
+Run `openclaw sessions list` on the OpenClaw side to see available sessions:
+```bash
+openclaw sessions list
+# Output shows session keys like: agent:main:main, agent:main:whatsapp:..., etc.
+```
+
+**Notes:**
+- The `workspace` and `model` fields are still required for schema validation
+- The `model` field doesn't control the actual model (that's configured in OpenClaw) - it's just for display/validation
+- Set `OPENCLAW_DEBUG=1` environment variable to log WebSocket frames for debugging
+
 ## API
 
 | Endpoint | Method | Description |
@@ -173,7 +225,7 @@ Project API details: `docs/projects_api.md`
 | `id` | Unique identifier |
 | `name` | Display name |
 | `workspace` | Agent working directory |
-| `sdk` | Agent SDK: `pi` (default) or `claude` |
+| `sdk` | Agent SDK: `pi` (default), `claude`, or `openclaw` |
 | `model.provider` | Model provider (required for Pi SDK) |
 | `model.model` | Model name |
 | `model.base_url` | API proxy URL (Claude SDK only) |
