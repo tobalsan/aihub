@@ -72,7 +72,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
                       {getInitials(agent.name)}
                     </span>
                     <span class="agent-label">{agent.name}</span>
-                    <span class={`status-dot ${isRunning ? "running" : ""}`} />
+                    <span class={`status-pill ${isRunning ? "working" : "idle"}`}>
+                      {isRunning ? "WORKING" : "IDLE"}
+                    </span>
                   </button>
                 );
               }}
@@ -100,7 +102,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
                       {initials}
                     </span>
                     <span class="agent-label">{label}</span>
-                    <span class={`status-dot ${isRunning ? "running" : ""}`} />
+                    <span class={`status-pill ${isRunning ? "working" : "idle"}`}>
+                      {isRunning ? "WORKING" : "IDLE"}
+                    </span>
                   </button>
                 );
               }}
@@ -217,27 +221,28 @@ export function AgentSidebar(props: AgentSidebarProps) {
           color: #a7f3d0;
         }
 
-        .status-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 999px;
-          background: #666;
-          flex: 0 0 auto;
+        .status-pill {
           margin-left: auto;
+          padding: 2px 6px;
+          border-radius: 999px;
+          font-size: 9px;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          flex: 0 0 auto;
+          border: 1px solid transparent;
         }
 
-        .status-dot.running {
-          background: #22c55e;
-          animation: status-pulse 1.6s ease-in-out infinite;
+        .status-pill.idle {
+          background: #242424;
+          color: #9ca3af;
+          border-color: #303030;
         }
 
-        @keyframes status-pulse {
-          0%, 100% {
-            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
-          }
-          50% {
-            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
-          }
+        .status-pill.working {
+          background: #bbf7d0;
+          color: #065f46;
+          border-color: #86efac;
         }
 
         .agent-label {
@@ -260,7 +265,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           max-width: 0;
         }
 
-        .agent-sidebar.collapsed .status-dot {
+        .agent-sidebar.collapsed .status-pill {
           display: none;
         }
 
@@ -286,7 +291,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           padding: 6px 8px;
         }
 
-        .agent-sidebar.collapsed:hover .status-dot {
+        .agent-sidebar.collapsed:hover .status-pill {
           display: block;
         }
 
