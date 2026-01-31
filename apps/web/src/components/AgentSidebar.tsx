@@ -97,7 +97,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           border-right: 1px solid #2a2a2a;
           display: flex;
           flex-direction: column;
-          transition: width 0.2s ease;
+          transition: width 0.2s ease, box-shadow 0.2s ease;
           overflow: hidden;
         }
 
@@ -121,6 +121,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
           background: #1a1a1a;
           color: #e6e6e6;
           cursor: pointer;
+        }
+
+        .collapse-btn:focus-visible {
+          outline: 2px solid rgba(59, 130, 246, 0.6);
+          outline-offset: 2px;
         }
 
         .sidebar-content {
@@ -165,6 +170,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
           background: #2a2a2a;
         }
 
+        .agent-item:focus-visible {
+          outline: 2px solid rgba(59, 130, 246, 0.5);
+          outline-offset: 2px;
+        }
+
         .status-dot {
           width: 8px;
           height: 8px;
@@ -175,6 +185,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
         .status-dot.running {
           background: #22c55e;
+          animation: status-pulse 1.6s ease-in-out infinite;
         }
 
         .agent-label {
@@ -215,6 +226,32 @@ export function AgentSidebar(props: AgentSidebarProps) {
         .agent-sidebar.collapsed:hover .agent-item {
           justify-content: flex-start;
           gap: 10px;
+        }
+
+        @keyframes status-pulse {
+          0%,
+          100% {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+          }
+          50% {
+            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+          }
+        }
+
+        @media (max-width: 768px) {
+          .agent-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 850;
+            box-shadow: none;
+          }
+
+          .agent-sidebar:not(.collapsed),
+          .agent-sidebar.collapsed:hover {
+            box-shadow: 12px 0 24px rgba(0, 0, 0, 0.35);
+          }
         }
       `}</style>
     </aside>

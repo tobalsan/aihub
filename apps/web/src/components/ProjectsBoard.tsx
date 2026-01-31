@@ -8,14 +8,25 @@ import {
   updateProject,
   createProject,
   fetchAgents,
+  fetchAllSubagents,
   fetchFullHistory,
   fetchSubagents,
   fetchSubagentLogs,
   fetchProjectBranches,
 } from "../api/client";
-import type { ProjectListItem, ProjectDetail, FullHistoryMessage, ContentBlock, SubagentListItem, SubagentLogEvent } from "../api/types";
+import type {
+  ProjectListItem,
+  ProjectDetail,
+  FullHistoryMessage,
+  ContentBlock,
+  SubagentListItem,
+  SubagentLogEvent,
+  SubagentStatus,
+} from "../api/types";
 import { AgentSidebar } from "./AgentSidebar";
 import { ContextPanel } from "./ContextPanel";
+import { AgentChat } from "./AgentChat";
+import { ActivityFeed } from "./ActivityFeed";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -637,6 +648,7 @@ export function ProjectsBoard() {
   const navigate = useNavigate();
   const [projects, { refetch }] = createResource(fetchProjects);
   const [agents] = createResource(fetchAgents);
+  const [globalSubagents] = createResource(fetchAllSubagents);
   const [detail, { refetch: refetchDetail }] = createResource(
     () => params.id,
     async (id) => (id ? fetchProject(id) : null)
@@ -674,6 +686,8 @@ export function ProjectsBoard() {
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
+  const [isMobile, setIsMobile] = createSignal(false);
+  const [mobileOverlay, setMobileOverlay] = createSignal<"chat" | "feed" | null>(null);
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
@@ -684,6 +698,20 @@ export function ProjectsBoard() {
     if (saved) setSelectedAgent(saved);
   });
 
+  onMount(() => {
+    const media = window.matchMedia("(max-width: 768px)");
+    const update = (matches: boolean) => setIsMobile(matches);
+    update(media.matches);
+    const handler = (event: MediaQueryListEvent) => update(event.matches);
+    if (media.addEventListener) {
+      media.addEventListener("change", handler);
+      onCleanup(() => media.removeEventListener("change", handler));
+    } else {
+      media.addListener(handler);
+      onCleanup(() => media.removeListener(handler));
+    }
+  });
+
   createEffect(() => {
     const value = selectedAgent();
     if (value) {
@@ -691,6 +719,15 @@ export function ProjectsBoard() {
     } else {
       localStorage.removeItem(selectedAgentStorageKey);
     }
+  });
+
+  createEffect(() => {
+    if (isMobile()) {
+      setSidebarCollapsed(true);
+      setRightPanelCollapsed(true);
+      return;
+    }
+    if (mobileOverlay()) setMobileOverlay(null);
   });
 
   createEffect(() => {
@@ -729,6 +766,54 @@ export function ProjectsBoard() {
     if (value.startsWith("aihub:")) return { type: "aihub" as const, id: value.slice(6) };
     if (value.startsWith("cli:")) return { type: "cli" as const, id: value.slice(4) };
     return null;
+  });
+
+  const agentType = createMemo(() => {
+    const selected = selectedAgent();
+    if (!selected) return null;
+    if (selected.startsWith("PRO-")) return "subagent" as const;
+    return "lead" as const;
+  });
+
+  const subagentInfo = createMemo(() => {
+    const selected = selectedAgent();
+    if (!selected || !selected.startsWith("PRO-")) return undefined;
+    const [projectId, token] = selected.split("/");
+    if (!projectId || !token) return undefined;
+    const items = globalSubagents()?.items ?? [];
+    const match = items.find(
+      (item) => item.projectId === projectId && (item.slug === token || item.cli === token)
+    );
+    if (!match) {
+      const projectItems = items.filter((item) => item.projectId === projectId);
+      if (projectItems.length === 1) {
+        return {
+          projectId,
+          slug: projectItems[0].slug,
+          cli: projectItems[0].cli,
+          status: projectItems[0].status as SubagentStatus,
+        };
+      }
+    }
+    return {
+      projectId,
+      slug: match?.slug ?? token,
+      cli: match?.cli,
+      status: (match?.status ?? "idle") as SubagentStatus,
+    };
+  });
+
+  const agentName = createMemo(() => {
+    const selected = selectedAgent();
+    if (!selected) return null;
+    if (selected.startsWith("PRO-")) {
+      const [projectId, token] = selected.split("/");
+      const match = globalSubagents()
+        ?.items.find((item) => item.projectId === projectId && (item.slug === token || item.cli === token));
+      return `${projectId}/${match?.cli ?? token}`;
+    }
+    const match = agents()?.find((agent) => agent.id === selected);
+    return match?.name ?? selected;
   });
 
   const isMonitoringHidden = createMemo(() => {
@@ -895,6 +980,17 @@ export function ProjectsBoard() {
         e.preventDefault();
         closeDetail();
       }
+    };
+    window.addEventListener("keydown", handler);
+    onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
+  createEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!mobileOverlay()) return;
+      e.preventDefault();
+      setMobileOverlay(null);
     };
     window.addEventListener("keydown", handler);
     onCleanup(() => window.removeEventListener("keydown", handler));
@@ -1121,6 +1217,13 @@ export function ProjectsBoard() {
     setEditingContent(false);
   };
 
+  const handleSelectAgent = (id: string) => {
+    setSelectedAgent(id);
+    if (isMobile()) {
+      setMobileOverlay("chat");
+    }
+  };
+
   const openDetail = (id: string) => {
     navigate(`/projects/${id}`);
   };
@@ -1135,6 +1238,10 @@ export function ProjectsBoard() {
 
   const closeDetail = () => {
     navigate("/projects");
+  };
+
+  const closeMobileOverlay = () => {
+    setMobileOverlay(null);
   };
 
   const openCreateModal = () => {
@@ -1214,7 +1321,7 @@ export function ProjectsBoard() {
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         selectedAgent={selectedAgent}
-        onSelectAgent={setSelectedAgent}
+        onSelectAgent={handleSelectAgent}
       />
       <main class="kanban-main">
         <div class="projects-page">
@@ -1784,6 +1891,7 @@ export function ProjectsBoard() {
           padding: 18px 18px 36px;
           overflow-x: auto;
           overflow-y: hidden;
+          scroll-behavior: smooth;
         }
 
         .board::-webkit-scrollbar {
@@ -1949,6 +2057,7 @@ export function ProjectsBoard() {
           position: absolute;
           inset: 0;
           background: rgba(0, 0, 0, 0.5);
+          animation: overlay-fade 0.2s ease;
         }
 
         .overlay-panel {
@@ -1963,6 +2072,7 @@ export function ProjectsBoard() {
           flex-direction: column;
           padding: 20px;
           gap: 16px;
+          animation: overlay-in 0.2s ease;
         }
 
         .overlay-close {
@@ -1996,6 +2106,7 @@ export function ProjectsBoard() {
           z-index: 1;
           display: flex;
           flex-direction: column;
+          animation: overlay-in 0.2s ease;
         }
 
         .create-modal-header {
@@ -3003,6 +3114,92 @@ export function ProjectsBoard() {
             padding: 12px;
           }
         }
+
+        .mobile-activity-btn {
+          position: fixed;
+          right: 20px;
+          bottom: 20px;
+          width: 56px;
+          height: 56px;
+          border-radius: 999px;
+          border: none;
+          background: #3b82f6;
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 12px 24px rgba(15, 23, 42, 0.4);
+          cursor: pointer;
+          z-index: 900;
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .mobile-activity-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 16px 30px rgba(15, 23, 42, 0.5);
+        }
+
+        .mobile-activity-btn:focus-visible {
+          outline: 2px solid rgba(255, 255, 255, 0.7);
+          outline-offset: 3px;
+        }
+
+        .mobile-activity-btn svg {
+          width: 22px;
+          height: 22px;
+        }
+
+        .mobile-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 900;
+          background: #0c0e12;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .mobile-overlay-panel {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          background: #0f141c;
+          animation: overlay-in 0.2s ease;
+        }
+
+        @media (max-width: 768px) {
+          .app-layout {
+            display: block;
+            padding-left: 50px;
+          }
+
+          .kanban-main {
+            width: 100%;
+          }
+
+          .projects-header {
+            padding: 16px;
+          }
+        }
+
+        @keyframes overlay-in {
+          from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes overlay-fade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
       `}</style>
         </div>
       </main>
@@ -3010,10 +3207,52 @@ export function ProjectsBoard() {
         collapsed={rightPanelCollapsed}
         onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
         selectedAgent={selectedAgent}
-        onSelectAgent={setSelectedAgent}
-        onClearSelection={() => setSelectedAgent(null)}
+        onSelectAgent={handleSelectAgent}
+        onClearSelection={() => {
+          setSelectedAgent(null);
+          if (isMobile()) setMobileOverlay(null);
+        }}
         onOpenProject={openDetail}
       />
+      <Show when={isMobile() && !mobileOverlay()}>
+        <button
+          class="mobile-activity-btn"
+          type="button"
+          onClick={() => setMobileOverlay("feed")}
+          aria-label="Open activity feed"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 6h12M8 12h12M8 18h12" />
+            <path d="M4 6h.01M4 12h.01M4 18h.01" />
+          </svg>
+        </button>
+      </Show>
+      <Show when={isMobile() && mobileOverlay() === "chat"}>
+        <div class="mobile-overlay" role="dialog" aria-modal="true">
+          <div class="mobile-overlay-panel">
+            <AgentChat
+              agentId={agentType() === "lead" ? selectedAgent() : null}
+              agentName={agentName()}
+              agentType={agentType()}
+              subagentInfo={subagentInfo()}
+              onBack={closeMobileOverlay}
+              fullscreen
+            />
+          </div>
+        </div>
+      </Show>
+      <Show when={isMobile() && mobileOverlay() === "feed"}>
+        <div class="mobile-overlay" role="dialog" aria-modal="true">
+          <div class="mobile-overlay-panel">
+            <ActivityFeed
+              onSelectAgent={handleSelectAgent}
+              onOpenProject={openDetail}
+              onBack={closeMobileOverlay}
+              fullscreen
+            />
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }

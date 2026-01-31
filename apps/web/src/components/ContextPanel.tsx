@@ -183,6 +183,11 @@ export function ContextPanel(props: ContextPanelProps) {
           cursor: pointer;
         }
 
+        .collapse-btn:focus-visible {
+          outline: 2px solid rgba(59, 130, 246, 0.6);
+          outline-offset: 2px;
+        }
+
         .panel-tabs {
           display: flex;
           gap: 8px;
@@ -198,6 +203,12 @@ export function ContextPanel(props: ContextPanelProps) {
           cursor: pointer;
         }
 
+        .panel-tabs button:focus-visible,
+        .collapsed-icons button:focus-visible {
+          outline: 2px solid rgba(59, 130, 246, 0.6);
+          outline-offset: 2px;
+        }
+
         .panel-tabs button.active,
         .collapsed-icons button.active {
           background: #2a2a2a;
@@ -207,6 +218,7 @@ export function ContextPanel(props: ContextPanelProps) {
         .panel-content {
           flex: 1;
           min-height: 0;
+          transition: opacity 0.2s ease;
         }
 
         .collapsed-icons {

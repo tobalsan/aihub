@@ -27,6 +27,7 @@ type AgentChatProps = {
     status?: SubagentStatus;
   };
   onBack: () => void;
+  fullscreen?: boolean;
 };
 
 type LogItem = {
@@ -731,7 +732,7 @@ export function AgentChat(props: AgentChatProps) {
   const cliLogItems = createMemo(() => buildCliLogs(cliDisplayEvents()));
 
   return (
-    <div class="agent-chat">
+    <div class="agent-chat" classList={{ fullscreen: Boolean(props.fullscreen) }}>
       <div class="chat-header">
         <button class="back-btn" type="button" onClick={props.onBack}>
           ←
@@ -851,11 +852,17 @@ export function AgentChat(props: AgentChatProps) {
           color: #fff;
         }
 
+        .back-btn:focus-visible {
+          outline: 2px solid rgba(59, 130, 246, 0.6);
+          outline-offset: 2px;
+        }
+
         .chat-messages {
           flex: 1;
           overflow-y: auto;
           padding: 16px;
           display: flex;
+          scroll-behavior: smooth;
         }
 
         .chat-empty {
@@ -966,6 +973,15 @@ export function AgentChat(props: AgentChatProps) {
         .chat-input button:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+
+        .agent-chat.fullscreen .chat-header h3 {
+          font-size: 16px;
+          font-weight: 700;
+        }
+
+        .agent-chat.fullscreen .chat-input {
+          padding-bottom: 20px;
         }
 
         .log-pane {

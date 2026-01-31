@@ -19,6 +19,8 @@ function formatRelativeTime(ts: string): string {
 type ActivityFeedProps = {
   onSelectAgent?: (id: string) => void;
   onOpenProject?: (id: string) => void;
+  onBack?: () => void;
+  fullscreen?: boolean;
 };
 
 export function ActivityFeed(props: ActivityFeedProps) {
@@ -120,8 +122,13 @@ export function ActivityFeed(props: ActivityFeedProps) {
   };
 
   return (
-    <div class="activity-feed">
+    <div class="activity-feed" classList={{ fullscreen: Boolean(props.fullscreen) }}>
       <div class="activity-header">
+        <Show when={props.onBack}>
+          <button class="back-btn" type="button" onClick={props.onBack} aria-label="Back">
+            ←
+          </button>
+        </Show>
         <h3>Activity</h3>
         <div class="live-badge">
           <span class="live-dot" />
@@ -186,10 +193,29 @@ export function ActivityFeed(props: ActivityFeedProps) {
           border-bottom: 1px solid #2a2a2a;
         }
 
+        .back-btn {
+          background: none;
+          border: none;
+          color: #888;
+          font-size: 16px;
+          cursor: pointer;
+          margin-right: 8px;
+        }
+
+        .back-btn:hover {
+          color: #fff;
+        }
+
+        .back-btn:focus-visible {
+          outline: 2px solid rgba(59, 130, 246, 0.6);
+          outline-offset: 2px;
+        }
+
         .activity-header h3 {
           margin: 0;
           font-size: 14px;
           font-weight: 600;
+          flex: 1;
         }
 
         .live-badge {
@@ -212,6 +238,7 @@ export function ActivityFeed(props: ActivityFeedProps) {
           flex: 1;
           overflow-y: auto;
           padding: 8px 0;
+          scroll-behavior: smooth;
         }
 
         .activity-empty {
