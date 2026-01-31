@@ -3614,7 +3614,9 @@ export function ProjectsBoard() {
         collapsed={rightPanelCollapsed}
         onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
         selectedAgent={selectedAgent}
+        onSelectAgent={setSelectedAgent}
         onClearSelection={() => setSelectedAgent(null)}
+        onOpenProject={openDetail}
       />
     </div>
   );

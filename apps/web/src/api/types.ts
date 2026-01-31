@@ -243,6 +243,7 @@ export type ActivityEvent = {
   actor: string;
   action: string;
   projectId?: string;
+  subagentSlug?: string;
   timestamp: string;
   color: "green" | "purple" | "blue" | "yellow";
 };

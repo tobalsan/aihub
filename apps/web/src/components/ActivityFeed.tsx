@@ -1,6 +1,6 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { fetchActivity } from "../api/client";
-import type { ActivityEvent } from "../api/types";
+import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { fetchActivity, fetchAgents } from "../api/client";
+import type { ActivityEvent, AgentListItem } from "../api/types";
 
 function formatRelativeTime(ts: string): string {
   const date = new Date(ts);
@@ -16,12 +16,29 @@ function formatRelativeTime(ts: string): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-export function ActivityFeed() {
+type ActivityFeedProps = {
+  onSelectAgent?: (id: string) => void;
+  onOpenProject?: (id: string) => void;
+};
+
+export function ActivityFeed(props: ActivityFeedProps) {
   const [items, setItems] = createSignal<ActivityEvent[]>([]);
   const [offset, setOffset] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
   const pageSize = 20;
+  const [agents] = createResource(fetchAgents);
+
+  const resolveAgentId = (name: string) => {
+    const list = (agents() ?? []) as AgentListItem[];
+    return list.find((agent) => agent.name === name)?.id ?? null;
+  };
+
+  const resolveSubagentId = (event: ActivityEvent) => {
+    if (event.type !== "subagent_action") return null;
+    if (!event.projectId || !event.subagentSlug) return null;
+    return `${event.projectId}/${event.subagentSlug}`;
+  };
 
   const mergeById = (base: ActivityEvent[], next: ActivityEvent[]) => {
     const seen = new Set(base.map((event) => event.id));
@@ -56,6 +73,34 @@ export function ActivityFeed() {
   };
 
   const list = () => items();
+  const isClickable = (event: ActivityEvent) =>
+    (event.type === "agent_message" &&
+      (Boolean(resolveAgentId(event.actor)) || Boolean(resolveSubagentId(event)))) ||
+    (event.type === "subagent_action" && Boolean(resolveSubagentId(event))) ||
+    (event.type === "project_status" && Boolean(event.projectId));
+
+  const handleItemClick = (event: ActivityEvent) => {
+    if (event.type === "agent_message") {
+      const id = resolveAgentId(event.actor);
+      if (id && props.onSelectAgent) {
+        props.onSelectAgent(id);
+        return;
+      }
+      const subagentId = resolveSubagentId(event);
+      if (subagentId && props.onSelectAgent) {
+        props.onSelectAgent(subagentId);
+      }
+    }
+    if (event.type === "subagent_action") {
+      const subagentId = resolveSubagentId(event);
+      if (subagentId && props.onSelectAgent) {
+        props.onSelectAgent(subagentId);
+      }
+    }
+    if (event.type === "project_status" && event.projectId && props.onOpenProject) {
+      props.onOpenProject(event.projectId);
+    }
+  };
 
   onMount(() => {
     void loadPage(0, false);
@@ -86,17 +131,33 @@ export function ActivityFeed() {
       <div class="activity-list" onScroll={handleScroll}>
         <Show when={list().length > 0} fallback={<div class="activity-empty">No activity yet.</div>}>
           <For each={list()}>
-            {(event) => (
-              <div class="activity-item">
-                <span class={`activity-dot ${event.color}`} />
-                <div class="activity-text">
-                  <p>
-                    <strong>{event.actor}</strong> {event.action}
-                  </p>
-                  <span class="activity-time">{formatRelativeTime(event.timestamp)}</span>
+            {(event) =>
+              isClickable(event) ? (
+                <button
+                  type="button"
+                  class="activity-item activity-clickable"
+                  onClick={() => handleItemClick(event)}
+                >
+                  <span class={`activity-dot ${event.color}`} />
+                  <div class="activity-text">
+                    <p>
+                      <strong>{event.actor}</strong> {event.action}
+                    </p>
+                    <span class="activity-time">{formatRelativeTime(event.timestamp)}</span>
+                  </div>
+                </button>
+              ) : (
+                <div class="activity-item">
+                  <span class={`activity-dot ${event.color}`} />
+                  <div class="activity-text">
+                    <p>
+                      <strong>{event.actor}</strong> {event.action}
+                    </p>
+                    <span class="activity-time">{formatRelativeTime(event.timestamp)}</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            }
           </For>
         </Show>
         <Show when={hasMore()}>
@@ -163,6 +224,24 @@ export function ActivityFeed() {
           display: flex;
           gap: 12px;
           padding: 12px 16px;
+          width: 100%;
+          text-align: left;
+          background: none;
+          border: none;
+          color: inherit;
+        }
+
+        .activity-clickable {
+          cursor: pointer;
+        }
+
+        .activity-clickable:hover {
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .activity-clickable:focus-visible {
+          outline: 1px solid rgba(45, 212, 191, 0.6);
+          outline-offset: -1px;
         }
 
         .activity-dot {

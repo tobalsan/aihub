@@ -7,7 +7,9 @@ type ContextPanelProps = {
   collapsed: Accessor<boolean>;
   onToggleCollapse: () => void;
   selectedAgent: Accessor<string | null>;
+  onSelectAgent: (id: string) => void;
   onClearSelection: () => void;
+  onOpenProject: (id: string) => void;
 };
 
 type PanelMode = "feed" | "chat";
@@ -131,7 +133,7 @@ export function ContextPanel(props: ContextPanelProps) {
 
       <div class="panel-content">
         <Show when={mode() === "feed"}>
-          <ActivityFeed />
+          <ActivityFeed onSelectAgent={props.onSelectAgent} onOpenProject={props.onOpenProject} />
         </Show>
         <Show when={mode() === "chat"}>
           <AgentChat

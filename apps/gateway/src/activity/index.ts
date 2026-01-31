@@ -14,6 +14,7 @@ export type ActivityEvent = {
   actor: string;
   action: string;
   projectId?: string;
+  subagentSlug?: string;
   timestamp: string;
   color: ActivityColor;
 };
@@ -119,6 +120,7 @@ export async function getRecentActivity(
       actor,
       action,
       projectId: subagent.projectId,
+      subagentSlug: subagent.slug,
       timestamp: subagent.lastActive ?? nowIso,
       color: subagentColor(subagent.status),
     });
