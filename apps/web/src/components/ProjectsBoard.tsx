@@ -13,6 +13,7 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   fetchProjectBranches,
+  uploadAttachments,
 } from "../api/client";
 import type {
   ProjectListItem,
@@ -48,6 +49,10 @@ const CLI_OPTIONS = [
 ];
 
 const COLUMN_STORAGE_KEY = "aihub:projects:expanded-columns";
+const CREATE_FORM_STORAGE_KEY = "aihub:projects:create-form";
+const CREATE_FILES_DB = "aihub";
+const CREATE_FILES_STORE = "project-create-files";
+const CREATE_FILES_KEY = "pending";
 const COLUMN_IDS = new Set(COLUMNS.map((col) => col.id));
 
 function normalizeExpanded(value: unknown): string[] {
@@ -72,6 +77,149 @@ function readExpandedFromStorage(): string[] {
     return normalizeExpanded(JSON.parse(raw));
   } catch {
     return [];
+  }
+}
+
+type CreateFormState = {
+  title: string;
+  description: string;
+};
+
+type StoredFile = {
+  name: string;
+  type: string;
+  lastModified: number;
+  data: Blob;
+};
+
+function saveFormToStorage(state: CreateFormState): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CREATE_FORM_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function loadFormFromStorage(): CreateFormState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(CREATE_FORM_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.title === "string" && typeof parsed.description === "string") {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function clearFormFromStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(CREATE_FORM_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function buildAttachmentSection(
+  attachments: Array<{ savedName: string; path: string }>
+): string {
+  if (attachments.length === 0) return "";
+  const links = attachments.map((att) => `[${att.savedName}](${att.path})`);
+  if (attachments.length === 1) {
+    return `## Attached files\n${links[0]}`;
+  }
+  const list = links.map((link) => `- ${link}`).join("\n");
+  return `## Attached files\n${list}`;
+}
+
+function openCreateFilesDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("indexedDB unavailable"));
+      return;
+    }
+    const request = indexedDB.open(CREATE_FILES_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CREATE_FILES_STORE)) {
+        db.createObjectStore(CREATE_FILES_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveFilesToStorage(files: File[]): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (typeof indexedDB === "undefined") return;
+  if (files.length === 0) {
+    await clearFilesFromStorage();
+    return;
+  }
+  const db = await openCreateFilesDb();
+  const tx = db.transaction(CREATE_FILES_STORE, "readwrite");
+  const store = tx.objectStore(CREATE_FILES_STORE);
+  const payload = {
+    files: files.map((file) => ({
+      name: file.name,
+      type: file.type,
+      lastModified: file.lastModified,
+      data: file,
+    })),
+  };
+  store.put(payload, CREATE_FILES_KEY);
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+async function loadFilesFromStorage(): Promise<File[]> {
+  if (typeof window === "undefined") return [];
+  try {
+    const db = await openCreateFilesDb();
+    const tx = db.transaction(CREATE_FILES_STORE, "readonly");
+    const store = tx.objectStore(CREATE_FILES_STORE);
+    const request = store.get(CREATE_FILES_KEY);
+    const result = await new Promise<unknown>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const payload = result as { files?: StoredFile[] } | undefined;
+    const files = payload?.files ?? [];
+    return files.map(
+      (file) =>
+        new File([file.data], file.name, {
+          type: file.type,
+          lastModified: file.lastModified,
+        })
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function clearFilesFromStorage(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const db = await openCreateFilesDb();
+    const tx = db.transaction(CREATE_FILES_STORE, "readwrite");
+    const store = tx.objectStore(CREATE_FILES_STORE);
+    store.delete(CREATE_FILES_KEY);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } catch {
+    // ignore
   }
 }
 
@@ -124,12 +272,66 @@ function formatRunRelative(raw?: string | number): string {
   const days = Math.floor(diff / 86400000);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
-function renderMarkdown(content: string): string {
+function normalizeHref(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const candidates = ["href", "url", "src", "link", "raw"];
+    for (const key of candidates) {
+      const value = obj[key];
+      if (typeof value === "string") return value;
+    }
+  }
+  return String(raw);
+}
+
+function getFilenameFromHref(raw: string): string {
+  const cleaned = raw.split(/[?#]/)[0] ?? "";
+  const last = cleaned.split("/").filter(Boolean).pop() ?? cleaned;
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+}
+
+function rewriteAttachmentUrl(raw: unknown, projectId?: string): string | null {
+  const href = normalizeHref(raw);
+  if (!href) return null;
+  if (!projectId) return href;
+  const trimmed = href.trim();
+  if (!trimmed.startsWith("attachments/") && !trimmed.startsWith("./attachments/")) {
+    return href;
+  }
+  const cleaned = trimmed.replace(/^\.?\//, "").replace(/^attachments\//, "");
+  return `/api/projects/${projectId}/attachments/${encodeURIComponent(cleaned)}`;
+}
+
+function renderMarkdown(content: string, projectId?: string): string {
   const stripped = content
     .replace(/^\s*---[\s\S]*?\n---\s*\n?/, "")
     .replace(/^\s*#\s+.+\n+/, "");
-  const html = marked.parse(stripped, { breaks: true, async: false }) as string;
-  return DOMPurify.sanitize(html);
+  const renderer = new marked.Renderer();
+  renderer.link = (href, title, text) => {
+    const rawHref = normalizeHref(href) ?? "";
+    const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
+    const safeTitle = typeof title === "string" && title ? ` title="${title}"` : "";
+    const safeText =
+      typeof text === "string" && text.trim().length > 0
+        ? text
+        : getFilenameFromHref(rawHref || next);
+    return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${safeText}</a>`;
+  };
+  renderer.image = (href, title, text) => {
+    const rawHref = normalizeHref(href) ?? "";
+    const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
+    const safeTitle = typeof title === "string" && title ? ` title="${title}"` : "";
+    const label = getFilenameFromHref(rawHref || next);
+    return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${label}</a>`;
+  };
+  const html = marked.parse(stripped, { breaks: true, async: false, renderer }) as string;
+  return DOMPurify.sanitize(html, { ADD_ATTR: ["target", "rel"] });
 }
 
 function stripMarkdownMeta(content: string): string {
@@ -684,6 +886,10 @@ export function ProjectsBoard() {
   const [createDescription, setCreateDescription] = createSignal("");
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
+  const [createSuccess, setCreateSuccess] = createSignal<string | null>(null);
+  const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
+  const [isDragging, setIsDragging] = createSignal(false);
+  const [filesLoaded, setFilesLoaded] = createSignal(false);
   const [filterText, setFilterText] = createSignal("");
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
@@ -695,6 +901,7 @@ export function ProjectsBoard() {
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
   let createNotesRef: HTMLTextAreaElement | undefined;
+  let fileInputRef: HTMLInputElement | undefined;
   let savedRepo = "";
 
   onMount(() => {
@@ -1262,19 +1469,25 @@ export function ProjectsBoard() {
   };
 
   const openCreateModal = () => {
+    const saved = loadFormFromStorage();
     setCreateModalOpen(true);
-    setCreateTitle("");
-    setCreateDescription("");
+    setCreateTitle(saved?.title ?? "");
+    setCreateDescription(saved?.description ?? "");
     setCreateError("");
     setCreateToast("");
+    setFilesLoaded(false);
+    setPendingFiles([]);
+    void loadFilesFromStorage().then((files) => {
+      setPendingFiles(files);
+      setFilesLoaded(true);
+    });
+    setIsDragging(false);
   };
 
   const closeCreateModal = () => {
     setCreateModalOpen(false);
-    setCreateTitle("");
-    setCreateDescription("");
-    setCreateError("");
-    setCreateToast("");
+    setIsDragging(false);
+    setFilesLoaded(false);
   };
 
   const validateTitle = (title: string): string | null => {
@@ -1283,6 +1496,40 @@ export function ProjectsBoard() {
     const words = trimmed.split(/\s+/).filter(Boolean);
     if (words.length < 2) return "Title must contain at least two words";
     return null;
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length > 0) {
+      setPendingFiles((prev) => [...prev, ...files]);
+    }
+  };
+
+  const handleFileSelect = (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    if (files.length > 0) {
+      setPendingFiles((prev) => [...prev, ...files]);
+    }
+    input.value = "";
+  };
+
+  const removeFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleCreateSubmit = async () => {
@@ -1316,7 +1563,41 @@ export function ProjectsBoard() {
       return;
     }
 
-    closeCreateModal();
+    const projectId = result.data.id;
+    const files = pendingFiles();
+    let attachmentSection = "";
+
+    if (files.length > 0) {
+      const uploadResult = await uploadAttachments(projectId, files);
+      if (!uploadResult.ok) {
+        setCreateToast(uploadResult.error);
+        setTimeout(() => setCreateToast(""), 3000);
+        closeCreateModal();
+        await refetch();
+        return;
+      }
+
+      attachmentSection = buildAttachmentSection(uploadResult.data);
+    }
+
+    if (attachmentSection) {
+      const currentContent = result.data.content || "";
+      const updatedContent = currentContent + (currentContent ? "\n\n" : "") + attachmentSection;
+      await updateProject(projectId, { content: updatedContent });
+    }
+
+    clearFormFromStorage();
+    void clearFilesFromStorage();
+    setCreateTitle("");
+    setCreateDescription("");
+    setCreateError("");
+    setCreateToast("");
+    setPendingFiles([]);
+    setIsDragging(false);
+    setFilesLoaded(false);
+    setCreateModalOpen(false);
+    setCreateSuccess(result.data.title);
+    setTimeout(() => setCreateSuccess(null), 2200);
     await refetch();
   };
 
@@ -1330,6 +1611,19 @@ export function ProjectsBoard() {
     };
     window.addEventListener("keydown", handler);
     onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
+  createEffect(() => {
+    if (!createModalOpen()) return;
+    saveFormToStorage({
+      title: createTitle(),
+      description: createDescription(),
+    });
+  });
+
+  createEffect(() => {
+    if (!createModalOpen() || !filesLoaded()) return;
+    void saveFilesToStorage(pendingFiles());
   });
 
   createEffect(() => {
@@ -1356,6 +1650,14 @@ export function ProjectsBoard() {
         setSidebarCollapsed(true);
       }}
     >
+      <Show when={createSuccess()}>
+        <div class="create-success">
+          <div class="create-success-card">
+            <div class="create-success-title">Project created</div>
+            <div class="create-success-subtitle">{createSuccess()}</div>
+          </div>
+        </div>
+      </Show>
       <AgentSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
@@ -1625,7 +1927,7 @@ export function ProjectsBoard() {
                         <Show when={editingContent()} fallback={
                           <div
                             class="detail-body"
-                            innerHTML={renderMarkdown(detailContent() || project.content)}
+                            innerHTML={renderMarkdown(detailContent() || project.content, project.id)}
                             onDblClick={() => setEditingContent(true)}
                             title="Double-click to edit"
                           />
@@ -1851,7 +2153,13 @@ export function ProjectsBoard() {
                 </svg>
               </button>
             </div>
-            <div class="create-modal-body">
+            <div
+              class="create-modal-body"
+              classList={{ "drag-over": isDragging() }}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
               <Show when={createToast()}>
                 <div class="create-toast" role="status">
                   {createToast()}
@@ -1904,11 +2212,59 @@ export function ProjectsBoard() {
                     }
                   }}
                   placeholder="Notes, context, links, or next steps..."
-                  rows={8}
+                  rows={10}
                   ref={createNotesRef}
                 />
                 <div class="create-helper">Paste notes now so your agent has context later.</div>
               </div>
+              <div class="create-field">
+                <div class="create-label-row">
+                  <label class="create-label">Attachments</label>
+                  <button
+                    class="file-button"
+                    type="button"
+                    onClick={() => fileInputRef?.click()}
+                  >
+                    Add files
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  class="file-input"
+                  type="file"
+                  multiple
+                  onChange={handleFileSelect}
+                />
+              </div>
+              <Show when={pendingFiles().length > 0}>
+                <div class="create-field">
+                  <label class="create-label">Selected files</label>
+                  <div class="file-list">
+                    <For each={pendingFiles()}>
+                      {(file, index) => (
+                        <div class="file-item">
+                          <span class="file-name">{file.name}</span>
+                          <button
+                            class="file-remove"
+                            onClick={() => removeFile(index())}
+                            type="button"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M18 6L6 18M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+              <Show when={isDragging()}>
+                <div class="drop-overlay">
+                  <div class="drop-message">Drop files here</div>
+                </div>
+              </Show>
             </div>
             <div class="create-modal-footer">
               <div class="create-footer-hints">Esc to close | Cmd/Ctrl+Enter to create</div>
@@ -2171,7 +2527,7 @@ export function ProjectsBoard() {
         .overlay-backdrop {
           position: absolute;
           inset: 0;
-          background: rgba(4, 8, 14, 0.7);
+          background: rgba(4, 8, 14, 0.5);
           backdrop-filter: blur(4px);
           animation: overlay-fade 0.2s ease;
         }
@@ -2215,11 +2571,11 @@ export function ProjectsBoard() {
 
         .create-modal {
           position: relative;
-          width: min(560px, 92vw);
+          width: min(700px, 92vw);
           max-height: 90vh;
           background: #0f141c;
           border: 1px solid #273042;
-          border-radius: 18px;
+          border-radius: 4px;
           z-index: 1;
           display: flex;
           flex-direction: column;
@@ -2262,6 +2618,137 @@ export function ProjectsBoard() {
           flex-direction: column;
           gap: 24px;
           overflow-y: auto;
+          position: relative;
+        }
+
+        .create-modal-body.drag-over {
+          background: rgba(58, 134, 255, 0.05);
+        }
+
+        .create-label-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .file-input {
+          display: none;
+        }
+
+        .file-button {
+          background: transparent;
+          border: 1px solid #2a3240;
+          color: #98a2b3;
+          padding: 6px 10px;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: border-color 0.15s, color 0.15s;
+        }
+
+        .file-button:hover {
+          border-color: #3a86ff;
+          color: #c6d0db;
+        }
+
+        .file-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .file-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 12px;
+          background: #141b26;
+          border: 1px solid #2a3240;
+          border-radius: 4px;
+          gap: 12px;
+        }
+
+        .file-name {
+          font-size: 13px;
+          color: #c6d0db;
+          flex: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .file-remove {
+          background: transparent;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          color: #7d8796;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: color 0.15s;
+          flex-shrink: 0;
+        }
+
+        .file-remove:hover {
+          color: #f08b57;
+        }
+
+        .drop-overlay {
+          position: absolute;
+          inset: 0;
+          background: rgba(58, 134, 255, 0.1);
+          border: 2px dashed #3a86ff;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: none;
+          z-index: 10;
+        }
+
+        .drop-message {
+          font-size: 16px;
+          font-weight: 600;
+          color: #3a86ff;
+          background: #0f141c;
+          padding: 16px 32px;
+          border-radius: 4px;
+        }
+
+        .create-success {
+          position: fixed;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(4, 8, 14, 0.35);
+          backdrop-filter: blur(3px);
+          z-index: 60;
+          animation: overlay-fade 0.2s ease;
+        }
+
+        .create-success-card {
+          background: #0f141c;
+          border: 1px solid #273042;
+          border-radius: 8px;
+          padding: 24px 32px;
+          text-align: center;
+          min-width: min(320px, 80vw);
+          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+        }
+
+        .create-success-title {
+          font-size: 16px;
+          font-weight: 700;
+          color: #d2f8e5;
+          margin-bottom: 6px;
+        }
+
+        .create-success-subtitle {
+          font-size: 13px;
+          color: #a6b0c3;
         }
 
         .create-toast {

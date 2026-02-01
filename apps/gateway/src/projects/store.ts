@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { GatewayConfig, CreateProjectRequest, UpdateProjectRequest } from "@aihub/shared";
+import type { GatewayConfig, CreateProjectRequest, UpdateProjectRequest, UploadedAttachment } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { CONFIG_DIR } from "../config/index.js";
 
@@ -48,6 +48,15 @@ async function dirExists(dirPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(dirPath);
     return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile();
   } catch {
     return false;
   }
@@ -315,4 +324,89 @@ export async function updateProject(
       content: nextContent,
     },
   };
+}
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+
+async function generateUniqueName(dir: string, baseName: string): Promise<string> {
+  const ext = path.extname(baseName);
+  const nameWithoutExt = path.basename(baseName, ext);
+  let candidate = baseName;
+  let counter = 1;
+  while (await fs.access(path.join(dir, candidate)).then(() => true).catch(() => false)) {
+    candidate = `${nameWithoutExt}-${counter}${ext}`;
+    counter++;
+  }
+  return candidate;
+}
+
+export type SaveAttachmentsResult =
+  | { ok: true; data: UploadedAttachment[] }
+  | { ok: false; error: string };
+
+export async function saveAttachments(
+  config: GatewayConfig,
+  projectId: string,
+  files: Array<{ name: string; data: Buffer }>
+): Promise<SaveAttachmentsResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const attachmentsDir = path.join(root, dirName, "attachments");
+  await ensureDir(attachmentsDir);
+
+  const results: UploadedAttachment[] = [];
+
+  for (const file of files) {
+    if (file.data.length > MAX_FILE_SIZE) {
+      return { ok: false, error: `File ${file.name} exceeds 20MB limit` };
+    }
+
+    const savedName = await generateUniqueName(attachmentsDir, file.name);
+    const filePath = path.join(attachmentsDir, savedName);
+    await fs.writeFile(filePath, file.data);
+
+    const ext = path.extname(savedName).toLowerCase();
+    results.push({
+      originalName: file.name,
+      savedName,
+      path: `attachments/${savedName}`,
+      isImage: IMAGE_EXTENSIONS.has(ext),
+    });
+  }
+
+  return { ok: true, data: results };
+}
+
+export type ResolveAttachmentResult =
+  | { ok: true; data: { path: string; name: string } }
+  | { ok: false; error: string };
+
+export async function resolveAttachmentFile(
+  config: GatewayConfig,
+  projectId: string,
+  fileName: string
+): Promise<ResolveAttachmentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+  if (!fileName || fileName === "." || fileName === "..") {
+    return { ok: false, error: "Invalid attachment name" };
+  }
+  if (fileName !== path.basename(fileName) || fileName.includes("/") || fileName.includes("\\")) {
+    return { ok: false, error: "Invalid attachment name" };
+  }
+
+  const attachmentsDir = path.join(root, dirName, "attachments");
+  const filePath = path.join(attachmentsDir, fileName);
+  if (!(await fileExists(filePath))) {
+    return { ok: false, error: "Attachment not found" };
+  }
+  return { ok: true, data: { path: filePath, name: fileName } };
 }

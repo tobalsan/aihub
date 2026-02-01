@@ -532,3 +532,37 @@ export async function interruptSubagent(
   const data = (await res.json()) as { slug: string };
   return { ok: true, data };
 }
+
+export type UploadedAttachment = {
+  originalName: string;
+  savedName: string;
+  path: string;
+  isImage: boolean;
+};
+
+export type UploadAttachmentsResult =
+  | { ok: true; data: UploadedAttachment[] }
+  | { ok: false; error: string };
+
+export async function uploadAttachments(
+  projectId: string,
+  files: File[]
+): Promise<UploadAttachmentsResult> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file);
+  }
+
+  const res = await fetch(`${API_BASE}/projects/${projectId}/attachments`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to upload attachments" }));
+    return { ok: false, error: data.error ?? "Failed to upload attachments" };
+  }
+
+  const data = (await res.json()) as UploadedAttachment[];
+  return { ok: true, data };
+}

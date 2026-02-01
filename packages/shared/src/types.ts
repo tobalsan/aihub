@@ -573,3 +573,21 @@ export type TaskboardItemResponse = {
   frontmatter: Record<string, unknown>;
   companions: string[];
 };
+
+// Attachment upload types
+export type UploadedAttachment = {
+  originalName: string;
+  savedName: string;
+  path: string;
+  isImage: boolean;
+};
+
+export const UploadAttachmentResponseSchema = z.array(
+  z.object({
+    originalName: z.string(),
+    savedName: z.string(),
+    path: z.string(),
+    isImage: z.boolean(),
+  })
+);
+export type UploadAttachmentResponse = z.infer<typeof UploadAttachmentResponseSchema>;

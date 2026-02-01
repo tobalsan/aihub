@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { createReadStream } from "node:fs";
+import * as path from "node:path";
 import {
   SendMessageRequestSchema,
   CreateScheduleRequestSchema,
@@ -16,7 +18,14 @@ import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
 import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
-import { listProjects, getProject, createProject, updateProject } from "../projects/index.js";
+import {
+  listProjects,
+  getProject,
+  createProject,
+  updateProject,
+  saveAttachments,
+  resolveAttachmentFile,
+} from "../projects/index.js";
 import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
 import { getRecentActivity } from "../activity/index.js";
@@ -426,6 +435,63 @@ api.patch("/projects/:id", async (c) => {
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
+});
+
+// POST /api/projects/:id/attachments - upload attachments
+api.post("/projects/:id/attachments", async (c) => {
+  const id = c.req.param("id");
+
+  const formData = await c.req.formData();
+  const files: Array<{ name: string; data: Buffer }> = [];
+
+  for (const [, value] of formData.entries()) {
+    if (value instanceof File) {
+      const arrayBuffer = await value.arrayBuffer();
+      files.push({
+        name: value.name,
+        data: Buffer.from(arrayBuffer),
+      });
+    }
+  }
+
+  if (files.length === 0) {
+    return c.json({ error: "No files provided" }, 400);
+  }
+
+  const config = getConfig();
+  const result = await saveAttachments(config, id, files);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+
+  return c.json(result.data);
+});
+
+function attachmentContentType(name: string): string {
+  const ext = path.extname(name).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".pdf") return "application/pdf";
+  return "application/octet-stream";
+}
+
+// GET /api/projects/:id/attachments/:name - fetch attachment
+api.get("/projects/:id/attachments/:name", async (c) => {
+  const id = c.req.param("id");
+  const name = c.req.param("name");
+
+  const config = getConfig();
+  const result = await resolveAttachmentFile(config, id, name);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+
+  const type = attachmentContentType(result.data.name);
+  c.header("Content-Type", type);
+  return c.body(createReadStream(result.data.path));
 });
 
 // GET /api/projects/:id/subagents - list subagents
