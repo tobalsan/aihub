@@ -456,6 +456,11 @@ describe("subagents API", () => {
     }
     await expect(fs.stat(gitPath)).resolves.toBeDefined();
 
+    const listRes = await execFileAsync("git", ["-C", repoDir, "worktree", "list", "--porcelain"]);
+    // Resolve symlinks (macOS /var -> /private/var)
+    const realWorkDir = await fs.realpath(workDir);
+    expect(listRes.stdout).toContain(`worktree ${realWorkDir}`);
+
     process.env.PATH = prevPath;
   });
 

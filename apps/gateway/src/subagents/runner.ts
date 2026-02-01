@@ -261,16 +261,19 @@ export async function spawnSubagent(
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
   const summary = buildProjectSummary(resolvedTitle, status, content ?? "");
 
-  let mode: SubagentMode = input.mode ?? "worktree";
-  if (!repo) {
-    mode = "main-run";
-  }
-  if (mode === "worktree") {
-    try {
-      await fs.stat(path.join(repo, ".git"));
-    } catch {
-      mode = "main-run";
+  const requestedMode: SubagentMode = input.mode ?? "worktree";
+  const repoHasGit = repo
+    ? await fs
+        .stat(path.join(repo, ".git"))
+        .then(() => true)
+        .catch(() => false)
+    : false;
+  let mode: SubagentMode = requestedMode;
+  if (requestedMode === "worktree" && (!repo || !repoHasGit)) {
+    if (input.mode === "worktree") {
+      return { ok: false, error: repo ? "Project repo is not a git repo" : "Project repo not set" };
     }
+    mode = "main-run";
   }
   const workspacesRoot = path.join(root, ".workspaces", input.projectId);
   const workspaceDir = path.join(workspacesRoot, input.slug);
@@ -288,7 +291,11 @@ export async function spawnSubagent(
   if (mode === "worktree") {
     const branch = `${input.projectId}/${input.slug}`;
     worktreePath = workspaceDir;
-    if (!(await dirExists(path.join(worktreePath, ".git")))) {
+    const worktreeGitExists = await fs
+      .stat(path.join(worktreePath, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    if (!worktreeGitExists) {
       await createWorktree(repo, worktreePath, branch, baseBranch);
     }
   }
@@ -309,7 +316,16 @@ export async function spawnSubagent(
     }
   }
 
-  const prompt = summary ? `${summary}\n\n${input.prompt}` : input.prompt;
+  let prompt = summary ? `${summary}\n\n${input.prompt}` : input.prompt;
+  if (mode === "worktree") {
+    const worktreeLine = `Worktree path: ${worktreePath}`;
+    if (prompt.includes("Repo path:")) {
+      prompt = prompt.replace(/\n\nRepo path:[^\n]*(\n|$)/, `\n\n${worktreeLine}\n`);
+    } else {
+      prompt = `${prompt}\n\n${worktreeLine}`;
+    }
+    prompt = prompt.trimEnd();
+  }
   const args = buildArgs(input.cli, prompt, existingSessionId);
   let resolved;
   try {
