@@ -35,9 +35,7 @@ export function splitMessage(text: string, maxLength = DISCORD_MAX): string[] {
         fencesOpen++;
       }
     }
-    for (const _ of closingFences) {
-      fencesOpen--;
-    }
+    fencesOpen -= closingFences.length;
     const insideCodeBlock = fencesOpen > 0;
 
     // Find a good split point

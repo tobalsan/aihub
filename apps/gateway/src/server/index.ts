@@ -152,7 +152,7 @@ function setupEventBroadcast() {
       if (!entry || entry.sessionId !== event.sessionId) continue;
 
       // Forward the event (strip internal fields)
-      const { agentId, sessionId, sessionKey, ...streamEvent } = event;
+      const { agentId, sessionId, ...streamEvent } = event;
       sendWs(ws, streamEvent);
 
       // Also send history_updated on done so UI can refetch

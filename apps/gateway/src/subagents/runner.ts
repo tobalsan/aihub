@@ -137,7 +137,7 @@ async function resolveViaShell(execName: string, args: string[]): Promise<{ comm
   if (!(await canFindViaShell(execName))) return null;
   const shell = await resolveShell();
   if (!shell) return null;
-  const shellArgs = ["-l", "-i", "-c", `${execName} \"$@\"`, "--", ...args];
+  const shellArgs = ["-l", "-i", "-c", `${execName} "$@"`, "--", ...args];
   return { command: shell, args: shellArgs };
 }
 
@@ -284,7 +284,7 @@ export async function spawnSubagent(
   }
 
   let worktreePath = repo || workspaceDir;
-  let baseBranch = input.baseBranch ?? "main";
+  const baseBranch = input.baseBranch ?? "main";
   if (mode === "worktree") {
     const branch = `${input.projectId}/${input.slug}`;
     worktreePath = workspaceDir;

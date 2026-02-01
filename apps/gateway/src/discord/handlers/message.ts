@@ -5,7 +5,7 @@
  */
 
 import type { DiscordConfig } from "@aihub/shared";
-import { matchesUserAllowlist, matchesChannelAllowlist } from "../utils/allowlist.js";
+import { matchesUserAllowlist } from "../utils/allowlist.js";
 
 export type MessageData = {
   id: string;

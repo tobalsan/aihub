@@ -45,39 +45,11 @@ function loadConfig(): Config {
   }
 }
 
-function pickTailnetIPv4(): string | null {
-  const interfaces = os.networkInterfaces();
-  for (const [, addrs] of Object.entries(interfaces)) {
-    if (!addrs) continue;
-    for (const addr of addrs) {
-      if (addr.family !== "IPv4" || addr.internal) continue;
-      const octets = addr.address.split(".").map(Number);
-      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
-        return addr.address;
-      }
-    }
-  }
-  return null;
-}
-
-function resolveHost(bind?: UiBindMode): string {
-  if (!bind || bind === "loopback") return "127.0.0.1";
-  if (bind === "lan") return "0.0.0.0";
-  if (bind === "tailnet") {
-    const ip = pickTailnetIPv4();
-    if (ip) return ip;
-    console.warn("[dev] tailnet bind: no tailnet IP found, falling back to 127.0.0.1");
-    return "127.0.0.1";
-  }
-  return "127.0.0.1";
-}
-
 async function main() {
   const config = loadConfig();
   const uiConfig = config.ui ?? {};
   const gatewayConfig = config.gateway ?? {};
   const port = uiConfig.port ?? 3000;
-  const host = resolveHost(uiConfig.bind);
   const tailscaleMode = uiConfig.tailscale?.mode ?? "off";
   const resetOnExit = uiConfig.tailscale?.resetOnExit ?? true;
   const gatewayPort = gatewayConfig.port ?? 4000;

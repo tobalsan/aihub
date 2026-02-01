@@ -240,7 +240,7 @@ program
       let res;
       try {
         res = await fetch(url, { method: "POST" });
-      } catch (err) {
+      } catch {
         console.error(`Failed to reach gateway at ${baseUrl}`);
         process.exit(1);
       }

@@ -621,10 +621,10 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   createEffect(() => {
-    props.agentId;
-    props.agentType;
-    props.subagentInfo?.projectId;
-    props.subagentInfo?.slug;
+    void props.agentId;
+    void props.agentType;
+    void props.subagentInfo?.projectId;
+    void props.subagentInfo?.slug;
 
     setError("");
     setInput("");

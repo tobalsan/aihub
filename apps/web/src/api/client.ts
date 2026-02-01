@@ -1,11 +1,8 @@
 import type {
   Agent,
   SendMessageResponse,
-  StreamEvent,
   SimpleHistoryMessage,
   FullHistoryMessage,
-  HistoryViewMode,
-  ActiveToolCall,
   ThinkLevel,
   TaskboardResponse,
   TaskboardItemResponse,

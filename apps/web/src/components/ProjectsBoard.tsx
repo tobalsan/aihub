@@ -323,7 +323,7 @@ function renderMarkdown(content: string, projectId?: string): string {
         : getFilenameFromHref(rawHref || next);
     return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${safeText}</a>`;
   };
-  renderer.image = (href, title, text) => {
+  renderer.image = (href, title, _text) => {
     const rawHref = normalizeHref(href) ?? "";
     const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
     const safeTitle = typeof title === "string" && title ? ` title="${title}"` : "";

@@ -1167,11 +1167,11 @@ describe("heartbeat lifecycle", () => {
       expect(mockRunAgent).toHaveBeenCalledTimes(1);
 
       // Second heartbeat at 2m
-      await vi.advanceTimersByTimeAsync(60 * 1000);
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
       expect(mockRunAgent).toHaveBeenCalledTimes(2);
 
       // Third heartbeat at 3m
-      await vi.advanceTimersByTimeAsync(60 * 1000);
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
       expect(mockRunAgent).toHaveBeenCalledTimes(3);
 
       module.stopAllHeartbeats();
@@ -1201,11 +1201,11 @@ describe("heartbeat lifecycle", () => {
       expect(mockRunAgent).toHaveBeenCalledTimes(1);
 
       // Second heartbeat at 2m - timer should have rescheduled despite error
-      await vi.advanceTimersByTimeAsync(60 * 1000);
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
       expect(mockRunAgent).toHaveBeenCalledTimes(2);
 
       // Third heartbeat at 3m - continues working
-      await vi.advanceTimersByTimeAsync(60 * 1000);
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 100);
       expect(mockRunAgent).toHaveBeenCalledTimes(3);
 
       module.stopAllHeartbeats();

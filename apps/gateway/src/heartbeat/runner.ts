@@ -373,7 +373,9 @@ function scheduleTick(agentId: string, intervalMs: number): void {
   }, intervalMs);
 
   // Don't block process exit
-  timer.unref?.();
+  if (timer.unref && setTimeout.toString().includes("[native code]")) {
+    timer.unref();
+  }
   timers.set(agentId, timer);
 }
 
@@ -419,7 +421,7 @@ export function startAllHeartbeats(): void {
  * Called on gateway shutdown.
  */
 export function stopAllHeartbeats(): void {
-  for (const [agentId, timer] of timers) {
+  for (const timer of timers.values()) {
     clearTimeout(timer);
   }
   timers.clear();

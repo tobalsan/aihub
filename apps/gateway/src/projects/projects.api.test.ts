@@ -100,4 +100,63 @@ describe("projects API", () => {
     expect(updatedContent).toContain("# Project Mgmt API");
     expect(updatedContent).toContain("status: \"shaping\"");
   });
+
+  it("rejects invalid create payloads", async () => {
+    const invalidDomain = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Valid Project",
+        domain: "invalid",
+      }),
+    }));
+
+    expect(invalidDomain.status).toBe(400);
+
+    const invalidTitle = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Solo",
+      }),
+    }));
+
+    expect(invalidTitle.status).toBe(400);
+    const invalidTitleBody = await invalidTitle.json();
+    expect(invalidTitleBody.error).toContain("Title must contain at least two words");
+  });
+
+  it("creates project with metadata", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Metadata Project",
+        description: "Track the new form fields.",
+        domain: "admin",
+        owner: "ops",
+        executionMode: "exploratory",
+        appetite: "small",
+        status: "todo",
+      }),
+    }));
+
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+    expect(created.frontmatter.domain).toBe("admin");
+    expect(created.frontmatter.owner).toBe("ops");
+    expect(created.frontmatter.executionMode).toBe("exploratory");
+    expect(created.frontmatter.appetite).toBe("small");
+    expect(created.frontmatter.status).toBe("todo");
+
+    const readmePath = path.join(projectsRoot, created.path, "README.md");
+    const readme = await fs.readFile(readmePath, "utf8");
+    expect(readme).toContain("# Metadata Project");
+    expect(readme).toContain("Track the new form fields.");
+    expect(readme).toContain('domain: "admin"');
+    expect(readme).toContain('owner: "ops"');
+    expect(readme).toContain('executionMode: "exploratory"');
+    expect(readme).toContain('appetite: "small"');
+    expect(readme).toContain('status: "todo"');
+  });
 });

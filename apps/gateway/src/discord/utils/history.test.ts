@@ -82,8 +82,6 @@ describe("history", () => {
     });
 
     it("limits seen IDs to prevent unbounded growth", () => {
-      const DEFAULT_MAX_SEEN = 100;
-
       // Record more than DEFAULT_MAX_SEEN messages
       for (let i = 0; i < 150; i++) {
         recordMessage("channel-1", { author: `user-${i}`, content: `msg-${i}`, timestamp: i }, 10, `msg-${i}`);

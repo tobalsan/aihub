@@ -49,7 +49,7 @@ function getRunId(data?: Record<string, unknown>): string | undefined {
 }
 
 export class OpenClawConnector implements SdkAdapter {
-  id: "openclaw" = "openclaw";
+  id = "openclaw" as const;
   displayName = "OpenClaw";
   capabilities = {
     queueWhileStreaming: false,

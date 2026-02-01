@@ -58,7 +58,6 @@ describe("splitMessage", () => {
       // Each chunk should have balanced fences
       chunks.forEach((chunk) => {
         const opens = (chunk.match(/```\w*/g) || []).filter((m) => m !== "```").length;
-        const closes = (chunk.match(/^```$/gm) || []).length + (chunk.endsWith("```") ? 1 : 0);
         // If chunk has an opening fence, it should also close it
         if (opens > 0) {
           expect(chunk).toContain("```");

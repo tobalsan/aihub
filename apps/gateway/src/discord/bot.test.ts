@@ -6,11 +6,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "node:events";
 import type { AgentConfig, DiscordConfig } from "@aihub/shared";
 
 // Mock runAgent and agentEventBus before importing bot
 vi.mock("../agents/index.js", () => {
-  const EventEmitter = require("node:events");
   const mockEventBus = new EventEmitter();
   return {
     runAgent: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock("../agents/index.js", () => {
 });
 
 // Mock heartbeat module
-const heartbeatEventEmitter = new (require("node:events").EventEmitter)();
+const heartbeatEventEmitter = new EventEmitter();
 vi.mock("../heartbeat/index.js", () => ({
   onHeartbeatEvent: vi.fn((handler: (event: unknown) => void) => {
     heartbeatEventEmitter.on("heartbeat", handler);
@@ -83,11 +83,11 @@ vi.mock("./client.js", () => {
 });
 
 import { createDiscordBot } from "./bot.js";
-import { runAgent, agentEventBus } from "../agents/index.js";
+import { runAgent } from "../agents/index.js";
 import { createCarbonClient } from "./client.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
 import { getThreadStarter } from "./utils/threads.js";
-import { recordMessage, getHistory, clearHistory } from "./utils/history.js";
+import { recordMessage, clearHistory } from "./utils/history.js";
 
 // Type helpers
 const mockRunAgent = runAgent as ReturnType<typeof vi.fn>;

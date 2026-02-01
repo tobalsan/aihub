@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { computeNextRunAtMs } from "./schedule.js";
 import type { IntervalSchedule, DailySchedule } from "@aihub/shared";
 
@@ -62,7 +62,6 @@ describe("computeNextRunAtMs", () => {
       const next = computeNextRunAtMs(schedule, date.getTime());
 
       // Next run should be at 9 AM on same day
-      const expected = new Date("2024-06-15T09:00:00Z");
       expect(new Date(next).toISOString()).toContain("09:00:00");
     });
 

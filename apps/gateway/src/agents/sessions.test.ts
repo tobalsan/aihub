@@ -5,6 +5,7 @@ import {
   isStreaming,
   abortSession,
 } from "./sessions.js";
+import { agentEventBus } from "./events.js";
 
 describe("sessions", () => {
   const agentId = "test-agent";
@@ -57,5 +58,26 @@ describe("sessions", () => {
 
     const result = abortSession(agentId, sessionId);
     expect(result).toBe(false);
+  });
+
+  it("emits status changes only when overall agent status changes", () => {
+    const statusAgentId = "status-agent";
+    const events: Array<{ agentId: string; status: "streaming" | "idle" }> = [];
+    const unsubscribe = agentEventBus.onStatusChange((event) => events.push(event));
+
+    const sessionA = `status-${Date.now()}-a`;
+    const sessionB = `status-${Date.now()}-b`;
+
+    setSessionStreaming(statusAgentId, sessionA, true);
+    setSessionStreaming(statusAgentId, sessionB, true);
+    setSessionStreaming(statusAgentId, sessionA, false);
+    setSessionStreaming(statusAgentId, sessionB, false);
+
+    unsubscribe();
+
+    expect(events).toEqual([
+      { agentId: statusAgentId, status: "streaming" },
+      { agentId: statusAgentId, status: "idle" },
+    ]);
   });
 });

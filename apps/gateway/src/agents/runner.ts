@@ -89,10 +89,6 @@ async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }
 
-function resolveSessionFile(agentId: string, sessionId: string): string {
-  return path.join(SESSIONS_DIR, `${agentId}-${sessionId}.jsonl`);
-}
-
 /** Wait for session handle to be available, with timeout */
 async function waitForSessionHandle(
   agentId: string,
