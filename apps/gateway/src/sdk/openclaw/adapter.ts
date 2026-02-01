@@ -1,8 +1,35 @@
 import WebSocket from "ws";
-import type { AgentConfig } from "@aihub/shared";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import type { AgentConfig, ImageAttachment } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { randomUUID } from "node:crypto";
+
+// Directory for storing inbound media files
+const MEDIA_INBOUND_DIR = path.join(os.homedir(), ".aihub", "media", "inbound");
+
+/**
+ * Save image attachments to disk and return file paths.
+ * OpenClaw will pick up file paths from the message text.
+ */
+async function saveAttachmentsToDisk(attachments: ImageAttachment[]): Promise<string[]> {
+  await fs.mkdir(MEDIA_INBOUND_DIR, { recursive: true });
+  
+  const paths: string[] = [];
+  for (const attachment of attachments) {
+    const ext = attachment.mediaType.split("/")[1] || "bin";
+    const filename = `${randomUUID()}.${ext}`;
+    const filepath = path.join(MEDIA_INBOUND_DIR, filename);
+    
+    // Decode base64 and write to file
+    const buffer = Buffer.from(attachment.data, "base64");
+    await fs.writeFile(filepath, buffer);
+    paths.push(filepath);
+  }
+  return paths;
+}
 
 const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
 const PROTOCOL_VERSION = 3;
@@ -137,14 +164,16 @@ export class OpenClawConnector implements SdkAdapter {
       ? `${contextPreamble}\n\n${params.message}`
       : params.message;
 
-    const messageToSend = textContent;
-    const attachmentsToSend =
-      params.attachments && params.attachments.length > 0
-        ? params.attachments.map((attachment) => ({
-            mimeType: attachment.mediaType,
-            content: attachment.data,
-          }))
-        : undefined;
+    // Save attachments to disk and append paths to message
+    // OpenClaw will detect file paths and load images automatically
+    let messageToSend = textContent;
+    if (params.attachments && params.attachments.length > 0) {
+      const imagePaths = await saveAttachmentsToDisk(params.attachments);
+      if (imagePaths.length > 0) {
+        const pathsText = imagePaths.join("\n");
+        messageToSend = `${textContent}\n\n${pathsText}`;
+      }
+    }
 
     params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
@@ -197,7 +226,7 @@ export class OpenClawConnector implements SdkAdapter {
         if (debugEnabled) {
           console.debug("[openclaw] chat.send", {
             sessionKey,
-            attachments: attachmentsToSend?.length ?? 0,
+            messageLength: messageToSend.length,
           });
         }
         ws.send(
@@ -210,7 +239,6 @@ export class OpenClawConnector implements SdkAdapter {
               message: messageToSend,
               deliver: true,
               idempotencyKey: randomUUID(),
-              attachments: attachmentsToSend,
             },
           })
         );
