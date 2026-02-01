@@ -694,6 +694,7 @@ export function ProjectsBoard() {
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
+  let createNotesRef: HTMLTextAreaElement | undefined;
   let savedRepo = "";
 
   onMount(() => {
@@ -1265,6 +1266,7 @@ export function ProjectsBoard() {
     setCreateTitle("");
     setCreateDescription("");
     setCreateError("");
+    setCreateToast("");
   };
 
   const closeCreateModal = () => {
@@ -1272,6 +1274,7 @@ export function ProjectsBoard() {
     setCreateTitle("");
     setCreateDescription("");
     setCreateError("");
+    setCreateToast("");
   };
 
   const validateTitle = (title: string): string | null => {
@@ -1283,7 +1286,18 @@ export function ProjectsBoard() {
   };
 
   const handleCreateSubmit = async () => {
-    const error = validateTitle(createTitle());
+    let title = createTitle().trim();
+    const description = createDescription().trim();
+    if (!title && description) {
+      const firstLine = description.split(/\r?\n/)[0]?.trim() ?? "";
+      const cleaned = firstLine.replace(/^[#>*\s-]+/, "").trim();
+      if (cleaned) {
+        title = cleaned;
+        setCreateTitle(cleaned);
+      }
+    }
+
+    const error = validateTitle(title);
     if (error) {
       setCreateError(error);
       return;
@@ -1291,8 +1305,8 @@ export function ProjectsBoard() {
 
     setCreateError("");
     const result = await createProject({
-      title: createTitle().trim(),
-      description: createDescription().trim() || undefined,
+      title,
+      description: description || undefined,
     });
 
     if (!result.ok) {
@@ -1827,7 +1841,10 @@ export function ProjectsBoard() {
           <div class="overlay-backdrop" onClick={closeCreateModal} />
           <div class="create-modal">
             <div class="create-modal-header">
-              <h2>Create project</h2>
+              <div class="create-title-block">
+                <h2>New project</h2>
+                <p class="create-subtitle">Quick create with notes. Title defaults to the first note line.</p>
+              </div>
               <button class="overlay-close" onClick={closeCreateModal} aria-label="Close">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 6L6 18M6 6l12 12" />
@@ -1836,13 +1853,16 @@ export function ProjectsBoard() {
             </div>
             <div class="create-modal-body">
               <Show when={createToast()}>
-                <div class="create-toast">{createToast()}</div>
+                <div class="create-toast" role="status">
+                  {createToast()}
+                </div>
               </Show>
               <div class="create-field">
-                <label class="create-label">
+                <label class="create-label" for="create-title">
                   Title <span class="create-required">*</span>
                 </label>
                 <input
+                  id="create-title"
                   class="create-input"
                   type="text"
                   value={createTitle()}
@@ -1850,31 +1870,56 @@ export function ProjectsBoard() {
                     setCreateTitle(e.currentTarget.value);
                     setCreateError("");
                   }}
-                  placeholder="Enter project title (at least two words)"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      createNotesRef?.focus();
+                    }
+                  }}
+                  placeholder="Short, descriptive title"
                   autofocus
+                  classList={{ error: Boolean(createError()) }}
                 />
+                <div class="create-helper">Required - 2+ words - Leave blank to use the first note line</div>
                 <Show when={createError()}>
-                  <div class="create-error">{createError()}</div>
+                  <div class="create-error" role="alert">
+                    {createError()}
+                  </div>
                 </Show>
               </div>
-              <div class="create-field">
-                <label class="create-label">Description</label>
+              <div class="create-field create-notes">
+                <div class="create-notes-header">
+                  <label class="create-label" for="create-notes">Notes</label>
+                  <span class="create-optional">Optional</span>
+                </div>
                 <textarea
+                  id="create-notes"
                   class="create-textarea"
                   value={createDescription()}
                   onInput={(e) => setCreateDescription(e.currentTarget.value)}
-                  placeholder="Enter project description (optional)"
-                  rows={6}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void handleCreateSubmit();
+                    }
+                  }}
+                  placeholder="Notes, context, links, or next steps..."
+                  rows={8}
+                  ref={createNotesRef}
                 />
+                <div class="create-helper">Paste notes now so your agent has context later.</div>
               </div>
             </div>
             <div class="create-modal-footer">
-              <button class="create-cancel" onClick={closeCreateModal}>
-                Cancel
-              </button>
-              <button class="create-submit" onClick={handleCreateSubmit}>
-                Create
-              </button>
+              <div class="create-footer-hints">Esc to close | Cmd/Ctrl+Enter to create</div>
+              <div class="create-footer-actions">
+                <button class="create-cancel" onClick={closeCreateModal}>
+                  Cancel
+                </button>
+                <button class="create-submit" onClick={handleCreateSubmit}>
+                  Create
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2120,12 +2165,14 @@ export function ProjectsBoard() {
           display: flex;
           align-items: center;
           justify-content: center;
+          padding: 20px;
         }
 
         .overlay-backdrop {
           position: absolute;
           inset: 0;
-          background: rgba(0, 0, 0, 0.5);
+          background: rgba(4, 8, 14, 0.7);
+          backdrop-filter: blur(4px);
           animation: overlay-fade 0.2s ease;
         }
 
@@ -2168,36 +2215,53 @@ export function ProjectsBoard() {
 
         .create-modal {
           position: relative;
-          width: min(480px, 90vw);
+          width: min(560px, 92vw);
+          max-height: 90vh;
           background: #0f141c;
           border: 1px solid #273042;
-          border-radius: 16px;
+          border-radius: 18px;
           z-index: 1;
           display: flex;
           flex-direction: column;
-          animation: overlay-in 0.2s ease;
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+          animation: overlay-in 0.24s ease;
         }
 
         .create-modal-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 20px 24px;
+          gap: 16px;
+          padding: 22px 26px;
           border-bottom: 1px solid #1d2430;
         }
 
         .create-modal-header h2 {
-          font-size: 18px;
+          font-size: 20px;
           font-weight: 700;
           color: #e7edf5;
           margin: 0;
         }
 
-        .create-modal-body {
-          padding: 24px;
+        .create-title-block {
           display: flex;
           flex-direction: column;
-          gap: 20px;
+          gap: 6px;
+        }
+
+        .create-subtitle {
+          margin: 0;
+          color: #9aa3b2;
+          font-size: 13px;
+          line-height: 1.4;
+        }
+
+        .create-modal-body {
+          padding: 24px 26px 28px;
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+          overflow-y: auto;
         }
 
         .create-toast {
@@ -2218,13 +2282,24 @@ export function ProjectsBoard() {
         .create-label {
           font-size: 13px;
           font-weight: 600;
-          color: #98a3b2;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
+          color: #c6d0db;
+          letter-spacing: 0.02em;
         }
 
         .create-required {
           color: #f08b57;
+        }
+
+        .create-notes-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .create-optional {
+          font-size: 12px;
+          color: #7d8796;
+          letter-spacing: 0.03em;
         }
 
         .create-input {
@@ -2235,12 +2310,18 @@ export function ProjectsBoard() {
           padding: 10px 14px;
           font-size: 14px;
           font-family: inherit;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
         }
 
         .create-input:focus {
           outline: none;
           border-color: #3b6ecc;
           background: #1a2330;
+          box-shadow: 0 0 0 3px rgba(59, 110, 204, 0.2);
+        }
+
+        .create-input.error {
+          border-color: #cc5b5b;
         }
 
         .create-textarea {
@@ -2252,13 +2333,26 @@ export function ProjectsBoard() {
           font-size: 14px;
           font-family: inherit;
           resize: vertical;
-          min-height: 100px;
+          min-height: 160px;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
         }
 
         .create-textarea:focus {
           outline: none;
           border-color: #3b6ecc;
           background: #1a2330;
+          box-shadow: 0 0 0 3px rgba(59, 110, 204, 0.2);
+        }
+
+        .create-helper {
+          font-size: 12px;
+          color: #7d8796;
+          line-height: 1.4;
+        }
+
+        .create-notes .create-label {
+          font-size: 14px;
+          color: #e7edf5;
         }
 
         .create-error {
@@ -2269,10 +2363,21 @@ export function ProjectsBoard() {
 
         .create-modal-footer {
           display: flex;
+          align-items: center;
+          justify-content: space-between;
           gap: 12px;
-          justify-content: flex-end;
-          padding: 16px 24px;
+          padding: 16px 26px 22px;
           border-top: 1px solid #1d2430;
+        }
+
+        .create-footer-hints {
+          font-size: 12px;
+          color: #7d8796;
+        }
+
+        .create-footer-actions {
+          display: flex;
+          gap: 12px;
         }
 
         .create-cancel {
