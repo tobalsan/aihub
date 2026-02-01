@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -457,6 +457,136 @@ describe("subagents API", () => {
     await expect(fs.stat(gitPath)).resolves.toBeDefined();
 
     process.env.PATH = prevPath;
+  });
+
+  it("kills worktree subagent and removes branch", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Kill Worktree" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-kill-worktree");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+    }));
+    expect(patchRes.status).toBe(200);
+
+    const workspacesRoot = path.join(projectsRoot, ".workspaces", created.id);
+    await fs.mkdir(workspacesRoot, { recursive: true });
+    const workspaceDir = path.join(workspacesRoot, "omega");
+    const branch = `${created.id}/omega`;
+    await execFileAsync("git", ["-C", repoDir, "worktree", "add", "-b", branch, workspaceDir, "main"]);
+
+    const now = new Date().toISOString();
+    const state = {
+      session_id: "s1",
+      supervisor_pid: 0,
+      started_at: now,
+      last_error: "",
+      cli: "codex",
+      run_mode: "worktree",
+      worktree_path: workspaceDir,
+      base_branch: "main",
+    };
+    await fs.writeFile(path.join(workspaceDir, "state.json"), JSON.stringify(state, null, 2));
+
+    const killRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/omega/kill`, { method: "POST" })
+    );
+    expect(killRes.status).toBe(200);
+
+    await expect(fs.stat(workspaceDir)).rejects.toThrow();
+    const branchRes = await execFileAsync("git", ["-C", repoDir, "branch", "--list", branch]);
+    expect(branchRes.stdout.trim()).toBe("");
+  });
+
+  it("kills main-run subagent by removing workspace", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Kill Main Run" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "eta");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "state.json"),
+      JSON.stringify({ supervisor_pid: 0, run_mode: "main-run" }, null, 2)
+    );
+
+    const killRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/eta/kill`, { method: "POST" })
+    );
+    expect(killRes.status).toBe(200);
+    await expect(fs.stat(workspaceDir)).rejects.toThrow();
+  });
+
+  it("returns error when subagent missing on kill", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Kill Missing" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const killRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/missing/kill`, { method: "POST" })
+    );
+    expect(killRes.status).toBe(404);
+    const body = await killRes.json();
+    expect(body.error).toBe("Subagent not found: missing");
+  });
+
+  it("SIGTERMs running subagent before cleanup", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Kill Running" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "theta");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    expect(child.pid).toBeDefined();
+    const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.on("exit", (code, signal) => resolve({ code, signal }));
+    });
+    await fs.writeFile(
+      path.join(workspaceDir, "state.json"),
+      JSON.stringify({ supervisor_pid: child.pid, run_mode: "main-run" }, null, 2)
+    );
+
+    const killRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/theta/kill`, { method: "POST" })
+    );
+    expect(killRes.status).toBe(200);
+
+    const exitResult = await Promise.race([
+      exitPromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]);
+    if (exitResult === null) {
+      child.kill("SIGKILL");
+    }
+    expect(exitResult).not.toBeNull();
   });
 
   it("resolves cli from common install locations", async () => {
