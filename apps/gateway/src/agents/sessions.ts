@@ -1,3 +1,5 @@
+import { agentEventBus } from "./events.js";
+
 export type AgentSession = {
   agentId: string;
   sessionId: string;
@@ -83,10 +85,24 @@ export function setSessionStreaming(
   streaming: boolean,
   abortController?: AbortController
 ) {
+  // Check agent's overall status before change
+  const wasStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
+
   const session = getOrCreateSession(agentId, sessionId);
   session.isStreaming = streaming;
   session.lastActivity = Date.now();
   session.abortController = streaming ? abortController : undefined;
+
+  // Check agent's overall status after change
+  const isNowStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
+
+  // Emit status change event if overall agent status changed
+  if (wasStreaming !== isNowStreaming) {
+    agentEventBus.emitStatusChange({
+      agentId,
+      status: isNowStreaming ? "streaming" : "idle",
+    });
+  }
 }
 
 export function isStreaming(agentId: string, sessionId: string): boolean {

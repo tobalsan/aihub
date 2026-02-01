@@ -25,6 +25,9 @@ app.get("/health", (c) => c.json({ ok: true }));
 type Subscription = { agentId: string; sessionKey: string };
 const subscriptions = new Map<WebSocket, Subscription>();
 
+// Global status subscribers (for sidebar real-time updates)
+const statusSubscribers = new Set<WebSocket>();
+
 function handleWsConnection(ws: WebSocket) {
   ws.on("message", async (raw) => {
     let msg: WsClientMessage;
@@ -47,6 +50,16 @@ function handleWsConnection(ws: WebSocket) {
 
     if (msg.type === "unsubscribe") {
       subscriptions.delete(ws);
+      return;
+    }
+
+    if (msg.type === "subscribeStatus") {
+      statusSubscribers.add(ws);
+      return;
+    }
+
+    if (msg.type === "unsubscribeStatus") {
+      statusSubscribers.delete(ws);
       return;
     }
 
@@ -118,6 +131,7 @@ function handleWsConnection(ws: WebSocket) {
 
   ws.on("close", () => {
     subscriptions.delete(ws);
+    statusSubscribers.delete(ws);
   });
 }
 
@@ -145,6 +159,14 @@ function setupEventBroadcast() {
       if (event.type === "done") {
         sendWs(ws, { type: "history_updated", agentId, sessionId });
       }
+    }
+  });
+
+  // Broadcast status changes to all status subscribers
+  agentEventBus.onStatusChange((event) => {
+    const statusMessage = { type: "status" as const, agentId: event.agentId, status: event.status };
+    for (const ws of statusSubscribers) {
+      sendWs(ws, statusMessage);
     }
   });
 }

@@ -397,7 +397,15 @@ export type WsUnsubscribeMessage = {
   type: "unsubscribe";
 };
 
-export type WsClientMessage = WsSendMessage | WsSubscribeMessage | WsUnsubscribeMessage;
+export type WsSubscribeStatusMessage = {
+  type: "subscribeStatus";
+};
+
+export type WsUnsubscribeStatusMessage = {
+  type: "unsubscribeStatus";
+};
+
+export type WsClientMessage = WsSendMessage | WsSubscribeMessage | WsUnsubscribeMessage | WsSubscribeStatusMessage | WsUnsubscribeStatusMessage;
 
 // Server messages include stream events plus subscription-specific events
 export type WsHistoryUpdatedEvent = {
@@ -411,7 +419,13 @@ export type WsSessionResetEvent = {
   sessionId: string;
 };
 
-export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent | WsSessionResetEvent;
+export type WsStatusEvent = {
+  type: "status";
+  agentId: string;
+  status: "streaming" | "idle";
+};
+
+export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent | WsSessionResetEvent | WsStatusEvent;
 
 // History types
 

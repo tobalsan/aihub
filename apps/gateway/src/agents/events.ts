@@ -10,6 +10,11 @@ export type AgentStreamEvent = StreamEvent & {
   source?: RunSource;
 };
 
+export type AgentStatusChangeEvent = {
+  agentId: string;
+  status: "streaming" | "idle";
+};
+
 class AgentEventBus extends EventEmitter {
   emitStreamEvent(event: AgentStreamEvent) {
     this.emit("stream", event);
@@ -18,6 +23,15 @@ class AgentEventBus extends EventEmitter {
   onStreamEvent(handler: (event: AgentStreamEvent) => void) {
     this.on("stream", handler);
     return () => this.off("stream", handler);
+  }
+
+  emitStatusChange(event: AgentStatusChangeEvent) {
+    this.emit("statusChange", event);
+  }
+
+  onStatusChange(handler: (event: AgentStatusChangeEvent) => void) {
+    this.on("statusChange", handler);
+    return () => this.off("statusChange", handler);
   }
 }
 

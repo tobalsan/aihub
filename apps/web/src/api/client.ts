@@ -291,6 +291,43 @@ export function subscribeToSession(
   };
 }
 
+export type StatusCallbacks = {
+  onStatus?: (agentId: string, status: "streaming" | "idle") => void;
+  onError?: (error: string) => void;
+};
+
+/**
+ * Subscribe to global agent status updates.
+ * Receives real-time status changes for all agents.
+ */
+export function subscribeToStatus(callbacks: StatusCallbacks): () => void {
+  const ws = new WebSocket(getWsUrl());
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "subscribeStatus" }));
+  };
+
+  ws.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    if (event.type === "status") {
+      callbacks.onStatus?.(event.agentId, event.status);
+    } else if (event.type === "error") {
+      callbacks.onError?.(event.message);
+    }
+  };
+
+  ws.onerror = () => {
+    callbacks.onError?.("Status subscription connection error");
+  };
+
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "unsubscribeStatus" }));
+    }
+    ws.close();
+  };
+}
+
 // Taskboard API functions
 export type TaskboardResult =
   | { ok: true; data: TaskboardResponse }

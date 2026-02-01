@@ -1,5 +1,5 @@
-import { Accessor, For, Show, createEffect, createResource, onCleanup } from "solid-js";
-import { fetchAgents, fetchAllSubagents, fetchAgentStatuses } from "../api/client";
+import { Accessor, For, Show, createEffect, createResource, createSignal, onCleanup } from "solid-js";
+import { fetchAgents, fetchAllSubagents, fetchAgentStatuses, subscribeToStatus } from "../api/client";
 import type { SubagentGlobalListItem } from "../api/types";
 
 type AgentSidebarProps = {
@@ -28,8 +28,28 @@ function getInitials(name: string): string {
 export function AgentSidebar(props: AgentSidebarProps) {
   const [agents] = createResource(fetchAgents);
   const [subagents, { refetch }] = createResource(fetchAllSubagents);
-  const [agentStatuses, { refetch: refetchStatuses }] = createResource(fetchAgentStatuses);
 
+  // Real-time status tracking
+  const [statuses, setStatuses] = createSignal<Record<string, "streaming" | "idle">>({});
+
+  // Fetch initial statuses on mount
+  createEffect(() => {
+    fetchAgentStatuses().then((res) => {
+      setStatuses(res.statuses);
+    });
+  });
+
+  // Subscribe to real-time status updates
+  createEffect(() => {
+    const unsubscribe = subscribeToStatus({
+      onStatus: (agentId, status) => {
+        setStatuses((prev) => ({ ...prev, [agentId]: status }));
+      },
+    });
+    onCleanup(unsubscribe);
+  });
+
+  // Poll subagents (they have their own status tracking)
   createEffect(() => {
     const interval = setInterval(() => {
       refetch();
@@ -37,15 +57,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => clearInterval(interval));
   });
 
-  createEffect(() => {
-    const interval = setInterval(() => {
-      refetchStatuses();
-    }, 5000);
-    onCleanup(() => clearInterval(interval));
-  });
-
   const getAgentStatus = (agentId: string) =>
-    agentStatuses()?.statuses[agentId] === "streaming" ? "running" : "idle";
+    statuses()[agentId] === "streaming" ? "running" : "idle";
 
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
@@ -60,7 +73,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <Show when={agents()}>
             <For each={agents() ?? []}>
               {(agent) => {
-                const isRunning = getAgentStatus(agent.id) === "running";
+                // Use a getter function for reactivity
+                const isRunning = () => getAgentStatus(agent.id) === "running";
                 return (
                   <button
                     class="agent-item"
@@ -68,12 +82,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
                     classList={{ selected: props.selectedAgent() === agent.id }}
                     onClick={() => props.onSelectAgent(agent.id)}
                   >
-                    <span class={`agent-avatar ${isRunning ? "running" : ""}`}>
+                    <span class="agent-avatar" classList={{ running: isRunning() }}>
                       {getInitials(agent.name)}
                     </span>
                     <span class="agent-label">{agent.name}</span>
-                    <span class={`status-pill ${isRunning ? "working" : "idle"}`}>
-                      {isRunning ? "WORKING" : "IDLE"}
+                    <span class="status-pill" classList={{ working: isRunning(), idle: !isRunning() }}>
+                      {isRunning() ? "WORKING" : "IDLE"}
                     </span>
                   </button>
                 );
