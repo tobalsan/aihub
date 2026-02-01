@@ -1197,8 +1197,8 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          font-family: "SF Mono", "Menlo", monospace;
-          font-size: 12px;
+          font-family: "0xProto Nerd Font Mono", "SF Mono", "Menlo", monospace;
+          font-size: 14px;
           color: #cfd6e2;
           flex: 1;
           min-height: 0;
