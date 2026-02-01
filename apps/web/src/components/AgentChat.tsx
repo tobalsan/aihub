@@ -632,7 +632,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubLive("");
     setAihubStreaming(false);
     setAihubPending(false);
-    setAttachments([]);
+    setPendingFiles([]);
     setPendingAihubUserMessages([]);
     setCliLogs([]);
     setCliCursor(0);
@@ -696,7 +696,7 @@ export function AgentChat(props: AgentChatProps) {
       setPendingCliUserMessages((prev) => [...prev, text]);
       setSubagentAwaitingResponse(true);
       setInput("");
-      setAttachments([]);
+      setPendingFiles([]);
       resizeTextarea("");
       const mode = props.subagentInfo.slug === "main" ? "main-run" : "worktree";
       void spawnSubagent(props.subagentInfo.projectId, {
