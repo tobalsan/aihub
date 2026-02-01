@@ -3,6 +3,14 @@ export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
 
 export type QueueMode = "queue" | "interrupt";
 
+// Image attachment for multimodal messages
+export type ImageAttachment = {
+  /** Base64-encoded image data (without data: prefix) */
+  data: string;
+  /** MIME type */
+  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+};
+
 export type Agent = {
   id: string;
   name: string;

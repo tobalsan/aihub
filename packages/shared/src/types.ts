@@ -358,6 +358,14 @@ export type StreamEvent =
   | { type: "done"; meta?: { durationMs: number; aborted?: boolean; queued?: boolean } }
   | { type: "error"; message: string };
 
+// Image attachment for multimodal messages
+export type ImageAttachment = {
+  /** Base64-encoded image data (without data: prefix) */
+  data: string;
+  /** MIME type (image/jpeg, image/png, image/gif, image/webp) */
+  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+};
+
 // WebSocket protocol types
 export type WsSendMessage = {
   type: "send";
@@ -365,6 +373,7 @@ export type WsSendMessage = {
   sessionId?: string; // explicit session ID (bypasses sessionKey resolution)
   sessionKey?: string; // logical key (resolved to sessionId with idle timeout)
   message: string;
+  attachments?: ImageAttachment[]; // optional image attachments
   thinkLevel?: ThinkLevel; // per-request think level override
 };
 

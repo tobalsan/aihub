@@ -14,6 +14,7 @@ import type {
   FullToolResultMessage,
   SubagentLogEvent,
   SubagentStatus,
+  ImageAttachment,
 } from "../api/types";
 
 type AgentChatProps = {
@@ -38,7 +39,7 @@ type LogItem = {
   collapsible?: boolean;
 };
 
-type ImageAttachment = {
+type FileAttachment = {
   id: string;
   file: File;
   name: string;
@@ -46,6 +47,26 @@ type ImageAttachment = {
 
 const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/jpg"]);
 const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
+
+/** Convert a File to base64-encoded ImageAttachment for the API */
+async function fileToImageAttachment(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data:image/...;base64, prefix
+      const base64 = result.split(",")[1] ?? "";
+      // Normalize media type
+      let mediaType: ImageAttachment["mediaType"] = "image/jpeg";
+      if (file.type === "image/png") mediaType = "image/png";
+      else if (file.type === "image/gif") mediaType = "image/gif";
+      else if (file.type === "image/webp") mediaType = "image/webp";
+      resolve({ data: base64, mediaType });
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 function formatJson(args: unknown): string {
   try {
@@ -475,7 +496,7 @@ function mergePendingAihubMessages(
 export function AgentChat(props: AgentChatProps) {
   const [input, setInput] = createSignal("");
   const [error, setError] = createSignal("");
-  const [attachments, setAttachments] = createSignal<ImageAttachment[]>([]);
+  const [attachments, setAttachments] = createSignal<FileAttachment[]>([]);
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
@@ -518,7 +539,7 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   const addAttachments = (files: FileList | File[]) => {
-    const next: ImageAttachment[] = [];
+    const next: FileAttachment[] = [];
     for (const file of Array.from(files)) {
       if (!isSupportedImage(file)) continue;
       next.push({
@@ -682,7 +703,7 @@ export function AgentChat(props: AgentChatProps) {
     }
   });
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input().trim();
     if (!text) return;
 
@@ -718,6 +739,20 @@ export function AgentChat(props: AgentChatProps) {
     }
 
     if (!props.agentId || aihubStreaming()) return;
+
+    // Convert file attachments to base64 before clearing UI state
+    const currentAttachments = attachments();
+    let imageAttachments: ImageAttachment[] = [];
+    if (currentAttachments.length > 0) {
+      try {
+        imageAttachments = await Promise.all(
+          currentAttachments.map((a) => fileToImageAttachment(a.file))
+        );
+      } catch (err) {
+        setError("Failed to process image attachments");
+        return;
+      }
+    }
 
     setPendingAihubUserMessages((prev) => [...prev, text]);
     setAihubLogs((prev) => [...prev, { tone: "user", body: text }]);
@@ -759,7 +794,8 @@ export function AgentChat(props: AgentChatProps) {
           setAihubPending(false);
           setPendingAihubUserMessages([]);
         },
-      }
+      },
+      { attachments: imageAttachments.length > 0 ? imageAttachments : undefined }
     );
   };
 
@@ -908,7 +944,7 @@ export function AgentChat(props: AgentChatProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                handleSend();
+                void handleSend();
               }
             }}
           />
@@ -916,7 +952,7 @@ export function AgentChat(props: AgentChatProps) {
             type="button"
             class="send-btn"
             disabled={!canSendLead() && !canSendSubagent()}
-            onClick={handleSend}
+            onClick={() => void handleSend()}
           >
             Send
           </button>

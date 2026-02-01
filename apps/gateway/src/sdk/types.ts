@@ -1,4 +1,4 @@
-import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel, AgentContext } from "@aihub/shared";
+import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel, AgentContext, ImageAttachment } from "@aihub/shared";
 
 // SDK identifiers
 export type SdkId = "pi" | "claude" | "openclaw";
@@ -56,6 +56,7 @@ export type SdkRunParams = {
   sessionId: string;
   sessionKey?: string;
   message: string;
+  attachments?: ImageAttachment[]; // optional image attachments
   workspaceDir: string;
   thinkLevel?: ThinkLevel;
   context?: AgentContext; // Structured context (Discord metadata, etc.)

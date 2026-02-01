@@ -133,9 +133,31 @@ export class OpenClawConnector implements SdkAdapter {
       }
     }
 
-    const messageToSend = contextPreamble
+    const textContent = contextPreamble
       ? `${contextPreamble}\n\n${params.message}`
       : params.message;
+
+    // Build message: string for text-only, object for multimodal
+    let messageToSend: string | { role: string; content: unknown[] };
+    if (params.attachments && params.attachments.length > 0) {
+      const content: unknown[] = [];
+      // Add images first
+      for (const attachment of params.attachments) {
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: attachment.mediaType,
+            data: attachment.data,
+          },
+        });
+      }
+      // Add text
+      content.push({ type: "text", text: textContent });
+      messageToSend = { role: "user", content };
+    } else {
+      messageToSend = textContent;
+    }
 
     params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 

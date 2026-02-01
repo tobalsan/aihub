@@ -63,6 +63,7 @@ function handleWsConnection(ws: WebSocket) {
           await runAgent({
             agentId: msg.agentId,
             message: msg.message,
+            attachments: msg.attachments,
             sessionId: msg.sessionId,
             sessionKey: msg.sessionKey,
             onEvent: (event) => sendWs(ws, event),
@@ -97,6 +98,7 @@ function handleWsConnection(ws: WebSocket) {
         await runAgent({
           agentId: msg.agentId,
           message,
+          attachments: msg.attachments,
           sessionId: sessionId ?? "default",
           sessionKey: msg.sessionKey ?? "main",
           thinkLevel: msg.thinkLevel,

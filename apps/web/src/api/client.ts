@@ -18,6 +18,7 @@ import type {
   SubagentListResponse,
   SubagentLogsResponse,
   ProjectBranchesResponse,
+  ImageAttachment,
 } from "./types";
 
 const API_BASE = "/api";
@@ -119,6 +120,11 @@ export type StreamCallbacks = {
   onError: (error: string) => void;
 };
 
+export type StreamMessageOptions = {
+  attachments?: ImageAttachment[];
+  thinkLevel?: ThinkLevel;
+};
+
 export function streamMessage(
   agentId: string,
   message: string,
@@ -127,12 +133,19 @@ export function streamMessage(
   onDone: (meta?: DoneMeta) => void,
   onError: (error: string) => void,
   callbacks?: Partial<StreamCallbacks>,
-  thinkLevel?: ThinkLevel
+  options?: StreamMessageOptions
 ): () => void {
   const ws = new WebSocket(getWsUrl());
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "send", agentId, sessionKey, message, ...(thinkLevel && { thinkLevel }) }));
+    const payload: Record<string, unknown> = { type: "send", agentId, sessionKey, message };
+    if (options?.attachments && options.attachments.length > 0) {
+      payload.attachments = options.attachments;
+    }
+    if (options?.thinkLevel) {
+      payload.thinkLevel = options.thinkLevel;
+    }
+    ws.send(JSON.stringify(payload));
   };
 
   ws.onmessage = (e) => {
