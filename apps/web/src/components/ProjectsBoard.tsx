@@ -890,6 +890,9 @@ export function ProjectsBoard() {
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
   const [isDragging, setIsDragging] = createSignal(false);
   const [filesLoaded, setFilesLoaded] = createSignal(false);
+  const [draggingCardId, setDraggingCardId] = createSignal<string | null>(null);
+  const [draggingFromStatus, setDraggingFromStatus] = createSignal<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = createSignal<string | null>(null);
   const [filterText, setFilterText] = createSignal("");
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
@@ -1532,6 +1535,52 @@ export function ProjectsBoard() {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleCardDragStart = (id: string, status: string) => (e: DragEvent) => {
+    setDraggingCardId(id);
+    setDraggingFromStatus(status);
+    setDragOverColumn(null);
+    if (e.dataTransfer) {
+      e.dataTransfer.setData("text/plain", id);
+      e.dataTransfer.effectAllowed = "move";
+    }
+  };
+
+  const handleCardDragEnd = () => {
+    setDraggingCardId(null);
+    setDraggingFromStatus(null);
+    setDragOverColumn(null);
+  };
+
+  const handleColumnDragOver = (status: string) => (e: DragEvent) => {
+    if (!draggingCardId()) return;
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
+    setDragOverColumn(status);
+  };
+
+  const handleColumnDragLeave = (status: string) => (e: DragEvent) => {
+    if (e.currentTarget === e.target && dragOverColumn() === status) {
+      setDragOverColumn(null);
+    }
+  };
+
+  const handleColumnDrop = (status: string) => async (e: DragEvent) => {
+    if (!draggingCardId()) return;
+    e.preventDefault();
+    const id = e.dataTransfer?.getData("text/plain") || draggingCardId();
+    if (!id) return;
+    if (draggingFromStatus() === status) {
+      setDragOverColumn(null);
+      return;
+    }
+    await handleStatusChange(id, status);
+    setDragOverColumn(null);
+    setDraggingCardId(null);
+    setDraggingFromStatus(null);
+  };
+
   const handleCreateSubmit = async () => {
     let title = createTitle().trim();
     const description = createDescription().trim();
@@ -1704,7 +1753,11 @@ export function ProjectsBoard() {
             return (
               <section
                 class={`column ${isExpanded() ? "expanded" : "collapsed"}`}
+                classList={{ "drop-target": dragOverColumn() === column.id }}
                 style={{ "--col": column.color }}
+                onDragOver={handleColumnDragOver(column.id)}
+                onDragLeave={handleColumnDragLeave(column.id)}
+                onDrop={handleColumnDrop(column.id)}
               >
                 <div class="column-header-wrapper">
                   <button class="column-header" onClick={() => toggleColumn(column.id)}>
@@ -1733,7 +1786,24 @@ export function ProjectsBoard() {
                         const appetite = getFrontmatterString(fm, "appetite");
                         const created = getFrontmatterString(fm, "created");
                         return (
-                          <button class="card" onClick={() => openDetail(item.id)}>
+                          <div
+                            class="card"
+                            role="button"
+                            tabIndex={0}
+                            draggable={true}
+                            onDragStart={handleCardDragStart(item.id, column.id)}
+                            onDragEnd={handleCardDragEnd}
+                            onClick={() => {
+                              if (draggingCardId()) return;
+                              openDetail(item.id);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                openDetail(item.id);
+                              }
+                            }}
+                          >
                             <div class="card-id">{item.id}</div>
                             <div class="card-title">{item.title}</div>
                             <div class="card-meta">
@@ -1745,7 +1815,7 @@ export function ProjectsBoard() {
                             <div class="card-footer">
                               <span>{created ? formatCreatedRelative(created) : ""}</span>
                             </div>
-                          </button>
+                          </div>
                         );
                       }}
                     </For>
@@ -2462,6 +2532,11 @@ export function ProjectsBoard() {
           padding: 0 12px 16px;
           overflow-y: auto;
           max-height: calc(100vh - 180px);
+        }
+
+        .column.drop-target {
+          background: color-mix(in oklch, var(--col) 10%, #0f141c 90%);
+          box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--col) 55%, #1f2631 45%);
         }
 
         .empty-state {
