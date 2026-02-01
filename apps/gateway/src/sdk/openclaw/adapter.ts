@@ -137,27 +137,14 @@ export class OpenClawConnector implements SdkAdapter {
       ? `${contextPreamble}\n\n${params.message}`
       : params.message;
 
-    // Build message: string for text-only, object for multimodal
-    let messageToSend: string | { role: string; content: unknown[] };
-    if (params.attachments && params.attachments.length > 0) {
-      const content: unknown[] = [];
-      // Add images first
-      for (const attachment of params.attachments) {
-        content.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: attachment.mediaType,
-            data: attachment.data,
-          },
-        });
-      }
-      // Add text
-      content.push({ type: "text", text: textContent });
-      messageToSend = { role: "user", content };
-    } else {
-      messageToSend = textContent;
-    }
+    const messageToSend = textContent;
+    const attachmentsToSend =
+      params.attachments && params.attachments.length > 0
+        ? params.attachments.map((attachment) => ({
+            mimeType: attachment.mediaType,
+            content: attachment.data,
+          }))
+        : undefined;
 
     params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
@@ -207,6 +194,12 @@ export class OpenClawConnector implements SdkAdapter {
         );
         const reqId = randomUUID();
         sendRequestId = reqId;
+        if (debugEnabled) {
+          console.debug("[openclaw] chat.send", {
+            sessionKey,
+            attachments: attachmentsToSend?.length ?? 0,
+          });
+        }
         ws.send(
           JSON.stringify({
             type: "req",
@@ -217,6 +210,7 @@ export class OpenClawConnector implements SdkAdapter {
               message: messageToSend,
               deliver: true,
               idempotencyKey: randomUUID(),
+              attachments: attachmentsToSend,
             },
           })
         );
