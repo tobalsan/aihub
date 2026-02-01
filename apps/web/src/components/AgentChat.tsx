@@ -734,8 +734,15 @@ export function AgentChat(props: AgentChatProps) {
       }
     }
 
+    // Build log message with file attachments
+    let logBody = text;
+    if (fileAttachments.length > 0) {
+      const fileList = fileAttachments.map((f) => `📎 ${f.path}`).join("\n");
+      logBody = text ? `${text}\n\n${fileList}` : fileList;
+    }
+
     setPendingAihubUserMessages((prev) => [...prev, text]);
-    setAihubLogs((prev) => [...prev, { tone: "user", body: text }]);
+    setAihubLogs((prev) => [...prev, { tone: "user", body: logBody }]);
     setInput("");
     setPendingFiles([]);
     setError("");
