@@ -257,11 +257,25 @@ export const piAdapter: SdkAdapter = {
       }
     }
 
-    const images: ImageContent[] | undefined = params.attachments?.map((attachment) => ({
-      type: "image",
-      data: attachment.data,
-      mimeType: attachment.mediaType,
-    }));
+    // Load images from file paths
+    let images: ImageContent[] | undefined;
+    if (params.attachments && params.attachments.length > 0) {
+      const imageAttachments = params.attachments.filter((a) =>
+        a.mimeType.startsWith("image/")
+      );
+      if (imageAttachments.length > 0) {
+        images = await Promise.all(
+          imageAttachments.map(async (attachment) => {
+            const buffer = await fs.readFile(attachment.path);
+            return {
+              type: "image" as const,
+              data: buffer.toString("base64"),
+              mimeType: attachment.mimeType,
+            };
+          })
+        );
+      }
+    }
 
     // Build message with context preamble (if any)
     const messageToSend = contextPreamble

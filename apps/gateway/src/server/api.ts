@@ -20,6 +20,7 @@ import { listProjects, getProject, createProject, updateProject } from "../proje
 import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
 import { getRecentActivity } from "../activity/index.js";
+import { saveUploadedFile, isAllowedMimeType, getAllowedMimeTypes } from "../media/upload.js";
 
 const api = new Hono();
 
@@ -573,6 +574,39 @@ api.get("/taskboard/:type/:id", async (c) => {
     return c.json({ error: result.error }, 404);
   }
   return c.json(result.data);
+});
+
+// POST /api/media/upload - upload a file (multipart/form-data)
+api.post("/media/upload", async (c) => {
+  try {
+    const formData = await c.req.formData();
+    const file = formData.get("file");
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: "No file provided" }, 400);
+    }
+
+    const mimeType = file.type || "application/octet-stream";
+    if (!isAllowedMimeType(mimeType)) {
+      return c.json(
+        { error: `Unsupported file type: ${mimeType}`, allowedTypes: getAllowedMimeTypes() },
+        400
+      );
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await saveUploadedFile(arrayBuffer, mimeType, file.name);
+
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Upload failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+// GET /api/media/allowed-types - list allowed file types
+api.get("/media/allowed-types", (c) => {
+  return c.json({ types: getAllowedMimeTypes() });
 });
 
 export { api };

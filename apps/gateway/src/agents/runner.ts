@@ -7,7 +7,7 @@ import type {
   FullHistoryMessage,
   HistoryViewMode,
   AgentContext,
-  ImageAttachment,
+  FileAttachment,
 } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
 import {
@@ -45,7 +45,7 @@ import {
 export type RunAgentParams = {
   agentId: string;
   message: string;
-  attachments?: ImageAttachment[]; // optional image attachments
+  attachments?: FileAttachment[]; // file attachments (paths from upload)
   sessionId?: string;
   sessionKey?: string; // Resolves to sessionId with idle timeout + reset triggers
   thinkLevel?: ThinkLevel;

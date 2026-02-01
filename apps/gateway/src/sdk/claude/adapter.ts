@@ -1,5 +1,6 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import path from "node:path";
+import fs from "node:fs/promises";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { ClaudeUserContent, QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
@@ -156,20 +157,32 @@ export const claudeAdapter: SdkAdapter = {
         ? `${contextPreamble}\n\n${params.message}`
         : params.message;
 
-      const content: ClaudeUserContent =
-        params.attachments && params.attachments.length > 0
-          ? [
-              { type: "text" as const, text: messageToSend },
-              ...params.attachments.map((attachment) => ({
+      // Build content with file attachments (read from disk)
+      let content: ClaudeUserContent = messageToSend;
+      if (params.attachments && params.attachments.length > 0) {
+        const imageAttachments = params.attachments.filter((a) =>
+          a.mimeType.startsWith("image/")
+        );
+        if (imageAttachments.length > 0) {
+          const imageBlocks = await Promise.all(
+            imageAttachments.map(async (attachment) => {
+              const buffer = await fs.readFile(attachment.path);
+              return {
                 type: "image" as const,
                 source: {
                   type: "base64" as const,
-                  media_type: attachment.mediaType,
-                  data: attachment.data,
+                  media_type: attachment.mimeType,
+                  data: buffer.toString("base64"),
                 },
-              })),
-            ]
-          : messageToSend;
+              };
+            })
+          );
+          content = [
+            { type: "text" as const, text: messageToSend },
+            ...imageBlocks,
+          ];
+        }
+      }
 
       // Emit user message to history (without context preamble)
       params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });

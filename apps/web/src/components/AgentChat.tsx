@@ -7,6 +7,7 @@ import {
   spawnSubagent,
   streamMessage,
   subscribeToSession,
+  uploadFiles,
 } from "../api/client";
 import type {
   ContentBlock,
@@ -14,7 +15,7 @@ import type {
   FullToolResultMessage,
   SubagentLogEvent,
   SubagentStatus,
-  ImageAttachment,
+  FileAttachment,
 } from "../api/types";
 
 type AgentChatProps = {
@@ -39,7 +40,8 @@ type LogItem = {
   collapsible?: boolean;
 };
 
-type FileAttachment = {
+// Local UI state for file attachments (before upload)
+type PendingFile = {
   id: string;
   file: File;
   name: string;
@@ -47,26 +49,6 @@ type FileAttachment = {
 
 const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/jpg"]);
 const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
-
-/** Convert a File to base64-encoded ImageAttachment for the API */
-async function fileToImageAttachment(file: File): Promise<ImageAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Remove the data:image/...;base64, prefix
-      const base64 = result.split(",")[1] ?? "";
-      // Normalize media type
-      let mediaType: ImageAttachment["mediaType"] = "image/jpeg";
-      if (file.type === "image/png") mediaType = "image/png";
-      else if (file.type === "image/gif") mediaType = "image/gif";
-      else if (file.type === "image/webp") mediaType = "image/webp";
-      resolve({ data: base64, mediaType });
-    };
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
-}
 
 function formatJson(args: unknown): string {
   try {
@@ -496,7 +478,7 @@ function mergePendingAihubMessages(
 export function AgentChat(props: AgentChatProps) {
   const [input, setInput] = createSignal("");
   const [error, setError] = createSignal("");
-  const [attachments, setAttachments] = createSignal<FileAttachment[]>([]);
+  const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
@@ -538,8 +520,8 @@ export function AgentChat(props: AgentChatProps) {
     return ext ? supportedImageExtensions.has(ext) : false;
   };
 
-  const addAttachments = (files: FileList | File[]) => {
-    const next: FileAttachment[] = [];
+  const addPendingFiles = (files: FileList | File[]) => {
+    const next: PendingFile[] = [];
     for (const file of Array.from(files)) {
       if (!isSupportedImage(file)) continue;
       next.push({
@@ -549,12 +531,12 @@ export function AgentChat(props: AgentChatProps) {
       });
     }
     if (next.length > 0) {
-      setAttachments((prev) => [...prev, ...next]);
+      setPendingFiles((prev) => [...prev, ...next]);
     }
   };
 
-  const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((item) => item.id !== id));
+  const removePendingFile = (id: string) => {
+    setPendingFiles((prev) => prev.filter((item) => item.id !== id));
   };
 
   const resizeTextarea = (value = input()) => {
@@ -740,16 +722,14 @@ export function AgentChat(props: AgentChatProps) {
 
     if (!props.agentId || aihubStreaming()) return;
 
-    // Convert file attachments to base64 before clearing UI state
-    const currentAttachments = attachments();
-    let imageAttachments: ImageAttachment[] = [];
-    if (currentAttachments.length > 0) {
+    // Upload files first, then send message with paths
+    const currentPendingFiles = pendingFiles();
+    let fileAttachments: FileAttachment[] = [];
+    if (currentPendingFiles.length > 0) {
       try {
-        imageAttachments = await Promise.all(
-          currentAttachments.map((a) => fileToImageAttachment(a.file))
-        );
+        fileAttachments = await uploadFiles(currentPendingFiles.map((p) => p.file));
       } catch (err) {
-        setError("Failed to process image attachments");
+        setError(err instanceof Error ? err.message : "Failed to upload files");
         return;
       }
     }
@@ -757,7 +737,7 @@ export function AgentChat(props: AgentChatProps) {
     setPendingAihubUserMessages((prev) => [...prev, text]);
     setAihubLogs((prev) => [...prev, { tone: "user", body: text }]);
     setInput("");
-    setAttachments([]);
+    setPendingFiles([]);
     setError("");
     setAihubLive("");
     setAihubStreaming(true);
@@ -795,7 +775,7 @@ export function AgentChat(props: AgentChatProps) {
           setPendingAihubUserMessages([]);
         },
       },
-      { attachments: imageAttachments.length > 0 ? imageAttachments : undefined }
+      { attachments: fileAttachments.length > 0 ? fileAttachments : undefined }
     );
   };
 
@@ -827,7 +807,7 @@ export function AgentChat(props: AgentChatProps) {
           if (!canAttach()) return;
           const files = e.dataTransfer?.files;
           if (!files || files.length === 0) return;
-          addAttachments(files);
+          addPendingFiles(files);
         }}
       >
         <Show when={!props.agentName}>
@@ -880,9 +860,9 @@ export function AgentChat(props: AgentChatProps) {
         <div class="chat-error">{error()}</div>
       </Show>
 
-      <Show when={attachments().length > 0}>
+      <Show when={pendingFiles().length > 0}>
         <div class="chat-attachments">
-          {attachments().map((item) => (
+          {pendingFiles().map((item) => (
             <div class="attachment-pill">
               <span class="attachment-name" title={item.name}>
                 {item.name}
@@ -891,7 +871,7 @@ export function AgentChat(props: AgentChatProps) {
                 type="button"
                 class="attachment-remove"
                 aria-label={`Remove ${item.name}`}
-                onClick={() => removeAttachment(item.id)}
+                onClick={() => removePendingFile(item.id)}
               >
                 x
               </button>
@@ -912,7 +892,7 @@ export function AgentChat(props: AgentChatProps) {
               if (!canAttach()) return;
               const files = e.currentTarget.files;
               if (!files || files.length === 0) return;
-              addAttachments(files);
+              addPendingFiles(files);
               e.currentTarget.value = "";
             }}
           />

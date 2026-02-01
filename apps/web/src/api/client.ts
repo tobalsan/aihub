@@ -18,7 +18,8 @@ import type {
   SubagentListResponse,
   SubagentLogsResponse,
   ProjectBranchesResponse,
-  ImageAttachment,
+  FileAttachment,
+  UploadResponse,
 } from "./types";
 
 const API_BASE = "/api";
@@ -121,9 +122,42 @@ export type StreamCallbacks = {
 };
 
 export type StreamMessageOptions = {
-  attachments?: ImageAttachment[];
+  attachments?: FileAttachment[];
   thinkLevel?: ThinkLevel;
 };
+
+/**
+ * Upload a file to the server
+ * Returns the file path that can be used in attachments
+ */
+export async function uploadFile(file: File): Promise<UploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/media/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: "Upload failed" }));
+    throw new Error(error.error || "Upload failed");
+  }
+
+  return res.json();
+}
+
+/**
+ * Upload multiple files and return their paths as FileAttachments
+ */
+export async function uploadFiles(files: File[]): Promise<FileAttachment[]> {
+  const results = await Promise.all(files.map(uploadFile));
+  return results.map((r) => ({
+    path: r.path,
+    mimeType: r.mimeType,
+    filename: r.filename,
+  }));
+}
 
 export function streamMessage(
   agentId: string,

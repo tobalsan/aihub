@@ -3,12 +3,30 @@ export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
 
 export type QueueMode = "queue" | "interrupt";
 
-// Image attachment for multimodal messages
+// Image attachment for multimodal messages (legacy - base64)
 export type ImageAttachment = {
   /** Base64-encoded image data (without data: prefix) */
   data: string;
   /** MIME type */
   mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+};
+
+// File attachment (file path from upload)
+export type FileAttachment = {
+  /** Absolute file path on disk */
+  path: string;
+  /** MIME type */
+  mimeType: string;
+  /** Original filename (optional) */
+  filename?: string;
+};
+
+// Upload response from /api/media/upload
+export type UploadResponse = {
+  path: string;
+  filename: string;
+  mimeType: string;
+  size: number;
 };
 
 export type Agent = {
