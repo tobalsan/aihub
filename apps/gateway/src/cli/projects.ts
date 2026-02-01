@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import os from "node:os";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { loadConfig, getAgents } from "../config/index.js";
 
 type ProjectItem = {
@@ -142,7 +143,7 @@ function mapSubagentStatus(status: string | undefined): "running" | "idle" | "er
   return "idle";
 }
 
-const program = new Command();
+export const program = new Command();
 
 program.name("projects").description("Projects CLI").version("0.1.0");
 
@@ -299,12 +300,15 @@ program
   .command("move")
   .argument("<id>", "Project ID")
   .argument("<status>", "New status")
+  .option("--agent <name>", "Agent name")
   .option("-j, --json", "JSON output")
   .action(async (id, status, opts) => {
+    const body: Record<string, unknown> = { status };
+    if (opts.agent) body.agent = opts.agent;
     const res = await requestJson(`/projects/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -542,4 +546,7 @@ program
     console.log(JSON.stringify(data, null, 2));
   });
 
-program.parseAsync(process.argv);
+const isDirectRun = process.argv[1] === fileURLToPath(import.meta.url);
+if (isDirectRun) {
+  program.parseAsync(process.argv);
+}

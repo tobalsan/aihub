@@ -29,7 +29,7 @@ import {
 } from "../projects/index.js";
 import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
-import { getRecentActivity } from "../activity/index.js";
+import { getRecentActivity, recordProjectStatusActivity } from "../activity/index.js";
 import { saveUploadedFile, isAllowedMimeType, getAllowedMimeTypes } from "../media/upload.js";
 
 const api = new Hono();
@@ -430,10 +430,27 @@ api.patch("/projects/:id", async (c) => {
   }
 
   const config = getConfig();
+  let prevStatus: string | null = null;
+  if (parsed.data.status) {
+    const prev = await getProject(config, id);
+    if (prev.ok) {
+      prevStatus = normalizeProjectStatus(String(prev.data.frontmatter?.status ?? ""));
+    }
+  }
   const result = await updateProject(config, id, parsed.data);
   if (!result.ok) {
     const status = result.error.startsWith("Project already exists") ? 409 : 404;
     return c.json({ error: result.error }, status);
+  }
+  if (parsed.data.status) {
+    const nextStatus = normalizeProjectStatus(String(result.data.frontmatter?.status ?? ""));
+    if (prevStatus === null || prevStatus !== nextStatus) {
+      await recordProjectStatusActivity({
+        actor: parsed.data.agent,
+        projectId: result.data.id ?? id,
+        status: nextStatus,
+      });
+    }
   }
   return c.json(result.data);
 });

@@ -317,6 +317,7 @@ export const UpdateProjectRequestSchema = z.object({
   executionMode: z.union([ProjectExecutionModeSchema, z.literal("")]).optional(),
   appetite: z.union([ProjectAppetiteSchema, z.literal("")]).optional(),
   status: ProjectStatusSchema.optional(),
+  agent: z.string().optional(),
   content: z.string().optional(),
   repo: z.union([z.string(), z.literal("")]).optional(),
   runAgent: z.union([z.string(), z.literal("")]).optional(),

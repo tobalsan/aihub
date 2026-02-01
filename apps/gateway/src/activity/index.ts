@@ -1,5 +1,8 @@
 import type { GatewayConfig } from "@aihub/shared";
 import { normalizeProjectStatus } from "@aihub/shared";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { listProjects } from "../projects/index.js";
 import { getActiveAgents } from "../config/index.js";
 import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
@@ -23,6 +26,51 @@ const lastProjectStatuses = new Map<string, string>();
 const lastAgentMessageTs = new Map<string, number>();
 const lastSubagentActivity = new Map<string, string>();
 const cachedEvents: ActivityEvent[] = [];
+const STORE_PATH = path.join(os.homedir(), ".aihub", "activity.json");
+let loaded = false;
+
+function ensureLoaded() {
+  if (loaded) return;
+  try {
+    const raw = fs.readFileSync(STORE_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      cachedEvents.push(...(parsed as ActivityEvent[]));
+    }
+  } catch {
+    // ignore missing/invalid store
+  }
+  loaded = true;
+}
+
+async function saveEvents(events: ActivityEvent[]) {
+  await fs.promises.mkdir(path.dirname(STORE_PATH), { recursive: true });
+  const json = JSON.stringify(events, null, 2);
+  const tmp = `${STORE_PATH}.${process.pid}.tmp`;
+  await fs.promises.writeFile(tmp, json, "utf-8");
+  await fs.promises.rename(tmp, STORE_PATH);
+}
+
+function mergeEvents(events: ActivityEvent[]) {
+  const merged = [...events, ...cachedEvents];
+  const seen = new Set<string>();
+  const deduped: ActivityEvent[] = [];
+  for (const event of merged) {
+    if (seen.has(event.id)) continue;
+    seen.add(event.id);
+    deduped.push(event);
+  }
+  deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  cachedEvents.length = 0;
+  cachedEvents.push(...deduped.slice(0, 100));
+}
+
+async function recordActivityEvents(events: ActivityEvent[]) {
+  if (events.length === 0) return;
+  ensureLoaded();
+  mergeEvents(events);
+  await saveEvents(cachedEvents);
+}
 
 function formatStatus(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -51,6 +99,7 @@ export async function getRecentActivity(
   config: GatewayConfig,
   options?: { offset?: number; limit?: number }
 ): Promise<ActivityEvent[]> {
+  ensureLoaded();
   const events: ActivityEvent[] = [];
   const nowIso = new Date().toISOString();
   const limit = Math.min(Math.max(options?.limit ?? 20, 1), 100);
@@ -127,18 +176,30 @@ export async function getRecentActivity(
   }
 
   if (events.length > 0) {
-    const merged = [...events, ...cachedEvents];
-    const seen = new Set<string>();
-    const deduped: ActivityEvent[] = [];
-    for (const event of merged) {
-      if (seen.has(event.id)) continue;
-      seen.add(event.id);
-      deduped.push(event);
-    }
-    deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    cachedEvents.length = 0;
-    cachedEvents.push(...deduped.slice(0, 100));
+    await recordActivityEvents(events);
   }
 
   return cachedEvents.slice(offset, offset + limit);
+}
+
+export async function recordProjectStatusActivity(params: {
+  actor?: string;
+  projectId: string;
+  status: string;
+  timestamp?: string;
+}): Promise<void> {
+  ensureLoaded();
+  const normalizedStatus = normalizeProjectStatus(params.status);
+  const actor = params.actor?.trim() ? params.actor.trim() : "AIHub";
+  const event: ActivityEvent = {
+    id: `project-${params.projectId}-${Date.now()}`,
+    type: "project_status",
+    actor,
+    action: `moved ${params.projectId} to ${formatStatus(normalizedStatus)}`,
+    projectId: params.projectId,
+    timestamp: params.timestamp ?? new Date().toISOString(),
+    color: statusColor(normalizedStatus),
+  };
+  lastProjectStatuses.set(params.projectId, normalizedStatus);
+  await recordActivityEvents([event]);
 }
