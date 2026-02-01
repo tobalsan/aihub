@@ -72,7 +72,16 @@ export type SDKMessage =
 
 export type Query = AsyncGenerator<SDKMessage, void>;
 
+export type ClaudeTextBlock = { type: "text"; text: string };
+export type ClaudeImageBlock = {
+  type: "image";
+  source: { type: "base64"; media_type: string; data: string };
+};
+export type ClaudeUserContent = string | Array<ClaudeTextBlock | ClaudeImageBlock>;
+
 export type QueryFunction = (params: {
-  prompt: string | AsyncGenerator<{ type: string; message: { role: string; content: string } }, void>;
+  prompt:
+    | string
+    | AsyncGenerator<{ type: string; message: { role: string; content: ClaudeUserContent } }, void>;
   options?: ClaudeQueryOptions;
 }) => Query;

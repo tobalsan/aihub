@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult, HistoryEvent } from "../types.js";
@@ -257,6 +257,12 @@ export const piAdapter: SdkAdapter = {
       }
     }
 
+    const images: ImageContent[] | undefined = params.attachments?.map((attachment) => ({
+      type: "image",
+      data: attachment.data,
+      mimeType: attachment.mediaType,
+    }));
+
     // Build message with context preamble (if any)
     const messageToSend = contextPreamble
       ? `${contextPreamble}\n\n${params.message}`
@@ -367,7 +373,7 @@ export const piAdapter: SdkAdapter = {
     });
 
     try {
-      await agentSession.prompt(messageToSend);
+      await agentSession.prompt(messageToSend, images && images.length > 0 ? { images } : undefined);
     } finally {
       unsubscribe();
     }

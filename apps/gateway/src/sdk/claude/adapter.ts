@@ -1,7 +1,7 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import path from "node:path";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
-import type { QueryFunction, SDKMessage } from "./types.js";
+import type { ClaudeUserContent, QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
@@ -156,6 +156,21 @@ export const claudeAdapter: SdkAdapter = {
         ? `${contextPreamble}\n\n${params.message}`
         : params.message;
 
+      const content: ClaudeUserContent =
+        params.attachments && params.attachments.length > 0
+          ? [
+              { type: "text" as const, text: messageToSend },
+              ...params.attachments.map((attachment) => ({
+                type: "image" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: attachment.mediaType,
+                  data: attachment.data,
+                },
+              })),
+            ]
+          : messageToSend;
+
       // Emit user message to history (without context preamble)
       params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
 
@@ -172,7 +187,7 @@ export const claudeAdapter: SdkAdapter = {
         async function* promptStream() {
           yield {
             type: "user",
-            message: { role: "user", content: messageToSend },
+            message: { role: "user", content },
           };
         }
 
