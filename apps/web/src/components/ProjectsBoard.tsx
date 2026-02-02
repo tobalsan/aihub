@@ -50,8 +50,9 @@ const CLI_OPTIONS = [
 
 const COLUMN_STORAGE_KEY = "aihub:projects:expanded-columns";
 const CREATE_FORM_STORAGE_KEY = "aihub:projects:create-form";
-const CREATE_FILES_DB = "aihub";
+const FILES_DB = "aihub";
 const CREATE_FILES_STORE = "project-create-files";
+const DETAIL_FILES_STORE = "project-detail-files";
 const CREATE_FILES_KEY = "pending";
 const COLUMN_IDS = new Set(COLUMNS.map((col) => col.id));
 
@@ -137,17 +138,20 @@ function buildAttachmentSection(
   return `## Attached files\n${list}`;
 }
 
-function openCreateFilesDb(): Promise<IDBDatabase> {
+function openFilesDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
       reject(new Error("indexedDB unavailable"));
       return;
     }
-    const request = indexedDB.open(CREATE_FILES_DB, 1);
+    const request = indexedDB.open(FILES_DB, 2);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(CREATE_FILES_STORE)) {
         db.createObjectStore(CREATE_FILES_STORE);
+      }
+      if (!db.objectStoreNames.contains(DETAIL_FILES_STORE)) {
+        db.createObjectStore(DETAIL_FILES_STORE);
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -155,16 +159,16 @@ function openCreateFilesDb(): Promise<IDBDatabase> {
   });
 }
 
-async function saveFilesToStorage(files: File[]): Promise<void> {
+async function saveFilesToStore(storeName: string, key: string, files: File[]): Promise<void> {
   if (typeof window === "undefined") return;
   if (typeof indexedDB === "undefined") return;
   if (files.length === 0) {
-    await clearFilesFromStorage();
+    await clearFilesFromStore(storeName, key);
     return;
   }
-  const db = await openCreateFilesDb();
-  const tx = db.transaction(CREATE_FILES_STORE, "readwrite");
-  const store = tx.objectStore(CREATE_FILES_STORE);
+  const db = await openFilesDb();
+  const tx = db.transaction(storeName, "readwrite");
+  const store = tx.objectStore(storeName);
   const payload = {
     files: files.map((file) => ({
       name: file.name,
@@ -173,7 +177,7 @@ async function saveFilesToStorage(files: File[]): Promise<void> {
       data: file,
     })),
   };
-  store.put(payload, CREATE_FILES_KEY);
+  store.put(payload, key);
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -181,13 +185,13 @@ async function saveFilesToStorage(files: File[]): Promise<void> {
   });
 }
 
-async function loadFilesFromStorage(): Promise<File[]> {
+async function loadFilesFromStore(storeName: string, key: string): Promise<File[]> {
   if (typeof window === "undefined") return [];
   try {
-    const db = await openCreateFilesDb();
-    const tx = db.transaction(CREATE_FILES_STORE, "readonly");
-    const store = tx.objectStore(CREATE_FILES_STORE);
-    const request = store.get(CREATE_FILES_KEY);
+    const db = await openFilesDb();
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const request = store.get(key);
     const result = await new Promise<unknown>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -206,13 +210,13 @@ async function loadFilesFromStorage(): Promise<File[]> {
   }
 }
 
-async function clearFilesFromStorage(): Promise<void> {
+async function clearFilesFromStore(storeName: string, key: string): Promise<void> {
   if (typeof window === "undefined") return;
   try {
-    const db = await openCreateFilesDb();
-    const tx = db.transaction(CREATE_FILES_STORE, "readwrite");
-    const store = tx.objectStore(CREATE_FILES_STORE);
-    store.delete(CREATE_FILES_KEY);
+    const db = await openFilesDb();
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    store.delete(key);
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -221,6 +225,19 @@ async function clearFilesFromStorage(): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+// Wrappers for create form files (backward compat)
+async function saveFilesToStorage(files: File[]): Promise<void> {
+  return saveFilesToStore(CREATE_FILES_STORE, CREATE_FILES_KEY, files);
+}
+
+async function loadFilesFromStorage(): Promise<File[]> {
+  return loadFilesFromStore(CREATE_FILES_STORE, CREATE_FILES_KEY);
+}
+
+async function clearFilesFromStorage(): Promise<void> {
+  return clearFilesFromStore(CREATE_FILES_STORE, CREATE_FILES_KEY);
 }
 
 function getFrontmatterString(
@@ -868,6 +885,8 @@ export function ProjectsBoard() {
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [detailContent, setDetailContent] = createSignal("");
   const [editingContent, setEditingContent] = createSignal(false);
+  const [detailIsDragging, setDetailIsDragging] = createSignal(false);
+  const [detailPendingFiles, setDetailPendingFiles] = createSignal<File[]>([]);
   const [detailSessionKeys, setDetailSessionKeys] = createSignal<Record<string, string>>({});
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
@@ -1173,6 +1192,8 @@ export function ProjectsBoard() {
     setDetailSlug("");
     setDetailRepo("");
     savedRepo = "";
+    setDetailPendingFiles([]);
+    setDetailIsDragging(false);
   });
 
   createEffect(() => {
@@ -1437,10 +1458,64 @@ export function ProjectsBoard() {
   };
 
   const handleContentSave = async (id: string) => {
-    await updateProject(id, { content: detailContent() });
+    let content = detailContent();
+    const files = detailPendingFiles();
+
+    if (files.length > 0) {
+      const uploadResult = await uploadAttachments(id, files);
+      if (uploadResult.ok) {
+        const attachmentSection = buildAttachmentSection(uploadResult.data);
+        content = content + (content ? "\n\n" : "") + attachmentSection;
+        setDetailContent(content);
+      }
+      setDetailPendingFiles([]);
+      void clearFilesFromStore(DETAIL_FILES_STORE, id);
+    }
+
+    await updateProject(id, { content });
     await refetch();
     await refetchDetail();
     setEditingContent(false);
+  };
+
+  const handleDetailDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    setDetailIsDragging(true);
+  };
+
+  const handleDetailDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    if (e.currentTarget === e.target) {
+      setDetailIsDragging(false);
+    }
+  };
+
+  const handleDetailDrop = (projectId: string) => async (e: DragEvent) => {
+    e.preventDefault();
+    setDetailIsDragging(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+
+    if (editingContent()) {
+      // Edit mode: queue files for upload on save (shown in pending files list)
+      setDetailPendingFiles((prev) => [...prev, ...files]);
+    } else {
+      // View mode: upload immediately and save
+      const uploadResult = await uploadAttachments(projectId, files);
+      if (!uploadResult.ok) return;
+
+      const attachmentSection = buildAttachmentSection(uploadResult.data);
+      const current = detailContent();
+      const updated = current + (current ? "\n\n" : "") + attachmentSection;
+      setDetailContent(updated);
+      await updateProject(projectId, { content: updated });
+      await refetch();
+      await refetchDetail();
+    }
+  };
+
+  const removeDetailFile = (index: number) => {
+    setDetailPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSelectAgent = (id: string) => {
@@ -1910,7 +1985,12 @@ export function ProjectsBoard() {
               </div>
             </Show>
             <div class="overlay-content">
-              <div class="detail" classList={{ "mobile-hidden": isMobile() && mobileDetailTab() !== "details" }}>
+              <div
+                  class="detail"
+                  classList={{ "mobile-hidden": isMobile() && mobileDetailTab() !== "details", "drag-over": detailIsDragging() }}
+                  onDragOver={handleDetailDragOver}
+                  onDragLeave={handleDetailDragLeave}
+                >
                 <Show when={detail.loading}>
                   <div class="projects-loading">Loading...</div>
                 </Show>
@@ -1923,6 +2003,10 @@ export function ProjectsBoard() {
                     const fm = project.frontmatter ?? {};
                     return (
                       <>
+                        <div
+                          class="detail-drop-zone"
+                          onDrop={handleDetailDrop(project.id)}
+                        />
                         <div class="detail-meta">
                           <div class="meta-field">
                             <button
@@ -2011,6 +2095,7 @@ export function ProjectsBoard() {
                               if (e.key === "Escape") {
                                 e.stopPropagation();
                                 setDetailContent(stripMarkdownMeta(project.content));
+                                setDetailPendingFiles([]);
                                 setEditingContent(false);
                               } else if (e.key === "Enter" && e.metaKey) {
                                 e.preventDefault();
@@ -2019,6 +2104,35 @@ export function ProjectsBoard() {
                             }}
                             autofocus
                           />
+                          <Show when={detailPendingFiles().length > 0}>
+                            <div class="detail-pending-files">
+                              <label class="detail-pending-label">Files to upload on save</label>
+                              <div class="file-list">
+                                <For each={detailPendingFiles()}>
+                                  {(file, index) => (
+                                    <div class="file-item">
+                                      <span class="file-name">{file.name}</span>
+                                      <button
+                                        class="file-remove"
+                                        onClick={() => removeDetailFile(index())}
+                                        type="button"
+                                        aria-label={`Remove ${file.name}`}
+                                      >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                          <path d="M18 6L6 18M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </div>
+                          </Show>
+                        </Show>
+                        <Show when={detailIsDragging()}>
+                          <div class="detail-drop-overlay">
+                            <div class="drop-message">Drop files to attach</div>
+                          </div>
                         </Show>
                       </>
                     );
@@ -3070,6 +3184,7 @@ export function ProjectsBoard() {
           flex-direction: column;
           gap: 12px;
           min-height: 0;
+          position: relative;
         }
 
         .detail-actions {
@@ -3239,6 +3354,45 @@ export function ProjectsBoard() {
 
         .content-textarea::placeholder {
           color: #7f8a9a;
+        }
+
+        .detail.drag-over {
+          background: rgba(58, 134, 255, 0.03);
+        }
+
+        .detail-drop-zone {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+        }
+
+        .detail.drag-over .detail-drop-zone {
+          pointer-events: auto;
+        }
+
+        .detail-drop-overlay {
+          position: absolute;
+          inset: 0;
+          background: rgba(58, 134, 255, 0.1);
+          border: 2px dashed #3a86ff;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: none;
+          z-index: 10;
+        }
+
+        .detail-pending-files {
+          margin-top: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .detail-pending-label {
+          font-size: 12px;
+          color: #7d8796;
         }
 
         .detail-body :is(h1, h2, h3) {
