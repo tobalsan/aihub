@@ -1,4 +1,6 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   fetchFullHistory,
   fetchSubagents,
@@ -56,6 +58,11 @@ function formatJson(args: unknown): string {
   } catch {
     return String(args);
   }
+}
+
+function renderMarkdown(content: string): string {
+  const html = marked.parse(content, { breaks: true, async: false }) as string;
+  return DOMPurify.sanitize(html);
 }
 
 function extractBlockText(text: unknown): string {
@@ -346,6 +353,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
 }
 
 function renderLogItem(item: LogItem) {
+  const useMarkdown = item.tone === "assistant" || item.tone === "user";
   if (item.collapsible) {
     const summaryText = item.title ?? item.body.split("\n")[0] ?? "Details";
     return (
@@ -363,7 +371,11 @@ function renderLogItem(item: LogItem) {
       {logIcon(item.icon)}
       <div class="log-stack">
         {item.title && <div class="log-title">{item.title}</div>}
-        <pre class="log-text">{item.body}</pre>
+        {useMarkdown ? (
+          <div class="log-text log-markdown" innerHTML={renderMarkdown(item.body)} />
+        ) : (
+          <pre class="log-text">{item.body}</pre>
+        )}
       </div>
     </div>
   );
@@ -1073,6 +1085,7 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           flex-direction: column;
           height: 100%;
+          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
         }
 
         .chat-header {
@@ -1319,7 +1332,6 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          font-family: "0xProto Nerd Font Mono", "SF Mono", "Menlo", monospace;
           font-size: 14px;
           color: #cfd6e2;
           flex: 1;
@@ -1410,6 +1422,56 @@ export function AgentChat(props: AgentChatProps) {
           margin: 0;
           white-space: pre-wrap;
           word-break: break-word;
+          line-height: 1.45;
+        }
+
+        .log-markdown {
+          white-space: normal;
+        }
+
+        .log-markdown p {
+          margin: 0;
+        }
+
+        .log-markdown p + p {
+          margin-top: 6px;
+        }
+
+        .log-markdown code {
+          background: rgba(8, 11, 16, 0.7);
+          border-radius: 4px;
+          padding: 1px 4px;
+          font-family: "SF Mono", "Consolas", monospace;
+        }
+
+        .log-markdown pre {
+          margin: 6px 0 0;
+          padding: 8px;
+          background: rgba(8, 11, 16, 0.6);
+          border-radius: 8px;
+          overflow: auto;
+          font-family: "SF Mono", "Consolas", monospace;
+        }
+
+        .log-markdown pre code {
+          background: transparent;
+          padding: 0;
+        }
+
+        .log-markdown ul,
+        .log-markdown ol {
+          margin: 6px 0;
+          padding-left: 20px;
+        }
+
+        .log-markdown li + li {
+          margin-top: 4px;
+        }
+
+        .log-markdown hr {
+          margin: 8px 0;
+          border: 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.12);
         }
 
         .log-empty {
