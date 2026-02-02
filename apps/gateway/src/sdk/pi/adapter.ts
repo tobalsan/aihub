@@ -357,6 +357,13 @@ export const piAdapter: SdkAdapter = {
         }
 
         params.onEvent({ type: "tool_end", toolName, isError });
+        params.onEvent({
+          type: "tool_result",
+          id: toolCallId,
+          name: toolName,
+          content,
+          isError,
+        });
         params.onHistoryEvent({
           type: "tool_result",
           id: toolCallId,

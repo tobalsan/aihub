@@ -346,7 +346,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
 }
 
 function renderLogItem(item: LogItem) {
-  if (item.collapsible && item.body.length > 0) {
+  if (item.collapsible) {
     const summaryText = item.title ?? item.body.split("\n")[0] ?? "Details";
     return (
       <details class={`log-line ${item.tone} collapsible`} open={false}>
@@ -354,7 +354,7 @@ function renderLogItem(item: LogItem) {
           {logIcon(item.icon)}
           <span>{summaryText}</span>
         </summary>
-        <pre class="log-text">{item.body}</pre>
+        <pre class="log-text">{item.body.length > 0 ? item.body : "Empty content"}</pre>
       </details>
     );
   }
@@ -489,6 +489,10 @@ export function AgentChat(props: AgentChatProps) {
   const [pendingCliUserMessages, setPendingCliUserMessages] = createSignal<string[]>([]);
   const [subagentAwaitingResponse, setSubagentAwaitingResponse] = createSignal(false);
   const [subagentSending, setSubagentSending] = createSignal(false);
+  const streamingToolCalls = new Map<
+    string,
+    { index: number; name: string; args: Record<string, unknown> }
+  >();
 
   let streamCleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
@@ -550,6 +554,102 @@ export function AgentChat(props: AgentChatProps) {
 
   const markAihubStreaming = () => {
     if (aihubPending()) setAihubPending(false);
+  };
+
+  const resolveToolPath = (args: Record<string, unknown>) => {
+    if (typeof args.path === "string") return args.path;
+    if (typeof args.file_path === "string") return args.file_path;
+    return "";
+  };
+
+  const appendStreamingToolCall = (id: string, name: string, rawArgs: unknown) => {
+    const args = rawArgs && typeof rawArgs === "object" ? (rawArgs as Record<string, unknown>) : {};
+    const toolKey = name.toLowerCase();
+    let item: LogItem;
+
+    if (toolKey === "read") {
+      const path = resolveToolPath(args);
+      item = {
+        tone: "muted",
+        icon: "read",
+        title: `read ${path}`.trim(),
+        body: "",
+        collapsible: true,
+      };
+    } else if (toolKey === "bash") {
+      const command = typeof args.command === "string" ? args.command : "";
+      const params = typeof args.args === "string" ? args.args : "";
+      const description = typeof args.description === "string" ? args.description : "";
+      const summary = ["Bash", command, params, description].filter((part) => part.trim()).join(" ");
+      item = {
+        tone: "muted",
+        icon: "bash",
+        title: summary || "Bash",
+        body: "",
+        collapsible: true,
+      };
+    } else if (toolKey === "write") {
+      const path = resolveToolPath(args);
+      const content = typeof args.content === "string" ? args.content : "";
+      item = {
+        tone: "muted",
+        icon: "write",
+        title: `write ${path}`.trim(),
+        body: content,
+        collapsible: true,
+      };
+    } else {
+      item = {
+        tone: "muted",
+        icon: "tool",
+        title: name ? `Tool: ${name}` : "Tool",
+        body: "",
+        collapsible: true,
+      };
+    }
+
+    setAihubLogs((prev) => {
+      streamingToolCalls.set(id, { index: prev.length, name, args });
+      return [...prev, item];
+    });
+  };
+
+  const updateStreamingToolResult = (
+    id: string,
+    content: string,
+    details?: { diff?: string }
+  ) => {
+    const entry = streamingToolCalls.get(id);
+    if (!entry) return;
+
+    const toolKey = entry.name.toLowerCase();
+    if (toolKey === "write") return;
+
+    const nextBody =
+      content ||
+      (toolKey === "read" || toolKey === "bash" ? "" : formatJson(entry.args));
+
+    setAihubLogs((prev) => {
+      if (entry.index < 0 || entry.index >= prev.length) return prev;
+      const current = prev[entry.index];
+      if (current.body === nextBody) return prev;
+      const next = [...prev];
+      next[entry.index] = { ...current, body: nextBody };
+      return next;
+    });
+
+    if (details?.diff) {
+      setAihubLogs((prev) => [
+        ...prev,
+        {
+          tone: "muted",
+          icon: "diff",
+          title: "Diff",
+          body: details.diff ?? "",
+          collapsible: true,
+        },
+      ]);
+    }
   };
 
   const loadAihubHistory = async () => {
@@ -634,6 +734,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubPending(false);
     setPendingFiles([]);
     setPendingAihubUserMessages([]);
+    streamingToolCalls.clear();
     setCliLogs([]);
     setCliCursor(0);
     setPendingCliUserMessages([]);
@@ -749,6 +850,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubLive("");
     setAihubStreaming(true);
     setAihubPending(true);
+    streamingToolCalls.clear();
     resizeTextarea("");
 
     streamCleanup?.();
@@ -761,25 +863,45 @@ export function AgentChat(props: AgentChatProps) {
         setAihubLive((prev) => prev + chunk);
       },
       () => {
+        const finalText = aihubLive();
+        if (finalText) {
+          setAihubLogs((prev) => [...prev, { tone: "assistant", body: finalText }]);
+        }
         setAihubStreaming(false);
         setAihubLive("");
         setAihubPending(false);
-        loadAihubHistory();
+        streamingToolCalls.clear();
+        setPendingAihubUserMessages((prev) => {
+          const idx = prev.indexOf(text);
+          if (idx === -1) return prev;
+          return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+        });
       },
       (err) => {
         setError(err);
         setAihubStreaming(false);
         setAihubPending(false);
+        streamingToolCalls.clear();
       },
       {
-        onThinking: () => markAihubStreaming(),
-        onToolStart: () => markAihubStreaming(),
+        onThinking: (_chunk) => {
+          markAihubStreaming();
+        },
+        onToolCall: (id, name, args) => {
+          markAihubStreaming();
+          appendStreamingToolCall(id, name, args);
+        },
+        onToolResult: (id, _name, content, _isError, details) => {
+          markAihubStreaming();
+          updateStreamingToolResult(id, content, details);
+        },
         onSessionReset: () => {
           setAihubLogs([]);
           setAihubLive("");
           setAihubStreaming(false);
           setAihubPending(false);
           setPendingAihubUserMessages([]);
+          streamingToolCalls.clear();
         },
       },
       { attachments: fileAttachments.length > 0 ? fileAttachments : undefined }

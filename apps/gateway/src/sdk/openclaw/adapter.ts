@@ -364,6 +364,13 @@ export class OpenClawConnector implements SdkAdapter {
                     ? ""
                     : JSON.stringify(result);
               params.onEvent({ type: "tool_end", toolName: name, isError: false });
+              params.onEvent({
+                type: "tool_result",
+                id: toolId,
+                name,
+                content,
+                isError: false,
+              });
               params.onHistoryEvent({
                 type: "tool_result",
                 id: toolId,

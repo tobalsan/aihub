@@ -111,6 +111,13 @@ export type StreamCallbacks = {
   onText: (text: string) => void;
   onThinking?: (text: string) => void;
   onToolCall?: (id: string, name: string, args: unknown) => void;
+  onToolResult?: (
+    id: string,
+    name: string,
+    content: string,
+    isError: boolean,
+    details?: { diff?: string }
+  ) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
   onSessionReset?: (sessionId: string) => void;
@@ -191,6 +198,15 @@ export function streamMessage(
       case "tool_call":
         callbacks?.onToolCall?.(event.id, event.name, event.arguments);
         break;
+      case "tool_result":
+        callbacks?.onToolResult?.(
+          event.id,
+          event.name,
+          event.content,
+          event.isError ?? false,
+          event.details
+        );
+        break;
       case "tool_start":
         callbacks?.onToolStart?.(event.toolName);
         break;
@@ -224,6 +240,13 @@ export type SubscriptionCallbacks = {
   onText?: (text: string) => void;
   onThinking?: (text: string) => void;
   onToolCall?: (id: string, name: string, args: unknown) => void;
+  onToolResult?: (
+    id: string,
+    name: string,
+    content: string,
+    isError: boolean,
+    details?: { diff?: string }
+  ) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
   onDone?: () => void;
@@ -257,6 +280,15 @@ export function subscribeToSession(
         break;
       case "tool_call":
         callbacks.onToolCall?.(event.id, event.name, event.arguments);
+        break;
+      case "tool_result":
+        callbacks.onToolResult?.(
+          event.id,
+          event.name,
+          event.content,
+          event.isError ?? false,
+          event.details
+        );
         break;
       case "tool_start":
         callbacks.onToolStart?.(event.toolName);

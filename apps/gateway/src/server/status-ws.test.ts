@@ -9,9 +9,9 @@ describe("gateway status websocket", () => {
   let tmpDir: string;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
-  let server: import("node:http").Server;
+  let server: ReturnType<typeof import("@hono/node-server").serve>;
   let port: number;
-  let startServer: (port?: number, host?: string) => import("node:http").Server;
+  let startServer: (port?: number, host?: string) => ReturnType<typeof import("@hono/node-server").serve>;
   let setSessionStreaming: (
     agentId: string,
     sessionId: string,

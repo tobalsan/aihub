@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import * as path from "node:path";
 import {
   SendMessageRequestSchema,
@@ -491,7 +492,8 @@ api.get("/projects/:id/attachments/:name", async (c) => {
 
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
-  return c.body(createReadStream(result.data.path));
+  const nodeStream = createReadStream(result.data.path);
+  return c.body(Readable.toWeb(nodeStream) as ReadableStream);
 });
 
 // GET /api/projects/:id/subagents - list subagents

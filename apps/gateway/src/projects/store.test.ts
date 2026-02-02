@@ -32,7 +32,7 @@ describe("projects store", () => {
 
   it("creates projects with metadata and increments ids", async () => {
     const { createProject, listProjects, getProject } = await import("./store.js");
-    const config = { agents: [], projects: { root: projectsRoot } };
+    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
 
     const firstResult = await createProject(config, {
       title: "Alpha Project",
@@ -80,7 +80,7 @@ describe("projects store", () => {
 
   it("rejects titles with fewer than two words", async () => {
     const { createProject } = await import("./store.js");
-    const config = { agents: [], projects: { root: projectsRoot } };
+    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
 
     const result = await createProject(config, { title: "Solo" });
     expect(result.ok).toBe(false);

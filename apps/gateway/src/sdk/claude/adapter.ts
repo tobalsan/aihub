@@ -336,6 +336,13 @@ export const claudeAdapter: SdkAdapter = {
                     toolName,
                     isError: block.is_error ?? false,
                   });
+                  params.onEvent({
+                    type: "tool_result",
+                    id: block.tool_use_id,
+                    name: toolName,
+                    content: content ?? "",
+                    isError: block.is_error ?? false,
+                  });
                   params.onHistoryEvent({
                     type: "tool_result",
                     id: block.tool_use_id,
