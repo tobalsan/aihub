@@ -1151,7 +1151,7 @@ describe("heartbeat lifecycle", () => {
     it("reschedules timer after heartbeat completes", async () => {
       const agent = {
         id: "agent-1",
-        heartbeat: { every: "1m" },
+        heartbeat: { every: "1m", prompt: "Ping" },
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
@@ -1183,7 +1183,7 @@ describe("heartbeat lifecycle", () => {
     it("continues rescheduling after runAgent fails", async () => {
       const agent = {
         id: "agent-1",
-        heartbeat: { every: "1m" },
+        heartbeat: { every: "1m", prompt: "Ping" },
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
@@ -1238,7 +1238,7 @@ describe("heartbeat lifecycle", () => {
         }
         return {
           id: "agent-1",
-          heartbeat: { every: "1m" },
+          heartbeat: { every: "1m", prompt: "Ping" },
           discord: { broadcastToChannel: "channel-1" },
           workspace: "/test",
         };
