@@ -109,12 +109,12 @@ export const AgentAuthConfigSchema = z.object({
 export type AgentAuthConfig = z.infer<typeof AgentAuthConfigSchema>;
 
 // Agent config
-export const AgentConfigSchema = z.object({
+const AgentConfigBaseSchema = z.object({
   id: z.string(),
   name: z.string(),
   workspace: z.string(),
   sdk: SdkIdSchema.optional(), // default "pi"
-  model: AgentModelConfigSchema,
+  model: AgentModelConfigSchema.optional(),
   openclaw: OpenClawConfigSchema.optional(),
   auth: AgentAuthConfigSchema.optional(), // OAuth/API key auth config
   discord: DiscordConfigSchema.optional(),
@@ -123,6 +123,20 @@ export const AgentConfigSchema = z.object({
   amsg: AmsgConfigSchema.optional(),
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
+});
+export const AgentConfigSchema = AgentConfigBaseSchema.superRefine((value, ctx) => {
+  if (value.sdk !== "openclaw" && !value.model) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "model is required",
+      path: ["model"],
+    });
+  }
+}).transform((value): Omit<typeof value, "model"> & { model: AgentModelConfig } => {
+  if (value.sdk === "openclaw" && !value.model) {
+    return { ...value, model: { provider: "openclaw", model: "unknown" } };
+  }
+  return value as Omit<typeof value, "model"> & { model: AgentModelConfig };
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 

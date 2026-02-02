@@ -492,8 +492,7 @@ api.get("/projects/:id/attachments/:name", async (c) => {
 
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
-  const nodeStream = createReadStream(result.data.path);
-  return c.body(Readable.toWeb(nodeStream) as ReadableStream);
+  return c.body(Readable.toWeb(createReadStream(result.data.path)) as ReadableStream);
 });
 
 // GET /api/projects/:id/subagents - list subagents

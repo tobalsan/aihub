@@ -9,9 +9,9 @@ describe("gateway status websocket", () => {
   let tmpDir: string;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
-  let server: ReturnType<typeof import("@hono/node-server").serve>;
+  let server: ReturnType<typeof import("./index.js").startServer>;
   let port: number;
-  let startServer: (port?: number, host?: string) => ReturnType<typeof import("@hono/node-server").serve>;
+  let startServer: typeof import("./index.js").startServer;
   let setSessionStreaming: (
     agentId: string,
     sessionId: string,
@@ -86,7 +86,7 @@ describe("gateway status websocket", () => {
 
     await new Promise<void>((resolve) => ws.once("open", () => resolve()));
     ws.send(JSON.stringify({ type: "subscribeStatus" }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const sessionId = `ws-${Date.now()}`;
     setSessionStreaming("status-agent", sessionId, true);
