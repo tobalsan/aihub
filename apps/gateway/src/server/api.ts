@@ -36,6 +36,7 @@ import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches }
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
 import { getRecentActivity, recordProjectStatusActivity } from "../activity/index.js";
 import { saveUploadedFile, isAllowedMimeType, getAllowedMimeTypes } from "../media/upload.js";
+import { parseMarkdownFile } from "../taskboard/parser.js";
 
 const api = new Hono();
 
@@ -311,6 +312,14 @@ api.post("/projects/:id/start", async (c) => {
   const relBasePath = project.path.replace(/\/$/, "");
   const relReadmePath = relBasePath.endsWith("README.md") ? relBasePath : `${relBasePath}/README.md`;
   const readmePath = runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
+  const threadPath = path.join(basePath, "THREAD.md");
+  let threadContent = "";
+  try {
+    const parsedThread = await parseMarkdownFile(threadPath);
+    threadContent = parsedThread.content.trim();
+  } catch {
+    // ignore missing thread
+  }
 
   // Combine all docs content (README first, then others)
   const docKeys = Object.keys(project.docs ?? {}).sort((a, b) => {
@@ -319,6 +328,9 @@ api.post("/projects/:id/start", async (c) => {
     return a.localeCompare(b);
   });
   let fullContent = project.docs?.README ?? "";
+  if (threadContent) {
+    fullContent += `\n\n## THREAD\n\n${threadContent}`;
+  }
   for (const key of docKeys) {
     if (key === "README") continue;
     const docContent = project.docs?.[key];
@@ -330,7 +342,7 @@ api.post("/projects/:id/start", async (c) => {
   const prompt = buildProjectStartPrompt({
     title: project.title,
     status,
-    path: project.path,
+    path: basePath,
     content: fullContent,
     specsPath: readmePath,
     repo,

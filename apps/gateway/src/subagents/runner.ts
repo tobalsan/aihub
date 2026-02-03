@@ -43,12 +43,13 @@ function getProjectsRoot(config: GatewayConfig): string {
   return expandPath(root);
 }
 
-function buildProjectSummary(title: string, status: string, content: string): string {
+function buildProjectSummary(title: string, status: string, projectPath: string, content: string): string {
   const lines = [
     "Let's tackle the following project:",
     "",
     title,
     status,
+    `Project folder: ${projectPath}`,
     content,
   ];
   return lines.join("\n").trimEnd();
@@ -255,6 +256,13 @@ export async function spawnSubagent(
   const projectDir = path.join(root, dirName);
   const readmePath = path.join(projectDir, "README.md");
   const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
+  let threadContent = "";
+  try {
+    const parsedThread = await parseMarkdownFile(path.join(projectDir, "THREAD.md"));
+    threadContent = parsedThread.content.trim();
+  } catch {
+    // ignore missing thread
+  }
   const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
@@ -278,6 +286,9 @@ export async function spawnSubagent(
     });
 
   let fullContent = content ?? "";
+  if (threadContent) {
+    fullContent += `\n\n## THREAD\n\n${threadContent}`;
+  }
   for (const file of mdFiles) {
     if (file.toUpperCase() === "README.MD") continue;
     try {
@@ -293,7 +304,7 @@ export async function spawnSubagent(
 
   const resolvedTitle = typeof frontmatter.title === "string" ? frontmatter.title : title ?? "";
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
-  const summary = buildProjectSummary(resolvedTitle, status, fullContent);
+  const summary = buildProjectSummary(resolvedTitle, status, projectDir, fullContent);
 
   const mode: SubagentMode = input.mode;
   const repoHasGit = await fs
