@@ -483,7 +483,7 @@ You can set environment variables directly in `aihub.json` using the `env` field
 
 ```bash
 pnpm install
-pnpm dev          # gateway + web UI (ui.enabled default true)
+pnpm dev          # gateway + web UI in dev mode
 pnpm dev:gateway  # gateway only (tsx watch)
 pnpm dev:web      # web UI only (Vite dev server)
 pnpm build        # TypeScript compile
@@ -491,3 +491,22 @@ pnpm aihub <cmd>  # Run CLI
 ```
 
 Set `ui.enabled: false` in config to disable automatic web UI startup.
+
+### Dev Mode (`--dev` flag)
+
+`pnpm dev` runs the gateway with the `--dev` flag, enabling:
+
+- **Auto port discovery**: If ports 4000/3000 are in use, automatically finds free ports (up to +50)
+- **Service isolation**: Discord, scheduler, amsg watcher, and heartbeats are disabled
+- **Tailscale skip**: No tailscale serve setup (avoids overwriting production routes)
+- **Visual identification**:
+  - Console banner showing active ports and disabled services
+  - Browser tab title: `[DEV :3001] AIHub`
+  - Orange `DEV` badge in sidebar
+
+Multiple dev instances can run simultaneously, each auto-discovering unique ports.
+
+To run gateway in production mode for testing:
+```bash
+pnpm aihub gateway  # No --dev flag, starts all services
+```

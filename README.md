@@ -366,9 +366,25 @@ ln -s agent .pi
 ## Development
 
 ```bash
-pnpm dev          # gateway + web UI (auto-starts if ui.enabled !== false)
-pnpm dev:gateway  # gateway only
+pnpm dev          # dev mode: auto-finds ports, disables Discord/scheduler/heartbeat
+pnpm dev:gateway  # gateway only with hot reload (no --dev flag, all services enabled)
 pnpm dev:web      # web UI only
+```
+
+### Dev Mode
+
+`pnpm dev` runs with the `--dev` flag, which:
+
+- **Auto-finds free ports** if 4000/3000 are in use (scans up to +50)
+- **Disables external services**: Discord, scheduler, amsg watcher, heartbeats
+- **Skips Tailscale serve** setup
+- **Visual indicators**: console banner, `[DEV :port]` browser title, orange sidebar badge
+
+Run multiple dev instances simultaneously - each gets unique ports.
+
+For production-like testing with all services:
+```bash
+pnpm aihub gateway  # no --dev flag
 ```
 
 ## Data

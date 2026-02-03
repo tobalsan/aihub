@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-02-03)
+Date: 2026-01-27 (updated 2026-02-04)
 Repo: `/Users/thinh/code/aihub`
 
 ---
@@ -467,6 +467,27 @@ Kanban UI details:
   - `apps/web/src/components/AgentChat.tsx`
   - `apps/web/src/components/AgentList.tsx`
   - `apps/web/src/components/ProjectsBoard.tsx`
+
+### 26) Dev Mode (`--dev` flag)
+- Enables fast iteration by running dev instances alongside production.
+- Auto port discovery: scans from base port +50 if default ports (4000/3000) are in use.
+- Service isolation: Discord, scheduler, amsg watcher, heartbeats all disabled in dev mode.
+- Tailscale skip: no `tailscale serve` setup (avoids overwriting production routes).
+- Visual identification:
+  - Console banner showing active ports and disabled services
+  - Browser tab title: `[DEV :port] AIHub`
+  - Orange `DEV` badge in sidebar header
+- Multiple dev instances can run simultaneously with unique ports.
+- `pnpm dev` always passes `--dev`; `pnpm dev:gateway` runs without it for production-like testing.
+- Files:
+  - `apps/gateway/src/server/ports.ts` (new: `findFreePort()`, `isPortFree()`)
+  - `apps/gateway/src/cli/index.ts` (`--dev` flag, conditional service startup, banner)
+  - `scripts/dev.ts` (port discovery, passes `--dev` + ports to subprocesses)
+  - `apps/web/vite.config.ts` (reads `AIHUB_GATEWAY_PORT`, injects `__AIHUB_DEV__`)
+  - `apps/web/scripts/dev.ts` (skips Tailscale when `AIHUB_DEV=1`)
+  - `apps/web/src/globals.d.ts` (new: TypeScript declarations for Vite globals)
+  - `apps/web/src/App.tsx` (dynamic document title)
+  - `apps/web/src/components/AgentSidebar.tsx` (DEV badge)
 
 ## Next (Not Done)
 
