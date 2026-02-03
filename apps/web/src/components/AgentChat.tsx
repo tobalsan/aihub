@@ -6,6 +6,7 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   getSessionKey,
+  killSubagent,
   spawnSubagent,
   streamMessage,
   subscribeToSession,
@@ -935,6 +936,27 @@ export function AgentChat(props: AgentChatProps) {
           ←
         </button>
         <h3>{props.agentName ?? "Select an agent"}</h3>
+        <Show when={props.agentType === "subagent" && props.subagentInfo}>
+          <button
+            class="kill-btn"
+            type="button"
+            title="Kill subagent"
+            onClick={async () => {
+              const info = props.subagentInfo!;
+              if (!window.confirm(`Kill subagent ${info.slug}? This removes all workspace data.`)) return;
+              const res = await killSubagent(info.projectId, info.slug);
+              if (res.ok) {
+                props.onBack();
+              } else {
+                setError(res.error);
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+            </svg>
+          </button>
+        </Show>
       </div>
 
       <div
@@ -1117,6 +1139,27 @@ export function AgentChat(props: AgentChatProps) {
         .back-btn:focus-visible {
           outline: 2px solid rgba(59, 130, 246, 0.6);
           outline-offset: 2px;
+        }
+
+        .chat-header .kill-btn {
+          margin-left: auto;
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          color: #666;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .chat-header .kill-btn svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .chat-header .kill-btn:hover {
+          color: #e53935;
         }
 
         .chat-messages {

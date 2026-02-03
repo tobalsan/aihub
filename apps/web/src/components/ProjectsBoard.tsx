@@ -13,6 +13,7 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   fetchProjectBranches,
+  killSubagent,
   uploadAttachments,
 } from "../api/client";
 import type {
@@ -2284,6 +2285,25 @@ export function ProjectsBoard() {
                                 <div class="run-title">{run.label}</div>
                                 <div class="run-time">{timeLabel}</div>
                               </div>
+                              <Show when={run.type === "subagent" && run.slug}>
+                                <button
+                                  class="kill-btn"
+                                  type="button"
+                                  title="Kill subagent"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const projectId = detail()?.id;
+                                    if (!projectId || !run.slug) return;
+                                    if (!window.confirm(`Kill subagent ${run.slug}? This removes all workspace data.`)) return;
+                                    await killSubagent(projectId, run.slug);
+                                    // Polling handles refresh; run will disappear within 2s
+                                  }}
+                                >
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+                                  </svg>
+                                </button>
+                              </Show>
                             </button>
                           );
                         }}
@@ -3841,6 +3861,28 @@ export function ProjectsBoard() {
           text-transform: uppercase;
           letter-spacing: 0.08em;
           color: #8b96a5;
+        }
+
+        .run-row .kill-btn {
+          margin-left: auto;
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          color: #666;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .run-row .kill-btn svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .run-row .kill-btn:hover {
+          color: #e53935;
         }
 
         .runs-logs {

@@ -562,6 +562,25 @@ export async function interruptSubagent(
   return { ok: true, data };
 }
 
+export type KillSubagentResult =
+  | { ok: true; data: { slug: string } }
+  | { ok: false; error: string };
+
+export async function killSubagent(
+  projectId: string,
+  slug: string
+): Promise<KillSubagentResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/kill`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to kill subagent" }));
+    return { ok: false, error: data.error ?? "Failed to kill subagent" };
+  }
+  const data = (await res.json()) as { slug: string };
+  return { ok: true, data };
+}
+
 export type UploadedAttachment = {
   originalName: string;
   savedName: string;

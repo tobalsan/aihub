@@ -578,5 +578,16 @@ export async function killSubagent(
   }
 
   await fs.rm(workspaceDir, { recursive: true, force: true });
+
+  // Remove parent folder (PRO-XX) if empty
+  try {
+    const remaining = await fs.readdir(workspacesRoot);
+    if (remaining.length === 0) {
+      await fs.rmdir(workspacesRoot);
+    }
+  } catch {
+    // ignore - folder may not exist or already removed
+  }
+
   return { ok: true, data: { slug } };
 }
