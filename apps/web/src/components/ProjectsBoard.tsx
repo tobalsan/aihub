@@ -1739,6 +1739,18 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
+    if (!createSuccess()) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setCreateSuccess(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
+  createEffect(() => {
     if (!createModalOpen()) return;
     saveFormToStorage({
       title: createTitle(),
@@ -1776,7 +1788,7 @@ export function ProjectsBoard() {
       }}
     >
       <Show when={createSuccess()}>
-        <div class="create-success">
+        <div class="create-success" onClick={() => setCreateSuccess(null)}>
           <div class="create-success-card">
             <div class="create-success-title">Project created</div>
             <div class="create-success-subtitle">{createSuccess()}</div>
