@@ -658,3 +658,23 @@ export async function updateProjectComment(
   if (!res.ok) throw new Error("Failed to update comment");
   return res.json();
 }
+
+export type StartProjectRunResult =
+  | { ok: true; type: "aihub" | "cli"; slug?: string; runMode?: string }
+  | { ok: false; error: string };
+
+export async function startProjectRun(
+  projectId: string,
+  customPrompt?: string
+): Promise<StartProjectRunResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ customPrompt }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to start run" }));
+    return { ok: false, error: data.error ?? "Failed to start run" };
+  }
+  return res.json();
+}

@@ -18,6 +18,7 @@ import {
   uploadAttachments,
   addProjectComment,
   updateProjectComment,
+  startProjectRun,
 } from "../api/client";
 import type {
   ProjectListItem,
@@ -900,6 +901,9 @@ export function ProjectsBoard() {
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
   const [branches, setBranches] = createSignal<string[]>([]);
+  const [customStartEnabled, setCustomStartEnabled] = createSignal(false);
+  const [customStartPrompt, setCustomStartPrompt] = createSignal("");
+  const [startError, setStartError] = createSignal("");
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
   const [subagentError, setSubagentError] = createSignal<string | null>(null);
   const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
@@ -1031,6 +1035,15 @@ export function ProjectsBoard() {
     if (value.startsWith("aihub:")) return { type: "aihub" as const, id: value.slice(6) };
     if (value.startsWith("cli:")) return { type: "cli" as const, id: value.slice(4) };
     return null;
+  });
+
+  const canStart = createMemo(() => {
+    const agent = selectedRunAgent();
+    if (!agent) return false;
+    if (agent.type === "aihub") return true;
+    if (!detailRepo()) return false;
+    if (detailRunMode() === "worktree" && !detailSlug().trim()) return false;
+    return true;
   });
 
   const agentType = createMemo(() => {
@@ -1493,6 +1506,25 @@ export function ProjectsBoard() {
   const handleRunModeChange = async (id: string, runMode: string) => {
     setDetailRunMode(runMode);
     await updateProject(id, { runMode });
+    await refetchDetail();
+  };
+
+  const handleStart = async (projectId: string) => {
+    setStartError("");
+    const custom = customStartEnabled() ? customStartPrompt().trim() : undefined;
+    const result = await startProjectRun(projectId, custom);
+    if (!result.ok) {
+      setStartError(result.error);
+      return;
+    }
+    // Auto-advance to in_progress if currently todo
+    if (detailStatus() === "todo") {
+      setDetailStatus("in_progress");
+      await updateProject(projectId, { status: "in_progress" });
+    }
+    setCustomStartPrompt("");
+    setCustomStartEnabled(false);
+    await refetch();
     await refetchDetail();
   };
 
@@ -2479,7 +2511,38 @@ const handleDetailDragOver = (e: DragEvent) => {
                 <div class="runs-panel">
                   <div class="runs-header">
                     <h3 class="runs-title">Agent Runs</h3>
+                    <Show when={!isMonitoringHidden()}>
+                      <div class="runs-actions">
+                        <label class="start-custom-toggle">
+                          <input
+                            type="checkbox"
+                            checked={customStartEnabled()}
+                            onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
+                          />
+                          <span>custom</span>
+                        </label>
+                        <button
+                          class="start-btn"
+                          onClick={() => handleStart(params.id ?? "")}
+                          disabled={!canStart()}
+                        >
+                          Start
+                        </button>
+                      </div>
+                    </Show>
                   </div>
+                  <Show when={customStartEnabled()}>
+                    <textarea
+                      class="custom-start-textarea"
+                      rows={2}
+                      value={customStartPrompt()}
+                      placeholder="Add a one-off custom prompt..."
+                      onInput={(e) => setCustomStartPrompt(e.currentTarget.value)}
+                    />
+                  </Show>
+                  <Show when={startError()}>
+                    <div class="monitoring-error">{startError()}</div>
+                  </Show>
                   <Show when={subagentError()}>
                     <div class="monitoring-error">{subagentError()}</div>
                   </Show>
@@ -4207,6 +4270,33 @@ const handleDetailDragOver = (e: DragEvent) => {
           display: flex;
           align-items: center;
           justify-content: space-between;
+          margin-bottom: 8px;
+        }
+
+        .runs-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .custom-start-textarea {
+          width: 100%;
+          min-height: 50px;
+          max-height: 100px;
+          resize: vertical;
+          background: #141b26;
+          border: 1px solid #1f2631;
+          border-radius: 6px;
+          padding: 8px;
+          color: #b8c4d0;
+          font-size: 12px;
+          font-family: inherit;
+          margin-bottom: 8px;
+        }
+
+        .custom-start-textarea:focus {
+          outline: none;
+          border-color: #3e7bfa;
         }
 
         .runs-title {
