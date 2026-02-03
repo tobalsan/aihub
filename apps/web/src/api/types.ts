@@ -224,6 +224,12 @@ export type ProjectDetail = {
   content: string;
 };
 
+export type DeleteProjectResponse = {
+  id: string;
+  path: string;
+  trashedPath: string;
+};
+
 export type ProjectUpdatePayload = {
   title?: string;
   domain?: string;

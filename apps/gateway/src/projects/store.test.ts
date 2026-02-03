@@ -87,4 +87,26 @@ describe("projects store", () => {
     if (result.ok) return;
     expect(result.error).toBe("Title must contain at least two words");
   });
+
+  it("moves deleted projects into trash and creates the trash folder", async () => {
+    const { createProject, deleteProject } = await import("./store.js");
+    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+
+    const created = await createProject(config, { title: "Trash Project" });
+    if (!created.ok) throw new Error(created.error);
+
+    const trashRoot = path.join(projectsRoot, "trash");
+    await expect(fs.stat(trashRoot)).rejects.toBeDefined();
+
+    const deleted = await deleteProject(config, created.data.id);
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) return;
+
+    const sourcePath = path.join(projectsRoot, created.data.path);
+    const targetPath = path.join(projectsRoot, deleted.data.trashedPath);
+
+    await expect(fs.access(sourcePath)).rejects.toBeDefined();
+    await expect(fs.stat(targetPath)).resolves.toBeDefined();
+    await expect(fs.stat(trashRoot)).resolves.toBeDefined();
+  });
 });

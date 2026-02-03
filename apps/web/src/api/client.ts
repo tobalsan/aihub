@@ -9,6 +9,7 @@ import type {
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
+  DeleteProjectResponse,
   ActivityResponse,
   AgentStatusResponse,
   SubagentGlobalListResponse,
@@ -459,6 +460,20 @@ export async function updateProject(
     throw new Error(data.error ?? "Failed to update project");
   }
   return res.json();
+}
+
+export type DeleteProjectResult =
+  | { ok: true; data: DeleteProjectResponse }
+  | { ok: false; error: string };
+
+export async function deleteProject(id: string): Promise<DeleteProjectResult> {
+  const res = await fetch(`${API_BASE}/projects/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to delete project" }));
+    return { ok: false, error: data.error ?? "Failed to delete project" };
+  }
+  const data = (await res.json()) as DeleteProjectResponse;
+  return { ok: true, data };
 }
 
 export async function fetchAllSubagents(): Promise<SubagentGlobalListResponse> {

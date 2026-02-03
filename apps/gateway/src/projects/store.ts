@@ -32,6 +32,10 @@ export type ProjectItemResult =
   | { ok: true; data: ProjectDetail }
   | { ok: false; error: string };
 
+export type DeleteProjectResult =
+  | { ok: true; data: { id: string; path: string; trashedPath: string } }
+  | { ok: false; error: string };
+
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
     return path.join(homedir(), p.slice(2));
@@ -324,6 +328,30 @@ export async function updateProject(
       content: nextContent,
     },
   };
+}
+
+export async function deleteProject(
+  config: GatewayConfig,
+  id: string
+): Promise<DeleteProjectResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, id);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${id}` };
+  }
+
+  const trashRoot = path.join(root, "trash");
+  await ensureDir(trashRoot);
+
+  const sourcePath = path.join(root, dirName);
+  const targetPath = path.join(trashRoot, dirName);
+  if (await dirExists(targetPath)) {
+    return { ok: false, error: `Trash already contains project: ${dirName}` };
+  }
+
+  await fs.rename(sourcePath, targetPath);
+
+  return { ok: true, data: { id, path: dirName, trashedPath: path.join("trash", dirName) } };
 }
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);

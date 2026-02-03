@@ -24,6 +24,7 @@ import {
   getProject,
   createProject,
   updateProject,
+  deleteProject,
   saveAttachments,
   resolveAttachmentFile,
 } from "../projects/index.js";
@@ -451,6 +452,18 @@ api.patch("/projects/:id", async (c) => {
         status: nextStatus,
       });
     }
+  }
+  return c.json(result.data);
+});
+
+// DELETE /api/projects/:id - delete project (move to trash)
+api.delete("/projects/:id", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await deleteProject(config, id);
+  if (!result.ok) {
+    const status = result.error.startsWith("Trash already contains") ? 409 : 404;
+    return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
 });

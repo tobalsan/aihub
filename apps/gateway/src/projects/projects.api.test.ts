@@ -159,4 +159,34 @@ describe("projects API", () => {
     expect(readme).toContain('appetite: "small"');
     expect(readme).toContain('status: "todo"');
   });
+
+  it("deletes a project and moves it to trash", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Delete Me Project" }),
+    }));
+
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+    const createdDir = path.join(projectsRoot, created.path);
+    const trashRoot = path.join(projectsRoot, "trash");
+
+    await expect(fs.stat(createdDir)).resolves.toBeDefined();
+    await expect(fs.stat(trashRoot)).rejects.toBeDefined();
+
+    const deleteRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
+      method: "DELETE",
+    }));
+
+    expect(deleteRes.status).toBe(200);
+    const deleted = await deleteRes.json();
+    expect(deleted.id).toBe(created.id);
+    expect(deleted.path).toBe(created.path);
+    expect(deleted.trashedPath).toBe(path.join("trash", created.path));
+
+    const trashedDir = path.join(projectsRoot, deleted.trashedPath);
+    await expect(fs.access(createdDir)).rejects.toBeDefined();
+    await expect(fs.stat(trashedDir)).resolves.toBeDefined();
+  });
 });

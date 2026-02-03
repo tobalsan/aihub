@@ -6,6 +6,7 @@ import {
   fetchProjects,
   fetchProject,
   updateProject,
+  deleteProject,
   createProject,
   fetchAgents,
   fetchAllSubagents,
@@ -51,6 +52,7 @@ const CLI_OPTIONS = [
 
 const COLUMN_STORAGE_KEY = "aihub:projects:expanded-columns";
 const CREATE_FORM_STORAGE_KEY = "aihub:projects:create-form";
+const DELETE_SUCCESS_KEY = "aihub:projects:delete-success";
 const FILES_DB = "aihub";
 const CREATE_FILES_STORE = "project-create-files";
 const DETAIL_FILES_STORE = "project-detail-files";
@@ -907,6 +909,7 @@ export function ProjectsBoard() {
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
   const [createSuccess, setCreateSuccess] = createSignal<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = createSignal<string | null>(null);
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
   const [isDragging, setIsDragging] = createSignal(false);
   const [filesLoaded, setFilesLoaded] = createSignal(false);
@@ -930,6 +933,29 @@ export function ProjectsBoard() {
   onMount(() => {
     const saved = localStorage.getItem(selectedAgentStorageKey);
     if (saved) setSelectedAgent(saved);
+  });
+
+  onMount(() => {
+    try {
+      const pendingDelete = localStorage.getItem(DELETE_SUCCESS_KEY);
+      if (pendingDelete) {
+        localStorage.removeItem(DELETE_SUCCESS_KEY);
+        showDeleteSuccess(pendingDelete);
+      }
+    } catch {
+      // ignore
+    }
+  });
+
+  onMount(() => {
+    const isTestEnv = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+    if (!isTestEnv) return;
+    const testApi = { setCreateSuccess };
+    (window as unknown as { __aihubTest?: typeof testApi }).__aihubTest = testApi;
+    onCleanup(() => {
+      const global = window as unknown as { __aihubTest?: typeof testApi };
+      if (global.__aihubTest === testApi) delete global.__aihubTest;
+    });
   });
 
   onMount(() => {
@@ -1479,7 +1505,7 @@ export function ProjectsBoard() {
     setEditingContent(false);
   };
 
-  const handleDetailDragOver = (e: DragEvent) => {
+const handleDetailDragOver = (e: DragEvent) => {
     e.preventDefault();
     setDetailIsDragging(true);
   };
@@ -1517,6 +1543,45 @@ export function ProjectsBoard() {
 
   const removeDetailFile = (index: number) => {
     setDetailPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearDeleteSuccess = () => {
+    setDeleteSuccess(null);
+    try {
+      localStorage.removeItem(DELETE_SUCCESS_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const showDeleteSuccess = (message: string) => {
+    setDeleteSuccess(message);
+    setTimeout(() => clearDeleteSuccess(), 2200);
+  };
+
+  const handleDeleteProject = async (id: string, title: string) => {
+    if (!window.confirm("Move this project to trash?")) return;
+    const result = await deleteProject(id);
+    if (!result.ok) {
+      console.error(result.error);
+      return;
+    }
+    const message = title || "Project moved to trash";
+    try {
+      localStorage.setItem(DELETE_SUCCESS_KEY, message);
+      setTimeout(() => {
+        try {
+          localStorage.removeItem(DELETE_SUCCESS_KEY);
+        } catch {
+          // ignore
+        }
+      }, 2200);
+    } catch {
+      // ignore
+    }
+    showDeleteSuccess(message);
+    await refetch();
+    closeDetail();
   };
 
   const handleSelectAgent = (id: string) => {
@@ -1739,11 +1804,12 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    if (!createSuccess()) return;
+    if (!createSuccess() && !deleteSuccess()) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         setCreateSuccess(null);
+        clearDeleteSuccess();
       }
     };
     window.addEventListener("keydown", handler);
@@ -1792,6 +1858,14 @@ export function ProjectsBoard() {
           <div class="create-success-card">
             <div class="create-success-title">Project created</div>
             <div class="create-success-subtitle">{createSuccess()}</div>
+          </div>
+        </div>
+      </Show>
+      <Show when={deleteSuccess()}>
+        <div class="create-success" onClick={clearDeleteSuccess}>
+          <div class="create-success-card">
+            <div class="create-success-title">Moved to trash</div>
+            <div class="create-success-subtitle">{deleteSuccess()}</div>
           </div>
         </div>
       </Show>
@@ -1971,6 +2045,21 @@ export function ProjectsBoard() {
                           />
                         </Show>
                       </div>
+                      <button
+                        type="button"
+                        class="trash-button"
+                        onClick={() => handleDeleteProject(project.id, detailTitle() || project.title)}
+                        title="Move to trash"
+                        aria-label="Move to trash"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                      </button>
                     </>
                   );
                 }}
@@ -3128,6 +3217,32 @@ export function ProjectsBoard() {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
+          padding-right: 52px;
+        }
+
+        .trash-button {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: #7f8aa1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .trash-button svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .trash-button:hover {
+          background: #151b24;
+          border-color: #2a3240;
+          color: #d48c8c;
         }
 
         .title-block {

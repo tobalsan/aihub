@@ -3,6 +3,7 @@ export {
   getProject,
   createProject,
   updateProject,
+  deleteProject,
   saveAttachments,
   resolveAttachmentFile,
 } from "./store.js";
@@ -11,6 +12,7 @@ export type {
   ProjectDetail,
   ProjectListResult,
   ProjectItemResult,
+  DeleteProjectResult,
   SaveAttachmentsResult,
   ResolveAttachmentResult,
 } from "./store.js";

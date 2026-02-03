@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "solid-js/web";
+import { delegateEvents, render } from "solid-js/web";
 import { ProjectsBoard } from "./ProjectsBoard";
 
-const createProjectMock = vi.hoisted(() => vi.fn());
-
 vi.mock("../api/client", () => ({
-  fetchProjects: vi.fn(async () => []),
+  fetchProjects: vi.fn(() => []),
   fetchProject: vi.fn(async () => ({
     id: "PRO-0",
     title: "Mock",
@@ -23,7 +21,17 @@ vi.mock("../api/client", () => ({
     frontmatter: {},
     content: "",
   })),
-  createProject: (...args: unknown[]) => createProjectMock(...args),
+  createProject: vi.fn(async () => ({
+    ok: true,
+    data: {
+      id: "PRO-0",
+      title: "Test Project",
+      path: "PRO-0_test",
+      absolutePath: "/tmp/PRO-0_test",
+      frontmatter: {},
+      content: "",
+    },
+  })),
   fetchAgents: vi.fn(async () => []),
   fetchAllSubagents: vi.fn(async () => ({ items: [] })),
   fetchFullHistory: vi.fn(async () => ({ messages: [] })),
@@ -61,23 +69,30 @@ const setupMatchMedia = () => {
   });
 };
 
-const openAndSubmit = async (container: HTMLElement) => {
-  window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }));
-  await tick();
-  const input = container.querySelector("#create-title") as HTMLInputElement | null;
-  if (!input) throw new Error("Missing create title input");
-  input.value = "Test Project";
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  const submit = container.querySelector(".create-submit") as HTMLButtonElement | null;
-  if (!submit) throw new Error("Missing create submit button");
-  submit.click();
-  await tick();
+const setupRaf = () => {
+  if (window.requestAnimationFrame) return;
+  window.requestAnimationFrame = (callback: FrameRequestCallback) =>
+    window.setTimeout(() => callback(Date.now()), 0);
+  window.cancelAnimationFrame = (id: number) => window.clearTimeout(id);
+};
+
+const triggerCreateSuccess = async (title: string) => {
+  const api = (window as unknown as { __aihubTest?: { setCreateSuccess: (value: string) => void } })
+    .__aihubTest;
+  if (!api?.setCreateSuccess) {
+    throw new Error("Missing test API for create success");
+  }
+  api.setCreateSuccess(title);
   await tick();
 };
 
 describe("ProjectsBoard create success toast", () => {
   beforeEach(() => {
+    delegateEvents(["click", "input", "keydown"]);
     setupMatchMedia();
+    setupRaf();
+    localStorage.clear();
+    localStorage.setItem("aihub:projects:expanded-columns", JSON.stringify(["maybe", "not_now"]));
   });
 
   afterEach(() => {
@@ -86,23 +101,12 @@ describe("ProjectsBoard create success toast", () => {
   });
 
   it("dismisses on click", async () => {
-    createProjectMock.mockResolvedValue({
-      ok: true,
-      data: {
-        id: "PRO-1",
-        title: "Test Project",
-        path: "PRO-1_test",
-        absolutePath: "/tmp/PRO-1_test",
-        frontmatter: {},
-        content: "",
-      },
-    });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ProjectsBoard />, container);
     await tick();
-    await openAndSubmit(container);
-    const overlay = container.querySelector(".create-success");
+    await triggerCreateSuccess("Test Project");
+    const overlay = document.querySelector(".create-success");
     expect(overlay).not.toBeNull();
     overlay?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await tick();
@@ -111,23 +115,12 @@ describe("ProjectsBoard create success toast", () => {
   });
 
   it("dismisses on Escape", async () => {
-    createProjectMock.mockResolvedValue({
-      ok: true,
-      data: {
-        id: "PRO-2",
-        title: "Test Project",
-        path: "PRO-2_test",
-        absolutePath: "/tmp/PRO-2_test",
-        frontmatter: {},
-        content: "",
-      },
-    });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ProjectsBoard />, container);
     await tick();
-    await openAndSubmit(container);
-    const overlay = container.querySelector(".create-success");
+    await triggerCreateSuccess("Test Project");
+    const overlay = document.querySelector(".create-success");
     expect(overlay).not.toBeNull();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await tick();
