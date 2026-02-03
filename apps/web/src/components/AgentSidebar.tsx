@@ -63,6 +63,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
       <div class="sidebar-header">
+        <Show when={import.meta.env.VITE_AIHUB_DEV === "true"}>
+          <span class="dev-badge">DEV</span>
+        </Show>
         <button class="collapse-btn" type="button" onClick={props.onToggleCollapse}>
           «
         </button>
@@ -149,7 +152,22 @@ export function AgentSidebar(props: AgentSidebarProps) {
         .sidebar-header {
           padding: 12px 10px;
           display: flex;
-          justify-content: flex-end;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .dev-badge {
+          background: #f59e0b;
+          color: #fff;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 6px;
+          border-radius: 4px;
+          letter-spacing: 0.05em;
+        }
+
+        .collapse-btn {
+          margin-left: auto;
         }
 
         .collapse-btn {

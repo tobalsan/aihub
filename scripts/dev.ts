@@ -5,8 +5,11 @@
  * - Ensures only one Vite process (won't respawn on gateway restart)
  * - Uses AIHUB_SKIP_WEB env var to prevent double-spawn
  * - Forwards SIGINT/SIGTERM to both processes
+ * - Auto-discovers free ports for gateway and web UI
+ * - Passes --dev flag to gateway to disable external services
  */
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, ChildProcess } from "node:child_process";
@@ -17,6 +20,9 @@ interface Config {
     port?: number;
     bind?: "loopback" | "lan" | "tailnet";
     tailscale?: { mode?: "off" | "serve" };
+  };
+  gateway?: {
+    port?: number;
   };
 }
 
@@ -30,35 +36,88 @@ function loadConfig(): Config {
   }
 }
 
-function main() {
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(200);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once("timeout", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.connect(port, "127.0.0.1");
+  });
+}
+
+async function findFreePort(basePort: number, maxAttempts: number = 50): Promise<number> {
+  for (let offset = 0; offset < maxAttempts; offset++) {
+    const port = basePort + offset;
+    if (await isPortFree(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No free port found in range ${basePort}-${basePort + maxAttempts - 1}`);
+}
+
+async function main() {
   const config = loadConfig();
   const uiEnabled = config.ui?.enabled !== false; // default true
 
   const rootDir = path.dirname(path.dirname(new URL(import.meta.url).pathname));
   const children: ChildProcess[] = [];
 
+  // Find free ports
+  const baseGatewayPort = config.gateway?.port ?? 4000;
+  const baseUiPort = config.ui?.port ?? 3000;
+
+  console.log("[dev] Finding free ports...");
+  const gatewayPort = await findFreePort(baseGatewayPort);
+  const uiPort = uiEnabled ? await findFreePort(baseUiPort) : null;
+
+  if (gatewayPort !== baseGatewayPort) {
+    console.log(`[dev] Gateway port ${baseGatewayPort} in use, using ${gatewayPort}`);
+  }
+  if (uiPort && uiPort !== baseUiPort) {
+    console.log(`[dev] UI port ${baseUiPort} in use, using ${uiPort}`);
+  }
+
   // Start web UI (unless disabled or already spawned)
-  if (uiEnabled && !process.env.AIHUB_SKIP_WEB) {
+  if (uiEnabled && !process.env.AIHUB_SKIP_WEB && uiPort) {
     console.log("[dev] Starting web UI...");
     const web = spawn("pnpm", ["--filter", "@aihub/web", "dev"], {
       stdio: "inherit",
       cwd: rootDir,
-      env: process.env,
+      env: {
+        ...process.env,
+        AIHUB_DEV: "1",
+        AIHUB_GATEWAY_PORT: String(gatewayPort),
+        AIHUB_UI_PORT: String(uiPort),
+        // VITE_ prefixed vars are exposed to browser via import.meta.env
+        VITE_AIHUB_DEV: "true",
+        VITE_AIHUB_UI_PORT: String(uiPort),
+      },
     });
     children.push(web);
   } else if (!uiEnabled) {
     console.log("[dev] Web UI disabled (ui.enabled: false)");
   }
 
-  // Start gateway with tsx watch
+  // Start gateway with tsx watch and --dev flag
   console.log("[dev] Starting gateway...");
   const gateway = spawn(
     "pnpm",
-    ["--filter", "@aihub/gateway", "exec", "tsx", "watch", "src/cli/index.ts", "gateway"],
+    ["--filter", "@aihub/gateway", "exec", "tsx", "watch", "src/cli/index.ts", "gateway", "--dev", "--port", String(gatewayPort)],
     {
       stdio: "inherit",
       cwd: rootDir,
-      env: { ...process.env, AIHUB_SKIP_WEB: "1" },
+      env: { ...process.env, AIHUB_SKIP_WEB: "1", AIHUB_DEV: "1" },
     }
   );
   children.push(gateway);
@@ -84,4 +143,7 @@ function main() {
   });
 }
 
-main();
+main().catch((err) => {
+  console.error("[dev] Error:", err);
+  process.exit(1);
+});

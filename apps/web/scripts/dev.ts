@@ -49,14 +49,19 @@ async function main() {
   const config = loadConfig();
   const uiConfig = config.ui ?? {};
   const gatewayConfig = config.gateway ?? {};
-  const port = uiConfig.port ?? 3000;
-  const tailscaleMode = uiConfig.tailscale?.mode ?? "off";
+
+  // In dev mode (AIHUB_DEV=1), use ports from orchestrator
+  const isDevMode = process.env.AIHUB_DEV === "1";
+  const port = process.env.AIHUB_UI_PORT ? parseInt(process.env.AIHUB_UI_PORT, 10) : (uiConfig.port ?? 3000);
+  const gatewayPort = process.env.AIHUB_GATEWAY_PORT ? parseInt(process.env.AIHUB_GATEWAY_PORT, 10) : (gatewayConfig.port ?? 4000);
+
+  // In dev mode, skip tailscale serve entirely
+  const tailscaleMode = isDevMode ? "off" : (uiConfig.tailscale?.mode ?? "off");
   const resetOnExit = uiConfig.tailscale?.resetOnExit ?? true;
-  const gatewayPort = gatewayConfig.port ?? 4000;
 
   let tailscaleHostname: string | null = null;
 
-  // Enable tailscale serve if configured
+  // Enable tailscale serve if configured (skipped in dev mode)
   if (tailscaleMode === "serve") {
     try {
       console.log(`[dev] Enabling Tailscale serve on port ${port} (path /aihub)...`);

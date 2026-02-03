@@ -1,9 +1,18 @@
 import { Router, Route } from "@solidjs/router";
+import { onMount } from "solid-js";
 import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
 import { ProjectsBoard } from "./components/ProjectsBoard";
 
 function Layout(props: { children?: any }) {
+  // Set document title based on dev mode
+  onMount(() => {
+    if (import.meta.env.VITE_AIHUB_DEV === "true") {
+      const port = import.meta.env.VITE_AIHUB_UI_PORT ?? "?";
+      document.title = `[DEV :${port}] AIHub`;
+    }
+  });
+
   return (
     <>
       <div class="app">{props.children}</div>

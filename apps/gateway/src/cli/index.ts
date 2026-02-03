@@ -108,12 +108,24 @@ program
   .description("AIHub multi-agent gateway")
   .version("0.1.0");
 
+function printDevBanner(gatewayPort: number, uiPort: number | null) {
+  const uiLine = uiPort ? `║  Web UI:  http://127.0.0.1:${uiPort.toString().padEnd(5)}       ║` : null;
+  console.log(`
+╔════════════════════════════════════════╗
+║           DEV MODE ACTIVE              ║
+║  Gateway: http://127.0.0.1:${gatewayPort.toString().padEnd(5)}       ║${uiLine ? `\n${uiLine}` : ""}
+║  Discord/Scheduler/Heartbeat: OFF      ║
+╚════════════════════════════════════════╝
+`);
+}
+
 program
   .command("gateway")
   .description("Start the gateway server (multi-agent mode)")
   .option("-p, --port <port>", "Server port (default: 4000 or config)")
   .option("-h, --host <host>", "Server host (default: from config gateway.bind)")
   .option("--agent-id <id>", "Single-agent mode: only load this agent")
+  .option("--dev", "Dev mode: auto-find ports, disable Discord/scheduler/heartbeat/amsg")
   .action(async (opts) => {
     try {
       const config = loadConfig();
@@ -129,36 +141,53 @@ program
         console.log(`Single-agent mode: ${agent.name} (${agent.id})`);
       }
 
+      // In dev mode, set AIHUB_DEV env var for child processes
+      if (opts.dev) {
+        process.env.AIHUB_DEV = "1";
+      }
+
       // Start server (undefined args let startServer use config defaults)
       const port = opts.port ? parseInt(opts.port, 10) : undefined;
       startServer(port, opts.host);
 
-      // Start web UI if enabled (default: true)
+      // Resolve actual port for banner
+      const actualPort = port ?? config.gateway?.port ?? 4000;
+      const uiPort = config.ui?.port ?? 3000;
+
+      // Start web UI if enabled (default: true) and not in dev mode
+      // In dev mode, web UI is started by scripts/dev.ts with proper port coordination
       const uiEnabled = config.ui?.enabled !== false;
-      if (uiEnabled) {
+      if (uiEnabled && !opts.dev) {
         webProcess = startWebUI(config.ui ?? {});
       }
 
-      // Start Discord bots
-      await startDiscordBots();
+      // In dev mode, skip external services and show banner
+      if (opts.dev) {
+        printDevBanner(actualPort, uiEnabled ? uiPort : null);
+      } else {
+        // Start Discord bots
+        await startDiscordBots();
 
-      // Start scheduler
-      await startScheduler();
+        // Start scheduler
+        await startScheduler();
 
-      // Start amsg watcher
-      startAmsgWatcher();
+        // Start amsg watcher
+        startAmsgWatcher();
 
-      // Start heartbeats
-      startAllHeartbeats();
+        // Start heartbeats
+        startAllHeartbeats();
+      }
 
       // Handle shutdown
       const shutdown = async () => {
         console.log("\nShutting down...");
         if (webProcess) webProcess.kill("SIGTERM");
-        stopAllHeartbeats();
-        stopAmsgWatcher();
-        await stopScheduler();
-        await stopDiscordBots();
+        if (!opts.dev) {
+          stopAllHeartbeats();
+          stopAmsgWatcher();
+          await stopScheduler();
+          await stopDiscordBots();
+        }
         process.exit(0);
       };
 

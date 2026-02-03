@@ -103,8 +103,14 @@ const config = loadConfig();
 const uiConfig = config.ui ?? {};
 const gatewayConfig = config.gateway ?? {};
 
-const port = uiConfig.port ?? 3000;
-const tailscaleServe = uiConfig.tailscale?.mode === "serve";
+// Dev mode detection: AIHUB_DEV=1 from scripts/dev.ts
+const isDevMode = process.env.AIHUB_DEV === "1";
+
+// Port resolution: env vars from dev orchestrator take precedence
+const port = process.env.AIHUB_UI_PORT ? parseInt(process.env.AIHUB_UI_PORT, 10) : (uiConfig.port ?? 3000);
+
+// In dev mode, disable tailscale serve (handled separately by production)
+const tailscaleServe = !isDevMode && uiConfig.tailscale?.mode === "serve";
 
 // When using tailscale serve, bind to localhost so tailscale can proxy to it
 // Otherwise, use the configured bind mode
@@ -115,9 +121,12 @@ const tailnetHostname = tailscaleServe ? getTailnetHostname() : null;
 const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 
 // Resolve gateway target for proxy
+// In dev mode, use AIHUB_GATEWAY_PORT from orchestrator
 const gatewayHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
-const gatewayPort = gatewayConfig.port ?? 4000;
+const gatewayPort = process.env.AIHUB_GATEWAY_PORT ? parseInt(process.env.AIHUB_GATEWAY_PORT, 10) : (gatewayConfig.port ?? 4000);
 const gatewayTarget = `http://${gatewayHost}:${gatewayPort}`;
+
+// In dev mode, always use root path (no /aihub prefix)
 const base = tailscaleServe ? "/aihub" : "/";
 
 export default defineConfig({
