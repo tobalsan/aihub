@@ -8,6 +8,8 @@ import {
   UpdateScheduleRequestSchema,
   CreateProjectRequestSchema,
   UpdateProjectRequestSchema,
+  ProjectCommentRequestSchema,
+  UpdateProjectCommentRequestSchema,
   StartProjectRunRequestSchema,
 } from "@aihub/shared";
 import type { UpdateProjectRequest } from "@aihub/shared";
@@ -25,6 +27,8 @@ import {
   createProject,
   updateProject,
   deleteProject,
+  appendProjectComment,
+  updateProjectComment,
   saveAttachments,
   resolveAttachmentFile,
 } from "../projects/index.js";
@@ -47,6 +51,11 @@ function slugifyTitle(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatThreadDate(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 // GET /api/agents - list all agents (respects single-agent mode)
@@ -298,17 +307,17 @@ api.post("/projects/:id/start", async (c) => {
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
   const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
-  const absReadmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
+  const absSpecsPath = basePath.endsWith("SPECS.md") ? basePath : `${basePath}/SPECS.md`;
   const relBasePath = project.path.replace(/\/$/, "");
-  const relReadmePath = relBasePath.endsWith("README.md") ? relBasePath : `${relBasePath}/README.md`;
-  const readmePath = runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
+  const relSpecsPath = relBasePath.endsWith("SPECS.md") ? relBasePath : `${relBasePath}/SPECS.md`;
+  const specsPath = runAgentSelection.type === "aihub" ? absSpecsPath : relSpecsPath;
 
   const prompt = buildProjectStartPrompt({
     title: project.title,
     status,
     path: project.path,
-    content: project.content,
-    readmePath,
+    content: project.docs?.SPECS ?? "",
+    specsPath,
     repo,
     customPrompt: parsed.data.customPrompt,
   });
@@ -410,7 +419,7 @@ api.post("/projects", async (c) => {
   return c.json(result.data, 201);
 });
 
-// GET /api/projects/:id - get project (full README)
+// GET /api/projects/:id - get project (README + SPECS + thread)
 api.get("/projects/:id", async (c) => {
   const id = c.req.param("id");
   const config = getConfig();
@@ -421,7 +430,7 @@ api.get("/projects/:id", async (c) => {
   return c.json(result.data);
 });
 
-// PATCH /api/projects/:id - update project (frontmatter + README)
+// PATCH /api/projects/:id - update project (frontmatter + docs)
 api.patch("/projects/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
@@ -464,6 +473,51 @@ api.delete("/projects/:id", async (c) => {
   if (!result.ok) {
     const status = result.error.startsWith("Trash already contains") ? 409 : 404;
     return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/comments - append thread comment
+api.post("/projects/:id/comments", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = ProjectCommentRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const entry = {
+    author: parsed.data.author,
+    date: formatThreadDate(new Date()),
+    body: parsed.data.message,
+  };
+
+  const config = getConfig();
+  const result = await appendProjectComment(config, id, entry);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data, 201);
+});
+
+// PATCH /api/projects/:id/comments/:index - update thread comment
+api.patch("/projects/:id/comments/:index", async (c) => {
+  const id = c.req.param("id");
+  const index = parseInt(c.req.param("index"), 10);
+  if (Number.isNaN(index) || index < 0) {
+    return c.json({ error: "Invalid comment index" }, 400);
+  }
+
+  const body = await c.req.json();
+  const parsed = UpdateProjectCommentRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const config = getConfig();
+  const result = await updateProjectComment(config, id, index, parsed.data.body);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
   }
   return c.json(result.data);
 });

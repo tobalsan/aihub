@@ -61,9 +61,13 @@ describe("projects API", () => {
     const created = await createRes.json();
     const createdDir = path.join(projectsRoot, created.path);
     const createdReadme = path.join(createdDir, "README.md");
+    const createdSpecs = path.join(createdDir, "SPECS.md");
+    const createdThread = path.join(createdDir, "THREAD.md");
 
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
     await expect(fs.stat(createdReadme)).resolves.toBeDefined();
+    await expect(fs.stat(createdSpecs)).resolves.toBeDefined();
+    await expect(fs.stat(createdThread)).resolves.toBeDefined();
 
     const listRes = await Promise.resolve(api.request("/projects"));
     expect(listRes.status).toBe(200);
@@ -74,14 +78,15 @@ describe("projects API", () => {
     const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
     expect(getRes.status).toBe(200);
     const fetched = await getRes.json();
-    expect(fetched.content).toContain("# Add Project Mgmt v1");
+    expect(fetched.docs.README).toContain("# Add Project Mgmt v1");
 
     const updateRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Project Mgmt API",
-        content: "# Project Mgmt API\n\nUpdated content.\n",
+        readme: "# Project Mgmt API\n\nOverview.\n",
+        specs: "# Project Mgmt API Specs\n\nUpdated content.\n",
         status: "shaping",
         repo: "/tmp/repo",
       }),
@@ -91,14 +96,18 @@ describe("projects API", () => {
     const updated = await updateRes.json();
     const updatedDir = path.join(projectsRoot, updated.path);
     const updatedReadme = path.join(updatedDir, "README.md");
+    const updatedSpecs = path.join(updatedDir, "SPECS.md");
 
     await expect(fs.stat(updatedDir)).resolves.toBeDefined();
     await expect(fs.stat(updatedReadme)).resolves.toBeDefined();
+    await expect(fs.stat(updatedSpecs)).resolves.toBeDefined();
     await expect(fs.access(createdDir)).rejects.toBeDefined();
 
     const updatedContent = await fs.readFile(updatedReadme, "utf8");
+    const updatedSpecsContent = await fs.readFile(updatedSpecs, "utf8");
     expect(updatedContent).toContain("# Project Mgmt API");
-    expect(updatedContent).toContain("status: \"shaping\"");
+    expect(updatedSpecsContent).toContain("# Project Mgmt API Specs");
+    expect(updatedSpecsContent).toContain("status: \"shaping\"");
   });
 
   it("rejects invalid create payloads", async () => {
@@ -150,14 +159,83 @@ describe("projects API", () => {
     expect(created.frontmatter.status).toBe("todo");
 
     const readmePath = path.join(projectsRoot, created.path, "README.md");
+    const specsPath = path.join(projectsRoot, created.path, "SPECS.md");
     const readme = await fs.readFile(readmePath, "utf8");
+    const specs = await fs.readFile(specsPath, "utf8");
     expect(readme).toContain("# Metadata Project");
     expect(readme).toContain("Track the new form fields.");
-    expect(readme).toContain('domain: "admin"');
-    expect(readme).toContain('owner: "ops"');
-    expect(readme).toContain('executionMode: "exploratory"');
-    expect(readme).toContain('appetite: "small"');
-    expect(readme).toContain('status: "todo"');
+    expect(specs).toContain('domain: "admin"');
+    expect(specs).toContain('owner: "ops"');
+    expect(specs).toContain('executionMode: "exploratory"');
+    expect(specs).toContain('appetite: "small"');
+    expect(specs).toContain('status: "todo"');
+  });
+
+  it("appends thread comments via API", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Threaded Project",
+      }),
+    }));
+
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const commentRes = await Promise.resolve(api.request(`/projects/${created.id}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        author: "cto",
+        message: "First note.",
+      }),
+    }));
+
+    expect(commentRes.status).toBe(201);
+    const threadPath = path.join(projectsRoot, created.path, "THREAD.md");
+    const thread = await fs.readFile(threadPath, "utf8");
+    expect(thread).toContain("[author:cto]");
+    expect(thread).toContain("First note.");
+
+    const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
+    const fetched = await getRes.json();
+    expect(fetched.thread.length).toBe(1);
+    expect(fetched.thread[0]?.author).toBe("cto");
+  });
+
+  it("updates thread comments via PATCH endpoint", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Update Comment Project",
+      }),
+    }));
+
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    await Promise.resolve(api.request(`/projects/${created.id}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author: "alice", message: "Original message" }),
+    }));
+
+    const updateRes = await Promise.resolve(api.request(`/projects/${created.id}/comments/0`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "Updated message" }),
+    }));
+
+    expect(updateRes.status).toBe(200);
+    const updated = await updateRes.json();
+    expect(updated.author).toBe("alice");
+    expect(updated.body).toBe("Updated message");
+
+    const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
+    const fetched = await getRes.json();
+    expect(fetched.thread[0]?.body).toBe("Updated message");
   });
 
   it("deletes a project and moves it to trash", async () => {

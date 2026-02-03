@@ -16,6 +16,8 @@ import {
   fetchProjectBranches,
   killSubagent,
   uploadAttachments,
+  addProjectComment,
+  updateProjectComment,
 } from "../api/client";
 import type {
   ProjectListItem,
@@ -886,11 +888,15 @@ export function ProjectsBoard() {
   const [detailRepo, setDetailRepo] = createSignal("");
   const [detailTitle, setDetailTitle] = createSignal("");
   const [editingTitle, setEditingTitle] = createSignal(false);
-  const [detailContent, setDetailContent] = createSignal("");
-  const [editingContent, setEditingContent] = createSignal(false);
+  const [detailDocs, setDetailDocs] = createSignal<Record<string, string>>({});
+  const [detailDocTab, setDetailDocTab] = createSignal<string>("README");
+  const [editingDoc, setEditingDoc] = createSignal<string | null>(null);
   const [detailIsDragging, setDetailIsDragging] = createSignal(false);
   const [detailPendingFiles, setDetailPendingFiles] = createSignal<File[]>([]);
   const [detailSessionKeys, setDetailSessionKeys] = createSignal<Record<string, string>>({});
+  const [newComment, setNewComment] = createSignal("");
+  const [editingCommentIndex, setEditingCommentIndex] = createSignal<number | null>(null);
+  const [editingCommentBody, setEditingCommentBody] = createSignal("");
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -922,7 +928,6 @@ export function ProjectsBoard() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
   const [mobileOverlay, setMobileOverlay] = createSignal<"chat" | "feed" | null>(null);
-  const [mobileDetailTab, setMobileDetailTab] = createSignal<"details" | "runs">("details");
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
@@ -1082,6 +1087,14 @@ export function ProjectsBoard() {
   });
 
   const subagentLogItems = createMemo(() => buildCliLogs(subagentLogs()));
+  const docKeys = createMemo(() => {
+    const keys = Object.keys(detailDocs());
+    return keys.sort((a, b) => {
+      if (a === "README") return -1;
+      if (b === "README") return 1;
+      return a.localeCompare(b);
+    });
+  });
   const agentRuns = createMemo<AgentRunItem[]>(() => {
     const project = detail();
     if (!project) return [];
@@ -1200,7 +1213,18 @@ export function ProjectsBoard() {
       savedRepo = repo;
       setDetailSessionKeys(getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {});
       if (!editingTitle()) setDetailTitle(current.title);
-      if (!editingContent()) setDetailContent(stripMarkdownMeta(current.content));
+      // Sync docs (only update keys not being edited)
+      const currentEditing = editingDoc();
+      const nextDocs: Record<string, string> = {};
+      for (const [key, content] of Object.entries(current.docs ?? {})) {
+        nextDocs[key] = currentEditing === key ? (detailDocs()[key] ?? stripMarkdownMeta(content)) : stripMarkdownMeta(content);
+      }
+      setDetailDocs(nextDocs);
+      // Ensure selected tab exists
+      const docKeys = Object.keys(nextDocs);
+      if (docKeys.length > 0 && !docKeys.includes(detailDocTab())) {
+        setDetailDocTab(docKeys.includes("README") ? "README" : docKeys[0]);
+      }
       if (!detailSlug()) {
         const nextSlug = slugify(current.title);
         if (nextSlug) setDetailSlug(nextSlug);
@@ -1219,6 +1243,9 @@ export function ProjectsBoard() {
     setDetailSlug("");
     setDetailRepo("");
     savedRepo = "";
+    setDetailDocs({});
+    setEditingDoc(null);
+    setDetailDocTab("README");
     setDetailPendingFiles([]);
     setDetailIsDragging(false);
   });
@@ -1484,8 +1511,8 @@ export function ProjectsBoard() {
     setEditingTitle(false);
   };
 
-  const handleContentSave = async (id: string) => {
-    let content = detailContent();
+  const handleDocSave = async (id: string, docKey: string) => {
+    let content = detailDocs()[docKey] ?? "";
     const files = detailPendingFiles();
 
     if (files.length > 0) {
@@ -1493,16 +1520,16 @@ export function ProjectsBoard() {
       if (uploadResult.ok) {
         const attachmentSection = buildAttachmentSection(uploadResult.data);
         content = content + (content ? "\n\n" : "") + attachmentSection;
-        setDetailContent(content);
+        setDetailDocs((prev) => ({ ...prev, [docKey]: content }));
       }
       setDetailPendingFiles([]);
       void clearFilesFromStore(DETAIL_FILES_STORE, id);
     }
 
-    await updateProject(id, { content });
+    await updateProject(id, { docs: { [docKey]: content } });
     await refetch();
     await refetchDetail();
-    setEditingContent(false);
+    setEditingDoc(null);
   };
 
 const handleDetailDragOver = (e: DragEvent) => {
@@ -1523,7 +1550,7 @@ const handleDetailDragOver = (e: DragEvent) => {
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (files.length === 0) return;
 
-    if (editingContent()) {
+    if (editingDoc()) {
       // Edit mode: queue files for upload on save (shown in pending files list)
       setDetailPendingFiles((prev) => [...prev, ...files]);
     } else {
@@ -1532,10 +1559,11 @@ const handleDetailDragOver = (e: DragEvent) => {
       if (!uploadResult.ok) return;
 
       const attachmentSection = buildAttachmentSection(uploadResult.data);
-      const current = detailContent();
+      const docKey = detailDocTab();
+      const current = detailDocs()[docKey] ?? "";
       const updated = current + (current ? "\n\n" : "") + attachmentSection;
-      setDetailContent(updated);
-      await updateProject(projectId, { content: updated });
+      setDetailDocs((prev) => ({ ...prev, [docKey]: updated }));
+      await updateProject(projectId, { docs: { [docKey]: updated } });
       await refetch();
       await refetchDetail();
     }
@@ -1543,6 +1571,22 @@ const handleDetailDragOver = (e: DragEvent) => {
 
   const removeDetailFile = (index: number) => {
     setDetailPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddComment = async (projectId: string) => {
+    const body = newComment().trim();
+    if (!body) return;
+    await addProjectComment(projectId, body);
+    setNewComment("");
+    await refetchDetail();
+  };
+
+  const handleCommentUpdate = async (projectId: string, index: number) => {
+    const body = editingCommentBody().trim();
+    if (!body) return;
+    await updateProjectComment(projectId, index, body);
+    setEditingCommentIndex(null);
+    await refetchDetail();
   };
 
   const clearDeleteSuccess = () => {
@@ -1592,7 +1636,6 @@ const handleDetailDragOver = (e: DragEvent) => {
   };
 
   const openDetail = (id: string) => {
-    setMobileDetailTab("details");
     navigate(`/projects/${id}`);
   };
 
@@ -1771,9 +1814,9 @@ const handleDetailDragOver = (e: DragEvent) => {
     }
 
     if (attachmentSection) {
-      const currentContent = result.data.content || "";
-      const updatedContent = currentContent + (currentContent ? "\n\n" : "") + attachmentSection;
-      await updateProject(projectId, { content: updatedContent });
+      const currentSpecs = result.data.specs || "";
+      const updatedSpecs = currentSpecs + (currentSpecs ? "\n\n" : "") + attachmentSection;
+      await updateProject(projectId, { specs: updatedSpecs });
     }
 
     clearFormFromStorage();
@@ -2068,28 +2111,10 @@ const handleDetailDragOver = (e: DragEvent) => {
                 <h2>Loading...</h2>
               </Show>
             </div>
-            <Show when={isMobile()}>
-              <div class="mobile-detail-tabs">
-                <button
-                  type="button"
-                  classList={{ active: mobileDetailTab() === "details" }}
-                  onClick={() => setMobileDetailTab("details")}
-                >
-                  Details
-                </button>
-                <button
-                  type="button"
-                  classList={{ active: mobileDetailTab() === "runs" }}
-                  onClick={() => setMobileDetailTab("runs")}
-                >
-                  Agent Runs
-                </button>
-              </div>
-            </Show>
             <div class="overlay-content">
               <div
                   class="detail"
-                  classList={{ "mobile-hidden": isMobile() && mobileDetailTab() !== "details", "drag-over": detailIsDragging() }}
+                  classList={{ "drag-over": detailIsDragging() }}
                   onDragOver={handleDetailDragOver}
                   onDragLeave={handleDetailDragLeave}
                 >
@@ -2180,57 +2205,151 @@ const handleDetailDragOver = (e: DragEvent) => {
                             </Show>
                           </div>
                         </div>
-                        <Show when={editingContent()} fallback={
-                          <div
-                            class="detail-body"
-                            innerHTML={renderMarkdown(detailContent() || project.content, project.id)}
-                            onDblClick={() => setEditingContent(true)}
-                            title="Double-click to edit"
-                          />
-                        }>
-                          <textarea
-                            class="content-textarea"
-                            value={detailContent()}
-                            onInput={(e) => setDetailContent(e.currentTarget.value)}
-                            onBlur={() => handleContentSave(project.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                e.stopPropagation();
-                                setDetailContent(stripMarkdownMeta(project.content));
-                                setDetailPendingFiles([]);
-                                setEditingContent(false);
-                              } else if (e.key === "Enter" && e.metaKey) {
-                                e.preventDefault();
-                                handleContentSave(project.id);
-                              }
-                            }}
-                            autofocus
-                          />
-                          <Show when={detailPendingFiles().length > 0}>
-                            <div class="detail-pending-files">
-                              <label class="detail-pending-label">Files to upload on save</label>
-                              <div class="file-list">
-                                <For each={detailPendingFiles()}>
-                                  {(file, index) => (
-                                    <div class="file-item">
-                                      <span class="file-name">{file.name}</span>
-                                      <button
-                                        class="file-remove"
-                                        onClick={() => removeDetailFile(index())}
-                                        type="button"
-                                        aria-label={`Remove ${file.name}`}
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                          <path d="M18 6L6 18M6 6l12 12" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  )}
-                                </For>
-                              </div>
+                        <div class="detail-docs">
+                          <Show when={docKeys().length > 1}>
+                            <div class="detail-tabs">
+                              <For each={docKeys()}>
+                                {(key) => (
+                                  <button
+                                    type="button"
+                                    classList={{ active: detailDocTab() === key }}
+                                    onClick={() => setDetailDocTab(key)}
+                                  >
+                                    {key}
+                                  </button>
+                                )}
+                              </For>
                             </div>
                           </Show>
-                        </Show>
+                          <div class="detail-doc-body">
+                            <For each={docKeys()}>
+                              {(key) => (
+                                <Show when={detailDocTab() === key}>
+                                  <Show when={editingDoc() === key} fallback={
+                                    <div
+                                      class="detail-body"
+                                      innerHTML={renderMarkdown(detailDocs()[key] ?? "", project.id)}
+                                      onDblClick={() => setEditingDoc(key)}
+                                      title="Double-click to edit"
+                                    />
+                                  }>
+                                    <textarea
+                                      class="content-textarea"
+                                      value={detailDocs()[key] ?? ""}
+                                      onInput={(e) => setDetailDocs((prev) => ({ ...prev, [key]: e.currentTarget.value }))}
+                                      onBlur={() => handleDocSave(project.id, key)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Escape") {
+                                          e.stopPropagation();
+                                          setDetailDocs((prev) => ({ ...prev, [key]: stripMarkdownMeta(project.docs?.[key] ?? "") }));
+                                          setDetailPendingFiles([]);
+                                          setEditingDoc(null);
+                                        } else if (e.key === "Enter" && e.metaKey) {
+                                          e.preventDefault();
+                                          handleDocSave(project.id, key);
+                                        }
+                                      }}
+                                      autofocus
+                                    />
+                                    <Show when={detailPendingFiles().length > 0}>
+                                      <div class="detail-pending-files">
+                                        <label class="detail-pending-label">Files to upload on save</label>
+                                        <div class="file-list">
+                                          <For each={detailPendingFiles()}>
+                                            {(file, index) => (
+                                              <div class="file-item">
+                                                <span class="file-name">{file.name}</span>
+                                                <button
+                                                  class="file-remove"
+                                                  onClick={() => removeDetailFile(index())}
+                                                  type="button"
+                                                  aria-label={`Remove ${file.name}`}
+                                                >
+                                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <path d="M18 6L6 18M6 6l12 12" />
+                                                  </svg>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </For>
+                                        </div>
+                                      </div>
+                                    </Show>
+                                  </Show>
+                                </Show>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                        <div class="detail-thread">
+                          <div class="thread-header">Thread</div>
+                          <Show when={(project.thread ?? []).length > 0} fallback={
+                            <div class="thread-empty">No comments yet.</div>
+                          }>
+                            <div class="thread-list">
+                              <For each={project.thread ?? []}>
+                                {(entry, index) => (
+                                  <div class="thread-item">
+                                    <div class="thread-meta">
+                                      <span class="thread-author">{entry.author || "unknown"}</span>
+                                      <span class="thread-date">{entry.date}</span>
+                                    </div>
+                                    <Show when={editingCommentIndex() === index()} fallback={
+                                      <div
+                                        class="thread-body"
+                                        innerHTML={renderMarkdown(entry.body, project.id)}
+                                        onDblClick={() => {
+                                          setEditingCommentIndex(index());
+                                          setEditingCommentBody(entry.body);
+                                        }}
+                                        title="Double-click to edit"
+                                      />
+                                    }>
+                                      <textarea
+                                        class="thread-edit-textarea"
+                                        value={editingCommentBody()}
+                                        onInput={(e) => setEditingCommentBody(e.currentTarget.value)}
+                                        onBlur={() => handleCommentUpdate(project.id, index())}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Escape") {
+                                            e.stopPropagation();
+                                            setEditingCommentIndex(null);
+                                          } else if (e.key === "Enter" && e.metaKey) {
+                                            e.preventDefault();
+                                            handleCommentUpdate(project.id, index());
+                                          }
+                                        }}
+                                        autofocus
+                                      />
+                                    </Show>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                          <div class="thread-add">
+                            <textarea
+                              class="thread-add-textarea"
+                              placeholder="Add a comment..."
+                              value={newComment()}
+                              onInput={(e) => setNewComment(e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && e.metaKey && newComment().trim()) {
+                                  e.preventDefault();
+                                  handleAddComment(project.id);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              class="thread-add-btn"
+                              disabled={!newComment().trim()}
+                              onClick={() => handleAddComment(project.id)}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
                         <Show when={detailIsDragging()}>
                           <div class="detail-drop-overlay">
                             <div class="drop-message">Drop files to attach</div>
@@ -2241,7 +2360,7 @@ const handleDetailDragOver = (e: DragEvent) => {
                   }}
                 </Show>
               </div>
-              <div class="monitoring" classList={{ "mobile-hidden": isMobile() && mobileDetailTab() !== "runs" }}>
+              <div class="monitoring">
                 <div class="monitoring-meta">
                   <div class="meta-field">
                     <button
@@ -3464,6 +3583,167 @@ const handleDetailDragOver = (e: DragEvent) => {
 
         .meta-field-wide {
           grid-column: span 2;
+        }
+
+        .detail-docs {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .detail-tabs {
+          display: flex;
+          gap: 8px;
+        }
+
+        .detail-tabs button {
+          flex: 1;
+          padding: 8px 12px;
+          border-radius: 10px;
+          border: 1px solid #2a3240;
+          background: #151c26;
+          color: #8b96a5;
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          cursor: pointer;
+          transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+
+        .detail-tabs button.active {
+          background: #1c2634;
+          border-color: #3b82f6;
+          color: #e0e6ef;
+        }
+
+        .detail-doc-body {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-height: 120px;
+        }
+
+        .detail-thread {
+          border-top: 1px solid #223042;
+          padding-top: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .thread-header {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          color: #7f8a9a;
+        }
+
+        .thread-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .thread-item {
+          background: #141b26;
+          border: 1px solid #263142;
+          border-radius: 12px;
+          padding: 10px 12px;
+        }
+
+        .thread-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #8b96a5;
+          margin-bottom: 6px;
+        }
+
+        .thread-body {
+          white-space: pre-wrap;
+          color: #d4dbe5;
+          font-size: 13px;
+          line-height: 1.2;
+          cursor: pointer;
+          border-radius: 6px;
+          padding: 2px 4px;
+          margin: -2px -4px;
+        }
+
+        .thread-body:hover {
+          background: rgba(255, 255, 255, 0.02);
+        }
+
+        .thread-body ul,
+        .thread-body ol {
+          padding-left: 20px;
+          margin: 0;
+        }
+
+        .thread-body li {
+          margin: 0;
+          padding: 0;
+        }
+
+        .thread-body p {
+          margin: 0;
+        }
+
+        .thread-edit-textarea,
+        .thread-add-textarea {
+          width: 100%;
+          min-height: 60px;
+          background: #0d1117;
+          border: 1px solid #3b4859;
+          border-radius: 8px;
+          color: #d4dbe5;
+          padding: 8px 10px;
+          font-size: 13px;
+          font-family: inherit;
+          resize: vertical;
+          outline: none;
+        }
+
+        .thread-edit-textarea:focus,
+        .thread-add-textarea:focus {
+          border-color: #3b6ecc;
+        }
+
+        .thread-add {
+          display: flex;
+          gap: 8px;
+          margin-top: 4px;
+        }
+
+        .thread-add-textarea {
+          flex: 1;
+        }
+
+        .thread-add-btn {
+          padding: 8px 16px;
+          background: #3b6ecc;
+          border: none;
+          border-radius: 8px;
+          color: white;
+          cursor: pointer;
+          align-self: flex-end;
+          font-size: 13px;
+        }
+
+        .thread-add-btn:hover:not(:disabled) {
+          background: #4a7dd8;
+        }
+
+        .thread-add-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .thread-empty {
+          color: #7f8a9a;
+          font-size: 12px;
         }
 
         .detail-body {

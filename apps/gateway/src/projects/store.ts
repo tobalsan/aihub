@@ -6,6 +6,7 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 import { CONFIG_DIR } from "../config/index.js";
 
 const PROJECTS_STATE_PATH = path.join(CONFIG_DIR, "projects.json");
+const THREAD_FILE = "THREAD.md";
 
 export type ProjectListItem = {
   id: string;
@@ -21,7 +22,8 @@ export type ProjectDetail = {
   path: string;
   absolutePath: string;
   frontmatter: Record<string, unknown>;
-  content: string;
+  docs: Record<string, string>;
+  thread: ProjectThreadEntry[];
 };
 
 export type ProjectListResult =
@@ -35,6 +37,12 @@ export type ProjectItemResult =
 export type DeleteProjectResult =
   | { ok: true; data: { id: string; path: string; trashedPath: string } }
   | { ok: false; error: string };
+
+export type ProjectThreadEntry = {
+  author: string;
+  date: string;
+  body: string;
+};
 
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
@@ -128,6 +136,56 @@ function formatMarkdown(frontmatter: Record<string, unknown>, content: string): 
   return `${fm}${content}`;
 }
 
+function formatThreadFrontmatter(projectId: string): string {
+  return `---\nproject: ${projectId}\n---\n`;
+}
+
+function formatThreadEntry(entry: ProjectThreadEntry): string {
+  const body = entry.body.trim();
+  return `[author:${entry.author}]\n[date:${entry.date}]\n${body}\n`;
+}
+
+function parseThreadSections(raw: string): string[] {
+  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  const withoutFrontmatter = fmMatch ? raw.slice(fmMatch[0].length) : raw;
+  return withoutFrontmatter
+    .split(/\r?\n---\r?\n---\r?\n/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+}
+
+function parseThreadEntry(section: string): ProjectThreadEntry | null {
+  const lines = section.split(/\r?\n/);
+  let author = "";
+  let date = "";
+  let cursor = 0;
+  for (; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor]?.trim();
+    if (!line) continue;
+    const authorMatch = line.match(/^\[author:(.+)\]$/);
+    if (authorMatch) {
+      author = authorMatch[1].trim();
+      continue;
+    }
+    const dateMatch = line.match(/^\[date:(.+)\]$/);
+    if (dateMatch) {
+      date = dateMatch[1].trim();
+      continue;
+    }
+    break;
+  }
+  const body = lines.slice(cursor).join("\n").trim();
+  if (!author && !date && !body) return null;
+  return { author, date, body };
+}
+
+async function readMarkdownIfExists(
+  filePath: string
+): Promise<{ frontmatter: Record<string, unknown>; content: string; title: string } | null> {
+  if (!(await fileExists(filePath))) return null;
+  return parseMarkdownFile(filePath);
+}
+
 async function findProjectDir(root: string, id: string): Promise<string | null> {
   if (!(await dirExists(root))) return null;
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -156,16 +214,35 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const dirName = entry.name;
-    const readmePath = path.join(root, dirName, "README.md");
+    const dirPath = path.join(root, dirName);
     try {
-      const { frontmatter, title } = await parseMarkdownFile(readmePath);
+      const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
+      const mdFiles = dirEntries
+        .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
+        .map(e => e.name);
+      if (mdFiles.length === 0) continue;
+
+      // Priority: SPECS.md frontmatter > README.md frontmatter > first .md file
+      let frontmatter: Record<string, unknown> = {};
+      let title = dirName;
+      const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
+      const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
+      const primaryFile = specsFile ?? readmeFile ?? mdFiles[0];
+      if (primaryFile) {
+        const parsed = await readMarkdownIfExists(path.join(dirPath, primaryFile));
+        if (parsed) {
+          frontmatter = parsed.frontmatter;
+          title = parsed.title;
+        }
+      }
+
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
       projects.push({
         id,
         title: resolvedTitle,
         path: dirName,
-        absolutePath: path.join(root, dirName),
+        absolutePath: dirPath,
         frontmatter: { ...frontmatter, id, title: resolvedTitle },
       });
     } catch {
@@ -186,8 +263,40 @@ export async function getProject(
     return { ok: false, error: `Project not found: ${id}` };
   }
 
-  const readmePath = path.join(root, dirName, "README.md");
-  const { frontmatter, content, title } = await parseMarkdownFile(readmePath);
+  const dirPath = path.join(root, dirName);
+  const threadPath = path.join(dirPath, THREAD_FILE);
+  const threadRaw = (await fileExists(threadPath)) ? await fs.readFile(threadPath, "utf8") : "";
+  const thread = threadRaw ? parseThreadSections(threadRaw).map(parseThreadEntry).filter(Boolean) as ProjectThreadEntry[] : [];
+
+  // Scan for all .md files at root (non-recursive)
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  const mdFiles = entries
+    .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
+    .map(e => e.name);
+
+  // Build docs map
+  const docs: Record<string, string> = {};
+  let frontmatter: Record<string, unknown> = {};
+  let title = dirName;
+  const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
+  const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
+
+  for (const file of mdFiles) {
+    const parsed = await readMarkdownIfExists(path.join(dirPath, file));
+    if (parsed) {
+      const key = file.replace(/\.md$/i, "").toUpperCase();
+      docs[key] = parsed.content;
+      // Use SPECS.md frontmatter if available, else README.md
+      if (file === specsFile) {
+        frontmatter = parsed.frontmatter;
+        title = parsed.title;
+      } else if (file === readmeFile && !specsFile) {
+        frontmatter = parsed.frontmatter;
+        title = parsed.title;
+      }
+    }
+  }
+
   const resolvedTitle = toStringField(frontmatter.title) ?? title;
   const resolvedId = toStringField(frontmatter.id) ?? id;
 
@@ -197,9 +306,10 @@ export async function getProject(
       id: resolvedId,
       title: resolvedTitle,
       path: dirName,
-      absolutePath: path.join(root, dirName),
+      absolutePath: dirPath,
       frontmatter: { ...frontmatter, id: resolvedId, title: resolvedTitle },
-      content,
+      docs,
+      thread,
     },
   };
 }
@@ -234,11 +344,14 @@ export async function createProject(
   if (input.owner) frontmatter.owner = input.owner;
   if (input.executionMode) frontmatter.executionMode = input.executionMode;
   if (input.appetite) frontmatter.appetite = input.appetite;
-  const content = input.description
+  const readmeContent = input.description
     ? `# ${trimmedTitle}\n\n${input.description}\n`
     : `# ${trimmedTitle}\n`;
-  const readme = formatMarkdown(frontmatter, content);
-  await fs.writeFile(path.join(dirPath, "README.md"), readme, "utf8");
+  const specsContent = "# Specs\n\n";
+  const specs = formatMarkdown(frontmatter, specsContent);
+  await fs.writeFile(path.join(dirPath, "README.md"), readmeContent, "utf8");
+  await fs.writeFile(path.join(dirPath, "SPECS.md"), specs, "utf8");
+  await fs.writeFile(path.join(dirPath, THREAD_FILE), formatThreadFrontmatter(id), "utf8");
 
   return {
     ok: true,
@@ -248,7 +361,8 @@ export async function createProject(
       path: dirName,
       absolutePath: dirPath,
       frontmatter,
-      content,
+      docs: { README: readmeContent, SPECS: specsContent },
+      thread: [],
     },
   };
 }
@@ -264,9 +378,15 @@ export async function updateProject(
     return { ok: false, error: `Project not found: ${id}` };
   }
 
-  const currentReadmePath = path.join(root, dirName, "README.md");
-  const parsed = await parseMarkdownFile(currentReadmePath);
-  const currentTitle = toStringField(parsed.frontmatter.title) ?? parsed.title;
+  const dirPath = path.join(root, dirName);
+  const currentSpecsPath = path.join(dirPath, "SPECS.md");
+  const currentReadmePath = path.join(dirPath, "README.md");
+  const currentThreadPath = path.join(dirPath, THREAD_FILE);
+  const parsedSpecs = await readMarkdownIfExists(currentSpecsPath);
+  const parsedReadme = await readMarkdownIfExists(currentReadmePath);
+  const currentFrontmatter = parsedSpecs?.frontmatter ?? parsedReadme?.frontmatter ?? {};
+  const currentTitle =
+    toStringField(currentFrontmatter.title) ?? parsedReadme?.title ?? parsedSpecs?.title ?? id;
   const nextTitle = input.title ?? currentTitle;
   const nextSlug = slugifyTitle(nextTitle);
   const nextDirName = `${id}_${nextSlug}`;
@@ -277,12 +397,14 @@ export async function updateProject(
     if (await dirExists(targetPath)) {
       return { ok: false, error: `Project already exists: ${nextDirName}` };
     }
-    await fs.rename(path.join(root, dirName), targetPath);
+    await fs.rename(dirPath, targetPath);
     finalDirName = nextDirName;
   }
 
+  const finalDirPath = path.join(root, finalDirName);
+
   const nextFrontmatter: Record<string, unknown> = {
-    ...parsed.frontmatter,
+    ...currentFrontmatter,
     id,
     title: nextTitle,
     ...(input.status ? { status: input.status } : {}),
@@ -312,10 +434,55 @@ export async function updateProject(
 
   if (input.appetite === "") delete nextFrontmatter.appetite;
   else if (input.appetite) nextFrontmatter.appetite = input.appetite;
-  const nextContent = input.content ?? parsed.content;
-  const readme = formatMarkdown(nextFrontmatter, nextContent);
-  const finalReadmePath = path.join(root, finalDirName, "README.md");
-  await fs.writeFile(finalReadmePath, readme, "utf8");
+
+  // Handle docs updates (new format)
+  if (input.docs) {
+    for (const [key, content] of Object.entries(input.docs)) {
+      const fileName = `${key}.md`;
+      const filePath = path.join(finalDirPath, fileName);
+      // SPECS.md gets frontmatter
+      if (key === "SPECS") {
+        await fs.writeFile(filePath, formatMarkdown(nextFrontmatter, content), "utf8");
+      } else {
+        await fs.writeFile(filePath, content, "utf8");
+      }
+    }
+  }
+
+  // Handle legacy readme/specs updates
+  if (input.readme !== undefined && !input.docs?.README) {
+    await fs.writeFile(path.join(finalDirPath, "README.md"), input.readme, "utf8");
+  }
+  if (input.specs !== undefined && !input.docs?.SPECS) {
+    const specsContent = formatMarkdown(nextFrontmatter, input.specs);
+    await fs.writeFile(path.join(finalDirPath, "SPECS.md"), specsContent, "utf8");
+  }
+
+  // Ensure frontmatter update even if no docs changed
+  if (!input.docs?.SPECS && input.specs === undefined) {
+    const existingSpecs = parsedSpecs?.content ?? "";
+    await fs.writeFile(path.join(finalDirPath, "SPECS.md"), formatMarkdown(nextFrontmatter, existingSpecs), "utf8");
+  }
+
+  const finalThreadPath = path.join(finalDirPath, THREAD_FILE);
+  if (!(await fileExists(finalThreadPath))) {
+    await fs.writeFile(finalThreadPath, formatThreadFrontmatter(id), "utf8");
+  }
+
+  // Re-read all docs
+  const entries = await fs.readdir(finalDirPath, { withFileTypes: true });
+  const mdFiles = entries
+    .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
+    .map(e => e.name);
+
+  const docs: Record<string, string> = {};
+  for (const file of mdFiles) {
+    const parsed = await readMarkdownIfExists(path.join(finalDirPath, file));
+    if (parsed) {
+      const key = file.replace(/\.md$/i, "").toUpperCase();
+      docs[key] = parsed.content;
+    }
+  }
 
   return {
     ok: true,
@@ -323,9 +490,10 @@ export async function updateProject(
       id,
       title: nextTitle,
       path: finalDirName,
-      absolutePath: path.join(root, finalDirName),
+      absolutePath: finalDirPath,
       frontmatter: nextFrontmatter,
-      content: nextContent,
+      docs,
+      thread: [],
     },
   };
 }
@@ -352,6 +520,39 @@ export async function deleteProject(
   await fs.rename(sourcePath, targetPath);
 
   return { ok: true, data: { id, path: dirName, trashedPath: path.join("trash", dirName) } };
+}
+
+export type ProjectCommentResult =
+  | { ok: true; data: ProjectThreadEntry }
+  | { ok: false; error: string };
+
+export async function appendProjectComment(
+  config: GatewayConfig,
+  projectId: string,
+  entry: ProjectThreadEntry
+): Promise<ProjectCommentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const threadPath = path.join(root, dirName, THREAD_FILE);
+  const formatted = formatThreadEntry(entry);
+  if (!(await fileExists(threadPath))) {
+    const initial = formatThreadFrontmatter(projectId) + formatted;
+    await fs.writeFile(threadPath, initial, "utf8");
+    return { ok: true, data: entry };
+  }
+
+  const raw = await fs.readFile(threadPath, "utf8");
+  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  const prefix = fmMatch ? fmMatch[0] : formatThreadFrontmatter(projectId);
+  const rest = fmMatch ? raw.slice(fmMatch[0].length) : raw;
+  const separator = rest.trim() ? "\n---\n---\n\n" : "\n";
+  const next = `${prefix}${rest}${separator}${formatted}`;
+  await fs.writeFile(threadPath, next, "utf8");
+  return { ok: true, data: entry };
 }
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
@@ -437,4 +638,44 @@ export async function resolveAttachmentFile(
     return { ok: false, error: "Attachment not found" };
   }
   return { ok: true, data: { path: filePath, name: fileName } };
+}
+
+export async function updateProjectComment(
+  config: GatewayConfig,
+  projectId: string,
+  index: number,
+  body: string
+): Promise<ProjectCommentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const threadPath = path.join(root, dirName, THREAD_FILE);
+  if (!(await fileExists(threadPath))) {
+    return { ok: false, error: "Thread file not found" };
+  }
+
+  const raw = await fs.readFile(threadPath, "utf8");
+  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  const prefix = fmMatch ? fmMatch[0] : formatThreadFrontmatter(projectId);
+  const sections = parseThreadSections(raw);
+
+  if (index < 0 || index >= sections.length) {
+    return { ok: false, error: "Comment not found" };
+  }
+
+  const entry = parseThreadEntry(sections[index]);
+  if (!entry) {
+    return { ok: false, error: "Failed to parse comment" };
+  }
+
+  const updatedEntry = { ...entry, body };
+  sections[index] = `[author:${updatedEntry.author}]\n[date:${updatedEntry.date}]\n${body.trim()}`;
+
+  const next = prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n");
+  await fs.writeFile(threadPath, next, "utf8");
+
+  return { ok: true, data: updatedEntry };
 }

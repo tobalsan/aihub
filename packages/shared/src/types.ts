@@ -318,13 +318,26 @@ export const UpdateProjectRequestSchema = z.object({
   appetite: z.union([ProjectAppetiteSchema, z.literal("")]).optional(),
   status: ProjectStatusSchema.optional(),
   agent: z.string().optional(),
-  content: z.string().optional(),
+  readme: z.string().optional(),
+  specs: z.string().optional(),
+  docs: z.record(z.string()).optional(),
   repo: z.union([z.string(), z.literal("")]).optional(),
   runAgent: z.union([z.string(), z.literal("")]).optional(),
   runMode: z.union([z.string(), z.literal("")]).optional(),
   sessionKeys: z.record(z.string()).nullable().optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
+
+export const ProjectCommentRequestSchema = z.object({
+  author: z.string(),
+  message: z.string(),
+});
+export type ProjectCommentRequest = z.infer<typeof ProjectCommentRequestSchema>;
+
+export const UpdateProjectCommentRequestSchema = z.object({
+  body: z.string(),
+});
+export type UpdateProjectCommentRequest = z.infer<typeof UpdateProjectCommentRequestSchema>;
 
 export const StartProjectRunRequestSchema = z.object({
   customPrompt: z.string().optional(),

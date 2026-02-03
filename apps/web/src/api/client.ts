@@ -18,6 +18,7 @@ import type {
   ProjectBranchesResponse,
   FileAttachment,
   UploadResponse,
+  ProjectThreadEntry,
 } from "./types";
 
 const API_BASE = "/api";
@@ -628,4 +629,32 @@ export async function uploadAttachments(
 
   const data = (await res.json()) as UploadedAttachment[];
   return { ok: true, data };
+}
+
+export async function addProjectComment(
+  projectId: string,
+  message: string,
+  author = "AIHub"
+): Promise<ProjectThreadEntry> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ author, message }),
+  });
+  if (!res.ok) throw new Error("Failed to add comment");
+  return res.json();
+}
+
+export async function updateProjectComment(
+  projectId: string,
+  index: number,
+  body: string
+): Promise<ProjectThreadEntry> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/comments/${index}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error("Failed to update comment");
+  return res.json();
 }

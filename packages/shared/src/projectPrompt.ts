@@ -34,7 +34,7 @@ export function buildProjectStartPrompt(input: {
   status: string;
   path: string;
   content: string;
-  readmePath: string;
+  specsPath: string;
   repo?: string;
   customPrompt?: string;
 }): string {
@@ -42,7 +42,7 @@ export function buildProjectStartPrompt(input: {
   const custom = input.customPrompt?.trim();
   let prompt =
     normalized === "shaping"
-      ? custom || `/drill-specs ${input.readmePath}`
+      ? custom || `/drill-specs ${input.specsPath}`
       : buildStartPrompt(buildProjectSummary(input.title, input.status, input.path, input.content));
   if (normalized !== "shaping" && custom) {
     prompt = `${prompt}\n\n${custom}`;

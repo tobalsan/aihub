@@ -221,7 +221,8 @@ export type ProjectDetail = {
   path: string;
   absolutePath: string;
   frontmatter: Record<string, unknown>;
-  content: string;
+  docs: Record<string, string>;
+  thread: ProjectThreadEntry[];
 };
 
 export type DeleteProjectResponse = {
@@ -237,11 +238,19 @@ export type ProjectUpdatePayload = {
   executionMode?: string;
   appetite?: string;
   status?: string;
-  content?: string;
+  readme?: string;
+  specs?: string;
+  docs?: Record<string, string>;
   repo?: string;
   runAgent?: string;
   runMode?: string;
   sessionKeys?: Record<string, string> | null;
+};
+
+export type ProjectThreadEntry = {
+  author: string;
+  date: string;
+  body: string;
 };
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";

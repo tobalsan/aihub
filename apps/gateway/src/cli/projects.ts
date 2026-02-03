@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import os from "node:os";
-import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { execSync } from "node:child_process";
 import { loadConfig, getAgents } from "../config/index.js";
+
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 type ProjectItem = {
   id: string;
   title: string;
   path: string;
   frontmatter: Record<string, unknown>;
-  content?: string;
+  readme?: string;
+  specs?: string;
 };
 
 type SimpleHistoryMessage = {
@@ -130,6 +133,26 @@ async function requestJson(path: string, init?: RequestInit): Promise<Response> 
   const base = getApiBaseUrl();
   const url = new URL(`/api${path}`, base).toString();
   return fetch(url, init);
+}
+
+type CommentArgs = {
+  projectId: string;
+  author: string;
+  message: string;
+};
+
+export function createProjectCommentHandler(options?: {
+  baseUrl?: string;
+  fetchImpl?: FetchLike;
+}): (args: CommentArgs) => Promise<Response> {
+  const baseUrl = options?.baseUrl ?? getApiBaseUrl();
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  return (args) =>
+    fetchImpl(new URL(`/api/projects/${args.projectId}/comments`, baseUrl).toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author: args.author, message: args.message }),
+    });
 }
 
 function formatMessages(items: SimpleHistoryMessage[]): string {
@@ -262,7 +285,7 @@ program
   .option("--run-agent <agent>", "Run agent (aihub:<id> or cli:<name>)")
   .option("--run-mode <mode>", "Run mode (main-run|worktree)")
   .option("--repo <path>", "Repo path")
-  .option("--content <content>", "Content string or '-' for stdin")
+  .option("--content <content>", "Specs content string or '-' for stdin")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const body: Record<string, unknown> = {};
@@ -276,7 +299,7 @@ program
     if (opts.runMode !== undefined) body.runMode = opts.runMode;
     if (opts.repo !== undefined) body.repo = opts.repo;
     if (opts.content !== undefined) {
-      body.content = opts.content === "-" ? await readStdin() : opts.content;
+      body.specs = opts.content === "-" ? await readStdin() : opts.content;
     }
 
     const res = await requestJson(`/projects/${id}`, {
@@ -294,6 +317,30 @@ program
       return;
     }
     console.log(renderTable([data as ProjectItem]));
+  });
+
+program
+  .command("comment")
+  .argument("<id>", "Project ID")
+  .requiredOption("-m, --message <message>", "Comment text (use '-' for stdin)")
+  .option("--author <author>", "Comment author")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    const normalizedId = normalizeProjectId(id);
+    const message = opts.message === "-" ? await readStdin() : opts.message;
+    const author = opts.author ?? os.userInfo().username ?? "unknown";
+    const comment = createProjectCommentHandler();
+    const res = await comment({ projectId: normalizedId, author, message });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(data.error ?? "Request failed");
+      process.exit(1);
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    console.log("Comment added.");
   });
 
 program

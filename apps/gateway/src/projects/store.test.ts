@@ -54,14 +54,19 @@ describe("projects store", () => {
     expect(secondResult.data.id).toBe("PRO-2");
 
     const readmePath = path.join(projectsRoot, firstResult.data.path, "README.md");
+    const specsPath = path.join(projectsRoot, firstResult.data.path, "SPECS.md");
+    const threadPath = path.join(projectsRoot, firstResult.data.path, "THREAD.md");
     const readme = await fs.readFile(readmePath, "utf8");
-    expect(readme).toContain('domain: "coding"');
-    expect(readme).toContain('owner: "me"');
-    expect(readme).toContain('executionMode: "auto"');
-    expect(readme).toContain('appetite: "big"');
-    expect(readme).toContain('status: "todo"');
+    const specs = await fs.readFile(specsPath, "utf8");
+    const thread = await fs.readFile(threadPath, "utf8");
+    expect(specs).toContain('domain: "coding"');
+    expect(specs).toContain('owner: "me"');
+    expect(specs).toContain('executionMode: "auto"');
+    expect(specs).toContain('appetite: "big"');
+    expect(specs).toContain('status: "todo"');
     expect(readme).toContain("# Alpha Project");
     expect(readme).toContain("Ship it.");
+    expect(thread).toContain("project: PRO-1");
 
     const stateRaw = await fs.readFile(path.join(tmpDir, ".aihub", "projects.json"), "utf8");
     expect(JSON.parse(stateRaw)).toEqual({ lastId: 2 });
@@ -75,7 +80,8 @@ describe("projects store", () => {
     const getResult = await getProject(config, firstResult.data.id);
     if (!getResult.ok) throw new Error(getResult.error);
     expect(getResult.data.frontmatter.domain).toBe("coding");
-    expect(getResult.data.content).toContain("Ship it.");
+    expect(getResult.data.docs.README).toContain("Ship it.");
+    expect(getResult.data.thread.length).toBe(0);
   });
 
   it("rejects titles with fewer than two words", async () => {
@@ -108,5 +114,38 @@ describe("projects store", () => {
     await expect(fs.access(sourcePath)).rejects.toBeDefined();
     await expect(fs.stat(targetPath)).resolves.toBeDefined();
     await expect(fs.stat(trashRoot)).resolves.toBeDefined();
+  });
+
+  it("updates thread comments preserving author and date", async () => {
+    const { createProject, appendProjectComment, updateProjectComment, getProject } = await import("./store.js");
+    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+
+    const created = await createProject(config, { title: "Comment Test" });
+    if (!created.ok) throw new Error(created.error);
+
+    await appendProjectComment(config, created.data.id, {
+      author: "Alice",
+      date: "2025-01-01 10:00",
+      body: "First comment",
+    });
+
+    await appendProjectComment(config, created.data.id, {
+      author: "Bob",
+      date: "2025-01-02 11:00",
+      body: "Second comment",
+    });
+
+    const updated = await updateProjectComment(config, created.data.id, 0, "Updated first comment");
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.data.author).toBe("Alice");
+    expect(updated.data.date).toBe("2025-01-01 10:00");
+    expect(updated.data.body).toBe("Updated first comment");
+
+    const project = await getProject(config, created.data.id);
+    if (!project.ok) throw new Error(project.error);
+    expect(project.data.thread.length).toBe(2);
+    expect(project.data.thread[0].body).toBe("Updated first comment");
+    expect(project.data.thread[1].body).toBe("Second comment");
   });
 });

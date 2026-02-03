@@ -484,8 +484,8 @@ export async function listProjectBranches(
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const readmePath = path.join(root, dirName, "README.md");
-  const { frontmatter } = await parseMarkdownFile(readmePath);
+  const specsPath = path.join(root, dirName, "SPECS.md");
+  const { frontmatter } = await parseMarkdownFile(specsPath);
   const repo = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   if (!repo) {
     return { ok: true, data: { branches: [] } };

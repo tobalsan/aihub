@@ -252,8 +252,8 @@ export async function spawnSubagent(
     return { ok: false, error: `Project not found: ${input.projectId}` };
   }
 
-  const readmePath = path.join(root, dirName, "README.md");
-  const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
+  const specsPath = path.join(root, dirName, "SPECS.md");
+  const { frontmatter, title, content } = await parseMarkdownFile(specsPath);
   const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
@@ -555,8 +555,8 @@ export async function killSubagent(
   if (!runMode) runMode = "main-run";
 
   if (runMode === "worktree") {
-    const readmePath = path.join(root, dirName, "README.md");
-    const { frontmatter } = await parseMarkdownFile(readmePath);
+    const specsPath = path.join(root, dirName, "SPECS.md");
+    const { frontmatter } = await parseMarkdownFile(specsPath);
     const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
     const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
     if (!repo) {
