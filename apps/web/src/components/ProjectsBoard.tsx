@@ -1029,11 +1029,8 @@ export function ProjectsBoard() {
   });
 
   const runAgentOptions = createMemo(() => {
-    const aihub = (agents() ?? []).map((agent) => ({
-      id: `aihub:${agent.id}`,
-      label: agent.name,
-    }));
-    return [...aihub, ...CLI_OPTIONS];
+    // Only show CLI agents (not lead agents) since UI v2
+    return CLI_OPTIONS;
   });
 
   const selectedRunAgent = createMemo(() => {
@@ -1288,11 +1285,8 @@ export function ProjectsBoard() {
     if (!detail() || detailRunAgent()) return;
     const options = runAgentOptions();
     if (options.length > 0) {
-      const isShaping = detailStatus() === "shaping";
-      const projectManager = options.find((opt) => opt.label === "Project Manager");
-      const aihub = options.find((opt) => opt.id.startsWith("aihub:"));
-      const defaultOption = isShaping && projectManager ? projectManager : aihub ?? options[0];
-      setDetailRunAgent(defaultOption.id);
+      // Default to first CLI option (Claude CLI)
+      setDetailRunAgent(options[0].id);
     }
   });
 
