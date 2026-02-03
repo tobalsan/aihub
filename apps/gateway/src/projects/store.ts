@@ -222,12 +222,12 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
         .map(e => e.name);
       if (mdFiles.length === 0) continue;
 
-      // Priority: SPECS.md frontmatter > README.md frontmatter > first .md file
+      // Priority: README.md frontmatter > SPECS.md frontmatter > first .md file
       let frontmatter: Record<string, unknown> = {};
       let title = dirName;
       const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
       const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
-      const primaryFile = specsFile ?? readmeFile ?? mdFiles[0];
+      const primaryFile = readmeFile ?? specsFile ?? mdFiles[0];
       if (primaryFile) {
         const parsed = await readMarkdownIfExists(path.join(dirPath, primaryFile));
         if (parsed) {
@@ -286,11 +286,11 @@ export async function getProject(
     if (parsed) {
       const key = file.replace(/\.md$/i, "").toUpperCase();
       docs[key] = parsed.content;
-      // Use SPECS.md frontmatter if available, else README.md
-      if (file === specsFile) {
+      // Use README.md frontmatter if available, else SPECS.md
+      if (file === readmeFile) {
         frontmatter = parsed.frontmatter;
         title = parsed.title;
-      } else if (file === readmeFile && !specsFile) {
+      } else if (file === specsFile && !readmeFile) {
         frontmatter = parsed.frontmatter;
         title = parsed.title;
       }
@@ -344,13 +344,11 @@ export async function createProject(
   if (input.owner) frontmatter.owner = input.owner;
   if (input.executionMode) frontmatter.executionMode = input.executionMode;
   if (input.appetite) frontmatter.appetite = input.appetite;
-  const readmeContent = input.description
+  const readmeBody = input.description
     ? `# ${trimmedTitle}\n\n${input.description}\n`
     : `# ${trimmedTitle}\n`;
-  const specsContent = "# Specs\n\n";
-  const specs = formatMarkdown(frontmatter, specsContent);
+  const readmeContent = formatMarkdown(frontmatter, readmeBody);
   await fs.writeFile(path.join(dirPath, "README.md"), readmeContent, "utf8");
-  await fs.writeFile(path.join(dirPath, "SPECS.md"), specs, "utf8");
   await fs.writeFile(path.join(dirPath, THREAD_FILE), formatThreadFrontmatter(id), "utf8");
 
   return {
@@ -361,7 +359,7 @@ export async function createProject(
       path: dirName,
       absolutePath: dirPath,
       frontmatter,
-      docs: { README: readmeContent, SPECS: specsContent },
+      docs: { README: readmeBody },
       thread: [],
     },
   };
@@ -384,7 +382,7 @@ export async function updateProject(
   const currentThreadPath = path.join(dirPath, THREAD_FILE);
   const parsedSpecs = await readMarkdownIfExists(currentSpecsPath);
   const parsedReadme = await readMarkdownIfExists(currentReadmePath);
-  const currentFrontmatter = parsedSpecs?.frontmatter ?? parsedReadme?.frontmatter ?? {};
+  const currentFrontmatter = parsedReadme?.frontmatter ?? parsedSpecs?.frontmatter ?? {};
   const currentTitle =
     toStringField(currentFrontmatter.title) ?? parsedReadme?.title ?? parsedSpecs?.title ?? id;
   const nextTitle = input.title ?? currentTitle;
@@ -440,8 +438,8 @@ export async function updateProject(
     for (const [key, content] of Object.entries(input.docs)) {
       const fileName = `${key}.md`;
       const filePath = path.join(finalDirPath, fileName);
-      // SPECS.md gets frontmatter
-      if (key === "SPECS") {
+      // README.md gets frontmatter
+      if (key === "README") {
         await fs.writeFile(filePath, formatMarkdown(nextFrontmatter, content), "utf8");
       } else {
         await fs.writeFile(filePath, content, "utf8");
@@ -451,17 +449,16 @@ export async function updateProject(
 
   // Handle legacy readme/specs updates
   if (input.readme !== undefined && !input.docs?.README) {
-    await fs.writeFile(path.join(finalDirPath, "README.md"), input.readme, "utf8");
+    await fs.writeFile(path.join(finalDirPath, "README.md"), formatMarkdown(nextFrontmatter, input.readme), "utf8");
   }
   if (input.specs !== undefined && !input.docs?.SPECS) {
-    const specsContent = formatMarkdown(nextFrontmatter, input.specs);
-    await fs.writeFile(path.join(finalDirPath, "SPECS.md"), specsContent, "utf8");
+    await fs.writeFile(path.join(finalDirPath, "SPECS.md"), input.specs, "utf8");
   }
 
   // Ensure frontmatter update even if no docs changed
-  if (!input.docs?.SPECS && input.specs === undefined) {
-    const existingSpecs = parsedSpecs?.content ?? "";
-    await fs.writeFile(path.join(finalDirPath, "SPECS.md"), formatMarkdown(nextFrontmatter, existingSpecs), "utf8");
+  if (!input.docs?.README && input.readme === undefined) {
+    const existingReadme = parsedReadme?.content ?? "";
+    await fs.writeFile(path.join(finalDirPath, "README.md"), formatMarkdown(nextFrontmatter, existingReadme), "utf8");
   }
 
   const finalThreadPath = path.join(finalDirPath, THREAD_FILE);

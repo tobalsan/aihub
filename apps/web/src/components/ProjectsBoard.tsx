@@ -1814,9 +1814,9 @@ const handleDetailDragOver = (e: DragEvent) => {
     }
 
     if (attachmentSection) {
-      const currentSpecs = result.data.specs || "";
-      const updatedSpecs = currentSpecs + (currentSpecs ? "\n\n" : "") + attachmentSection;
-      await updateProject(projectId, { specs: updatedSpecs });
+      const currentReadme = result.data.docs?.README || "";
+      const updatedReadme = currentReadme + (currentReadme ? "\n\n" : "") + attachmentSection;
+      await updateProject(projectId, { docs: { README: updatedReadme } });
     }
 
     clearFormFromStorage();
