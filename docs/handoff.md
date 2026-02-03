@@ -54,7 +54,7 @@ Shifting from **project-centric** to **agent-centric** model:
 ---
 
 ## Initial Context
-Goal: add a project management/overview system with Kanban and per-project agent sessions. First step: implement Projects API. Projects live in `~/projects` (configurable), flat folder (no status subfolders). Status stored in YAML frontmatter. Status flow: NOT NOW, MAYBE, SHAPING, TODO, IN PROGRESS, REVIEW, DONE. Projects are folders named `PRO-<id>_<slug>` with `README.md` containing YAML frontmatter + markdown body. Additional files (scope/progress/prompt) only for Ralph loops and created ad hoc later.
+Goal: add a project management/overview system with Kanban and per-project agent sessions. First step: implement Projects API. Projects live in `~/projects` (configurable), flat folder (no status subfolders). Status stored in YAML frontmatter. Status flow: NOT NOW, MAYBE, SHAPING, TODO, IN PROGRESS, REVIEW, DONE. Projects are folders named `PRO-<id>_<slug>` with `README.md` containing YAML frontmatter + markdown body. Additional `.md` files are optional and included in start prompts.
 
 Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Single-row horizontally scrolling columns. Collapsible columns with up to two expanded at a time. Card click opens near-maximized overlay with details + monitoring pane. No drag/drop in v1; status moves via detail view.
 
@@ -115,7 +115,7 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 Create behavior:
 - Allocates ID from `~/.aihub/projects.json`.
 - Creates `PRO-<n>_<slug>` directory.
-- Writes `README.md` with YAML frontmatter + `# <title>` body.
+- Writes `README.md` with YAML frontmatter + `# <title>` body (no SPECS.md auto-created).
 - Frontmatter includes `status=maybe`, `created` ISO timestamp; other fields only if provided.
 
 Update behavior:
@@ -284,6 +284,9 @@ Kanban UI details:
 - `feat: add --agent flag to apm move and persist activity`
 - `Squash merge PRO-30/project-delete into main`
 - `Squash merge PRO-34/multi-file-structure into main`
+- `fix(projects): use README.md as frontmatter source`
+- `feat(web): restore start button in monitoring panel`
+- `fix(gateway): use README.md as primary project file`
 
 ## Recent Improvements
 - Context panel: persisted mode + selected agent across refresh; wider panel on large screens.
@@ -323,7 +326,7 @@ Kanban UI details:
 - Image attachments: Subagent CLI spawning doesn't support attachments yet (only lead agents).
 - Uploaded files stored in `~/.aihub/media/inbound/`; no cleanup/expiry currently implemented.
 - Project deletion is soft delete (moves to `{projects.root}/trash/`).
-- Multi-file projects: frontmatter only written to SPECS.md; legacy `readme`/`specs` fields still supported.
+- Multi-file projects: README.md is primary (contains frontmatter); other `.md` files included in start prompts.
 - Kill subagent: Worktree mode also deletes the git branch; main-run mode only removes workspace.
 
 ### 13) UI v2 Phase 5 — Project Detail Agent Runs
@@ -403,11 +406,12 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx`
 
 ### 20) Multi-File Document Structure (PRO-34)
-- Projects support multiple markdown files beyond README/SPECS.
+- Projects support multiple markdown files beyond README.
 - `docs` field: `Record<string, string>` mapping filename → content.
 - Files without `.md` extension converted to uppercase keys.
-- Primary file priority: SPECS.md > README.md > first `.md` file.
-- Frontmatter written only to SPECS.md.
+- Primary file priority: README.md > SPECS.md > first `.md` file.
+- Frontmatter written only to README.md; SPECS.md no longer auto-created.
+- Start prompts include content from all `.md` files (README first, then others).
 - Backward compatible with legacy `readme` and `specs` fields.
 - Files:
   - `apps/gateway/src/projects/store.ts` (getProject, createProject, updateProject)
