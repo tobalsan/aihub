@@ -257,23 +257,25 @@ export async function spawnSubagent(
   const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
+  // Validate mandatory parameters
+  if (!input.mode) {
+    return { ok: false, error: "mode is required (must be 'worktree' or 'main-run')" };
+  }
+  if (!repo) {
+    return { ok: false, error: "Project repo not set in frontmatter" };
+  }
+
   const resolvedTitle = typeof frontmatter.title === "string" ? frontmatter.title : title ?? "";
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
   const summary = buildProjectSummary(resolvedTitle, status, content ?? "");
 
-  const requestedMode: SubagentMode = input.mode ?? "worktree";
-  const repoHasGit = repo
-    ? await fs
-        .stat(path.join(repo, ".git"))
-        .then(() => true)
-        .catch(() => false)
-    : false;
-  let mode: SubagentMode = requestedMode;
-  if (requestedMode === "worktree" && (!repo || !repoHasGit)) {
-    if (input.mode === "worktree") {
-      return { ok: false, error: repo ? "Project repo is not a git repo" : "Project repo not set" };
-    }
-    mode = "main-run";
+  const mode: SubagentMode = input.mode;
+  const repoHasGit = await fs
+    .stat(path.join(repo, ".git"))
+    .then(() => true)
+    .catch(() => false);
+  if (mode === "worktree" && !repoHasGit) {
+    return { ok: false, error: "Project repo is not a git repo" };
   }
   const workspacesRoot = path.join(root, ".workspaces", input.projectId);
   const workspaceDir = path.join(workspacesRoot, input.slug);
