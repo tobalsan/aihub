@@ -15,6 +15,7 @@ import {
   fetchSubagentLogs,
   fetchProjectBranches,
   killSubagent,
+  interruptSubagent,
   uploadAttachments,
   addProjectComment,
   updateProjectComment,
@@ -1151,6 +1152,10 @@ export function ProjectsBoard() {
     });
     return runs;
   });
+  // Check if any agent run is currently running
+  const runningAgent = createMemo(() => {
+    return agentRuns().find((run) => run.status === "running") ?? null;
+  });
   const selectedRun = createMemo(() => {
     const key = selectedRunKey();
     if (!key) return null;
@@ -1570,6 +1575,21 @@ export function ProjectsBoard() {
     setCustomStartEnabled(false);
     await refetch();
     await refetchDetail();
+  };
+
+  const handleStop = async (projectId: string) => {
+    setStartError("");
+    const running = runningAgent();
+    if (!running || running.type !== "subagent" || !running.slug) {
+      setStartError("No running agent to stop");
+      return;
+    }
+    const result = await interruptSubagent(projectId, running.slug);
+    if (!result.ok) {
+      setStartError(result.error);
+      return;
+    }
+    // Polling will refresh the status automatically
   };
 
   const handleRepoSave = async (id: string) => {
@@ -2584,21 +2604,35 @@ const handleDetailDragOver = (e: DragEvent) => {
                     <h3 class="runs-title">Agent Runs</h3>
                     <Show when={!isMonitoringHidden()}>
                       <div class="runs-actions">
-                        <label class="start-custom-toggle">
-                          <input
-                            type="checkbox"
-                            checked={customStartEnabled()}
-                            onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
-                          />
-                          <span>custom</span>
-                        </label>
-                        <button
-                          class="start-btn"
-                          onClick={() => handleStart(params.id ?? "")}
-                          disabled={!canStart()}
+                        <Show when={!runningAgent()}>
+                          <label class="start-custom-toggle">
+                            <input
+                              type="checkbox"
+                              checked={customStartEnabled()}
+                              onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
+                            />
+                            <span>custom</span>
+                          </label>
+                        </Show>
+                        <Show
+                          when={runningAgent()}
+                          fallback={
+                            <button
+                              class="start-btn"
+                              onClick={() => handleStart(params.id ?? "")}
+                              disabled={!canStart()}
+                            >
+                              Start
+                            </button>
+                          }
                         >
-                          Start
-                        </button>
+                          <button
+                            class="start-btn stop"
+                            onClick={() => handleStop(params.id ?? "")}
+                          >
+                            Stop
+                          </button>
+                        </Show>
                       </div>
                     </Show>
                   </div>
@@ -4161,6 +4195,12 @@ const handleDetailDragOver = (e: DragEvent) => {
         .start-btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+
+        .start-btn.stop {
+          background: #2a1b1b;
+          border-color: #3c2525;
+          color: #f1b7b7;
         }
 
         .stop-btn {
