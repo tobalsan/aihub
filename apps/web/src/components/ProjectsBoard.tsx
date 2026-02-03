@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -1233,12 +1233,14 @@ export function ProjectsBoard() {
       setDetailRepo(repo);
       savedRepo = repo;
       setDetailSessionKeys(getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {});
-      if (!editingTitle()) setDetailTitle(current.title);
+      // Use untrack to avoid circular dependency when editing
+      if (!untrack(editingTitle)) setDetailTitle(current.title);
       // Sync docs (only update keys not being edited)
-      const currentEditing = editingDoc();
+      const currentEditing = untrack(editingDoc);
+      const currentDocs = untrack(detailDocs);
       const nextDocs: Record<string, string> = {};
       for (const [key, content] of Object.entries(current.docs ?? {})) {
-        nextDocs[key] = currentEditing === key ? (detailDocs()[key] ?? stripMarkdownMeta(content)) : stripMarkdownMeta(content);
+        nextDocs[key] = currentEditing === key ? (currentDocs[key] ?? stripMarkdownMeta(content)) : stripMarkdownMeta(content);
       }
       setDetailDocs(nextDocs);
       // Sync thread
