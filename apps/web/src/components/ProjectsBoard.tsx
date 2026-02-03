@@ -18,6 +18,7 @@ import {
   uploadAttachments,
   addProjectComment,
   updateProjectComment,
+  deleteProjectComment,
   startProjectRun,
 } from "../api/client";
 import type {
@@ -901,6 +902,7 @@ export function ProjectsBoard() {
   const [newComment, setNewComment] = createSignal("");
   const [editingCommentIndex, setEditingCommentIndex] = createSignal<number | null>(null);
   const [editingCommentBody, setEditingCommentBody] = createSignal("");
+  const [detailThread, setDetailThread] = createSignal<{ author: string; date: string; body: string }[]>([]);
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -1237,6 +1239,8 @@ export function ProjectsBoard() {
         nextDocs[key] = currentEditing === key ? (detailDocs()[key] ?? stripMarkdownMeta(content)) : stripMarkdownMeta(content);
       }
       setDetailDocs(nextDocs);
+      // Sync thread
+      setDetailThread(current.thread ?? []);
       // Ensure selected tab exists
       const docKeys = Object.keys(nextDocs);
       if (docKeys.length > 0 && !docKeys.includes(detailDocTab())) {
@@ -1268,6 +1272,7 @@ export function ProjectsBoard() {
     }
     savedRepo = "";
     setDetailDocs({});
+    setDetailThread([]);
     setEditingDoc(null);
     setDetailDocTab("README");
     setDetailPendingFiles([]);
@@ -1647,16 +1652,28 @@ const handleDetailDragOver = (e: DragEvent) => {
   const handleAddComment = async (projectId: string) => {
     const body = newComment().trim();
     if (!body) return;
-    await addProjectComment(projectId, body);
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const optimisticEntry = { author: "AIHub", date: dateStr, body };
+    setDetailThread((prev) => [...prev, optimisticEntry]);
     setNewComment("");
+    await addProjectComment(projectId, body);
     await refetchDetail();
   };
 
   const handleCommentUpdate = async (projectId: string, index: number) => {
     const body = editingCommentBody().trim();
     if (!body) return;
-    await updateProjectComment(projectId, index, body);
+    setDetailThread((prev) => prev.map((e, i) => (i === index ? { ...e, body } : e)));
     setEditingCommentIndex(null);
+    await updateProjectComment(projectId, index, body);
+    await refetchDetail();
+  };
+
+  const handleCommentDelete = async (projectId: string, index: number) => {
+    if (!window.confirm("Delete this comment?")) return;
+    setDetailThread((prev) => prev.filter((_, i) => i !== index));
+    await deleteProjectComment(projectId, index);
     await refetchDetail();
   };
 
@@ -2354,16 +2371,26 @@ const handleDetailDragOver = (e: DragEvent) => {
                         </div>
                         <div class="detail-thread">
                           <div class="thread-header">Thread</div>
-                          <Show when={(project.thread ?? []).length > 0} fallback={
+                          <Show when={detailThread().length > 0} fallback={
                             <div class="thread-empty">No comments yet.</div>
                           }>
                             <div class="thread-list">
-                              <For each={project.thread ?? []}>
+                              <For each={detailThread()}>
                                 {(entry, index) => (
                                   <div class="thread-item">
                                     <div class="thread-meta">
                                       <span class="thread-author">{entry.author || "unknown"}</span>
                                       <span class="thread-date">{entry.date}</span>
+                                      <button
+                                        type="button"
+                                        class="thread-delete-btn"
+                                        onClick={() => handleCommentDelete(project.id, index())}
+                                        aria-label="Delete comment"
+                                      >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                          <path d="M18 6L6 18M6 6l12 12" />
+                                        </svg>
+                                      </button>
                                     </div>
                                     <Show when={editingCommentIndex() === index()} fallback={
                                       <div
@@ -2390,7 +2417,7 @@ const handleDetailDragOver = (e: DragEvent) => {
                                             handleCommentUpdate(project.id, index());
                                           }
                                         }}
-                                        autofocus
+                                        ref={(el) => setTimeout(() => el.focus(), 0)}
                                       />
                                     </Show>
                                   </div>
@@ -3742,6 +3769,10 @@ const handleDetailDragOver = (e: DragEvent) => {
           display: flex;
           flex-direction: column;
           gap: 10px;
+          background: #0d1117;
+          margin: 12px -16px -16px -16px;
+          padding: 12px 16px 16px 16px;
+          border-radius: 0 0 12px 12px;
         }
 
         .thread-header {
@@ -3772,6 +3803,30 @@ const handleDetailDragOver = (e: DragEvent) => {
           letter-spacing: 0.08em;
           color: #8b96a5;
           margin-bottom: 6px;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .thread-delete-btn {
+          opacity: 0;
+          background: none;
+          border: none;
+          color: #8b96a5;
+          cursor: pointer;
+          padding: 2px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 4px;
+          transition: opacity 0.15s ease, color 0.15s ease;
+        }
+
+        .thread-item:hover .thread-delete-btn {
+          opacity: 1;
+        }
+
+        .thread-delete-btn:hover {
+          color: #e74c3c;
         }
 
         .thread-body {
@@ -3807,8 +3862,8 @@ const handleDetailDragOver = (e: DragEvent) => {
         .thread-edit-textarea,
         .thread-add-textarea {
           width: 100%;
-          min-height: 60px;
-          background: #0d1117;
+          min-height: 100px;
+          background: #151c26;
           border: 1px solid #3b4859;
           border-radius: 8px;
           color: #d4dbe5;
@@ -3880,6 +3935,7 @@ const handleDetailDragOver = (e: DragEvent) => {
         .content-textarea {
           flex: 1;
           width: 100%;
+          min-height: 420px;
           background: #151c26;
           color: #d4dbe5;
           border: 1px solid #3b6ecc;
@@ -3888,7 +3944,7 @@ const handleDetailDragOver = (e: DragEvent) => {
           font-size: 14px;
           line-height: 1.5;
           font-family: inherit;
-          resize: none;
+          resize: vertical;
           outline: none;
         }
 

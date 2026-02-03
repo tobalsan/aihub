@@ -29,6 +29,7 @@ import {
   deleteProject,
   appendProjectComment,
   updateProjectComment,
+  deleteProjectComment,
   saveAttachments,
   resolveAttachmentFile,
 } from "../projects/index.js";
@@ -531,6 +532,22 @@ api.patch("/projects/:id/comments/:index", async (c) => {
 
   const config = getConfig();
   const result = await updateProjectComment(config, id, index, parsed.data.body);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
+});
+
+// DELETE /api/projects/:id/comments/:index - delete thread comment
+api.delete("/projects/:id/comments/:index", async (c) => {
+  const id = c.req.param("id");
+  const index = parseInt(c.req.param("index"), 10);
+  if (Number.isNaN(index) || index < 0) {
+    return c.json({ error: "Invalid comment index" }, 400);
+  }
+
+  const config = getConfig();
+  const result = await deleteProjectComment(config, id, index);
   if (!result.ok) {
     return c.json({ error: result.error }, 404);
   }

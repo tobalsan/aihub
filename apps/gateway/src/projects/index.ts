@@ -6,6 +6,7 @@ export {
   deleteProject,
   appendProjectComment,
   updateProjectComment,
+  deleteProjectComment,
   saveAttachments,
   resolveAttachmentFile,
 } from "./store.js";
@@ -17,6 +18,7 @@ export type {
   ProjectItemResult,
   DeleteProjectResult,
   ProjectCommentResult,
+  DeleteCommentResult,
   SaveAttachmentsResult,
   ResolveAttachmentResult,
 } from "./store.js";

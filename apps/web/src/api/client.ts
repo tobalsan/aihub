@@ -659,6 +659,17 @@ export async function updateProjectComment(
   return res.json();
 }
 
+export async function deleteProjectComment(
+  projectId: string,
+  index: number
+): Promise<{ index: number }> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/comments/${index}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete comment");
+  return res.json();
+}
+
 export type StartProjectRunResult =
   | { ok: true; type: "aihub" | "cli"; slug?: string; runMode?: string }
   | { ok: false; error: string };

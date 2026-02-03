@@ -676,3 +676,42 @@ export async function updateProjectComment(
 
   return { ok: true, data: updatedEntry };
 }
+
+export type DeleteCommentResult =
+  | { ok: true; data: { index: number } }
+  | { ok: false; error: string };
+
+export async function deleteProjectComment(
+  config: GatewayConfig,
+  projectId: string,
+  index: number
+): Promise<DeleteCommentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const threadPath = path.join(root, dirName, THREAD_FILE);
+  if (!(await fileExists(threadPath))) {
+    return { ok: false, error: "Thread file not found" };
+  }
+
+  const raw = await fs.readFile(threadPath, "utf8");
+  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  const prefix = fmMatch ? fmMatch[0] : formatThreadFrontmatter(projectId);
+  const sections = parseThreadSections(raw);
+
+  if (index < 0 || index >= sections.length) {
+    return { ok: false, error: "Comment not found" };
+  }
+
+  sections.splice(index, 1);
+
+  const next = sections.length > 0
+    ? prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n")
+    : prefix;
+  await fs.writeFile(threadPath, next, "utf8");
+
+  return { ok: true, data: { index } };
+}
