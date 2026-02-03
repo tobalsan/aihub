@@ -484,7 +484,7 @@ You can set environment variables directly in `aihub.json` using the `env` field
 ```bash
 pnpm install
 pnpm dev          # gateway + web UI in dev mode
-pnpm dev:gateway  # gateway only (tsx watch)
+pnpm dev:gateway  # gateway + shared + web UI with hot reload (production mode)
 pnpm dev:web      # web UI only (Vite dev server)
 pnpm build        # TypeScript compile
 pnpm aihub <cmd>  # Run CLI
