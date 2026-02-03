@@ -252,8 +252,9 @@ export async function spawnSubagent(
     return { ok: false, error: `Project not found: ${input.projectId}` };
   }
 
-  const specsPath = path.join(root, dirName, "SPECS.md");
-  const { frontmatter, title, content } = await parseMarkdownFile(specsPath);
+  const projectDir = path.join(root, dirName);
+  const readmePath = path.join(projectDir, "README.md");
+  const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
   const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
@@ -265,9 +266,34 @@ export async function spawnSubagent(
     return { ok: false, error: "Project repo not set in frontmatter" };
   }
 
+  // Gather content from all markdown files
+  const entries = await fs.readdir(projectDir, { withFileTypes: true });
+  const mdFiles = entries
+    .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== "THREAD.md")
+    .map(e => e.name)
+    .sort((a, b) => {
+      if (a.toUpperCase() === "README.MD") return -1;
+      if (b.toUpperCase() === "README.MD") return 1;
+      return a.localeCompare(b);
+    });
+
+  let fullContent = content ?? "";
+  for (const file of mdFiles) {
+    if (file.toUpperCase() === "README.MD") continue;
+    try {
+      const parsed = await parseMarkdownFile(path.join(projectDir, file));
+      if (parsed.content) {
+        const label = file.replace(/\.md$/i, "");
+        fullContent += `\n\n## ${label}\n\n${parsed.content}`;
+      }
+    } catch {
+      // Skip files that can't be parsed
+    }
+  }
+
   const resolvedTitle = typeof frontmatter.title === "string" ? frontmatter.title : title ?? "";
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
-  const summary = buildProjectSummary(resolvedTitle, status, content ?? "");
+  const summary = buildProjectSummary(resolvedTitle, status, fullContent);
 
   const mode: SubagentMode = input.mode;
   const repoHasGit = await fs
@@ -555,8 +581,8 @@ export async function killSubagent(
   if (!runMode) runMode = "main-run";
 
   if (runMode === "worktree") {
-    const specsPath = path.join(root, dirName, "SPECS.md");
-    const { frontmatter } = await parseMarkdownFile(specsPath);
+    const readmePath = path.join(root, dirName, "README.md");
+    const { frontmatter } = await parseMarkdownFile(readmePath);
     const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
     const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
     if (!repo) {

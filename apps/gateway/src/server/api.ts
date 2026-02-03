@@ -307,17 +307,32 @@ api.post("/projects/:id/start", async (c) => {
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
   const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
-  const absSpecsPath = basePath.endsWith("SPECS.md") ? basePath : `${basePath}/SPECS.md`;
+  const absReadmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
   const relBasePath = project.path.replace(/\/$/, "");
-  const relSpecsPath = relBasePath.endsWith("SPECS.md") ? relBasePath : `${relBasePath}/SPECS.md`;
-  const specsPath = runAgentSelection.type === "aihub" ? absSpecsPath : relSpecsPath;
+  const relReadmePath = relBasePath.endsWith("README.md") ? relBasePath : `${relBasePath}/README.md`;
+  const readmePath = runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
+
+  // Combine all docs content (README first, then others)
+  const docKeys = Object.keys(project.docs ?? {}).sort((a, b) => {
+    if (a === "README") return -1;
+    if (b === "README") return 1;
+    return a.localeCompare(b);
+  });
+  let fullContent = project.docs?.README ?? "";
+  for (const key of docKeys) {
+    if (key === "README") continue;
+    const docContent = project.docs?.[key];
+    if (docContent) {
+      fullContent += `\n\n## ${key}\n\n${docContent}`;
+    }
+  }
 
   const prompt = buildProjectStartPrompt({
     title: project.title,
     status,
     path: project.path,
-    content: project.docs?.SPECS ?? "",
-    specsPath,
+    content: fullContent,
+    specsPath: readmePath,
     repo,
     customPrompt: parsed.data.customPrompt,
   });
