@@ -887,6 +887,9 @@ export function ProjectsBoard() {
   const [detailRunAgent, setDetailRunAgent] = createSignal("");
   const [detailRunMode, setDetailRunMode] = createSignal("main-run");
   const [detailRepo, setDetailRepo] = createSignal("");
+  const [repoStatus, setRepoStatus] = createSignal<"idle" | "checking" | "ok" | "error">("idle");
+  const [repoStatusMessage, setRepoStatusMessage] = createSignal("");
+  const [repoStatusVisible, setRepoStatusVisible] = createSignal(false);
   const [detailTitle, setDetailTitle] = createSignal("");
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [detailDocs, setDetailDocs] = createSignal<Record<string, string>>({});
@@ -938,6 +941,7 @@ export function ProjectsBoard() {
   let createNotesRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let savedRepo = "";
+  let repoStatusTimer: number | undefined;
 
   onMount(() => {
     const saved = localStorage.getItem(selectedAgentStorageKey);
@@ -1255,6 +1259,13 @@ export function ProjectsBoard() {
     setAihubRunLogs({});
     setDetailSlug("");
     setDetailRepo("");
+    setRepoStatus("idle");
+    setRepoStatusMessage("");
+    setRepoStatusVisible(false);
+    if (repoStatusTimer) {
+      window.clearTimeout(repoStatusTimer);
+      repoStatusTimer = undefined;
+    }
     savedRepo = "";
     setDetailDocs({});
     setEditingDoc(null);
@@ -1315,9 +1326,26 @@ export function ProjectsBoard() {
     const repo = detailRepo().trim();
     if (!projectId || !repo) {
       setBranches([]);
+      setRepoStatus("idle");
+      setRepoStatusMessage("");
+      setRepoStatusVisible(false);
+      if (repoStatusTimer) {
+        window.clearTimeout(repoStatusTimer);
+        repoStatusTimer = undefined;
+      }
       return;
     }
     let active = true;
+    setRepoStatus("checking");
+    setRepoStatusMessage("");
+    setRepoStatusVisible(true);
+    if (repoStatusTimer) {
+      window.clearTimeout(repoStatusTimer);
+    }
+    repoStatusTimer = window.setTimeout(() => {
+      setRepoStatusVisible(false);
+      repoStatusTimer = undefined;
+    }, 2500);
     const timer = window.setTimeout(async () => {
       const shouldUpdate = repo !== savedRepo.trim();
       if (shouldUpdate) {
@@ -1327,6 +1355,8 @@ export function ProjectsBoard() {
         } catch {
           if (!active) return;
           setBranches([]);
+          setRepoStatus("error");
+          setRepoStatusMessage("Failed to save repo");
           return;
         }
       }
@@ -1337,8 +1367,17 @@ export function ProjectsBoard() {
         if (!res.data.branches.includes(detailBranch())) {
           setDetailBranch(res.data.branches.includes("main") ? "main" : res.data.branches[0] ?? "main");
         }
+        if (res.data.branches.length > 0) {
+          setRepoStatus("ok");
+          setRepoStatusMessage("Repo looks good");
+        } else {
+          setRepoStatus("error");
+          setRepoStatusMessage("No branches found");
+        }
       } else {
         setBranches([]);
+        setRepoStatus("error");
+        setRepoStatusMessage(res.error || "Repo not found");
       }
     }, 400);
     onCleanup(() => {
@@ -2469,7 +2508,7 @@ const handleDetailDragOver = (e: DragEvent) => {
                       </div>
                     </Show>
                     <Show when={detailDomain() === "coding"}>
-                      <div class="meta-field meta-field-wide">
+                      <div class="meta-field meta-field-wide meta-field-stack">
                         <label class="meta-label">Repo</label>
                         <input
                           class="meta-input"
@@ -2478,6 +2517,11 @@ const handleDetailDragOver = (e: DragEvent) => {
                           onBlur={() => handleRepoSave(params.id ?? "")}
                           placeholder="/abs/path/to/repo"
                         />
+                        <Show when={repoStatusVisible() && repoStatus() !== "idle" && detailRepo().trim()}>
+                          <div class={`repo-status ${repoStatus()}`}>
+                            {repoStatus() === "checking" ? "Checking repo..." : repoStatusMessage()}
+                          </div>
+                        </Show>
                       </div>
                     </Show>
                     <Show when={selectedRunAgent()?.type === "cli"}>
@@ -3648,6 +3692,12 @@ const handleDetailDragOver = (e: DragEvent) => {
           grid-column: span 2;
         }
 
+        .meta-field-stack {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+        }
+
         .detail-docs {
           display: flex;
           flex-direction: column;
@@ -4390,14 +4440,18 @@ const handleDetailDragOver = (e: DragEvent) => {
           min-height: 0;
         }
 
-        .repo-toast {
-          color: #bfe9c7;
-          background: #183024;
-          border: 1px solid #234936;
-          border-radius: 10px;
-          padding: 6px 10px;
-          font-size: 12px;
-          margin: 6px 0;
+        .repo-status {
+          font-size: 11px;
+          margin-top: 4px;
+          color: #9aa6b4;
+        }
+
+        .repo-status.ok {
+          color: #7fcf9a;
+        }
+
+        .repo-status.error {
+          color: #f199a2;
         }
 
         .subagents-panel {
