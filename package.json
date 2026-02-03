@@ -6,7 +6,7 @@
     "build": "pnpm --filter @aihub/shared --filter @aihub/gateway build",
     "build:web": "pnpm --filter @aihub/web build",
     "dev": "pnpm exec tsx scripts/dev.ts",
-    "dev:gateway": "pnpm --filter @aihub/gateway exec tsx watch src/cli/index.ts gateway",
+    "dev:gateway": "AIHUB_WEB_DEV=1 pnpm --filter @aihub/shared exec tsc --watch --preserveWatchOutput & pnpm --filter @aihub/gateway exec tsx watch --include '../../packages/shared/dist/**/*' src/cli/index.ts gateway",
     "dev:web": "pnpm --filter @aihub/web dev",
     "lint": "eslint .",
     "typecheck": "tsc -b",

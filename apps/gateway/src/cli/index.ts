@@ -78,12 +78,15 @@ function startWebUI(uiConfig: UiConfig): ChildProcess | null {
   const port = uiConfig.port ?? 3000;
   const host = resolveUiHost(uiConfig.bind);
   const useTailscaleServe = uiConfig.tailscale?.mode === "serve";
+  const useDevServer = process.env.AIHUB_WEB_DEV === "1";
 
   // Get monorepo root (gateway is at apps/gateway/dist/cli or apps/gateway/src/cli)
   const gatewayRoot = path.resolve(__dirname, "../..");
   const monorepoRoot = path.resolve(gatewayRoot, "../..");
 
-  const args = ["--filter", "@aihub/web", "exec", "vite", "preview", "--port", String(port), "--host", host];
+  // Use vite dev for hot reload, vite preview for production-like serving
+  const viteCmd = useDevServer ? "dev" : "preview";
+  const args = ["--filter", "@aihub/web", "exec", "vite", viteCmd, "--port", String(port), "--host", host];
   const child = spawn("pnpm", args, {
     cwd: monorepoRoot,
     stdio: "inherit",
