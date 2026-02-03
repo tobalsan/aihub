@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-01-31)
+Date: 2026-01-27 (updated 2026-02-03)
 Repo: `/Users/thinh/code/aihub`
 
 ---
@@ -254,6 +254,36 @@ Kanban UI details:
 - `docs: add apm CLI usage guide`
 - `fix(cli): route heartbeat through gateway API`
 - `fix(web): tailscale serve base + api/ws mapping`
+- `fix(web): link legacy header to kanban`
+- `fix(web): improve mobile UX for sidebar and project details`
+- `feat(web): add avatar squares with initials to sidebar`
+- `fix(tests): stabilize heartbeat and activity client tests`
+- `feat(sdk): add OpenClaw connector adapter`
+- `fix(openclaw): fix WebSocket protocol handshake`
+- `fix(openclaw): enable deliver flag to receive response events`
+- `fix(openclaw): extract text from message object format`
+- `fix(openclaw): handle cumulative delta text`
+- `docs: add OpenClaw connector documentation`
+- `feat: add image attachment support to Pi and Claude adapters`
+- `feat: HTTP file upload instead of WebSocket base64`
+- `feat: show file paths in chat log when attachments are sent`
+- `feat(projects): drag and drop file attachments in project detail view`
+- `Squash merge PRO-33/streaming-fix into main`
+- `feat(projects): better project creation form`
+- `feat(web): drag projects between columns`
+- `feat: add real-time agent status updates via WebSocket`
+- `Replace sidebar status dots with pills`
+- `Add markdown spacing and font to agent chat`
+- `feat: allow omitting model when sdk is openclaw`
+- `Fix heartbeat reschedule tests`
+- `feat: add subagent.kill tool`
+- `feat(web): add kill button for subagents`
+- `fix: ensure worktree is created when spawning subagent`
+- `fix: require mode and repo for subagent spawn`
+- `Squash merge PRO-36/fix-toast-dismiss into main`
+- `feat: add --agent flag to apm move and persist activity`
+- `Squash merge PRO-30/project-delete into main`
+- `Squash merge PRO-34/multi-file-structure into main`
 
 ## Recent Improvements
 - Context panel: persisted mode + selected agent across refresh; wider panel on large screens.
@@ -289,6 +319,12 @@ Kanban UI details:
 - Tailscale serve: UI uses base `/aihub` (no trailing slash). Serve config must map `/aihub` -> `http://127.0.0.1:3000/aihub` and `/api`,`/ws` -> gateway port (web dev script now sets these).
 - Project start prompt logic now shared between web + gateway.
 - `apm` CLI docs now live at `docs/cli-apm.md`.
+- OpenClaw connector: Debug with `OPENCLAW_DEBUG=1`; delta events are cumulative (not incremental).
+- Image attachments: Subagent CLI spawning doesn't support attachments yet (only lead agents).
+- Uploaded files stored in `~/.aihub/media/inbound/`; no cleanup/expiry currently implemented.
+- Project deletion is soft delete (moves to `{projects.root}/trash/`).
+- Multi-file projects: frontmatter only written to SPECS.md; legacy `readme`/`specs` fields still supported.
+- Kill subagent: Worktree mode also deletes the git branch; main-run mode only removes workspace.
 
 ### 13) UI v2 Phase 5 — Project Detail Agent Runs
 - Replaced monitoring pane with Agent Runs list in project detail overlay.
@@ -304,13 +340,140 @@ Kanban UI details:
 - Added overlay animations (fade + scale), focus-visible states for accessibility.
 - Smooth transitions on collapse/expand.
 
+### 15) OpenClaw Connector
+- New SDK adapter for OpenClaw gateway integration via WebSocket.
+- WebSocket protocol v3 with proper handshake (connect → chat.history → chat.send).
+- Supports streaming responses, tool call/result events, full transcript history.
+- Config: `gatewayUrl`, `token`, `sessionKey` in agent's `openclaw` field.
+- Model field optional when `sdk === "openclaw"` (defaults to `{ provider: "openclaw", model: "unknown" }`).
+- File attachments: paths appended to message text (OpenClaw auto-detects).
+- Debug mode: `OPENCLAW_DEBUG=1` logs raw frames.
+- Files:
+  - `apps/gateway/src/sdk/openclaw/adapter.ts`
+  - `apps/gateway/src/sdk/openclaw/adapter.test.ts`
+
+### 16) Image/File Attachments
+- HTTP file upload via `/api/media/upload` (multipart/form-data).
+- Files saved to `~/.aihub/media/inbound/{uuid}.{ext}`.
+- Supported types: images (JPEG, PNG, GIF, WebP, SVG), documents (PDF, MD, TXT), office (DOCX, XLSX, PPTX), code/data (JSON, CSV, HTML, CSS, JS).
+- UI: paperclip button + drag-and-drop in AgentChat.
+- Pending files shown as pills with remove button before send.
+- SDK adapters handle attachments differently:
+  - Claude/Pi: Read files, convert to base64, build multimodal content.
+  - OpenClaw: Append file paths to message text (auto-detected).
+- Chat log shows `📎 {path}` for sent attachments.
+- Files:
+  - `apps/gateway/src/media/upload.ts`
+  - `apps/web/src/components/AgentChat.tsx` (attachment UI)
+  - `apps/gateway/src/sdk/{claude,pi,openclaw}/adapter.ts`
+
+### 17) Subagent Kill
+- Kill tool terminates supervisor process via SIGTERM.
+- Worktree mode: removes git worktree, deletes branch, cleans workspace.
+- Main-run mode: removes workspace directory only.
+- Auto-cleans empty parent folder after last subagent killed.
+- API endpoint: `POST /api/projects/:id/subagents/:slug/kill`.
+- UI: Kill button in AgentChat header (subagent view) and ProjectsBoard run rows.
+- Confirmation dialog before kill; error toast on failure.
+- Files:
+  - `apps/gateway/src/subagents/runner.ts` (`killSubagent()`)
+  - `apps/web/src/components/AgentChat.tsx` (kill button)
+  - `apps/web/src/components/ProjectsBoard.tsx` (kill button in run rows)
+
+### 18) Real-Time Agent Status Updates
+- WebSocket-based status broadcasting (streaming/idle).
+- Event bus emits `AgentStatusChangeEvent` when agent overall status changes.
+- Clients subscribe via `subscribeStatus` message.
+- Sidebar status pills update in real-time (IDLE: gray, WORKING: green).
+- Replaced status dots with styled pills (border-radius 999px, uppercase text).
+- Files:
+  - `apps/gateway/src/agents/events.ts` (event types)
+  - `apps/gateway/src/agents/sessions.ts` (`setSessionStreaming()`)
+  - `apps/gateway/src/server/index.ts` (broadcast)
+  - `apps/web/src/components/AgentSidebar.tsx` (status pills)
+
+### 19) Project Deletion (PRO-30)
+- Soft delete: moves project folder to `{projects.root}/trash/`.
+- Returns metadata: `{ id, path, trashedPath }`.
+- Error if trash already contains same project name.
+- API endpoint: `DELETE /api/projects/:id`.
+- UI: Delete button in project detail view with success toast.
+- Files:
+  - `apps/gateway/src/projects/store.ts` (`deleteProject()`)
+  - `apps/web/src/components/ProjectsBoard.tsx`
+
+### 20) Multi-File Document Structure (PRO-34)
+- Projects support multiple markdown files beyond README/SPECS.
+- `docs` field: `Record<string, string>` mapping filename → content.
+- Files without `.md` extension converted to uppercase keys.
+- Primary file priority: SPECS.md > README.md > first `.md` file.
+- Frontmatter written only to SPECS.md.
+- Backward compatible with legacy `readme` and `specs` fields.
+- Files:
+  - `apps/gateway/src/projects/store.ts` (getProject, createProject, updateProject)
+  - `apps/web/src/components/ProjectsBoard.tsx` (doc tabs UI)
+
+### 21) Kanban Drag-and-Drop
+- Drag projects between status columns.
+- Updates project `status` frontmatter on drop.
+- Optimistic UI update before server confirmation.
+- Files:
+  - `apps/web/src/components/ProjectsBoard.tsx` (drag event handlers)
+
+### 22) Project Attachments
+- Drag-and-drop file attachments in project detail view.
+- View mode: upload immediately, append links to docs.
+- Edit mode: queue files for upload on save.
+- Files stored in `{projectDir}/attachments/`.
+- Max file size: 20MB; auto-generates unique names on collision.
+- IndexedDB stores pending files during editing.
+- API endpoints:
+  - `POST /api/projects/:id/attachments` (upload)
+  - `GET /api/projects/:id/attachments/:name` (fetch)
+- Files:
+  - `apps/gateway/src/projects/store.ts` (`saveAttachments()`, `resolveAttachmentFile()`)
+  - `apps/web/src/components/ProjectsBoard.tsx` (drag-drop handlers)
+
+### 23) Project Creation Form Redesign
+- Enhanced form with title, description, and drag-and-drop file uploads.
+- Multiple files supported; stored in IndexedDB during editing.
+- On submit, files uploaded to `attachments/` and links added to README.
+- Form state persisted to localStorage.
+- Files:
+  - `apps/web/src/components/ProjectsBoard.tsx` (create form)
+
+### 24) Project Thread/Comments
+- Comments stored in `THREAD.md` file per project.
+- Format: frontmatter + sections separated by `---\n---\n`.
+- Each entry: `[author:X]\n[date:Y]\n{body}`.
+- Auto-created on project create/update if missing.
+- API endpoints:
+  - `POST /api/projects/:id/comments` (append comment)
+  - `PATCH /api/projects/:id/comments/:index` (update comment)
+- Files:
+  - `apps/gateway/src/projects/store.ts` (`appendComment()`, `updateComment()`)
+
+### 25) UI/UX Polish
+- **Avatar squares**: Agent initials in colored squares (28×28px); green when running.
+- **Mobile sidebar**: Slide-out with hamburger toggle; click-outside dismisses.
+- **Mobile project details**: Scrollable panel with tab switcher (Details/Agent Runs).
+- **Legacy header link**: "AIHub" h1 now links to `/projects`.
+- **Toast dismiss**: Escape key or click dismisses success toast.
+- **Chat markdown**: Rich text with proper typography (system fonts, code blocks, spacing).
+- **Streaming tool calls**: Visual feedback for read/bash/write tools as they execute.
+- **Agent chat font**: 0xProto Nerd Font Mono for log text.
+- Files:
+  - `apps/web/src/components/AgentSidebar.tsx`
+  - `apps/web/src/components/AgentChat.tsx`
+  - `apps/web/src/components/AgentList.tsx`
+  - `apps/web/src/components/ProjectsBoard.tsx`
+
 ## Next (Not Done)
 
 ### UI v2 — Complete ✓
 All 6 phases implemented. See `docs/ui_v2.md` for full spec.
 
 ### Deferred
-- Drag/drop status moves on Kanban
-- Comments feature (async agent communication)
 - Quick create (floating button / keyboard shortcut)
 - Notifications (agent needs attention, task finished)
+- File upload cleanup/expiry (currently no auto-cleanup of `~/.aihub/media/inbound/`)
