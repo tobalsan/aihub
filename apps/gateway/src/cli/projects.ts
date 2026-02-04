@@ -224,6 +224,7 @@ program
 
 program
   .command("create")
+  .argument("[description]", "Project description for README")
   .requiredOption("-t, --title <title>", "Project title")
   .option("--domain <domain>", "Domain (life|admin|coding)")
   .option("--owner <owner>", "Owner")
@@ -231,8 +232,9 @@ program
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
   .option("-j, --json", "JSON output")
-  .action(async (opts) => {
+  .action(async (description, opts) => {
     const body: Record<string, unknown> = { title: opts.title };
+    if (description) body.description = description;
     if (opts.domain) body.domain = opts.domain;
     if (opts.owner) body.owner = opts.owner;
     if (opts.executionMode) body.executionMode = opts.executionMode;

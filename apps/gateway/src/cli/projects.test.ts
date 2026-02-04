@@ -15,6 +15,42 @@ describe("projects CLI", () => {
     vi.unstubAllGlobals();
   });
 
+  it("create command passes description when provided", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "PRO-1", frontmatter: {} }), { status: 200 });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync(["node", "projects", "create", "-t", "Title", "Desc", "--json"]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects");
+    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
+    expect(body).toEqual({ title: "Title", description: "Desc" });
+  });
+
+  it("create command omits description when absent", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "PRO-2", frontmatter: {} }), { status: 200 });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync(["node", "projects", "create", "-t", "Title", "--json"]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects");
+    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
+    expect(body).toEqual({ title: "Title" });
+  });
+
   it("move command passes agent", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
