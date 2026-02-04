@@ -1237,8 +1237,8 @@ export function ProjectsBoard() {
       setDetailOwner(getFrontmatterString(current.frontmatter, "owner") ?? "");
       setDetailMode(normalizeMode(getFrontmatterString(current.frontmatter, "executionMode")));
       setDetailAppetite(getFrontmatterString(current.frontmatter, "appetite") ?? "");
-      setDetailRunAgent(getFrontmatterString(current.frontmatter, "runAgent") ?? "");
-      setDetailRunMode(getFrontmatterString(current.frontmatter, "runMode") ?? "main-run");
+      setDetailRunAgent("");
+      setDetailRunMode("main-run");
       const repo = getFrontmatterString(current.frontmatter, "repo") ?? "";
       setDetailRepo(repo);
       savedRepo = repo;
@@ -1552,22 +1552,25 @@ export function ProjectsBoard() {
     await refetchDetail();
   };
 
-  const handleRunAgentChange = async (id: string, runAgent: string) => {
+  const handleRunAgentChange = (runAgent: string) => {
     setDetailRunAgent(runAgent);
-    await updateProject(id, { runAgent });
-    await refetchDetail();
   };
 
-  const handleRunModeChange = async (id: string, runMode: string) => {
+  const handleRunModeChange = (runMode: string) => {
     setDetailRunMode(runMode);
-    await updateProject(id, { runMode });
-    await refetchDetail();
   };
 
   const handleStart = async (projectId: string) => {
     setStartError("");
     const custom = customStartEnabled() ? customStartPrompt().trim() : undefined;
-    const result = await startProjectRun(projectId, custom);
+    const agent = selectedRunAgent();
+    const result = await startProjectRun(projectId, {
+      customPrompt: custom,
+      runAgent: detailRunAgent().trim() || undefined,
+      runMode: agent?.type === "cli" ? detailRunMode() : undefined,
+      baseBranch: agent?.type === "cli" ? detailBranch() : undefined,
+      slug: agent?.type === "cli" && detailRunMode() === "worktree" ? detailSlug().trim() : undefined,
+    });
     if (!result.ok) {
       setStartError(result.error);
       return;
@@ -2620,33 +2623,6 @@ const handleDetailDragOver = (e: DragEvent) => {
                         </Show>
                       </div>
                     </Show>
-                    <div class="meta-field">
-                      <label class="meta-label">Agent</label>
-                      <select
-                        class="meta-select"
-                        value={detailRunAgent()}
-                        onChange={(e) => handleRunAgentChange(params.id ?? "", e.currentTarget.value)}
-                      >
-                        <For each={runAgentOptions()}>
-                          {(opt) => (
-                            <option value={opt.id}>{opt.label}</option>
-                          )}
-                        </For>
-                      </select>
-                    </div>
-                    <Show when={selectedRunAgent()?.type === "cli"}>
-                      <div class="meta-field">
-                        <label class="meta-label">Run mode</label>
-                        <select
-                          class="meta-select"
-                          value={detailRunMode()}
-                          onChange={(e) => handleRunModeChange(params.id ?? "", e.currentTarget.value)}
-                        >
-                          <option value="main-run">main-run</option>
-                          <option value="worktree">worktree</option>
-                        </select>
-                      </div>
-                    </Show>
                     <Show when={detailDomain() === "coding"}>
                       <div class="meta-field meta-field-wide meta-field-stack">
                         <label class="meta-label">Repo</label>
@@ -2664,38 +2640,66 @@ const handleDetailDragOver = (e: DragEvent) => {
                         </Show>
                       </div>
                     </Show>
-                    <Show when={selectedRunAgent()?.type === "cli"}>
-                      <div class="meta-field">
-                        <label class="meta-label">Base branch</label>
+                  </Show>
+                </div>
+                <div class="runs-panel">
+                  <div class="runs-header">
+                    <h3 class="runs-title">Agent Runs</h3>
+                  </div>
+                  <Show when={!isMonitoringHidden()}>
+                    <div class="runs-config">
+                      <div class="runs-config-field">
+                        <label class="meta-label">Agent</label>
                         <select
                           class="meta-select"
-                          value={detailBranch()}
-                          onChange={(e) => setDetailBranch(e.currentTarget.value)}
-                          disabled={branches().length === 0}
+                          value={detailRunAgent()}
+                          onChange={(e) => handleRunAgentChange(e.currentTarget.value)}
                         >
-                          <For each={branches().length > 0 ? branches() : ["main"]}>
-                            {(branch) => <option value={branch}>{branch}</option>}
+                          <For each={runAgentOptions()}>
+                            {(opt) => (
+                              <option value={opt.id}>{opt.label}</option>
+                            )}
                           </For>
                         </select>
                       </div>
-                    </Show>
-                    <Show when={selectedRunAgent()?.type === "cli" && detailRunMode() === "worktree"}>
-                      <div class="meta-field">
+                      <Show when={selectedRunAgent()?.type === "cli"}>
+                        <div class="runs-config-field">
+                          <label class="meta-label">Run mode</label>
+                          <select
+                            class="meta-select"
+                            value={detailRunMode()}
+                            onChange={(e) => handleRunModeChange(e.currentTarget.value)}
+                          >
+                            <option value="main-run">main-run</option>
+                            <option value="worktree">worktree</option>
+                          </select>
+                        </div>
+                      </Show>
+                      <Show when={selectedRunAgent()?.type === "cli"}>
+                        <div class="runs-config-field">
+                          <label class="meta-label">Base branch</label>
+                          <select
+                            class="meta-select"
+                            value={detailBranch()}
+                            onChange={(e) => setDetailBranch(e.currentTarget.value)}
+                            disabled={branches().length === 0}
+                          >
+                            <For each={branches().length > 0 ? branches() : ["main"]}>
+                              {(branch) => <option value={branch}>{branch}</option>}
+                            </For>
+                          </select>
+                        </div>
+                      </Show>
+                      <div class="runs-config-field">
                         <label class="meta-label">Slug</label>
                         <input
                           class="meta-input"
                           value={detailSlug()}
                           onInput={(e) => setDetailSlug(e.currentTarget.value)}
                           placeholder="short-slug"
+                          disabled={selectedRunAgent()?.type !== "cli" || detailRunMode() !== "worktree"}
                         />
                       </div>
-                    </Show>
-                  </Show>
-                </div>
-                <div class="runs-panel">
-                  <div class="runs-header">
-                    <h3 class="runs-title">Agent Runs</h3>
-                    <Show when={!isMonitoringHidden()}>
                       <div class="runs-actions">
                         <Show when={!runningAgent()}>
                           <label class="start-custom-toggle">
@@ -2727,8 +2731,8 @@ const handleDetailDragOver = (e: DragEvent) => {
                           </button>
                         </Show>
                       </div>
-                    </Show>
-                  </div>
+                    </div>
+                  </Show>
                   <Show when={customStartEnabled()}>
                     <textarea
                       class="custom-start-textarea"
@@ -4638,6 +4642,28 @@ const handleDetailDragOver = (e: DragEvent) => {
           align-items: center;
           justify-content: space-between;
           margin-bottom: 8px;
+        }
+
+        .runs-config {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          align-items: flex-end;
+          padding: 10px;
+          border-radius: 10px;
+          border: 1px solid #1f2631;
+          background: #141b26;
+        }
+
+        .runs-config-field {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 140px;
+        }
+
+        .runs-config .runs-actions {
+          margin-left: auto;
         }
 
         .runs-actions {

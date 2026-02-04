@@ -287,10 +287,8 @@ api.post("/projects/:id/start", async (c) => {
   const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
   const normalizedStatus = normalizeProjectStatus(status);
 
-  const runAgentValue = typeof frontmatter.runAgent === "string" ? frontmatter.runAgent : "";
-  const initialRunAgent = normalizeRunAgent(runAgentValue);
-  const hasValidRunAgent = Boolean(initialRunAgent);
-  let runAgentSelection = initialRunAgent;
+  const requestedRunAgentValue = typeof parsed.data.runAgent === "string" ? parsed.data.runAgent.trim() : "";
+  let runAgentSelection = normalizeRunAgent(requestedRunAgentValue);
   if (!runAgentSelection) {
     const agents = getActiveAgents();
     if (agents.length === 0) {
@@ -302,12 +300,6 @@ api.post("/projects/:id/start", async (c) => {
         : null;
     const selected = preferred ?? agents[0];
     runAgentSelection = { type: "aihub", id: selected.id };
-  }
-
-  let nextRunAgentValue = runAgentValue;
-  if (!nextRunAgentValue || !hasValidRunAgent) {
-    nextRunAgentValue =
-      runAgentSelection.type === "aihub" ? `aihub:${runAgentSelection.id}` : `cli:${runAgentSelection.id}`;
   }
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
@@ -354,6 +346,10 @@ api.post("/projects/:id/start", async (c) => {
   });
 
   const updates: Partial<UpdateProjectRequest> = {};
+  const hasLegacyRunConfig =
+    typeof frontmatter.runAgent === "string" ||
+    typeof frontmatter.runMode === "string" ||
+    typeof frontmatter.baseBranch === "string";
 
   if (runAgentSelection.type === "aihub") {
     const agent = getAgent(runAgentSelection.id);
@@ -368,9 +364,6 @@ api.post("/projects/:id/start", async (c) => {
     if (!sessionKeys[agent.id]) {
       updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
     }
-    if (!runAgentValue || !hasValidRunAgent) {
-      updates.runAgent = nextRunAgentValue;
-    }
     if (normalizedStatus === "todo") {
       updates.status = "in_progress";
     }
@@ -383,7 +376,7 @@ api.post("/projects/:id/start", async (c) => {
       console.error(`[projects:${project.id}] start run failed:`, err);
     });
 
-    if (Object.keys(updates).length > 0) {
+    if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
       await updateProject(config, project.id, updates);
     }
 
@@ -394,11 +387,18 @@ api.post("/projects/:id/start", async (c) => {
     return c.json({ error: `Unsupported CLI: ${runAgentSelection.id}` }, 400);
   }
 
-  const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
-  const slug = runMode === "worktree" ? slugifyTitle(project.title) : "main";
+  const requestedRunModeValue = typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
+  const runModeValue = requestedRunModeValue;
+  const runMode = runModeValue === "worktree" ? "worktree" : "main-run";
+  const requestedSlugValue = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
+  const slug = runMode === "worktree" ? (requestedSlugValue || slugifyTitle(project.title)) : "main";
   if (!slug) {
     return c.json({ error: "Slug required" }, 400);
   }
+  const baseBranch =
+    typeof parsed.data.baseBranch === "string" && parsed.data.baseBranch.trim()
+      ? parsed.data.baseBranch.trim()
+      : "main";
 
   const result = await spawnSubagent(config, {
     projectId: project.id,
@@ -406,18 +406,16 @@ api.post("/projects/:id/start", async (c) => {
     cli: runAgentSelection.id as "claude" | "codex" | "droid" | "gemini",
     prompt,
     mode: runMode === "worktree" ? "worktree" : "main-run",
-    baseBranch: "main",
+    baseBranch,
   });
   if (!result.ok) {
     return c.json({ error: result.error }, 400);
   }
 
-  updates.runAgent = nextRunAgentValue;
-  updates.runMode = runMode;
   if (normalizedStatus === "todo") {
     updates.status = "in_progress";
   }
-  if (Object.keys(updates).length > 0) {
+  if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
     await updateProject(config, project.id, updates);
   }
 
@@ -475,6 +473,9 @@ api.get("/projects/:id", async (c) => {
 api.patch("/projects/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
+  if ("runAgent" in body || "runMode" in body || "baseBranch" in body) {
+    return c.json({ error: "runAgent/runMode/baseBranch not supported on projects" }, 400);
+  }
   const parsed = UpdateProjectRequestSchema.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: parsed.error.message }, 400);

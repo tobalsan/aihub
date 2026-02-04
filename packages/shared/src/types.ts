@@ -325,8 +325,6 @@ export const UpdateProjectRequestSchema = z.object({
   specs: z.string().optional(),
   docs: z.record(z.string()).optional(),
   repo: z.union([z.string(), z.literal("")]).optional(),
-  runAgent: z.union([z.string(), z.literal("")]).optional(),
-  runMode: z.union([z.string(), z.literal("")]).optional(),
   sessionKeys: z.record(z.string()).nullable().optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
@@ -344,6 +342,10 @@ export type UpdateProjectCommentRequest = z.infer<typeof UpdateProjectCommentReq
 
 export const StartProjectRunRequestSchema = z.object({
   customPrompt: z.string().optional(),
+  runAgent: z.string().optional(),
+  runMode: z.string().optional(),
+  baseBranch: z.string().optional(),
+  slug: z.string().optional(),
 });
 export type StartProjectRunRequest = z.infer<typeof StartProjectRunRequestSchema>;
 

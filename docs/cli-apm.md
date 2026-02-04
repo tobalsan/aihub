@@ -79,9 +79,13 @@ Options:
 - `-j, --json`: JSON output.
 
 ### `apm start <id>`
-Start a project run using stored metadata.
+Start a project run.
 
 Options:
+- `--agent <agent>`: cli name (e.g. `codex`) or `aihub:<id>`. Defaults to `codex`.
+- `--mode <mode>`: `main-run` or `worktree`. Defaults to `worktree`.
+- `--branch <branch>`: base branch for worktree. Defaults to `main`.
+- `--slug <slug>`: slug override for worktree. Defaults to auto-slug.
 - `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
 - `-j, --json`: JSON output.
 
@@ -118,6 +122,9 @@ cat README.md | apm update PRO-19 --content -
 
 # Start a run with a custom prompt
 apm start PRO-19 --custom-prompt "Focus on the rollout plan."
+
+# Start a run with per-run config
+apm start PRO-19 --agent codex --mode worktree --branch main --slug my-run
 
 # Resume with a follow-up message
 apm resume PRO-19 --message "Continue from where you left off."

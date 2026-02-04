@@ -79,4 +79,66 @@ describe("projects CLI", () => {
     const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
     expect(body).toEqual({ status: "done", agent: "Sage" });
   });
+
+  it("start command defaults to codex worktree when flags omitted", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ ok: true, type: "cli", slug: "main", runMode: "worktree" }), {
+        status: 200,
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync(["node", "projects", "start", "PRO-10", "--json"]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-10/start");
+    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
+    expect(body).toEqual({
+      runAgent: "cli:codex",
+      runMode: "worktree",
+    });
+  });
+
+  it("start command passes per-run flags", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ ok: true, type: "cli", slug: "my-run", runMode: "worktree" }), {
+        status: 200,
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync([
+      "node",
+      "projects",
+      "start",
+      "pro-9",
+      "--agent",
+      "codex",
+      "--mode",
+      "worktree",
+      "--branch",
+      "main",
+      "--slug",
+      "my-run",
+      "--json",
+    ]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-9/start");
+    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
+    expect(body).toEqual({
+      runAgent: "cli:codex",
+      runMode: "worktree",
+      baseBranch: "main",
+      slug: "my-run",
+    });
+  });
 });

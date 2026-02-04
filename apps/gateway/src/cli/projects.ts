@@ -22,15 +22,6 @@ type SimpleHistoryMessage = {
   content: string;
 };
 
-function slugifyTitle(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return slug || "project";
-}
-
 function normalizeProjectId(id: string): string {
   return id.trim().toUpperCase();
 }
@@ -293,8 +284,6 @@ program
   .option("--execution-mode <mode>", "Execution mode (manual|exploratory|auto|full_auto)")
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
-  .option("--run-agent <agent>", "Run agent (aihub:<id> or cli:<name>)")
-  .option("--run-mode <mode>", "Run mode (main-run|worktree)")
   .option("--repo <path>", "Repo path")
   .option("--content <content>", "Specs content string or '-' for stdin")
   .option("-j, --json", "JSON output")
@@ -307,8 +296,6 @@ program
     if (opts.executionMode) body.executionMode = opts.executionMode;
     if (opts.appetite) body.appetite = opts.appetite;
     if (opts.status) body.status = opts.status;
-    if (opts.runAgent !== undefined) body.runAgent = opts.runAgent;
-    if (opts.runMode !== undefined) body.runMode = opts.runMode;
     if (opts.repo !== undefined) body.repo = opts.repo;
     if (opts.content !== undefined) {
       body.specs = opts.content === "-" ? await readStdin() : opts.content;
@@ -400,19 +387,18 @@ program
 
     const project = projectData as ProjectItem;
     const frontmatter = project.frontmatter ?? {};
-    const runAgent = typeof frontmatter.runAgent === "string" ? frontmatter.runAgent : "";
-    if (!runAgent) {
-      console.error("runAgent not set. Use `apm update <id> --run-agent ...` or `apm start <id>` first.");
-      process.exit(1);
-    }
+    const sessionKeys =
+      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+        ? (frontmatter.sessionKeys as Record<string, string>)
+        : {};
+    const requestedSlug = typeof opts.slug === "string" ? opts.slug.trim() : "";
 
-    if (runAgent.startsWith("aihub:")) {
-      const agentId = runAgent.slice(6);
-      const sessionKeys =
-        typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
-          ? (frontmatter.sessionKeys as Record<string, string>)
-          : {};
-      const sessionKey = sessionKeys[agentId] ?? `project:${project.id}:${agentId}`;
+    if (!requestedSlug && Object.keys(sessionKeys).length > 0) {
+      const [agentId, sessionKey] = Object.entries(sessionKeys)[0] ?? [];
+      if (!agentId || !sessionKey) {
+        console.error("No sessionKey available for resume.");
+        process.exit(1);
+      }
       const res = await requestJson(`/agents/${agentId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -431,36 +417,48 @@ program
       return;
     }
 
-    if (runAgent.startsWith("cli:")) {
-      const cli = runAgent.slice(4);
-      const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
-      const slug = runMode === "worktree" ? (opts.slug ?? slugifyTitle(project.title)) : "main";
-      const res = await requestJson(`/projects/${normalizedId}/subagents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slug,
-          cli,
-          prompt: message,
-          mode: runMode === "worktree" ? "worktree" : "main-run",
-          resume: true,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error(data.error ?? "Request failed");
-        process.exit(1);
-      }
-      if (opts.json) {
-        console.log(JSON.stringify(data, null, 2));
-        return;
-      }
-      console.log(`Resumed CLI run (slug: ${slug})`);
+    const subagentsRes = await requestJson(`/projects/${normalizedId}/subagents`);
+    const subagentsData = await subagentsRes.json();
+    if (!subagentsRes.ok) {
+      console.error(subagentsData.error ?? "Failed to fetch subagents");
+      process.exit(1);
+    }
+    const items = Array.isArray(subagentsData.items) ? subagentsData.items : [];
+    const fallbackSlug = items.find((entry: { slug?: string }) => entry.slug === "main")?.slug
+      ?? (items.length === 1 ? items[0]?.slug : "");
+    const slug = requestedSlug || fallbackSlug;
+    if (!slug) {
+      console.error("Slug required to resume CLI run.");
+      process.exit(1);
+    }
+    const item = items.find((entry: { slug?: string }) => entry.slug === slug);
+    if (!item?.cli) {
+      console.error("CLI not found for slug.");
+      process.exit(1);
+    }
+    const runMode = item.runMode === "worktree" ? "worktree" : "main-run";
+    const res = await requestJson(`/projects/${normalizedId}/subagents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        cli: item.cli,
+        prompt: message,
+        mode: runMode,
+        resume: true,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(data.error ?? "Request failed");
+      process.exit(1);
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
       return;
     }
-
-    console.error(`Unsupported runAgent: ${runAgent}`);
-    process.exit(1);
+    console.log(`Resumed CLI run (slug: ${slug})`);
+    return;
   });
 
 program
@@ -481,19 +479,18 @@ program
 
     const project = projectData as ProjectItem;
     const frontmatter = project.frontmatter ?? {};
-    const runAgent = typeof frontmatter.runAgent === "string" ? frontmatter.runAgent : "";
-    if (!runAgent) {
-      console.error("runAgent not set. Use `apm update <id> --run-agent ...` or `apm start <id>` first.");
-      process.exit(1);
-    }
+    const sessionKeys =
+      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+        ? (frontmatter.sessionKeys as Record<string, string>)
+        : {};
+    const requestedSlug = typeof opts.slug === "string" ? opts.slug.trim() : "";
 
-    if (runAgent.startsWith("aihub:")) {
-      const agentId = runAgent.slice(6);
-      const sessionKeys =
-        typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
-          ? (frontmatter.sessionKeys as Record<string, string>)
-          : {};
-      const sessionKey = sessionKeys[agentId] ?? `project:${project.id}:${agentId}`;
+    if (!requestedSlug && Object.keys(sessionKeys).length > 0) {
+      const [agentId, sessionKey] = Object.entries(sessionKeys)[0] ?? [];
+      if (!agentId || !sessionKey) {
+        console.error("No sessionKey available for status.");
+        process.exit(1);
+      }
       const statusRes = await requestJson(`/agents/${agentId}/status`);
       const statusData = await statusRes.json();
       if (!statusRes.ok) {
@@ -522,62 +519,70 @@ program
       return;
     }
 
-    if (runAgent.startsWith("cli:")) {
-      const cli = runAgent.slice(4);
-      const runMode = typeof frontmatter.runMode === "string" ? frontmatter.runMode : "main-run";
-      const slug = runMode === "worktree" ? (opts.slug ?? slugifyTitle(project.title)) : "main";
-      const subagentsRes = await requestJson(`/projects/${normalizedId}/subagents`);
-      const subagentsData = await subagentsRes.json();
-      if (!subagentsRes.ok) {
-        console.error(subagentsData.error ?? "Failed to fetch subagents");
-        process.exit(1);
-      }
-      const items = Array.isArray(subagentsData.items) ? subagentsData.items : [];
-      const item = items.find((entry: { slug?: string }) => entry.slug === slug);
-      const status = mapSubagentStatus(item?.status);
-      const logsRes = await requestJson(`/projects/${normalizedId}/subagents/${slug}/logs?since=0`);
-      const logsData = await logsRes.json();
-      if (!logsRes.ok) {
-        console.error(logsData.error ?? "Failed to fetch logs");
-        process.exit(1);
-      }
-      const events = Array.isArray(logsData.events) ? logsData.events : [];
-      const messages = events
-        .filter((ev: { type?: string; text?: string }) => ev.type === "user" || ev.type === "assistant")
-        .map((ev: { type?: string; text?: string }) => ({
-          role: ev.type === "user" ? "user" : "assistant",
-          content: ev.text ?? "",
-        }))
-        .filter((ev: SimpleHistoryMessage) => ev.content.length > 0);
-      const recent = messages.slice(-limit);
-      const payload = {
-        type: "cli",
-        cli,
-        slug,
-        status,
-        messages: recent,
-      };
-      if (opts.json) {
-        console.log(JSON.stringify(payload, null, 2));
-        return;
-      }
-      console.log(`Status: ${payload.status}`);
-      console.log(formatMessages(recent));
+    const subagentsRes = await requestJson(`/projects/${normalizedId}/subagents`);
+    const subagentsData = await subagentsRes.json();
+    if (!subagentsRes.ok) {
+      console.error(subagentsData.error ?? "Failed to fetch subagents");
+      process.exit(1);
+    }
+    const items = Array.isArray(subagentsData.items) ? subagentsData.items : [];
+    const fallbackSlug = items.find((entry: { slug?: string }) => entry.slug === "main")?.slug
+      ?? (items.length === 1 ? items[0]?.slug : "");
+    const slug = requestedSlug || fallbackSlug;
+    if (!slug) {
+      console.error("Slug required to fetch CLI status.");
+      process.exit(1);
+    }
+    const item = items.find((entry: { slug?: string }) => entry.slug === slug);
+    const status = mapSubagentStatus(item?.status);
+    const logsRes = await requestJson(`/projects/${normalizedId}/subagents/${slug}/logs?since=0`);
+    const logsData = await logsRes.json();
+    if (!logsRes.ok) {
+      console.error(logsData.error ?? "Failed to fetch logs");
+      process.exit(1);
+    }
+    const events = Array.isArray(logsData.events) ? logsData.events : [];
+    const messages = events
+      .filter((ev: { type?: string; text?: string }) => ev.type === "user" || ev.type === "assistant")
+      .map((ev: { type?: string; text?: string }) => ({
+        role: ev.type === "user" ? "user" : "assistant",
+        content: ev.text ?? "",
+      }))
+      .filter((ev: SimpleHistoryMessage) => ev.content.length > 0);
+    const recent = messages.slice(-limit);
+    const payload = {
+      type: "cli",
+      cli: item?.cli,
+      slug,
+      status,
+      messages: recent,
+    };
+    if (opts.json) {
+      console.log(JSON.stringify(payload, null, 2));
       return;
     }
-
-    console.error(`Unsupported runAgent: ${runAgent}`);
-    process.exit(1);
+    console.log(`Status: ${payload.status}`);
+    console.log(formatMessages(recent));
+    return;
   });
 
 program
   .command("start")
   .argument("<id>", "Project ID")
+  .option("--agent <agent>", "Agent name (cli name or aihub:<id>)")
+  .option("--mode <mode>", "Run mode (main-run|worktree)")
+  .option("--branch <branch>", "Base branch for worktree")
+  .option("--slug <slug>", "Slug override (worktree)")
   .option("--custom-prompt <prompt>", "Custom prompt (use '-' for stdin)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
     const body: Record<string, unknown> = {};
+    const agentValue = typeof opts.agent === "string" && opts.agent.trim() ? opts.agent.trim() : "codex";
+    body.runAgent = agentValue.includes(":") ? agentValue : `cli:${agentValue}`;
+    body.runMode = typeof opts.mode === "string" && opts.mode.trim() ? opts.mode.trim() : "worktree";
+    if (typeof opts.branch === "string" && opts.branch.trim()) body.baseBranch = opts.branch.trim();
+    if (typeof opts.slug === "string" && opts.slug.trim()) body.slug = opts.slug.trim();
     if (opts.customPrompt !== undefined) {
       body.customPrompt = opts.customPrompt === "-" ? await readStdin() : opts.customPrompt;
     }

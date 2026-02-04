@@ -710,14 +710,22 @@ export type StartProjectRunResult =
   | { ok: true; type: "aihub" | "cli"; slug?: string; runMode?: string }
   | { ok: false; error: string };
 
+export type StartProjectRunInput = {
+  customPrompt?: string;
+  runAgent?: string;
+  runMode?: string;
+  baseBranch?: string;
+  slug?: string;
+};
+
 export async function startProjectRun(
   projectId: string,
-  customPrompt?: string
+  input?: StartProjectRunInput
 ): Promise<StartProjectRunResult> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ customPrompt }),
+    body: JSON.stringify(input ?? {}),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: "Failed to start run" }));

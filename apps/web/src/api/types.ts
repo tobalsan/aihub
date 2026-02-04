@@ -253,8 +253,6 @@ export type ProjectUpdatePayload = {
   specs?: string;
   docs?: Record<string, string>;
   repo?: string;
-  runAgent?: string;
-  runMode?: string;
   sessionKeys?: Record<string, string> | null;
 };
 
