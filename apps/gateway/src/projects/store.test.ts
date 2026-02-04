@@ -54,16 +54,14 @@ describe("projects store", () => {
     expect(secondResult.data.id).toBe("PRO-2");
 
     const readmePath = path.join(projectsRoot, firstResult.data.path, "README.md");
-    const specsPath = path.join(projectsRoot, firstResult.data.path, "SPECS.md");
     const threadPath = path.join(projectsRoot, firstResult.data.path, "THREAD.md");
     const readme = await fs.readFile(readmePath, "utf8");
-    const specs = await fs.readFile(specsPath, "utf8");
     const thread = await fs.readFile(threadPath, "utf8");
-    expect(specs).toContain('domain: "coding"');
-    expect(specs).toContain('owner: "me"');
-    expect(specs).toContain('executionMode: "auto"');
-    expect(specs).toContain('appetite: "big"');
-    expect(specs).toContain('status: "todo"');
+    expect(readme).toContain('domain: "coding"');
+    expect(readme).toContain('owner: "me"');
+    expect(readme).toContain('executionMode: "auto"');
+    expect(readme).toContain('appetite: "big"');
+    expect(readme).toContain('status: "todo"');
     expect(readme).toContain("# Alpha Project");
     expect(readme).toContain("Ship it.");
     expect(thread).toContain("project: PRO-1");

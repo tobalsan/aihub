@@ -123,10 +123,9 @@ export const piAdapter: SdkAdapter = {
       createAgentSession,
       SessionManager,
       SettingsManager,
-      discoverAuthStorage,
-      discoverModels,
-      discoverSkills,
-      buildSystemPrompt,
+      AuthStorage,
+      ModelRegistry,
+      DefaultResourceLoader,
       createCodingTools,
     } = await import("@mariozechner/pi-coding-agent");
     const { getEnvApiKey } = await import("@mariozechner/pi-ai");
@@ -141,8 +140,8 @@ export const piAdapter: SdkAdapter = {
       throw new Error(`Agent not found: ${params.agentId}`);
     }
 
-    const authStorage = discoverAuthStorage(CONFIG_DIR);
-    const modelRegistry = discoverModels(authStorage, CONFIG_DIR);
+    const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
+    const modelRegistry = new ModelRegistry(authStorage, path.join(CONFIG_DIR, "models.json"));
     if (!agent.model.provider) {
       throw new Error(`Pi SDK requires model.provider to be set for agent: ${agent.id}`);
     }
@@ -189,15 +188,25 @@ export const piAdapter: SdkAdapter = {
     }
     authStorage.setRuntimeApiKey(model.provider, apiKey);
 
-    // Discover skills
-    const { skills } = discoverSkills(params.workspaceDir);
-
     // Load bootstrap context files
     const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
     const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
 
     // Create tools
-    const tools = createCodingTools(params.workspaceDir).concat(createPiSubagentTools());
+    const tools = createCodingTools(params.workspaceDir);
+    const customTools = createPiSubagentTools().map((tool) => ({
+      name: tool.name,
+      label: tool.label,
+      description: tool.description,
+      parameters: tool.parameters,
+      execute: async (
+        toolCallId: string,
+        params: unknown,
+        _signal: AbortSignal | undefined,
+        _onUpdate: unknown,
+        _ctx: unknown
+      ) => tool.execute(toolCallId, params),
+    }));
     const subagentToolPrompt = [
       "Additional tools:",
       "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
@@ -206,16 +215,16 @@ export const piAdapter: SdkAdapter = {
       "- subagent.interrupt { projectId, slug }",
     ].join("\n");
 
-    // Build system prompt
-    const systemPrompt = buildSystemPrompt({
-      cwd: params.workspaceDir,
-      contextFiles,
-      skills,
-      appendPrompt: subagentToolPrompt,
-    });
-
-    const sessionManager = SessionManager.open(sessionFile, CONFIG_DIR);
+    const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
     const settingsManager = SettingsManager.create(params.workspaceDir, CONFIG_DIR);
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: params.workspaceDir,
+      agentDir: CONFIG_DIR,
+      settingsManager,
+      appendSystemPrompt: subagentToolPrompt,
+      agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
+    });
+    await resourceLoader.reload();
 
     const { session: agentSession } = await createAgentSession({
       cwd: params.workspaceDir,
@@ -224,12 +233,11 @@ export const piAdapter: SdkAdapter = {
       modelRegistry,
       model,
       ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
-      systemPrompt,
       tools,
+      customTools,
+      resourceLoader,
       sessionManager,
       settingsManager,
-      skills,
-      contextFiles,
     });
 
     // Emit session handle for queue injection

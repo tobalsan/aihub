@@ -358,7 +358,7 @@ describe("subagents API", () => {
     const workDir = path.join(projectsRoot, ".workspaces", created.id, "gamma");
     const statePath = path.join(workDir, "state.json");
     const waitStart = Date.now();
-    while (Date.now() - waitStart < 2000) {
+    while (Date.now() - waitStart < 5000) {
       try {
         const state = JSON.parse(await fs.readFile(statePath, "utf8"));
         if (state.session_id === "s1") break;
@@ -367,6 +367,8 @@ describe("subagents API", () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    const resumeState = JSON.parse(await fs.readFile(statePath, "utf8"));
+    expect(resumeState.session_id).toBe("s1");
 
     const spawnRes2 = await Promise.resolve(api.request(`/projects/${created.id}/subagents`, {
       method: "POST",

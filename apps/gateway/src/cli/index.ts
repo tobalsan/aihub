@@ -314,9 +314,9 @@ authCmd
   .description("Login to an OAuth provider (run without args to see available providers)")
   .action(async (provider?: string) => {
     try {
-      const { discoverAuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
       const { getOAuthProviders } = await import("@mariozechner/pi-ai");
-      const authStorage = discoverAuthStorage(CONFIG_DIR);
+      const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
       const providers = getOAuthProviders();
 
       // If no provider specified, show menu
@@ -378,8 +378,8 @@ authCmd
   .description("Show authentication status")
   .action(async () => {
     try {
-      const { discoverAuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = discoverAuthStorage(CONFIG_DIR);
+      const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
       const providers = authStorage.list();
 
       if (providers.length === 0) {
@@ -410,8 +410,8 @@ authCmd
   .description("Logout from a provider")
   .action(async (provider: string) => {
     try {
-      const { discoverAuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = discoverAuthStorage(CONFIG_DIR);
+      const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
 
       if (!authStorage.has(provider)) {
         console.log(`Not logged in to ${provider}`);

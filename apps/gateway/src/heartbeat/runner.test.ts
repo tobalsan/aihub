@@ -1218,55 +1218,42 @@ describe("heartbeat lifecycle", () => {
     });
 
     it("stops rescheduling when agent config removed between runs", async () => {
-      // Track call count to toggle config
-      // Call flow per heartbeat cycle:
-      //   1. startHeartbeat -> getAgent
-      //   2. runHeartbeat -> getAgent (inside runHeartbeat)
-      //   3. scheduleTick reschedule check -> getAgent
-      // We want first heartbeat to complete normally, then disable before 2nd can schedule
-      let callCount = 0;
-      const getAgentConfig = () => {
-        callCount++;
-        // After call 3 (reschedule after first heartbeat), disable
-        if (callCount > 3) {
-          return {
-            id: "agent-1",
-            heartbeat: undefined, // Disabled
-            discord: { broadcastToChannel: "channel-1" },
-            workspace: "/test",
-          };
-        }
-        return {
-          id: "agent-1",
-          heartbeat: { every: "1m", prompt: "Ping" },
-          discord: { broadcastToChannel: "channel-1" },
-          workspace: "/test",
-        };
+      let heartbeatEnabled = true;
+      const enabledAgent = {
+        id: "agent-1",
+        heartbeat: { every: "1m", prompt: "Ping" },
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
+      };
+      const disabledAgent = {
+        id: "agent-1",
+        heartbeat: undefined, // Disabled
+        discord: { broadcastToChannel: "channel-1" },
+        workspace: "/test",
       };
 
       mockLoadConfig.mockReturnValue({
         agents: [{ id: "agent-1", heartbeat: { every: "1m" } }],
       });
-      mockGetAgent.mockImplementation(getAgentConfig);
+      mockGetAgent.mockImplementation(() => (heartbeatEnabled ? enabledAgent : disabledAgent));
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
+      mockRunAgent.mockImplementationOnce(async () => {
+        heartbeatEnabled = false;
+        return { payloads: [{ text: "HEARTBEAT_OK" }] };
+      });
 
       const module = await getLifecycleModule();
       module.startAllHeartbeats();
 
-      // First heartbeat fires (reschedule check still sees enabled)
+      // First heartbeat fires
       await vi.advanceTimersByTimeAsync(60 * 1000);
       await vi.advanceTimersByTimeAsync(0);
       expect(mockRunAgent).toHaveBeenCalledTimes(1);
 
-      // Second heartbeat fires (config was enabled at reschedule time)
-      await vi.advanceTimersByTimeAsync(60 * 1000);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(mockRunAgent).toHaveBeenCalledTimes(2);
-
       // Now reschedule check sees disabled config - no more heartbeats
       await vi.advanceTimersByTimeAsync(120 * 1000);
       await vi.advanceTimersByTimeAsync(0);
-      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
 
       module.stopAllHeartbeats();
     });

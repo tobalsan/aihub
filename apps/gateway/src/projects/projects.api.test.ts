@@ -61,12 +61,10 @@ describe("projects API", () => {
     const created = await createRes.json();
     const createdDir = path.join(projectsRoot, created.path);
     const createdReadme = path.join(createdDir, "README.md");
-    const createdSpecs = path.join(createdDir, "SPECS.md");
     const createdThread = path.join(createdDir, "THREAD.md");
 
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
     await expect(fs.stat(createdReadme)).resolves.toBeDefined();
-    await expect(fs.stat(createdSpecs)).resolves.toBeDefined();
     await expect(fs.stat(createdThread)).resolves.toBeDefined();
 
     const listRes = await Promise.resolve(api.request("/projects"));
@@ -106,8 +104,8 @@ describe("projects API", () => {
     const updatedContent = await fs.readFile(updatedReadme, "utf8");
     const updatedSpecsContent = await fs.readFile(updatedSpecs, "utf8");
     expect(updatedContent).toContain("# Project Mgmt API");
+    expect(updatedContent).toContain('status: "shaping"');
     expect(updatedSpecsContent).toContain("# Project Mgmt API Specs");
-    expect(updatedSpecsContent).toContain("status: \"shaping\"");
   });
 
   it("rejects invalid create payloads", async () => {
@@ -159,16 +157,14 @@ describe("projects API", () => {
     expect(created.frontmatter.status).toBe("todo");
 
     const readmePath = path.join(projectsRoot, created.path, "README.md");
-    const specsPath = path.join(projectsRoot, created.path, "SPECS.md");
     const readme = await fs.readFile(readmePath, "utf8");
-    const specs = await fs.readFile(specsPath, "utf8");
     expect(readme).toContain("# Metadata Project");
     expect(readme).toContain("Track the new form fields.");
-    expect(specs).toContain('domain: "admin"');
-    expect(specs).toContain('owner: "ops"');
-    expect(specs).toContain('executionMode: "exploratory"');
-    expect(specs).toContain('appetite: "small"');
-    expect(specs).toContain('status: "todo"');
+    expect(readme).toContain('domain: "admin"');
+    expect(readme).toContain('owner: "ops"');
+    expect(readme).toContain('executionMode: "exploratory"');
+    expect(readme).toContain('appetite: "small"');
+    expect(readme).toContain('status: "todo"');
   });
 
   it("appends thread comments via API", async () => {
