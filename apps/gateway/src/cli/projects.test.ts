@@ -31,7 +31,7 @@ describe("projects CLI", () => {
       "node",
       "projects",
       "move",
-      "PRO-1",
+      "pro-1",
       "done",
       "--agent",
       "Sage",

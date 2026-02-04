@@ -12,6 +12,7 @@ type ProjectItem = {
   title: string;
   path: string;
   frontmatter: Record<string, unknown>;
+  docs?: Record<string, string>;
   readme?: string;
   specs?: string;
 };
@@ -31,7 +32,7 @@ function slugifyTitle(title: string): string {
 }
 
 function normalizeProjectId(id: string): string {
-  return id.replace(/^pro-/i, "PRO-");
+  return id.trim().toUpperCase();
 }
 
 function pickTailnetIPv4(): string | null {
@@ -106,9 +107,10 @@ function renderTable(items: ProjectItem[]): string {
     "created",
     "path",
   ];
+  const formatCell = (value: unknown) => String(value ?? "").replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|");
   const rows = items.map((item) => {
     const normalized = normalizeItem(item);
-    return headers.map((key) => String(normalized[key as keyof typeof normalized] ?? ""));
+    return headers.map((key) => formatCell(normalized[key as keyof typeof normalized]));
   });
 
   const headerRow = `| ${headers.join(" | ")} |`;
@@ -260,7 +262,8 @@ program
   .argument("<id>", "Project ID")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
-    const res = await requestJson(`/projects/${id}`);
+    const normalizedId = normalizeProjectId(id);
+    const res = await requestJson(`/projects/${normalizedId}`);
     const data = await res.json();
     if (!res.ok) {
       console.error(data.error ?? "Request failed");
@@ -270,7 +273,13 @@ program
       console.log(JSON.stringify(data, null, 2));
       return;
     }
-    console.log(renderTable([data as ProjectItem]));
+    const project = data as ProjectItem;
+    console.log(renderTable([project]));
+    const readme = project.docs?.README;
+    if (typeof readme === "string" && readme.trim().length > 0) {
+      console.log("");
+      console.log(readme.trim());
+    }
   });
 
 program
@@ -288,6 +297,7 @@ program
   .option("--content <content>", "Specs content string or '-' for stdin")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
+    const normalizedId = normalizeProjectId(id);
     const body: Record<string, unknown> = {};
     if (opts.title) body.title = opts.title;
     if (opts.domain) body.domain = opts.domain;
@@ -302,7 +312,7 @@ program
       body.specs = opts.content === "-" ? await readStdin() : opts.content;
     }
 
-    const res = await requestJson(`/projects/${id}`, {
+    const res = await requestJson(`/projects/${normalizedId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -350,9 +360,10 @@ program
   .option("--agent <name>", "Agent name")
   .option("-j, --json", "JSON output")
   .action(async (id, status, opts) => {
+    const normalizedId = normalizeProjectId(id);
     const body: Record<string, unknown> = { status };
     if (opts.agent) body.agent = opts.agent;
-    const res = await requestJson(`/projects/${id}`, {
+    const res = await requestJson(`/projects/${normalizedId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -563,12 +574,13 @@ program
   .option("--custom-prompt <prompt>", "Custom prompt (use '-' for stdin)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
+    const normalizedId = normalizeProjectId(id);
     const body: Record<string, unknown> = {};
     if (opts.customPrompt !== undefined) {
       body.customPrompt = opts.customPrompt === "-" ? await readStdin() : opts.customPrompt;
     }
 
-    const res = await requestJson(`/projects/${id}/start`, {
+    const res = await requestJson(`/projects/${normalizedId}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

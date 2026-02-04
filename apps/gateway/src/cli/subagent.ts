@@ -44,6 +44,10 @@ type Handlers = {
   kill: (args: KillArgs) => Promise<Response>;
 };
 
+function normalizeProjectId(id: string): string {
+  return id.trim().toUpperCase();
+}
+
 function pickTailnetIPv4(): string | null {
   const interfaces = os.networkInterfaces();
   for (const [, addrs] of Object.entries(interfaces)) {
@@ -103,7 +107,7 @@ export function createSubagentHandlers(options?: {
 
   return {
     spawn: (args) =>
-      requestJson(`/projects/${args.projectId}/subagents`, {
+      requestJson(`/projects/${normalizeProjectId(args.projectId)}/subagents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -116,20 +120,22 @@ export function createSubagentHandlers(options?: {
         }),
       }),
     logs: (args) => {
+      const projectId = normalizeProjectId(args.projectId);
       const since = args.since ?? 0;
-      return requestJson(`/projects/${args.projectId}/subagents/${args.slug}/logs?since=${since}`);
+      return requestJson(`/projects/${projectId}/subagents/${args.slug}/logs?since=${since}`);
     },
     status: async (args) => {
-      const res = await requestJson(`/projects/${args.projectId}/subagents`);
+      const projectId = normalizeProjectId(args.projectId);
+      const res = await requestJson(`/projects/${projectId}/subagents`);
       if (!res.ok) return res;
       const body = (await res.json()) as { items?: Array<{ slug?: string }> };
       const item = body.items?.find((entry) => entry.slug === args.slug);
       return new Response(JSON.stringify(item ?? null), { status: 200 });
     },
     interrupt: (args) =>
-      requestJson(`/projects/${args.projectId}/subagents/${args.slug}/interrupt`, { method: "POST" }),
+      requestJson(`/projects/${normalizeProjectId(args.projectId)}/subagents/${args.slug}/interrupt`, { method: "POST" }),
     kill: (args) =>
-      requestJson(`/projects/${args.projectId}/subagents/${args.slug}/kill`, { method: "POST" }),
+      requestJson(`/projects/${normalizeProjectId(args.projectId)}/subagents/${args.slug}/kill`, { method: "POST" }),
   };
 }
 

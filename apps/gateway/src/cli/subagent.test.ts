@@ -15,7 +15,7 @@ describe("subagent CLI handlers", () => {
     });
 
     await handlers.spawn({
-      projectId: "PRO-1",
+      projectId: "pro-1",
       slug: "alpha",
       cli: "codex",
       prompt: "hi",
@@ -43,7 +43,7 @@ describe("subagent CLI handlers", () => {
       fetchImpl,
     });
 
-    await handlers.logs({ projectId: "PRO-2", slug: "beta", since: 123 });
+    await handlers.logs({ projectId: "pro-2", slug: "beta", since: 123 });
     expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-2/subagents/beta/logs?since=123");
   });
 
@@ -59,7 +59,7 @@ describe("subagent CLI handlers", () => {
       fetchImpl,
     });
 
-    await handlers.kill({ projectId: "PRO-3", slug: "gamma" });
+    await handlers.kill({ projectId: "pro-3", slug: "gamma" });
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-3/subagents/gamma/kill");
     expect(calls[0].init?.method).toBe("POST");
