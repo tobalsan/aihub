@@ -1,11 +1,3 @@
-const SUBAGENT_TOOL_DOC = [
-  "You can spawn subagents:",
-  "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch? }",
-  "- subagent.status { projectId, slug }",
-  "- subagent.logs { projectId, slug, since }",
-  "- subagent.interrupt { projectId, slug }",
-].join("\n");
-
 export function normalizeProjectStatus(raw?: string): string {
   if (!raw) return "maybe";
   return raw.trim().toLowerCase().replace(/\s+/g, "_");
@@ -17,7 +9,9 @@ export function buildProjectSummary(title: string, status: string, path: string,
     "",
     title,
     status,
-    `Project folder: ${path}`,
+    "## Project Documentation",
+    `Path: ${path}`,
+    "(Read-only context: README, SPECS.md, docs. Do NOT implement code here.)",
     content,
   ]
     .join("\n")
@@ -25,8 +19,7 @@ export function buildProjectSummary(title: string, status: string, path: string,
 }
 
 export function buildStartPrompt(summary: string): string {
-  if (!summary) return SUBAGENT_TOOL_DOC;
-  return `${summary}\n\n${SUBAGENT_TOOL_DOC}`;
+  return summary;
 }
 
 export function buildProjectStartPrompt(input: {
@@ -49,7 +42,7 @@ export function buildProjectStartPrompt(input: {
   }
   const repo = input.repo?.trim();
   if (repo) {
-    prompt = `${prompt}\n\nRepo path: ${repo}`;
+    prompt = `${prompt}\n\n## Implementation Repository\nPath: ${repo}\n(This is your working directory. Implement all code changes here.)`;
   }
   return prompt;
 }
