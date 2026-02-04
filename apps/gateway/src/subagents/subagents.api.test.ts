@@ -78,10 +78,14 @@ describe("subagents API", () => {
     }));
     expect(patchRes.status).toBe(200);
 
-    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "alpha");
-    await fs.mkdir(workspaceDir, { recursive: true });
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "alpha");
+    await fs.mkdir(sessionDir, { recursive: true });
 
     const now = new Date().toISOString();
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ cli: "codex", runMode: "worktree", baseBranch: "main", created: now }, null, 2)
+    );
     const state = {
       session_id: "s1",
       supervisor_pid: 0,
@@ -92,13 +96,13 @@ describe("subagents API", () => {
       worktree_path: path.join(repoDir, "wt"),
       base_branch: "main",
     };
-    await fs.writeFile(path.join(workspaceDir, "state.json"), JSON.stringify(state, null, 2));
-    await fs.writeFile(path.join(workspaceDir, "progress.json"), JSON.stringify({ last_active: now, tool_calls: 2 }));
+    await fs.writeFile(path.join(sessionDir, "state.json"), JSON.stringify(state, null, 2));
+    await fs.writeFile(path.join(sessionDir, "progress.json"), JSON.stringify({ last_active: now, tool_calls: 2 }));
     await fs.writeFile(
-      path.join(workspaceDir, "history.jsonl"),
+      path.join(sessionDir, "history.jsonl"),
       JSON.stringify({ ts: now, type: "worker.finished", data: { run_id: "r1", outcome: "replied" } }) + "\n"
     );
-    await fs.writeFile(path.join(workspaceDir, "logs.jsonl"), "hello\n");
+    await fs.writeFile(path.join(sessionDir, "logs.jsonl"), "hello\n");
 
     const listRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`));
     expect(listRes.status).toBe(200);
@@ -126,6 +130,109 @@ describe("subagents API", () => {
     expect(branches.branches).toContain("dev");
   });
 
+  it("migrates legacy sessions from workspaces", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Migrate" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const legacyRoot = path.join(projectsRoot, ".workspaces", created.id);
+    const legacyDir = path.join(legacyRoot, "legacy");
+    await fs.mkdir(legacyDir, { recursive: true });
+
+    const now = new Date().toISOString();
+    const state = {
+      session_id: "s1",
+      supervisor_pid: 0,
+      started_at: now,
+      last_error: "",
+      cli: "claude",
+      run_mode: "worktree",
+      worktree_path: path.join(tmpDir, "wt-legacy"),
+      base_branch: "dev",
+    };
+    await fs.writeFile(path.join(legacyDir, "state.json"), JSON.stringify(state, null, 2));
+    await fs.writeFile(path.join(legacyDir, "progress.json"), JSON.stringify({ last_active: now }, null, 2));
+    await fs.writeFile(
+      path.join(legacyDir, "history.jsonl"),
+      JSON.stringify({ ts: now, type: "worker.finished", data: { run_id: "r1", outcome: "replied" } }) + "\n"
+    );
+    await fs.writeFile(path.join(legacyDir, "logs.jsonl"), "legacy\n");
+
+    const listRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`));
+    expect(listRes.status).toBe(200);
+    const list = await listRes.json();
+    const migrated = list.items.find((item: { slug: string }) => item.slug === "legacy");
+    expect(migrated?.cli).toBe("claude");
+    expect(migrated?.runMode).toBe("worktree");
+
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "legacy");
+    const config = JSON.parse(await fs.readFile(path.join(sessionDir, "config.json"), "utf8"));
+    expect(config.cli).toBe("claude");
+    expect(config.runMode).toBe("worktree");
+    expect(config.baseBranch).toBe("dev");
+    expect(config.created).toBe(now);
+
+    await expect(fs.stat(legacyRoot)).rejects.toThrow();
+  });
+
+  it("archives subagent runs and filters list", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Subagent Archive" }),
+    }));
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "alpha");
+    await fs.mkdir(sessionDir, { recursive: true });
+    const now = new Date().toISOString();
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ cli: "codex", runMode: "worktree", baseBranch: "main", created: now, archived: false }, null, 2)
+    );
+
+    const archiveRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents/alpha/archive`, {
+      method: "POST",
+    }));
+    expect(archiveRes.status).toBe(200);
+    const archived = await archiveRes.json();
+    expect(archived.slug).toBe("alpha");
+    expect(archived.archived).toBe(true);
+
+    const config = JSON.parse(await fs.readFile(path.join(sessionDir, "config.json"), "utf8"));
+    expect(config.archived).toBe(true);
+
+    const listRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents`));
+    expect(listRes.status).toBe(200);
+    const list = await listRes.json();
+    expect(list.items.length).toBe(0);
+
+    const listArchivedRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents?includeArchived=true`)
+    );
+    expect(listArchivedRes.status).toBe(200);
+    const listArchived = await listArchivedRes.json();
+    expect(listArchived.items.length).toBe(1);
+    expect(listArchived.items[0].archived).toBe(true);
+
+    const unarchiveRes = await Promise.resolve(api.request(`/projects/${created.id}/subagents/alpha/unarchive`, {
+      method: "POST",
+    }));
+    expect(unarchiveRes.status).toBe(200);
+    const unarchived = await unarchiveRes.json();
+    expect(unarchived.archived).toBe(false);
+
+    const listRes2 = await Promise.resolve(api.request(`/projects/${created.id}/subagents`));
+    const list2 = await listRes2.json();
+    expect(list2.items.length).toBe(1);
+    expect(list2.items[0].archived).toBe(false);
+  });
+
   it("lists all subagents across projects", async () => {
     const createRes = await Promise.resolve(api.request("/projects", {
       method: "POST",
@@ -135,20 +242,24 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "main");
-    await fs.mkdir(workspaceDir, { recursive: true });
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "main");
+    await fs.mkdir(sessionDir, { recursive: true });
 
     const now = new Date().toISOString();
     await fs.writeFile(
-      path.join(workspaceDir, "state.json"),
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ cli: "codex", runMode: "main-run", baseBranch: "main", created: now }, null, 2)
+    );
+    await fs.writeFile(
+      path.join(sessionDir, "state.json"),
       JSON.stringify({ supervisor_pid: 0, last_error: "", cli: "codex" }, null, 2)
     );
     await fs.writeFile(
-      path.join(workspaceDir, "progress.json"),
+      path.join(sessionDir, "progress.json"),
       JSON.stringify({ last_active: now }, null, 2)
     );
     await fs.writeFile(
-      path.join(workspaceDir, "history.jsonl"),
+      path.join(sessionDir, "history.jsonl"),
       JSON.stringify({ ts: now, type: "worker.finished", data: { run_id: "r1", outcome: "replied" } }) + "\n"
     );
 
@@ -209,9 +320,9 @@ describe("subagents API", () => {
     }));
     expect(spawnRes.status).toBe(201);
 
-    const workDir = path.join(projectsRoot, ".workspaces", created.id, "alpha");
-    const historyPath = path.join(workDir, "history.jsonl");
-    const logsPath = path.join(workDir, "logs.jsonl");
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "alpha");
+    const historyPath = path.join(sessionDir, "history.jsonl");
+    const logsPath = path.join(sessionDir, "logs.jsonl");
 
     const start = Date.now();
     while (Date.now() - start < 2000) {
@@ -228,8 +339,14 @@ describe("subagents API", () => {
     expect(logs).toContain("thread.started");
     expect(logs).toContain("Let's tackle the following project:");
 
-    const state = JSON.parse(await fs.readFile(path.join(workDir, "state.json"), "utf8"));
+    const state = JSON.parse(await fs.readFile(path.join(sessionDir, "state.json"), "utf8"));
     expect(state.session_id).toBe("s1");
+
+    const config = JSON.parse(await fs.readFile(path.join(sessionDir, "config.json"), "utf8"));
+    expect(config.cli).toBe("codex");
+    expect(config.runMode).toBe("main-run");
+    expect(config.baseBranch).toBe("main");
+    expect(typeof config.created).toBe("string");
 
     process.env.PATH = prevPath;
   });
@@ -288,8 +405,8 @@ describe("subagents API", () => {
     );
     expect(interruptRes.status).toBe(200);
 
-    const workDir = path.join(projectsRoot, ".workspaces", created.id, "beta");
-    const historyPath = path.join(workDir, "history.jsonl");
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "beta");
+    const historyPath = path.join(sessionDir, "history.jsonl");
     const start = Date.now();
     while (Date.now() - start < 2000) {
       try {
@@ -355,8 +472,8 @@ describe("subagents API", () => {
     }));
     expect(spawnRes.status).toBe(201);
 
-    const workDir = path.join(projectsRoot, ".workspaces", created.id, "gamma");
-    const statePath = path.join(workDir, "state.json");
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "gamma");
+    const statePath = path.join(sessionDir, "state.json");
     const waitStart = Date.now();
     while (Date.now() - waitStart < 5000) {
       try {
@@ -383,7 +500,7 @@ describe("subagents API", () => {
     }));
     expect(spawnRes2.status).toBe(201);
 
-    const logsPath = path.join(workDir, "logs.jsonl");
+    const logsPath = path.join(sessionDir, "logs.jsonl");
     const start = Date.now();
     while (Date.now() - start < 2000) {
       const logs = await fs.readFile(logsPath, "utf8");
@@ -508,7 +625,9 @@ describe("subagents API", () => {
       worktree_path: workspaceDir,
       base_branch: "main",
     };
-    await fs.writeFile(path.join(workspaceDir, "state.json"), JSON.stringify(state, null, 2));
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "omega");
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, "state.json"), JSON.stringify(state, null, 2));
 
     const killRes = await Promise.resolve(
       api.request(`/projects/${created.id}/subagents/omega/kill`, { method: "POST" })
@@ -529,10 +648,10 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "eta");
-    await fs.mkdir(workspaceDir, { recursive: true });
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "eta");
+    await fs.mkdir(sessionDir, { recursive: true });
     await fs.writeFile(
-      path.join(workspaceDir, "state.json"),
+      path.join(sessionDir, "state.json"),
       JSON.stringify({ supervisor_pid: 0, run_mode: "main-run" }, null, 2)
     );
 
@@ -540,7 +659,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}/subagents/eta/kill`, { method: "POST" })
     );
     expect(killRes.status).toBe(200);
-    await expect(fs.stat(workspaceDir)).rejects.toThrow();
+    await expect(fs.stat(sessionDir)).rejects.toThrow();
   });
 
   it("returns error when subagent missing on kill", async () => {
@@ -569,15 +688,15 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const workspaceDir = path.join(projectsRoot, ".workspaces", created.id, "theta");
-    await fs.mkdir(workspaceDir, { recursive: true });
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "theta");
+    await fs.mkdir(sessionDir, { recursive: true });
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
     expect(child.pid).toBeDefined();
     const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.on("exit", (code, signal) => resolve({ code, signal }));
     });
     await fs.writeFile(
-      path.join(workspaceDir, "state.json"),
+      path.join(sessionDir, "state.json"),
       JSON.stringify({ supervisor_pid: child.pid, run_mode: "main-run" }, null, 2)
     );
 

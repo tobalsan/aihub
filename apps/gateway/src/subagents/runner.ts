@@ -254,6 +254,8 @@ export async function spawnSubagent(
   }
 
   const projectDir = path.join(root, dirName);
+  const sessionsRoot = path.join(projectDir, "sessions");
+  const sessionDir = path.join(sessionsRoot, input.slug);
   const readmePath = path.join(projectDir, "README.md");
   const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
   let threadContent = "";
@@ -314,22 +316,23 @@ export async function spawnSubagent(
   if (mode === "worktree" && !repoHasGit) {
     return { ok: false, error: "Project repo is not a git repo" };
   }
-  const workspacesRoot = path.join(root, ".workspaces", input.projectId);
-  const workspaceDir = path.join(workspacesRoot, input.slug);
-
-  if (await dirExists(workspaceDir)) {
+  if (await dirExists(sessionDir)) {
     if (!input.resume) {
       return { ok: false, error: `Subagent already exists: ${input.slug}` };
     }
   } else {
-    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
   }
 
-  let worktreePath = repo || workspaceDir;
+  const workspacesRoot = path.join(root, ".workspaces", input.projectId);
+  const worktreeDir = path.join(workspacesRoot, input.slug);
+
+  let worktreePath = repo || projectDir;
   const baseBranch = input.baseBranch ?? "main";
   if (mode === "worktree") {
     const branch = `${input.projectId}/${input.slug}`;
-    worktreePath = workspaceDir;
+    worktreePath = worktreeDir;
+    await fs.mkdir(workspacesRoot, { recursive: true });
     const worktreeGitExists = await fs
       .stat(path.join(worktreePath, ".git"))
       .then(() => true)
@@ -339,10 +342,11 @@ export async function spawnSubagent(
     }
   }
 
-  const statePath = path.join(workspaceDir, "state.json");
-  const historyPath = path.join(workspaceDir, "history.jsonl");
-  const progressPath = path.join(workspaceDir, "progress.json");
-  const logsPath = path.join(workspaceDir, "logs.jsonl");
+  const statePath = path.join(sessionDir, "state.json");
+  const historyPath = path.join(sessionDir, "history.jsonl");
+  const progressPath = path.join(sessionDir, "progress.json");
+  const logsPath = path.join(sessionDir, "logs.jsonl");
+  const configPath = path.join(sessionDir, "config.json");
 
   let existingSessionId: string | undefined;
   if (input.resume) {
@@ -384,6 +388,20 @@ export async function spawnSubagent(
   });
 
   const startedAt = new Date().toISOString();
+  let createdAt = startedAt;
+  let archived = false;
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const existing = JSON.parse(raw) as { created?: string; archived?: boolean };
+    if (typeof existing.created === "string" && existing.created.trim().length > 0) {
+      createdAt = existing.created;
+    }
+    if (typeof existing.archived === "boolean") {
+      archived = existing.archived;
+    }
+  } catch {
+    // ignore
+  }
   const state = {
     session_id: existingSessionId ?? "",
     supervisor_pid: child.pid ?? 0,
@@ -395,6 +413,13 @@ export async function spawnSubagent(
     base_branch: baseBranch,
   };
 
+  await writeJson(configPath, {
+    cli: input.cli,
+    runMode: mode,
+    baseBranch,
+    created: createdAt,
+    archived,
+  });
   await writeJson(statePath, state);
   await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
   await fs.appendFile(logsPath, "", "utf8");
@@ -507,9 +532,10 @@ export async function interruptSubagent(
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const workspaceDir = path.join(root, ".workspaces", projectId, slug);
-  const statePath = path.join(workspaceDir, "state.json");
-  const historyPath = path.join(workspaceDir, "history.jsonl");
+  const projectDir = path.join(root, dirName);
+  const sessionDir = path.join(projectDir, "sessions", slug);
+  const statePath = path.join(sessionDir, "state.json");
+  const historyPath = path.join(sessionDir, "history.jsonl");
 
   try {
     const raw = await fs.readFile(statePath, "utf8");
@@ -541,12 +567,13 @@ export async function killSubagent(
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const workspaceDir = path.join(root, ".workspaces", projectId, slug);
-  if (!(await dirExists(workspaceDir))) {
+  const projectDir = path.join(root, dirName);
+  const sessionDir = path.join(projectDir, "sessions", slug);
+  if (!(await dirExists(sessionDir))) {
     return { ok: false, error: `Subagent not found: ${slug}` };
   }
 
-  const statePath = path.join(workspaceDir, "state.json");
+  const statePath = path.join(sessionDir, "state.json");
   let state: { supervisor_pid?: number; run_mode?: string; worktree_path?: string } | null = null;
   try {
     const raw = await fs.readFile(statePath, "utf8");
@@ -565,11 +592,12 @@ export async function killSubagent(
   }
 
   const workspacesRoot = path.join(root, ".workspaces", projectId);
+  const worktreeDir = path.join(workspacesRoot, slug);
   const worktreePath = typeof state?.worktree_path === "string" ? state.worktree_path : "";
   let runMode = typeof state?.run_mode === "string" ? state.run_mode : "";
   if (!runMode) {
-    const workspaceHasGit = await fs
-      .stat(path.join(workspaceDir, ".git"))
+    const worktreeHasGitDir = await fs
+      .stat(path.join(worktreeDir, ".git"))
       .then(() => true)
       .catch(() => false);
     const worktreeHasGit = worktreePath
@@ -585,7 +613,7 @@ export async function killSubagent(
       worktreeHasGit
     ) {
       runMode = "worktree";
-    } else if (workspaceHasGit) {
+    } else if (worktreeHasGitDir) {
       runMode = "worktree";
     }
   }
@@ -600,7 +628,7 @@ export async function killSubagent(
       return { ok: false, error: "Project repo not set" };
     }
 
-    const resolvedWorktreePath = worktreePath || workspaceDir;
+    const resolvedWorktreePath = worktreePath || worktreeDir;
     try {
       await new Promise<void>((resolve, reject) => {
         const child = spawn("git", ["-C", repo, "worktree", "remove", resolvedWorktreePath, "--force"], {
@@ -632,7 +660,16 @@ export async function killSubagent(
     }
   }
 
-  await fs.rm(workspaceDir, { recursive: true, force: true });
+  await fs.rm(sessionDir, { recursive: true, force: true });
+
+  try {
+    const remainingSessions = await fs.readdir(path.join(projectDir, "sessions"));
+    if (remainingSessions.length === 0) {
+      await fs.rmdir(path.join(projectDir, "sessions"));
+    }
+  } catch {
+    // ignore
+  }
 
   // Remove parent folder (PRO-XX) if empty
   try {

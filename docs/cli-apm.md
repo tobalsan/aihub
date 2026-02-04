@@ -33,6 +33,9 @@ List all configured AIHub agents (same output as `pnpm aihub agent list`).
 ### `apm create`
 Create a project.
 
+Arguments:
+- `[description]`: optional description for the README body.
+
 Options:
 - `-t, --title <title>`: required. Must contain at least two words.
 - `--domain <domain>`: optional domain (`life|admin|coding`).
@@ -76,6 +79,7 @@ Notes:
 Shortcut for status update.
 
 Options:
+- `--agent <name>`: agent name to record in the status change.
 - `-j, --json`: JSON output.
 
 ### `apm start <id>`
@@ -105,17 +109,70 @@ Options:
 - `--slug <slug>`: override slug for CLI worktree status.
 - `-j, --json`: JSON output.
 
+### `apm archive <id> <slug>`
+Archive a subagent run. Archived runs are hidden from the sidebar but remain visible in project details.
+
+Options:
+- `-j, --json`: JSON output.
+
+### `apm unarchive <id> <slug>`
+Unarchive a previously archived subagent run.
+
+Options:
+- `-j, --json`: JSON output.
+
+### `apm subagent spawn`
+Spawn a new subagent run directly.
+
+Options:
+- `-p, --project <id>`: required. Project ID.
+- `-s, --slug <slug>`: required. Subagent slug.
+- `-c, --cli <cli>`: required. CLI to use (`claude|codex|droid|gemini`).
+- `--prompt <text>`: required. Prompt to send.
+- `--mode <mode>`: run mode (`worktree|main-run`).
+- `--base <branch>`: base branch for worktree mode.
+- `--resume`: resume existing session instead of creating new.
+
+### `apm subagent status`
+Get status of a subagent run.
+
+Options:
+- `-p, --project <id>`: required. Project ID.
+- `-s, --slug <slug>`: required. Subagent slug.
+
+### `apm subagent logs`
+Get logs from a subagent run.
+
+Options:
+- `-p, --project <id>`: required. Project ID.
+- `-s, --slug <slug>`: required. Subagent slug.
+- `--since <cursor>`: byte cursor (default: 0).
+
+### `apm subagent interrupt`
+Interrupt a running subagent (sends SIGTERM).
+
+Options:
+- `-p, --project <id>`: required. Project ID.
+- `-s, --slug <slug>`: required. Subagent slug.
+
+### `apm subagent kill`
+Kill a subagent and clean up its workspace.
+
+Options:
+- `-p, --project <id>`: required. Project ID.
+- `-s, --slug <slug>`: required. Subagent slug.
+
 ## Examples
 
-```
+```bash
 # List coding projects
 apm list --domain coding
 
-# Create
-apm create --title "Add kill tool" --domain coding --status todo
+# Create with description
+apm create -t "Add kill tool" --domain coding "Implement a kill command for subagents"
 
 # Update run metadata
-apm update PRO-19 --run-agent aihub:project_manager --repo ~/code/aihub --run-mode worktree
+apm update PRO-19 --run-agent cli:codex --repo ~/code/aihub --run-mode worktree
 
 # Update README via stdin
 cat README.md | apm update PRO-19 --content -
@@ -131,4 +188,19 @@ apm resume PRO-19 --message "Continue from where you left off."
 
 # Status with last 5 messages
 apm status PRO-19 --limit 5
+
+# Archive a completed run
+apm archive PRO-19 feature-branch
+
+# Unarchive to restore to sidebar
+apm unarchive PRO-19 feature-branch
+
+# Spawn a subagent directly
+apm subagent spawn -p PRO-19 -s my-run -c codex --prompt "Implement feature X" --mode worktree --base main
+
+# Check subagent logs
+apm subagent logs -p PRO-19 -s my-run --since 0
+
+# Interrupt a running subagent
+apm subagent interrupt -p PRO-19 -s my-run
 ```

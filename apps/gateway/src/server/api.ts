@@ -36,7 +36,14 @@ import {
   saveAttachments,
   resolveAttachmentFile,
 } from "../projects/index.js";
-import { listSubagents, listAllSubagents, getSubagentLogs, listProjectBranches } from "../subagents/index.js";
+import {
+  listSubagents,
+  listAllSubagents,
+  getSubagentLogs,
+  listProjectBranches,
+  archiveSubagent,
+  unarchiveSubagent,
+} from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
 import { getRecentActivity, recordProjectStatusActivity } from "../activity/index.js";
 import { saveUploadedFile, isAllowedMimeType, getAllowedMimeTypes } from "../media/upload.js";
@@ -693,8 +700,9 @@ api.get("/projects/:id/attachments/:name", async (c) => {
 // GET /api/projects/:id/subagents - list subagents
 api.get("/projects/:id/subagents", async (c) => {
   const id = c.req.param("id");
+  const includeArchived = c.req.query("includeArchived") === "true";
   const config = getConfig();
-  const result = await listSubagents(config, id);
+  const result = await listSubagents(config, id, includeArchived);
   if (!result.ok) {
     return c.json({ error: result.error }, 404);
   }
@@ -773,6 +781,34 @@ api.post("/projects/:id/subagents/:slug/kill", async (c) => {
   const slug = c.req.param("slug");
   const config = getConfig();
   const result = await killSubagent(config, id, slug);
+  if (!result.ok) {
+    const status =
+      result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/subagents/:slug/archive - archive subagent run
+api.post("/projects/:id/subagents/:slug/archive", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const config = getConfig();
+  const result = await archiveSubagent(config, id, slug);
+  if (!result.ok) {
+    const status =
+      result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/subagents/:slug/unarchive - unarchive subagent run
+api.post("/projects/:id/subagents/:slug/unarchive", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const config = getConfig();
+  const result = await unarchiveSubagent(config, id, slug);
   if (!result.ok) {
     const status =
       result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;

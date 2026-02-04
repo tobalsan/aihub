@@ -18,6 +18,8 @@ import {
   fetchSubagentLogs,
   fetchProjectBranches,
   killSubagent,
+  archiveSubagent,
+  unarchiveSubagent,
   interruptSubagent,
   uploadAttachments,
   addProjectComment,
@@ -756,6 +758,7 @@ type AgentRunItem = {
   slug?: string;
   agentId?: string;
   sessionKey?: string;
+  archived?: boolean;
 };
 
 function logTone(type: string): "assistant" | "user" | "muted" | "error" {
@@ -922,6 +925,7 @@ export function ProjectsBoard() {
   const [startError, setStartError] = createSignal("");
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
   const [subagentError, setSubagentError] = createSignal<string | null>(null);
+  const [showArchivedRuns, setShowArchivedRuns] = createSignal(false);
   const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
   const [selectedRunKey, setSelectedRunKey] = createSignal<string | null>(null);
   const [aihubRunMeta, setAihubRunMeta] = createSignal<Record<string, { lastTs?: number }>>({});
@@ -1126,7 +1130,10 @@ export function ProjectsBoard() {
     const project = detail();
     if (!project) return [];
     const runs: AgentRunItem[] = [];
-    for (const item of subagents()) {
+    const items = showArchivedRuns()
+      ? subagents()
+      : subagents().filter((item) => !item.archived);
+    for (const item of items) {
       const time = item.lastActive ? Date.parse(item.lastActive) : Number.NaN;
       runs.push({
         key: `subagent:${item.slug}`,
@@ -1135,6 +1142,7 @@ export function ProjectsBoard() {
         status: item.status === "running" ? "running" : "idle",
         time: Number.isNaN(time) ? undefined : time,
         slug: item.slug,
+        archived: item.archived ?? false,
       });
     }
     const sessionKeys = detailSessionKeys();
@@ -1159,6 +1167,7 @@ export function ProjectsBoard() {
     });
     return runs;
   });
+  const hasArchivedRuns = createMemo(() => subagents().some((item) => item.archived));
   // Check if any agent run is currently running
   const runningAgent = createMemo(() => {
     return agentRuns().find((run) => run.status === "running") ?? null;
@@ -1272,6 +1281,7 @@ export function ProjectsBoard() {
     if (!params.id) return;
     setSubagents([]);
     setSubagentLogs([]);
+    setShowArchivedRuns(false);
     setSelectedRunKey(null);
     setAihubRunMeta({});
     setAihubRunLogs({});
@@ -1407,7 +1417,7 @@ export function ProjectsBoard() {
     if (!projectId) return;
     let active = true;
     const load = async () => {
-      const res = await fetchSubagents(projectId);
+      const res = await fetchSubagents(projectId, true);
       if (!active) return;
       if (res.ok) {
         setSubagents(res.data.items);
@@ -1599,6 +1609,15 @@ export function ProjectsBoard() {
       return;
     }
     // Polling will refresh the status automatically
+  };
+
+  const handleArchiveToggle = async (projectId: string, slug: string, archived: boolean) => {
+    if (!archived && !window.confirm(`Archive run ${slug}?`)) return;
+    if (archived) {
+      await unarchiveSubagent(projectId, slug);
+    } else {
+      await archiveSubagent(projectId, slug);
+    }
   };
 
   const handleRepoSave = async (id: string) => {
@@ -2645,6 +2664,50 @@ const handleDetailDragOver = (e: DragEvent) => {
                 <div class="runs-panel">
                   <div class="runs-header">
                     <h3 class="runs-title">Agent Runs</h3>
+                    <div class="runs-header-actions">
+                      <Show when={hasArchivedRuns()}>
+                        <button
+                          class="runs-archive-toggle"
+                          type="button"
+                          onClick={() => setShowArchivedRuns((prev) => !prev)}
+                        >
+                          {showArchivedRuns() ? "Hide archived" : "Show archived"}
+                        </button>
+                      </Show>
+                      <Show when={!isMonitoringHidden()}>
+                        <div class="runs-actions">
+                          <Show when={!runningAgent()}>
+                            <label class="start-custom-toggle">
+                              <input
+                                type="checkbox"
+                                checked={customStartEnabled()}
+                                onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
+                              />
+                              <span>custom</span>
+                            </label>
+                          </Show>
+                          <Show
+                            when={runningAgent()}
+                            fallback={
+                              <button
+                                class="start-btn"
+                                onClick={() => handleStart(params.id ?? "")}
+                                disabled={!canStart()}
+                              >
+                                Start
+                              </button>
+                            }
+                          >
+                            <button
+                              class="start-btn stop"
+                              onClick={() => handleStop(params.id ?? "")}
+                            >
+                              Stop
+                            </button>
+                          </Show>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
                   <Show when={!isMonitoringHidden()}>
                     <div class="runs-config">
@@ -2700,37 +2763,6 @@ const handleDetailDragOver = (e: DragEvent) => {
                           disabled={selectedRunAgent()?.type !== "cli" || detailRunMode() !== "worktree"}
                         />
                       </div>
-                      <div class="runs-actions">
-                        <Show when={!runningAgent()}>
-                          <label class="start-custom-toggle">
-                            <input
-                              type="checkbox"
-                              checked={customStartEnabled()}
-                              onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
-                            />
-                            <span>custom</span>
-                          </label>
-                        </Show>
-                        <Show
-                          when={runningAgent()}
-                          fallback={
-                            <button
-                              class="start-btn"
-                              onClick={() => handleStart(params.id ?? "")}
-                              disabled={!canStart()}
-                            >
-                              Start
-                            </button>
-                          }
-                        >
-                          <button
-                            class="start-btn stop"
-                            onClick={() => handleStop(params.id ?? "")}
-                          >
-                            Stop
-                          </button>
-                        </Show>
-                      </div>
                     </div>
                   </Show>
                   <Show when={customStartEnabled()}>
@@ -2760,7 +2792,7 @@ const handleDetailDragOver = (e: DragEvent) => {
                             : "No activity yet";
                           return (
                             <button
-                              class={`run-row ${selectedRunKey() === run.key ? "active" : ""}`}
+                              class={`run-row ${selectedRunKey() === run.key ? "active" : ""} ${run.archived ? "archived" : ""}`}
                               onClick={() =>
                                 setSelectedRunKey((prev) => (prev === run.key ? null : run.key))
                               }
@@ -2771,23 +2803,43 @@ const handleDetailDragOver = (e: DragEvent) => {
                                 <div class="run-time">{timeLabel}</div>
                               </div>
                               <Show when={run.type === "subagent" && run.slug}>
-                                <button
-                                  class="kill-btn"
-                                  type="button"
-                                  title="Kill subagent"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    const projectId = detail()?.id;
-                                    if (!projectId || !run.slug) return;
-                                    if (!window.confirm(`Kill subagent ${run.slug}? This removes all workspace data.`)) return;
-                                    await killSubagent(projectId, run.slug);
-                                    // Polling handles refresh; run will disappear within 2s
-                                  }}
-                                >
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
-                                  </svg>
-                                </button>
+                                <div class="run-actions">
+                                  <button
+                                    class="archive-btn"
+                                    type="button"
+                                    title={run.archived ? "Unarchive run" : "Archive run"}
+                                    aria-label={run.archived ? "Unarchive run" : "Archive run"}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const projectId = detail()?.id;
+                                      if (!projectId || !run.slug) return;
+                                      await handleArchiveToggle(projectId, run.slug, run.archived ?? false);
+                                    }}
+                                  >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                      <path d="M3 7h18v13H3z" />
+                                      <path d="M7 7V4h10v3" />
+                                      <path d="M7 12h10" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    class="kill-btn"
+                                    type="button"
+                                    title="Kill subagent"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const projectId = detail()?.id;
+                                      if (!projectId || !run.slug) return;
+                                      if (!window.confirm(`Kill subagent ${run.slug}? This removes all workspace data.`)) return;
+                                      await killSubagent(projectId, run.slug);
+                                      // Polling handles refresh; run will disappear within 2s
+                                    }}
+                                  >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+                                    </svg>
+                                  </button>
+                                </div>
                               </Show>
                             </button>
                           );
@@ -4644,32 +4696,31 @@ const handleDetailDragOver = (e: DragEvent) => {
           margin-bottom: 8px;
         }
 
-        .runs-config {
+        .runs-header-actions {
           display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          align-items: flex-end;
-          padding: 10px;
-          border-radius: 10px;
-          border: 1px solid #1f2631;
-          background: #141b26;
-        }
-
-        .runs-config-field {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          min-width: 140px;
-        }
-
-        .runs-config .runs-actions {
-          margin-left: auto;
+          align-items: center;
+          gap: 8px;
         }
 
         .runs-actions {
           display: flex;
           align-items: center;
           gap: 8px;
+        }
+
+        .runs-archive-toggle {
+          border: 1px solid #2b3442;
+          background: #101621;
+          color: #9aa6b4;
+          font-size: 11px;
+          padding: 4px 8px;
+          border-radius: 999px;
+          cursor: pointer;
+        }
+
+        .runs-archive-toggle:hover {
+          color: #d2d9e3;
+          border-color: #3b485c;
         }
 
         .custom-start-textarea {
@@ -4727,11 +4778,23 @@ const handleDetailDragOver = (e: DragEvent) => {
           background: #1a2230;
         }
 
+        .run-row.archived {
+          opacity: 0.6;
+        }
+
         .run-row .status-dot {
           width: 8px;
           height: 8px;
           margin-top: 4px;
           flex: 0 0 auto;
+        }
+
+        .run-actions {
+          margin-left: auto;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
         }
 
         .run-content {
@@ -4754,7 +4817,6 @@ const handleDetailDragOver = (e: DragEvent) => {
         }
 
         .run-row .kill-btn {
-          margin-left: auto;
           background: none;
           border: none;
           padding: 4px;
@@ -4763,7 +4825,26 @@ const handleDetailDragOver = (e: DragEvent) => {
           display: flex;
           align-items: center;
           justify-content: center;
-          flex-shrink: 0;
+        }
+
+        .run-row .archive-btn {
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          color: #6b7280;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .run-row .archive-btn svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .run-row .archive-btn:hover {
+          color: #f6c454;
         }
 
         .run-row .kill-btn svg {

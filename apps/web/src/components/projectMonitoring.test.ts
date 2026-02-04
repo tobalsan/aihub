@@ -9,7 +9,7 @@ describe("project monitoring prompts", () => {
     );
   });
 
-  it("builds start prompt with tools", () => {
+  it("builds start prompt", () => {
     const prompt = buildStartPrompt("Summary");
     expect(prompt).toBe("Summary");
   });
