@@ -10,6 +10,8 @@ import type {
   ProjectDetail,
   ProjectUpdatePayload,
   DeleteProjectResponse,
+  ArchiveProjectResponse,
+  UnarchiveProjectResponse,
   ActivityResponse,
   AgentStatusResponse,
   SubagentGlobalListResponse,
@@ -402,6 +404,12 @@ export async function fetchProjects(): Promise<ProjectListItem[]> {
   return res.json();
 }
 
+export async function fetchArchivedProjects(): Promise<ProjectListItem[]> {
+  const res = await fetch(`${API_BASE}/projects/archived`);
+  if (!res.ok) throw new Error("Failed to fetch archived projects");
+  return res.json();
+}
+
 export async function fetchActivity(offset = 0, limit = 20): Promise<ActivityResponse> {
   const params = new URLSearchParams({
     offset: String(offset),
@@ -474,6 +482,34 @@ export async function deleteProject(id: string): Promise<DeleteProjectResult> {
     return { ok: false, error: data.error ?? "Failed to delete project" };
   }
   const data = (await res.json()) as DeleteProjectResponse;
+  return { ok: true, data };
+}
+
+export type ArchiveProjectResult =
+  | { ok: true; data: ArchiveProjectResponse }
+  | { ok: false; error: string };
+
+export async function archiveProject(id: string): Promise<ArchiveProjectResult> {
+  const res = await fetch(`${API_BASE}/projects/${id}/archive`, { method: "POST" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to archive project" }));
+    return { ok: false, error: data.error ?? "Failed to archive project" };
+  }
+  const data = (await res.json()) as ArchiveProjectResponse;
+  return { ok: true, data };
+}
+
+export type UnarchiveProjectResult =
+  | { ok: true; data: UnarchiveProjectResponse }
+  | { ok: false; error: string };
+
+export async function unarchiveProject(id: string): Promise<UnarchiveProjectResult> {
+  const res = await fetch(`${API_BASE}/projects/${id}/unarchive`, { method: "POST" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to unarchive project" }));
+    return { ok: false, error: data.error ?? "Failed to unarchive project" };
+  }
+  const data = (await res.json()) as UnarchiveProjectResponse;
   return { ok: true, data };
 }
 

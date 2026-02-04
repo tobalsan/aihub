@@ -4,9 +4,12 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
   fetchProjects,
+  fetchArchivedProjects,
   fetchProject,
   updateProject,
   deleteProject,
+  archiveProject,
+  unarchiveProject,
   createProject,
   fetchAgents,
   fetchAllSubagents,
@@ -858,6 +861,9 @@ function normalizeMode(raw?: string): string {
 }
 
 function getStatusLabel(status: string): string {
+  if (status === "cancelled") return "Cancelled";
+  if (status === "archived") return "Archived";
+  if (status === "trashed") return "Trashed";
   const match = COLUMNS.find((col) => col.id === status);
   return match ? match.title : status;
 }
@@ -873,7 +879,11 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
 export function ProjectsBoard() {
   const params = useParams();
   const navigate = useNavigate();
+  const [showArchived, setShowArchived] = createSignal(false);
   const [projects, { refetch }] = createResource(fetchProjects);
+  const [archivedProjects] = createResource(showArchived, async (show) =>
+    show ? fetchArchivedProjects() : []
+  );
   const [agents] = createResource(fetchAgents);
   const [globalSubagents] = createResource(fetchAllSubagents);
   const [detail, { refetch: refetchDetail }] = createResource(
@@ -1732,6 +1742,28 @@ const handleDetailDragOver = (e: DragEvent) => {
     closeDetail();
   };
 
+  const handleArchiveProject = async (id: string) => {
+    if (!window.confirm("Archive this project?")) return;
+    const result = await archiveProject(id);
+    if (!result.ok) {
+      console.error(result.error);
+      return;
+    }
+    await refetch();
+    closeDetail();
+  };
+
+  const handleUnarchiveProject = async (id: string) => {
+    if (!window.confirm("Unarchive this project?")) return;
+    const result = await unarchiveProject(id);
+    if (!result.ok) {
+      console.error(result.error);
+      return;
+    }
+    await refetch();
+    await refetchDetail();
+  };
+
   const handleSelectAgent = (id: string) => {
     setSelectedAgent(id);
     if (isMobile()) {
@@ -2045,6 +2077,13 @@ const handleDetailDragOver = (e: DragEvent) => {
           value={filterText()}
           onInput={(e) => setFilterText(e.currentTarget.value)}
         />
+        <button
+          class="archive-link"
+          type="button"
+          onClick={() => setShowArchived((prev) => !prev)}
+        >
+          {showArchived() ? "Hide archive" : "Archived"}
+        </button>
       </header>
 
       <Show when={projects.loading}>
@@ -2052,6 +2091,36 @@ const handleDetailDragOver = (e: DragEvent) => {
       </Show>
       <Show when={projects.error}>
         <div class="projects-error">Failed to load projects</div>
+      </Show>
+
+      <Show when={showArchived()}>
+        <div class="archive-panel">
+          <div class="archive-panel-header">
+            <div class="archive-panel-title">Archived</div>
+            <button class="archive-panel-close" type="button" onClick={() => setShowArchived(false)}>
+              Close
+            </button>
+          </div>
+          <Show when={archivedProjects.loading}>
+            <div class="archive-panel-loading">Loading archived projects...</div>
+          </Show>
+          <Show when={archivedProjects.error}>
+            <div class="archive-panel-error">Failed to load archived projects</div>
+          </Show>
+          <Show when={!archivedProjects.loading && (archivedProjects() ?? []).length === 0}>
+            <div class="archive-panel-empty">No archived projects</div>
+          </Show>
+          <div class="archive-panel-list">
+            <For each={archivedProjects() ?? []}>
+              {(item) => (
+                <button class="archive-item" type="button" onClick={() => openDetail(item.id)}>
+                  <div class="archive-item-title">{item.title}</div>
+                  <div class="archive-item-id">{item.id}</div>
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
       </Show>
 
       <div class="board">
@@ -2151,6 +2220,7 @@ const handleDetailDragOver = (e: DragEvent) => {
                 {(data) => {
                   const project = data() as ProjectDetail;
                   const [copied, setCopied] = createSignal(false);
+                  const isArchived = normalizeStatus(getFrontmatterString(project.frontmatter, "status")) === "archived";
                   return (
                     <>
                       <div class="title-block">
@@ -2192,6 +2262,30 @@ const handleDetailDragOver = (e: DragEvent) => {
                           />
                         </Show>
                       </div>
+                      <button
+                        type="button"
+                        class="archive-button"
+                        onClick={() => (isArchived ? handleUnarchiveProject(project.id) : handleArchiveProject(project.id))}
+                        title={isArchived ? "Unarchive project" : "Archive project"}
+                        aria-label={isArchived ? "Unarchive project" : "Archive project"}
+                      >
+                        <Show
+                          when={isArchived}
+                          fallback={
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M4 7h16" />
+                              <path d="M5 7v12h14V7" />
+                              <path d="M9 12l3 3 3-3" />
+                            </svg>
+                          }
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 7h16" />
+                            <path d="M5 7v12h14V7" />
+                            <path d="M9 15l3-3 3 3" />
+                          </svg>
+                        </Show>
+                      </button>
                       <button
                         type="button"
                         class="trash-button"
@@ -2258,6 +2352,9 @@ const handleDetailDragOver = (e: DragEvent) => {
                                     </button>
                                   )}
                                 </For>
+                                <button class="meta-item" onClick={() => handleStatusChange(project.id, "cancelled")}>
+                                  Cancelled
+                                </button>
                               </div>
                             </Show>
                           </div>
@@ -2936,6 +3033,108 @@ const handleDetailDragOver = (e: DragEvent) => {
           border-color: #3b6ecc;
         }
 
+        .archive-link {
+          border: 1px solid #1f242c;
+          background: transparent;
+          color: #98a3b2;
+          padding: 6px 10px;
+          font-size: 12px;
+          border-radius: 999px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .archive-link:hover {
+          border-color: #2a3240;
+          color: #c4cbd6;
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .archive-panel {
+          margin: 16px 18px 0;
+          border: 1px solid #1f242c;
+          border-radius: 14px;
+          background: #0f131a;
+          padding: 16px;
+        }
+
+        .archive-panel-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .archive-panel-title {
+          font-size: 14px;
+          font-weight: 700;
+          color: #d4d7dd;
+          letter-spacing: 0.02em;
+        }
+
+        .archive-panel-close {
+          border: 1px solid #1f242c;
+          background: transparent;
+          color: #98a3b2;
+          padding: 4px 10px;
+          font-size: 12px;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .archive-panel-close:hover {
+          border-color: #2a3240;
+          color: #c4cbd6;
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .archive-panel-loading,
+        .archive-panel-error,
+        .archive-panel-empty {
+          color: #7f8896;
+          font-size: 13px;
+          padding: 6px 2px 0;
+        }
+
+        .archive-panel-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 10px;
+        }
+
+        .archive-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid #1f242c;
+          background: #0b0f14;
+          color: #cfd6e3;
+          cursor: pointer;
+          text-align: left;
+          transition: all 0.15s ease;
+        }
+
+        .archive-item:hover {
+          border-color: #2a3240;
+          background: #111822;
+        }
+
+        .archive-item-title {
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .archive-item-id {
+          font-size: 11px;
+          color: #7f8896;
+        }
+
         .projects-loading,
         .projects-error {
           padding: 24px;
@@ -3515,6 +3714,7 @@ const handleDetailDragOver = (e: DragEvent) => {
           justify-content: center;
           cursor: pointer;
           transition: all 0.15s ease;
+          margin-left: 6px;
         }
 
         .trash-button svg {
@@ -3526,6 +3726,31 @@ const handleDetailDragOver = (e: DragEvent) => {
           background: #151b24;
           border-color: #2a3240;
           color: #d48c8c;
+        }
+
+        .archive-button {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: #7f8aa1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .archive-button svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .archive-button:hover {
+          background: #151b24;
+          border-color: #2a3240;
+          color: #d2b356;
         }
 
         .title-block {

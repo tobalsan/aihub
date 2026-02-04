@@ -99,7 +99,7 @@ describe("projects store", () => {
     const created = await createProject(config, { title: "Trash Project" });
     if (!created.ok) throw new Error(created.error);
 
-    const trashRoot = path.join(projectsRoot, "trash");
+    const trashRoot = path.join(projectsRoot, ".trash");
     await expect(fs.stat(trashRoot)).rejects.toBeDefined();
 
     const deleted = await deleteProject(config, created.data.id);
@@ -112,6 +112,40 @@ describe("projects store", () => {
     await expect(fs.access(sourcePath)).rejects.toBeDefined();
     await expect(fs.stat(targetPath)).resolves.toBeDefined();
     await expect(fs.stat(trashRoot)).resolves.toBeDefined();
+  });
+
+  it("archives and unarchives projects", async () => {
+    const { createProject, archiveProject, unarchiveProject } = await import("./store.js");
+    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+
+    const created = await createProject(config, { title: "Archive Me Project" });
+    if (!created.ok) throw new Error(created.error);
+
+    const archiveResult = await archiveProject(config, created.data.id);
+    expect(archiveResult.ok).toBe(true);
+    if (!archiveResult.ok) return;
+
+    const archiveRoot = path.join(projectsRoot, ".archive");
+    const archivedDir = path.join(projectsRoot, archiveResult.data.archivedPath);
+    const sourcePath = path.join(projectsRoot, created.data.path);
+
+    await expect(fs.access(sourcePath)).rejects.toBeDefined();
+    await expect(fs.stat(archiveRoot)).resolves.toBeDefined();
+    await expect(fs.stat(archivedDir)).resolves.toBeDefined();
+
+    const archivedReadme = await fs.readFile(path.join(archivedDir, "README.md"), "utf8");
+    expect(archivedReadme).toContain('status: "archived"');
+
+    const unarchiveResult = await unarchiveProject(config, created.data.id, "maybe");
+    expect(unarchiveResult.ok).toBe(true);
+    if (!unarchiveResult.ok) return;
+
+    const activeDir = path.join(projectsRoot, created.data.path);
+    await expect(fs.access(archivedDir)).rejects.toBeDefined();
+    await expect(fs.stat(activeDir)).resolves.toBeDefined();
+
+    const activeReadme = await fs.readFile(path.join(activeDir, "README.md"), "utf8");
+    expect(activeReadme).toContain('status: "maybe"');
   });
 
   it("updates thread comments preserving author and date", async () => {

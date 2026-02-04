@@ -282,6 +282,9 @@ export const ProjectStatusSchema = z.enum([
   "in_progress",
   "review",
   "done",
+  "cancelled",
+  "archived",
+  "trashed",
 ]);
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 

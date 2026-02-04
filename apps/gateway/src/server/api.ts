@@ -23,10 +23,13 @@ import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import {
   listProjects,
+  listArchivedProjects,
   getProject,
   createProject,
   updateProject,
   deleteProject,
+  archiveProject,
+  unarchiveProject,
   appendProjectComment,
   updateProjectComment,
   deleteProjectComment,
@@ -431,6 +434,16 @@ api.get("/projects", async (c) => {
   return c.json(result.data);
 });
 
+// GET /api/projects/archived - list archived projects
+api.get("/projects/archived", async (c) => {
+  const config = getConfig();
+  const result = await listArchivedProjects(config);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+  return c.json(result.data);
+});
+
 // POST /api/projects - create project
 api.post("/projects", async (c) => {
   const body = await c.req.json();
@@ -475,6 +488,33 @@ api.patch("/projects/:id", async (c) => {
       prevStatus = normalizeProjectStatus(String(prev.data.frontmatter?.status ?? ""));
     }
   }
+  if (parsed.data.status === "archived") {
+    const { status: _status, ...rest } = parsed.data;
+    if (Object.keys(rest).length > 0) {
+      const updated = await updateProject(config, id, rest);
+      if (!updated.ok) {
+        const status = updated.error.startsWith("Project already exists") ? 409 : 404;
+        return c.json({ error: updated.error }, status);
+      }
+    }
+    const archived = await archiveProject(config, id);
+    if (!archived.ok) {
+      const status = archived.error.startsWith("Archive already contains") ? 409 : 404;
+      return c.json({ error: archived.error }, status);
+    }
+    const detail = await getProject(config, id);
+    if (!detail.ok) {
+      return c.json({ error: detail.error }, 404);
+    }
+    if (prevStatus === null || prevStatus !== "archived") {
+      await recordProjectStatusActivity({
+        actor: parsed.data.agent,
+        projectId: detail.data.id ?? id,
+        status: "archived",
+      });
+    }
+    return c.json(detail.data);
+  }
   const result = await updateProject(config, id, parsed.data);
   if (!result.ok) {
     const status = result.error.startsWith("Project already exists") ? 409 : 404;
@@ -502,6 +542,32 @@ api.delete("/projects/:id", async (c) => {
     const status = result.error.startsWith("Trash already contains") ? 409 : 404;
     return c.json({ error: result.error }, status);
   }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/archive - archive project (move to .archive)
+api.post("/projects/:id/archive", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await archiveProject(config, id);
+  if (!result.ok) {
+    const status = result.error.startsWith("Archive already contains") ? 409 : 404;
+    return c.json({ error: result.error }, status);
+  }
+  await recordProjectStatusActivity({ projectId: id, status: "archived" });
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/unarchive - unarchive project (move out of .archive)
+api.post("/projects/:id/unarchive", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await unarchiveProject(config, id, "maybe");
+  if (!result.ok) {
+    const status = result.error.startsWith("Project already exists") ? 409 : 404;
+    return c.json({ error: result.error }, status);
+  }
+  await recordProjectStatusActivity({ projectId: id, status: "maybe" });
   return c.json(result.data);
 });
 

@@ -1,12 +1,15 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { GatewayConfig, CreateProjectRequest, UpdateProjectRequest, UploadedAttachment } from "@aihub/shared";
+import type { GatewayConfig, CreateProjectRequest, UpdateProjectRequest, UploadedAttachment, ProjectStatus } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { CONFIG_DIR } from "../config/index.js";
 
 const PROJECTS_STATE_PATH = path.join(CONFIG_DIR, "projects.json");
 const THREAD_FILE = "THREAD.md";
+const ARCHIVE_DIR = ".archive";
+const TRASH_DIR = ".trash";
+const LEGACY_TRASH_DIRS = ["Trash", "trash"];
 
 export type ProjectListItem = {
   id: string;
@@ -36,6 +39,14 @@ export type ProjectItemResult =
 
 export type DeleteProjectResult =
   | { ok: true; data: { id: string; path: string; trashedPath: string } }
+  | { ok: false; error: string };
+
+export type ArchiveProjectResult =
+  | { ok: true; data: { id: string; path: string; archivedPath: string } }
+  | { ok: false; error: string };
+
+export type UnarchiveProjectResult =
+  | { ok: true; data: { id: string; path: string } }
   | { ok: false; error: string };
 
 export type ProjectThreadEntry = {
@@ -76,6 +87,18 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 async function ensureDir(dirPath: string): Promise<void> {
   await fs.mkdir(dirPath, { recursive: true });
+}
+
+async function migrateTrashRoot(root: string): Promise<void> {
+  const hiddenTrash = path.join(root, TRASH_DIR);
+  if (await dirExists(hiddenTrash)) return;
+  for (const legacy of LEGACY_TRASH_DIRS) {
+    const legacyPath = path.join(root, legacy);
+    if (await dirExists(legacyPath)) {
+      await fs.rename(legacyPath, hiddenTrash);
+      return;
+    }
+  }
 }
 
 function slugifyTitle(title: string): string {
@@ -198,6 +221,10 @@ async function findProjectDir(root: string, id: string): Promise<string | null> 
   return null;
 }
 
+async function findArchivedProjectDir(root: string, id: string): Promise<string | null> {
+  return findProjectDir(path.join(root, ARCHIVE_DIR), id);
+}
+
 function toStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -207,6 +234,7 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
   if (!(await dirExists(root))) {
     return { ok: true, data: [] };
   }
+  await migrateTrashRoot(root);
 
   const entries = await fs.readdir(root, { withFileTypes: true });
   const projects: ProjectListItem[] = [];
@@ -214,6 +242,7 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const dirName = entry.name;
+    if (dirName.startsWith(".")) continue;
     const dirPath = path.join(root, dirName);
     try {
       const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -253,17 +282,78 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
   return { ok: true, data: projects };
 }
 
+export async function listArchivedProjects(config: GatewayConfig): Promise<ProjectListResult> {
+  const root = getProjectsRoot(config);
+  const archiveRoot = path.join(root, ARCHIVE_DIR);
+  if (!(await dirExists(archiveRoot))) {
+    return { ok: true, data: [] };
+  }
+
+  const entries = await fs.readdir(archiveRoot, { withFileTypes: true });
+  const projects: ProjectListItem[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dirName = entry.name;
+    if (dirName.startsWith(".")) continue;
+    const dirPath = path.join(archiveRoot, dirName);
+    try {
+      const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
+      const mdFiles = dirEntries
+        .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
+        .map(e => e.name);
+      if (mdFiles.length === 0) continue;
+
+      let frontmatter: Record<string, unknown> = {};
+      let title = dirName;
+      const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
+      const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
+      const primaryFile = readmeFile ?? specsFile ?? mdFiles[0];
+      if (primaryFile) {
+        const parsed = await readMarkdownIfExists(path.join(dirPath, primaryFile));
+        if (parsed) {
+          frontmatter = parsed.frontmatter;
+          title = parsed.title;
+        }
+      }
+
+      const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
+      const resolvedTitle = toStringField(frontmatter.title) ?? title;
+      projects.push({
+        id,
+        title: resolvedTitle,
+        path: path.join(ARCHIVE_DIR, dirName),
+        absolutePath: dirPath,
+        frontmatter: { ...frontmatter, id, title: resolvedTitle },
+      });
+    } catch {
+      // Skip invalid project folder
+    }
+  }
+
+  return { ok: true, data: projects };
+}
+
 export async function getProject(
   config: GatewayConfig,
   id: string
 ): Promise<ProjectItemResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, id);
+  await migrateTrashRoot(root);
+  let dirName = await findProjectDir(root, id);
+  let baseRoot = root;
+  if (!dirName) {
+    const archivedDir = await findArchivedProjectDir(root, id);
+    if (archivedDir) {
+      dirName = archivedDir;
+      baseRoot = path.join(root, ARCHIVE_DIR);
+    }
+  }
   if (!dirName) {
     return { ok: false, error: `Project not found: ${id}` };
   }
 
-  const dirPath = path.join(root, dirName);
+  const dirPath = path.join(baseRoot, dirName);
   const threadPath = path.join(dirPath, THREAD_FILE);
   const threadRaw = (await fileExists(threadPath)) ? await fs.readFile(threadPath, "utf8") : "";
   const thread = threadRaw ? parseThreadSections(threadRaw).map(parseThreadEntry).filter(Boolean) as ProjectThreadEntry[] : [];
@@ -305,7 +395,7 @@ export async function getProject(
     data: {
       id: resolvedId,
       title: resolvedTitle,
-      path: dirName,
+      path: baseRoot === root ? dirName : path.join(ARCHIVE_DIR, dirName),
       absolutePath: dirPath,
       frontmatter: { ...frontmatter, id: resolvedId, title: resolvedTitle },
       docs,
@@ -325,6 +415,7 @@ export async function createProject(
   }
 
   const root = getProjectsRoot(config);
+  await migrateTrashRoot(root);
   await ensureDir(root);
   const id = await allocateProjectId();
   const slug = slugifyTitle(trimmedTitle);
@@ -371,6 +462,7 @@ export async function updateProject(
   input: UpdateProjectRequest
 ): Promise<ProjectItemResult> {
   const root = getProjectsRoot(config);
+  await migrateTrashRoot(root);
   const dirName = await findProjectDir(root, id);
   if (!dirName) {
     return { ok: false, error: `Project not found: ${id}` };
@@ -505,7 +597,8 @@ export async function deleteProject(
     return { ok: false, error: `Project not found: ${id}` };
   }
 
-  const trashRoot = path.join(root, "trash");
+  await migrateTrashRoot(root);
+  const trashRoot = path.join(root, TRASH_DIR);
   await ensureDir(trashRoot);
 
   const sourcePath = path.join(root, dirName);
@@ -516,7 +609,63 @@ export async function deleteProject(
 
   await fs.rename(sourcePath, targetPath);
 
-  return { ok: true, data: { id, path: dirName, trashedPath: path.join("trash", dirName) } };
+  return { ok: true, data: { id, path: dirName, trashedPath: path.join(TRASH_DIR, dirName) } };
+}
+
+export async function archiveProject(
+  config: GatewayConfig,
+  id: string
+): Promise<ArchiveProjectResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, id);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${id}` };
+  }
+
+  const archiveRoot = path.join(root, ARCHIVE_DIR);
+  await ensureDir(archiveRoot);
+
+  const sourcePath = path.join(root, dirName);
+  const targetPath = path.join(archiveRoot, dirName);
+  if (await dirExists(targetPath)) {
+    return { ok: false, error: `Archive already contains project: ${dirName}` };
+  }
+
+  const updated = await updateProject(config, id, { status: "archived" });
+  if (!updated.ok) {
+    return { ok: false, error: updated.error };
+  }
+
+  await fs.rename(sourcePath, targetPath);
+
+  return { ok: true, data: { id, path: dirName, archivedPath: path.join(ARCHIVE_DIR, dirName) } };
+}
+
+export async function unarchiveProject(
+  config: GatewayConfig,
+  id: string,
+  nextStatus: ProjectStatus
+): Promise<UnarchiveProjectResult> {
+  const root = getProjectsRoot(config);
+  const archiveRoot = path.join(root, ARCHIVE_DIR);
+  const dirName = await findProjectDir(archiveRoot, id);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${id}` };
+  }
+
+  const sourcePath = path.join(archiveRoot, dirName);
+  const targetPath = path.join(root, dirName);
+  if (await dirExists(targetPath)) {
+    return { ok: false, error: `Project already exists: ${dirName}` };
+  }
+
+  await fs.rename(sourcePath, targetPath);
+  const updated = await updateProject(config, id, { status: nextStatus });
+  if (!updated.ok) {
+    return { ok: false, error: updated.error };
+  }
+
+  return { ok: true, data: { id, path: dirName } };
 }
 
 export type ProjectCommentResult =

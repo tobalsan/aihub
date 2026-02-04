@@ -231,6 +231,17 @@ export type DeleteProjectResponse = {
   trashedPath: string;
 };
 
+export type ArchiveProjectResponse = {
+  id: string;
+  path: string;
+  archivedPath: string;
+};
+
+export type UnarchiveProjectResponse = {
+  id: string;
+  path: string;
+};
+
 export type ProjectUpdatePayload = {
   title?: string;
   domain?: string;

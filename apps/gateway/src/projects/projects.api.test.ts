@@ -244,7 +244,7 @@ describe("projects API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
     const createdDir = path.join(projectsRoot, created.path);
-    const trashRoot = path.join(projectsRoot, "trash");
+    const trashRoot = path.join(projectsRoot, ".trash");
 
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
     await expect(fs.stat(trashRoot)).rejects.toBeDefined();
@@ -257,10 +257,46 @@ describe("projects API", () => {
     const deleted = await deleteRes.json();
     expect(deleted.id).toBe(created.id);
     expect(deleted.path).toBe(created.path);
-    expect(deleted.trashedPath).toBe(path.join("trash", created.path));
+    expect(deleted.trashedPath).toBe(path.join(".trash", created.path));
 
     const trashedDir = path.join(projectsRoot, deleted.trashedPath);
     await expect(fs.access(createdDir)).rejects.toBeDefined();
     await expect(fs.stat(trashedDir)).resolves.toBeDefined();
+  });
+
+  it("archives and unarchives a project", async () => {
+    const createRes = await Promise.resolve(api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Archive API Project" }),
+    }));
+
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+    const createdDir = path.join(projectsRoot, created.path);
+
+    await expect(fs.stat(createdDir)).resolves.toBeDefined();
+
+    const archiveRes = await Promise.resolve(api.request(`/projects/${created.id}/archive`, {
+      method: "POST",
+    }));
+
+    expect(archiveRes.status).toBe(200);
+    const archived = await archiveRes.json();
+    const archivedDir = path.join(projectsRoot, archived.archivedPath);
+
+    await expect(fs.access(createdDir)).rejects.toBeDefined();
+    await expect(fs.stat(archivedDir)).resolves.toBeDefined();
+
+    const unarchiveRes = await Promise.resolve(api.request(`/projects/${created.id}/unarchive`, {
+      method: "POST",
+    }));
+
+    expect(unarchiveRes.status).toBe(200);
+    const unarchived = await unarchiveRes.json();
+    expect(unarchived.id).toBe(created.id);
+
+    await expect(fs.access(archivedDir)).rejects.toBeDefined();
+    await expect(fs.stat(createdDir)).resolves.toBeDefined();
   });
 });

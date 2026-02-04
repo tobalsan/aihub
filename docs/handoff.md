@@ -325,7 +325,7 @@ Kanban UI details:
 - OpenClaw connector: Debug with `OPENCLAW_DEBUG=1`; delta events are cumulative (not incremental).
 - Image attachments: Subagent CLI spawning doesn't support attachments yet (only lead agents).
 - Uploaded files stored in `~/.aihub/media/inbound/`; no cleanup/expiry currently implemented.
-- Project deletion is soft delete (moves to `{projects.root}/trash/`).
+- Project deletion is soft delete (moves to `{projects.root}/.trash/`).
 - Multi-file projects: README.md is primary (contains frontmatter); other `.md` files included in start prompts.
 - Kill subagent: Worktree mode also deletes the git branch; main-run mode only removes workspace.
 
@@ -396,7 +396,7 @@ Kanban UI details:
   - `apps/web/src/components/AgentSidebar.tsx` (status pills)
 
 ### 19) Project Deletion (PRO-30)
-- Soft delete: moves project folder to `{projects.root}/trash/`.
+- Soft delete: moves project folder to `{projects.root}/.trash/`.
 - Returns metadata: `{ id, path, trashedPath }`.
 - Error if trash already contains same project name.
 - API endpoint: `DELETE /api/projects/:id`.
