@@ -523,8 +523,9 @@ export type SubagentListResult =
   | { ok: true; data: SubagentListResponse }
   | { ok: false; error: string };
 
-export async function fetchSubagents(projectId: string): Promise<SubagentListResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents`);
+export async function fetchSubagents(projectId: string, includeArchived = false): Promise<SubagentListResult> {
+  const query = includeArchived ? "?includeArchived=true" : "";
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents${query}`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: "Failed to fetch subagents" }));
     return { ok: false, error: data.error ?? "Failed to fetch subagents" };
@@ -630,6 +631,44 @@ export async function killSubagent(
     return { ok: false, error: data.error ?? "Failed to kill subagent" };
   }
   const data = (await res.json()) as { slug: string };
+  return { ok: true, data };
+}
+
+export type ArchiveSubagentResult =
+  | { ok: true; data: { slug: string; archived: boolean } }
+  | { ok: false; error: string };
+
+export async function archiveSubagent(
+  projectId: string,
+  slug: string
+): Promise<ArchiveSubagentResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/archive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to archive subagent" }));
+    return { ok: false, error: data.error ?? "Failed to archive subagent" };
+  }
+  const data = (await res.json()) as { slug: string; archived: boolean };
+  return { ok: true, data };
+}
+
+export type UnarchiveSubagentResult =
+  | { ok: true; data: { slug: string; archived: boolean } }
+  | { ok: false; error: string };
+
+export async function unarchiveSubagent(
+  projectId: string,
+  slug: string
+): Promise<UnarchiveSubagentResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/unarchive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to unarchive subagent" }));
+    return { ok: false, error: data.error ?? "Failed to unarchive subagent" };
+  }
+  const data = (await res.json()) as { slug: string; archived: boolean };
   return { ok: true, data };
 }
 

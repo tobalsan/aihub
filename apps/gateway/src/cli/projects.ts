@@ -571,6 +571,46 @@ program
   });
 
 program
+  .command("archive")
+  .argument("<id>", "Project ID")
+  .argument("<slug>", "Run slug")
+  .option("-j, --json", "JSON output")
+  .action(async (id, slug, opts) => {
+    const normalizedId = normalizeProjectId(id);
+    const res = await requestJson(`/projects/${normalizedId}/subagents/${slug}/archive`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(data.error ?? "Request failed");
+      process.exit(1);
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    console.log(`Archived run ${slug}`);
+  });
+
+program
+  .command("unarchive")
+  .argument("<id>", "Project ID")
+  .argument("<slug>", "Run slug")
+  .option("-j, --json", "JSON output")
+  .action(async (id, slug, opts) => {
+    const normalizedId = normalizeProjectId(id);
+    const res = await requestJson(`/projects/${normalizedId}/subagents/${slug}/unarchive`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(data.error ?? "Request failed");
+      process.exit(1);
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    console.log(`Unarchived run ${slug}`);
+  });
+
+program
   .command("start")
   .argument("<id>", "Project ID")
   .option("--custom-prompt <prompt>", "Custom prompt (use '-' for stdin)")

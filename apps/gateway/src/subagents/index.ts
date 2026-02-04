@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { homedir } from "node:os";
 import type { GatewayConfig, SubagentGlobalListItem } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
+import { migrateLegacySessions } from "./migrate.js";
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";
 
@@ -15,6 +16,7 @@ export type SubagentListItem = {
   baseBranch?: string;
   worktreePath?: string;
   lastError?: string;
+  archived?: boolean;
 };
 
 export type SubagentLogEvent = {
@@ -77,6 +79,10 @@ async function findProjectDir(root: string, id: string): Promise<string | null> 
     }
   }
   return null;
+}
+
+function getSessionsRoot(projectDir: string): string {
+  return path.join(projectDir, "sessions");
 }
 
 async function readJson<T>(filePath: string): Promise<T | null> {
@@ -322,7 +328,8 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
 
 export async function listSubagents(
   config: GatewayConfig,
-  projectId: string
+  projectId: string,
+  includeArchived = false
 ): Promise<SubagentListResult> {
   const root = getProjectsRoot(config);
   const dirName = await findProjectDir(root, projectId);
@@ -330,18 +337,26 @@ export async function listSubagents(
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const workspacesRoot = path.join(root, ".workspaces", projectId);
-  if (!(await dirExists(workspacesRoot))) {
+  const projectDir = path.join(root, dirName);
+  await migrateLegacySessions(root, projectId, projectDir);
+  const sessionsRoot = getSessionsRoot(projectDir);
+  if (!(await dirExists(sessionsRoot))) {
     return { ok: true, data: { items: [] } };
   }
 
-  const entries = await fs.readdir(workspacesRoot, { withFileTypes: true });
+  const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
   const items: SubagentListItem[] = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const slug = entry.name;
-    const dir = path.join(workspacesRoot, slug);
+    const dir = path.join(sessionsRoot, slug);
+    const configData = await readJson<{
+      cli?: string;
+      runMode?: string;
+      baseBranch?: string;
+      archived?: boolean;
+    }>(path.join(dir, "config.json"));
     const state = await readJson<{
       supervisor_pid?: number;
       last_error?: string;
@@ -364,19 +379,77 @@ export async function listSubagents(
       status = "replied";
     }
 
+    if (configData?.archived && !includeArchived) {
+      continue;
+    }
+
     items.push({
       slug,
-      cli: state?.cli,
-      runMode: state?.run_mode,
+      cli: configData?.cli ?? state?.cli,
+      runMode: configData?.runMode ?? state?.run_mode,
       status,
       lastActive: progress?.last_active,
-      baseBranch: state?.base_branch,
+      baseBranch: configData?.baseBranch ?? state?.base_branch,
       worktreePath: state?.worktree_path,
       lastError: state?.last_error,
+      archived: configData?.archived ?? false,
     });
   }
 
   return { ok: true, data: { items } };
+}
+
+export type ArchiveSubagentResult =
+  | { ok: true; data: { slug: string; archived: boolean } }
+  | { ok: false; error: string };
+
+export async function archiveSubagent(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string
+): Promise<ArchiveSubagentResult> {
+  return updateSubagentArchive(config, projectId, slug, true);
+}
+
+export async function unarchiveSubagent(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string
+): Promise<ArchiveSubagentResult> {
+  return updateSubagentArchive(config, projectId, slug, false);
+}
+
+async function updateSubagentArchive(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string,
+  archived: boolean
+): Promise<ArchiveSubagentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const projectDir = path.join(root, dirName);
+  await migrateLegacySessions(root, projectId, projectDir);
+  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
+  if (!(await dirExists(sessionDir))) {
+    return { ok: false, error: `Subagent not found: ${slug}` };
+  }
+
+  const configPath = path.join(sessionDir, "config.json");
+  const configData = await readJson<Record<string, unknown>>(configPath);
+  if (!configData) {
+    return { ok: false, error: `Subagent config missing: ${slug}` };
+  }
+
+  await fs.writeFile(
+    configPath,
+    JSON.stringify({ ...configData, archived }, null, 2)
+  );
+
+  return { ok: true, data: { slug, archived } };
 }
 
 export async function listAllSubagents(
@@ -392,14 +465,17 @@ export async function listAllSubagents(
     if (!entry.isDirectory()) continue;
     if (!entry.name.startsWith("PRO-")) continue;
     const projectId = entry.name.split("_")[0];
-    const workspacesRoot = path.join(root, ".workspaces", projectId);
-    if (!(await dirExists(workspacesRoot))) continue;
+    const projectDir = path.join(root, entry.name);
+    await migrateLegacySessions(root, projectId, projectDir);
+    const sessionsRoot = getSessionsRoot(projectDir);
+    if (!(await dirExists(sessionsRoot))) continue;
 
-    const entries = await fs.readdir(workspacesRoot, { withFileTypes: true });
+    const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
     for (const workspace of entries) {
       if (!workspace.isDirectory()) continue;
       const slug = workspace.name;
-      const dir = path.join(workspacesRoot, slug);
+      const dir = path.join(sessionsRoot, slug);
+      const configData = await readJson<{ cli?: string; archived?: boolean }>(path.join(dir, "config.json"));
       const state = await readJson<{
         supervisor_pid?: number;
         last_error?: string;
@@ -419,10 +495,14 @@ export async function listAllSubagents(
         status = "replied";
       }
 
+      if (configData?.archived) {
+        continue;
+      }
+
       items.push({
         projectId,
         slug,
-        cli: state?.cli,
+        cli: configData?.cli ?? state?.cli,
         status,
         lastActive: progress?.last_active,
       });
@@ -444,7 +524,9 @@ export async function getSubagentLogs(
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const logsPath = path.join(root, ".workspaces", projectId, slug, "logs.jsonl");
+  const projectDir = path.join(root, dirName);
+  await migrateLegacySessions(root, projectId, projectDir);
+  const logsPath = path.join(getSessionsRoot(projectDir), slug, "logs.jsonl");
   let stat;
   try {
     stat = await fs.stat(logsPath);
