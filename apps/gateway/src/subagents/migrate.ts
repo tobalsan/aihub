@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type { Dirent } from "node:fs";
 
 type LegacyState = {
   cli?: string;
@@ -70,7 +71,7 @@ async function ensureConfig(sessionDir: string, fallbackStatePath: string): Prom
 }
 
 async function cleanupLegacyDir(legacyDir: string, sessionDir: string): Promise<void> {
-  let entries: fs.Dirent[] = [];
+  let entries: Dirent[] = [];
   try {
     entries = await fs.readdir(legacyDir, { withFileTypes: true });
   } catch {
@@ -95,7 +96,7 @@ export async function migrateLegacySessions(root: string, projectId: string, pro
   const legacyRoot = path.join(root, ".workspaces", projectId);
   if (!(await dirExists(legacyRoot))) return;
 
-  let entries: fs.Dirent[] = [];
+  let entries: Dirent[] = [];
   try {
     entries = await fs.readdir(legacyRoot, { withFileTypes: true });
   } catch {
