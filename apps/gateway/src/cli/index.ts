@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { spawn, ChildProcess, execSync } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,48 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Tracks web UI child process for cleanup
 let webProcess: ChildProcess | null = null;
+let tailscaleServeEnabled = false;
+let tailscaleServeResetOnExit = false;
+
+const TAILSCALE_CANDIDATES = [
+  "tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+];
+
+function getTailscaleCmd(): string {
+  for (const candidate of TAILSCALE_CANDIDATES) {
+    if (candidate.startsWith("/") && !fs.existsSync(candidate)) continue;
+    try {
+      execSync(`${candidate} version`, { encoding: "utf-8", timeout: 5000 });
+      return candidate;
+    } catch {
+      // Try next
+    }
+  }
+  throw new Error("Tailscale CLI not found");
+}
+
+function enableTailscaleServe(port: number, servePath: string): void {
+  const cmd = getTailscaleCmd();
+  const normalizedPath = servePath.endsWith("/") && servePath !== "/" ? servePath.slice(0, -1) : servePath;
+  const target = `http://127.0.0.1:${port}${normalizedPath}`;
+  execSync(`${cmd} serve --bg --yes --set-path=${normalizedPath} ${target}`, {
+    encoding: "utf-8",
+    timeout: 15000,
+  });
+}
+
+function resetTailscaleServe(): void {
+  try {
+    const cmd = getTailscaleCmd();
+    execSync(`${cmd} serve reset`, {
+      encoding: "utf-8",
+      timeout: 15000,
+    });
+  } catch {
+    // Ignore reset errors
+  }
+}
 
 function resolveUiHost(bind?: string): string {
   if (!bind || bind === "loopback") return "127.0.0.1";
@@ -72,12 +115,13 @@ function getApiBaseUrl(): string {
   return `http://${host}:${port}`;
 }
 
-function startWebUI(uiConfig: UiConfig): ChildProcess | null {
+function startWebUI(uiConfig: UiConfig, gatewayPort: number): ChildProcess | null {
   if (process.env.AIHUB_SKIP_WEB) return null;
 
   const port = uiConfig.port ?? 3000;
   const host = resolveUiHost(uiConfig.bind);
   const useTailscaleServe = uiConfig.tailscale?.mode === "serve";
+  const resetOnExit = uiConfig.tailscale?.resetOnExit ?? true;
   const useDevServer = process.env.AIHUB_WEB_DEV === "1";
 
   // Get monorepo root (gateway is at apps/gateway/dist/cli or apps/gateway/src/cli)
@@ -93,8 +137,23 @@ function startWebUI(uiConfig: UiConfig): ChildProcess | null {
     env: { ...process.env, AIHUB_SKIP_WEB: "1" },
   });
 
-  // Log URL
+  let tailscaleReady = false;
   if (useTailscaleServe) {
+    try {
+      enableTailscaleServe(port, "/aihub");
+      enableTailscaleServe(gatewayPort, "/api");
+      enableTailscaleServe(gatewayPort, "/ws");
+      tailscaleServeEnabled = true;
+      tailscaleServeResetOnExit = resetOnExit;
+      tailscaleReady = true;
+    } catch (err) {
+      console.error("[gateway] Failed to enable Tailscale serve:", err);
+      console.log("[gateway] Continuing without Tailscale HTTPS...");
+    }
+  }
+
+  // Log URL
+  if (useTailscaleServe && tailscaleReady) {
     console.log(`Web UI: https://<tailnet>/aihub (via tailscale serve)`);
   } else {
     const displayHost = host === "0.0.0.0" ? "localhost" : host;
@@ -161,7 +220,7 @@ program
       // In dev mode, web UI is started by scripts/dev.ts with proper port coordination
       const uiEnabled = config.ui?.enabled !== false;
       if (uiEnabled && !opts.dev) {
-        webProcess = startWebUI(config.ui ?? {});
+        webProcess = startWebUI(config.ui ?? {}, actualPort);
       }
 
       // In dev mode, skip external services and show banner
@@ -185,6 +244,9 @@ program
       const shutdown = async () => {
         console.log("\nShutting down...");
         if (webProcess) webProcess.kill("SIGTERM");
+        if (tailscaleServeEnabled && tailscaleServeResetOnExit) {
+          resetTailscaleServe();
+        }
         if (!opts.dev) {
           stopAllHeartbeats();
           stopAmsgWatcher();
