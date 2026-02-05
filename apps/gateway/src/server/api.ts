@@ -309,6 +309,15 @@ api.post("/projects/:id/start", async (c) => {
     runAgentSelection = { type: "aihub", id: selected.id };
   }
 
+  let runAgentLabel: string | undefined;
+  if (runAgentSelection.type === "cli") {
+    const id = runAgentSelection.id;
+    runAgentLabel =
+      id === "codex" ? "Codex" : id === "claude" ? "Claude" : id === "droid" ? "Droid" : id === "gemini" ? "Gemini" : undefined;
+  } else {
+    runAgentLabel = getAgent(runAgentSelection.id)?.name;
+  }
+
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
   const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
   const absReadmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
@@ -350,6 +359,7 @@ api.post("/projects/:id/start", async (c) => {
     specsPath: readmePath,
     repo,
     customPrompt: parsed.data.customPrompt,
+    runAgentLabel,
   });
 
   const updates: Partial<UpdateProjectRequest> = {};
