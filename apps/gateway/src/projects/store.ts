@@ -471,7 +471,6 @@ export async function updateProject(
   const dirPath = path.join(root, dirName);
   const currentSpecsPath = path.join(dirPath, "SPECS.md");
   const currentReadmePath = path.join(dirPath, "README.md");
-  const currentThreadPath = path.join(dirPath, THREAD_FILE);
   const parsedSpecs = await readMarkdownIfExists(currentSpecsPath);
   const parsedReadme = await readMarkdownIfExists(currentReadmePath);
   const currentFrontmatter = parsedReadme?.frontmatter ?? parsedSpecs?.frontmatter ?? {};

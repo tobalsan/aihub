@@ -925,7 +925,7 @@ export function ProjectsBoard() {
   const [startError, setStartError] = createSignal("");
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
   const [subagentError, setSubagentError] = createSignal<string | null>(null);
-  const [showArchivedRuns, setShowArchivedRuns] = createSignal(false);
+  const [showArchivedRuns, setShowArchivedRuns] = createSignal(true);
   const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
   const [selectedRunKey, setSelectedRunKey] = createSignal<string | null>(null);
   const [aihubRunMeta, setAihubRunMeta] = createSignal<Record<string, { lastTs?: number }>>({});
