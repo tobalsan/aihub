@@ -13,7 +13,7 @@ type ActivityColor = "green" | "purple" | "blue" | "yellow";
 
 export type ActivityEvent = {
   id: string;
-  type: "project_status" | "agent_message" | "subagent_action";
+  type: "project_status" | "agent_message" | "subagent_action" | "project_comment";
   actor: string;
   action: string;
   projectId?: string;
@@ -201,5 +201,25 @@ export async function recordProjectStatusActivity(params: {
     color: statusColor(normalizedStatus),
   };
   lastProjectStatuses.set(params.projectId, normalizedStatus);
+  await recordActivityEvents([event]);
+}
+
+export async function recordCommentActivity(params: {
+  actor: string;
+  projectId: string;
+  commentExcerpt: string;
+  timestamp?: string;
+}): Promise<void> {
+  ensureLoaded();
+  const excerpt = truncate(params.commentExcerpt, 80);
+  const event: ActivityEvent = {
+    id: `comment-${params.projectId}-${Date.now()}`,
+    type: "project_comment",
+    actor: params.actor,
+    action: `commented on ${params.projectId}: ${excerpt}`,
+    projectId: params.projectId,
+    timestamp: params.timestamp ?? new Date().toISOString(),
+    color: "blue",
+  };
   await recordActivityEvents([event]);
 }

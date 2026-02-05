@@ -99,4 +99,30 @@ describe("activity persistence", () => {
     const match = activityData.events.find((event: { actor?: string }) => event.actor === "Morgan");
     expect(match?.action).toBe(`moved ${created.id} to In Progress`);
   });
+
+  it("records comment activity", async () => {
+    const { recordCommentActivity } = await import("./index.js");
+    const longComment = "a".repeat(100);
+    await recordCommentActivity({
+      actor: "Jamie",
+      projectId: "PRO-123",
+      commentExcerpt: longComment,
+      timestamp: "2025-01-01T00:00:00.000Z",
+    });
+
+    const activityPath = path.join(tmpDir, ".aihub", "activity.json");
+    const persistedRaw = await fs.readFile(activityPath, "utf8");
+    const persisted = JSON.parse(persistedRaw) as Array<{
+      type?: string;
+      actor?: string;
+      action?: string;
+      projectId?: string;
+      timestamp?: string;
+    }>;
+    const match = persisted.find((event) => event.type === "project_comment");
+    expect(match?.actor).toBe("Jamie");
+    expect(match?.projectId).toBe("PRO-123");
+    expect(match?.timestamp).toBe("2025-01-01T00:00:00.000Z");
+    expect(match?.action).toBe(`commented on PRO-123: ${"a".repeat(79)}…`);
+  });
 });

@@ -298,7 +298,7 @@ export type SubagentLogEvent = {
 
 export type ActivityEvent = {
   id: string;
-  type: "project_status" | "agent_message" | "subagent_action";
+  type: "project_status" | "agent_message" | "subagent_action" | "project_comment";
   actor: string;
   action: string;
   projectId?: string;

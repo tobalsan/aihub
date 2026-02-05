@@ -79,7 +79,7 @@ export function ActivityFeed(props: ActivityFeedProps) {
     (event.type === "agent_message" &&
       (Boolean(resolveAgentId(event.actor)) || Boolean(resolveSubagentId(event)))) ||
     (event.type === "subagent_action" && Boolean(resolveSubagentId(event))) ||
-    (event.type === "project_status" && Boolean(event.projectId));
+    ((event.type === "project_status" || event.type === "project_comment") && Boolean(event.projectId));
 
   const handleItemClick = (event: ActivityEvent) => {
     if (event.type === "agent_message") {
@@ -99,7 +99,7 @@ export function ActivityFeed(props: ActivityFeedProps) {
         props.onSelectAgent(subagentId);
       }
     }
-    if (event.type === "project_status" && event.projectId && props.onOpenProject) {
+    if ((event.type === "project_status" || event.type === "project_comment") && event.projectId && props.onOpenProject) {
       props.onOpenProject(event.projectId);
     }
   };

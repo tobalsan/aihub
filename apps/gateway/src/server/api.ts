@@ -45,7 +45,7 @@ import {
   unarchiveSubagent,
 } from "../subagents/index.js";
 import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
-import { getRecentActivity, recordProjectStatusActivity } from "../activity/index.js";
+import { getRecentActivity, recordProjectStatusActivity, recordCommentActivity } from "../activity/index.js";
 import { saveUploadedFile, isAllowedMimeType, getAllowedMimeTypes } from "../media/upload.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
@@ -599,6 +599,11 @@ api.post("/projects/:id/comments", async (c) => {
   if (!result.ok) {
     return c.json({ error: result.error }, 404);
   }
+  await recordCommentActivity({
+    actor: parsed.data.author,
+    projectId: id,
+    commentExcerpt: parsed.data.message,
+  });
   return c.json(result.data, 201);
 });
 

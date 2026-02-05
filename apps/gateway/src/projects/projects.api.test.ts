@@ -198,6 +198,17 @@ describe("projects API", () => {
     const fetched = await getRes.json();
     expect(fetched.thread.length).toBe(1);
     expect(fetched.thread[0]?.author).toBe("cto");
+
+    const activityRes = await Promise.resolve(api.request("/activity"));
+    expect(activityRes.status).toBe(200);
+    const activity = await activityRes.json();
+    const commentEvent = activity.events.find(
+      (event: { type?: string; projectId?: string; actor?: string; action?: string }) =>
+        event.type === "project_comment" && event.projectId === created.id
+    );
+    expect(commentEvent?.actor).toBe("cto");
+    expect(commentEvent?.action).toContain(`commented on ${created.id}:`);
+    expect(commentEvent?.action).toContain("First note.");
   });
 
   it("updates thread comments via PATCH endpoint", async () => {
