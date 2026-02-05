@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import * as path from "node:path";
+import os from "node:os";
 import {
   SendMessageRequestSchema,
   CreateScheduleRequestSchema,
@@ -309,6 +310,20 @@ api.post("/projects/:id/start", async (c) => {
     runAgentSelection = { type: "aihub", id: selected.id };
   }
 
+  let runMode: "main-run" | "worktree" | undefined;
+  let slug: string | undefined;
+  let baseBranch: string | undefined;
+  if (runAgentSelection.type === "cli") {
+    const requestedRunModeValue = typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
+    runMode = requestedRunModeValue === "worktree" ? "worktree" : "main-run";
+    const requestedSlugValue = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
+    slug = runMode === "worktree" ? (requestedSlugValue || slugifyTitle(project.title)) : "main";
+    baseBranch =
+      typeof parsed.data.baseBranch === "string" && parsed.data.baseBranch.trim()
+        ? parsed.data.baseBranch.trim()
+        : "main";
+  }
+
   let runAgentLabel: string | undefined;
   if (runAgentSelection.type === "cli") {
     const id = runAgentSelection.id;
@@ -319,6 +334,12 @@ api.post("/projects/:id/start", async (c) => {
   }
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
+  let implementationRepo = repo;
+  if (runMode === "worktree" && slug) {
+    const root = config.projects?.root ?? "~/projects";
+    const resolvedRoot = root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root;
+    implementationRepo = path.join(resolvedRoot, ".workspaces", project.id, slug);
+  }
   const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
   const absReadmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
   const relBasePath = project.path.replace(/\/$/, "");
@@ -357,7 +378,7 @@ api.post("/projects/:id/start", async (c) => {
     path: basePath,
     content: fullContent,
     specsPath: readmePath,
-    repo,
+    repo: implementationRepo,
     customPrompt: parsed.data.customPrompt,
     runAgentLabel,
   });
@@ -404,26 +425,20 @@ api.post("/projects/:id/start", async (c) => {
     return c.json({ error: `Unsupported CLI: ${runAgentSelection.id}` }, 400);
   }
 
-  const requestedRunModeValue = typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
-  const runModeValue = requestedRunModeValue;
-  const runMode = runModeValue === "worktree" ? "worktree" : "main-run";
-  const requestedSlugValue = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
-  const slug = runMode === "worktree" ? (requestedSlugValue || slugifyTitle(project.title)) : "main";
+  const runModeValue = runMode ?? "main-run";
+  const slugValue = slug ?? "main";
   if (!slug) {
     return c.json({ error: "Slug required" }, 400);
   }
-  const baseBranch =
-    typeof parsed.data.baseBranch === "string" && parsed.data.baseBranch.trim()
-      ? parsed.data.baseBranch.trim()
-      : "main";
+  const baseBranchValue = baseBranch ?? "main";
 
   const result = await spawnSubagent(config, {
     projectId: project.id,
-    slug,
+    slug: slugValue,
     cli: runAgentSelection.id as "claude" | "codex" | "droid" | "gemini",
     prompt,
-    mode: runMode === "worktree" ? "worktree" : "main-run",
-    baseBranch,
+    mode: runModeValue === "worktree" ? "worktree" : "main-run",
+    baseBranch: baseBranchValue,
   });
   if (!result.ok) {
     return c.json({ error: result.error }, 400);
