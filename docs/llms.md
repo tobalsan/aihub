@@ -19,6 +19,7 @@ aihub/
 ### apps/gateway
 
 Core TypeScript/Node.js application. Exports:
+
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management
@@ -29,10 +30,12 @@ Core TypeScript/Node.js application. Exports:
 ### apps/web
 
 Solid.js SPA with sleek dark theme. Two views:
+
 - `AgentList`: Select agent to chat with
 - `ChatView`: WebSocket-based streaming chat with Simple/Full view modes
 
 Features:
+
 - **Simple mode**: Text-only messages (default)
 - **Full mode**: Shows thinking blocks (collapsed), tool calls with JSON args, tool results with diffs, model metadata (provider/model/tokens)
 - Live tool indicators during streaming
@@ -44,6 +47,7 @@ Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 ### packages/shared
 
 Zod schemas and TypeScript types:
+
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
@@ -51,6 +55,7 @@ Zod schemas and TypeScript types:
 ## Runtime Data
 
 All stored in `~/.aihub/`:
+
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
 - `schedules.json` - Persisted schedule jobs with state
@@ -110,16 +115,17 @@ All stored in `~/.aihub/`:
 
 Templates in `docs/templates/` are copied to `{workspace}/` on first agent run (using `flag: 'wx'` to avoid overwriting):
 
-| File | Purpose |
-|------|---------|
-| `AGENTS.md` | Workspace overview, memory management, safety guidelines |
-| `SOUL.md` | Agent persona, core behaviors, boundaries |
-| `IDENTITY.md` | Agent name, creature type, vibe, emoji |
-| `USER.md` | User profile - name, timezone, context |
-| `TOOLS.md` | Environment-specific tool notes (SSH hosts, TTS prefs) |
+| File           | Purpose                                                    |
+| -------------- | ---------------------------------------------------------- |
+| `AGENTS.md`    | Workspace overview, memory management, safety guidelines   |
+| `SOUL.md`      | Agent persona, core behaviors, boundaries                  |
+| `IDENTITY.md`  | Agent name, creature type, vibe, emoji                     |
+| `USER.md`      | User profile - name, timezone, context                     |
+| `TOOLS.md`     | Environment-specific tool notes (SSH hosts, TTS prefs)     |
 | `BOOTSTRAP.md` | First-run ritual - guides identity formation, then deleted |
 
 Bootstrap flow:
+
 1. `ensureBootstrapFiles(workspaceDir)` writes missing files from templates
 2. `loadBootstrapFiles(workspaceDir)` reads all files
 3. `buildBootstrapContextFiles(files)` converts to Pi SDK contextFiles format
@@ -128,6 +134,7 @@ Bootstrap flow:
 ### Queue Semantics
 
 When agent is already streaming:
+
 - **queue** (default): Inject message via `AgentSession.queueMessage()`. If Pi session not ready, buffer in `pendingMessages` and inject after session creation.
 - **interrupt**: Abort current run, wait up to 2s for streaming to end, start new run.
 
@@ -136,6 +143,7 @@ When agent is already streaming:
 Connect to `/ws` endpoint. Supports two modes:
 
 **Send Mode** (request/response):
+
 ```typescript
 // Client sends:
 { type: "send", agentId: string, sessionKey?: string, sessionId?: string, message: string }
@@ -149,6 +157,7 @@ Connect to `/ws` endpoint. Supports two modes:
 ```
 
 **Subscribe Mode** (persistent connection for live updates):
+
 ```typescript
 // Client subscribes:
 { type: "subscribe", agentId: string, sessionKey: string }
@@ -170,6 +179,7 @@ Web UI uses both: `send` for user messages, `subscribe` for live background upda
 ### Session Persistence
 
 Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`:
+
 - **sessionKey**: Logical key (default: "main") stored in `~/.aihub/sessions.json`
 - **sessionId**: Raw UUID, bypasses key resolution if provided directly
 - **idleMinutes**: Sessions expire after 360 minutes (6 hours) of inactivity by default; configurable via `sessions.idleMinutes`
@@ -191,6 +201,7 @@ Sessions stored as JSONL in `~/.aihub/sessions/{agentId}-{sessionId}.jsonl`:
 ```
 
 Content block types:
+
 - `text`: Plain text content
 - `thinking`: Model reasoning (with thinkingSignature)
 - `toolCall`: Tool invocation with id, name, arguments
@@ -202,6 +213,7 @@ The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHist
 ### Scheduler (`src/scheduler/`)
 
 Two schedule types:
+
 - **interval**: `{ type: "interval", everyMinutes: N, startAt?: ISO8601 }`
 - **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }`
 
@@ -212,6 +224,7 @@ Jobs stored in `~/.aihub/schedules.json` with state (nextRunAtMs, lastRunAtMs, l
 Carbon-based Discord integration with per-guild/channel routing, reactions, and slash commands.
 
 **Config schema:**
+
 ```typescript
 discord: {
   token: string,
@@ -237,6 +250,7 @@ discord: {
 ```
 
 **Features:**
+
 - **Message gating**: Bot filter, DM/guild/channel allowlists, mention requirement, user allowlists
 - **Context enrichment**: Channel topic, thread starter, message history (ring buffer)
 - **Reactions**: `reactionNotifications` modes: off, all, own (bot's messages), allowlist
@@ -245,6 +259,7 @@ discord: {
 - **Chunking**: 2000 char limit with code fence preservation
 
 **Session routing:**
+
 - DMs use `sessionKey: "main"` (shares with web UI)
 - Guild messages use `sessionId: discord:${channelId}` (per-channel isolation)
 
@@ -255,6 +270,7 @@ discord: {
 Periodic agent check-in with Discord alert delivery.
 
 **Config:**
+
 ```typescript
 heartbeat?: {
   every?: string,      // Duration: "30m", "1h", "0" (disabled). Default: "30m"
@@ -264,6 +280,7 @@ heartbeat?: {
 ```
 
 **Flow:**
+
 1. Timer fires at `every` interval
 2. Prompt resolved: `heartbeat.prompt` > `{workspace}/HEARTBEAT.md` > default
 3. Agent runs with `source: "heartbeat"`, `sessionKey: "main"`
@@ -278,6 +295,7 @@ heartbeat?: {
 **Discord delivery:** Requires `discord.broadcastToChannel`. Bot must be ready and gateway connected.
 
 **Skips when:**
+
 - Agent not found
 - Heartbeats globally disabled (`setHeartbeatsEnabled(false)`)
 - Main session is streaming
@@ -291,21 +309,27 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/agents` | List active agents |
-| GET | `/api/agents/:id/status` | Agent status |
-| POST | `/api/agents/:id/messages` | Send message (returns result) |
-| GET | `/api/agents/:id/history` | Get session history (query: sessionKey, view=simple\|full) |
-| WS | `/ws` | WebSocket streaming (JSON protocol) |
-| GET | `/api/schedules` | List schedules |
-| POST | `/api/schedules` | Create schedule |
-| PATCH | `/api/schedules/:id` | Update schedule |
-| DELETE | `/api/schedules/:id` | Delete schedule |
-| GET | `/api/projects` | List projects |
-| POST | `/api/projects` | Create project |
-| GET | `/api/projects/:id` | Get project |
-| PATCH | `/api/projects/:id` | Update project |
+| Method | Path                       | Description                                                |
+| ------ | -------------------------- | ---------------------------------------------------------- |
+| GET    | `/api/agents`              | List active agents                                         |
+| GET    | `/api/agents/:id/status`   | Agent status                                               |
+| POST   | `/api/agents/:id/messages` | Send message (returns result)                              |
+| GET    | `/api/agents/:id/history`  | Get session history (query: sessionKey, view=simple\|full) |
+| WS     | `/ws`                      | WebSocket streaming (JSON protocol)                        |
+| GET    | `/api/schedules`           | List schedules                                             |
+| POST   | `/api/schedules`           | Create schedule                                            |
+| PATCH  | `/api/schedules/:id`       | Update schedule                                            |
+| DELETE | `/api/schedules/:id`       | Delete schedule                                            |
+| GET    | `/api/projects`            | List projects                                              |
+| POST   | `/api/projects`            | Create project                                             |
+| GET    | `/api/projects/:id`        | Get project                                                |
+| PATCH  | `/api/projects/:id`        | Update project                                             |
+
+## Projects Execution Modes
+
+- `subagent`: spawn and monitor CLI subagent runs.
+- `ralph_loop`: spawn and monitor Ralph loop iterations/logs.
+- unset (`""`): no execution mode selected.
 
 ## Single-Agent Mode
 
@@ -345,28 +369,32 @@ pnpm aihub auth logout anthropic
 
 ```json
 {
-  "agents": [{
-    "id": "my-agent",
-    "name": "My Agent",
-    "workspace": "~/agents/my-agent",
-    "sdk": "pi",
-    "auth": {
-      "mode": "oauth"
-    },
-    "model": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-5"
+  "agents": [
+    {
+      "id": "my-agent",
+      "name": "My Agent",
+      "workspace": "~/agents/my-agent",
+      "sdk": "pi",
+      "auth": {
+        "mode": "oauth"
+      },
+      "model": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-5"
+      }
     }
-  }]
+  ]
 }
 ```
 
 The `auth.mode` field is optional and can be:
+
 - `oauth` - Require OAuth tokens (fails if not logged in via `aihub auth login`)
 - `api_key` - Use only API key credentials or env vars (ignores OAuth tokens)
 - `proxy` - Use existing provider config (same as default; for proxy-backed providers in `models.json`)
 
 When `auth.mode` is not set (or `proxy`), Pi SDK's AuthStorage resolves credentials with priority:
+
 1. Runtime override (CLI `--api-key`)
 2. API key from `auth.json`
 3. OAuth token from `auth.json` (auto-refreshed)
@@ -380,9 +408,15 @@ The `auth.profileId` field is reserved for future multi-profile support.
 ### Storage
 
 Credentials are stored in `~/.aihub/auth.json`:
+
 ```json
 {
-  "anthropic": { "type": "oauth", "access": "...", "refresh": "...", "expires": 1767304352803 },
+  "anthropic": {
+    "type": "oauth",
+    "access": "...",
+    "refresh": "...",
+    "expires": 1767304352803
+  },
   "openai": { "type": "api_key", "key": "sk-..." }
 }
 ```
@@ -392,32 +426,36 @@ Credentials are stored in `~/.aihub/auth.json`:
 The OpenClaw SDK adapter connects AIHub to an [OpenClaw](https://github.com/openclaw/openclaw) gateway via WebSocket, allowing you to interact with OpenClaw agents through the AIHub web UI.
 
 **Config:**
+
 ```json
 {
-  "agents": [{
-    "id": "cloud",
-    "name": "Cloud",
-    "workspace": "~/agents/cloud",
-    "sdk": "openclaw",
-    "openclaw": {
-      "gatewayUrl": "ws://127.0.0.1:18789",
-      "token": "your-gateway-token",
-      "sessionKey": "agent:main:main"
-    },
-    "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
-  }]
+  "agents": [
+    {
+      "id": "cloud",
+      "name": "Cloud",
+      "workspace": "~/agents/cloud",
+      "sdk": "openclaw",
+      "openclaw": {
+        "gatewayUrl": "ws://127.0.0.1:18789",
+        "token": "your-gateway-token",
+        "sessionKey": "agent:main:main"
+      },
+      "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
+    }
+  ]
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `openclaw.gatewayUrl` | WebSocket URL (default: `ws://127.0.0.1:18789`) |
-| `openclaw.token` | Gateway auth token |
+| Field                 | Description                                           |
+| --------------------- | ----------------------------------------------------- |
+| `openclaw.gatewayUrl` | WebSocket URL (default: `ws://127.0.0.1:18789`)       |
+| `openclaw.token`      | Gateway auth token                                    |
 | `openclaw.sessionKey` | Target session (use `openclaw sessions list` to find) |
 
 **Protocol:** Uses OpenClaw WebSocket protocol v3 with `backend` client mode. Streams `chat` events with `state: delta/final` for responses, `agent` events for tool calls.
 
 **Notes:**
+
 - `workspace` and `model` are required for schema validation but `model` doesn't control the actual model (configured in OpenClaw)
 - Set `OPENCLAW_DEBUG=1` to log raw WebSocket frames
 
@@ -427,17 +465,19 @@ For Claude SDK agents, you can configure a proxy URL and auth token directly in 
 
 ```json
 {
-  "agents": [{
-    "id": "my-agent",
-    "name": "My Agent",
-    "workspace": "~/agents/my-agent",
-    "sdk": "claude",
-    "model": {
-      "model": "claude-sonnet-4-5-20250929",
-      "base_url": "http://127.0.0.1:8317",
-      "auth_token": "sk-dummy"
+  "agents": [
+    {
+      "id": "my-agent",
+      "name": "My Agent",
+      "workspace": "~/agents/my-agent",
+      "sdk": "claude",
+      "model": {
+        "model": "claude-sonnet-4-5-20250929",
+        "base_url": "http://127.0.0.1:8317",
+        "auth_token": "sk-dummy"
+      }
     }
-  }]
+  ]
 }
 ```
 
@@ -459,11 +499,13 @@ You can set environment variables directly in `aihub.json` using the `env` field
 ```
 
 **Behavior:**
+
 - Env vars are applied at config load time (before any agent runs)
 - Only applied if not already set in `process.env` (shell env takes precedence)
 - Supports any env var recognized by Pi SDK (provider API keys, etc.)
 
 **Common env vars for Pi SDK providers:**
+
 - `ANTHROPIC_API_KEY` - Anthropic
 - `OPENAI_API_KEY` - OpenAI
 - `OPENROUTER_API_KEY` - OpenRouter
@@ -507,6 +549,7 @@ Set `ui.enabled: false` in config to disable automatic web UI startup.
 Multiple dev instances can run simultaneously, each auto-discovering unique ports.
 
 To run gateway in production mode for testing:
+
 ```bash
 pnpm aihub gateway  # No --dev flag, starts all services
 ```

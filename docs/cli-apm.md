@@ -1,6 +1,7 @@
 # apm CLI
 
 `apm` is a shortcut to the Projects CLI:
+
 ```
 apm <command> [options]
 ```
@@ -8,57 +9,70 @@ apm <command> [options]
 It calls: `pnpm --dir /Users/thinh/code/aihub projects ...`.
 
 Environment:
+
 - `AIHUB_API_URL`: override API base URL (default derived from gateway config).
 
 ## Commands
 
 ### `apm list`
+
 List projects (frontmatter only).
 
 Options:
+
 - `--status <status>`: filter by status.
 - `--owner <owner>`: filter by owner.
 - `--domain <domain>`: filter by domain.
 - `-j, --json`: JSON output instead of table.
 
 Status values:
+
 - `not_now`, `maybe`, `shaping`, `todo`, `in_progress`, `review`, `done`.
 
 Domain values:
+
 - `life`, `admin`, `coding`.
 
 ### `apm agent list`
+
 List all configured AIHub agents (same output as `pnpm aihub agent list`).
 
 ### `apm create`
+
 Create a project.
 
 Arguments:
+
 - `[description]`: optional description for the README body.
 
 Options:
+
 - `-t, --title <title>`: required. Must contain at least two words.
 - `--domain <domain>`: optional domain (`life|admin|coding`).
 - `--owner <owner>`: optional owner string.
-- `--execution-mode <mode>`: `manual|exploratory|auto|full_auto`.
+- `--execution-mode <mode>`: `subagent|ralph_loop`.
 - `--appetite <appetite>`: `small|big`.
 - `--status <status>`: initial status.
 - `-j, --json`: JSON output.
 
 ### `apm get <id>`
+
 Fetch a single project (full README).
 
 Options:
+
 - `-j, --json`: JSON output.
 
 ### `apm update <id>`
+
 Update project fields and/or README content.
 
 Options:
+
 - `--title <title>`: update title (renames folder).
 - `--domain <domain>`: `life|admin|coding`.
 - `--owner <owner>`: owner string.
-- `--execution-mode <mode>`: `manual|exploratory|auto|full_auto`.
+- `--execution-mode <mode>`: `subagent|ralph_loop`.
 - `--appetite <appetite>`: `small|big`.
 - `--status <status>`: `not_now|maybe|shaping|todo|in_progress|review|done`.
 - `--run-agent <agent>`: agent used by monitoring start.
@@ -73,19 +87,24 @@ Options:
 - `-j, --json`: JSON output.
 
 Notes:
+
 - To unset optional fields, pass empty string (e.g. `--owner ""`).
 
 ### `apm move <id> <status>`
+
 Shortcut for status update.
 
 Options:
+
 - `--agent <name>`: agent name to record in the status change.
 - `-j, --json`: JSON output.
 
 ### `apm start <id>`
+
 Start a project run.
 
 Options:
+
 - `--agent <agent>`: cli name (e.g. `codex`) or `aihub:<id>`. Defaults to `codex`.
 - `--mode <mode>`: `main-run` or `worktree`. Defaults to `worktree`.
 - `--branch <branch>`: base branch for worktree. Defaults to `main`.
@@ -93,38 +112,61 @@ Options:
 - `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
 - `-j, --json`: JSON output.
 
+### `apm ralph <id>`
+
+Start a Ralph loop run.
+
+Options:
+
+- `--cli <cli>`: `codex|claude` (default `codex`).
+- `--iterations <n>`: loop iterations (default `20`).
+- `--prompt-file <path>`: prompt file path (default project `prompt.md`).
+- `--mode <mode>`: `main-run|worktree`.
+- `--branch <branch>`: base branch for worktree mode.
+- `-j, --json`: JSON output.
+
 ### `apm resume <id>`
+
 Resume an existing run (same as sending a message in the monitoring panel).
 
 Options:
+
 - `-m, --message <message>`: required. Use `-` for stdin.
 - `--slug <slug>`: override slug for CLI worktree resumes.
 - `-j, --json`: JSON output.
 
 ### `apm status <id>`
+
 Show run status and recent messages.
 
 Options:
+
 - `--limit <n>`: number of recent messages (default 10).
 - `--slug <slug>`: override slug for CLI worktree status.
 - `-j, --json`: JSON output.
 
 ### `apm archive <id> <slug>`
+
 Archive a subagent run. Archived runs are hidden from the sidebar but remain visible in project details.
 
 Options:
+
 - `-j, --json`: JSON output.
 
 ### `apm unarchive <id> <slug>`
+
 Unarchive a previously archived subagent run.
 
 Options:
+
 - `-j, --json`: JSON output.
 
 ### `apm subagent spawn`
+
 Spawn a new subagent run directly.
 
 Options:
+
 - `-p, --project <id>`: required. Project ID.
 - `-s, --slug <slug>`: required. Subagent slug.
 - `-c, --cli <cli>`: required. CLI to use (`claude|codex|droid|gemini`).
@@ -134,31 +176,39 @@ Options:
 - `--resume`: resume existing session instead of creating new.
 
 ### `apm subagent status`
+
 Get status of a subagent run.
 
 Options:
+
 - `-p, --project <id>`: required. Project ID.
 - `-s, --slug <slug>`: required. Subagent slug.
 
 ### `apm subagent logs`
+
 Get logs from a subagent run.
 
 Options:
+
 - `-p, --project <id>`: required. Project ID.
 - `-s, --slug <slug>`: required. Subagent slug.
 - `--since <cursor>`: byte cursor (default: 0).
 
 ### `apm subagent interrupt`
+
 Interrupt a running subagent (sends SIGTERM).
 
 Options:
+
 - `-p, --project <id>`: required. Project ID.
 - `-s, --slug <slug>`: required. Subagent slug.
 
 ### `apm subagent kill`
+
 Kill a subagent and clean up its workspace.
 
 Options:
+
 - `-p, --project <id>`: required. Project ID.
 - `-s, --slug <slug>`: required. Subagent slug.
 

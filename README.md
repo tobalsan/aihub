@@ -95,6 +95,12 @@ pnpm aihub auth status          # Show authenticated providers
 pnpm aihub auth logout <provider>
 ```
 
+Projects execution modes:
+
+- `subagent`: default coding-agent run mode in monitoring panel.
+- `ralph_loop`: iterative Ralph loop monitoring mode.
+- unset: no execution mode selected.
+
 ## OAuth Authentication
 
 Pi SDK agents can use OAuth tokens instead of API keys. Supported providers: `anthropic`, `openai-codex`, `github-copilot`, `google-gemini-cli`, `google-antigravity`.
@@ -108,12 +114,14 @@ pnpm aihub auth login anthropic
 
 ```json
 {
-  "agents": [{
-    "id": "my-agent",
-    "workspace": "~/workspace",
-    "auth": { "mode": "oauth" },
-    "model": { "provider": "anthropic", "model": "claude-opus-4-5" }
-  }]
+  "agents": [
+    {
+      "id": "my-agent",
+      "workspace": "~/workspace",
+      "auth": { "mode": "oauth" },
+      "model": { "provider": "anthropic", "model": "claude-opus-4-5" }
+    }
+  ]
 }
 ```
 
@@ -122,12 +130,17 @@ pnpm aihub auth login anthropic
 ```json
 {
   "env": { "OPENROUTER_API_KEY": "sk-or-..." },
-  "agents": [{
-    "id": "my-agent",
-    "workspace": "~/workspace",
-    "auth": { "mode": "api_key" },
-    "model": { "provider": "openrouter", "model": "anthropic/claude-sonnet-4" }
-  }]
+  "agents": [
+    {
+      "id": "my-agent",
+      "workspace": "~/workspace",
+      "auth": { "mode": "api_key" },
+      "model": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4"
+      }
+    }
+  ]
 }
 ```
 
@@ -139,52 +152,56 @@ Connect to an [OpenClaw](https://github.com/openclaw/openclaw) gateway to use an
 
 ```json
 {
-  "agents": [{
-    "id": "cloud",
-    "name": "Cloud",
-    "workspace": "~/workspace/cloud",
-    "sdk": "openclaw",
-    "openclaw": {
-      "gatewayUrl": "ws://127.0.0.1:18789",
-      "token": "your-openclaw-gateway-token",
-      "sessionKey": "agent:main:main"
-    },
-    "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
-  }]
+  "agents": [
+    {
+      "id": "cloud",
+      "name": "Cloud",
+      "workspace": "~/workspace/cloud",
+      "sdk": "openclaw",
+      "openclaw": {
+        "gatewayUrl": "ws://127.0.0.1:18789",
+        "token": "your-openclaw-gateway-token",
+        "sessionKey": "agent:main:main"
+      },
+      "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
+    }
+  ]
 }
 ```
 
-| Field | Description |
-|-------|-------------|
+| Field                 | Description                                                             |
+| --------------------- | ----------------------------------------------------------------------- |
 | `openclaw.gatewayUrl` | WebSocket URL of the OpenClaw gateway (default: `ws://127.0.0.1:18789`) |
-| `openclaw.token` | Gateway authentication token (from your OpenClaw config) |
-| `openclaw.sessionKey` | Target session key to connect to |
+| `openclaw.token`      | Gateway authentication token (from your OpenClaw config)                |
+| `openclaw.sessionKey` | Target session key to connect to                                        |
 
 **Finding the session key:**
 
 Run `openclaw sessions list` on the OpenClaw side to see available sessions:
+
 ```bash
 openclaw sessions list
 # Output shows session keys like: agent:main:main, agent:main:whatsapp:..., etc.
 ```
 
 **Notes:**
+
 - The `workspace` and `model` fields are still required for schema validation
 - The `model` field doesn't control the actual model (that's configured in OpenClaw) - it's just for display/validation
 - Set `OPENCLAW_DEBUG=1` environment variable to log WebSocket frames for debugging
 
 ## API
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/agents` | GET | List agents |
-| `/api/agents/:id/messages` | POST | Send message |
-| `/api/agents/:id/history` | GET | Session history (?sessionKey=main&view=simple\|full) |
-| `/api/schedules` | GET/POST | List/create schedules |
-| `/api/schedules/:id` | PATCH/DELETE | Update/delete schedule |
-| `/api/projects` | GET/POST | List/create projects |
-| `/api/projects/:id` | GET/PATCH | Get/update project |
-| `/ws` | WS | WebSocket streaming (send + subscribe) |
+| Endpoint                   | Method       | Description                                          |
+| -------------------------- | ------------ | ---------------------------------------------------- |
+| `/api/agents`              | GET          | List agents                                          |
+| `/api/agents/:id/messages` | POST         | Send message                                         |
+| `/api/agents/:id/history`  | GET          | Session history (?sessionKey=main&view=simple\|full) |
+| `/api/schedules`           | GET/POST     | List/create schedules                                |
+| `/api/schedules/:id`       | PATCH/DELETE | Update/delete schedule                               |
+| `/api/projects`            | GET/POST     | List/create projects                                 |
+| `/api/projects/:id`        | GET/PATCH    | Get/update project                                   |
+| `/ws`                      | WS           | WebSocket streaming (send + subscribe)               |
 
 Project API details: `docs/projects_api.md`
 
@@ -199,7 +216,10 @@ Project API details: `docs/projects_api.md`
       "id": "agent-1",
       "name": "Agent One",
       "workspace": "~/projects/agent-1",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" },
+      "model": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929"
+      },
       "thinkLevel": "off",
       "queueMode": "queue",
       "discord": {
@@ -220,42 +240,43 @@ Project API details: `docs/projects_api.md`
 
 ### Agent Options
 
-| Field | Description |
-|-------|-------------|
-| `id` | Unique identifier |
-| `name` | Display name |
-| `workspace` | Agent working directory |
-| `sdk` | Agent SDK: `pi` (default), `claude`, or `openclaw` |
-| `model.provider` | Model provider (required for Pi SDK) |
-| `model.model` | Model name |
-| `model.base_url` | API proxy URL (Claude SDK only) |
-| `model.auth_token` | API auth token (Claude SDK only, overrides env) |
-| `auth.mode` | `oauth`, `api_key`, or `proxy` (Pi SDK only) |
-| `thinkLevel` | off, minimal, low, medium, high |
-| `queueMode` | `queue` (inject into current run) or `interrupt` (abort & restart) |
-| `discord` | Discord bot config ([docs](docs/discord.md)) |
-| `heartbeat` | Periodic check-in config (see below) |
-| `amsg` | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
+| Field              | Description                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `id`               | Unique identifier                                                                    |
+| `name`             | Display name                                                                         |
+| `workspace`        | Agent working directory                                                              |
+| `sdk`              | Agent SDK: `pi` (default), `claude`, or `openclaw`                                   |
+| `model.provider`   | Model provider (required for Pi SDK)                                                 |
+| `model.model`      | Model name                                                                           |
+| `model.base_url`   | API proxy URL (Claude SDK only)                                                      |
+| `model.auth_token` | API auth token (Claude SDK only, overrides env)                                      |
+| `auth.mode`        | `oauth`, `api_key`, or `proxy` (Pi SDK only)                                         |
+| `thinkLevel`       | off, minimal, low, medium, high                                                      |
+| `queueMode`        | `queue` (inject into current run) or `interrupt` (abort & restart)                   |
+| `discord`          | Discord bot config ([docs](docs/discord.md))                                         |
+| `heartbeat`        | Periodic check-in config (see below)                                                 |
+| `amsg`             | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 
 ### Gateway Options
 
-| Field | Description |
-|-------|-------------|
-| `gateway.port` | Gateway port (default: 4000) |
+| Field          | Description                                                                    |
+| -------------- | ------------------------------------------------------------------------------ |
+| `gateway.port` | Gateway port (default: 4000)                                                   |
 | `gateway.bind` | `loopback` (127.0.0.1), `lan` (0.0.0.0), or `tailnet` (auto-detect tailnet IP) |
-| `gateway.host` | Explicit host (overrides `bind`) |
+| `gateway.host` | Explicit host (overrides `bind`)                                               |
 
 ### UI Options
 
-| Field | Description |
-|-------|-------------|
-| `ui.enabled` | Auto-start web UI with gateway (default: true) |
-| `ui.port` | Web UI port (default: 3000) |
-| `ui.bind` | `loopback` (127.0.0.1), `lan` (0.0.0.0), or `tailnet` (auto-detect tailnet IP) |
-| `ui.tailscale.mode` | `off` (default) or `serve` (enable HTTPS via `tailscale serve`) |
-| `ui.tailscale.resetOnExit` | Reset tailscale serve on exit (default: true) |
+| Field                      | Description                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `ui.enabled`               | Auto-start web UI with gateway (default: true)                                 |
+| `ui.port`                  | Web UI port (default: 3000)                                                    |
+| `ui.bind`                  | `loopback` (127.0.0.1), `lan` (0.0.0.0), or `tailnet` (auto-detect tailnet IP) |
+| `ui.tailscale.mode`        | `off` (default) or `serve` (enable HTTPS via `tailscale serve`)                |
+| `ui.tailscale.resetOnExit` | Reset tailscale serve on exit (default: true)                                  |
 
 **Tailscale serve (`ui.tailscale.mode: "serve"`):**
+
 - Requires Tailscale installed and logged in
 - Both `gateway.bind` and `ui.bind` must be `loopback` (or omitted)
 - UI is served at `https://<tailnet>/aihub/` (base path `/aihub`)
@@ -306,28 +327,31 @@ Periodic agent check-ins with Discord delivery for alerts.
 
 ```json
 {
-  "agents": [{
-    "id": "my-agent",
-    "heartbeat": {
-      "every": "30m",
-      "prompt": "Check on your human",
-      "ackMaxChars": 300
-    },
-    "discord": {
-      "token": "...",
-      "broadcastToChannel": "123456789"
+  "agents": [
+    {
+      "id": "my-agent",
+      "heartbeat": {
+        "every": "30m",
+        "prompt": "Check on your human",
+        "ackMaxChars": 300
+      },
+      "discord": {
+        "token": "...",
+        "broadcastToChannel": "123456789"
+      }
     }
-  }]
+  ]
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `every` | Interval (`30m`, `1h`, `0` to disable). Default: `30m` |
-| `prompt` | Custom prompt. Falls back to `HEARTBEAT.md` in workspace, then default |
-| `ackMaxChars` | Max chars after token strip to still be "ok". Default: 300 |
+| Field         | Description                                                            |
+| ------------- | ---------------------------------------------------------------------- |
+| `every`       | Interval (`30m`, `1h`, `0` to disable). Default: `30m`                 |
+| `prompt`      | Custom prompt. Falls back to `HEARTBEAT.md` in workspace, then default |
+| `ackMaxChars` | Max chars after token strip to still be "ok". Default: 300             |
 
 **How it works:**
+
 1. Agent is prompted at the interval
 2. Agent replies with `HEARTBEAT_OK` token if all is well
 3. If no token (or substantial content beyond `ackMaxChars`), the reply is delivered to Discord as an alert
@@ -341,9 +365,7 @@ Add custom providers via `~/.aihub/models.json`:
 {
   "providers": {
     "my-provider": {
-      "models": [
-        { "id": "my-model", "displayName": "My Model" }
-      ],
+      "models": [{ "id": "my-model", "displayName": "My Model" }],
       "baseUrl": "https://api.example.com/v1"
     }
   }
@@ -383,6 +405,7 @@ pnpm dev:web      # web UI only
 Run multiple dev instances simultaneously - each gets unique ports.
 
 For production-like testing with all services:
+
 ```bash
 pnpm aihub gateway  # no --dev flag
 ```

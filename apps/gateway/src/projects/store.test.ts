@@ -39,7 +39,7 @@ describe("projects store", () => {
       description: "Ship it.",
       domain: "coding",
       owner: "me",
-      executionMode: "auto",
+      executionMode: "subagent",
       appetite: "big",
       status: "todo",
     });
@@ -59,7 +59,7 @@ describe("projects store", () => {
     const thread = await fs.readFile(threadPath, "utf8");
     expect(readme).toContain('domain: "coding"');
     expect(readme).toContain('owner: "me"');
-    expect(readme).toContain('executionMode: "auto"');
+    expect(readme).toContain('executionMode: "subagent"');
     expect(readme).toContain('appetite: "big"');
     expect(readme).toContain('status: "todo"');
     expect(readme).toContain("# Alpha Project");

@@ -3191,65 +3191,53 @@ export function ProjectsBoard() {
                         </Show>
                       </div>
                       <Show when={!isMonitoringHidden()}>
-                        <Show when={detailStatus() !== "shaping"}>
-                          <div class="meta-field">
-                            <button
-                              class="meta-button"
-                              onClick={() =>
-                                setOpenMenu(
-                                  openMenu() === "mode" ? null : "mode"
-                                )
-                              }
-                            >
-                              <svg
-                                class="meta-icon"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                              >
-                                <path d="M4 6h16M8 6v12M16 12v6" />
-                              </svg>
-                              {detailMode()
-                                ? detailMode().replace(/_/g, " ")
-                                : "execution mode"}
-                            </button>
-                            <Show when={openMenu() === "mode"}>
-                              <div class="meta-menu">
-                                <button
-                                  class="meta-item"
-                                  onClick={() =>
-                                    handleModeChange(params.id ?? "", "")
-                                  }
-                                >
-                                  unset
-                                </button>
-                                <button
-                                  class="meta-item"
-                                  onClick={() =>
-                                    handleModeChange(
-                                      params.id ?? "",
-                                      "subagent"
-                                    )
-                                  }
-                                >
-                                  subagent
-                                </button>
-                                <button
-                                  class="meta-item"
-                                  onClick={() =>
-                                    handleModeChange(
-                                      params.id ?? "",
-                                      "ralph_loop"
-                                    )
-                                  }
-                                >
-                                  ralph loop
-                                </button>
-                              </div>
-                            </Show>
-                          </div>
-                        </Show>
+                    <div class="meta-field">
+                      <button
+                        class="meta-button"
+                        onClick={() =>
+                          setOpenMenu(openMenu() === "mode" ? null : "mode")
+                        }
+                      >
+                        <svg
+                          class="meta-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M4 6h16M8 6v12M16 12v6" />
+                        </svg>
+                        {detailMode()
+                          ? detailMode().replace(/_/g, " ")
+                          : "execution mode"}
+                      </button>
+                      <Show when={openMenu() === "mode"}>
+                        <div class="meta-menu">
+                          <button
+                            class="meta-item"
+                            onClick={() => handleModeChange(params.id ?? "", "")}
+                          >
+                            unset
+                          </button>
+                          <button
+                            class="meta-item"
+                            onClick={() =>
+                              handleModeChange(params.id ?? "", "subagent")
+                            }
+                          >
+                            subagent
+                          </button>
+                          <button
+                            class="meta-item"
+                            onClick={() =>
+                              handleModeChange(params.id ?? "", "ralph_loop")
+                            }
+                          >
+                            ralph loop
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
                         <Show when={detailDomain() === "coding"}>
                           <div class="meta-field meta-field-wide meta-field-stack">
                             <label class="meta-label">Repo</label>
