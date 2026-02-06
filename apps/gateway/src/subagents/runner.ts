@@ -218,7 +218,7 @@ function commonCandidatePaths(execName: string): string[] {
 }
 
 function ralphScriptPath(cli: RalphLoopCli): string {
-  return expandPath(`~/agents/cloud/skills/ralphup/scripts/ralph_${cli}.sh`);
+  return expandPath(`~/.agents/skills/ralphup/scripts/ralph_${cli}.sh`);
 }
 
 async function resolveCliCommand(
