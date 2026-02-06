@@ -513,6 +513,110 @@ describe("subagents API", () => {
     else process.env.USERPROFILE = prevUserProfile2;
   });
 
+  it("dispatches ralph_loop from /projects/:id/start when executionMode is set", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Ralph Start Dispatch",
+          executionMode: "ralph_loop",
+          status: "todo",
+        }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-ralph-start");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const promptPath = path.join(projectsRoot, created.path, "prompt.md");
+    await fs.writeFile(promptPath, "Do loop work.\n");
+
+    const scriptDir = path.join(
+      tmpDir,
+      "agents",
+      "cloud",
+      "skills",
+      "ralphup",
+      "scripts"
+    );
+    await fs.mkdir(scriptDir, { recursive: true });
+    const scriptPath = path.join(scriptDir, "ralph_codex.sh");
+    await fs.writeFile(
+      scriptPath,
+      ["#!/bin/sh", 'echo "start loop"'].join("\n"),
+      {
+        mode: 0o755,
+      }
+    );
+
+    const prevHome2 = process.env.HOME;
+    const prevUserProfile2 = process.env.USERPROFILE;
+    process.env.HOME = tmpDir;
+    process.env.USERPROFILE = tmpDir;
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runAgent: "cli:codex" }),
+      })
+    );
+    expect(startRes.status).toBe(200);
+    const started = await startRes.json();
+    expect(started.ok).toBe(true);
+    expect(started.type).toBe("ralph_loop");
+    expect(typeof started.slug).toBe("string");
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      started.slug
+    );
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    );
+    expect(config.type).toBe("ralph_loop");
+    expect(config.cli).toBe("codex");
+    expect(config.runMode).toBe("worktree");
+    expect(config.baseBranch).toBe("main");
+    expect(config.iterations).toBe(20);
+
+    const projectRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`)
+    );
+    expect(projectRes.status).toBe(200);
+    const project = await projectRes.json();
+    expect(project.frontmatter.status).toBe("in_progress");
+
+    if (prevHome2 === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome2;
+    if (prevUserProfile2 === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile2;
+  });
+
   it("spawns subagent via API and writes logs", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

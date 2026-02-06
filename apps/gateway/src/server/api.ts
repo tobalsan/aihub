@@ -499,6 +499,55 @@ api.post("/projects/:id/start", async (c) => {
     return c.json({ error: `Unsupported CLI: ${runAgentSelection.id}` }, 400);
   }
 
+  if (frontmatter.executionMode === "ralph_loop") {
+    if (!["claude", "codex"].includes(runAgentSelection.id)) {
+      return c.json(
+        { error: `Unsupported CLI for ralph_loop: ${runAgentSelection.id}` },
+        400
+      );
+    }
+
+    const ralphIterationsRaw =
+      typeof frontmatter.iterations === "number"
+        ? frontmatter.iterations
+        : Number(frontmatter.iterations);
+    const ralphIterations =
+      Number.isFinite(ralphIterationsRaw) && ralphIterationsRaw >= 1
+        ? ralphIterationsRaw
+        : 20;
+    const requestedRalphModeValue =
+      typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
+    const ralphMode =
+      requestedRalphModeValue === "main-run" ? "main-run" : "worktree";
+    const ralphBaseBranch =
+      typeof parsed.data.baseBranch === "string" &&
+      parsed.data.baseBranch.trim()
+        ? parsed.data.baseBranch.trim()
+        : "main";
+    const ralphSlug = generateRalphLoopSlug();
+
+    const result = await spawnRalphLoop(config, {
+      projectId: project.id,
+      slug: ralphSlug,
+      cli: runAgentSelection.id as "codex" | "claude",
+      iterations: ralphIterations,
+      mode: ralphMode,
+      baseBranch: ralphBaseBranch,
+    });
+    if (!result.ok) {
+      return c.json({ error: result.error }, 400);
+    }
+
+    if (normalizedStatus === "todo") {
+      updates.status = "in_progress";
+    }
+    if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
+      await updateProject(config, project.id, updates);
+    }
+
+    return c.json({ ok: true, type: "ralph_loop", slug: ralphSlug });
+  }
+
   const runModeValue = runMode ?? "main-run";
   const slugValue = slug ?? "main";
   if (!slug) {
