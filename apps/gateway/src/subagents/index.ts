@@ -569,7 +569,7 @@ export async function listAllSubagents(
         status = "replied";
       }
 
-      if (configData?.archived || configData?.type === "ralph_loop") {
+      if (configData?.archived) {
         continue;
       }
 
