@@ -5,6 +5,7 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   spawnSubagent,
+  spawnRalphLoop,
   interruptSubagent,
   archiveSubagent,
   unarchiveSubagent,
@@ -45,12 +46,16 @@ describe("api client (projects/subagents)", () => {
   it("fetches subagents list with archived", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ items: [{ slug: "main", status: "running", archived: true }] }),
+      json: async () => ({
+        items: [{ slug: "main", status: "running", archived: true }],
+      }),
     });
 
     const res = await fetchSubagents("PRO-1", true);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-1/subagents?includeArchived=true");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-1/subagents?includeArchived=true"
+    );
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.items[0]?.archived).toBe(true);
@@ -60,7 +65,9 @@ describe("api client (projects/subagents)", () => {
   it("fetches all subagents", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ items: [{ projectId: "PRO-1", slug: "main", status: "idle" }] }),
+      json: async () => ({
+        items: [{ projectId: "PRO-1", slug: "main", status: "idle" }],
+      }),
     });
 
     const res = await fetchAllSubagents();
@@ -72,12 +79,17 @@ describe("api client (projects/subagents)", () => {
   it("fetches subagent logs", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ cursor: 10, events: [{ type: "stdout", text: "hi" }] }),
+      json: async () => ({
+        cursor: 10,
+        events: [{ type: "stdout", text: "hi" }],
+      }),
     });
 
     const res = await fetchSubagentLogs("PRO-1", "main", 5);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-1/subagents/main/logs?since=5");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-1/subagents/main/logs?since=5"
+    );
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.cursor).toBe(10);
@@ -138,8 +150,35 @@ describe("api client (projects/subagents)", () => {
 
     const res = await interruptSubagent("PRO-3", "main");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-3/subagents/main/interrupt", {
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-3/subagents/main/interrupt",
+      {
+        method: "POST",
+      }
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  it("spawns ralph loop", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ slug: "ralph-1" }),
+    });
+
+    const res = await spawnRalphLoop("PRO-2", {
+      cli: "codex",
+      iterations: 20,
+      promptFile: "/tmp/prompt.md",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-2/ralph-loop", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cli: "codex",
+        iterations: 20,
+        promptFile: "/tmp/prompt.md",
+      }),
     });
     expect(res.ok).toBe(true);
   });
@@ -152,9 +191,12 @@ describe("api client (projects/subagents)", () => {
 
     const res = await archiveSubagent("PRO-3", "main");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-3/subagents/main/archive", {
-      method: "POST",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-3/subagents/main/archive",
+      {
+        method: "POST",
+      }
+    );
     expect(res.ok).toBe(true);
   });
 
@@ -166,9 +208,12 @@ describe("api client (projects/subagents)", () => {
 
     const res = await unarchiveSubagent("PRO-3", "main");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-3/subagents/main/unarchive", {
-      method: "POST",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-3/subagents/main/unarchive",
+      {
+        method: "POST",
+      }
+    );
     expect(res.ok).toBe(true);
   });
 });

@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 // Think levels
-export const ThinkLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
+export const ThinkLevelSchema = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
 export type ThinkLevel = z.infer<typeof ThinkLevelSchema>;
 
 // Agent model config
@@ -124,20 +131,24 @@ const AgentConfigBaseSchema = z.object({
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
 });
-export const AgentConfigSchema = AgentConfigBaseSchema.superRefine((value, ctx) => {
-  if (value.sdk !== "openclaw" && !value.model) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "model is required",
-      path: ["model"],
-    });
+export const AgentConfigSchema = AgentConfigBaseSchema.superRefine(
+  (value, ctx) => {
+    if (value.sdk !== "openclaw" && !value.model) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "model is required",
+        path: ["model"],
+      });
+    }
   }
-}).transform((value): Omit<typeof value, "model"> & { model: AgentModelConfig } => {
-  if (value.sdk === "openclaw" && !value.model) {
-    return { ...value, model: { provider: "openclaw", model: "unknown" } };
+).transform(
+  (value): Omit<typeof value, "model"> & { model: AgentModelConfig } => {
+    if (value.sdk === "openclaw" && !value.model) {
+      return { ...value, model: { provider: "openclaw", model: "unknown" } };
+    }
+    return value as Omit<typeof value, "model"> & { model: AgentModelConfig };
   }
-  return value as Omit<typeof value, "model"> & { model: AgentModelConfig };
-});
+);
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
 // Schedule types
@@ -291,12 +302,7 @@ export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 export const ProjectDomainSchema = z.enum(["life", "admin", "coding"]);
 export type ProjectDomain = z.infer<typeof ProjectDomainSchema>;
 
-export const ProjectExecutionModeSchema = z.enum([
-  "manual",
-  "exploratory",
-  "auto",
-  "full_auto",
-]);
+export const ProjectExecutionModeSchema = z.enum(["subagent", "ralph_loop"]);
 export type ProjectExecutionMode = z.infer<typeof ProjectExecutionModeSchema>;
 
 export const ProjectAppetiteSchema = z.enum(["small", "big"]);
@@ -317,7 +323,9 @@ export const UpdateProjectRequestSchema = z.object({
   title: z.string().optional(),
   domain: z.union([ProjectDomainSchema, z.literal("")]).optional(),
   owner: z.union([z.string(), z.literal("")]).optional(),
-  executionMode: z.union([ProjectExecutionModeSchema, z.literal("")]).optional(),
+  executionMode: z
+    .union([ProjectExecutionModeSchema, z.literal("")])
+    .optional(),
   appetite: z.union([ProjectAppetiteSchema, z.literal("")]).optional(),
   status: ProjectStatusSchema.optional(),
   agent: z.string().optional(),
@@ -338,7 +346,9 @@ export type ProjectCommentRequest = z.infer<typeof ProjectCommentRequestSchema>;
 export const UpdateProjectCommentRequestSchema = z.object({
   body: z.string(),
 });
-export type UpdateProjectCommentRequest = z.infer<typeof UpdateProjectCommentRequestSchema>;
+export type UpdateProjectCommentRequest = z.infer<
+  typeof UpdateProjectCommentRequestSchema
+>;
 
 export const StartProjectRunRequestSchema = z.object({
   customPrompt: z.string().optional(),
@@ -347,12 +357,18 @@ export const StartProjectRunRequestSchema = z.object({
   baseBranch: z.string().optional(),
   slug: z.string().optional(),
 });
-export type StartProjectRunRequest = z.infer<typeof StartProjectRunRequestSchema>;
+export type StartProjectRunRequest = z.infer<
+  typeof StartProjectRunRequestSchema
+>;
 
 export type SubagentGlobalListItem = {
   projectId: string;
   slug: string;
+  type?: "subagent" | "ralph_loop";
   cli?: string;
+  runMode?: string;
+  baseBranch?: string;
+  iterations?: number;
   status: "running" | "replied" | "error" | "idle";
   lastActive?: string;
 };
@@ -396,7 +412,10 @@ export type StreamEvent =
     }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
-  | { type: "done"; meta?: { durationMs: number; aborted?: boolean; queued?: boolean } }
+  | {
+      type: "done";
+      meta?: { durationMs: number; aborted?: boolean; queued?: boolean };
+    }
   | { type: "error"; message: string };
 
 // Image attachment for multimodal messages (base64 - legacy)
@@ -446,7 +465,12 @@ export type WsUnsubscribeStatusMessage = {
   type: "unsubscribeStatus";
 };
 
-export type WsClientMessage = WsSendMessage | WsSubscribeMessage | WsUnsubscribeMessage | WsSubscribeStatusMessage | WsUnsubscribeStatusMessage;
+export type WsClientMessage =
+  | WsSendMessage
+  | WsSubscribeMessage
+  | WsUnsubscribeMessage
+  | WsSubscribeStatusMessage
+  | WsUnsubscribeStatusMessage;
 
 // Server messages include stream events plus subscription-specific events
 export type WsHistoryUpdatedEvent = {
@@ -466,7 +490,11 @@ export type WsStatusEvent = {
   status: "streaming" | "idle";
 };
 
-export type WsServerMessage = StreamEvent | WsHistoryUpdatedEvent | WsSessionResetEvent | WsStatusEvent;
+export type WsServerMessage =
+  | StreamEvent
+  | WsHistoryUpdatedEvent
+  | WsSessionResetEvent
+  | WsStatusEvent;
 
 // History types
 
@@ -549,9 +577,23 @@ export type HistoryViewMode = "simple" | "full";
 export type DiscordContextBlock =
   | { type: "channel_topic"; topic: string }
   | { type: "channel_name"; name: string }
-  | { type: "thread_starter"; author: string; content: string; timestamp: number }
-  | { type: "history"; messages: Array<{ author: string; content: string; timestamp: number }> }
-  | { type: "reaction"; emoji: string; user: string; messageId: string; action: "add" | "remove" };
+  | {
+      type: "thread_starter";
+      author: string;
+      content: string;
+      timestamp: number;
+    }
+  | {
+      type: "history";
+      messages: Array<{ author: string; content: string; timestamp: number }>;
+    }
+  | {
+      type: "reaction";
+      emoji: string;
+      user: string;
+      messageId: string;
+      action: "add" | "remove";
+    };
 
 export type DiscordContext = {
   kind: "discord";
@@ -561,7 +603,13 @@ export type DiscordContext = {
 export type AgentContext = DiscordContext; // Extensible for future context types
 
 // Heartbeat event payload (for event emission)
-export const HeartbeatStatusSchema = z.enum(["sent", "ok-empty", "ok-token", "skipped", "failed"]);
+export const HeartbeatStatusSchema = z.enum([
+  "sent",
+  "ok-empty",
+  "ok-token",
+  "skipped",
+  "failed",
+]);
 export type HeartbeatStatus = z.infer<typeof HeartbeatStatusSchema>;
 
 export type HeartbeatEventPayload = {
@@ -631,4 +679,6 @@ export const UploadAttachmentResponseSchema = z.array(
     isImage: z.boolean(),
   })
 );
-export type UploadAttachmentResponse = z.infer<typeof UploadAttachmentResponseSchema>;
+export type UploadAttachmentResponse = z.infer<
+  typeof UploadAttachmentResponseSchema
+>;

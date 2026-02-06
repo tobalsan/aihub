@@ -15,12 +15,29 @@ import {
 } from "@aihub/shared";
 import type { UpdateProjectRequest } from "@aihub/shared";
 import { buildProjectStartPrompt, normalizeProjectStatus } from "@aihub/shared";
-import { getActiveAgents, getAgent, isAgentActive, resolveWorkspaceDir, getConfig } from "../config/index.js";
-import { runAgent, getAllSessionsForAgent, getAgentStatuses, getSessionHistory, getFullSessionHistory } from "../agents/index.js";
+import {
+  getActiveAgents,
+  getAgent,
+  isAgentActive,
+  resolveWorkspaceDir,
+  getConfig,
+} from "../config/index.js";
+import {
+  runAgent,
+  getAllSessionsForAgent,
+  getAgentStatuses,
+  getSessionHistory,
+  getFullSessionHistory,
+} from "../agents/index.js";
 import { runHeartbeat } from "../heartbeat/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
-import { resolveSessionId, getSessionEntry, isAbortTrigger, getSessionThinkLevel } from "../sessions/index.js";
+import {
+  resolveSessionId,
+  getSessionEntry,
+  isAbortTrigger,
+  getSessionThinkLevel,
+} from "../sessions/index.js";
 import { scanTaskboard, getTaskboardItem } from "../taskboard/index.js";
 import {
   listProjects,
@@ -45,14 +62,29 @@ import {
   archiveSubagent,
   unarchiveSubagent,
 } from "../subagents/index.js";
-import { spawnSubagent, interruptSubagent, killSubagent } from "../subagents/runner.js";
-import { getRecentActivity, recordProjectStatusActivity, recordCommentActivity } from "../activity/index.js";
-import { saveUploadedFile, isAllowedMimeType, getAllowedMimeTypes } from "../media/upload.js";
+import {
+  spawnSubagent,
+  spawnRalphLoop,
+  interruptSubagent,
+  killSubagent,
+} from "../subagents/runner.js";
+import {
+  getRecentActivity,
+  recordProjectStatusActivity,
+  recordCommentActivity,
+} from "../activity/index.js";
+import {
+  saveUploadedFile,
+  isAllowedMimeType,
+  getAllowedMimeTypes,
+} from "../media/upload.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
 const api = new Hono();
 
-function normalizeRunAgent(value?: string): { type: "aihub"; id: string } | { type: "cli"; id: string } | null {
+function normalizeRunAgent(
+  value?: string
+): { type: "aihub"; id: string } | { type: "cli"; id: string } | null {
   if (!value) return null;
   if (value.startsWith("aihub:")) return { type: "aihub", id: value.slice(6) };
   if (value.startsWith("cli:")) return { type: "cli", id: value.slice(4) };
@@ -69,6 +101,12 @@ function slugifyTitle(value: string): string {
 function formatThreadDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function generateRalphLoopSlug(): string {
+  const now = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 7);
+  return `ralph-${now}-${rand}`;
 }
 
 // GET /api/agents - list all agents (respects single-agent mode)
@@ -106,7 +144,9 @@ api.get("/agents/:id", (c) => {
     name: agent.name,
     model: agent.model,
     sdk: agent.sdk ?? "pi",
-    workspace: agent.workspace ? resolveWorkspaceDir(agent.workspace) : undefined,
+    workspace: agent.workspace
+      ? resolveWorkspaceDir(agent.workspace)
+      : undefined,
     authMode: agent.auth?.mode,
     queueMode: agent.queueMode ?? "queue",
   });
@@ -180,7 +220,10 @@ api.post("/agents/:id/messages", async (c) => {
     });
     return c.json(result);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      500
+    );
   }
 });
 
@@ -219,9 +262,10 @@ api.get("/agents/:id/history", async (c) => {
       : await getSessionHistory(agentId, entry.sessionId);
 
   // Only include thinkingLevel for OAuth agents
-  const thinkingLevel = agent.auth?.mode === "oauth"
-    ? getSessionThinkLevel(agentId, sessionKey)
-    : undefined;
+  const thinkingLevel =
+    agent.auth?.mode === "oauth"
+      ? getSessionThinkLevel(agentId, sessionKey)
+      : undefined;
 
   return c.json({ messages, sessionId: entry.sessionId, view, thinkingLevel });
 });
@@ -292,10 +336,12 @@ api.post("/projects/:id/start", async (c) => {
   const project = projectResult.data;
   const frontmatter = project.frontmatter ?? {};
 
-  const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
+  const status =
+    typeof frontmatter.status === "string" ? frontmatter.status : "";
   const normalizedStatus = normalizeProjectStatus(status);
 
-  const requestedRunAgentValue = typeof parsed.data.runAgent === "string" ? parsed.data.runAgent.trim() : "";
+  const requestedRunAgentValue =
+    typeof parsed.data.runAgent === "string" ? parsed.data.runAgent.trim() : "";
   let runAgentSelection = normalizeRunAgent(requestedRunAgentValue);
   if (!runAgentSelection) {
     const agents = getActiveAgents();
@@ -314,12 +360,18 @@ api.post("/projects/:id/start", async (c) => {
   let slug: string | undefined;
   let baseBranch: string | undefined;
   if (runAgentSelection.type === "cli") {
-    const requestedRunModeValue = typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
+    const requestedRunModeValue =
+      typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
     runMode = requestedRunModeValue === "worktree" ? "worktree" : "main-run";
-    const requestedSlugValue = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
-    slug = runMode === "worktree" ? (requestedSlugValue || slugifyTitle(project.title)) : "main";
+    const requestedSlugValue =
+      typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
+    slug =
+      runMode === "worktree"
+        ? requestedSlugValue || slugifyTitle(project.title)
+        : "main";
     baseBranch =
-      typeof parsed.data.baseBranch === "string" && parsed.data.baseBranch.trim()
+      typeof parsed.data.baseBranch === "string" &&
+      parsed.data.baseBranch.trim()
         ? parsed.data.baseBranch.trim()
         : "main";
   }
@@ -328,7 +380,15 @@ api.post("/projects/:id/start", async (c) => {
   if (runAgentSelection.type === "cli") {
     const id = runAgentSelection.id;
     runAgentLabel =
-      id === "codex" ? "Codex" : id === "claude" ? "Claude" : id === "droid" ? "Droid" : id === "gemini" ? "Gemini" : undefined;
+      id === "codex"
+        ? "Codex"
+        : id === "claude"
+          ? "Claude"
+          : id === "droid"
+            ? "Droid"
+            : id === "gemini"
+              ? "Gemini"
+              : undefined;
   } else {
     runAgentLabel = getAgent(runAgentSelection.id)?.name;
   }
@@ -337,14 +397,26 @@ api.post("/projects/:id/start", async (c) => {
   let implementationRepo = repo;
   if (runMode === "worktree" && slug) {
     const root = config.projects?.root ?? "~/projects";
-    const resolvedRoot = root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root;
-    implementationRepo = path.join(resolvedRoot, ".workspaces", project.id, slug);
+    const resolvedRoot = root.startsWith("~/")
+      ? path.join(os.homedir(), root.slice(2))
+      : root;
+    implementationRepo = path.join(
+      resolvedRoot,
+      ".workspaces",
+      project.id,
+      slug
+    );
   }
   const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
-  const absReadmePath = basePath.endsWith("README.md") ? basePath : `${basePath}/README.md`;
+  const absReadmePath = basePath.endsWith("README.md")
+    ? basePath
+    : `${basePath}/README.md`;
   const relBasePath = project.path.replace(/\/$/, "");
-  const relReadmePath = relBasePath.endsWith("README.md") ? relBasePath : `${relBasePath}/README.md`;
-  const readmePath = runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
+  const relReadmePath = relBasePath.endsWith("README.md")
+    ? relBasePath
+    : `${relBasePath}/README.md`;
+  const readmePath =
+    runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
   const threadPath = path.join(basePath, "THREAD.md");
   let threadContent = "";
   try {
@@ -395,10 +467,12 @@ api.post("/projects/:id/start", async (c) => {
       return c.json({ error: "Agent not found" }, 404);
     }
     const sessionKeys =
-      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+      typeof frontmatter.sessionKeys === "object" &&
+      frontmatter.sessionKeys !== null
         ? (frontmatter.sessionKeys as Record<string, string>)
         : {};
-    const sessionKey = sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
+    const sessionKey =
+      sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
     if (!sessionKeys[agent.id]) {
       updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
     }
@@ -506,7 +580,10 @@ api.patch("/projects/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
   if ("runAgent" in body || "runMode" in body || "baseBranch" in body) {
-    return c.json({ error: "runAgent/runMode/baseBranch not supported on projects" }, 400);
+    return c.json(
+      { error: "runAgent/runMode/baseBranch not supported on projects" },
+      400
+    );
   }
   const parsed = UpdateProjectRequestSchema.safeParse(body);
   if (!parsed.success) {
@@ -518,21 +595,28 @@ api.patch("/projects/:id", async (c) => {
   if (parsed.data.status) {
     const prev = await getProject(config, id);
     if (prev.ok) {
-      prevStatus = normalizeProjectStatus(String(prev.data.frontmatter?.status ?? ""));
+      prevStatus = normalizeProjectStatus(
+        String(prev.data.frontmatter?.status ?? "")
+      );
     }
   }
   if (parsed.data.status === "archived") {
-    const { status: _status, ...rest } = parsed.data;
+    const rest = { ...parsed.data };
+    delete rest.status;
     if (Object.keys(rest).length > 0) {
       const updated = await updateProject(config, id, rest);
       if (!updated.ok) {
-        const status = updated.error.startsWith("Project already exists") ? 409 : 404;
+        const status = updated.error.startsWith("Project already exists")
+          ? 409
+          : 404;
         return c.json({ error: updated.error }, status);
       }
     }
     const archived = await archiveProject(config, id);
     if (!archived.ok) {
-      const status = archived.error.startsWith("Archive already contains") ? 409 : 404;
+      const status = archived.error.startsWith("Archive already contains")
+        ? 409
+        : 404;
       return c.json({ error: archived.error }, status);
     }
     const detail = await getProject(config, id);
@@ -550,11 +634,15 @@ api.patch("/projects/:id", async (c) => {
   }
   const result = await updateProject(config, id, parsed.data);
   if (!result.ok) {
-    const status = result.error.startsWith("Project already exists") ? 409 : 404;
+    const status = result.error.startsWith("Project already exists")
+      ? 409
+      : 404;
     return c.json({ error: result.error }, status);
   }
   if (parsed.data.status) {
-    const nextStatus = normalizeProjectStatus(String(result.data.frontmatter?.status ?? ""));
+    const nextStatus = normalizeProjectStatus(
+      String(result.data.frontmatter?.status ?? "")
+    );
     if (prevStatus === null || prevStatus !== nextStatus) {
       await recordProjectStatusActivity({
         actor: parsed.data.agent,
@@ -572,7 +660,9 @@ api.delete("/projects/:id", async (c) => {
   const config = getConfig();
   const result = await deleteProject(config, id);
   if (!result.ok) {
-    const status = result.error.startsWith("Trash already contains") ? 409 : 404;
+    const status = result.error.startsWith("Trash already contains")
+      ? 409
+      : 404;
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
@@ -584,7 +674,9 @@ api.post("/projects/:id/archive", async (c) => {
   const config = getConfig();
   const result = await archiveProject(config, id);
   if (!result.ok) {
-    const status = result.error.startsWith("Archive already contains") ? 409 : 404;
+    const status = result.error.startsWith("Archive already contains")
+      ? 409
+      : 404;
     return c.json({ error: result.error }, status);
   }
   await recordProjectStatusActivity({ projectId: id, status: "archived" });
@@ -597,7 +689,9 @@ api.post("/projects/:id/unarchive", async (c) => {
   const config = getConfig();
   const result = await unarchiveProject(config, id, "maybe");
   if (!result.ok) {
-    const status = result.error.startsWith("Project already exists") ? 409 : 404;
+    const status = result.error.startsWith("Project already exists")
+      ? 409
+      : 404;
     return c.json({ error: result.error }, status);
   }
   await recordProjectStatusActivity({ projectId: id, status: "maybe" });
@@ -647,7 +741,12 @@ api.patch("/projects/:id/comments/:index", async (c) => {
   }
 
   const config = getConfig();
-  const result = await updateProjectComment(config, id, index, parsed.data.body);
+  const result = await updateProjectComment(
+    config,
+    id,
+    index,
+    parsed.data.body
+  );
   if (!result.ok) {
     return c.json({ error: result.error }, 404);
   }
@@ -724,7 +823,9 @@ api.get("/projects/:id/attachments/:name", async (c) => {
 
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
-  return c.body(Readable.toWeb(createReadStream(result.data.path)) as ReadableStream);
+  return c.body(
+    Readable.toWeb(createReadStream(result.data.path)) as ReadableStream
+  );
 });
 
 // GET /api/projects/:id/subagents - list subagents
@@ -753,7 +854,12 @@ api.get("/activity", async (c) => {
   const limitParam = c.req.query("limit") ?? "20";
   const offset = Number(offsetParam);
   const limit = Number(limitParam);
-  if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(limit) || limit < 1) {
+  if (
+    !Number.isFinite(offset) ||
+    offset < 0 ||
+    !Number.isFinite(limit) ||
+    limit < 1
+  ) {
     return c.json({ error: "Invalid pagination params" }, 400);
   }
   const events = await getRecentActivity(config, { offset, limit });
@@ -768,7 +874,8 @@ api.post("/projects/:id/subagents", async (c) => {
   const cli = typeof body.cli === "string" ? body.cli : "";
   const prompt = typeof body.prompt === "string" ? body.prompt : "";
   const mode = typeof body.mode === "string" ? body.mode : undefined;
-  const baseBranch = typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+  const baseBranch =
+    typeof body.baseBranch === "string" ? body.baseBranch : undefined;
   const resume = typeof body.resume === "boolean" ? body.resume : undefined;
 
   if (!slug || !cli || !prompt) {
@@ -784,6 +891,45 @@ api.post("/projects/:id/subagents", async (c) => {
     mode: mode as "main-run" | "worktree" | undefined,
     baseBranch,
     resume,
+  });
+  if (!result.ok) {
+    const status = result.error.startsWith("Project not found") ? 404 : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data, 201);
+});
+
+// POST /api/projects/:id/ralph-loop - spawn ralph loop run
+api.post("/projects/:id/ralph-loop", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const cli = typeof body.cli === "string" ? body.cli : "";
+  const iterations =
+    typeof body.iterations === "number"
+      ? body.iterations
+      : Number(body.iterations);
+  const promptFile =
+    typeof body.promptFile === "string" ? body.promptFile : undefined;
+  const mode = typeof body.mode === "string" ? body.mode : undefined;
+  const baseBranch =
+    typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+
+  if (!["codex", "claude"].includes(cli)) {
+    return c.json({ error: "cli must be codex or claude" }, 400);
+  }
+  if (!Number.isFinite(iterations) || iterations < 1) {
+    return c.json({ error: "iterations must be >= 1" }, 400);
+  }
+
+  const config = getConfig();
+  const result = await spawnRalphLoop(config, {
+    projectId: id,
+    slug: generateRalphLoopSlug(),
+    cli: cli as "codex" | "claude",
+    iterations,
+    promptFile,
+    mode: mode as "main-run" | "worktree" | undefined,
+    baseBranch,
   });
   if (!result.ok) {
     const status = result.error.startsWith("Project not found") ? 404 : 400;
@@ -813,7 +959,10 @@ api.post("/projects/:id/subagents/:slug/kill", async (c) => {
   const result = await killSubagent(config, id, slug);
   if (!result.ok) {
     const status =
-      result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;
+      result.error.startsWith("Project not found") ||
+      result.error.startsWith("Subagent not found")
+        ? 404
+        : 400;
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
@@ -827,7 +976,10 @@ api.post("/projects/:id/subagents/:slug/archive", async (c) => {
   const result = await archiveSubagent(config, id, slug);
   if (!result.ok) {
     const status =
-      result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;
+      result.error.startsWith("Project not found") ||
+      result.error.startsWith("Subagent not found")
+        ? 404
+        : 400;
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
@@ -841,7 +993,10 @@ api.post("/projects/:id/subagents/:slug/unarchive", async (c) => {
   const result = await unarchiveSubagent(config, id, slug);
   if (!result.ok) {
     const status =
-      result.error.startsWith("Project not found") || result.error.startsWith("Subagent not found") ? 404 : 400;
+      result.error.startsWith("Project not found") ||
+      result.error.startsWith("Subagent not found")
+        ? 404
+        : 400;
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
@@ -917,7 +1072,10 @@ api.post("/media/upload", async (c) => {
     const mimeType = file.type || "application/octet-stream";
     if (!isAllowedMimeType(mimeType)) {
       return c.json(
-        { error: `Unsupported file type: ${mimeType}`, allowedTypes: getAllowedMimeTypes() },
+        {
+          error: `Unsupported file type: ${mimeType}`,
+          allowedTypes: getAllowedMimeTypes(),
+        },
         400
       );
     }

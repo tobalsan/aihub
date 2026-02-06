@@ -98,7 +98,10 @@ function getWsUrl(): string {
 }
 
 export function getSessionKey(agentId: string): string {
-  return localStorage.getItem(`${SESSION_KEY_PREFIX}${agentId}`) ?? DEFAULT_SESSION_KEY;
+  return (
+    localStorage.getItem(`${SESSION_KEY_PREFIX}${agentId}`) ??
+    DEFAULT_SESSION_KEY
+  );
 }
 
 export function setSessionKey(agentId: string, key: string): void {
@@ -180,7 +183,12 @@ export function streamMessage(
   const ws = new WebSocket(getWsUrl());
 
   ws.onopen = () => {
-    const payload: Record<string, unknown> = { type: "send", agentId, sessionKey, message };
+    const payload: Record<string, unknown> = {
+      type: "send",
+      agentId,
+      sessionKey,
+      message,
+    };
     if (options?.attachments && options.attachments.length > 0) {
       payload.attachments = options.attachments;
     }
@@ -234,7 +242,10 @@ export function streamMessage(
   };
 
   return () => {
-    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+    if (
+      ws.readyState === WebSocket.OPEN ||
+      ws.readyState === WebSocket.CONNECTING
+    ) {
       ws.close();
     }
   };
@@ -369,7 +380,9 @@ export type TaskboardResult =
 export async function fetchTaskboard(): Promise<TaskboardResult> {
   const res = await fetch(`${API_BASE}/taskboard`);
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to fetch taskboard" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch taskboard" }));
     return { ok: false, error: data.error ?? "Failed to fetch taskboard" };
   }
   const data = await res.json();
@@ -390,7 +403,9 @@ export async function fetchTaskboardItem(
     : `${API_BASE}/taskboard/${type}/${id}`;
   const res = await fetch(url);
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to fetch item" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch item" }));
     return { ok: false, error: data.error ?? "Failed to fetch item" };
   }
   const data = await res.json();
@@ -410,7 +425,10 @@ export async function fetchArchivedProjects(): Promise<ProjectListItem[]> {
   return res.json();
 }
 
-export async function fetchActivity(offset = 0, limit = 20): Promise<ActivityResponse> {
+export async function fetchActivity(
+  offset = 0,
+  limit = 20
+): Promise<ActivityResponse> {
   const params = new URLSearchParams({
     offset: String(offset),
     limit: String(limit),
@@ -435,14 +453,18 @@ export type CreateProjectResult =
   | { ok: true; data: ProjectDetail }
   | { ok: false; error: string };
 
-export async function createProject(input: CreateProjectInput): Promise<CreateProjectResult> {
+export async function createProject(
+  input: CreateProjectInput
+): Promise<CreateProjectResult> {
   const res = await fetch(`${API_BASE}/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to create project" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to create project" }));
     return { ok: false, error: data.error ?? "Failed to create project" };
   }
   const data = (await res.json()) as ProjectDetail;
@@ -465,7 +487,9 @@ export async function updateProject(
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to update project" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to update project" }));
     throw new Error(data.error ?? "Failed to update project");
   }
   return res.json();
@@ -478,7 +502,9 @@ export type DeleteProjectResult =
 export async function deleteProject(id: string): Promise<DeleteProjectResult> {
   const res = await fetch(`${API_BASE}/projects/${id}`, { method: "DELETE" });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to delete project" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to delete project" }));
     return { ok: false, error: data.error ?? "Failed to delete project" };
   }
   const data = (await res.json()) as DeleteProjectResponse;
@@ -489,10 +515,16 @@ export type ArchiveProjectResult =
   | { ok: true; data: ArchiveProjectResponse }
   | { ok: false; error: string };
 
-export async function archiveProject(id: string): Promise<ArchiveProjectResult> {
-  const res = await fetch(`${API_BASE}/projects/${id}/archive`, { method: "POST" });
+export async function archiveProject(
+  id: string
+): Promise<ArchiveProjectResult> {
+  const res = await fetch(`${API_BASE}/projects/${id}/archive`, {
+    method: "POST",
+  });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to archive project" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to archive project" }));
     return { ok: false, error: data.error ?? "Failed to archive project" };
   }
   const data = (await res.json()) as ArchiveProjectResponse;
@@ -503,10 +535,16 @@ export type UnarchiveProjectResult =
   | { ok: true; data: UnarchiveProjectResponse }
   | { ok: false; error: string };
 
-export async function unarchiveProject(id: string): Promise<UnarchiveProjectResult> {
-  const res = await fetch(`${API_BASE}/projects/${id}/unarchive`, { method: "POST" });
+export async function unarchiveProject(
+  id: string
+): Promise<UnarchiveProjectResult> {
+  const res = await fetch(`${API_BASE}/projects/${id}/unarchive`, {
+    method: "POST",
+  });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to unarchive project" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to unarchive project" }));
     return { ok: false, error: data.error ?? "Failed to unarchive project" };
   }
   const data = (await res.json()) as UnarchiveProjectResponse;
@@ -523,11 +561,18 @@ export type SubagentListResult =
   | { ok: true; data: SubagentListResponse }
   | { ok: false; error: string };
 
-export async function fetchSubagents(projectId: string, includeArchived = false): Promise<SubagentListResult> {
+export async function fetchSubagents(
+  projectId: string,
+  includeArchived = false
+): Promise<SubagentListResult> {
   const query = includeArchived ? "?includeArchived=true" : "";
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents${query}`);
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents${query}`
+  );
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to fetch subagents" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch subagents" }));
     return { ok: false, error: data.error ?? "Failed to fetch subagents" };
   }
   const data = (await res.json()) as SubagentListResponse;
@@ -543,9 +588,13 @@ export async function fetchSubagentLogs(
   slug: string,
   since: number
 ): Promise<SubagentLogsResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/logs?since=${since}`);
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${slug}/logs?since=${since}`
+  );
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to fetch logs" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch logs" }));
     return { ok: false, error: data.error ?? "Failed to fetch logs" };
   }
   const data = (await res.json()) as SubagentLogsResponse;
@@ -556,10 +605,14 @@ export type ProjectBranchesResult =
   | { ok: true; data: ProjectBranchesResponse }
   | { ok: false; error: string };
 
-export async function fetchProjectBranches(projectId: string): Promise<ProjectBranchesResult> {
+export async function fetchProjectBranches(
+  projectId: string
+): Promise<ProjectBranchesResult> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/branches`);
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to fetch branches" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch branches" }));
     return { ok: false, error: data.error ?? "Failed to fetch branches" };
   }
   const data = (await res.json()) as ProjectBranchesResponse;
@@ -589,8 +642,41 @@ export async function spawnSubagent(
     body: JSON.stringify(input),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to spawn subagent" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to spawn subagent" }));
     return { ok: false, error: data.error ?? "Failed to spawn subagent" };
+  }
+  const data = (await res.json()) as { slug: string };
+  return { ok: true, data };
+}
+
+export type SpawnRalphLoopInput = {
+  cli: "codex" | "claude";
+  iterations: number;
+  promptFile?: string;
+  mode?: "main-run" | "worktree";
+  baseBranch?: string;
+};
+
+export type SpawnRalphLoopResult =
+  | { ok: true; data: { slug: string } }
+  | { ok: false; error: string };
+
+export async function spawnRalphLoop(
+  projectId: string,
+  input: SpawnRalphLoopInput
+): Promise<SpawnRalphLoopResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/ralph-loop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to spawn ralph loop" }));
+    return { ok: false, error: data.error ?? "Failed to spawn ralph loop" };
   }
   const data = (await res.json()) as { slug: string };
   return { ok: true, data };
@@ -604,11 +690,16 @@ export async function interruptSubagent(
   projectId: string,
   slug: string
 ): Promise<InterruptSubagentResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/interrupt`, {
-    method: "POST",
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${slug}/interrupt`,
+    {
+      method: "POST",
+    }
+  );
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to interrupt subagent" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to interrupt subagent" }));
     return { ok: false, error: data.error ?? "Failed to interrupt subagent" };
   }
   const data = (await res.json()) as { slug: string };
@@ -623,11 +714,16 @@ export async function killSubagent(
   projectId: string,
   slug: string
 ): Promise<KillSubagentResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/kill`, {
-    method: "POST",
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${slug}/kill`,
+    {
+      method: "POST",
+    }
+  );
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to kill subagent" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to kill subagent" }));
     return { ok: false, error: data.error ?? "Failed to kill subagent" };
   }
   const data = (await res.json()) as { slug: string };
@@ -642,11 +738,16 @@ export async function archiveSubagent(
   projectId: string,
   slug: string
 ): Promise<ArchiveSubagentResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/archive`, {
-    method: "POST",
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${slug}/archive`,
+    {
+      method: "POST",
+    }
+  );
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to archive subagent" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to archive subagent" }));
     return { ok: false, error: data.error ?? "Failed to archive subagent" };
   }
   const data = (await res.json()) as { slug: string; archived: boolean };
@@ -661,11 +762,16 @@ export async function unarchiveSubagent(
   projectId: string,
   slug: string
 ): Promise<UnarchiveSubagentResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}/unarchive`, {
-    method: "POST",
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${slug}/unarchive`,
+    {
+      method: "POST",
+    }
+  );
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to unarchive subagent" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to unarchive subagent" }));
     return { ok: false, error: data.error ?? "Failed to unarchive subagent" };
   }
   const data = (await res.json()) as { slug: string; archived: boolean };
@@ -698,7 +804,9 @@ export async function uploadAttachments(
   });
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to upload attachments" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to upload attachments" }));
     return { ok: false, error: data.error ?? "Failed to upload attachments" };
   }
 
@@ -725,11 +833,14 @@ export async function updateProjectComment(
   index: number,
   body: string
 ): Promise<ProjectThreadEntry> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/comments/${index}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body }),
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/comments/${index}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
   if (!res.ok) throw new Error("Failed to update comment");
   return res.json();
 }
@@ -738,9 +849,12 @@ export async function deleteProjectComment(
   projectId: string,
   index: number
 ): Promise<{ index: number }> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/comments/${index}`, {
-    method: "DELETE",
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/comments/${index}`,
+    {
+      method: "DELETE",
+    }
+  );
   if (!res.ok) throw new Error("Failed to delete comment");
   return res.json();
 }
@@ -767,7 +881,9 @@ export async function startProjectRun(
     body: JSON.stringify(input ?? {}),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Failed to start run" }));
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to start run" }));
     return { ok: false, error: data.error ?? "Failed to start run" };
   }
   return res.json();

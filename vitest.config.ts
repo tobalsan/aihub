@@ -2,11 +2,9 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import solid from "vite-plugin-solid";
 
-const sharedSrc = fileURLToPath(new URL("./packages/shared/src/index.ts", import.meta.url));
-
-const sharedAlias = {
-  "@aihub/shared": sharedSrc,
-};
+const sharedSrc = fileURLToPath(
+  new URL("./packages/shared/src/index.ts", import.meta.url)
+);
 
 export default defineConfig({
   plugins: [solid({ hot: false })],

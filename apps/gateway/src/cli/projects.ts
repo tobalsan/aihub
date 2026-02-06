@@ -43,7 +43,10 @@ function pickTailnetIPv4(): string | null {
 
 function getTailscaleIP(): string | null {
   try {
-    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const output = execSync("tailscale status --json", {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
     const status = JSON.parse(output);
     const ips = status?.Self?.TailscaleIPs as string[] | undefined;
     return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
@@ -98,10 +101,15 @@ function renderTable(items: ProjectItem[]): string {
     "created",
     "path",
   ];
-  const formatCell = (value: unknown) => String(value ?? "").replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|");
+  const formatCell = (value: unknown) =>
+    String(value ?? "")
+      .replace(/\r?\n/g, "<br>")
+      .replace(/\|/g, "\\|");
   const rows = items.map((item) => {
     const normalized = normalizeItem(item);
-    return headers.map((key) => formatCell(normalized[key as keyof typeof normalized]));
+    return headers.map((key) =>
+      formatCell(normalized[key as keyof typeof normalized])
+    );
   });
 
   const headerRow = `| ${headers.join(" | ")} |`;
@@ -122,7 +130,10 @@ async function readStdin(): Promise<string> {
   });
 }
 
-async function requestJson(path: string, init?: RequestInit): Promise<Response> {
+async function requestJson(
+  path: string,
+  init?: RequestInit
+): Promise<Response> {
   const base = getApiBaseUrl();
   const url = new URL(`/api${path}`, base).toString();
   return fetch(url, init);
@@ -141,11 +152,14 @@ export function createProjectCommentHandler(options?: {
   const baseUrl = options?.baseUrl ?? getApiBaseUrl();
   const fetchImpl = options?.fetchImpl ?? fetch;
   return (args) =>
-    fetchImpl(new URL(`/api/projects/${args.projectId}/comments`, baseUrl).toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ author: args.author, message: args.message }),
-    });
+    fetchImpl(
+      new URL(`/api/projects/${args.projectId}/comments`, baseUrl).toString(),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ author: args.author, message: args.message }),
+      }
+    );
 }
 
 function formatMessages(items: SimpleHistoryMessage[]): string {
@@ -153,7 +167,9 @@ function formatMessages(items: SimpleHistoryMessage[]): string {
   return items.map((item) => `- ${item.role}: ${item.content}`).join("\n");
 }
 
-function mapSubagentStatus(status: string | undefined): "running" | "idle" | "error" {
+function mapSubagentStatus(
+  status: string | undefined
+): "running" | "idle" | "error" {
   if (status === "running") return "running";
   if (status === "error") return "error";
   return "idle";
@@ -179,13 +195,19 @@ program
 
     let items = data as ProjectItem[];
     if (opts.status) {
-      items = items.filter((item) => String(item.frontmatter?.status ?? "") === opts.status);
+      items = items.filter(
+        (item) => String(item.frontmatter?.status ?? "") === opts.status
+      );
     }
     if (opts.owner) {
-      items = items.filter((item) => String(item.frontmatter?.owner ?? "") === opts.owner);
+      items = items.filter(
+        (item) => String(item.frontmatter?.owner ?? "") === opts.owner
+      );
     }
     if (opts.domain) {
-      items = items.filter((item) => String(item.frontmatter?.domain ?? "") === opts.domain);
+      items = items.filter(
+        (item) => String(item.frontmatter?.domain ?? "") === opts.domain
+      );
     }
 
     if (opts.json) {
@@ -205,7 +227,9 @@ program
       const agents = getAgents();
       console.log("Configured agents:");
       for (const agent of agents) {
-        console.log(`  - ${agent.id}: ${agent.name} (${agent.model.provider}/${agent.model.model})`);
+        console.log(
+          `  - ${agent.id}: ${agent.name} (${agent.model.provider}/${agent.model.model})`
+        );
       }
     } catch (err) {
       console.error("Error:", err);
@@ -219,7 +243,7 @@ program
   .requiredOption("-t, --title <title>", "Project title")
   .option("--domain <domain>", "Domain (life|admin|coding)")
   .option("--owner <owner>", "Owner")
-  .option("--execution-mode <mode>", "Execution mode (manual|exploratory|auto|full_auto)")
+  .option("--execution-mode <mode>", "Execution mode (subagent|ralph_loop)")
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
   .option("-j, --json", "JSON output")
@@ -281,7 +305,7 @@ program
   .option("--title <title>", "Title")
   .option("--domain <domain>", "Domain (life|admin|coding)")
   .option("--owner <owner>", "Owner")
-  .option("--execution-mode <mode>", "Execution mode (manual|exploratory|auto|full_auto)")
+  .option("--execution-mode <mode>", "Execution mode (subagent|ralph_loop)")
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
   .option("--repo <path>", "Repo path")
@@ -372,7 +396,10 @@ program
 program
   .command("resume")
   .argument("<id>", "Project ID")
-  .requiredOption("-m, --message <message>", "Message to send (use '-' for stdin)")
+  .requiredOption(
+    "-m, --message <message>",
+    "Message to send (use '-' for stdin)"
+  )
   .option("--slug <slug>", "Slug override (CLI worktree resume)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
@@ -388,7 +415,8 @@ program
     const project = projectData as ProjectItem;
     const frontmatter = project.frontmatter ?? {};
     const sessionKeys =
-      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+      typeof frontmatter.sessionKeys === "object" &&
+      frontmatter.sessionKeys !== null
         ? (frontmatter.sessionKeys as Record<string, string>)
         : {};
     const requestedSlug = typeof opts.slug === "string" ? opts.slug.trim() : "";
@@ -417,15 +445,18 @@ program
       return;
     }
 
-    const subagentsRes = await requestJson(`/projects/${normalizedId}/subagents`);
+    const subagentsRes = await requestJson(
+      `/projects/${normalizedId}/subagents`
+    );
     const subagentsData = await subagentsRes.json();
     if (!subagentsRes.ok) {
       console.error(subagentsData.error ?? "Failed to fetch subagents");
       process.exit(1);
     }
     const items = Array.isArray(subagentsData.items) ? subagentsData.items : [];
-    const fallbackSlug = items.find((entry: { slug?: string }) => entry.slug === "main")?.slug
-      ?? (items.length === 1 ? items[0]?.slug : "");
+    const fallbackSlug =
+      items.find((entry: { slug?: string }) => entry.slug === "main")?.slug ??
+      (items.length === 1 ? items[0]?.slug : "");
     const slug = requestedSlug || fallbackSlug;
     if (!slug) {
       console.error("Slug required to resume CLI run.");
@@ -480,7 +511,8 @@ program
     const project = projectData as ProjectItem;
     const frontmatter = project.frontmatter ?? {};
     const sessionKeys =
-      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+      typeof frontmatter.sessionKeys === "object" &&
+      frontmatter.sessionKeys !== null
         ? (frontmatter.sessionKeys as Record<string, string>)
         : {};
     const requestedSlug = typeof opts.slug === "string" ? opts.slug.trim() : "";
@@ -501,7 +533,9 @@ program
         `/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=simple`
       );
       const historyData = await historyRes.json();
-      const messages = Array.isArray(historyData.messages) ? (historyData.messages as SimpleHistoryMessage[]) : [];
+      const messages = Array.isArray(historyData.messages)
+        ? (historyData.messages as SimpleHistoryMessage[])
+        : [];
       const recent = messages.slice(-limit);
       const payload = {
         type: "aihub",
@@ -519,15 +553,18 @@ program
       return;
     }
 
-    const subagentsRes = await requestJson(`/projects/${normalizedId}/subagents`);
+    const subagentsRes = await requestJson(
+      `/projects/${normalizedId}/subagents`
+    );
     const subagentsData = await subagentsRes.json();
     if (!subagentsRes.ok) {
       console.error(subagentsData.error ?? "Failed to fetch subagents");
       process.exit(1);
     }
     const items = Array.isArray(subagentsData.items) ? subagentsData.items : [];
-    const fallbackSlug = items.find((entry: { slug?: string }) => entry.slug === "main")?.slug
-      ?? (items.length === 1 ? items[0]?.slug : "");
+    const fallbackSlug =
+      items.find((entry: { slug?: string }) => entry.slug === "main")?.slug ??
+      (items.length === 1 ? items[0]?.slug : "");
     const slug = requestedSlug || fallbackSlug;
     if (!slug) {
       console.error("Slug required to fetch CLI status.");
@@ -535,7 +572,9 @@ program
     }
     const item = items.find((entry: { slug?: string }) => entry.slug === slug);
     const status = mapSubagentStatus(item?.status);
-    const logsRes = await requestJson(`/projects/${normalizedId}/subagents/${slug}/logs?since=0`);
+    const logsRes = await requestJson(
+      `/projects/${normalizedId}/subagents/${slug}/logs?since=0`
+    );
     const logsData = await logsRes.json();
     if (!logsRes.ok) {
       console.error(logsData.error ?? "Failed to fetch logs");
@@ -543,7 +582,10 @@ program
     }
     const events = Array.isArray(logsData.events) ? logsData.events : [];
     const messages = events
-      .filter((ev: { type?: string; text?: string }) => ev.type === "user" || ev.type === "assistant")
+      .filter(
+        (ev: { type?: string; text?: string }) =>
+          ev.type === "user" || ev.type === "assistant"
+      )
       .map((ev: { type?: string; text?: string }) => ({
         role: ev.type === "user" ? "user" : "assistant",
         content: ev.text ?? "",
@@ -573,7 +615,10 @@ program
   .option("-j, --json", "JSON output")
   .action(async (id, slug, opts) => {
     const normalizedId = normalizeProjectId(id);
-    const res = await requestJson(`/projects/${normalizedId}/subagents/${slug}/archive`, { method: "POST" });
+    const res = await requestJson(
+      `/projects/${normalizedId}/subagents/${slug}/archive`,
+      { method: "POST" }
+    );
     const data = await res.json();
     if (!res.ok) {
       console.error(data.error ?? "Request failed");
@@ -593,7 +638,10 @@ program
   .option("-j, --json", "JSON output")
   .action(async (id, slug, opts) => {
     const normalizedId = normalizeProjectId(id);
-    const res = await requestJson(`/projects/${normalizedId}/subagents/${slug}/unarchive`, { method: "POST" });
+    const res = await requestJson(
+      `/projects/${normalizedId}/subagents/${slug}/unarchive`,
+      { method: "POST" }
+    );
     const data = await res.json();
     if (!res.ok) {
       console.error(data.error ?? "Request failed");
@@ -604,6 +652,49 @@ program
       return;
     }
     console.log(`Unarchived run ${slug}`);
+  });
+
+program
+  .command("ralph")
+  .argument("<id>", "Project ID")
+  .option("--cli <cli>", "CLI (codex|claude)", "codex")
+  .option("--iterations <n>", "Number of loop iterations", "20")
+  .option(
+    "--prompt-file <path>",
+    "Prompt file path (default: project prompt.md)"
+  )
+  .option("--mode <mode>", "Run mode (main-run|worktree)")
+  .option("--branch <branch>", "Base branch for worktree")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    const normalizedId = normalizeProjectId(id);
+    const iterations = Number(opts.iterations);
+    const body: Record<string, unknown> = {
+      cli: opts.cli,
+      iterations: Number.isFinite(iterations) ? iterations : 20,
+    };
+    if (typeof opts.promptFile === "string" && opts.promptFile.trim())
+      body.promptFile = opts.promptFile.trim();
+    if (typeof opts.mode === "string" && opts.mode.trim())
+      body.mode = opts.mode.trim();
+    if (typeof opts.branch === "string" && opts.branch.trim())
+      body.baseBranch = opts.branch.trim();
+
+    const res = await requestJson(`/projects/${normalizedId}/ralph-loop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(data.error ?? "Request failed");
+      process.exit(1);
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    console.log(`Started Ralph loop (slug: ${data.slug})`);
   });
 
 program
@@ -618,13 +709,22 @@ program
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
     const body: Record<string, unknown> = {};
-    const agentValue = typeof opts.agent === "string" && opts.agent.trim() ? opts.agent.trim() : "codex";
+    const agentValue =
+      typeof opts.agent === "string" && opts.agent.trim()
+        ? opts.agent.trim()
+        : "codex";
     body.runAgent = agentValue.includes(":") ? agentValue : `cli:${agentValue}`;
-    body.runMode = typeof opts.mode === "string" && opts.mode.trim() ? opts.mode.trim() : "worktree";
-    if (typeof opts.branch === "string" && opts.branch.trim()) body.baseBranch = opts.branch.trim();
-    if (typeof opts.slug === "string" && opts.slug.trim()) body.slug = opts.slug.trim();
+    body.runMode =
+      typeof opts.mode === "string" && opts.mode.trim()
+        ? opts.mode.trim()
+        : "worktree";
+    if (typeof opts.branch === "string" && opts.branch.trim())
+      body.baseBranch = opts.branch.trim();
+    if (typeof opts.slug === "string" && opts.slug.trim())
+      body.slug = opts.slug.trim();
     if (opts.customPrompt !== undefined) {
-      body.customPrompt = opts.customPrompt === "-" ? await readStdin() : opts.customPrompt;
+      body.customPrompt =
+        opts.customPrompt === "-" ? await readStdin() : opts.customPrompt;
     }
 
     const res = await requestJson(`/projects/${normalizedId}/start`, {
@@ -646,7 +746,9 @@ program
       return;
     }
     if (data.type === "cli") {
-      console.log(`Started CLI run (slug: ${data.slug}, mode: ${data.runMode})`);
+      console.log(
+        `Started CLI run (slug: ${data.slug}, mode: ${data.runMode})`
+      );
       return;
     }
     console.log(JSON.stringify(data, null, 2));

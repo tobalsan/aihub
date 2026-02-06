@@ -7,6 +7,7 @@ import type { GatewayConfig } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
 export type SubagentCli = "claude" | "codex" | "droid" | "gemini";
+export type RalphLoopCli = "claude" | "codex";
 export type SubagentMode = "main-run" | "worktree";
 
 export type SpawnSubagentInput = {
@@ -17,6 +18,16 @@ export type SpawnSubagentInput = {
   mode?: SubagentMode;
   baseBranch?: string;
   resume?: boolean;
+};
+
+export type SpawnRalphLoopInput = {
+  projectId: string;
+  slug: string;
+  cli: RalphLoopCli;
+  iterations: number;
+  promptFile?: string;
+  mode?: SubagentMode;
+  baseBranch?: string;
 };
 
 export type SpawnSubagentResult =
@@ -43,7 +54,12 @@ function getProjectsRoot(config: GatewayConfig): string {
   return expandPath(root);
 }
 
-function buildProjectSummary(title: string, status: string, projectPath: string, content: string): string {
+function buildProjectSummary(
+  title: string,
+  status: string,
+  projectPath: string,
+  content: string
+): string {
   const lines = [
     "Let's tackle the following project:",
     "",
@@ -64,7 +80,10 @@ async function dirExists(dirPath: string): Promise<boolean> {
   }
 }
 
-async function findProjectDir(root: string, id: string): Promise<string | null> {
+async function findProjectDir(
+  root: string,
+  id: string
+): Promise<string | null> {
   if (!(await dirExists(root))) return null;
   const entries = await fs.readdir(root, { withFileTypes: true });
   for (const entry of entries) {
@@ -76,7 +95,10 @@ async function findProjectDir(root: string, id: string): Promise<string | null> 
   return null;
 }
 
-async function appendHistory(historyPath: string, event: Record<string, unknown>): Promise<void> {
+async function appendHistory(
+  historyPath: string,
+  event: Record<string, unknown>
+): Promise<void> {
   const line = `${JSON.stringify(event)}\n`;
   await fs.appendFile(historyPath, line, "utf8");
 }
@@ -124,16 +146,23 @@ async function resolveShell(): Promise<string | null> {
 async function canFindViaShell(execName: string): Promise<boolean> {
   const shell = await resolveShell();
   if (!shell) return false;
-  const child = spawn(shell, ["-l", "-i", "-c", `type ${execName} >/dev/null 2>&1`], {
-    stdio: "ignore",
-  });
+  const child = spawn(
+    shell,
+    ["-l", "-i", "-c", `type ${execName} >/dev/null 2>&1`],
+    {
+      stdio: "ignore",
+    }
+  );
   return new Promise((resolve) => {
     child.on("exit", (code) => resolve(code === 0));
     child.on("error", () => resolve(false));
   });
 }
 
-async function resolveViaShell(execName: string, args: string[]): Promise<{ command: string; args: string[] } | null> {
+async function resolveViaShell(
+  execName: string,
+  args: string[]
+): Promise<{ command: string; args: string[] } | null> {
   if (!isSafeShellWord(execName)) return null;
   if (!(await canFindViaShell(execName))) return null;
   const shell = await resolveShell();
@@ -156,7 +185,10 @@ function commonCandidatePaths(execName: string): string[] {
         );
         break;
       case "codex":
-        candidates.push(path.join(home, ".local", "bin", "codex"), path.join(home, ".cargo", "bin", "codex"));
+        candidates.push(
+          path.join(home, ".local", "bin", "codex"),
+          path.join(home, ".cargo", "bin", "codex")
+        );
         break;
       case "gemini":
         candidates.push(path.join(home, ".local", "bin", "gemini"));
@@ -174,7 +206,10 @@ function commonCandidatePaths(execName: string): string[] {
   }
 
   if (os.platform() === "darwin") {
-    candidates.push(path.join("/opt", "homebrew", "bin", execName), path.join("/usr", "local", "bin", execName));
+    candidates.push(
+      path.join("/opt", "homebrew", "bin", execName),
+      path.join("/usr", "local", "bin", execName)
+    );
   } else {
     candidates.push(path.join("/usr", "local", "bin", execName));
   }
@@ -182,7 +217,14 @@ function commonCandidatePaths(execName: string): string[] {
   return Array.from(new Set(candidates));
 }
 
-async function resolveCliCommand(execName: string, args: string[]): Promise<{ command: string; args: string[] }> {
+function ralphScriptPath(cli: RalphLoopCli): string {
+  return expandPath(`~/agents/cloud/skills/ralphup/scripts/ralph_${cli}.sh`);
+}
+
+async function resolveCliCommand(
+  execName: string,
+  args: string[]
+): Promise<{ command: string; args: string[] }> {
   if (execName.includes("/") || execName.includes("\\")) {
     if (await isExecutableFile(execName)) return { command: execName, args };
   }
@@ -200,16 +242,35 @@ async function resolveCliCommand(execName: string, args: string[]): Promise<{ co
   throw new Error(`${execName} not found`);
 }
 
-function buildArgs(cli: SubagentCli, prompt: string, sessionId: string | undefined): string[] {
+function buildArgs(
+  cli: SubagentCli,
+  prompt: string,
+  sessionId: string | undefined
+): string[] {
   switch (cli) {
     case "claude": {
-      const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"];
+      const args = [
+        "-p",
+        prompt,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--dangerously-skip-permissions",
+      ];
       if (sessionId) return ["-r", sessionId, ...args];
       return args;
     }
     case "droid": {
       const args = ["exec", prompt, "--output-format", "stream-json"];
-      if (sessionId) return ["exec", "--session-id", sessionId, prompt, "--output-format", "stream-json"];
+      if (sessionId)
+        return [
+          "exec",
+          "--session-id",
+          sessionId,
+          prompt,
+          "--output-format",
+          "stream-json",
+        ];
       return args;
     }
     case "gemini": {
@@ -217,7 +278,11 @@ function buildArgs(cli: SubagentCli, prompt: string, sessionId: string | undefin
       return ["-p", prompt, "--output-format", "stream-json"];
     }
     case "codex": {
-      const base = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox"];
+      const base = [
+        "exec",
+        "--json",
+        "--dangerously-bypass-approvals-and-sandbox",
+      ];
       if (sessionId) return [...base, "resume", sessionId, prompt];
       return [...base, prompt];
     }
@@ -232,9 +297,13 @@ async function createWorktree(
 ): Promise<void> {
   await fs.mkdir(worktreePath, { recursive: true });
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("git", ["-C", repo, "worktree", "add", "-b", branch, worktreePath, baseBranch], {
-      stdio: "ignore",
-    });
+    const child = spawn(
+      "git",
+      ["-C", repo, "worktree", "add", "-b", branch, worktreePath, baseBranch],
+      {
+        stdio: "ignore",
+      }
+    );
     child.on("exit", (code) => {
       if (code === 0) resolve();
       else reject(new Error("git worktree add failed"));
@@ -260,17 +329,23 @@ export async function spawnSubagent(
   const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
   let threadContent = "";
   try {
-    const parsedThread = await parseMarkdownFile(path.join(projectDir, "THREAD.md"));
+    const parsedThread = await parseMarkdownFile(
+      path.join(projectDir, "THREAD.md")
+    );
     threadContent = parsedThread.content.trim();
   } catch {
     // ignore missing thread
   }
-  const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+  const repoValue =
+    typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
   // Validate mandatory parameters
   if (!input.mode) {
-    return { ok: false, error: "mode is required (must be 'worktree' or 'main-run')" };
+    return {
+      ok: false,
+      error: "mode is required (must be 'worktree' or 'main-run')",
+    };
   }
   if (!repo) {
     return { ok: false, error: "Project repo not set in frontmatter" };
@@ -279,8 +354,10 @@ export async function spawnSubagent(
   // Gather content from all markdown files
   const entries = await fs.readdir(projectDir, { withFileTypes: true });
   const mdFiles = entries
-    .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== "THREAD.md")
-    .map(e => e.name)
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "THREAD.md"
+    )
+    .map((e) => e.name)
     .sort((a, b) => {
       if (a.toUpperCase() === "README.MD") return -1;
       if (b.toUpperCase() === "README.MD") return 1;
@@ -304,9 +381,16 @@ export async function spawnSubagent(
     }
   }
 
-  const resolvedTitle = typeof frontmatter.title === "string" ? frontmatter.title : title ?? "";
-  const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
-  const summary = buildProjectSummary(resolvedTitle, status, projectDir, fullContent);
+  const resolvedTitle =
+    typeof frontmatter.title === "string" ? frontmatter.title : (title ?? "");
+  const status =
+    typeof frontmatter.status === "string" ? frontmatter.status : "";
+  const summary = buildProjectSummary(
+    resolvedTitle,
+    status,
+    projectDir,
+    fullContent
+  );
 
   const mode: SubagentMode = input.mode;
   const repoHasGit = await fs
@@ -363,7 +447,10 @@ export async function spawnSubagent(
   if (mode === "worktree") {
     const worktreeLine = `Worktree path: ${worktreePath}`;
     if (prompt.includes("Repo path:")) {
-      prompt = prompt.replace(/\n\nRepo path:[^\n]*(\n|$)/, `\n\n${worktreeLine}\n`);
+      prompt = prompt.replace(
+        /\n\nRepo path:[^\n]*(\n|$)/,
+        `\n\n${worktreeLine}\n`
+      );
     } else {
       prompt = `${prompt}\n\n${worktreeLine}`;
     }
@@ -374,16 +461,26 @@ export async function spawnSubagent(
   try {
     resolved = await resolveCliCommand(input.cli, args);
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "CLI not found" };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "CLI not found",
+    };
   }
-  const child = spawn(resolved.command, resolved.args, { cwd: worktreePath, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(resolved.command, resolved.args, {
+    cwd: worktreePath,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   child.on("error", async () => {
     const finishedAt = new Date().toISOString();
     await appendHistory(historyPath, {
       ts: finishedAt,
       type: "worker.finished",
-      data: { run_id: `${Date.now()}`, outcome: "error", error_message: "spawn failed" },
+      data: {
+        run_id: `${Date.now()}`,
+        outcome: "error",
+        error_message: "spawn failed",
+      },
     });
   });
 
@@ -392,8 +489,14 @@ export async function spawnSubagent(
   let archived = false;
   try {
     const raw = await fs.readFile(configPath, "utf8");
-    const existing = JSON.parse(raw) as { created?: string; archived?: boolean };
-    if (typeof existing.created === "string" && existing.created.trim().length > 0) {
+    const existing = JSON.parse(raw) as {
+      created?: string;
+      archived?: boolean;
+    };
+    if (
+      typeof existing.created === "string" &&
+      existing.created.trim().length > 0
+    ) {
       createdAt = existing.created;
     }
     if (typeof existing.archived === "boolean") {
@@ -443,7 +546,10 @@ export async function spawnSubagent(
   child.stdout?.on("data", async (chunk: Buffer) => {
     const text = chunk.toString("utf8");
     await fs.appendFile(logsPath, text, "utf8");
-    await writeJson(progressPath, { last_active: new Date().toISOString(), tool_calls: 0 });
+    await writeJson(progressPath, {
+      last_active: new Date().toISOString(),
+      tool_calls: 0,
+    });
 
     const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
     for (const line of lines) {
@@ -480,7 +586,215 @@ export async function spawnSubagent(
       .map((line) => JSON.stringify({ type: "stderr", text: line }))
       .join("\n");
     await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-    await writeJson(progressPath, { last_active: new Date().toISOString(), tool_calls: 0 });
+    await writeJson(progressPath, {
+      last_active: new Date().toISOString(),
+      tool_calls: 0,
+    });
+  });
+
+  child.on("exit", async (code, signal) => {
+    const finishedAt = new Date().toISOString();
+    const outcome = code === 0 ? "replied" : "error";
+    const exitMessage =
+      code !== null && code !== 0
+        ? `process exited (code ${code})`
+        : signal
+          ? `process exited (signal ${signal})`
+          : "process exited";
+    const data: Record<string, unknown> = {
+      run_id: `${Date.now()}`,
+      duration_ms: 0,
+      tool_calls: 0,
+      outcome,
+    };
+    if (outcome === "error") {
+      data.error_message = exitMessage;
+    }
+    await appendHistory(historyPath, {
+      ts: finishedAt,
+      type: "worker.finished",
+      data,
+    });
+    if (outcome === "error") {
+      try {
+        const raw = await fs.readFile(statePath, "utf8");
+        const current = JSON.parse(raw) as Record<string, unknown>;
+        current.last_error = exitMessage;
+        await writeJson(statePath, current);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  return { ok: true, data: { slug: input.slug } };
+}
+
+export async function spawnRalphLoop(
+  config: GatewayConfig,
+  input: SpawnRalphLoopInput
+): Promise<SpawnSubagentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, input.projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${input.projectId}` };
+  }
+
+  if (!Number.isFinite(input.iterations) || input.iterations < 1) {
+    return { ok: false, error: "iterations must be >= 1" };
+  }
+
+  const scriptPath = ralphScriptPath(input.cli);
+  const scriptExists = await fs
+    .stat(scriptPath)
+    .then((st) => st.isFile())
+    .catch(() => false);
+  if (!scriptExists) {
+    return { ok: false, error: `Ralph script not found: ${scriptPath}` };
+  }
+
+  const projectDir = path.join(root, dirName);
+  const readmePath = path.join(projectDir, "README.md");
+  const { frontmatter } = await parseMarkdownFile(readmePath);
+  const repoValue =
+    typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+  const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+  if (!repo) {
+    return { ok: false, error: "Project repo not set in frontmatter" };
+  }
+
+  const mode: SubagentMode = input.mode ?? "main-run";
+  const repoHasGit = await fs
+    .stat(path.join(repo, ".git"))
+    .then(() => true)
+    .catch(() => false);
+  if (mode === "worktree" && !repoHasGit) {
+    return { ok: false, error: "Project repo is not a git repo" };
+  }
+
+  const sessionsRoot = path.join(projectDir, "sessions");
+  const sessionDir = path.join(sessionsRoot, input.slug);
+  if (await dirExists(sessionDir)) {
+    return { ok: false, error: `Subagent already exists: ${input.slug}` };
+  }
+  await fs.mkdir(sessionDir, { recursive: true });
+
+  const workspacesRoot = path.join(root, ".workspaces", input.projectId);
+  const worktreeDir = path.join(workspacesRoot, input.slug);
+  const baseBranch = input.baseBranch ?? "main";
+  let workspacePath = repo;
+  if (mode === "worktree") {
+    const branch = `${input.projectId}/${input.slug}`;
+    workspacePath = worktreeDir;
+    await fs.mkdir(workspacesRoot, { recursive: true });
+    const worktreeGitExists = await fs
+      .stat(path.join(worktreeDir, ".git"))
+      .then(() => true)
+      .catch(() => false);
+    if (!worktreeGitExists) {
+      await createWorktree(repo, worktreeDir, branch, baseBranch);
+    }
+  }
+
+  const promptFilePath = expandPath(
+    input.promptFile?.trim() || path.join(projectDir, "prompt.md")
+  );
+  const promptExists = await fs
+    .stat(promptFilePath)
+    .then((st) => st.isFile())
+    .catch(() => false);
+  if (!promptExists) {
+    return { ok: false, error: `Prompt file not found: ${promptFilePath}` };
+  }
+
+  const statePath = path.join(sessionDir, "state.json");
+  const historyPath = path.join(sessionDir, "history.jsonl");
+  const progressPath = path.join(sessionDir, "progress.json");
+  const logsPath = path.join(sessionDir, "logs.jsonl");
+  const configPath = path.join(sessionDir, "config.json");
+
+  const startedAt = new Date().toISOString();
+  const child = spawn(
+    "bash",
+    [scriptPath, String(input.iterations), workspacePath, promptFilePath],
+    {
+      cwd: workspacePath,
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  );
+
+  child.on("error", async () => {
+    const finishedAt = new Date().toISOString();
+    await appendHistory(historyPath, {
+      ts: finishedAt,
+      type: "worker.finished",
+      data: {
+        run_id: `${Date.now()}`,
+        outcome: "error",
+        error_message: "spawn failed",
+      },
+    });
+  });
+
+  await writeJson(configPath, {
+    type: "ralph_loop",
+    cli: input.cli,
+    runMode: mode,
+    baseBranch,
+    iterations: input.iterations,
+    promptFile: promptFilePath,
+    created: startedAt,
+    archived: false,
+  });
+  await writeJson(statePath, {
+    supervisor_pid: child.pid ?? 0,
+    started_at: startedAt,
+    last_error: "",
+    cli: input.cli,
+    run_mode: mode,
+    worktree_path: workspacePath,
+    base_branch: baseBranch,
+  });
+  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
+  await fs.appendFile(logsPath, "", "utf8");
+  await appendHistory(historyPath, {
+    ts: startedAt,
+    type: "worker.started",
+    data: { action: "started", harness: `ralph_${input.cli}`, session_id: "" },
+  });
+
+  child.stdout?.on("data", async (chunk: Buffer) => {
+    const lines = chunk
+      .toString("utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+    if (lines.length > 0) {
+      const stamped = lines
+        .map((line) => JSON.stringify({ type: "stdout", text: line }))
+        .join("\n");
+      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+      await writeJson(progressPath, {
+        last_active: new Date().toISOString(),
+        tool_calls: 0,
+      });
+    }
+  });
+
+  child.stderr?.on("data", async (chunk: Buffer) => {
+    const lines = chunk
+      .toString("utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+    if (lines.length > 0) {
+      const stamped = lines
+        .map((line) => JSON.stringify({ type: "stderr", text: line }))
+        .join("\n");
+      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+      await writeJson(progressPath, {
+        last_active: new Date().toISOString(),
+        tool_calls: 0,
+      });
+    }
   });
 
   child.on("exit", async (code, signal) => {
@@ -545,7 +859,11 @@ export async function interruptSubagent(
       await appendHistory(historyPath, {
         ts: new Date().toISOString(),
         type: "worker.interrupt",
-        data: { action: "requested", signal: "SIGTERM", supervisor_pid: state.supervisor_pid },
+        data: {
+          action: "requested",
+          signal: "SIGTERM",
+          supervisor_pid: state.supervisor_pid,
+        },
       });
       return { ok: true, data: { slug } };
     }
@@ -574,10 +892,18 @@ export async function killSubagent(
   }
 
   const statePath = path.join(sessionDir, "state.json");
-  let state: { supervisor_pid?: number; run_mode?: string; worktree_path?: string } | null = null;
+  let state: {
+    supervisor_pid?: number;
+    run_mode?: string;
+    worktree_path?: string;
+  } | null = null;
   try {
     const raw = await fs.readFile(statePath, "utf8");
-    state = JSON.parse(raw) as { supervisor_pid?: number; run_mode?: string; worktree_path?: string };
+    state = JSON.parse(raw) as {
+      supervisor_pid?: number;
+      run_mode?: string;
+      worktree_path?: string;
+    };
   } catch {
     state = null;
   }
@@ -593,7 +919,8 @@ export async function killSubagent(
 
   const workspacesRoot = path.join(root, ".workspaces", projectId);
   const worktreeDir = path.join(workspacesRoot, slug);
-  const worktreePath = typeof state?.worktree_path === "string" ? state.worktree_path : "";
+  const worktreePath =
+    typeof state?.worktree_path === "string" ? state.worktree_path : "";
   let runMode = typeof state?.run_mode === "string" ? state.run_mode : "";
   if (!runMode) {
     const worktreeHasGitDir = await fs
@@ -622,7 +949,8 @@ export async function killSubagent(
   if (runMode === "worktree") {
     const readmePath = path.join(root, dirName, "README.md");
     const { frontmatter } = await parseMarkdownFile(readmePath);
-    const repoValue = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+    const repoValue =
+      typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
     const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
     if (!repo) {
       return { ok: false, error: "Project repo not set" };
@@ -631,9 +959,13 @@ export async function killSubagent(
     const resolvedWorktreePath = worktreePath || worktreeDir;
     try {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn("git", ["-C", repo, "worktree", "remove", resolvedWorktreePath, "--force"], {
-          stdio: "ignore",
-        });
+        const child = spawn(
+          "git",
+          ["-C", repo, "worktree", "remove", resolvedWorktreePath, "--force"],
+          {
+            stdio: "ignore",
+          }
+        );
         child.on("exit", (code) => {
           if (code === 0) resolve();
           else reject(new Error("git worktree remove failed"));
@@ -641,14 +973,22 @@ export async function killSubagent(
         child.on("error", reject);
       });
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "git worktree remove failed" };
+      return {
+        ok: false,
+        error:
+          err instanceof Error ? err.message : "git worktree remove failed",
+      };
     }
 
     try {
       await new Promise<void>((resolve) => {
-        const child = spawn("git", ["-C", repo, "branch", "-D", `${projectId}/${slug}`], {
-          stdio: "ignore",
-        });
+        const child = spawn(
+          "git",
+          ["-C", repo, "branch", "-D", `${projectId}/${slug}`],
+          {
+            stdio: "ignore",
+          }
+        );
         child.on("exit", (code) => {
           if (code === 0) resolve();
           else resolve();
@@ -663,7 +1003,9 @@ export async function killSubagent(
   await fs.rm(sessionDir, { recursive: true, force: true });
 
   try {
-    const remainingSessions = await fs.readdir(path.join(projectDir, "sessions"));
+    const remainingSessions = await fs.readdir(
+      path.join(projectDir, "sessions")
+    );
     if (remainingSessions.length === 0) {
       await fs.rmdir(path.join(projectDir, "sessions"));
     }

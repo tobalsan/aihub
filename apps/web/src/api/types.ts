@@ -1,5 +1,11 @@
 export type SdkId = "pi" | "claude" | "openclaw";
-export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
 
 export type QueueMode = "queue" | "interrupt";
 
@@ -74,7 +80,10 @@ export type StreamEvent =
     }
   | { type: "tool_start"; toolName: string }
   | { type: "tool_end"; toolName: string; isError?: boolean }
-  | { type: "done"; meta?: { durationMs: number; aborted?: boolean; queued?: boolean } }
+  | {
+      type: "done";
+      meta?: { durationMs: number; aborted?: boolean; queued?: boolean };
+    }
   | { type: "error"; message: string };
 
 // History view mode
@@ -157,7 +166,10 @@ export type FullToolResultMessage = {
   timestamp: number;
 };
 
-export type FullHistoryMessage = FullUserMessage | FullAssistantMessage | FullToolResultMessage;
+export type FullHistoryMessage =
+  | FullUserMessage
+  | FullAssistantMessage
+  | FullToolResultMessage;
 
 // Active tool call during streaming
 export type ActiveToolCall = {
@@ -267,7 +279,11 @@ export type SubagentStatus = "running" | "replied" | "error" | "idle";
 export type SubagentGlobalListItem = {
   projectId: string;
   slug: string;
+  type?: "subagent" | "ralph_loop";
   cli?: string;
+  runMode?: string;
+  baseBranch?: string;
+  iterations?: number;
   status: SubagentStatus;
   lastActive?: string;
 };
@@ -278,6 +294,7 @@ export type SubagentGlobalListResponse = {
 
 export type SubagentListItem = {
   slug: string;
+  type?: "subagent" | "ralph_loop";
   cli?: string;
   runMode?: string;
   status: SubagentStatus;
@@ -286,6 +303,7 @@ export type SubagentListItem = {
   worktreePath?: string;
   lastError?: string;
   archived?: boolean;
+  iterations?: number;
 };
 
 export type SubagentLogEvent = {
@@ -298,7 +316,11 @@ export type SubagentLogEvent = {
 
 export type ActivityEvent = {
   id: string;
-  type: "project_status" | "agent_message" | "subagent_action" | "project_comment";
+  type:
+    | "project_status"
+    | "agent_message"
+    | "subagent_action"
+    | "project_comment";
   actor: string;
   action: string;
   projectId?: string;

@@ -6,7 +6,12 @@ import os from "node:os";
 describe("projects API", () => {
   let tmpDir: string;
   let projectsRoot: string;
-  let api: { request: (input: RequestInfo, init?: RequestInit) => Response | Promise<Response> };
+  let api: {
+    request: (
+      input: RequestInfo,
+      init?: RequestInit
+    ) => Response | Promise<Response>;
+  };
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
@@ -32,7 +37,10 @@ describe("projects API", () => {
       ],
       projects: { root: projectsRoot },
     };
-    await fs.writeFile(path.join(configDir, "aihub.json"), JSON.stringify(config, null, 2));
+    await fs.writeFile(
+      path.join(configDir, "aihub.json"),
+      JSON.stringify(config, null, 2)
+    );
 
     vi.resetModules();
     const mod = await import("../server/api.js");
@@ -49,13 +57,15 @@ describe("projects API", () => {
   });
 
   it("creates and updates project files in temp root", async () => {
-    const createRes = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Add Project Mgmt v1",
-      }),
-    }));
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Add Project Mgmt v1",
+        }),
+      })
+    );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
@@ -73,22 +83,26 @@ describe("projects API", () => {
     expect(list.length).toBe(1);
     expect(list[0].id).toBe(created.id);
 
-    const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
+    const getRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`)
+    );
     expect(getRes.status).toBe(200);
     const fetched = await getRes.json();
     expect(fetched.docs.README).toContain("# Add Project Mgmt v1");
 
-    const updateRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Project Mgmt API",
-        readme: "# Project Mgmt API\n\nOverview.\n",
-        specs: "# Project Mgmt API Specs\n\nUpdated content.\n",
-        status: "shaping",
-        repo: "/tmp/repo",
-      }),
-    }));
+    const updateRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Project Mgmt API",
+          readme: "# Project Mgmt API\n\nOverview.\n",
+          specs: "# Project Mgmt API Specs\n\nUpdated content.\n",
+          status: "shaping",
+          repo: "/tmp/repo",
+        }),
+      })
+    );
 
     expect(updateRes.status).toBe(200);
     const updated = await updateRes.json();
@@ -109,50 +123,58 @@ describe("projects API", () => {
   });
 
   it("rejects invalid create payloads", async () => {
-    const invalidDomain = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Valid Project",
-        domain: "invalid",
-      }),
-    }));
+    const invalidDomain = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Valid Project",
+          domain: "invalid",
+        }),
+      })
+    );
 
     expect(invalidDomain.status).toBe(400);
 
-    const invalidTitle = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Solo",
-      }),
-    }));
+    const invalidTitle = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Solo",
+        }),
+      })
+    );
 
     expect(invalidTitle.status).toBe(400);
     const invalidTitleBody = await invalidTitle.json();
-    expect(invalidTitleBody.error).toContain("Title must contain at least two words");
+    expect(invalidTitleBody.error).toContain(
+      "Title must contain at least two words"
+    );
   });
 
   it("creates project with metadata", async () => {
-    const createRes = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Metadata Project",
-        description: "Track the new form fields.",
-        domain: "admin",
-        owner: "ops",
-        executionMode: "exploratory",
-        appetite: "small",
-        status: "todo",
-      }),
-    }));
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Metadata Project",
+          description: "Track the new form fields.",
+          domain: "admin",
+          owner: "ops",
+          executionMode: "ralph_loop",
+          appetite: "small",
+          status: "todo",
+        }),
+      })
+    );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
     expect(created.frontmatter.domain).toBe("admin");
     expect(created.frontmatter.owner).toBe("ops");
-    expect(created.frontmatter.executionMode).toBe("exploratory");
+    expect(created.frontmatter.executionMode).toBe("ralph_loop");
     expect(created.frontmatter.appetite).toBe("small");
     expect(created.frontmatter.status).toBe("todo");
 
@@ -162,31 +184,35 @@ describe("projects API", () => {
     expect(readme).toContain("Track the new form fields.");
     expect(readme).toContain('domain: "admin"');
     expect(readme).toContain('owner: "ops"');
-    expect(readme).toContain('executionMode: "exploratory"');
+    expect(readme).toContain('executionMode: "ralph_loop"');
     expect(readme).toContain('appetite: "small"');
     expect(readme).toContain('status: "todo"');
   });
 
   it("appends thread comments via API", async () => {
-    const createRes = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Threaded Project",
-      }),
-    }));
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Threaded Project",
+        }),
+      })
+    );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const commentRes = await Promise.resolve(api.request(`/projects/${created.id}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        author: "cto",
-        message: "First note.",
-      }),
-    }));
+    const commentRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author: "cto",
+          message: "First note.",
+        }),
+      })
+    );
 
     expect(commentRes.status).toBe(201);
     const threadPath = path.join(projectsRoot, created.path, "THREAD.md");
@@ -194,7 +220,9 @@ describe("projects API", () => {
     expect(thread).toContain("[author:cto]");
     expect(thread).toContain("First note.");
 
-    const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
+    const getRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`)
+    );
     const fetched = await getRes.json();
     expect(fetched.thread.length).toBe(1);
     expect(fetched.thread[0]?.author).toBe("cto");
@@ -203,8 +231,12 @@ describe("projects API", () => {
     expect(activityRes.status).toBe(200);
     const activity = await activityRes.json();
     const commentEvent = activity.events.find(
-      (event: { type?: string; projectId?: string; actor?: string; action?: string }) =>
-        event.type === "project_comment" && event.projectId === created.id
+      (event: {
+        type?: string;
+        projectId?: string;
+        actor?: string;
+        action?: string;
+      }) => event.type === "project_comment" && event.projectId === created.id
     );
     expect(commentEvent?.actor).toBe("cto");
     expect(commentEvent?.action).toContain(`commented on ${created.id}:`);
@@ -212,45 +244,55 @@ describe("projects API", () => {
   });
 
   it("updates thread comments via PATCH endpoint", async () => {
-    const createRes = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Update Comment Project",
-      }),
-    }));
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Update Comment Project",
+        }),
+      })
+    );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    await Promise.resolve(api.request(`/projects/${created.id}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ author: "alice", message: "Original message" }),
-    }));
+    await Promise.resolve(
+      api.request(`/projects/${created.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ author: "alice", message: "Original message" }),
+      })
+    );
 
-    const updateRes = await Promise.resolve(api.request(`/projects/${created.id}/comments/0`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: "Updated message" }),
-    }));
+    const updateRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/comments/0`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: "Updated message" }),
+      })
+    );
 
     expect(updateRes.status).toBe(200);
     const updated = await updateRes.json();
     expect(updated.author).toBe("alice");
     expect(updated.body).toBe("Updated message");
 
-    const getRes = await Promise.resolve(api.request(`/projects/${created.id}`));
+    const getRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`)
+    );
     const fetched = await getRes.json();
     expect(fetched.thread[0]?.body).toBe("Updated message");
   });
 
   it("deletes a project and moves it to trash", async () => {
-    const createRes = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Delete Me Project" }),
-    }));
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Delete Me Project" }),
+      })
+    );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
@@ -260,9 +302,11 @@ describe("projects API", () => {
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
     await expect(fs.stat(trashRoot)).rejects.toBeDefined();
 
-    const deleteRes = await Promise.resolve(api.request(`/projects/${created.id}`, {
-      method: "DELETE",
-    }));
+    const deleteRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "DELETE",
+      })
+    );
 
     expect(deleteRes.status).toBe(200);
     const deleted = await deleteRes.json();
@@ -276,11 +320,13 @@ describe("projects API", () => {
   });
 
   it("archives and unarchives a project", async () => {
-    const createRes = await Promise.resolve(api.request("/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Archive API Project" }),
-    }));
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Archive API Project" }),
+      })
+    );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
@@ -288,9 +334,11 @@ describe("projects API", () => {
 
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
 
-    const archiveRes = await Promise.resolve(api.request(`/projects/${created.id}/archive`, {
-      method: "POST",
-    }));
+    const archiveRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/archive`, {
+        method: "POST",
+      })
+    );
 
     expect(archiveRes.status).toBe(200);
     const archived = await archiveRes.json();
@@ -299,9 +347,11 @@ describe("projects API", () => {
     await expect(fs.access(createdDir)).rejects.toBeDefined();
     await expect(fs.stat(archivedDir)).resolves.toBeDefined();
 
-    const unarchiveRes = await Promise.resolve(api.request(`/projects/${created.id}/unarchive`, {
-      method: "POST",
-    }));
+    const unarchiveRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/unarchive`, {
+        method: "POST",
+      })
+    );
 
     expect(unarchiveRes.status).toBe(200);
     const unarchived = await unarchiveRes.json();

@@ -1,4 +1,14 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+  untrack,
+} from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -26,6 +36,7 @@ import {
   updateProjectComment,
   deleteProjectComment,
   startProjectRun,
+  spawnRalphLoop,
 } from "../api/client";
 import type {
   ProjectListItem,
@@ -121,7 +132,10 @@ function loadFormFromStorage(): CreateFormState | null {
     const raw = localStorage.getItem(CREATE_FORM_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (typeof parsed.title === "string" && typeof parsed.description === "string") {
+    if (
+      typeof parsed.title === "string" &&
+      typeof parsed.description === "string"
+    ) {
       return parsed;
     }
     return null;
@@ -172,7 +186,11 @@ function openFilesDb(): Promise<IDBDatabase> {
   });
 }
 
-async function saveFilesToStore(storeName: string, key: string, files: File[]): Promise<void> {
+async function saveFilesToStore(
+  storeName: string,
+  key: string,
+  files: File[]
+): Promise<void> {
   if (typeof window === "undefined") return;
   if (typeof indexedDB === "undefined") return;
   if (files.length === 0) {
@@ -198,7 +216,10 @@ async function saveFilesToStore(storeName: string, key: string, files: File[]): 
   });
 }
 
-async function loadFilesFromStore(storeName: string, key: string): Promise<File[]> {
+async function loadFilesFromStore(
+  storeName: string,
+  key: string
+): Promise<File[]> {
   if (typeof window === "undefined") return [];
   try {
     const db = await openFilesDb();
@@ -223,7 +244,10 @@ async function loadFilesFromStore(storeName: string, key: string): Promise<File[
   }
 }
 
-async function clearFilesFromStore(storeName: string, key: string): Promise<void> {
+async function clearFilesFromStore(
+  storeName: string,
+  key: string
+): Promise<void> {
   if (typeof window === "undefined") return;
   try {
     const db = await openFilesDb();
@@ -266,21 +290,21 @@ function getFrontmatterRecord(
   key: string
 ): Record<string, string> | undefined {
   const value = frontmatter?.[key];
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
   return value as Record<string, string>;
 }
-
 
 function formatCreatedRelative(raw?: string): string {
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
-  
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const created = new Date(date);
   created.setHours(0, 0, 0, 0);
-  
+
   const days = Math.floor((today.getTime() - created.getTime()) / 86400000);
   if (days === 0) return "Created today";
   if (days === 1) return "Created yesterday";
@@ -331,7 +355,10 @@ function rewriteAttachmentUrl(raw: unknown, projectId?: string): string | null {
   if (!href) return null;
   if (!projectId) return href;
   const trimmed = href.trim();
-  if (!trimmed.startsWith("attachments/") && !trimmed.startsWith("./attachments/")) {
+  if (
+    !trimmed.startsWith("attachments/") &&
+    !trimmed.startsWith("./attachments/")
+  ) {
     return href;
   }
   const cleaned = trimmed.replace(/^\.?\//, "").replace(/^attachments\//, "");
@@ -346,7 +373,8 @@ function renderMarkdown(content: string, projectId?: string): string {
   renderer.link = (href, title, text) => {
     const rawHref = normalizeHref(href) ?? "";
     const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
-    const safeTitle = typeof title === "string" && title ? ` title="${title}"` : "";
+    const safeTitle =
+      typeof title === "string" && title ? ` title="${title}"` : "";
     const safeText =
       typeof text === "string" && text.trim().length > 0
         ? text
@@ -356,11 +384,16 @@ function renderMarkdown(content: string, projectId?: string): string {
   renderer.image = (href, title, _text) => {
     const rawHref = normalizeHref(href) ?? "";
     const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
-    const safeTitle = typeof title === "string" && title ? ` title="${title}"` : "";
+    const safeTitle =
+      typeof title === "string" && title ? ` title="${title}"` : "";
     const label = getFilenameFromHref(rawHref || next);
     return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${label}</a>`;
   };
-  const html = marked.parse(stripped, { breaks: true, async: false, renderer }) as string;
+  const html = marked.parse(stripped, {
+    breaks: true,
+    async: false,
+    renderer,
+  }) as string;
   return DOMPurify.sanitize(html, { ADD_ATTR: ["target", "rel"] });
 }
 
@@ -450,9 +483,11 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             continue;
           }
           if (toolKey === "bash") {
-            const command = typeof args?.command === "string" ? args.command : "";
+            const command =
+              typeof args?.command === "string" ? args.command : "";
             const params = typeof args?.args === "string" ? args.args : "";
-            const description = typeof args?.description === "string" ? args.description : "";
+            const description =
+              typeof args?.description === "string" ? args.description : "";
             const output = toolResults.get(block.id);
             const body = output ? getTextBlocks(output.content) : "";
             const summary = ["Bash", command, params, description]
@@ -475,7 +510,8 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
                 : typeof args?.file_path === "string"
                   ? args.file_path
                   : "";
-            const content = typeof args?.content === "string" ? args.content : "";
+            const content =
+              typeof args?.content === "string" ? args.content : "";
             entries.push({
               tone: "muted",
               icon: "write",
@@ -579,7 +615,9 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
             : typeof args?.command === "string"
               ? args.command
               : "";
-        const summary = ["Bash", command].filter((part) => part.trim()).join(" ");
+        const summary = ["Bash", command]
+          .filter((part) => part.trim())
+          .join(" ");
         const body = output?.text ?? "";
         entries.push({
           tone: "muted",
@@ -616,7 +654,8 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
             : typeof args?.file_path === "string"
               ? args.file_path
               : "";
-        const content = typeof args?.content === "string" ? args.content : event.text ?? "";
+        const content =
+          typeof args?.content === "string" ? args.content : (event.text ?? "");
         entries.push({
           tone: "muted",
           icon: "write",
@@ -628,7 +667,9 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         continue;
       }
       if (toolKey === "apply_patch") {
-        const body = output?.text ? `${event.text ?? ""}\n\n${output.text}`.trim() : event.text ?? "";
+        const body = output?.text
+          ? `${event.text ?? ""}\n\n${output.text}`.trim()
+          : (event.text ?? "");
         entries.push({
           tone: "muted",
           icon: "write",
@@ -743,7 +784,15 @@ function renderLogItem(item: LogItem) {
 
 type LogItem = {
   tone: "assistant" | "user" | "muted" | "error";
-  icon?: "read" | "write" | "bash" | "tool" | "output" | "diff" | "system" | "error";
+  icon?:
+    | "read"
+    | "write"
+    | "bash"
+    | "tool"
+    | "output"
+    | "diff"
+    | "system"
+    | "error";
   title?: string;
   body: string;
   collapsible?: boolean;
@@ -752,20 +801,28 @@ type LogItem = {
 type AgentRunItem = {
   key: string;
   type: "subagent" | "aihub";
+  executionType?: "subagent" | "ralph_loop";
   label: string;
-  status: "running" | "idle";
+  status: "running" | "replied" | "error" | "idle";
   time?: number;
   slug?: string;
   agentId?: string;
   sessionKey?: string;
   archived?: boolean;
+  iterations?: number;
 };
 
 function logTone(type: string): "assistant" | "user" | "muted" | "error" {
   if (type === "user") return "user";
   if (type === "assistant") return "assistant";
   if (type === "error" || type === "stderr") return "error";
-  if (type === "tool_call" || type === "tool_output" || type === "diff" || type === "session" || type === "message") {
+  if (
+    type === "tool_call" ||
+    type === "tool_output" ||
+    type === "diff" ||
+    type === "session" ||
+    type === "message"
+  ) {
     return "muted";
   }
   return "assistant";
@@ -774,7 +831,13 @@ function logTone(type: string): "assistant" | "user" | "muted" | "error" {
 function logIcon(icon?: LogItem["icon"]) {
   if (icon === "bash") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 5h16v14H4z" />
         <path d="M7 9l3 3-3 3" />
         <path d="M12 15h4" />
@@ -783,7 +846,13 @@ function logIcon(icon?: LogItem["icon"]) {
   }
   if (icon === "read") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 19h12a4 4 0 0 0 0-8h-1" />
         <path d="M4 19V5h9a4 4 0 0 1 4 4v2" />
       </svg>
@@ -791,7 +860,13 @@ function logIcon(icon?: LogItem["icon"]) {
   }
   if (icon === "write") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M12 20h9" />
         <path d="M16.5 3.5l4 4L8 20l-4 1 1-4L16.5 3.5z" />
       </svg>
@@ -799,35 +874,65 @@ function logIcon(icon?: LogItem["icon"]) {
   }
   if (icon === "tool") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3z" />
       </svg>
     );
   }
   if (icon === "output") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M20 6L9 17l-5-5" />
       </svg>
     );
   }
   if (icon === "diff") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M8 7v10M16 7v10M3 12h5M16 12h5" />
       </svg>
     );
   }
   if (icon === "system") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 5h16v10H7l-3 3V5z" />
       </svg>
     );
   }
   if (icon === "error") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M12 8v5M12 16h.01" />
         <circle cx="12" cy="12" r="9" />
       </svg>
@@ -893,16 +998,25 @@ export function ProjectsBoard() {
     () => params.id,
     async (id) => (id ? fetchProject(id) : null)
   );
-  const [expanded, setExpanded] = createSignal<string[]>(readExpandedFromStorage());
+  const [expanded, setExpanded] = createSignal<string[]>(
+    readExpandedFromStorage()
+  );
   const [detailStatus, setDetailStatus] = createSignal("maybe");
   const [detailDomain, setDetailDomain] = createSignal("");
   const [detailOwner, setDetailOwner] = createSignal("");
   const [detailMode, setDetailMode] = createSignal("");
   const [detailAppetite, setDetailAppetite] = createSignal("");
   const [detailRunAgent, setDetailRunAgent] = createSignal("");
+  const [detailRalphCli, setDetailRalphCli] = createSignal<"codex" | "claude">(
+    "codex"
+  );
+  const [detailRalphIterations, setDetailRalphIterations] = createSignal("20");
+  const [detailRalphPromptFile, setDetailRalphPromptFile] = createSignal("");
   const [detailRunMode, setDetailRunMode] = createSignal("main-run");
   const [detailRepo, setDetailRepo] = createSignal("");
-  const [repoStatus, setRepoStatus] = createSignal<"idle" | "checking" | "ok" | "error">("idle");
+  const [repoStatus, setRepoStatus] = createSignal<
+    "idle" | "checking" | "ok" | "error"
+  >("idle");
   const [repoStatusMessage, setRepoStatusMessage] = createSignal("");
   const [repoStatusVisible, setRepoStatusVisible] = createSignal(false);
   const [detailTitle, setDetailTitle] = createSignal("");
@@ -912,11 +1026,17 @@ export function ProjectsBoard() {
   const [editingDoc, setEditingDoc] = createSignal<string | null>(null);
   const [detailIsDragging, setDetailIsDragging] = createSignal(false);
   const [detailPendingFiles, setDetailPendingFiles] = createSignal<File[]>([]);
-  const [detailSessionKeys, setDetailSessionKeys] = createSignal<Record<string, string>>({});
+  const [detailSessionKeys, setDetailSessionKeys] = createSignal<
+    Record<string, string>
+  >({});
   const [newComment, setNewComment] = createSignal("");
-  const [editingCommentIndex, setEditingCommentIndex] = createSignal<number | null>(null);
+  const [editingCommentIndex, setEditingCommentIndex] = createSignal<
+    number | null
+  >(null);
   const [editingCommentBody, setEditingCommentBody] = createSignal("");
-  const [detailThread, setDetailThread] = createSignal<{ author: string; date: string; body: string }[]>([]);
+  const [detailThread, setDetailThread] = createSignal<
+    { author: string; date: string; body: string }[]
+  >([]);
   const [detailSlug, setDetailSlug] = createSignal("");
   const [detailBranch, setDetailBranch] = createSignal("main");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -928,11 +1048,17 @@ export function ProjectsBoard() {
   const [showArchivedRuns, setShowArchivedRuns] = createSignal(true);
   const [subagentLogs, setSubagentLogs] = createSignal<SubagentLogEvent[]>([]);
   const [selectedRunKey, setSelectedRunKey] = createSignal<string | null>(null);
-  const [aihubRunMeta, setAihubRunMeta] = createSignal<Record<string, { lastTs?: number }>>({});
-  const [aihubRunLogs, setAihubRunLogs] = createSignal<Record<string, LogItem[]>>({});
+  const [aihubRunMeta, setAihubRunMeta] = createSignal<
+    Record<string, { lastTs?: number }>
+  >({});
+  const [aihubRunLogs, setAihubRunLogs] = createSignal<
+    Record<string, LogItem[]>
+  >({});
   const [runLogAtBottom, setRunLogAtBottom] = createSignal(true);
   const [initialRunScroll, setInitialRunScroll] = createSignal(false);
-  const [openMenu, setOpenMenu] = createSignal<"status" | "appetite" | "domain" | "owner" | "mode" | null>(null);
+  const [openMenu, setOpenMenu] = createSignal<
+    "status" | "appetite" | "domain" | "owner" | "mode" | null
+  >(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [createTitle, setCreateTitle] = createSignal("");
   const [createDescription, setCreateDescription] = createSignal("");
@@ -944,14 +1070,18 @@ export function ProjectsBoard() {
   const [isDragging, setIsDragging] = createSignal(false);
   const [filesLoaded, setFilesLoaded] = createSignal(false);
   const [draggingCardId, setDraggingCardId] = createSignal<string | null>(null);
-  const [draggingFromStatus, setDraggingFromStatus] = createSignal<string | null>(null);
+  const [draggingFromStatus, setDraggingFromStatus] = createSignal<
+    string | null
+  >(null);
   const [dragOverColumn, setDragOverColumn] = createSignal<string | null>(null);
   const [filterText, setFilterText] = createSignal("");
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
-  const [mobileOverlay, setMobileOverlay] = createSignal<"chat" | "feed" | null>(null);
+  const [mobileOverlay, setMobileOverlay] = createSignal<
+    "chat" | "feed" | null
+  >(null);
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
@@ -978,10 +1108,12 @@ export function ProjectsBoard() {
   });
 
   onMount(() => {
-    const isTestEnv = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+    const isTestEnv =
+      typeof process !== "undefined" && process.env?.NODE_ENV === "test";
     if (!isTestEnv) return;
     const testApi = { setCreateSuccess };
-    (window as unknown as { __aihubTest?: typeof testApi }).__aihubTest = testApi;
+    (window as unknown as { __aihubTest?: typeof testApi }).__aihubTest =
+      testApi;
     onCleanup(() => {
       const global = window as unknown as { __aihubTest?: typeof testApi };
       if (global.__aihubTest === testApi) delete global.__aihubTest;
@@ -1027,7 +1159,11 @@ export function ProjectsBoard() {
       const items = subagents()?.items ?? [];
       if (items.length === 0) return;
       const [projectId, token] = value.split("/");
-      const exists = items.some((item) => item.projectId === projectId && (item.slug === token || item.cli === token));
+      const exists = items.some(
+        (item) =>
+          item.projectId === projectId &&
+          (item.slug === token || item.cli === token)
+      );
       if (!exists) setSelectedAgent(null);
       return;
     }
@@ -1050,12 +1186,20 @@ export function ProjectsBoard() {
   const selectedRunAgent = createMemo(() => {
     const value = detailRunAgent();
     if (!value) return null;
-    if (value.startsWith("aihub:")) return { type: "aihub" as const, id: value.slice(6) };
-    if (value.startsWith("cli:")) return { type: "cli" as const, id: value.slice(4) };
+    if (value.startsWith("aihub:"))
+      return { type: "aihub" as const, id: value.slice(6) };
+    if (value.startsWith("cli:"))
+      return { type: "cli" as const, id: value.slice(4) };
     return null;
   });
 
+  const isRalphLoopMode = createMemo(() => detailMode() === "ralph_loop");
+
   const canStart = createMemo(() => {
+    if (isRalphLoopMode()) {
+      const iterations = Number(detailRalphIterations());
+      return Number.isFinite(iterations) && iterations >= 1;
+    }
     const agent = selectedRunAgent();
     if (!agent) return false;
     if (agent.type === "aihub") return true;
@@ -1078,7 +1222,9 @@ export function ProjectsBoard() {
     if (!projectId || !token) return undefined;
     const items = globalSubagents()?.items ?? [];
     const match = items.find(
-      (item) => item.projectId === projectId && (item.slug === token || item.cli === token)
+      (item) =>
+        item.projectId === projectId &&
+        (item.slug === token || item.cli === token)
     );
     if (!match) {
       const projectItems = items.filter((item) => item.projectId === projectId);
@@ -1104,8 +1250,11 @@ export function ProjectsBoard() {
     if (!selected) return null;
     if (selected.startsWith("PRO-")) {
       const [projectId, token] = selected.split("/");
-      const match = globalSubagents()
-        ?.items.find((item) => item.projectId === projectId && (item.slug === token || item.cli === token));
+      const match = globalSubagents()?.items.find(
+        (item) =>
+          item.projectId === projectId &&
+          (item.slug === token || item.cli === token)
+      );
       return `${projectId}/${match?.cli ?? token}`;
     }
     const match = agents()?.find((agent) => agent.id === selected);
@@ -1138,11 +1287,13 @@ export function ProjectsBoard() {
       runs.push({
         key: `subagent:${item.slug}`,
         type: "subagent",
+        executionType: item.type ?? "subagent",
         label: `${project.id}/${item.cli ?? item.slug}`,
-        status: item.status === "running" ? "running" : "idle",
+        status: item.status,
         time: Number.isNaN(time) ? undefined : time,
         slug: item.slug,
         archived: item.archived ?? false,
+        iterations: item.iterations,
       });
     }
     const sessionKeys = detailSessionKeys();
@@ -1167,7 +1318,9 @@ export function ProjectsBoard() {
     });
     return runs;
   });
-  const hasArchivedRuns = createMemo(() => subagents().some((item) => item.archived));
+  const hasArchivedRuns = createMemo(() =>
+    subagents().some((item) => item.archived)
+  );
   // Check if any agent run is currently running
   const runningAgent = createMemo(() => {
     return agentRuns().find((run) => run.status === "running") ?? null;
@@ -1195,7 +1348,9 @@ export function ProjectsBoard() {
       // Filter by title OR domain
       if (filter) {
         const title = (item.title ?? "").toLowerCase();
-        const domain = (getFrontmatterString(item.frontmatter, "domain") ?? "").toLowerCase();
+        const domain = (
+          getFrontmatterString(item.frontmatter, "domain") ?? ""
+        ).toLowerCase();
         if (!title.includes(filter) && !domain.includes(filter)) {
           continue;
         }
@@ -1228,7 +1383,11 @@ export function ProjectsBoard() {
     const withItems = COLUMNS.filter((col) =>
       items.some((item) => getStatus(item) === col.id)
     ).map((col) => col.id);
-    setExpanded(withItems.slice(0, 2).length > 0 ? withItems.slice(0, 2) : COLUMNS.slice(0, 2).map((col) => col.id));
+    setExpanded(
+      withItems.slice(0, 2).length > 0
+        ? withItems.slice(0, 2)
+        : COLUMNS.slice(0, 2).map((col) => col.id)
+    );
   });
 
   createEffect(() => {
@@ -1241,17 +1400,29 @@ export function ProjectsBoard() {
   createEffect(() => {
     const current = detail();
     if (current) {
-      setDetailStatus(normalizeStatus(getFrontmatterString(current.frontmatter, "status")));
-      setDetailDomain(getFrontmatterString(current.frontmatter, "domain") ?? "");
+      setDetailStatus(
+        normalizeStatus(getFrontmatterString(current.frontmatter, "status"))
+      );
+      setDetailDomain(
+        getFrontmatterString(current.frontmatter, "domain") ?? ""
+      );
       setDetailOwner(getFrontmatterString(current.frontmatter, "owner") ?? "");
-      setDetailMode(normalizeMode(getFrontmatterString(current.frontmatter, "executionMode")));
-      setDetailAppetite(getFrontmatterString(current.frontmatter, "appetite") ?? "");
+      setDetailMode(
+        normalizeMode(
+          getFrontmatterString(current.frontmatter, "executionMode")
+        )
+      );
+      setDetailAppetite(
+        getFrontmatterString(current.frontmatter, "appetite") ?? ""
+      );
       setDetailRunAgent("");
       setDetailRunMode("main-run");
       const repo = getFrontmatterString(current.frontmatter, "repo") ?? "";
       setDetailRepo(repo);
       savedRepo = repo;
-      setDetailSessionKeys(getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {});
+      setDetailSessionKeys(
+        getFrontmatterRecord(current.frontmatter, "sessionKeys") ?? {}
+      );
       // Use untrack to avoid circular dependency when editing
       if (!untrack(editingTitle)) setDetailTitle(current.title);
       // Sync docs (only update keys not being edited)
@@ -1259,7 +1430,10 @@ export function ProjectsBoard() {
       const currentDocs = untrack(detailDocs);
       const nextDocs: Record<string, string> = {};
       for (const [key, content] of Object.entries(current.docs ?? {})) {
-        nextDocs[key] = currentEditing === key ? (currentDocs[key] ?? stripMarkdownMeta(content)) : stripMarkdownMeta(content);
+        nextDocs[key] =
+          currentEditing === key
+            ? (currentDocs[key] ?? stripMarkdownMeta(content))
+            : stripMarkdownMeta(content);
       }
       setDetailDocs(nextDocs);
       // Sync thread
@@ -1283,6 +1457,9 @@ export function ProjectsBoard() {
     setSubagentLogs([]);
     setShowArchivedRuns(false);
     setSelectedRunKey(null);
+    setDetailRalphCli("codex");
+    setDetailRalphIterations("20");
+    setDetailRalphPromptFile("");
     setAihubRunMeta({});
     setAihubRunLogs({});
     setDetailSlug("");
@@ -1391,7 +1568,11 @@ export function ProjectsBoard() {
       if (res.ok) {
         setBranches(res.data.branches);
         if (!res.data.branches.includes(detailBranch())) {
-          setDetailBranch(res.data.branches.includes("main") ? "main" : res.data.branches[0] ?? "main");
+          setDetailBranch(
+            res.data.branches.includes("main")
+              ? "main"
+              : (res.data.branches[0] ?? "main")
+          );
         }
         if (res.data.branches.length > 0) {
           setRepoStatus("ok");
@@ -1572,14 +1753,43 @@ export function ProjectsBoard() {
 
   const handleStart = async (projectId: string) => {
     setStartError("");
-    const custom = customStartEnabled() ? customStartPrompt().trim() : undefined;
+    if (isRalphLoopMode()) {
+      const iterations = Number(detailRalphIterations());
+      if (!Number.isFinite(iterations) || iterations < 1) {
+        setStartError("Iterations must be a number >= 1");
+        return;
+      }
+      const result = await spawnRalphLoop(projectId, {
+        cli: detailRalphCli(),
+        iterations,
+        promptFile: detailRalphPromptFile().trim() || undefined,
+      });
+      if (!result.ok) {
+        setStartError(result.error);
+        return;
+      }
+      if (detailStatus() === "todo") {
+        setDetailStatus("in_progress");
+        await updateProject(projectId, { status: "in_progress" });
+      }
+      await refetch();
+      await refetchDetail();
+      return;
+    }
+
+    const custom = customStartEnabled()
+      ? customStartPrompt().trim()
+      : undefined;
     const agent = selectedRunAgent();
     const result = await startProjectRun(projectId, {
       customPrompt: custom,
       runAgent: detailRunAgent().trim() || undefined,
       runMode: agent?.type === "cli" ? detailRunMode() : undefined,
       baseBranch: agent?.type === "cli" ? detailBranch() : undefined,
-      slug: agent?.type === "cli" && detailRunMode() === "worktree" ? detailSlug().trim() : undefined,
+      slug:
+        agent?.type === "cli" && detailRunMode() === "worktree"
+          ? detailSlug().trim()
+          : undefined,
     });
     if (!result.ok) {
       setStartError(result.error);
@@ -1611,7 +1821,11 @@ export function ProjectsBoard() {
     // Polling will refresh the status automatically
   };
 
-  const handleArchiveToggle = async (projectId: string, slug: string, archived: boolean) => {
+  const handleArchiveToggle = async (
+    projectId: string,
+    slug: string,
+    archived: boolean
+  ) => {
     if (!archived && !window.confirm(`Archive run ${slug}?`)) return;
     if (archived) {
       await unarchiveSubagent(projectId, slug);
@@ -1656,7 +1870,7 @@ export function ProjectsBoard() {
     setEditingDoc(null);
   };
 
-const handleDetailDragOver = (e: DragEvent) => {
+  const handleDetailDragOver = (e: DragEvent) => {
     e.preventDefault();
     setDetailIsDragging(true);
   };
@@ -1712,7 +1926,9 @@ const handleDetailDragOver = (e: DragEvent) => {
   const handleCommentUpdate = async (projectId: string, index: number) => {
     const body = editingCommentBody().trim();
     if (!body) return;
-    setDetailThread((prev) => prev.map((e, i) => (i === index ? { ...e, body } : e)));
+    setDetailThread((prev) =>
+      prev.map((e, i) => (i === index ? { ...e, body } : e))
+    );
     setEditingCommentIndex(null);
     await updateProjectComment(projectId, index, body);
     await refetchDetail();
@@ -1877,15 +2093,16 @@ const handleDetailDragOver = (e: DragEvent) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleCardDragStart = (id: string, status: string) => (e: DragEvent) => {
-    setDraggingCardId(id);
-    setDraggingFromStatus(status);
-    setDragOverColumn(null);
-    if (e.dataTransfer) {
-      e.dataTransfer.setData("text/plain", id);
-      e.dataTransfer.effectAllowed = "move";
-    }
-  };
+  const handleCardDragStart =
+    (id: string, status: string) => (e: DragEvent) => {
+      setDraggingCardId(id);
+      setDraggingFromStatus(status);
+      setDragOverColumn(null);
+      if (e.dataTransfer) {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+      }
+    };
 
   const handleCardDragEnd = () => {
     setDraggingCardId(null);
@@ -1973,7 +2190,8 @@ const handleDetailDragOver = (e: DragEvent) => {
 
     if (attachmentSection) {
       const currentReadme = result.data.docs?.README || "";
-      const updatedReadme = currentReadme + (currentReadme ? "\n\n" : "") + attachmentSection;
+      const updatedReadme =
+        currentReadme + (currentReadme ? "\n\n" : "") + attachmentSection;
       await updateProject(projectId, { docs: { README: updatedReadme } });
     }
 
@@ -2050,7 +2268,11 @@ const handleDetailDragOver = (e: DragEvent) => {
       onClick={(e) => {
         if (!isMobile() || sidebarCollapsed()) return;
         const target = e.target as HTMLElement;
-        if (target.closest(".agent-sidebar") || target.closest(".mobile-sidebar-toggle")) return;
+        if (
+          target.closest(".agent-sidebar") ||
+          target.closest(".mobile-sidebar-toggle")
+        )
+          return;
         setSidebarCollapsed(true);
       }}
     >
@@ -2083,946 +2305,1522 @@ const handleDetailDragOver = (e: DragEvent) => {
           onClick={() => setSidebarCollapsed((prev) => !prev)}
           aria-label="Toggle sidebar"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M3 12h18M3 6h18M3 18h18" />
           </svg>
         </button>
       </Show>
       <main class="kanban-main">
         <div class="projects-page">
-      <header class="projects-header">
-        <h1 class="header-title">AIHub</h1>
-        <input
-          class="filter-input"
-          type="text"
-          placeholder="Filter by title or domain..."
-          value={filterText()}
-          onInput={(e) => setFilterText(e.currentTarget.value)}
-        />
-        <button
-          class="archive-link"
-          type="button"
-          onClick={() => setShowArchived((prev) => !prev)}
-        >
-          {showArchived() ? "Hide archive" : "Archived"}
-        </button>
-      </header>
-
-      <Show when={projects.loading}>
-        <div class="projects-loading">Loading projects...</div>
-      </Show>
-      <Show when={projects.error}>
-        <div class="projects-error">Failed to load projects</div>
-      </Show>
-
-      <Show when={showArchived()}>
-        <div class="archive-panel">
-          <div class="archive-panel-header">
-            <div class="archive-panel-title">Archived</div>
-            <button class="archive-panel-close" type="button" onClick={() => setShowArchived(false)}>
-              Close
+          <header class="projects-header">
+            <h1 class="header-title">AIHub</h1>
+            <input
+              class="filter-input"
+              type="text"
+              placeholder="Filter by title or domain..."
+              value={filterText()}
+              onInput={(e) => setFilterText(e.currentTarget.value)}
+            />
+            <button
+              class="archive-link"
+              type="button"
+              onClick={() => setShowArchived((prev) => !prev)}
+            >
+              {showArchived() ? "Hide archive" : "Archived"}
             </button>
-          </div>
-          <Show when={archivedProjects.loading}>
-            <div class="archive-panel-loading">Loading archived projects...</div>
+          </header>
+
+          <Show when={projects.loading}>
+            <div class="projects-loading">Loading projects...</div>
           </Show>
-          <Show when={archivedProjects.error}>
-            <div class="archive-panel-error">Failed to load archived projects</div>
+          <Show when={projects.error}>
+            <div class="projects-error">Failed to load projects</div>
           </Show>
-          <Show when={!archivedProjects.loading && (archivedProjects() ?? []).length === 0}>
-            <div class="archive-panel-empty">No archived projects</div>
-          </Show>
-          <div class="archive-panel-list">
-            <For each={archivedProjects() ?? []}>
-              {(item) => (
-                <button class="archive-item" type="button" onClick={() => openDetail(item.id)}>
-                  <div class="archive-item-title">{item.title}</div>
-                  <div class="archive-item-id">{item.id}</div>
+
+          <Show when={showArchived()}>
+            <div class="archive-panel">
+              <div class="archive-panel-header">
+                <div class="archive-panel-title">Archived</div>
+                <button
+                  class="archive-panel-close"
+                  type="button"
+                  onClick={() => setShowArchived(false)}
+                >
+                  Close
                 </button>
-              )}
+              </div>
+              <Show when={archivedProjects.loading}>
+                <div class="archive-panel-loading">
+                  Loading archived projects...
+                </div>
+              </Show>
+              <Show when={archivedProjects.error}>
+                <div class="archive-panel-error">
+                  Failed to load archived projects
+                </div>
+              </Show>
+              <Show
+                when={
+                  !archivedProjects.loading &&
+                  (archivedProjects() ?? []).length === 0
+                }
+              >
+                <div class="archive-panel-empty">No archived projects</div>
+              </Show>
+              <div class="archive-panel-list">
+                <For each={archivedProjects() ?? []}>
+                  {(item) => (
+                    <button
+                      class="archive-item"
+                      type="button"
+                      onClick={() => openDetail(item.id)}
+                    >
+                      <div class="archive-item-title">{item.title}</div>
+                      <div class="archive-item-id">{item.id}</div>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          <div class="board">
+            <For each={COLUMNS}>
+              {(column) => {
+                const items = () => grouped().get(column.id) ?? [];
+                const isExpanded = () => expanded().includes(column.id);
+                return (
+                  <section
+                    class={`column ${isExpanded() ? "expanded" : "collapsed"}`}
+                    classList={{
+                      "drop-target": dragOverColumn() === column.id,
+                    }}
+                    style={{ "--col": column.color }}
+                    onDragOver={handleColumnDragOver(column.id)}
+                    onDragLeave={handleColumnDragLeave(column.id)}
+                    onDrop={handleColumnDrop(column.id)}
+                  >
+                    <div class="column-header-wrapper">
+                      <button
+                        class="column-header"
+                        onClick={() => toggleColumn(column.id)}
+                      >
+                        <div class="column-title">{column.title}</div>
+                        <div class="column-count">{items().length}</div>
+                      </button>
+                      <Show when={column.id === "maybe" && isExpanded()}>
+                        <button
+                          class="create-btn"
+                          onClick={openCreateModal}
+                          title="Create project (c)"
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <path d="M12 5v14M5 12h14" />
+                          </svg>
+                        </button>
+                      </Show>
+                    </div>
+                    <Show when={isExpanded()}>
+                      <div class="column-body">
+                        <Show when={items().length === 0}>
+                          <div class="empty-state">No projects</div>
+                        </Show>
+                        <For each={items()}>
+                          {(item) => {
+                            const fm = item.frontmatter ?? {};
+                            const owner = getFrontmatterString(fm, "owner");
+                            const domain = getFrontmatterString(fm, "domain");
+                            const mode = getFrontmatterString(
+                              fm,
+                              "executionMode"
+                            );
+                            const appetite = getFrontmatterString(
+                              fm,
+                              "appetite"
+                            );
+                            const created = getFrontmatterString(fm, "created");
+                            return (
+                              <div
+                                class="card"
+                                role="button"
+                                tabIndex={0}
+                                draggable={true}
+                                onDragStart={handleCardDragStart(
+                                  item.id,
+                                  column.id
+                                )}
+                                onDragEnd={handleCardDragEnd}
+                                onClick={() => {
+                                  if (draggingCardId()) return;
+                                  openDetail(item.id);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    openDetail(item.id);
+                                  }
+                                }}
+                              >
+                                <div class="card-id">{item.id}</div>
+                                <div class="card-title">{item.title}</div>
+                                <div class="card-meta">
+                                  <Show when={owner}>
+                                    <span>{owner}</span>
+                                  </Show>
+                                  <Show when={domain}>
+                                    <span>{domain}</span>
+                                  </Show>
+                                  <Show when={mode}>
+                                    <span>{mode}</span>
+                                  </Show>
+                                  <Show when={appetite}>
+                                    <span>{appetite}</span>
+                                  </Show>
+                                </div>
+                                <div class="card-footer">
+                                  <span>
+                                    {created
+                                      ? formatCreatedRelative(created)
+                                      : ""}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+                  </section>
+                );
+              }}
             </For>
           </div>
-        </div>
-      </Show>
 
-      <div class="board">
-        <For each={COLUMNS}>
-          {(column) => {
-            const items = () => grouped().get(column.id) ?? [];
-            const isExpanded = () => expanded().includes(column.id);
-            return (
-              <section
-                class={`column ${isExpanded() ? "expanded" : "collapsed"}`}
-                classList={{ "drop-target": dragOverColumn() === column.id }}
-                style={{ "--col": column.color }}
-                onDragOver={handleColumnDragOver(column.id)}
-                onDragLeave={handleColumnDragLeave(column.id)}
-                onDrop={handleColumnDrop(column.id)}
-              >
-                <div class="column-header-wrapper">
-                  <button class="column-header" onClick={() => toggleColumn(column.id)}>
-                    <div class="column-title">{column.title}</div>
-                    <div class="column-count">{items().length}</div>
-                  </button>
-                  <Show when={column.id === "maybe" && isExpanded()}>
-                    <button class="create-btn" onClick={openCreateModal} title="Create project (c)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                    </button>
+          <Show when={params.id}>
+            <div class="overlay" role="dialog" aria-modal="true">
+              <div class="overlay-backdrop" onClick={closeDetail} />
+              <div class="overlay-panel">
+                <button
+                  class="overlay-close"
+                  onClick={closeDetail}
+                  aria-label="Close"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M18 6L6 18" />
+                    <path d="M6 6l12 12" />
+                  </svg>
+                </button>
+                <div class="overlay-header">
+                  <Show when={detail()}>
+                    {(data) => {
+                      const project = data() as ProjectDetail;
+                      const [copied, setCopied] = createSignal(false);
+                      const isArchived =
+                        normalizeStatus(
+                          getFrontmatterString(project.frontmatter, "status")
+                        ) === "archived";
+                      return (
+                        <>
+                          <div class="title-block">
+                            <span
+                              class="id-pill"
+                              classList={{ copied: copied() }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(
+                                  project.absolutePath
+                                );
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 600);
+                              }}
+                              title="Click to copy project path"
+                            >
+                              {project.id}
+                            </span>
+                            <Show
+                              when={editingTitle()}
+                              fallback={
+                                <h2
+                                  class="editable-title"
+                                  onDblClick={() => setEditingTitle(true)}
+                                  title="Double-click to edit"
+                                >
+                                  {detailTitle() || project.title}
+                                </h2>
+                              }
+                            >
+                              <input
+                                class="title-input"
+                                value={detailTitle()}
+                                onInput={(e) =>
+                                  setDetailTitle(e.currentTarget.value)
+                                }
+                                onBlur={() => handleTitleSave(project.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter")
+                                    handleTitleSave(project.id);
+                                  if (e.key === "Escape") {
+                                    e.stopPropagation();
+                                    setDetailTitle(project.title);
+                                    setEditingTitle(false);
+                                  }
+                                }}
+                                autofocus
+                              />
+                            </Show>
+                          </div>
+                          <button
+                            type="button"
+                            class="archive-button"
+                            onClick={() =>
+                              isArchived
+                                ? handleUnarchiveProject(project.id)
+                                : handleArchiveProject(project.id)
+                            }
+                            title={
+                              isArchived
+                                ? "Unarchive project"
+                                : "Archive project"
+                            }
+                            aria-label={
+                              isArchived
+                                ? "Unarchive project"
+                                : "Archive project"
+                            }
+                          >
+                            <Show
+                              when={isArchived}
+                              fallback={
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                >
+                                  <path d="M4 7h16" />
+                                  <path d="M5 7v12h14V7" />
+                                  <path d="M9 12l3 3 3-3" />
+                                </svg>
+                              }
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                              >
+                                <path d="M4 7h16" />
+                                <path d="M5 7v12h14V7" />
+                                <path d="M9 15l3-3 3 3" />
+                              </svg>
+                            </Show>
+                          </button>
+                          <button
+                            type="button"
+                            class="trash-button"
+                            onClick={() =>
+                              handleDeleteProject(
+                                project.id,
+                                detailTitle() || project.title
+                              )
+                            }
+                            title="Move to trash"
+                            aria-label="Move to trash"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                            </svg>
+                          </button>
+                        </>
+                      );
+                    }}
+                  </Show>
+                  <Show when={detail.loading}>
+                    <h2>Loading...</h2>
                   </Show>
                 </div>
-                <Show when={isExpanded()}>
-                  <div class="column-body">
-                    <Show when={items().length === 0}>
-                      <div class="empty-state">No projects</div>
+                <div class="overlay-content">
+                  <div
+                    class="detail"
+                    classList={{ "drag-over": detailIsDragging() }}
+                    onDragOver={handleDetailDragOver}
+                    onDragLeave={handleDetailDragLeave}
+                  >
+                    <Show when={detail.loading}>
+                      <div class="projects-loading">Loading...</div>
                     </Show>
-                    <For each={items()}>
-                      {(item) => {
-                        const fm = item.frontmatter ?? {};
-                        const owner = getFrontmatterString(fm, "owner");
-                        const domain = getFrontmatterString(fm, "domain");
-                        const mode = getFrontmatterString(fm, "executionMode");
-                        const appetite = getFrontmatterString(fm, "appetite");
-                        const created = getFrontmatterString(fm, "created");
+                    <Show when={detail.error}>
+                      <div class="projects-error">Failed to load project</div>
+                    </Show>
+                    <Show when={detail()}>
+                      {(data) => {
+                        const project = data() as ProjectDetail;
+                        const fm = project.frontmatter ?? {};
                         return (
-                          <div
-                            class="card"
-                            role="button"
-                            tabIndex={0}
-                            draggable={true}
-                            onDragStart={handleCardDragStart(item.id, column.id)}
-                            onDragEnd={handleCardDragEnd}
-                            onClick={() => {
-                              if (draggingCardId()) return;
-                              openDetail(item.id);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                openDetail(item.id);
-                              }
-                            }}
-                          >
-                            <div class="card-id">{item.id}</div>
-                            <div class="card-title">{item.title}</div>
-                            <div class="card-meta">
-                              <Show when={owner}><span>{owner}</span></Show>
-                              <Show when={domain}><span>{domain}</span></Show>
-                              <Show when={mode}><span>{mode}</span></Show>
-                              <Show when={appetite}><span>{appetite}</span></Show>
+                          <>
+                            <div
+                              class="detail-drop-zone"
+                              onDrop={handleDetailDrop(project.id)}
+                            />
+                            <div class="detail-meta">
+                              <div class="meta-field">
+                                <button
+                                  class="meta-button"
+                                  onClick={() =>
+                                    setOpenMenu(
+                                      openMenu() === "status" ? null : "status"
+                                    )
+                                  }
+                                >
+                                  <svg
+                                    class="meta-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                  >
+                                    <path d="M5 12l4 4L19 6" />
+                                  </svg>
+                                  {detailStatus()
+                                    ? getStatusLabel(detailStatus())
+                                    : "status"}
+                                </button>
+                                <Show when={openMenu() === "status"}>
+                                  <div class="meta-menu">
+                                    <For each={COLUMNS}>
+                                      {(col) => (
+                                        <button
+                                          class="meta-item"
+                                          onClick={() =>
+                                            handleStatusChange(
+                                              project.id,
+                                              col.id
+                                            )
+                                          }
+                                        >
+                                          {col.title}
+                                        </button>
+                                      )}
+                                    </For>
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleStatusChange(
+                                          project.id,
+                                          "cancelled"
+                                        )
+                                      }
+                                    >
+                                      Cancelled
+                                    </button>
+                                  </div>
+                                </Show>
+                              </div>
+                              <span class="meta-chip">
+                                <svg
+                                  class="meta-icon"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                >
+                                  <circle cx="12" cy="12" r="9" />
+                                  <path d="M12 7v5l3 3" />
+                                </svg>
+                                {formatCreatedRelative(
+                                  getFrontmatterString(fm, "created")
+                                )}
+                              </span>
+                              <div class="meta-field">
+                                <button
+                                  class="meta-button"
+                                  onClick={() =>
+                                    setOpenMenu(
+                                      openMenu() === "appetite"
+                                        ? null
+                                        : "appetite"
+                                    )
+                                  }
+                                >
+                                  <svg
+                                    class="meta-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                  >
+                                    <path d="M12 3v18" />
+                                    <path d="M7 8h10" />
+                                    <path d="M6 13h12" />
+                                    <path d="M5 18h14" />
+                                  </svg>
+                                  {detailAppetite() || "appetite"}
+                                </button>
+                                <Show when={openMenu() === "appetite"}>
+                                  <div class="meta-menu">
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleAppetiteChange(project.id, "")
+                                      }
+                                    >
+                                      unset
+                                    </button>
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleAppetiteChange(
+                                          project.id,
+                                          "small"
+                                        )
+                                      }
+                                    >
+                                      small
+                                    </button>
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleAppetiteChange(project.id, "big")
+                                      }
+                                    >
+                                      big
+                                    </button>
+                                  </div>
+                                </Show>
+                              </div>
+                              <div class="meta-field">
+                                <button
+                                  class="meta-button"
+                                  onClick={() =>
+                                    setOpenMenu(
+                                      openMenu() === "domain" ? null : "domain"
+                                    )
+                                  }
+                                >
+                                  <svg
+                                    class="meta-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                  >
+                                    <path d="M20 7H10l-6 5 6 5h10l-4-5z" />
+                                  </svg>
+                                  {detailDomain() || "domain"}
+                                </button>
+                                <Show when={openMenu() === "domain"}>
+                                  <div class="meta-menu">
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleDomainChange(project.id, "")
+                                      }
+                                    >
+                                      unset
+                                    </button>
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleDomainChange(project.id, "life")
+                                      }
+                                    >
+                                      life
+                                    </button>
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleDomainChange(project.id, "admin")
+                                      }
+                                    >
+                                      admin
+                                    </button>
+                                    <button
+                                      class="meta-item"
+                                      onClick={() =>
+                                        handleDomainChange(project.id, "coding")
+                                      }
+                                    >
+                                      coding
+                                    </button>
+                                  </div>
+                                </Show>
+                              </div>
                             </div>
-                            <div class="card-footer">
-                              <span>{created ? formatCreatedRelative(created) : ""}</span>
+                            <div class="detail-docs">
+                              <Show when={docKeys().length > 1}>
+                                <div class="detail-tabs">
+                                  <For each={docKeys()}>
+                                    {(key) => (
+                                      <button
+                                        type="button"
+                                        classList={{
+                                          active: detailDocTab() === key,
+                                        }}
+                                        onClick={() => setDetailDocTab(key)}
+                                      >
+                                        {key}
+                                      </button>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                              <div class="detail-doc-body">
+                                <For each={docKeys()}>
+                                  {(key) => (
+                                    <Show when={detailDocTab() === key}>
+                                      <Show
+                                        when={editingDoc() === key}
+                                        fallback={
+                                          <div
+                                            class="detail-body"
+                                            innerHTML={renderMarkdown(
+                                              detailDocs()[key] ?? "",
+                                              project.id
+                                            )}
+                                            onDblClick={() =>
+                                              setEditingDoc(key)
+                                            }
+                                            title="Double-click to edit"
+                                          />
+                                        }
+                                      >
+                                        <textarea
+                                          class="content-textarea"
+                                          value={detailDocs()[key] ?? ""}
+                                          onInput={(e) =>
+                                            setDetailDocs((prev) => ({
+                                              ...prev,
+                                              [key]: e.currentTarget.value,
+                                            }))
+                                          }
+                                          onBlur={() =>
+                                            handleDocSave(project.id, key)
+                                          }
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Escape") {
+                                              e.stopPropagation();
+                                              setDetailDocs((prev) => ({
+                                                ...prev,
+                                                [key]: stripMarkdownMeta(
+                                                  project.docs?.[key] ?? ""
+                                                ),
+                                              }));
+                                              setDetailPendingFiles([]);
+                                              setEditingDoc(null);
+                                            } else if (
+                                              e.key === "Enter" &&
+                                              e.metaKey
+                                            ) {
+                                              e.preventDefault();
+                                              handleDocSave(project.id, key);
+                                            }
+                                          }}
+                                          autofocus
+                                        />
+                                        <Show
+                                          when={detailPendingFiles().length > 0}
+                                        >
+                                          <div class="detail-pending-files">
+                                            <label class="detail-pending-label">
+                                              Files to upload on save
+                                            </label>
+                                            <div class="file-list">
+                                              <For each={detailPendingFiles()}>
+                                                {(file, index) => (
+                                                  <div class="file-item">
+                                                    <span class="file-name">
+                                                      {file.name}
+                                                    </span>
+                                                    <button
+                                                      class="file-remove"
+                                                      onClick={() =>
+                                                        removeDetailFile(
+                                                          index()
+                                                        )
+                                                      }
+                                                      type="button"
+                                                      aria-label={`Remove ${file.name}`}
+                                                    >
+                                                      <svg
+                                                        width="14"
+                                                        height="14"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                      >
+                                                        <path d="M18 6L6 18M6 6l12 12" />
+                                                      </svg>
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </For>
+                                            </div>
+                                          </div>
+                                        </Show>
+                                      </Show>
+                                    </Show>
+                                  )}
+                                </For>
+                              </div>
                             </div>
-                          </div>
+                            <div class="detail-thread">
+                              <div class="thread-header">Thread</div>
+                              <Show
+                                when={detailThread().length > 0}
+                                fallback={
+                                  <div class="thread-empty">
+                                    No comments yet.
+                                  </div>
+                                }
+                              >
+                                <div class="thread-list">
+                                  <For each={detailThread()}>
+                                    {(entry, index) => (
+                                      <div class="thread-item">
+                                        <div class="thread-meta">
+                                          <span class="thread-author">
+                                            {entry.author || "unknown"}
+                                          </span>
+                                          <span class="thread-date">
+                                            {entry.date}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            class="thread-delete-btn"
+                                            onClick={() =>
+                                              handleCommentDelete(
+                                                project.id,
+                                                index()
+                                              )
+                                            }
+                                            aria-label="Delete comment"
+                                          >
+                                            <svg
+                                              width="12"
+                                              height="12"
+                                              viewBox="0 0 24 24"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              stroke-width="2"
+                                            >
+                                              <path d="M18 6L6 18M6 6l12 12" />
+                                            </svg>
+                                          </button>
+                                        </div>
+                                        <Show
+                                          when={
+                                            editingCommentIndex() === index()
+                                          }
+                                          fallback={
+                                            <div
+                                              class="thread-body"
+                                              innerHTML={renderMarkdown(
+                                                entry.body,
+                                                project.id
+                                              )}
+                                              onDblClick={() => {
+                                                setEditingCommentIndex(index());
+                                                setEditingCommentBody(
+                                                  entry.body
+                                                );
+                                              }}
+                                              title="Double-click to edit"
+                                            />
+                                          }
+                                        >
+                                          <textarea
+                                            class="thread-edit-textarea"
+                                            value={editingCommentBody()}
+                                            onInput={(e) =>
+                                              setEditingCommentBody(
+                                                e.currentTarget.value
+                                              )
+                                            }
+                                            onBlur={() =>
+                                              handleCommentUpdate(
+                                                project.id,
+                                                index()
+                                              )
+                                            }
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Escape") {
+                                                e.stopPropagation();
+                                                setEditingCommentIndex(null);
+                                              } else if (
+                                                e.key === "Enter" &&
+                                                e.metaKey
+                                              ) {
+                                                e.preventDefault();
+                                                handleCommentUpdate(
+                                                  project.id,
+                                                  index()
+                                                );
+                                              }
+                                            }}
+                                            ref={(el) =>
+                                              setTimeout(() => el.focus(), 0)
+                                            }
+                                          />
+                                        </Show>
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                              <div class="thread-add">
+                                <textarea
+                                  class="thread-add-textarea"
+                                  placeholder="Add a comment..."
+                                  value={newComment()}
+                                  onInput={(e) =>
+                                    setNewComment(e.currentTarget.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (
+                                      e.key === "Enter" &&
+                                      e.metaKey &&
+                                      newComment().trim()
+                                    ) {
+                                      e.preventDefault();
+                                      handleAddComment(project.id);
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  class="thread-add-btn"
+                                  disabled={!newComment().trim()}
+                                  onClick={() => handleAddComment(project.id)}
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            </div>
+                            <Show when={detailIsDragging()}>
+                              <div class="detail-drop-overlay">
+                                <div class="drop-message">
+                                  Drop files to attach
+                                </div>
+                              </div>
+                            </Show>
+                          </>
                         );
                       }}
-                    </For>
+                    </Show>
                   </div>
-                </Show>
-              </section>
-            );
-          }}
-        </For>
-      </div>
-
-      <Show when={params.id}>
-        <div class="overlay" role="dialog" aria-modal="true">
-          <div class="overlay-backdrop" onClick={closeDetail} />
-          <div class="overlay-panel">
-            <button class="overlay-close" onClick={closeDetail} aria-label="Close">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 6L6 18" />
-                <path d="M6 6l12 12" />
-              </svg>
-            </button>
-            <div class="overlay-header">
-              <Show when={detail()}>
-                {(data) => {
-                  const project = data() as ProjectDetail;
-                  const [copied, setCopied] = createSignal(false);
-                  const isArchived = normalizeStatus(getFrontmatterString(project.frontmatter, "status")) === "archived";
-                  return (
-                    <>
-                      <div class="title-block">
-                        <span
-                          class="id-pill"
-                          classList={{ copied: copied() }}
-                          onClick={() => {
-                            navigator.clipboard.writeText(project.absolutePath);
-                            setCopied(true);
-                            setTimeout(() => setCopied(false), 600);
-                          }}
-                          title="Click to copy project path"
-                        >
-                          {project.id}
-                        </span>
-                        <Show when={editingTitle()} fallback={
-                          <h2
-                            class="editable-title"
-                            onDblClick={() => setEditingTitle(true)}
-                            title="Double-click to edit"
-                          >
-                            {detailTitle() || project.title}
-                          </h2>
-                        }>
-                          <input
-                            class="title-input"
-                            value={detailTitle()}
-                            onInput={(e) => setDetailTitle(e.currentTarget.value)}
-                            onBlur={() => handleTitleSave(project.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleTitleSave(project.id);
-                              if (e.key === "Escape") {
-                                e.stopPropagation();
-                                setDetailTitle(project.title);
-                                setEditingTitle(false);
-                              }
-                            }}
-                            autofocus
-                          />
-                        </Show>
-                      </div>
-                      <button
-                        type="button"
-                        class="archive-button"
-                        onClick={() => (isArchived ? handleUnarchiveProject(project.id) : handleArchiveProject(project.id))}
-                        title={isArchived ? "Unarchive project" : "Archive project"}
-                        aria-label={isArchived ? "Unarchive project" : "Archive project"}
-                      >
-                        <Show
-                          when={isArchived}
-                          fallback={
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <path d="M4 7h16" />
-                              <path d="M5 7v12h14V7" />
-                              <path d="M9 12l3 3 3-3" />
-                            </svg>
+                  <div class="monitoring">
+                    <div class="monitoring-meta">
+                      <div class="meta-field">
+                        <button
+                          class="meta-button"
+                          onClick={() =>
+                            setOpenMenu(openMenu() === "owner" ? null : "owner")
                           }
                         >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M4 7h16" />
-                            <path d="M5 7v12h14V7" />
-                            <path d="M9 15l3-3 3 3" />
+                          <svg
+                            class="meta-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <circle cx="12" cy="8" r="4" />
+                            <path d="M4 20c2.5-4 13.5-4 16 0" />
                           </svg>
+                          {detailOwner() || "owner"}
+                        </button>
+                        <Show when={openMenu() === "owner"}>
+                          <div class="meta-menu">
+                            <button
+                              class="meta-item"
+                              onClick={() =>
+                                handleOwnerChange(params.id ?? "", "")
+                              }
+                            >
+                              unset
+                            </button>
+                            <For each={ownerOptions()}>
+                              {(owner) => (
+                                <button
+                                  class="meta-item"
+                                  onClick={() =>
+                                    handleOwnerChange(params.id ?? "", owner)
+                                  }
+                                >
+                                  {owner}
+                                </button>
+                              )}
+                            </For>
+                          </div>
                         </Show>
-                      </button>
-                      <button
-                        type="button"
-                        class="trash-button"
-                        onClick={() => handleDeleteProject(project.id, detailTitle() || project.title)}
-                        title="Move to trash"
-                        aria-label="Move to trash"
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                      </button>
-                    </>
-                  );
-                }}
-              </Show>
-              <Show when={detail.loading}>
-                <h2>Loading...</h2>
-              </Show>
-            </div>
-            <div class="overlay-content">
-              <div
-                  class="detail"
-                  classList={{ "drag-over": detailIsDragging() }}
-                  onDragOver={handleDetailDragOver}
-                  onDragLeave={handleDetailDragLeave}
-                >
-                <Show when={detail.loading}>
-                  <div class="projects-loading">Loading...</div>
-                </Show>
-                <Show when={detail.error}>
-                  <div class="projects-error">Failed to load project</div>
-                </Show>
-                <Show when={detail()}>
-                  {(data) => {
-                    const project = data() as ProjectDetail;
-                    const fm = project.frontmatter ?? {};
-                    return (
-                      <>
-                        <div
-                          class="detail-drop-zone"
-                          onDrop={handleDetailDrop(project.id)}
-                        />
-                        <div class="detail-meta">
+                      </div>
+                      <Show when={!isMonitoringHidden()}>
+                        <Show when={detailStatus() !== "shaping"}>
                           <div class="meta-field">
                             <button
                               class="meta-button"
-                              onClick={() => setOpenMenu(openMenu() === "status" ? null : "status")}
+                              onClick={() =>
+                                setOpenMenu(
+                                  openMenu() === "mode" ? null : "mode"
+                                )
+                              }
                             >
-                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M5 12l4 4L19 6" />
+                              <svg
+                                class="meta-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                              >
+                                <path d="M4 6h16M8 6v12M16 12v6" />
                               </svg>
-                              {detailStatus() ? getStatusLabel(detailStatus()) : "status"}
+                              {detailMode()
+                                ? detailMode().replace(/_/g, " ")
+                                : "execution mode"}
                             </button>
-                            <Show when={openMenu() === "status"}>
+                            <Show when={openMenu() === "mode"}>
                               <div class="meta-menu">
-                                <For each={COLUMNS}>
-                                  {(col) => (
-                                    <button class="meta-item" onClick={() => handleStatusChange(project.id, col.id)}>
-                                      {col.title}
-                                    </button>
-                                  )}
-                                </For>
-                                <button class="meta-item" onClick={() => handleStatusChange(project.id, "cancelled")}>
-                                  Cancelled
+                                <button
+                                  class="meta-item"
+                                  onClick={() =>
+                                    handleModeChange(params.id ?? "", "")
+                                  }
+                                >
+                                  unset
+                                </button>
+                                <button
+                                  class="meta-item"
+                                  onClick={() =>
+                                    handleModeChange(
+                                      params.id ?? "",
+                                      "subagent"
+                                    )
+                                  }
+                                >
+                                  subagent
+                                </button>
+                                <button
+                                  class="meta-item"
+                                  onClick={() =>
+                                    handleModeChange(
+                                      params.id ?? "",
+                                      "ralph_loop"
+                                    )
+                                  }
+                                >
+                                  ralph loop
                                 </button>
                               </div>
                             </Show>
                           </div>
-                          <span class="meta-chip">
-                            <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                              <circle cx="12" cy="12" r="9" />
-                              <path d="M12 7v5l3 3" />
-                            </svg>
-                            {formatCreatedRelative(getFrontmatterString(fm, "created"))}
-                          </span>
-                          <div class="meta-field">
-                            <button
-                              class="meta-button"
-                              onClick={() => setOpenMenu(openMenu() === "appetite" ? null : "appetite")}
+                        </Show>
+                        <Show when={detailDomain() === "coding"}>
+                          <div class="meta-field meta-field-wide meta-field-stack">
+                            <label class="meta-label">Repo</label>
+                            <input
+                              class="meta-input"
+                              value={detailRepo()}
+                              onInput={(e) =>
+                                setDetailRepo(e.currentTarget.value)
+                              }
+                              onBlur={() => handleRepoSave(params.id ?? "")}
+                              placeholder="/abs/path/to/repo"
+                            />
+                            <Show
+                              when={
+                                repoStatusVisible() &&
+                                repoStatus() !== "idle" &&
+                                detailRepo().trim()
+                              }
                             >
-                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 3v18" />
-                                <path d="M7 8h10" />
-                                <path d="M6 13h12" />
-                                <path d="M5 18h14" />
-                              </svg>
-                              {detailAppetite() || "appetite"}
-                            </button>
-                            <Show when={openMenu() === "appetite"}>
-                              <div class="meta-menu">
-                                <button class="meta-item" onClick={() => handleAppetiteChange(project.id, "")}>unset</button>
-                                <button class="meta-item" onClick={() => handleAppetiteChange(project.id, "small")}>small</button>
-                                <button class="meta-item" onClick={() => handleAppetiteChange(project.id, "big")}>big</button>
+                              <div class={`repo-status ${repoStatus()}`}>
+                                {repoStatus() === "checking"
+                                  ? "Checking repo..."
+                                  : repoStatusMessage()}
                               </div>
                             </Show>
                           </div>
-                          <div class="meta-field">
+                        </Show>
+                      </Show>
+                    </div>
+                    <div class="runs-panel">
+                      <div class="runs-header">
+                        <h3 class="runs-title">
+                          {isRalphLoopMode() ? "Ralph Loops" : "Agent Runs"}
+                        </h3>
+                        <div class="runs-header-actions">
+                          <Show when={hasArchivedRuns()}>
                             <button
-                              class="meta-button"
-                              onClick={() => setOpenMenu(openMenu() === "domain" ? null : "domain")}
+                              class="runs-archive-toggle"
+                              type="button"
+                              onClick={() =>
+                                setShowArchivedRuns((prev) => !prev)
+                              }
                             >
-                              <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M20 7H10l-6 5 6 5h10l-4-5z" />
-                              </svg>
-                              {detailDomain() || "domain"}
+                              {showArchivedRuns()
+                                ? "Hide archived"
+                                : "Show archived"}
                             </button>
-                            <Show when={openMenu() === "domain"}>
-                              <div class="meta-menu">
-                                <button class="meta-item" onClick={() => handleDomainChange(project.id, "")}>unset</button>
-                                <button class="meta-item" onClick={() => handleDomainChange(project.id, "life")}>life</button>
-                                <button class="meta-item" onClick={() => handleDomainChange(project.id, "admin")}>admin</button>
-                                <button class="meta-item" onClick={() => handleDomainChange(project.id, "coding")}>coding</button>
-                              </div>
-                            </Show>
-                          </div>
-                        </div>
-                        <div class="detail-docs">
-                          <Show when={docKeys().length > 1}>
-                            <div class="detail-tabs">
-                              <For each={docKeys()}>
-                                {(key) => (
+                          </Show>
+                          <Show when={!isMonitoringHidden()}>
+                            <div class="runs-actions">
+                              <Show when={!runningAgent()}>
+                                <Show when={!isRalphLoopMode()}>
+                                  <label class="start-custom-toggle">
+                                    <input
+                                      type="checkbox"
+                                      checked={customStartEnabled()}
+                                      onChange={(e) =>
+                                        setCustomStartEnabled(
+                                          e.currentTarget.checked
+                                        )
+                                      }
+                                    />
+                                    <span>custom</span>
+                                  </label>
+                                </Show>
+                              </Show>
+                              <Show
+                                when={runningAgent()}
+                                fallback={
                                   <button
-                                    type="button"
-                                    classList={{ active: detailDocTab() === key }}
-                                    onClick={() => setDetailDocTab(key)}
+                                    class="start-btn"
+                                    onClick={() => handleStart(params.id ?? "")}
+                                    disabled={!canStart()}
                                   >
-                                    {key}
+                                    Start
                                   </button>
-                                )}
-                              </For>
+                                }
+                              >
+                                <button
+                                  class="start-btn stop"
+                                  onClick={() => handleStop(params.id ?? "")}
+                                >
+                                  Stop
+                                </button>
+                              </Show>
                             </div>
                           </Show>
-                          <div class="detail-doc-body">
-                            <For each={docKeys()}>
-                              {(key) => (
-                                <Show when={detailDocTab() === key}>
-                                  <Show when={editingDoc() === key} fallback={
-                                    <div
-                                      class="detail-body"
-                                      innerHTML={renderMarkdown(detailDocs()[key] ?? "", project.id)}
-                                      onDblClick={() => setEditingDoc(key)}
-                                      title="Double-click to edit"
-                                    />
-                                  }>
-                                    <textarea
-                                      class="content-textarea"
-                                      value={detailDocs()[key] ?? ""}
-                                      onInput={(e) => setDetailDocs((prev) => ({ ...prev, [key]: e.currentTarget.value }))}
-                                      onBlur={() => handleDocSave(project.id, key)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Escape") {
-                                          e.stopPropagation();
-                                          setDetailDocs((prev) => ({ ...prev, [key]: stripMarkdownMeta(project.docs?.[key] ?? "") }));
-                                          setDetailPendingFiles([]);
-                                          setEditingDoc(null);
-                                        } else if (e.key === "Enter" && e.metaKey) {
-                                          e.preventDefault();
-                                          handleDocSave(project.id, key);
-                                        }
-                                      }}
-                                      autofocus
-                                    />
-                                    <Show when={detailPendingFiles().length > 0}>
-                                      <div class="detail-pending-files">
-                                        <label class="detail-pending-label">Files to upload on save</label>
-                                        <div class="file-list">
-                                          <For each={detailPendingFiles()}>
-                                            {(file, index) => (
-                                              <div class="file-item">
-                                                <span class="file-name">{file.name}</span>
-                                                <button
-                                                  class="file-remove"
-                                                  onClick={() => removeDetailFile(index())}
-                                                  type="button"
-                                                  aria-label={`Remove ${file.name}`}
-                                                >
-                                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                    <path d="M18 6L6 18M6 6l12 12" />
-                                                  </svg>
-                                                </button>
-                                              </div>
-                                            )}
-                                          </For>
-                                        </div>
-                                      </div>
-                                    </Show>
-                                  </Show>
-                                </Show>
-                              )}
-                            </For>
+                        </div>
+                      </div>
+                      <Show when={!isMonitoringHidden() && !isRalphLoopMode()}>
+                        <div class="runs-config">
+                          <div class="runs-config-field">
+                            <label class="meta-label">Agent</label>
+                            <select
+                              class="meta-select"
+                              value={detailRunAgent()}
+                              onChange={(e) =>
+                                handleRunAgentChange(e.currentTarget.value)
+                              }
+                            >
+                              <For each={runAgentOptions()}>
+                                {(opt) => (
+                                  <option value={opt.id}>{opt.label}</option>
+                                )}
+                              </For>
+                            </select>
+                          </div>
+                          <Show when={selectedRunAgent()?.type === "cli"}>
+                            <div class="runs-config-field">
+                              <label class="meta-label">Run mode</label>
+                              <select
+                                class="meta-select"
+                                value={detailRunMode()}
+                                onChange={(e) =>
+                                  handleRunModeChange(e.currentTarget.value)
+                                }
+                              >
+                                <option value="main-run">main-run</option>
+                                <option value="worktree">worktree</option>
+                              </select>
+                            </div>
+                          </Show>
+                          <Show when={selectedRunAgent()?.type === "cli"}>
+                            <div class="runs-config-field">
+                              <label class="meta-label">Base branch</label>
+                              <select
+                                class="meta-select"
+                                value={detailBranch()}
+                                onChange={(e) =>
+                                  setDetailBranch(e.currentTarget.value)
+                                }
+                                disabled={branches().length === 0}
+                              >
+                                <For
+                                  each={
+                                    branches().length > 0
+                                      ? branches()
+                                      : ["main"]
+                                  }
+                                >
+                                  {(branch) => (
+                                    <option value={branch}>{branch}</option>
+                                  )}
+                                </For>
+                              </select>
+                            </div>
+                          </Show>
+                          <div class="runs-config-field">
+                            <label class="meta-label">Slug</label>
+                            <input
+                              class="meta-input"
+                              value={detailSlug()}
+                              onInput={(e) =>
+                                setDetailSlug(e.currentTarget.value)
+                              }
+                              placeholder="short-slug"
+                              disabled={
+                                selectedRunAgent()?.type !== "cli" ||
+                                detailRunMode() !== "worktree"
+                              }
+                            />
                           </div>
                         </div>
-                        <div class="detail-thread">
-                          <div class="thread-header">Thread</div>
-                          <Show when={detailThread().length > 0} fallback={
-                            <div class="thread-empty">No comments yet.</div>
-                          }>
-                            <div class="thread-list">
-                              <For each={detailThread()}>
-                                {(entry, index) => (
-                                  <div class="thread-item">
-                                    <div class="thread-meta">
-                                      <span class="thread-author">{entry.author || "unknown"}</span>
-                                      <span class="thread-date">{entry.date}</span>
+                      </Show>
+                      <Show when={!isMonitoringHidden() && isRalphLoopMode()}>
+                        <div class="runs-config">
+                          <div class="runs-config-field">
+                            <label class="meta-label">CLI</label>
+                            <select
+                              class="meta-select"
+                              value={detailRalphCli()}
+                              onChange={(e) =>
+                                setDetailRalphCli(
+                                  e.currentTarget.value === "claude"
+                                    ? "claude"
+                                    : "codex"
+                                )
+                              }
+                            >
+                              <option value="codex">codex</option>
+                              <option value="claude">claude</option>
+                            </select>
+                          </div>
+                          <div class="runs-config-field">
+                            <label class="meta-label">Iterations</label>
+                            <input
+                              class="meta-input"
+                              type="number"
+                              min="1"
+                              value={detailRalphIterations()}
+                              onInput={(e) =>
+                                setDetailRalphIterations(e.currentTarget.value)
+                              }
+                              placeholder="20"
+                            />
+                          </div>
+                          <div class="runs-config-field">
+                            <label class="meta-label">Prompt file</label>
+                            <input
+                              class="meta-input"
+                              value={detailRalphPromptFile()}
+                              onInput={(e) =>
+                                setDetailRalphPromptFile(e.currentTarget.value)
+                              }
+                              placeholder="(default) <project>/prompt.md"
+                            />
+                          </div>
+                        </div>
+                      </Show>
+                      <Show when={customStartEnabled() && !isRalphLoopMode()}>
+                        <textarea
+                          class="custom-start-textarea"
+                          rows={2}
+                          value={customStartPrompt()}
+                          placeholder="Add a one-off custom prompt..."
+                          onInput={(e) =>
+                            setCustomStartPrompt(e.currentTarget.value)
+                          }
+                        />
+                      </Show>
+                      <Show when={startError()}>
+                        <div class="monitoring-error">{startError()}</div>
+                      </Show>
+                      <Show when={subagentError()}>
+                        <div class="monitoring-error">{subagentError()}</div>
+                      </Show>
+                      <div class="runs-list">
+                        <Show
+                          when={agentRuns().length > 0}
+                          fallback={<div class="log-empty">No runs yet.</div>}
+                        >
+                          <For each={agentRuns()}>
+                            {(run) => {
+                              const relative = formatRunRelative(run.time);
+                              const statusLabel =
+                                run.status === "running"
+                                  ? "WORKING"
+                                  : run.status === "replied"
+                                    ? "COMPLETED"
+                                    : run.status === "error"
+                                      ? "FAILED"
+                                      : "IDLE";
+                              const timeLabel = relative
+                                ? run.status === "running"
+                                  ? `Started ${relative}`
+                                  : relative
+                                : "No activity yet";
+                              const loopMeta =
+                                run.executionType === "ralph_loop" &&
+                                run.iterations
+                                  ? `${run.iterations} iterations`
+                                  : "";
+                              return (
+                                <button
+                                  class={`run-row ${selectedRunKey() === run.key ? "active" : ""} ${run.archived ? "archived" : ""}`}
+                                  onClick={() =>
+                                    setSelectedRunKey((prev) =>
+                                      prev === run.key ? null : run.key
+                                    )
+                                  }
+                                >
+                                  <span class={`status-dot ${run.status}`} />
+                                  <div class="run-content">
+                                    <div class="run-title">{run.label}</div>
+                                    <div class="run-time">
+                                      {statusLabel} • {timeLabel}
+                                      <Show when={loopMeta}>
+                                        <span> • {loopMeta}</span>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                  <Show
+                                    when={run.type === "subagent" && run.slug}
+                                  >
+                                    <div class="run-actions">
                                       <button
+                                        class="archive-btn"
                                         type="button"
-                                        class="thread-delete-btn"
-                                        onClick={() => handleCommentDelete(project.id, index())}
-                                        aria-label="Delete comment"
+                                        title={
+                                          run.archived
+                                            ? "Unarchive run"
+                                            : "Archive run"
+                                        }
+                                        aria-label={
+                                          run.archived
+                                            ? "Unarchive run"
+                                            : "Archive run"
+                                        }
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const projectId = detail()?.id;
+                                          if (!projectId || !run.slug) return;
+                                          await handleArchiveToggle(
+                                            projectId,
+                                            run.slug,
+                                            run.archived ?? false
+                                          );
+                                        }}
                                       >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                          <path d="M18 6L6 18M6 6l12 12" />
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          stroke-width="2"
+                                        >
+                                          <path d="M3 7h18v13H3z" />
+                                          <path d="M7 7V4h10v3" />
+                                          <path d="M7 12h10" />
+                                        </svg>
+                                      </button>
+                                      <button
+                                        class="kill-btn"
+                                        type="button"
+                                        title={
+                                          run.executionType === "ralph_loop"
+                                            ? "Kill loop"
+                                            : "Kill subagent"
+                                        }
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const projectId = detail()?.id;
+                                          if (!projectId || !run.slug) return;
+                                          const label =
+                                            run.executionType === "ralph_loop"
+                                              ? "loop"
+                                              : "subagent";
+                                          if (
+                                            !window.confirm(
+                                              `Kill ${label} ${run.slug}? This removes all workspace data.`
+                                            )
+                                          )
+                                            return;
+                                          await killSubagent(
+                                            projectId,
+                                            run.slug
+                                          );
+                                          // Polling handles refresh; run will disappear within 2s
+                                        }}
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          stroke-width="2"
+                                        >
+                                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
                                         </svg>
                                       </button>
                                     </div>
-                                    <Show when={editingCommentIndex() === index()} fallback={
-                                      <div
-                                        class="thread-body"
-                                        innerHTML={renderMarkdown(entry.body, project.id)}
-                                        onDblClick={() => {
-                                          setEditingCommentIndex(index());
-                                          setEditingCommentBody(entry.body);
-                                        }}
-                                        title="Double-click to edit"
-                                      />
-                                    }>
-                                      <textarea
-                                        class="thread-edit-textarea"
-                                        value={editingCommentBody()}
-                                        onInput={(e) => setEditingCommentBody(e.currentTarget.value)}
-                                        onBlur={() => handleCommentUpdate(project.id, index())}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Escape") {
-                                            e.stopPropagation();
-                                            setEditingCommentIndex(null);
-                                          } else if (e.key === "Enter" && e.metaKey) {
-                                            e.preventDefault();
-                                            handleCommentUpdate(project.id, index());
-                                          }
-                                        }}
-                                        ref={(el) => setTimeout(() => el.focus(), 0)}
-                                      />
-                                    </Show>
-                                  </div>
-                                )}
-                              </For>
+                                  </Show>
+                                </button>
+                              );
+                            }}
+                          </For>
+                        </Show>
+                      </div>
+                      <div class="runs-logs">
+                        <Show
+                          when={selectedRun()}
+                          fallback={
+                            <div class="log-empty">
+                              Select a run to view logs.
                             </div>
-                          </Show>
-                          <div class="thread-add">
-                            <textarea
-                              class="thread-add-textarea"
-                              placeholder="Add a comment..."
-                              value={newComment()}
-                              onInput={(e) => setNewComment(e.currentTarget.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && e.metaKey && newComment().trim()) {
-                                  e.preventDefault();
-                                  handleAddComment(project.id);
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              class="thread-add-btn"
-                              disabled={!newComment().trim()}
-                              onClick={() => handleAddComment(project.id)}
-                            >
-                              Add
-                            </button>
-                          </div>
-                        </div>
-                        <Show when={detailIsDragging()}>
-                          <div class="detail-drop-overlay">
-                            <div class="drop-message">Drop files to attach</div>
+                          }
+                        >
+                          <div
+                            class="log-pane"
+                            ref={subagentLogPaneRef}
+                            onScroll={(e) => {
+                              const target = e.currentTarget as HTMLDivElement;
+                              const threshold = 120;
+                              const atBottom =
+                                target.scrollHeight -
+                                  target.scrollTop -
+                                  target.clientHeight <=
+                                threshold;
+                              setRunLogAtBottom(atBottom);
+                            }}
+                          >
+                            <For each={selectedRunLogItems()}>
+                              {(entry) => renderLogItem(entry)}
+                            </For>
+                            <Show when={selectedRunLogItems().length === 0}>
+                              <div class="log-empty">No logs yet.</div>
+                            </Show>
                           </div>
                         </Show>
-                      </>
-                    );
-                  }}
-                </Show>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="monitoring">
-                <div class="monitoring-meta">
-                  <div class="meta-field">
-                    <button
-                      class="meta-button"
-                      onClick={() => setOpenMenu(openMenu() === "owner" ? null : "owner")}
+            </div>
+          </Show>
+
+          <Show when={createModalOpen()}>
+            <div class="overlay" role="dialog" aria-modal="true">
+              <div class="overlay-backdrop" onClick={closeCreateModal} />
+              <div class="create-modal">
+                <div class="create-modal-header">
+                  <div class="create-title-block">
+                    <h2>New project</h2>
+                    <p class="create-subtitle">
+                      Quick create with notes. Title defaults to the first note
+                      line.
+                    </p>
+                  </div>
+                  <button
+                    class="overlay-close"
+                    onClick={closeCreateModal}
+                    aria-label="Close"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
                     >
-                      <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="8" r="4" />
-                        <path d="M4 20c2.5-4 13.5-4 16 0" />
-                      </svg>
-                      {detailOwner() || "owner"}
-                    </button>
-                    <Show when={openMenu() === "owner"}>
-                      <div class="meta-menu">
-                        <button class="meta-item" onClick={() => handleOwnerChange(params.id ?? "", "")}>unset</button>
-                        <For each={ownerOptions()}>
-                          {(owner) => (
-                            <button class="meta-item" onClick={() => handleOwnerChange(params.id ?? "", owner)}>
-                              {owner}
-                            </button>
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div
+                  class="create-modal-body"
+                  classList={{ "drag-over": isDragging() }}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <Show when={createToast()}>
+                    <div class="create-toast" role="status">
+                      {createToast()}
+                    </div>
+                  </Show>
+                  <div class="create-field">
+                    <label class="create-label" for="create-title">
+                      Title <span class="create-required">*</span>
+                    </label>
+                    <input
+                      id="create-title"
+                      class="create-input"
+                      type="text"
+                      value={createTitle()}
+                      onInput={(e) => {
+                        setCreateTitle(e.currentTarget.value);
+                        setCreateError("");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          createNotesRef?.focus();
+                        }
+                      }}
+                      placeholder="Short, descriptive title"
+                      autofocus
+                      classList={{ error: Boolean(createError()) }}
+                    />
+                    <div class="create-helper">
+                      Required - 2+ words - Leave blank to use the first note
+                      line
+                    </div>
+                    <Show when={createError()}>
+                      <div class="create-error" role="alert">
+                        {createError()}
+                      </div>
+                    </Show>
+                  </div>
+                  <div class="create-field create-notes">
+                    <div class="create-notes-header">
+                      <label class="create-label" for="create-notes">
+                        Notes
+                      </label>
+                      <span class="create-optional">Optional</span>
+                    </div>
+                    <textarea
+                      id="create-notes"
+                      class="create-textarea"
+                      value={createDescription()}
+                      onInput={(e) =>
+                        setCreateDescription(e.currentTarget.value)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          void handleCreateSubmit();
+                        }
+                      }}
+                      placeholder="Notes, context, links, or next steps..."
+                      rows={10}
+                      ref={createNotesRef}
+                    />
+                    <div class="create-helper">
+                      Paste notes now so your agent has context later.
+                    </div>
+                  </div>
+                  <div class="create-field">
+                    <div class="create-label-row">
+                      <label class="create-label">Attachments</label>
+                      <button
+                        class="file-button"
+                        type="button"
+                        onClick={() => fileInputRef?.click()}
+                      >
+                        Add files
+                      </button>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      class="file-input"
+                      type="file"
+                      multiple
+                      onChange={handleFileSelect}
+                    />
+                  </div>
+                  <Show when={pendingFiles().length > 0}>
+                    <div class="create-field">
+                      <label class="create-label">Selected files</label>
+                      <div class="file-list">
+                        <For each={pendingFiles()}>
+                          {(file, index) => (
+                            <div class="file-item">
+                              <span class="file-name">{file.name}</span>
+                              <button
+                                class="file-remove"
+                                onClick={() => removeFile(index())}
+                                type="button"
+                                aria-label={`Remove ${file.name}`}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                >
+                                  <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
                           )}
                         </For>
                       </div>
-                    </Show>
-                  </div>
-                  <Show when={!isMonitoringHidden()}>
-                    <Show when={detailStatus() !== "shaping"}>
-                      <div class="meta-field">
-                        <button
-                          class="meta-button"
-                          onClick={() => setOpenMenu(openMenu() === "mode" ? null : "mode")}
-                        >
-                          <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M4 6h16M8 6v12M16 12v6" />
-                          </svg>
-                          {detailMode() ? detailMode().replace(/_/g, " ") : "execution mode"}
-                        </button>
-                        <Show when={openMenu() === "mode"}>
-                          <div class="meta-menu">
-                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "")}>unset</button>
-                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "manual")}>manual</button>
-                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "exploratory")}>exploratory</button>
-                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "auto")}>auto</button>
-                            <button class="meta-item" onClick={() => handleModeChange(params.id ?? "", "full_auto")}>full auto</button>
-                          </div>
-                        </Show>
-                      </div>
-                    </Show>
-                    <Show when={detailDomain() === "coding"}>
-                      <div class="meta-field meta-field-wide meta-field-stack">
-                        <label class="meta-label">Repo</label>
-                        <input
-                          class="meta-input"
-                          value={detailRepo()}
-                          onInput={(e) => setDetailRepo(e.currentTarget.value)}
-                          onBlur={() => handleRepoSave(params.id ?? "")}
-                          placeholder="/abs/path/to/repo"
-                        />
-                        <Show when={repoStatusVisible() && repoStatus() !== "idle" && detailRepo().trim()}>
-                          <div class={`repo-status ${repoStatus()}`}>
-                            {repoStatus() === "checking" ? "Checking repo..." : repoStatusMessage()}
-                          </div>
-                        </Show>
-                      </div>
-                    </Show>
-                  </Show>
-                </div>
-                <div class="runs-panel">
-                  <div class="runs-header">
-                    <h3 class="runs-title">Agent Runs</h3>
-                    <div class="runs-header-actions">
-                      <Show when={hasArchivedRuns()}>
-                        <button
-                          class="runs-archive-toggle"
-                          type="button"
-                          onClick={() => setShowArchivedRuns((prev) => !prev)}
-                        >
-                          {showArchivedRuns() ? "Hide archived" : "Show archived"}
-                        </button>
-                      </Show>
-                      <Show when={!isMonitoringHidden()}>
-                        <div class="runs-actions">
-                          <Show when={!runningAgent()}>
-                            <label class="start-custom-toggle">
-                              <input
-                                type="checkbox"
-                                checked={customStartEnabled()}
-                                onChange={(e) => setCustomStartEnabled(e.currentTarget.checked)}
-                              />
-                              <span>custom</span>
-                            </label>
-                          </Show>
-                          <Show
-                            when={runningAgent()}
-                            fallback={
-                              <button
-                                class="start-btn"
-                                onClick={() => handleStart(params.id ?? "")}
-                                disabled={!canStart()}
-                              >
-                                Start
-                              </button>
-                            }
-                          >
-                            <button
-                              class="start-btn stop"
-                              onClick={() => handleStop(params.id ?? "")}
-                            >
-                              Stop
-                            </button>
-                          </Show>
-                        </div>
-                      </Show>
-                    </div>
-                  </div>
-                  <Show when={!isMonitoringHidden()}>
-                    <div class="runs-config">
-                      <div class="runs-config-field">
-                        <label class="meta-label">Agent</label>
-                        <select
-                          class="meta-select"
-                          value={detailRunAgent()}
-                          onChange={(e) => handleRunAgentChange(e.currentTarget.value)}
-                        >
-                          <For each={runAgentOptions()}>
-                            {(opt) => (
-                              <option value={opt.id}>{opt.label}</option>
-                            )}
-                          </For>
-                        </select>
-                      </div>
-                      <Show when={selectedRunAgent()?.type === "cli"}>
-                        <div class="runs-config-field">
-                          <label class="meta-label">Run mode</label>
-                          <select
-                            class="meta-select"
-                            value={detailRunMode()}
-                            onChange={(e) => handleRunModeChange(e.currentTarget.value)}
-                          >
-                            <option value="main-run">main-run</option>
-                            <option value="worktree">worktree</option>
-                          </select>
-                        </div>
-                      </Show>
-                      <Show when={selectedRunAgent()?.type === "cli"}>
-                        <div class="runs-config-field">
-                          <label class="meta-label">Base branch</label>
-                          <select
-                            class="meta-select"
-                            value={detailBranch()}
-                            onChange={(e) => setDetailBranch(e.currentTarget.value)}
-                            disabled={branches().length === 0}
-                          >
-                            <For each={branches().length > 0 ? branches() : ["main"]}>
-                              {(branch) => <option value={branch}>{branch}</option>}
-                            </For>
-                          </select>
-                        </div>
-                      </Show>
-                      <div class="runs-config-field">
-                        <label class="meta-label">Slug</label>
-                        <input
-                          class="meta-input"
-                          value={detailSlug()}
-                          onInput={(e) => setDetailSlug(e.currentTarget.value)}
-                          placeholder="short-slug"
-                          disabled={selectedRunAgent()?.type !== "cli" || detailRunMode() !== "worktree"}
-                        />
-                      </div>
                     </div>
                   </Show>
-                  <Show when={customStartEnabled()}>
-                    <textarea
-                      class="custom-start-textarea"
-                      rows={2}
-                      value={customStartPrompt()}
-                      placeholder="Add a one-off custom prompt..."
-                      onInput={(e) => setCustomStartPrompt(e.currentTarget.value)}
-                    />
+                  <Show when={isDragging()}>
+                    <div class="drop-overlay">
+                      <div class="drop-message">Drop files here</div>
+                    </div>
                   </Show>
-                  <Show when={startError()}>
-                    <div class="monitoring-error">{startError()}</div>
-                  </Show>
-                  <Show when={subagentError()}>
-                    <div class="monitoring-error">{subagentError()}</div>
-                  </Show>
-                  <div class="runs-list">
-                    <Show when={agentRuns().length > 0} fallback={<div class="log-empty">No runs yet.</div>}>
-                      <For each={agentRuns()}>
-                        {(run) => {
-                          const relative = formatRunRelative(run.time);
-                          const timeLabel = relative
-                            ? run.status === "running"
-                              ? `Started ${relative}`
-                              : relative
-                            : "No activity yet";
-                          return (
-                            <button
-                              class={`run-row ${selectedRunKey() === run.key ? "active" : ""} ${run.archived ? "archived" : ""}`}
-                              onClick={() =>
-                                setSelectedRunKey((prev) => (prev === run.key ? null : run.key))
-                              }
-                            >
-                              <span class={`status-dot ${run.status === "running" ? "running" : ""}`} />
-                              <div class="run-content">
-                                <div class="run-title">{run.label}</div>
-                                <div class="run-time">{timeLabel}</div>
-                              </div>
-                              <Show when={run.type === "subagent" && run.slug}>
-                                <div class="run-actions">
-                                  <button
-                                    class="archive-btn"
-                                    type="button"
-                                    title={run.archived ? "Unarchive run" : "Archive run"}
-                                    aria-label={run.archived ? "Unarchive run" : "Archive run"}
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const projectId = detail()?.id;
-                                      if (!projectId || !run.slug) return;
-                                      await handleArchiveToggle(projectId, run.slug, run.archived ?? false);
-                                    }}
-                                  >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                      <path d="M3 7h18v13H3z" />
-                                      <path d="M7 7V4h10v3" />
-                                      <path d="M7 12h10" />
-                                    </svg>
-                                  </button>
-                                  <button
-                                    class="kill-btn"
-                                    type="button"
-                                    title="Kill subagent"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const projectId = detail()?.id;
-                                      if (!projectId || !run.slug) return;
-                                      if (!window.confirm(`Kill subagent ${run.slug}? This removes all workspace data.`)) return;
-                                      await killSubagent(projectId, run.slug);
-                                      // Polling handles refresh; run will disappear within 2s
-                                    }}
-                                  >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              </Show>
-                            </button>
-                          );
-                        }}
-                      </For>
-                    </Show>
+                </div>
+                <div class="create-modal-footer">
+                  <div class="create-footer-hints">
+                    Esc to close | Cmd/Ctrl+Enter to create
                   </div>
-                  <div class="runs-logs">
-                    <Show
-                      when={selectedRun()}
-                      fallback={<div class="log-empty">Select a run to view logs.</div>}
-                    >
-                      <div
-                        class="log-pane"
-                        ref={subagentLogPaneRef}
-                        onScroll={(e) => {
-                          const target = e.currentTarget as HTMLDivElement;
-                          const threshold = 120;
-                          const atBottom =
-                            target.scrollHeight - target.scrollTop - target.clientHeight <= threshold;
-                          setRunLogAtBottom(atBottom);
-                        }}
-                      >
-                        <For each={selectedRunLogItems()}>
-                          {(entry) => renderLogItem(entry)}
-                        </For>
-                        <Show when={selectedRunLogItems().length === 0}>
-                          <div class="log-empty">No logs yet.</div>
-                        </Show>
-                      </div>
-                    </Show>
+                  <div class="create-footer-actions">
+                    <button class="create-cancel" onClick={closeCreateModal}>
+                      Cancel
+                    </button>
+                    <button class="create-submit" onClick={handleCreateSubmit}>
+                      Create
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </Show>
+          </Show>
 
-      <Show when={createModalOpen()}>
-        <div class="overlay" role="dialog" aria-modal="true">
-          <div class="overlay-backdrop" onClick={closeCreateModal} />
-          <div class="create-modal">
-            <div class="create-modal-header">
-              <div class="create-title-block">
-                <h2>New project</h2>
-                <p class="create-subtitle">Quick create with notes. Title defaults to the first note line.</p>
-              </div>
-              <button class="overlay-close" onClick={closeCreateModal} aria-label="Close">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div
-              class="create-modal-body"
-              classList={{ "drag-over": isDragging() }}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              <Show when={createToast()}>
-                <div class="create-toast" role="status">
-                  {createToast()}
-                </div>
-              </Show>
-              <div class="create-field">
-                <label class="create-label" for="create-title">
-                  Title <span class="create-required">*</span>
-                </label>
-                <input
-                  id="create-title"
-                  class="create-input"
-                  type="text"
-                  value={createTitle()}
-                  onInput={(e) => {
-                    setCreateTitle(e.currentTarget.value);
-                    setCreateError("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      createNotesRef?.focus();
-                    }
-                  }}
-                  placeholder="Short, descriptive title"
-                  autofocus
-                  classList={{ error: Boolean(createError()) }}
-                />
-                <div class="create-helper">Required - 2+ words - Leave blank to use the first note line</div>
-                <Show when={createError()}>
-                  <div class="create-error" role="alert">
-                    {createError()}
-                  </div>
-                </Show>
-              </div>
-              <div class="create-field create-notes">
-                <div class="create-notes-header">
-                  <label class="create-label" for="create-notes">Notes</label>
-                  <span class="create-optional">Optional</span>
-                </div>
-                <textarea
-                  id="create-notes"
-                  class="create-textarea"
-                  value={createDescription()}
-                  onInput={(e) => setCreateDescription(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      void handleCreateSubmit();
-                    }
-                  }}
-                  placeholder="Notes, context, links, or next steps..."
-                  rows={10}
-                  ref={createNotesRef}
-                />
-                <div class="create-helper">Paste notes now so your agent has context later.</div>
-              </div>
-              <div class="create-field">
-                <div class="create-label-row">
-                  <label class="create-label">Attachments</label>
-                  <button
-                    class="file-button"
-                    type="button"
-                    onClick={() => fileInputRef?.click()}
-                  >
-                    Add files
-                  </button>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  class="file-input"
-                  type="file"
-                  multiple
-                  onChange={handleFileSelect}
-                />
-              </div>
-              <Show when={pendingFiles().length > 0}>
-                <div class="create-field">
-                  <label class="create-label">Selected files</label>
-                  <div class="file-list">
-                    <For each={pendingFiles()}>
-                      {(file, index) => (
-                        <div class="file-item">
-                          <span class="file-name">{file.name}</span>
-                          <button
-                            class="file-remove"
-                            onClick={() => removeFile(index())}
-                            type="button"
-                            aria-label={`Remove ${file.name}`}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                              <path d="M18 6L6 18M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </Show>
-              <Show when={isDragging()}>
-                <div class="drop-overlay">
-                  <div class="drop-message">Drop files here</div>
-                </div>
-              </Show>
-            </div>
-            <div class="create-modal-footer">
-              <div class="create-footer-hints">Esc to close | Cmd/Ctrl+Enter to create</div>
-              <div class="create-footer-actions">
-                <button class="create-cancel" onClick={closeCreateModal}>
-                  Cancel
-                </button>
-                <button class="create-submit" onClick={handleCreateSubmit}>
-                  Create
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      <style>{`
+          <style>{`
         .app-layout {
           display: flex;
           height: 100vh;
@@ -4452,6 +5250,15 @@ const handleDetailDragOver = (e: DragEvent) => {
           box-shadow: 0 0 8px rgba(83, 185, 124, 0.6);
         }
 
+        .status-dot.replied {
+          background: #53b97c;
+        }
+
+        .status-dot.error {
+          background: #e36d6d;
+          box-shadow: 0 0 8px rgba(227, 109, 109, 0.55);
+        }
+
         .status-pill.running .status-dot {
           background: #53b97c;
           box-shadow: 0 0 8px rgba(83, 185, 124, 0.6);
@@ -5203,7 +6010,12 @@ const handleDetailDragOver = (e: DragEvent) => {
           onClick={() => setMobileOverlay("feed")}
           aria-label="Open activity feed"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M8 6h12M8 12h12M8 18h12" />
             <path d="M4 6h.01M4 12h.01M4 18h.01" />
           </svg>

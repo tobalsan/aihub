@@ -9,6 +9,7 @@ export type SubagentStatus = "running" | "replied" | "error" | "idle";
 
 export type SubagentListItem = {
   slug: string;
+  type?: "subagent" | "ralph_loop";
   cli?: string;
   runMode?: string;
   status: SubagentStatus;
@@ -17,6 +18,7 @@ export type SubagentListItem = {
   worktreePath?: string;
   lastError?: string;
   archived?: boolean;
+  iterations?: number;
 };
 
 export type SubagentLogEvent = {
@@ -69,7 +71,10 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function findProjectDir(root: string, id: string): Promise<string | null> {
+async function findProjectDir(
+  root: string,
+  id: string
+): Promise<string | null> {
   if (!(await dirExists(root))) return null;
   const entries = await fs.readdir(root, { withFileTypes: true });
   for (const entry of entries) {
@@ -104,14 +109,19 @@ function isProcessAlive(pid: number | undefined | null): boolean {
   }
 }
 
-async function readLastOutcome(historyPath: string): Promise<"replied" | "error" | null> {
+async function readLastOutcome(
+  historyPath: string
+): Promise<"replied" | "error" | null> {
   try {
     const raw = await fs.readFile(historyPath, "utf8");
     const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
     for (let i = lines.length - 1; i >= 0; i -= 1) {
       const line = lines[i];
       try {
-        const ev = JSON.parse(line) as { type?: string; data?: { outcome?: string } };
+        const ev = JSON.parse(line) as {
+          type?: string;
+          data?: { outcome?: string };
+        };
         if (ev.type === "worker.finished") {
           if (ev.data?.outcome === "replied") return "replied";
           if (ev.data?.outcome === "error") return "error";
@@ -147,10 +157,17 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
         if (!entry || typeof entry !== "object") continue;
         const item = entry as Record<string, unknown>;
         const itemType = typeof item.type === "string" ? item.type : "";
-        if (itemType === "text" || itemType === "input_text" || itemType === "output_text") {
+        if (
+          itemType === "text" ||
+          itemType === "input_text" ||
+          itemType === "output_text"
+        ) {
           const text = typeof item.text === "string" ? item.text : "";
           if (text) {
-            events.push({ type: role === "assistant" ? "assistant" : "user", text });
+            events.push({
+              type: role === "assistant" ? "assistant" : "user",
+              text,
+            });
           }
           continue;
         }
@@ -163,7 +180,8 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
           continue;
         }
         if (itemType === "tool_result") {
-          const toolId = typeof item.tool_use_id === "string" ? item.tool_use_id : "";
+          const toolId =
+            typeof item.tool_use_id === "string" ? item.tool_use_id : "";
           let text = "";
           if (typeof item.content === "string") {
             text = item.content;
@@ -172,7 +190,9 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
               .map((block) => {
                 if (!block || typeof block !== "object") return "";
                 const contentItem = block as Record<string, unknown>;
-                return typeof contentItem.text === "string" ? contentItem.text : "";
+                return typeof contentItem.text === "string"
+                  ? contentItem.text
+                  : "";
               })
               .filter(Boolean)
               .join("\n");
@@ -201,10 +221,16 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
     if (topType === "item.completed") {
       const item = parsed.item as Record<string, unknown> | undefined;
       if (item?.type === "agent_message") {
-        return { type: "assistant", text: typeof item?.text === "string" ? item.text : "" };
+        return {
+          type: "assistant",
+          text: typeof item?.text === "string" ? item.text : "",
+        };
       }
       if (item?.type === "command_execution") {
-        const output = typeof item?.aggregated_output === "string" ? item.aggregated_output : "";
+        const output =
+          typeof item?.aggregated_output === "string"
+            ? item.aggregated_output
+            : "";
         return {
           type: "tool_output",
           text: output,
@@ -212,7 +238,10 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
         };
       }
       if (item?.type === "error") {
-        return { type: "error", text: typeof item?.message === "string" ? item.message : "" };
+        return {
+          type: "error",
+          text: typeof item?.message === "string" ? item.message : "",
+        };
       }
       return { type: "skip" };
     }
@@ -236,10 +265,16 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
       const payload = parsed.payload as Record<string, unknown> | undefined;
       const payloadType = typeof payload?.type === "string" ? payload.type : "";
       if (payloadType === "user_message") {
-        return { type: "user", text: typeof payload?.message === "string" ? payload.message : "" };
+        return {
+          type: "user",
+          text: typeof payload?.message === "string" ? payload.message : "",
+        };
       }
       if (payloadType === "agent_message") {
-        return { type: "assistant", text: typeof payload?.message === "string" ? payload.message : "" };
+        return {
+          type: "assistant",
+          text: typeof payload?.message === "string" ? payload.message : "",
+        };
       }
       return { type: "skip" };
     }
@@ -256,7 +291,11 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
             .map((entry) => {
               if (!entry || typeof entry !== "object") return "";
               const item = entry as Record<string, unknown>;
-              if (item.type === "output_text" || item.type === "input_text" || item.type === "text") {
+              if (
+                item.type === "output_text" ||
+                item.type === "input_text" ||
+                item.type === "text"
+              ) {
                 return typeof item.text === "string" ? item.text : "";
               }
               return "";
@@ -280,7 +319,9 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
         return {
           type: "tool_output",
           text: typeof payload?.output === "string" ? payload.output : "",
-          tool: { id: typeof payload?.call_id === "string" ? payload.call_id : "" },
+          tool: {
+            id: typeof payload?.call_id === "string" ? payload.call_id : "",
+          },
         };
       }
       if (payloadType === "custom_tool_call") {
@@ -297,7 +338,9 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
         return {
           type: "tool_output",
           text: typeof payload?.output === "string" ? payload.output : "",
-          tool: { id: typeof payload?.call_id === "string" ? payload.call_id : "" },
+          tool: {
+            id: typeof payload?.call_id === "string" ? payload.call_id : "",
+          },
         };
       }
       return { type: "skip" };
@@ -310,9 +353,22 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
           : typeof parsed.message === "string"
             ? parsed.message
             : undefined;
-    const parsedType = typeof parsed.type === "string" ? parsed.type : undefined;
+    const parsedType =
+      typeof parsed.type === "string" ? parsed.type : undefined;
 
-    if (parsedType && ["stdout", "stderr", "tool_call", "tool_output", "diff", "message", "error", "session"].includes(parsedType)) {
+    if (
+      parsedType &&
+      [
+        "stdout",
+        "stderr",
+        "tool_call",
+        "tool_output",
+        "diff",
+        "message",
+        "error",
+        "session",
+      ].includes(parsedType)
+    ) {
       return {
         ts: typeof parsed.ts === "string" ? parsed.ts : undefined,
         type: parsedType,
@@ -352,10 +408,12 @@ export async function listSubagents(
     const slug = entry.name;
     const dir = path.join(sessionsRoot, slug);
     const configData = await readJson<{
+      type?: "subagent" | "ralph_loop";
       cli?: string;
       runMode?: string;
       baseBranch?: string;
       archived?: boolean;
+      iterations?: number;
     }>(path.join(dir, "config.json"));
     const state = await readJson<{
       supervisor_pid?: number;
@@ -365,7 +423,9 @@ export async function listSubagents(
       worktree_path?: string;
       base_branch?: string;
     }>(path.join(dir, "state.json"));
-    const progress = await readJson<{ last_active?: string }>(path.join(dir, "progress.json"));
+    const progress = await readJson<{ last_active?: string }>(
+      path.join(dir, "progress.json")
+    );
     const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
 
     let status: SubagentStatus = "idle";
@@ -385,6 +445,7 @@ export async function listSubagents(
 
     items.push({
       slug,
+      type: configData?.type ?? "subagent",
       cli: configData?.cli ?? state?.cli,
       runMode: configData?.runMode ?? state?.run_mode,
       status,
@@ -393,6 +454,10 @@ export async function listSubagents(
       worktreePath: state?.worktree_path,
       lastError: state?.last_error,
       archived: configData?.archived ?? false,
+      iterations:
+        typeof configData?.iterations === "number"
+          ? configData.iterations
+          : undefined,
     });
   }
 
@@ -475,13 +540,22 @@ export async function listAllSubagents(
       if (!workspace.isDirectory()) continue;
       const slug = workspace.name;
       const dir = path.join(sessionsRoot, slug);
-      const configData = await readJson<{ cli?: string; archived?: boolean }>(path.join(dir, "config.json"));
+      const configData = await readJson<{
+        type?: "subagent" | "ralph_loop";
+        cli?: string;
+        runMode?: string;
+        baseBranch?: string;
+        archived?: boolean;
+        iterations?: number;
+      }>(path.join(dir, "config.json"));
       const state = await readJson<{
         supervisor_pid?: number;
         last_error?: string;
         cli?: string;
       }>(path.join(dir, "state.json"));
-      const progress = await readJson<{ last_active?: string }>(path.join(dir, "progress.json"));
+      const progress = await readJson<{ last_active?: string }>(
+        path.join(dir, "progress.json")
+      );
       const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
 
       let status: SubagentStatus = "idle";
@@ -502,7 +576,14 @@ export async function listAllSubagents(
       items.push({
         projectId,
         slug,
+        type: configData?.type ?? "subagent",
         cli: configData?.cli ?? state?.cli,
+        runMode: configData?.runMode,
+        baseBranch: configData?.baseBranch,
+        iterations:
+          typeof configData?.iterations === "number"
+            ? configData.iterations
+            : undefined,
         status,
         lastActive: progress?.last_active,
       });
@@ -578,7 +659,8 @@ export async function listProjectBranches(
   } catch {
     frontmatter = {};
   }
-  const repo = typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+  const repo =
+    typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   if (!repo) {
     return { ok: true, data: { branches: [] } };
   }
@@ -591,7 +673,12 @@ export async function listProjectBranches(
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
-    const { stdout } = await execFileAsync("git", ["-C", repo, "branch", "--format=%(refname:short)"]);
+    const { stdout } = await execFileAsync("git", [
+      "-C",
+      repo,
+      "branch",
+      "--format=%(refname:short)",
+    ]);
     const branches = stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
