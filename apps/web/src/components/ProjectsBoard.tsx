@@ -1412,13 +1412,18 @@ export function ProjectsBoard() {
     const byStatus = new Map<string, ProjectListItem[]>();
     for (const col of COLUMNS) byStatus.set(col.id, []);
     for (const item of items) {
-      // Filter by title OR domain
+      // Filter by title OR domain OR project ID
       if (filter) {
+        const id = (item.id ?? "").toLowerCase();
         const title = (item.title ?? "").toLowerCase();
         const domain = (
           getFrontmatterString(item.frontmatter, "domain") ?? ""
         ).toLowerCase();
-        if (!title.includes(filter) && !domain.includes(filter)) {
+        if (
+          !id.includes(filter) &&
+          !title.includes(filter) &&
+          !domain.includes(filter)
+        ) {
           continue;
         }
       }
