@@ -802,6 +802,9 @@ type AgentRunItem = {
   key: string;
   type: "subagent" | "aihub";
   executionType?: "subagent" | "ralph_loop";
+  role?: "supervisor" | "worker";
+  parentSlug?: string;
+  groupKey?: string;
   label: string;
   status: "running" | "replied" | "error" | "idle";
   time?: number;
@@ -811,6 +814,20 @@ type AgentRunItem = {
   archived?: boolean;
   iterations?: number;
 };
+
+type AgentRunGroup = {
+  key: string;
+  primary: AgentRunItem;
+  children: AgentRunItem[];
+  displayStatus: AgentRunItem["status"];
+};
+
+function runStatusRank(status: AgentRunItem["status"]): number {
+  if (status === "running") return 3;
+  if (status === "error") return 2;
+  if (status === "replied") return 1;
+  return 0;
+}
 
 function logTone(type: string): "assistant" | "user" | "muted" | "error" {
   if (type === "user") return "user";
@@ -1288,7 +1305,13 @@ export function ProjectsBoard() {
         key: `subagent:${item.slug}`,
         type: "subagent",
         executionType: item.type ?? "subagent",
-        label: `${project.id}/${item.cli ?? item.slug}`,
+        role: item.role,
+        parentSlug: item.parentSlug,
+        groupKey: item.groupKey,
+        label:
+          item.role === "worker"
+            ? `${project.id}/${item.slug}`
+            : `${project.id}/${item.cli ?? item.slug}`,
         status: item.status,
         time: Number.isNaN(time) ? undefined : time,
         slug: item.slug,
@@ -1321,6 +1344,50 @@ export function ProjectsBoard() {
   const hasArchivedRuns = createMemo(() =>
     subagents().some((item) => item.archived)
   );
+  const groupedAgentRuns = createMemo<AgentRunGroup[]>(() => {
+    const runs = agentRuns();
+    const grouped = new Map<
+      string,
+      { primary?: AgentRunItem; children: AgentRunItem[] }
+    >();
+    const groupedRunKeys = new Set<string>();
+    const result: AgentRunGroup[] = [];
+
+    for (const run of runs) {
+      if (run.type !== "subagent" || !run.groupKey) continue;
+      const existing = grouped.get(run.groupKey) ?? { children: [] };
+      if (run.role === "supervisor") existing.primary = run;
+      if (run.role === "worker") existing.children.push(run);
+      grouped.set(run.groupKey, existing);
+      groupedRunKeys.add(run.key);
+    }
+
+    for (const [key, value] of grouped.entries()) {
+      const primary = value.primary ?? value.children[0];
+      const children = value.primary ? value.children : value.children.slice(1);
+      if (!primary) continue;
+      const statuses = [
+        primary.status,
+        ...children.map((child) => child.status),
+      ];
+      const displayStatus = statuses.reduce((best, status) =>
+        runStatusRank(status) > runStatusRank(best) ? status : best
+      );
+      result.push({ key, primary, children, displayStatus });
+    }
+
+    for (const run of runs) {
+      if (groupedRunKeys.has(run.key)) continue;
+      result.push({
+        key: run.key,
+        primary: run,
+        children: [],
+        displayStatus: run.status,
+      });
+    }
+
+    return result;
+  });
   // Check if any agent run is currently running
   const runningAgent = createMemo(() => {
     return agentRuns().find((run) => run.status === "running") ?? null;
@@ -3191,53 +3258,58 @@ export function ProjectsBoard() {
                         </Show>
                       </div>
                       <Show when={!isMonitoringHidden()}>
-                    <div class="meta-field">
-                      <button
-                        class="meta-button"
-                        onClick={() =>
-                          setOpenMenu(openMenu() === "mode" ? null : "mode")
-                        }
-                      >
-                        <svg
-                          class="meta-icon"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path d="M4 6h16M8 6v12M16 12v6" />
-                        </svg>
-                        {detailMode()
-                          ? detailMode().replace(/_/g, " ")
-                          : "execution mode"}
-                      </button>
-                      <Show when={openMenu() === "mode"}>
-                        <div class="meta-menu">
+                        <div class="meta-field">
                           <button
-                            class="meta-item"
-                            onClick={() => handleModeChange(params.id ?? "", "")}
-                          >
-                            unset
-                          </button>
-                          <button
-                            class="meta-item"
+                            class="meta-button"
                             onClick={() =>
-                              handleModeChange(params.id ?? "", "subagent")
+                              setOpenMenu(openMenu() === "mode" ? null : "mode")
                             }
                           >
-                            subagent
+                            <svg
+                              class="meta-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <path d="M4 6h16M8 6v12M16 12v6" />
+                            </svg>
+                            {detailMode()
+                              ? detailMode().replace(/_/g, " ")
+                              : "execution mode"}
                           </button>
-                          <button
-                            class="meta-item"
-                            onClick={() =>
-                              handleModeChange(params.id ?? "", "ralph_loop")
-                            }
-                          >
-                            ralph loop
-                          </button>
+                          <Show when={openMenu() === "mode"}>
+                            <div class="meta-menu">
+                              <button
+                                class="meta-item"
+                                onClick={() =>
+                                  handleModeChange(params.id ?? "", "")
+                                }
+                              >
+                                unset
+                              </button>
+                              <button
+                                class="meta-item"
+                                onClick={() =>
+                                  handleModeChange(params.id ?? "", "subagent")
+                                }
+                              >
+                                subagent
+                              </button>
+                              <button
+                                class="meta-item"
+                                onClick={() =>
+                                  handleModeChange(
+                                    params.id ?? "",
+                                    "ralph_loop"
+                                  )
+                                }
+                              >
+                                ralph loop
+                              </button>
+                            </div>
+                          </Show>
                         </div>
-                      </Show>
-                    </div>
                         <Show when={detailDomain() === "coding"}>
                           <div class="meta-field meta-field-wide meta-field-stack">
                             <label class="meta-label">Repo</label>
@@ -3469,19 +3541,20 @@ export function ProjectsBoard() {
                           when={agentRuns().length > 0}
                           fallback={<div class="log-empty">No runs yet.</div>}
                         >
-                          <For each={agentRuns()}>
-                            {(run) => {
+                          <For each={groupedAgentRuns()}>
+                            {(group) => {
+                              const run = group.primary;
                               const relative = formatRunRelative(run.time);
                               const statusLabel =
-                                run.status === "running"
+                                group.displayStatus === "running"
                                   ? "WORKING"
-                                  : run.status === "replied"
+                                  : group.displayStatus === "replied"
                                     ? "COMPLETED"
-                                    : run.status === "error"
+                                    : group.displayStatus === "error"
                                       ? "FAILED"
                                       : "IDLE";
                               const timeLabel = relative
-                                ? run.status === "running"
+                                ? group.displayStatus === "running"
                                   ? `Started ${relative}`
                                   : relative
                                 : "No activity yet";
@@ -3491,104 +3564,136 @@ export function ProjectsBoard() {
                                   ? `${run.iterations} iterations`
                                   : "";
                               return (
-                                <button
-                                  class={`run-row ${selectedRunKey() === run.key ? "active" : ""} ${run.archived ? "archived" : ""}`}
-                                  onClick={() =>
-                                    setSelectedRunKey((prev) =>
-                                      prev === run.key ? null : run.key
-                                    )
-                                  }
-                                >
-                                  <span class={`status-dot ${run.status}`} />
-                                  <div class="run-content">
-                                    <div class="run-title">{run.label}</div>
-                                    <div class="run-time">
-                                      {statusLabel} • {timeLabel}
-                                      <Show when={loopMeta}>
-                                        <span> • {loopMeta}</span>
-                                      </Show>
-                                    </div>
-                                  </div>
-                                  <Show
-                                    when={run.type === "subagent" && run.slug}
+                                <>
+                                  <button
+                                    class={`run-row ${selectedRunKey() === run.key ? "active" : ""} ${run.archived ? "archived" : ""}`}
+                                    onClick={() =>
+                                      setSelectedRunKey((prev) =>
+                                        prev === run.key ? null : run.key
+                                      )
+                                    }
                                   >
-                                    <div class="run-actions">
-                                      <button
-                                        class="archive-btn"
-                                        type="button"
-                                        title={
-                                          run.archived
-                                            ? "Unarchive run"
-                                            : "Archive run"
-                                        }
-                                        aria-label={
-                                          run.archived
-                                            ? "Unarchive run"
-                                            : "Archive run"
-                                        }
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const projectId = detail()?.id;
-                                          if (!projectId || !run.slug) return;
-                                          await handleArchiveToggle(
-                                            projectId,
-                                            run.slug,
-                                            run.archived ?? false
-                                          );
-                                        }}
-                                      >
-                                        <svg
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          stroke-width="2"
-                                        >
-                                          <path d="M3 7h18v13H3z" />
-                                          <path d="M7 7V4h10v3" />
-                                          <path d="M7 12h10" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        class="kill-btn"
-                                        type="button"
-                                        title={
-                                          run.executionType === "ralph_loop"
-                                            ? "Kill loop"
-                                            : "Kill subagent"
-                                        }
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const projectId = detail()?.id;
-                                          if (!projectId || !run.slug) return;
-                                          const label =
-                                            run.executionType === "ralph_loop"
-                                              ? "loop"
-                                              : "subagent";
-                                          if (
-                                            !window.confirm(
-                                              `Kill ${label} ${run.slug}? This removes all workspace data.`
-                                            )
-                                          )
-                                            return;
-                                          await killSubagent(
-                                            projectId,
-                                            run.slug
-                                          );
-                                          // Polling handles refresh; run will disappear within 2s
-                                        }}
-                                      >
-                                        <svg
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          stroke-width="2"
-                                        >
-                                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
-                                        </svg>
-                                      </button>
+                                    <span
+                                      class={`status-dot ${group.displayStatus}`}
+                                    />
+                                    <div class="run-content">
+                                      <div class="run-title">{run.label}</div>
+                                      <div class="run-time">
+                                        {statusLabel} • {timeLabel}
+                                        <Show when={loopMeta}>
+                                          <span> • {loopMeta}</span>
+                                        </Show>
+                                      </div>
                                     </div>
-                                  </Show>
-                                </button>
+                                    <Show
+                                      when={run.type === "subagent" && run.slug}
+                                    >
+                                      <div class="run-actions">
+                                        <button
+                                          class="archive-btn"
+                                          type="button"
+                                          title={
+                                            run.archived
+                                              ? "Unarchive run"
+                                              : "Archive run"
+                                          }
+                                          aria-label={
+                                            run.archived
+                                              ? "Unarchive run"
+                                              : "Archive run"
+                                          }
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const projectId = detail()?.id;
+                                            if (!projectId || !run.slug) return;
+                                            await handleArchiveToggle(
+                                              projectId,
+                                              run.slug,
+                                              run.archived ?? false
+                                            );
+                                          }}
+                                        >
+                                          <svg
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                          >
+                                            <path d="M3 7h18v13H3z" />
+                                            <path d="M7 7V4h10v3" />
+                                            <path d="M7 12h10" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          class="kill-btn"
+                                          type="button"
+                                          title={
+                                            run.executionType === "ralph_loop"
+                                              ? "Kill loop"
+                                              : "Kill subagent"
+                                          }
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const projectId = detail()?.id;
+                                            if (!projectId || !run.slug) return;
+                                            const label =
+                                              run.executionType === "ralph_loop"
+                                                ? "loop"
+                                                : "subagent";
+                                            if (
+                                              !window.confirm(
+                                                `Kill ${label} ${run.slug}? This removes all workspace data.`
+                                              )
+                                            )
+                                              return;
+                                            await killSubagent(
+                                              projectId,
+                                              run.slug
+                                            );
+                                            // Polling handles refresh; run will disappear within 2s
+                                          }}
+                                        >
+                                          <svg
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                          >
+                                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    </Show>
+                                  </button>
+                                  <For each={group.children}>
+                                    {(child) => (
+                                      <button
+                                        class={`run-row nested ${selectedRunKey() === child.key ? "active" : ""} ${child.archived ? "archived" : ""}`}
+                                        onClick={() =>
+                                          setSelectedRunKey((prev) =>
+                                            prev === child.key
+                                              ? null
+                                              : child.key
+                                          )
+                                        }
+                                      >
+                                        <span
+                                          class={`status-dot ${child.status}`}
+                                        />
+                                        <div class="run-content">
+                                          <div class="run-title">
+                                            {child.label}
+                                          </div>
+                                          <div class="run-time">
+                                            WORKER •{" "}
+                                            {formatRunRelative(child.time) ??
+                                              "No activity yet"}
+                                          </div>
+                                        </div>
+                                      </button>
+                                    )}
+                                  </For>
+                                </>
                               );
                             }}
                           </For>
@@ -5575,6 +5680,12 @@ export function ProjectsBoard() {
 
         .run-row.archived {
           opacity: 0.6;
+        }
+
+        .run-row.nested {
+          margin-left: 18px;
+          border-style: dashed;
+          padding: 8px 10px;
         }
 
         .run-row .status-dot {

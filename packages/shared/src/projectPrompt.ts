@@ -3,7 +3,12 @@ export function normalizeProjectStatus(raw?: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
-export function buildProjectSummary(title: string, status: string, path: string, content: string): string {
+export function buildProjectSummary(
+  title: string,
+  status: string,
+  path: string,
+  content: string
+): string {
   return [
     "Let's tackle the following project:",
     "",
@@ -22,6 +27,44 @@ export function buildStartPrompt(summary: string): string {
   return summary;
 }
 
+export type RalphPromptTemplateVars = {
+  PROJECT_FILE: string;
+  SCOPES_FILE: string;
+  PROGRESS_FILE: string;
+  SOURCE_DIR: string;
+};
+
+export function renderTemplate(
+  template: string,
+  vars: Record<string, string>
+): string {
+  let output = template;
+  for (const [key, value] of Object.entries(vars)) {
+    output = output.split(`{{${key}}}`).join(value);
+  }
+  return output;
+}
+
+export function buildRalphPromptFromTemplate(input: {
+  template: string;
+  vars: Partial<RalphPromptTemplateVars>;
+}): string {
+  const requiredKeys: Array<keyof RalphPromptTemplateVars> = [
+    "PROJECT_FILE",
+    "SCOPES_FILE",
+    "PROGRESS_FILE",
+    "SOURCE_DIR",
+  ];
+  const missing = requiredKeys.filter((key) => {
+    const value = input.vars[key];
+    return typeof value !== "string" || value.length === 0;
+  });
+  if (missing.length > 0) {
+    throw new Error(`Missing required template vars: ${missing.join(", ")}`);
+  }
+  return renderTemplate(input.template, input.vars as Record<string, string>);
+}
+
 export function buildProjectStartPrompt(input: {
   title: string;
   status: string;
@@ -37,7 +80,14 @@ export function buildProjectStartPrompt(input: {
   let prompt =
     normalized === "shaping"
       ? custom || `/drill-specs ${input.specsPath}`
-      : buildStartPrompt(buildProjectSummary(input.title, input.status, input.path, input.content));
+      : buildStartPrompt(
+          buildProjectSummary(
+            input.title,
+            input.status,
+            input.path,
+            input.content
+          )
+        );
   if (normalized !== "shaping" && custom) {
     prompt = `${prompt}\n\n${custom}`;
   }

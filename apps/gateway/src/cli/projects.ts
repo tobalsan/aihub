@@ -661,7 +661,7 @@ program
   .option("--iterations <n>", "Number of loop iterations", "20")
   .option(
     "--prompt-file <path>",
-    "Prompt file path (default: project prompt.md)"
+    "Prompt file path (optional; otherwise generated from ralph template)"
   )
   .option("--mode <mode>", "Run mode (main-run|worktree)")
   .option("--branch <branch>", "Base branch for worktree")

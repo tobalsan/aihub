@@ -282,7 +282,11 @@ export type SubagentGlobalListItem = {
   type?: "subagent" | "ralph_loop";
   cli?: string;
   runMode?: string;
+  role?: "supervisor" | "worker";
+  parentSlug?: string;
+  groupKey?: string;
   baseBranch?: string;
+  worktreePath?: string;
   iterations?: number;
   status: SubagentStatus;
   lastActive?: string;
@@ -297,6 +301,9 @@ export type SubagentListItem = {
   type?: "subagent" | "ralph_loop";
   cli?: string;
   runMode?: string;
+  role?: "supervisor" | "worker";
+  parentSlug?: string;
+  groupKey?: string;
   status: SubagentStatus;
   lastActive?: string;
   baseBranch?: string;

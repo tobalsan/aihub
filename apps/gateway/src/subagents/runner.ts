@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import type { GatewayConfig } from "@aihub/shared";
+import { buildRalphPromptFromTemplate } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
 export type SubagentCli = "claude" | "codex" | "droid" | "gemini";
@@ -219,6 +220,12 @@ function commonCandidatePaths(execName: string): string[] {
 
 function ralphScriptPath(cli: RalphLoopCli): string {
   return expandPath(`~/.agents/skills/ralphup/scripts/ralph_${cli}.sh`);
+}
+
+function ralphPromptTemplatePath(cli: RalphLoopCli): string {
+  return expandPath(
+    `~/.agents/skills/ralphup/assets/prompt.${cli}.template.md`
+  );
 }
 
 async function resolveCliCommand(
@@ -655,6 +662,13 @@ export async function spawnRalphLoop(
 
   const projectDir = path.join(root, dirName);
   const readmePath = path.join(projectDir, "README.md");
+  const readmeExists = await fs
+    .stat(readmePath)
+    .then((st) => st.isFile())
+    .catch(() => false);
+  if (!readmeExists) {
+    return { ok: false, error: `README.md not found: ${readmePath}` };
+  }
   const { frontmatter } = await parseMarkdownFile(readmePath);
   const repoValue =
     typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
@@ -696,15 +710,63 @@ export async function spawnRalphLoop(
     }
   }
 
-  const promptFilePath = expandPath(
-    input.promptFile?.trim() || path.join(projectDir, "prompt.md")
-  );
-  const promptExists = await fs
-    .stat(promptFilePath)
-    .then((st) => st.isFile())
-    .catch(() => false);
-  if (!promptExists) {
-    return { ok: false, error: `Prompt file not found: ${promptFilePath}` };
+  const providedPromptFile = input.promptFile?.trim();
+  let promptFilePath = "";
+  let generatedPrompt = false;
+  let promptTemplate: string | undefined;
+
+  if (providedPromptFile) {
+    promptFilePath = expandPath(providedPromptFile);
+    const promptExists = await fs
+      .stat(promptFilePath)
+      .then((st) => st.isFile())
+      .catch(() => false);
+    if (!promptExists) {
+      return { ok: false, error: `Prompt file not found: ${promptFilePath}` };
+    }
+  } else {
+    const scopesPath = path.join(projectDir, "SCOPES.md");
+    const scopesExists = await fs
+      .stat(scopesPath)
+      .then((st) => st.isFile())
+      .catch(() => false);
+    if (!scopesExists) {
+      return { ok: false, error: `SCOPES.md not found: ${scopesPath}` };
+    }
+
+    const progressFilePath = path.join(projectDir, "progress.md");
+    const progressExists = await fs
+      .stat(progressFilePath)
+      .then((st) => st.isFile())
+      .catch(() => false);
+    if (!progressExists) {
+      await fs.writeFile(progressFilePath, "", "utf8");
+    }
+
+    promptTemplate = ralphPromptTemplatePath(input.cli);
+    const templateContent = await fs
+      .readFile(promptTemplate, "utf8")
+      .catch(() => null);
+    if (templateContent === null) {
+      return {
+        ok: false,
+        error: `Ralph prompt template not found: ${promptTemplate}`,
+      };
+    }
+
+    const prompt = buildRalphPromptFromTemplate({
+      template: templateContent,
+      vars: {
+        PROJECT_FILE: readmePath,
+        SCOPES_FILE: scopesPath,
+        PROGRESS_FILE: progressFilePath,
+        SOURCE_DIR: repo,
+      },
+    });
+
+    promptFilePath = path.join(projectDir, "prompt.md");
+    await fs.writeFile(promptFilePath, prompt, "utf8");
+    generatedPrompt = true;
   }
 
   const statePath = path.join(sessionDir, "state.json");
@@ -743,6 +805,8 @@ export async function spawnRalphLoop(
     baseBranch,
     iterations: input.iterations,
     promptFile: promptFilePath,
+    generatedPrompt,
+    promptTemplate,
     created: startedAt,
     archived: false,
   });

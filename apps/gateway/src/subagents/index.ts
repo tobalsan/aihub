@@ -12,6 +12,9 @@ export type SubagentListItem = {
   type?: "subagent" | "ralph_loop";
   cli?: string;
   runMode?: string;
+  role?: "supervisor" | "worker";
+  parentSlug?: string;
+  groupKey?: string;
   status: SubagentStatus;
   lastActive?: string;
   baseBranch?: string;
@@ -40,6 +43,17 @@ export type SubagentLogsResult =
 export type ProjectBranchesResult =
   | { ok: true; data: { branches: string[] } }
   | { ok: false; error: string };
+
+type RalphLinkable = {
+  projectId?: string;
+  slug: string;
+  type?: "subagent" | "ralph_loop";
+  runMode?: string;
+  worktreePath?: string;
+  role?: "supervisor" | "worker";
+  parentSlug?: string;
+  groupKey?: string;
+};
 
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
@@ -134,6 +148,65 @@ async function readLastOutcome(
     return null;
   }
   return null;
+}
+
+function buildRalphGroupKey(item: RalphLinkable): string {
+  const projectPart = item.projectId ? `${item.projectId}:` : "";
+  return `${projectPart}${item.slug}`;
+}
+
+function attachRalphMetadata<T extends RalphLinkable>(items: T[]): T[] {
+  const next = items.map((item) => ({ ...item }));
+  const supervisors = next.filter((item) => item.type === "ralph_loop");
+  const supervisorByWorktree = new Map<string, T>();
+  const singleMainSupervisorByProject = new Map<string, T>();
+
+  for (const supervisor of supervisors) {
+    supervisor.role = "supervisor";
+    supervisor.groupKey = buildRalphGroupKey(supervisor);
+    const worktree = supervisor.worktreePath?.trim();
+    if (worktree) {
+      supervisorByWorktree.set(
+        supervisor.projectId ? `${supervisor.projectId}:${worktree}` : worktree,
+        supervisor
+      );
+    }
+  }
+
+  const mainSupervisorBuckets = new Map<string, T[]>();
+  for (const supervisor of supervisors) {
+    if (supervisor.runMode !== "main-run") continue;
+    const projectKey = supervisor.projectId ?? "__single_project__";
+    const bucket = mainSupervisorBuckets.get(projectKey) ?? [];
+    bucket.push(supervisor);
+    mainSupervisorBuckets.set(projectKey, bucket);
+  }
+  for (const [projectKey, bucket] of mainSupervisorBuckets.entries()) {
+    if (bucket.length === 1)
+      singleMainSupervisorByProject.set(projectKey, bucket[0]);
+  }
+
+  for (const item of next) {
+    if (item.type === "ralph_loop") continue;
+    const worktree = item.worktreePath?.trim();
+    const projectKey = item.projectId ?? "__single_project__";
+    const key = worktree
+      ? item.projectId
+        ? `${item.projectId}:${worktree}`
+        : worktree
+      : "";
+    const matched =
+      (key ? supervisorByWorktree.get(key) : undefined) ??
+      (item.runMode === "main-run"
+        ? singleMainSupervisorByProject.get(projectKey)
+        : undefined);
+    if (!matched) continue;
+    item.role = "worker";
+    item.parentSlug = matched.slug;
+    item.groupKey = matched.groupKey;
+  }
+
+  return next;
 }
 
 function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
@@ -461,7 +534,7 @@ export async function listSubagents(
     });
   }
 
-  return { ok: true, data: { items } };
+  return { ok: true, data: { items: attachRalphMetadata(items) } };
 }
 
 export type ArchiveSubagentResult =
@@ -552,6 +625,8 @@ export async function listAllSubagents(
         supervisor_pid?: number;
         last_error?: string;
         cli?: string;
+        run_mode?: string;
+        worktree_path?: string;
       }>(path.join(dir, "state.json"));
       const progress = await readJson<{ last_active?: string }>(
         path.join(dir, "progress.json")
@@ -578,8 +653,9 @@ export async function listAllSubagents(
         slug,
         type: configData?.type ?? "subagent",
         cli: configData?.cli ?? state?.cli,
-        runMode: configData?.runMode,
+        runMode: configData?.runMode ?? state?.run_mode,
         baseBranch: configData?.baseBranch,
+        worktreePath: state?.worktree_path,
         iterations:
           typeof configData?.iterations === "number"
             ? configData.iterations
@@ -590,7 +666,7 @@ export async function listAllSubagents(
     }
   }
 
-  return items;
+  return attachRalphMetadata(items);
 }
 
 export async function getSubagentLogs(

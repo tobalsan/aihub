@@ -1,5 +1,18 @@
-import { Accessor, For, Show, createEffect, createResource, createSignal, onCleanup } from "solid-js";
-import { fetchAgents, fetchAllSubagents, fetchAgentStatuses, subscribeToStatus } from "../api/client";
+import {
+  Accessor,
+  For,
+  Show,
+  createEffect,
+  createResource,
+  createSignal,
+  onCleanup,
+} from "solid-js";
+import {
+  fetchAgents,
+  fetchAllSubagents,
+  fetchAgentStatuses,
+  subscribeToStatus,
+} from "../api/client";
 import type { SubagentGlobalListItem } from "../api/types";
 
 type AgentSidebarProps = {
@@ -17,6 +30,59 @@ function toSubagentLabel(item: SubagentGlobalListItem): string {
   return `${item.projectId}/${item.cli ?? item.slug}`;
 }
 
+function statusRank(status: SubagentGlobalListItem["status"]): number {
+  if (status === "running") return 3;
+  if (status === "error") return 2;
+  if (status === "replied") return 1;
+  return 0;
+}
+
+function dominantStatus(...statuses: Array<SubagentGlobalListItem["status"]>) {
+  return statuses.reduce((best, next) =>
+    statusRank(next) > statusRank(best) ? next : best
+  );
+}
+
+function mergeRalphRows(
+  items: SubagentGlobalListItem[]
+): SubagentGlobalListItem[] {
+  const grouped = new Map<
+    string,
+    { supervisor?: SubagentGlobalListItem; worker?: SubagentGlobalListItem }
+  >();
+  const passthrough: SubagentGlobalListItem[] = [];
+
+  for (const item of items) {
+    if (!item.groupKey) {
+      passthrough.push(item);
+      continue;
+    }
+    const current = grouped.get(item.groupKey) ?? {};
+    if (item.role === "supervisor") current.supervisor = item;
+    else if (item.role === "worker") current.worker = item;
+    else passthrough.push(item);
+    grouped.set(item.groupKey, current);
+  }
+
+  const merged: SubagentGlobalListItem[] = [];
+  for (const entry of grouped.values()) {
+    if (entry.supervisor) {
+      if (entry.worker) {
+        merged.push({
+          ...entry.supervisor,
+          status: dominantStatus(entry.supervisor.status, entry.worker.status),
+        });
+      } else {
+        merged.push(entry.supervisor);
+      }
+      continue;
+    }
+    if (entry.worker) merged.push(entry.worker);
+  }
+
+  return [...passthrough, ...merged];
+}
+
 function getInitials(name: string): string {
   const words = name.trim().split(/\s+/);
   if (words.length >= 2) {
@@ -30,7 +96,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const [subagents, { refetch }] = createResource(fetchAllSubagents);
 
   // Real-time status tracking
-  const [statuses, setStatuses] = createSignal<Record<string, "streaming" | "idle">>({});
+  const [statuses, setStatuses] = createSignal<
+    Record<string, "streaming" | "idle">
+  >({});
 
   // Fetch initial statuses on mount
   createEffect(() => {
@@ -66,7 +134,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
         <Show when={import.meta.env.VITE_AIHUB_DEV === "true"}>
           <span class="dev-badge">DEV</span>
         </Show>
-        <button class="collapse-btn" type="button" onClick={props.onToggleCollapse}>
+        <button
+          class="collapse-btn"
+          type="button"
+          onClick={props.onToggleCollapse}
+        >
           «
         </button>
       </div>
@@ -85,11 +157,17 @@ export function AgentSidebar(props: AgentSidebarProps) {
                     classList={{ selected: props.selectedAgent() === agent.id }}
                     onClick={() => props.onSelectAgent(agent.id)}
                   >
-                    <span class="agent-avatar" classList={{ running: isRunning() }}>
+                    <span
+                      class="agent-avatar"
+                      classList={{ running: isRunning() }}
+                    >
                       {getInitials(agent.name)}
                     </span>
                     <span class="agent-label">{agent.name}</span>
-                    <span class="status-pill" classList={{ working: isRunning(), idle: !isRunning() }}>
+                    <span
+                      class="status-pill"
+                      classList={{ working: isRunning(), idle: !isRunning() }}
+                    >
                       {isRunning() ? "WORKING" : "IDLE"}
                     </span>
                   </button>
@@ -102,7 +180,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         <div class="agent-section">
           <div class="section-title">SUBAGENTS</div>
           <Show when={subagents()}>
-            <For each={subagents()?.items ?? []}>
+            <For each={mergeRalphRows(subagents()?.items ?? [])}>
               {(item) => {
                 const id = toSubagentId(item);
                 const label = toSubagentLabel(item);
@@ -119,7 +197,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
                       {initials}
                     </span>
                     <span class="agent-label">{label}</span>
-                    <span class={`status-pill ${isRunning ? "working" : "idle"}`}>
+                    <span
+                      class={`status-pill ${isRunning ? "working" : "idle"}`}
+                    >
                       {isRunning ? "WORKING" : "IDLE"}
                     </span>
                   </button>
