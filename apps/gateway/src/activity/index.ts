@@ -13,7 +13,11 @@ type ActivityColor = "green" | "purple" | "blue" | "yellow";
 
 export type ActivityEvent = {
   id: string;
-  type: "project_status" | "agent_message" | "subagent_action" | "project_comment";
+  type:
+    | "project_status"
+    | "agent_message"
+    | "subagent_action"
+    | "project_comment";
   actor: string;
   action: string;
   projectId?: string;
@@ -24,7 +28,7 @@ export type ActivityEvent = {
 
 const lastProjectStatuses = new Map<string, string>();
 const lastAgentMessageTs = new Map<string, number>();
-const lastSubagentActivity = new Map<string, string>();
+const lastSubagentFingerprint = new Map<string, string>();
 const cachedEvents: ActivityEvent[] = [];
 const STORE_PATH = path.join(os.homedir(), ".aihub", "activity.json");
 let loaded = false;
@@ -60,7 +64,9 @@ function mergeEvents(events: ActivityEvent[]) {
     seen.add(event.id);
     deduped.push(event);
   }
-  deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  deduped.sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
   cachedEvents.length = 0;
   cachedEvents.push(...deduped.slice(0, 100));
 }
@@ -95,6 +101,17 @@ function subagentColor(status: string): ActivityColor {
   return "blue";
 }
 
+function buildSubagentFingerprint(subagent: {
+  status: "running" | "replied" | "error" | "idle";
+  lastActive?: string;
+  runStartedAt?: string;
+}): string {
+  if (subagent.status === "running") {
+    return `running:${subagent.runStartedAt ?? "none"}`;
+  }
+  return `${subagent.status}:${subagent.lastActive ?? "none"}`;
+}
+
 export async function getRecentActivity(
   config: GatewayConfig,
   options?: { offset?: number; limit?: number }
@@ -108,7 +125,9 @@ export async function getRecentActivity(
   const projects = await listProjects(config);
   if (projects.ok) {
     for (const project of projects.data) {
-      const status = normalizeProjectStatus(String(project.frontmatter?.status ?? ""));
+      const status = normalizeProjectStatus(
+        String(project.frontmatter?.status ?? "")
+      );
       const prev = lastProjectStatuses.get(project.id);
       lastProjectStatuses.set(project.id, status);
       if (prev && prev !== status) {
@@ -149,11 +168,11 @@ export async function getRecentActivity(
 
   const subagents = await listAllSubagents(config);
   for (const subagent of subagents) {
-    if (!subagent.lastActive) continue;
     const key = `${subagent.projectId}:${subagent.slug}`;
-    const prev = lastSubagentActivity.get(key);
-    if (prev === subagent.lastActive) continue;
-    lastSubagentActivity.set(key, subagent.lastActive);
+    const fingerprint = buildSubagentFingerprint(subagent);
+    const prev = lastSubagentFingerprint.get(key);
+    if (prev === fingerprint) continue;
+    lastSubagentFingerprint.set(key, fingerprint);
     const actor = `${subagent.projectId}/${subagent.cli ?? subagent.slug}`;
     const action =
       subagent.status === "running"
@@ -164,13 +183,16 @@ export async function getRecentActivity(
             ? "replied"
             : "is idle";
     events.push({
-      id: `subagent-${key}-${subagent.lastActive}`,
+      id: `subagent-${key}-${fingerprint}`,
       type: "subagent_action",
       actor,
       action,
       projectId: subagent.projectId,
       subagentSlug: subagent.slug,
-      timestamp: subagent.lastActive ?? nowIso,
+      timestamp:
+        subagent.status === "running"
+          ? (subagent.runStartedAt ?? subagent.lastActive ?? nowIso)
+          : (subagent.lastActive ?? nowIso),
       color: subagentColor(subagent.status),
     });
   }

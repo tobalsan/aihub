@@ -627,6 +627,7 @@ export async function listAllSubagents(
         cli?: string;
         run_mode?: string;
         worktree_path?: string;
+        started_at?: string;
       }>(path.join(dir, "state.json"));
       const progress = await readJson<{ last_active?: string }>(
         path.join(dir, "progress.json")
@@ -662,6 +663,7 @@ export async function listAllSubagents(
             : undefined,
         status,
         lastActive: progress?.last_active,
+        runStartedAt: state?.started_at,
       });
     }
   }

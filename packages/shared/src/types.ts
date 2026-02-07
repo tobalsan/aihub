@@ -375,6 +375,7 @@ export type SubagentGlobalListItem = {
   iterations?: number;
   status: "running" | "replied" | "error" | "idle";
   lastActive?: string;
+  runStartedAt?: string;
 };
 
 export const CreateScheduleRequestSchema = z.object({
