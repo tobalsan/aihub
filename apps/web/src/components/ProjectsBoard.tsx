@@ -6129,6 +6129,7 @@ export function ProjectsBoard() {
               agentType={agentType()}
               subagentInfo={subagentInfo()}
               onBack={closeMobileOverlay}
+              onOpenProject={openDetail}
               fullscreen
             />
           </div>

@@ -1,7 +1,15 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
+  archiveSubagent,
   fetchFullHistory,
   fetchSubagents,
   fetchSubagentLogs,
@@ -32,12 +40,21 @@ type AgentChatProps = {
     status?: SubagentStatus;
   };
   onBack: () => void;
+  onOpenProject?: (id: string) => void;
   fullscreen?: boolean;
 };
 
 type LogItem = {
   tone: "assistant" | "user" | "muted" | "error";
-  icon?: "read" | "write" | "bash" | "tool" | "output" | "diff" | "system" | "error";
+  icon?:
+    | "read"
+    | "write"
+    | "bash"
+    | "tool"
+    | "output"
+    | "diff"
+    | "system"
+    | "error";
   title?: string;
   body: string;
   collapsible?: boolean;
@@ -50,7 +67,13 @@ type PendingFile = {
   name: string;
 };
 
-const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/jpg"]);
+const supportedImageTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/jpg",
+]);
 const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
 
 function formatJson(args: unknown): string {
@@ -131,9 +154,11 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             continue;
           }
           if (toolKey === "bash") {
-            const command = typeof args?.command === "string" ? args.command : "";
+            const command =
+              typeof args?.command === "string" ? args.command : "";
             const params = typeof args?.args === "string" ? args.args : "";
-            const description = typeof args?.description === "string" ? args.description : "";
+            const description =
+              typeof args?.description === "string" ? args.description : "";
             const output = toolResults.get(block.id);
             const body = output ? getTextBlocks(output.content) : "";
             const summary = ["Bash", command, params, description]
@@ -156,7 +181,8 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
                 : typeof args?.file_path === "string"
                   ? args.file_path
                   : "";
-            const content = typeof args?.content === "string" ? args.content : "";
+            const content =
+              typeof args?.content === "string" ? args.content : "";
             entries.push({
               tone: "muted",
               icon: "write",
@@ -221,7 +247,13 @@ function logTone(type: string): "assistant" | "user" | "muted" | "error" {
   if (type === "user") return "user";
   if (type === "assistant") return "assistant";
   if (type === "error" || type === "stderr") return "error";
-  if (type === "tool_call" || type === "tool_output" || type === "diff" || type === "session" || type === "message") {
+  if (
+    type === "tool_call" ||
+    type === "tool_output" ||
+    type === "diff" ||
+    type === "session" ||
+    type === "message"
+  ) {
     return "muted";
   }
   return "assistant";
@@ -308,7 +340,9 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
             : typeof args?.command === "string"
               ? args.command
               : "";
-        const summary = ["Bash", command].filter((part) => part.trim()).join(" ");
+        const summary = ["Bash", command]
+          .filter((part) => part.trim())
+          .join(" ");
         const body = output?.text ?? "";
         entries.push({
           tone: "muted",
@@ -363,7 +397,9 @@ function renderLogItem(item: LogItem) {
           {logIcon(item.icon)}
           <span>{summaryText}</span>
         </summary>
-        <pre class="log-text">{item.body.length > 0 ? item.body : "Empty content"}</pre>
+        <pre class="log-text">
+          {item.body.length > 0 ? item.body : "Empty content"}
+        </pre>
       </details>
     );
   }
@@ -373,7 +409,10 @@ function renderLogItem(item: LogItem) {
       <div class="log-stack">
         {item.title && <div class="log-title">{item.title}</div>}
         {useMarkdown ? (
-          <div class="log-text log-markdown" innerHTML={renderMarkdown(item.body)} />
+          <div
+            class="log-text log-markdown"
+            innerHTML={renderMarkdown(item.body)}
+          />
         ) : (
           <pre class="log-text">{item.body}</pre>
         )}
@@ -385,7 +424,13 @@ function renderLogItem(item: LogItem) {
 function logIcon(icon?: LogItem["icon"]) {
   if (icon === "bash") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 5h16v14H4z" />
         <path d="M7 9l3 3-3 3" />
         <path d="M12 15h4" />
@@ -394,7 +439,13 @@ function logIcon(icon?: LogItem["icon"]) {
   }
   if (icon === "read") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 19h12a4 4 0 0 0 0-8h-1" />
         <path d="M4 19V5h9a4 4 0 0 1 4 4v2" />
       </svg>
@@ -402,7 +453,13 @@ function logIcon(icon?: LogItem["icon"]) {
   }
   if (icon === "write") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M12 20h9" />
         <path d="M16.5 3.5l4 4L8 20l-4 1 1-4L16.5 3.5z" />
       </svg>
@@ -410,35 +467,65 @@ function logIcon(icon?: LogItem["icon"]) {
   }
   if (icon === "tool") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3z" />
       </svg>
     );
   }
   if (icon === "output") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M20 6L9 17l-5-5" />
       </svg>
     );
   }
   if (icon === "diff") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M8 7v10M16 7v10M3 12h5M16 12h5" />
       </svg>
     );
   }
   if (icon === "system") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 5h16v10H7l-3 3V5z" />
       </svg>
     );
   }
   if (icon === "error") {
     return (
-      <svg class="log-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M12 8v5M12 16h.01" />
         <circle cx="12" cy="12" r="9" />
       </svg>
@@ -470,7 +557,8 @@ function mergePendingAihubMessages(
   messages: FullHistoryMessage[],
   pending: string[]
 ): { merged: LogItem[]; remaining: string[] } {
-  if (pending.length === 0) return { merged: buildAihubLogs(messages), remaining: [] };
+  if (pending.length === 0)
+    return { merged: buildAihubLogs(messages), remaining: [] };
   const historyUsers = extractUserTexts(messages);
   let cursor = 0;
   const remaining: string[] = [];
@@ -484,7 +572,9 @@ function mergePendingAihubMessages(
   }
   const base = buildAihubLogs(messages);
   const merged =
-    remaining.length > 0 ? [...base, ...remaining.map((text) => ({ tone: "user", body: text }))] : base;
+    remaining.length > 0
+      ? [...base, ...remaining.map((text) => ({ tone: "user", body: text }))]
+      : base;
   return { merged, remaining };
 }
 
@@ -496,11 +586,16 @@ export function AgentChat(props: AgentChatProps) {
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
   const [aihubPending, setAihubPending] = createSignal(false);
-  const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<string[]>([]);
+  const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<
+    string[]
+  >([]);
   const [cliLogs, setCliLogs] = createSignal<SubagentLogEvent[]>([]);
   const [cliCursor, setCliCursor] = createSignal(0);
-  const [pendingCliUserMessages, setPendingCliUserMessages] = createSignal<string[]>([]);
-  const [subagentAwaitingResponse, setSubagentAwaitingResponse] = createSignal(false);
+  const [pendingCliUserMessages, setPendingCliUserMessages] = createSignal<
+    string[]
+  >([]);
+  const [subagentAwaitingResponse, setSubagentAwaitingResponse] =
+    createSignal(false);
   const [subagentSending, setSubagentSending] = createSignal(false);
   const streamingToolCalls = new Map<
     string,
@@ -514,9 +609,13 @@ export function AgentChat(props: AgentChatProps) {
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
 
-  const sessionKey = createMemo(() => (props.agentId ? getSessionKey(props.agentId) : "main"));
+  const sessionKey = createMemo(() =>
+    props.agentId ? getSessionKey(props.agentId) : "main"
+  );
   const cliTokens = new Set(["claude", "codex", "droid", "gemini"]);
-  const canSendLead = createMemo(() => props.agentType === "lead" && props.agentId && !aihubStreaming());
+  const canSendLead = createMemo(
+    () => props.agentType === "lead" && props.agentId && !aihubStreaming()
+  );
   const canSendSubagent = createMemo(
     () =>
       props.agentType === "subagent" &&
@@ -525,7 +624,9 @@ export function AgentChat(props: AgentChatProps) {
       props.subagentInfo.status !== "running" &&
       !subagentSending()
   );
-  const canAttach = createMemo(() => props.agentType === "lead" && Boolean(props.agentId));
+  const canAttach = createMemo(
+    () => props.agentType === "lead" && Boolean(props.agentId)
+  );
 
   onMount(() => {
     resizeTextarea("");
@@ -575,8 +676,15 @@ export function AgentChat(props: AgentChatProps) {
     return "";
   };
 
-  const appendStreamingToolCall = (id: string, name: string, rawArgs: unknown) => {
-    const args = rawArgs && typeof rawArgs === "object" ? (rawArgs as Record<string, unknown>) : {};
+  const appendStreamingToolCall = (
+    id: string,
+    name: string,
+    rawArgs: unknown
+  ) => {
+    const args =
+      rawArgs && typeof rawArgs === "object"
+        ? (rawArgs as Record<string, unknown>)
+        : {};
     const toolKey = name.toLowerCase();
     let item: LogItem;
 
@@ -592,8 +700,11 @@ export function AgentChat(props: AgentChatProps) {
     } else if (toolKey === "bash") {
       const command = typeof args.command === "string" ? args.command : "";
       const params = typeof args.args === "string" ? args.args : "";
-      const description = typeof args.description === "string" ? args.description : "";
-      const summary = ["Bash", command, params, description].filter((part) => part.trim()).join(" ");
+      const description =
+        typeof args.description === "string" ? args.description : "";
+      const summary = ["Bash", command, params, description]
+        .filter((part) => part.trim())
+        .join(" ");
       item = {
         tone: "muted",
         icon: "bash",
@@ -669,7 +780,10 @@ export function AgentChat(props: AgentChatProps) {
     if (!props.agentId) return;
     const res = await fetchFullHistory(props.agentId, sessionKey());
     const pending = pendingAihubUserMessages();
-    const { merged, remaining } = mergePendingAihubMessages(res.messages ?? [], pending);
+    const { merged, remaining } = mergePendingAihubMessages(
+      res.messages ?? [],
+      pending
+    );
     setAihubLogs(merged);
     setPendingAihubUserMessages(remaining);
   };
@@ -694,7 +808,9 @@ export function AgentChat(props: AgentChatProps) {
       const res = await fetchSubagents(props.subagentInfo.projectId);
       if (!res.ok) return;
       const token = activeSlug;
-      const match = res.data.items.find((item) => item.slug === token || item.cli === token);
+      const match = res.data.items.find(
+        (item) => item.slug === token || item.cli === token
+      );
       if (match) {
         activeSlug = match.slug;
       } else if (res.data.items.length === 1) {
@@ -702,7 +818,11 @@ export function AgentChat(props: AgentChatProps) {
       }
     };
     const loadLogs = async () => {
-      const res = await fetchSubagentLogs(props.subagentInfo.projectId, activeSlug, cliCursor());
+      const res = await fetchSubagentLogs(
+        props.subagentInfo.projectId,
+        activeSlug,
+        cliCursor()
+      );
       if (!res.ok) return;
       if (res.data.events.length > 0) {
         const next = [...cliLogs(), ...res.data.events];
@@ -804,7 +924,8 @@ export function AgentChat(props: AgentChatProps) {
     if (!text) return;
 
     if (props.agentType === "subagent") {
-      if (!props.subagentInfo || !props.subagentInfo.cli || subagentSending()) return;
+      if (!props.subagentInfo || !props.subagentInfo.cli || subagentSending())
+        return;
       setSubagentSending(true);
       setError("");
       setPendingCliUserMessages((prev) => [...prev, text]);
@@ -841,7 +962,9 @@ export function AgentChat(props: AgentChatProps) {
     let fileAttachments: FileAttachment[] = [];
     if (currentPendingFiles.length > 0) {
       try {
-        fileAttachments = await uploadFiles(currentPendingFiles.map((p) => p.file));
+        fileAttachments = await uploadFiles(
+          currentPendingFiles.map((p) => p.file)
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to upload files");
         return;
@@ -878,7 +1001,10 @@ export function AgentChat(props: AgentChatProps) {
       () => {
         const finalText = aihubLive();
         if (finalText) {
-          setAihubLogs((prev) => [...prev, { tone: "assistant", body: finalText }]);
+          setAihubLogs((prev) => [
+            ...prev,
+            { tone: "assistant", body: finalText },
+          ]);
         }
         setAihubStreaming(false);
         setAihubLive("");
@@ -930,12 +1056,69 @@ export function AgentChat(props: AgentChatProps) {
   const cliLogItems = createMemo(() => buildCliLogs(cliDisplayEvents()));
 
   return (
-    <div class="agent-chat" classList={{ fullscreen: Boolean(props.fullscreen) }}>
+    <div
+      class="agent-chat"
+      classList={{ fullscreen: Boolean(props.fullscreen) }}
+    >
       <div class="chat-header">
         <button class="back-btn" type="button" onClick={props.onBack}>
           ←
         </button>
-        <h3>{props.agentName ?? "Select an agent"}</h3>
+        <div class="chat-title-row">
+          <h3>{props.agentName ?? "Select an agent"}</h3>
+          <Show when={props.agentType === "subagent" && props.subagentInfo}>
+            <button
+              class="open-project-btn"
+              type="button"
+              title="Open project details"
+              aria-label="Open project details"
+              onClick={() => {
+                const info = props.subagentInfo;
+                if (!info || !props.onOpenProject) return;
+                props.onOpenProject(info.projectId);
+              }}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </Show>
+        </div>
+        <Show when={props.agentType === "subagent" && props.subagentInfo}>
+          <button
+            class="archive-btn"
+            type="button"
+            title="Archive run"
+            aria-label="Archive run"
+            onClick={async () => {
+              const info = props.subagentInfo!;
+              if (!window.confirm(`Archive run ${info.slug}?`)) return;
+              const res = await archiveSubagent(info.projectId, info.slug);
+              if (res.ok) {
+                props.onBack();
+              } else {
+                setError(res.error);
+              }
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M3 7h18v13H3z" />
+              <path d="M7 7V4h10v3" />
+              <path d="M7 12h10" />
+            </svg>
+          </button>
+        </Show>
         <Show when={props.agentType === "subagent" && props.subagentInfo}>
           <button
             class="kill-btn"
@@ -943,7 +1126,12 @@ export function AgentChat(props: AgentChatProps) {
             title="Kill subagent"
             onClick={async () => {
               const info = props.subagentInfo!;
-              if (!window.confirm(`Kill subagent ${info.slug}? This removes all workspace data.`)) return;
+              if (
+                !window.confirm(
+                  `Kill subagent ${info.slug}? This removes all workspace data.`
+                )
+              )
+                return;
               const res = await killSubagent(info.projectId, info.slug);
               if (res.ok) {
                 props.onBack();
@@ -952,7 +1140,12 @@ export function AgentChat(props: AgentChatProps) {
               }
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
             </svg>
           </button>
@@ -979,7 +1172,10 @@ export function AgentChat(props: AgentChatProps) {
 
         <Show when={props.agentName && props.agentType === "lead"}>
           <div class="log-pane" ref={logPaneRef}>
-            <Show when={aihubLogItems().length > 0} fallback={<div class="log-empty">No messages yet.</div>}>
+            <Show
+              when={aihubLogItems().length > 0}
+              fallback={<div class="log-empty">No messages yet.</div>}
+            >
               {aihubLogItems().map((item) => renderLogItem(item))}
             </Show>
             <Show when={aihubLive()}>
@@ -1003,10 +1199,19 @@ export function AgentChat(props: AgentChatProps) {
 
         <Show when={props.agentName && props.agentType === "subagent"}>
           <div class="log-pane" ref={logPaneRef}>
-            <Show when={cliLogItems().length > 0} fallback={<div class="log-empty">No logs yet.</div>}>
+            <Show
+              when={cliLogItems().length > 0}
+              fallback={<div class="log-empty">No logs yet.</div>}
+            >
               {cliLogItems().map((item) => renderLogItem(item))}
             </Show>
-            <Show when={pendingCliUserMessages().length > 0 || subagentSending() || subagentAwaitingResponse()}>
+            <Show
+              when={
+                pendingCliUserMessages().length > 0 ||
+                subagentSending() ||
+                subagentAwaitingResponse()
+              }
+            >
               <div class="log-line pending">
                 <span class="log-spinner" aria-hidden="true">
                   <span />
@@ -1124,6 +1329,13 @@ export function AgentChat(props: AgentChatProps) {
           font-weight: 600;
         }
 
+        .chat-title-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+        }
+
         .back-btn {
           background: none;
           border: none;
@@ -1141,8 +1353,38 @@ export function AgentChat(props: AgentChatProps) {
           outline-offset: 2px;
         }
 
-        .chat-header .kill-btn {
+        .chat-header .open-project-btn,
+        .chat-header .archive-btn {
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          color: #8b96a5;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .chat-header .open-project-btn svg,
+        .chat-header .archive-btn svg,
+        .chat-header .kill-btn svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .chat-header .open-project-btn:hover {
+          color: #d4dbe5;
+        }
+
+        .chat-header .archive-btn {
           margin-left: auto;
+        }
+
+        .chat-header .archive-btn:hover {
+          color: #f6c454;
+        }
+
+        .chat-header .kill-btn {
           background: none;
           border: none;
           padding: 4px;
@@ -1151,11 +1393,6 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           align-items: center;
           justify-content: center;
-        }
-
-        .chat-header .kill-btn svg {
-          width: 16px;
-          height: 16px;
         }
 
         .chat-header .kill-btn:hover {

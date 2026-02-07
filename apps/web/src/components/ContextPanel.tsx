@@ -1,4 +1,12 @@
-import { Accessor, Show, createEffect, createMemo, createResource, createSignal, onMount } from "solid-js";
+import {
+  Accessor,
+  Show,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  onMount,
+} from "solid-js";
 import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
 import { fetchAgents, fetchAllSubagents } from "../api/client";
@@ -34,15 +42,27 @@ export function ContextPanel(props: ContextPanelProps) {
     if (!projectId || !token) return undefined;
     const items = subagents()?.items ?? [];
     const match = items.find(
-      (item) => item.projectId === projectId && (item.slug === token || item.cli === token)
+      (item) =>
+        item.projectId === projectId &&
+        (item.slug === token || item.cli === token)
     );
     if (!match) {
       const projectItems = items.filter((item) => item.projectId === projectId);
       if (projectItems.length === 1) {
-        return { projectId, slug: projectItems[0].slug, cli: projectItems[0].cli, status: projectItems[0].status };
+        return {
+          projectId,
+          slug: projectItems[0].slug,
+          cli: projectItems[0].cli,
+          status: projectItems[0].status,
+        };
       }
     }
-    return { projectId, slug: match?.slug ?? token, cli: match?.cli, status: match?.status };
+    return {
+      projectId,
+      slug: match?.slug ?? token,
+      cli: match?.cli,
+      status: match?.status,
+    };
   });
 
   const agentName = createMemo(() => {
@@ -51,7 +71,9 @@ export function ContextPanel(props: ContextPanelProps) {
     if (selected.startsWith("PRO-")) {
       const [projectId, token] = selected.split("/");
       const match = subagents()?.items.find(
-        (item) => item.projectId === projectId && (item.slug === token || item.cli === token)
+        (item) =>
+          item.projectId === projectId &&
+          (item.slug === token || item.cli === token)
       );
       return `${projectId}/${match?.cli ?? token}`;
     }
@@ -91,7 +113,11 @@ export function ContextPanel(props: ContextPanelProps) {
   return (
     <aside class="context-panel" classList={{ collapsed: props.collapsed() }}>
       <div class="panel-header">
-        <button class="collapse-btn" type="button" onClick={props.onToggleCollapse}>
+        <button
+          class="collapse-btn"
+          type="button"
+          onClick={props.onToggleCollapse}
+        >
           »
         </button>
         <div class="panel-tabs">
@@ -133,7 +159,10 @@ export function ContextPanel(props: ContextPanelProps) {
 
       <div class="panel-content">
         <Show when={mode() === "feed"}>
-          <ActivityFeed onSelectAgent={props.onSelectAgent} onOpenProject={props.onOpenProject} />
+          <ActivityFeed
+            onSelectAgent={props.onSelectAgent}
+            onOpenProject={props.onOpenProject}
+          />
         </Show>
         <Show when={mode() === "chat"}>
           <AgentChat
@@ -142,6 +171,7 @@ export function ContextPanel(props: ContextPanelProps) {
             agentType={agentType()}
             subagentInfo={subagentInfo()}
             onBack={handleBack}
+            onOpenProject={props.onOpenProject}
           />
         </Show>
       </div>
