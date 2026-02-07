@@ -102,6 +102,34 @@ describe("projects CLI", () => {
     expect(body).toEqual({ status: "done", agent: "Sage" });
   });
 
+  it("update command sends --content as readme", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "PRO-5", frontmatter: {} }), {
+        status: 200,
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync([
+      "node",
+      "projects",
+      "update",
+      "pro-5",
+      "--content",
+      "# Updated",
+      "--json",
+    ]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-5");
+    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
+    expect(body).toEqual({ readme: "# Updated" });
+  });
+
   it("start command defaults to codex worktree when flags omitted", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {

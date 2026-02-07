@@ -309,7 +309,7 @@ program
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
   .option("--repo <path>", "Repo path")
-  .option("--content <content>", "Specs content string or '-' for stdin")
+  .option("--content <content>", "README content string or '-' for stdin")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
@@ -322,7 +322,7 @@ program
     if (opts.status) body.status = opts.status;
     if (opts.repo !== undefined) body.repo = opts.repo;
     if (opts.content !== undefined) {
-      body.specs = opts.content === "-" ? await readStdin() : opts.content;
+      body.readme = opts.content === "-" ? await readStdin() : opts.content;
     }
 
     const res = await requestJson(`/projects/${normalizedId}`, {
