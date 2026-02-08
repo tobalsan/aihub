@@ -9,7 +9,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { useNavigate, useParams } from "@solidjs/router";
+import { useSearchParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -1002,8 +1002,11 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
 }
 
 export function ProjectsBoard() {
-  const params = useParams();
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeProjectId = createMemo(() => {
+    const value = searchParams.project;
+    return typeof value === "string" && value.trim() ? value : undefined;
+  });
   const [showArchived, setShowArchived] = createSignal(false);
   const [projects, { refetch }] = createResource(fetchProjects);
   const [archivedProjects] = createResource(showArchived, async (show) =>
@@ -1012,7 +1015,7 @@ export function ProjectsBoard() {
   const [agents] = createResource(fetchAgents);
   const [globalSubagents] = createResource(fetchAllSubagents);
   const [detail, { refetch: refetchDetail }] = createResource(
-    () => params.id,
+    () => activeProjectId(),
     async (id) => (id ? fetchProject(id) : null)
   );
   const [expanded, setExpanded] = createSignal<string[]>(
@@ -1524,7 +1527,7 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    if (!params.id) return;
+    if (!activeProjectId()) return;
     setSubagents([]);
     setSubagentLogs([]);
     setShowArchivedRuns(false);
@@ -1562,7 +1565,7 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    if (!params.id) return;
+    if (!activeProjectId()) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -1597,7 +1600,7 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    const projectId = params.id;
+    const projectId = activeProjectId();
     const repo = detailRepo().trim();
     if (!projectId || !repo) {
       setBranches([]);
@@ -1666,7 +1669,7 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    const projectId = params.id;
+    const projectId = activeProjectId();
     if (!projectId) return;
     let active = true;
     const load = async () => {
@@ -1723,7 +1726,7 @@ export function ProjectsBoard() {
   });
 
   createEffect(() => {
-    const projectId = params.id;
+    const projectId = activeProjectId();
     const key = selectedRunKey();
     if (!projectId || !key || !key.startsWith("subagent:")) {
       setSubagentLogs([]);
@@ -2082,7 +2085,7 @@ export function ProjectsBoard() {
   };
 
   const openDetail = (id: string) => {
-    navigate(`/projects/${id}`);
+    setSearchParams({ project: id });
   };
 
   const scrollSubagentLogToBottom = () => {
@@ -2094,7 +2097,7 @@ export function ProjectsBoard() {
   };
 
   const closeDetail = () => {
-    navigate("/projects");
+    setSearchParams({ project: undefined });
   };
 
   const closeMobileOverlay = () => {
@@ -2322,7 +2325,7 @@ export function ProjectsBoard() {
 
   createEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "c" && !createModalOpen() && !params.id) {
+      if (e.key === "c" && !createModalOpen() && !activeProjectId()) {
         const target = e.target as HTMLElement;
         if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
         e.preventDefault();
@@ -2580,7 +2583,7 @@ export function ProjectsBoard() {
             </For>
           </div>
 
-          <Show when={params.id}>
+          <Show when={activeProjectId()}>
             <div class="overlay" role="dialog" aria-modal="true">
               <div class="overlay-backdrop" onClick={closeDetail} />
               <div class="overlay-panel">
@@ -3242,7 +3245,7 @@ export function ProjectsBoard() {
                             <button
                               class="meta-item"
                               onClick={() =>
-                                handleOwnerChange(params.id ?? "", "")
+                                handleOwnerChange(activeProjectId() ?? "", "")
                               }
                             >
                               unset
@@ -3252,7 +3255,10 @@ export function ProjectsBoard() {
                                 <button
                                   class="meta-item"
                                   onClick={() =>
-                                    handleOwnerChange(params.id ?? "", owner)
+                                    handleOwnerChange(
+                                      activeProjectId() ?? "",
+                                      owner
+                                    )
                                   }
                                 >
                                   {owner}
@@ -3288,7 +3294,7 @@ export function ProjectsBoard() {
                               <button
                                 class="meta-item"
                                 onClick={() =>
-                                  handleModeChange(params.id ?? "", "")
+                                  handleModeChange(activeProjectId() ?? "", "")
                                 }
                               >
                                 unset
@@ -3296,7 +3302,10 @@ export function ProjectsBoard() {
                               <button
                                 class="meta-item"
                                 onClick={() =>
-                                  handleModeChange(params.id ?? "", "subagent")
+                                  handleModeChange(
+                                    activeProjectId() ?? "",
+                                    "subagent"
+                                  )
                                 }
                               >
                                 subagent
@@ -3305,7 +3314,7 @@ export function ProjectsBoard() {
                                 class="meta-item"
                                 onClick={() =>
                                   handleModeChange(
-                                    params.id ?? "",
+                                    activeProjectId() ?? "",
                                     "ralph_loop"
                                   )
                                 }
@@ -3324,7 +3333,9 @@ export function ProjectsBoard() {
                               onInput={(e) =>
                                 setDetailRepo(e.currentTarget.value)
                               }
-                              onBlur={() => handleRepoSave(params.id ?? "")}
+                              onBlur={() =>
+                                handleRepoSave(activeProjectId() ?? "")
+                              }
                               placeholder="/abs/path/to/repo"
                             />
                             <Show
@@ -3386,7 +3397,9 @@ export function ProjectsBoard() {
                                 fallback={
                                   <button
                                     class="start-btn"
-                                    onClick={() => handleStart(params.id ?? "")}
+                                    onClick={() =>
+                                      handleStart(activeProjectId() ?? "")
+                                    }
                                     disabled={!canStart()}
                                   >
                                     Start
@@ -3395,7 +3408,9 @@ export function ProjectsBoard() {
                               >
                                 <button
                                   class="start-btn stop"
-                                  onClick={() => handleStop(params.id ?? "")}
+                                  onClick={() =>
+                                    handleStop(activeProjectId() ?? "")
+                                  }
                                 >
                                   Stop
                                 </button>

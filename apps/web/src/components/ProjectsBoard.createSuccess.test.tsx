@@ -36,8 +36,14 @@ vi.mock("../api/client", () => ({
   fetchAllSubagents: vi.fn(async () => ({ items: [] })),
   fetchFullHistory: vi.fn(async () => ({ messages: [] })),
   fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
-  fetchSubagentLogs: vi.fn(async () => ({ ok: true, data: { cursor: 0, events: [] } })),
-  fetchProjectBranches: vi.fn(async () => ({ ok: true, data: { branches: [] } })),
+  fetchSubagentLogs: vi.fn(async () => ({
+    ok: true,
+    data: { cursor: 0, events: [] },
+  })),
+  fetchProjectBranches: vi.fn(async () => ({
+    ok: true,
+    data: { branches: [] },
+  })),
   uploadAttachments: vi.fn(async () => ({ ok: true, data: [] })),
 }));
 
@@ -47,8 +53,7 @@ vi.mock("./AgentChat", () => ({ AgentChat: () => null }));
 vi.mock("./ActivityFeed", () => ({ ActivityFeed: () => null }));
 
 vi.mock("@solidjs/router", () => ({
-  useNavigate: () => () => {},
-  useParams: () => ({}),
+  useSearchParams: () => [{}, () => {}],
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -77,8 +82,11 @@ const setupRaf = () => {
 };
 
 const triggerCreateSuccess = async (title: string) => {
-  const api = (window as unknown as { __aihubTest?: { setCreateSuccess: (value: string) => void } })
-    .__aihubTest;
+  const api = (
+    window as unknown as {
+      __aihubTest?: { setCreateSuccess: (value: string) => void };
+    }
+  ).__aihubTest;
   if (!api?.setCreateSuccess) {
     throw new Error("Missing test API for create success");
   }
@@ -92,7 +100,10 @@ describe("ProjectsBoard create success toast", () => {
     setupMatchMedia();
     setupRaf();
     localStorage.clear();
-    localStorage.setItem("aihub:projects:expanded-columns", JSON.stringify(["maybe", "not_now"]));
+    localStorage.setItem(
+      "aihub:projects:expanded-columns",
+      JSON.stringify(["maybe", "not_now"])
+    );
   });
 
   afterEach(() => {

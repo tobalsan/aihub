@@ -4,12 +4,10 @@ import { delegateEvents, render } from "solid-js/web";
 import { ProjectsBoard } from "./ProjectsBoard";
 
 const { fetchSubagentLogsMock } = vi.hoisted(() => ({
-  fetchSubagentLogsMock: vi.fn(
-    async (_projectId: string, _slug: string) => ({
-      ok: true,
-      data: { cursor: 1, events: [] },
-    })
-  ),
+  fetchSubagentLogsMock: vi.fn(async (_projectId: string, _slug: string) => ({
+    ok: true,
+    data: { cursor: 1, events: [] },
+  })),
 }));
 
 vi.mock("../api/client", () => ({
@@ -88,8 +86,7 @@ vi.mock("./AgentChat", () => ({ AgentChat: () => null }));
 vi.mock("./ActivityFeed", () => ({ ActivityFeed: () => null }));
 
 vi.mock("@solidjs/router", () => ({
-  useNavigate: () => () => {},
-  useParams: () => ({ id: "PRO-1" }),
+  useSearchParams: () => [{ project: "PRO-1" }, () => {}],
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
