@@ -917,6 +917,101 @@ describe("subagents API", () => {
     else process.env.USERPROFILE = prevUserProfile2;
   });
 
+  it("uses frontmatter runAgent/runMode for /projects/:id/start when request omits them", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Start Frontmatter Fallback" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-frontmatter-start");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const projectReadmePath = path.join(
+      projectsRoot,
+      created.path,
+      "README.md"
+    );
+    const readme = await fs.readFile(projectReadmePath, "utf8");
+    const updatedReadme = readme.replace(
+      /^---\n/,
+      "---\nrunAgent: cli:codex\nrunMode: main-run\n"
+    );
+    await fs.writeFile(projectReadmePath, updatedReadme);
+
+    const binDir = path.join(tmpDir, "bin-frontmatter-start");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-frontmatter"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+    );
+    expect(startRes.status).toBe(200);
+    const started = await startRes.json();
+    expect(started.ok).toBe(true);
+    expect(started.type).toBe("cli");
+    expect(started.slug).toBe("main");
+    expect(started.runMode).toBe("main-run");
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "main"
+    );
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      try {
+        await fs.access(path.join(sessionDir, "config.json"));
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    );
+    expect(config.cli).toBe("codex");
+    expect(config.runMode).toBe("main-run");
+
+    process.env.PATH = prevPath;
+  });
+
   it("spawns subagent via API and writes logs", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

@@ -709,15 +709,14 @@ program
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
     const body: Record<string, unknown> = {};
-    const agentValue =
-      typeof opts.agent === "string" && opts.agent.trim()
-        ? opts.agent.trim()
-        : "codex";
-    body.runAgent = agentValue.includes(":") ? agentValue : `cli:${agentValue}`;
-    body.runMode =
-      typeof opts.mode === "string" && opts.mode.trim()
-        ? opts.mode.trim()
-        : "worktree";
+    if (typeof opts.agent === "string" && opts.agent.trim()) {
+      const agentValue = opts.agent.trim();
+      body.runAgent = agentValue.includes(":")
+        ? agentValue
+        : `cli:${agentValue}`;
+    }
+    if (typeof opts.mode === "string" && opts.mode.trim())
+      body.runMode = opts.mode.trim();
     if (typeof opts.branch === "string" && opts.branch.trim())
       body.baseBranch = opts.branch.trim();
     if (typeof opts.slug === "string" && opts.slug.trim())

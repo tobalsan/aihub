@@ -130,7 +130,7 @@ describe("projects CLI", () => {
     expect(body).toEqual({ readme: "# Updated" });
   });
 
-  it("start command defaults to codex worktree when flags omitted", async () => {
+  it("start command omits runAgent/runMode when flags omitted", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -157,10 +157,7 @@ describe("projects CLI", () => {
       "http://localhost:4000/api/projects/PRO-10/start"
     );
     const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
-    expect(body).toEqual({
-      runAgent: "cli:codex",
-      runMode: "worktree",
-    });
+    expect(body).toEqual({});
   });
 
   it("start command passes per-run flags", async () => {

@@ -342,7 +342,15 @@ api.post("/projects/:id/start", async (c) => {
 
   const requestedRunAgentValue =
     typeof parsed.data.runAgent === "string" ? parsed.data.runAgent.trim() : "";
-  let runAgentSelection = normalizeRunAgent(requestedRunAgentValue);
+  const frontmatterRunAgentValue =
+    typeof frontmatter.runAgent === "string" ? frontmatter.runAgent.trim() : "";
+  const resolvedRunAgentValue =
+    requestedRunAgentValue || frontmatterRunAgentValue || "cli:codex";
+  const normalizedRunAgentValue = resolvedRunAgentValue.includes(":")
+    ? resolvedRunAgentValue
+    : `cli:${resolvedRunAgentValue}`;
+
+  let runAgentSelection = normalizeRunAgent(normalizedRunAgentValue);
   if (!runAgentSelection) {
     const agents = getActiveAgents();
     if (agents.length === 0) {
@@ -359,10 +367,16 @@ api.post("/projects/:id/start", async (c) => {
   let runMode: "main-run" | "worktree" | undefined;
   let slug: string | undefined;
   let baseBranch: string | undefined;
+  const requestedRunModeValue =
+    typeof parsed.data.runMode === "string" ? parsed.data.runMode.trim() : "";
+  const frontmatterRunModeValue =
+    typeof frontmatter.runMode === "string" ? frontmatter.runMode.trim() : "";
+  const resolvedRunModeValue =
+    requestedRunModeValue || frontmatterRunModeValue || "worktree";
+  const resolvedRunMode =
+    resolvedRunModeValue === "main-run" ? "main-run" : "worktree";
   if (runAgentSelection.type === "cli") {
-    const requestedRunModeValue =
-      typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
-    runMode = requestedRunModeValue === "worktree" ? "worktree" : "main-run";
+    runMode = resolvedRunMode;
     const requestedSlugValue =
       typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
     slug =
@@ -515,10 +529,7 @@ api.post("/projects/:id/start", async (c) => {
       Number.isFinite(ralphIterationsRaw) && ralphIterationsRaw >= 1
         ? ralphIterationsRaw
         : 20;
-    const requestedRalphModeValue =
-      typeof parsed.data.runMode === "string" ? parsed.data.runMode : "";
-    const ralphMode =
-      requestedRalphModeValue === "main-run" ? "main-run" : "worktree";
+    const ralphMode = resolvedRunMode;
     const ralphBaseBranch =
       typeof parsed.data.baseBranch === "string" &&
       parsed.data.baseBranch.trim()
