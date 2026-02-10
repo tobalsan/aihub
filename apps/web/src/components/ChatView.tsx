@@ -351,21 +351,6 @@ export function ChatView() {
     scrollToBottom();
   });
 
-  // Global keyboard shortcut for taskboard (Cmd/Ctrl + K)
-  const handleGlobalKeyDown = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-      e.preventDefault();
-      navigate("/projects");
-    }
-  };
-
-  createEffect(() => {
-    document.addEventListener("keydown", handleGlobalKeyDown);
-    onCleanup(() => {
-      document.removeEventListener("keydown", handleGlobalKeyDown);
-    });
-  });
-
   onCleanup(() => {
     cleanup?.();
     subscriptionCleanup?.();

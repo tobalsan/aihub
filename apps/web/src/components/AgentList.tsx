@@ -1,5 +1,5 @@
-import { createEffect, createResource, For, Show, onCleanup } from "solid-js";
-import { A, useNavigate } from "@solidjs/router";
+import { createResource, For, Show } from "solid-js";
+import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
 
 function shortenPath(path: string): string {
@@ -10,22 +10,6 @@ function shortenPath(path: string): string {
 
 export function AgentList() {
   const [agents] = createResource(fetchAgents);
-  const navigate = useNavigate();
-
-  // Global keyboard shortcut for taskboard (Cmd/Ctrl + K)
-  const handleGlobalKeyDown = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-      e.preventDefault();
-      navigate("/projects");
-    }
-  };
-
-  createEffect(() => {
-    document.addEventListener("keydown", handleGlobalKeyDown);
-    onCleanup(() => {
-      document.removeEventListener("keydown", handleGlobalKeyDown);
-    });
-  });
 
   return (
     <div class="agent-list">
