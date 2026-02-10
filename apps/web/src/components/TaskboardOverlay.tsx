@@ -596,20 +596,29 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
           .detail-content table {
             width: 100%;
+            display: block;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
             border-collapse: collapse;
             margin: 1em 0;
+            font-size: 0.875rem;
           }
 
           .detail-content th,
           .detail-content td {
             padding: 8px 12px;
             text-align: left;
-            border: 1px solid var(--surface-2, #27272a);
+            border: 1px solid #2a2a2a;
           }
 
           .detail-content th {
-            background: var(--surface-2, #27272a);
+            background: #1a1a1a;
             font-weight: 600;
+            color: #fff;
+          }
+
+          .detail-content tbody tr:nth-child(even) {
+            background: #161616;
           }
 
           .detail-content hr {

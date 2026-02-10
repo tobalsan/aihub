@@ -3220,7 +3220,7 @@ export function ProjectsBoard() {
                                         when={editingDoc() === key}
                                         fallback={
                                           <div
-                                            class="detail-body"
+                                            class="detail-body markdown-content"
                                             innerHTML={renderMarkdown(
                                               detailDocs()[key] ?? "",
                                               project.id
@@ -3362,7 +3362,7 @@ export function ProjectsBoard() {
                                           }
                                           fallback={
                                             <div
-                                              class="thread-body"
+                                              class="thread-body markdown-content"
                                               innerHTML={renderMarkdown(
                                                 entry.body,
                                                 project.id
@@ -5445,6 +5445,39 @@ export function ProjectsBoard() {
 
         .thread-body p {
           margin: 0;
+        }
+
+        .detail-body table,
+        .thread-body table {
+          width: 100%;
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          border-collapse: collapse;
+          margin: 0.75em 0;
+          font-size: 0.875rem;
+          white-space: normal;
+        }
+
+        .detail-body th,
+        .detail-body td,
+        .thread-body th,
+        .thread-body td {
+          border: 1px solid #2a2a2a;
+          padding: 8px 12px;
+          text-align: left;
+        }
+
+        .detail-body th,
+        .thread-body th {
+          background: #1a1a1a;
+          color: #fff;
+          font-weight: 600;
+        }
+
+        .detail-body tbody tr:nth-child(even),
+        .thread-body tbody tr:nth-child(even) {
+          background: #161616;
         }
 
         .thread-edit-textarea,

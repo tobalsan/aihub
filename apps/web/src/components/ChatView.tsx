@@ -1302,6 +1302,9 @@ export function ChatView() {
 
         .markdown-content table {
           width: 100%;
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
           border-collapse: collapse;
           margin: 0.5em 0;
           font-size: 0.9em;
@@ -1311,13 +1314,17 @@ export function ChatView() {
         .markdown-content td {
           padding: 8px 12px;
           text-align: left;
-          border: 1px solid var(--surface-2);
+          border: 1px solid #2a2a2a;
         }
 
         .markdown-content th {
-          background: var(--surface-2);
+          background: #1a1a1a;
           font-weight: 600;
           color: var(--text-primary);
+        }
+
+        .markdown-content tbody tr:nth-child(even) {
+          background: #161616;
         }
 
         /* Model meta */

@@ -1775,6 +1775,33 @@ export function AgentChat(props: AgentChatProps) {
           border-top: 1px solid rgba(255, 255, 255, 0.12);
         }
 
+        .log-markdown table {
+          width: 100%;
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          border-collapse: collapse;
+          margin: 8px 0;
+          font-size: 0.875rem;
+        }
+
+        .log-markdown th,
+        .log-markdown td {
+          border: 1px solid #2a2a2a;
+          padding: 8px 12px;
+          text-align: left;
+        }
+
+        .log-markdown th {
+          background: #1a1a1a;
+          color: #fff;
+          font-weight: 600;
+        }
+
+        .log-markdown tbody tr:nth-child(even) {
+          background: #161616;
+        }
+
         .log-empty {
           color: #7f8a9a;
           font-size: 12px;
