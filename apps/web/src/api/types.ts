@@ -218,6 +218,25 @@ export type TaskboardItemResponse = {
   companions: string[];
 };
 
+// Conversations API types
+export type ConversationFilters = {
+  q?: string;
+  source?: string;
+  tag?: string;
+  participant?: string;
+};
+
+export type ConversationListItem = {
+  id: string;
+  title: string;
+  date?: string;
+  source?: string;
+  participants: string[];
+  tags: string[];
+  preview: string;
+  attachments: string[];
+};
+
 // Projects API types
 export type ProjectListItem = {
   id: string;

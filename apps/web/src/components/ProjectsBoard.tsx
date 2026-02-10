@@ -2639,6 +2639,9 @@ export function ProjectsBoard() {
               value={filterText()}
               onInput={(e) => setFilterText(e.currentTarget.value)}
             />
+            <a class="archive-link" href="/conversations">
+              Conversations
+            </a>
             <button
               class="archive-link"
               type="button"
@@ -4239,6 +4242,8 @@ export function ProjectsBoard() {
         }
 
         .archive-link {
+          display: inline-flex;
+          align-items: center;
           border: 1px solid #1f242c;
           background: transparent;
           color: #98a3b2;
@@ -4246,6 +4251,7 @@ export function ProjectsBoard() {
           font-size: 12px;
           border-radius: 999px;
           cursor: pointer;
+          text-decoration: none;
           transition: all 0.15s ease;
         }
 

@@ -6,6 +6,8 @@ import type {
   ThinkLevel,
   TaskboardResponse,
   TaskboardItemResponse,
+  ConversationFilters,
+  ConversationListItem,
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
@@ -410,6 +412,23 @@ export async function fetchTaskboardItem(
   }
   const data = await res.json();
   return { ok: true, data };
+}
+
+export async function fetchConversations(
+  filters: ConversationFilters = {}
+): Promise<ConversationListItem[]> {
+  const params = new URLSearchParams();
+  if (filters.q) params.set("q", filters.q);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.tag) params.set("tag", filters.tag);
+  if (filters.participant) params.set("participant", filters.participant);
+  const query = params.toString();
+  const url = query
+    ? `${API_BASE}/conversations?${query}`
+    : `${API_BASE}/conversations`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch conversations");
+  return res.json();
 }
 
 // Projects API functions

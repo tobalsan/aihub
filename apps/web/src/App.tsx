@@ -2,6 +2,7 @@ import { Navigate, Router, Route, useParams } from "@solidjs/router";
 import { onMount, type JSX } from "solid-js";
 import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
+import { ConversationsPage } from "./components/conversations/ConversationsPage";
 import { ProjectsBoard } from "./components/ProjectsBoard";
 
 function Layout(props: { children?: JSX.Element }) {
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/" component={ProjectsBoard} />
       <Route path="/agents" component={AgentList} />
       <Route path="/chat/:agentId/:view?" component={ChatView} />
+      <Route path="/conversations" component={ConversationsPage} />
       <Route path="/projects" component={ProjectsBoard} />
       <Route path="/projects/:id" component={ProjectsRouteRedirect} />
     </Router>
