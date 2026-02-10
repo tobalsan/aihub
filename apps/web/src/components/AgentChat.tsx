@@ -597,10 +597,12 @@ export function AgentChat(props: AgentChatProps) {
   const [subagentAwaitingResponse, setSubagentAwaitingResponse] =
     createSignal(false);
   const [subagentSending, setSubagentSending] = createSignal(false);
+  const [isAtBottom, setIsAtBottom] = createSignal(true);
   const streamingToolCalls = new Map<
     string,
     { index: number; name: string; args: Record<string, unknown> }
   >();
+  const SCROLL_THRESHOLD = 40;
 
   let streamCleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
@@ -664,6 +666,24 @@ export function AgentChat(props: AgentChatProps) {
     const lines = Math.max(1, value.split("\n").length);
     const height = Math.min(lines * lineHeight + 24, maxHeight + 24);
     textareaRef.style.height = `${height}px`;
+  };
+
+  const checkIsAtBottom = () => {
+    if (!logPaneRef) return true;
+    const { scrollTop, scrollHeight, clientHeight } = logPaneRef;
+    return scrollHeight - scrollTop - clientHeight <= SCROLL_THRESHOLD;
+  };
+
+  const handleScroll = () => {
+    setIsAtBottom(checkIsAtBottom());
+  };
+
+  const scrollToBottom = (force = false) => {
+    if (!logPaneRef) return;
+    if (force || isAtBottom()) {
+      logPaneRef.scrollTop = logPaneRef.scrollHeight;
+      setIsAtBottom(true);
+    }
   };
 
   const markAihubStreaming = () => {
@@ -873,6 +893,7 @@ export function AgentChat(props: AgentChatProps) {
     setPendingCliUserMessages([]);
     setSubagentAwaitingResponse(false);
     setSubagentSending(false);
+    setIsAtBottom(true);
     if (textareaRef) {
       resizeTextarea("");
     }
@@ -914,9 +935,7 @@ export function AgentChat(props: AgentChatProps) {
     cliLogs();
     pendingCliUserMessages();
     aihubPending();
-    if (logPaneRef) {
-      logPaneRef.scrollTop = logPaneRef.scrollHeight;
-    }
+    scrollToBottom();
   });
 
   const handleSend = async () => {
@@ -933,6 +952,7 @@ export function AgentChat(props: AgentChatProps) {
       setInput("");
       setPendingFiles([]);
       resizeTextarea("");
+      scrollToBottom(true);
       const mode = props.subagentInfo.slug === "main" ? "main-run" : "worktree";
       void spawnSubagent(props.subagentInfo.projectId, {
         slug: props.subagentInfo.slug,
@@ -988,6 +1008,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubPending(true);
     streamingToolCalls.clear();
     resizeTextarea("");
+    scrollToBottom(true);
 
     streamCleanup?.();
     streamCleanup = streamMessage(
@@ -1171,7 +1192,7 @@ export function AgentChat(props: AgentChatProps) {
         </Show>
 
         <Show when={props.agentName && props.agentType === "lead"}>
-          <div class="log-pane" ref={logPaneRef}>
+          <div class="log-pane" ref={logPaneRef} onScroll={handleScroll}>
             <Show
               when={aihubLogItems().length > 0}
               fallback={<div class="log-empty">No messages yet.</div>}
@@ -1198,7 +1219,7 @@ export function AgentChat(props: AgentChatProps) {
         </Show>
 
         <Show when={props.agentName && props.agentType === "subagent"}>
-          <div class="log-pane" ref={logPaneRef}>
+          <div class="log-pane" ref={logPaneRef} onScroll={handleScroll}>
             <Show
               when={cliLogItems().length > 0}
               fallback={<div class="log-empty">No logs yet.</div>}
