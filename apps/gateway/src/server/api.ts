@@ -55,6 +55,11 @@ import {
   resolveAttachmentFile,
 } from "../projects/index.js";
 import {
+  listConversations,
+  getConversation,
+  resolveConversationAttachment,
+} from "../conversations/index.js";
+import {
   listSubagents,
   listAllSubagents,
   getSubagentLogs,
@@ -877,6 +882,48 @@ api.get("/projects/:id/attachments/:name", async (c) => {
 
   const config = getConfig();
   const result = await resolveAttachmentFile(config, id, name);
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+
+  const type = attachmentContentType(result.data.name);
+  c.header("Content-Type", type);
+  return c.body(
+    Readable.toWeb(createReadStream(result.data.path)) as ReadableStream
+  );
+});
+
+// GET /api/conversations - list conversations
+api.get("/conversations", async (c) => {
+  const config = getConfig();
+  const result = await listConversations(config, {
+    q: c.req.query("q"),
+    source: c.req.query("source"),
+    tag: c.req.query("tag"),
+    participant: c.req.query("participant"),
+  });
+  if (!result.ok) {
+    return c.json({ error: result.error }, 400);
+  }
+  return c.json(result.data);
+});
+
+// GET /api/conversations/:id - conversation detail
+api.get("/conversations/:id", async (c) => {
+  const config = getConfig();
+  const result = await getConversation(config, c.req.param("id"));
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
+  }
+  return c.json(result.data);
+});
+
+// GET /api/conversations/:id/attachments/:name - fetch attachment
+api.get("/conversations/:id/attachments/:name", async (c) => {
+  const id = c.req.param("id");
+  const name = c.req.param("name");
+  const config = getConfig();
+  const result = await resolveConversationAttachment(config, id, name);
   if (!result.ok) {
     return c.json({ error: result.error }, 404);
   }
