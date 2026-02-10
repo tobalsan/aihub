@@ -8,6 +8,7 @@ import {
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
   CreateProjectRequestSchema,
+  CreateConversationProjectRequestSchema,
   UpdateProjectRequestSchema,
   ProjectCommentRequestSchema,
   UpdateProjectCommentRequestSchema,
@@ -59,6 +60,7 @@ import {
   getConversation,
   resolveConversationAttachment,
 } from "../conversations/index.js";
+import type { ConversationDetail } from "../conversations/index.js";
 import {
   listSubagents,
   listAllSubagents,
@@ -106,6 +108,38 @@ function slugifyTitle(value: string): string {
 function formatThreadDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function buildConversationSpecs(conversation: ConversationDetail): string {
+  const participants = conversation.participants.length
+    ? conversation.participants.join(", ")
+    : "none";
+  const tags = conversation.tags.length
+    ? conversation.tags.map((tag) => `#${tag}`).join(" ")
+    : "none";
+  const attachments = conversation.attachments.length
+    ? conversation.attachments.map((name) => `- ${name}`).join("\n")
+    : "- none";
+  const transcript = conversation.content.trim() || "_No transcript content._";
+
+  return [
+    "# SPECS",
+    "",
+    "## Source conversation",
+    `- id: ${conversation.id}`,
+    `- title: ${conversation.title}`,
+    `- date: ${conversation.date ?? "unknown"}`,
+    `- source: ${conversation.source ?? "unknown"}`,
+    `- participants: ${participants}`,
+    `- tags: ${tags}`,
+    "",
+    "## Attachments",
+    attachments,
+    "",
+    "## Transcript",
+    transcript,
+    "",
+  ].join("\n");
 }
 
 function generateRalphLoopSlug(): string {
@@ -933,6 +967,53 @@ api.get("/conversations/:id/attachments/:name", async (c) => {
   return c.body(
     Readable.toWeb(createReadStream(result.data.path)) as ReadableStream
   );
+});
+
+// POST /api/conversations/:id/projects - create project from conversation
+api.post("/conversations/:id/projects", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = CreateConversationProjectRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const config = getConfig();
+  const conversation = await getConversation(config, id);
+  if (!conversation.ok) {
+    return c.json({ error: conversation.error }, 404);
+  }
+
+  const nextTitle = parsed.data.title?.trim() || conversation.data.title;
+  const created = await createProject(config, {
+    title: nextTitle,
+    status: "shaping",
+  });
+  if (!created.ok) {
+    return c.json({ error: created.error }, 400);
+  }
+
+  const specs = buildConversationSpecs(conversation.data);
+  const updated = await updateProject(config, created.data.id, { specs });
+  if (!updated.ok) {
+    return c.json({ error: updated.error }, 400);
+  }
+
+  const comment = await appendProjectComment(config, created.data.id, {
+    author: "system",
+    date: formatThreadDate(new Date()),
+    body: `Created from conversation ${id}`,
+  });
+  if (!comment.ok) {
+    return c.json({ error: comment.error }, 400);
+  }
+  await recordCommentActivity({
+    actor: "system",
+    projectId: created.data.id,
+    commentExcerpt: `Created from conversation ${id}`,
+  });
+
+  return c.json(updated.data, 201);
 });
 
 // GET /api/projects/:id/subagents - list subagents

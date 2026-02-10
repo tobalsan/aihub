@@ -143,4 +143,28 @@ Yes, route by mention, then append each response to THREAD.md.
     );
     expect(detailRes.status).toBe(404);
   });
+
+  it("creates project from conversation with specs and thread comment", async () => {
+    const createRes = await Promise.resolve(
+      api.request(`/conversations/${conversationId}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+    );
+
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+    expect(created.id).toMatch(/^PRO-\d+$/);
+    expect(created.frontmatter.status).toBe("shaping");
+
+    const projectDir = path.join(tmpDir, "projects", created.path);
+    const specs = await fs.readFile(path.join(projectDir, "SPECS.md"), "utf8");
+    expect(specs).toContain("## Source conversation");
+    expect(specs).toContain(`- id: ${conversationId}`);
+    expect(specs).toContain("Can we route @codex and @claude");
+
+    const thread = await fs.readFile(path.join(projectDir, "THREAD.md"), "utf8");
+    expect(thread).toContain(`Created from conversation ${conversationId}`);
+  });
 });

@@ -6,16 +6,24 @@ import { ConversationsPage } from "./ConversationsPage";
 vi.mock("../../api/client", () => ({
   fetchConversations: vi.fn(),
   fetchConversation: vi.fn(),
+  createProjectFromConversation: vi.fn(),
   getConversationAttachmentUrl: vi.fn((id: string, name: string) => `/api/conversations/${id}/attachments/${name}`),
 }));
 
-import { fetchConversation, fetchConversations } from "../../api/client";
+import {
+  createProjectFromConversation,
+  fetchConversation,
+  fetchConversations,
+} from "../../api/client";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("ConversationsPage", () => {
   const mockedFetchConversations = vi.mocked(fetchConversations);
   const mockedFetchConversation = vi.mocked(fetchConversation);
+  const mockedCreateProjectFromConversation = vi.mocked(
+    createProjectFromConversation
+  );
 
   afterEach(() => {
     document.body.innerHTML = "";
@@ -126,6 +134,67 @@ describe("ConversationsPage", () => {
       source: "slack",
       tag: "scope",
     });
+
+    dispose();
+  });
+
+  it("opens create-project modal with prefilled conversation title", async () => {
+    mockedCreateProjectFromConversation.mockResolvedValue({
+      ok: true,
+      data: {
+        id: "PRO-9",
+        title: "Design session",
+        path: "PRO-9_design-session",
+        absolutePath: "/tmp/PRO-9_design-session",
+        frontmatter: { status: "shaping" },
+        docs: { README: "# Design session" },
+        thread: [],
+      },
+    });
+    mockedFetchConversations.mockResolvedValue([
+      {
+        id: "conv-1",
+        title: "Design session",
+        date: "2026-02-10",
+        source: "slack",
+        participants: ["thinh"],
+        tags: ["ui"],
+        preview: "Discussed UI",
+        attachments: [],
+      },
+    ]);
+    mockedFetchConversation.mockResolvedValue({
+      id: "conv-1",
+      title: "Design session",
+      date: "2026-02-10",
+      source: "slack",
+      participants: ["thinh"],
+      tags: ["ui"],
+      preview: "Discussed UI",
+      attachments: [],
+      frontmatter: {},
+      content: "**Thinh** (10:00): Hey",
+      messages: [{ speaker: "Thinh", timestamp: "10:00", body: "Hey" }],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ConversationsPage />, container);
+
+    await tick();
+    await tick();
+
+    const createButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create project")
+    );
+    createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    const modalInput = container.querySelector(
+      ".conversation-create-modal input"
+    ) as HTMLInputElement | null;
+    expect(modalInput).not.toBeNull();
+    expect(modalInput?.value).toBe("Design session");
 
     dispose();
   });

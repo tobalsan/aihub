@@ -8,4 +8,4 @@ When updating documentation, always keep in mind:
 - `./docs/llms.md` is the documentation for LLMs.
 - `./README.md` is for humans.
 
-Tests: `pnpm test -- <path>` (run `pnpm install` if `node_modules` missing).
+Tests: `pnpm test -- <path>` (run `pnpm install` if `node_modules` missing). Run tests serially (one command at a time); parallel runs can cause transient `ENOENT` in subagent runner tests.

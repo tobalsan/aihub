@@ -9,12 +9,15 @@ import { fetchConversation, fetchConversations } from "../../api/client";
 import type { ConversationFilters } from "../../api/types";
 import { ConversationList } from "./ConversationList";
 import { ConversationThreadView } from "./ConversationThreadView";
+import { CreateProjectFromConversationModal } from "./CreateProjectFromConversationModal";
 
 export function ConversationsPage() {
   const [q, setQ] = createSignal("");
   const [source, setSource] = createSignal("");
   const [tag, setTag] = createSignal("");
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const [createModalOpen, setCreateModalOpen] = createSignal(false);
+  const [toast, setToast] = createSignal<string | null>(null);
 
   const filters = createMemo<ConversationFilters>(() => ({
     q: q().trim() || undefined,
@@ -40,14 +43,35 @@ export function ConversationsPage() {
     setSelectedId(selected?.id ?? null);
   });
 
+  const onProjectCreated = (projectId: string) => {
+    setToast(`Project ${projectId} created`);
+    window.setTimeout(() => {
+      window.location.href = `/projects/${projectId}`;
+    }, 450);
+  };
+
   return (
     <div class="conversations-page">
       <header class="conversations-header">
         <h1>Conversations</h1>
-        <a class="back-link" href="/projects">
-          Back to projects
-        </a>
+        <div class="header-actions">
+          <button
+            class="create-link"
+            type="button"
+            onClick={() => setCreateModalOpen(true)}
+            disabled={!detail() || detail.loading}
+          >
+            Create project
+          </button>
+          <a class="back-link" href="/projects">
+            Back to projects
+          </a>
+        </div>
       </header>
+
+      <Show when={toast()}>
+        {(message) => <div class="conversations-toast">{message()}</div>}
+      </Show>
 
       <div class="conversation-filters">
         <input
@@ -97,6 +121,13 @@ export function ConversationsPage() {
         </section>
       </div>
 
+      <CreateProjectFromConversationModal
+        open={createModalOpen()}
+        conversation={detail() ?? null}
+        onClose={() => setCreateModalOpen(false)}
+        onCreated={onProjectCreated}
+      />
+
       <style>{`
         .conversations-page {
           height: 100%;
@@ -121,6 +152,27 @@ export function ConversationsPage() {
           font-weight: 700;
         }
 
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .create-link {
+          border: 1px solid #2d4264;
+          border-radius: 999px;
+          color: #c2d6ff;
+          background: #13233c;
+          padding: 6px 12px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .create-link:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
         .back-link {
           border: 1px solid #2b3340;
           border-radius: 999px;
@@ -133,6 +185,16 @@ export function ConversationsPage() {
         .back-link:hover {
           color: #d7dce3;
           border-color: #3b4657;
+        }
+
+        .conversations-toast {
+          margin: 10px 16px 0;
+          border: 1px solid #2c4f7c;
+          background: #12243a;
+          color: #c5dbff;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
         }
 
         .conversation-filters {
@@ -390,6 +452,96 @@ export function ConversationsPage() {
           padding: 20px;
           color: #8c99ab;
           font-size: 13px;
+        }
+
+        .overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 1200;
+          display: grid;
+          place-items: center;
+        }
+
+        .overlay-backdrop {
+          position: absolute;
+          inset: 0;
+          background: rgba(2, 8, 16, 0.72);
+        }
+
+        .conversation-create-modal {
+          position: relative;
+          width: min(420px, calc(100vw - 32px));
+          background: #111925;
+          border: 1px solid #22324a;
+          border-radius: 14px;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .conversation-create-modal h3 {
+          margin: 0;
+          font-size: 15px;
+        }
+
+        .conversation-create-modal label {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          font-size: 12px;
+          color: #95a3b8;
+        }
+
+        .conversation-create-modal input {
+          border: 1px solid #273244;
+          background: #0d1622;
+          color: #d7dce3;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 13px;
+          outline: none;
+        }
+
+        .modal-hint {
+          font-size: 12px;
+          color: #95a3b8;
+        }
+
+        .modal-error {
+          border: 1px solid #743b44;
+          border-radius: 10px;
+          background: #2a1519;
+          color: #ffb4bf;
+          padding: 8px 10px;
+          font-size: 12px;
+        }
+
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        .modal-actions button {
+          border-radius: 10px;
+          padding: 7px 10px;
+          font-size: 12px;
+          cursor: pointer;
+          border: 1px solid #2e3b4f;
+          background: #142033;
+          color: #ced7e5;
+        }
+
+        .modal-actions .primary {
+          border-color: #305285;
+          background: #1a3253;
+          color: #d2e5ff;
+        }
+
+        .modal-actions button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
         }
 
         @media (min-width: 900px) {

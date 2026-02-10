@@ -9,6 +9,7 @@ import type {
   ConversationFilters,
   ConversationDetail,
   ConversationListItem,
+  CreateConversationProjectInput,
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
@@ -440,6 +441,35 @@ export async function fetchConversation(id: string): Promise<ConversationDetail>
 
 export function getConversationAttachmentUrl(id: string, name: string): string {
   return `${API_BASE}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`;
+}
+
+export type CreateConversationProjectResult =
+  | { ok: true; data: ProjectDetail }
+  | { ok: false; error: string };
+
+export async function createProjectFromConversation(
+  conversationId: string,
+  input: CreateConversationProjectInput
+): Promise<CreateConversationProjectResult> {
+  const res = await fetch(
+    `${API_BASE}/conversations/${encodeURIComponent(conversationId)}/projects`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to create project from conversation" }));
+    return {
+      ok: false,
+      error: data.error ?? "Failed to create project from conversation",
+    };
+  }
+  const data = (await res.json()) as ProjectDetail;
+  return { ok: true, data };
 }
 
 // Projects API functions

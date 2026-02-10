@@ -319,6 +319,13 @@ export const CreateProjectRequestSchema = z.object({
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
+export const CreateConversationProjectRequestSchema = z.object({
+  title: z.string().optional(),
+});
+export type CreateConversationProjectRequest = z.infer<
+  typeof CreateConversationProjectRequestSchema
+>;
+
 export const UpdateProjectRequestSchema = z.object({
   title: z.string().optional(),
   domain: z.union([ProjectDomainSchema, z.literal("")]).optional(),

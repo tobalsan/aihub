@@ -4,6 +4,7 @@ import {
   fetchAllSubagents,
   fetchSubagents,
   fetchSubagentLogs,
+  createProjectFromConversation,
   spawnSubagent,
   spawnRalphLoop,
   interruptSubagent,
@@ -109,6 +110,27 @@ describe("api client (projects/subagents)", () => {
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.branches).toContain("main");
+    }
+  });
+
+  it("creates project from conversation", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: "PRO-7", title: "Routing", path: "PRO-7_routing" }),
+    });
+
+    const res = await createProjectFromConversation("conv-1", {
+      title: "Routing",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/conversations/conv-1/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Routing" }),
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.id).toBe("PRO-7");
     }
   });
 

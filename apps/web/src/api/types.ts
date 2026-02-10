@@ -249,6 +249,10 @@ export type ConversationDetail = ConversationListItem & {
   messages: ConversationMessage[];
 };
 
+export type CreateConversationProjectInput = {
+  title?: string;
+};
+
 // Projects API types
 export type ProjectListItem = {
   id: string;
