@@ -7,6 +7,7 @@ import type {
   TaskboardResponse,
   TaskboardItemResponse,
   ConversationFilters,
+  ConversationDetail,
   ConversationListItem,
   ProjectListItem,
   ProjectDetail,
@@ -429,6 +430,16 @@ export async function fetchConversations(
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch conversations");
   return res.json();
+}
+
+export async function fetchConversation(id: string): Promise<ConversationDetail> {
+  const res = await fetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error("Failed to fetch conversation");
+  return res.json();
+}
+
+export function getConversationAttachmentUrl(id: string, name: string): string {
+  return `${API_BASE}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`;
 }
 
 // Projects API functions

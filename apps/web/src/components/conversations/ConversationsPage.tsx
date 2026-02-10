@@ -5,9 +5,10 @@ import {
   createSignal,
   Show,
 } from "solid-js";
-import { fetchConversations } from "../../api/client";
+import { fetchConversation, fetchConversations } from "../../api/client";
 import type { ConversationFilters } from "../../api/types";
 import { ConversationList } from "./ConversationList";
+import { ConversationThreadView } from "./ConversationThreadView";
 
 export function ConversationsPage() {
   const [q, setQ] = createSignal("");
@@ -22,6 +23,10 @@ export function ConversationsPage() {
   }));
 
   const [items] = createResource(filters, fetchConversations);
+  const [detail] = createResource(selectedId, async (id) => {
+    if (!id) return null;
+    return fetchConversation(id);
+  });
 
   const selectedConversation = createMemo(() => {
     const list = items() ?? [];
@@ -83,24 +88,11 @@ export function ConversationsPage() {
 
         <section class="conversations-pane conversations-detail-pane">
           <Show when={selectedConversation()} fallback={<div class="empty">Select a conversation.</div>}>
-            {(conversation) => (
-              <article class="conversation-detail">
-                <h2>{conversation().title}</h2>
-                <div class="detail-meta">
-                  <span>{conversation().date ?? "No date"}</span>
-                  <span>{conversation().source ?? "unknown"}</span>
-                </div>
-                <div class="detail-row">
-                  <strong>Participants:</strong>
-                  <span>{conversation().participants.join(", ") || "none"}</span>
-                </div>
-                <div class="detail-row">
-                  <strong>Tags:</strong>
-                  <span>{conversation().tags.map((value) => `#${value}`).join(" ") || "none"}</span>
-                </div>
-                <p>{conversation().preview}</p>
-              </article>
-            )}
+            <Show when={!detail.loading} fallback={<div class="empty">Loading thread...</div>}>
+              <Show when={detail()} fallback={<div class="empty">Failed to load conversation thread.</div>}>
+                {(conversation) => <ConversationThreadView conversation={conversation()} />}
+              </Show>
+            </Show>
           </Show>
         </section>
       </div>
@@ -183,6 +175,103 @@ export function ConversationsPage() {
 
         .conversations-detail-pane {
           padding: 12px;
+        }
+
+        .conversation-thread-view {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .thread-header h2 {
+          margin: 0;
+          font-size: 18px;
+        }
+
+        .detail-meta {
+          display: flex;
+          gap: 10px;
+          margin-top: 6px;
+          color: #9ba8bb;
+          font-size: 12px;
+        }
+
+        .detail-row {
+          display: flex;
+          gap: 8px;
+          margin-top: 6px;
+          color: #b3bfce;
+          font-size: 13px;
+        }
+
+        .thread-section h3 {
+          margin: 0 0 10px;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #9db3d6;
+        }
+
+        .thread-messages {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .thread-message {
+          border: 1px solid #1f2835;
+          border-radius: 10px;
+          background: #101722;
+          padding: 10px;
+        }
+
+        .thread-message-meta {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          font-size: 12px;
+          color: #9ba8bb;
+          margin-bottom: 8px;
+        }
+
+        .thread-message-body {
+          color: #d7dce3;
+        }
+
+        .thread-raw {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          border: 1px solid #273244;
+          background: #0f1725;
+          border-radius: 10px;
+          padding: 10px;
+          color: #d7dce3;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-size: 12px;
+        }
+
+        .attachment-list {
+          margin: 0;
+          padding-left: 20px;
+          color: #d7dce3;
+        }
+
+        .attachment-list a {
+          color: #8fb2ff;
+          text-decoration: none;
+        }
+
+        .attachment-list a:hover {
+          text-decoration: underline;
+        }
+
+        .markdown-content p {
+          margin: 0;
+        }
+
+        .markdown-content p + p {
+          margin-top: 8px;
         }
 
         .conversations-list {

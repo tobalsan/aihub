@@ -237,6 +237,18 @@ export type ConversationListItem = {
   attachments: string[];
 };
 
+export type ConversationMessage = {
+  speaker: string;
+  timestamp?: string;
+  body: string;
+};
+
+export type ConversationDetail = ConversationListItem & {
+  frontmatter: Record<string, unknown>;
+  content: string;
+  messages: ConversationMessage[];
+};
+
 // Projects API types
 export type ProjectListItem = {
   id: string;
