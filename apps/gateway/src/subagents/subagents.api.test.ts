@@ -1112,6 +1112,100 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("spawns gemini subagent and records structured JSON output", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Gemini Spawn" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-gemini");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-gemini");
+    await fs.mkdir(binDir, { recursive: true });
+    const geminiPath = path.join(binDir, "gemini");
+    const script = [
+      "#!/bin/sh",
+      'ARGS="$*"',
+      'echo "$ARGS" | grep -F -- "--yolo" >/dev/null 2>&1 || { echo \'{"error":{"message":"missing --yolo"}}\'; exit 1; }',
+      'echo "$ARGS" | grep -F -- "--prompt" >/dev/null 2>&1 || { echo \'{"error":{"message":"missing --prompt"}}\'; exit 1; }',
+      'echo "$ARGS" | grep -F -- "--output-format json" >/dev/null 2>&1 || { echo \'{"error":{"message":"missing output-format"}}\'; exit 1; }',
+      'echo "$ARGS" | grep -F -- \'openclaw system event --text "Done: <summary>" --mode now\' >/dev/null 2>&1 || { echo \'{"error":{"message":"missing completion suffix"}}\'; exit 1; }',
+      `    echo '{"response":"gemini ok","stats":{"models":{"gemini-2.0":{"tokens":{"input":10,"output":5}}},"tools":{"totalCalls":1},"files":{"totalLinesAdded":2,"totalLinesRemoved":1}}}'`,
+    ].join("\n");
+    await fs.writeFile(geminiPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "gem",
+          cli: "gemini",
+          prompt: "hi",
+          mode: "main-run",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(201);
+
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "gem");
+    const historyPath = path.join(sessionDir, "history.jsonl");
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      try {
+        const history = await fs.readFile(historyPath, "utf8");
+        if (history.includes('"worker.finished"')) break;
+      } catch {
+        // wait
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    const historyRaw = await fs.readFile(historyPath, "utf8");
+    const finished = historyRaw
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line))
+      .reverse()
+      .find((line) => line.type === "worker.finished");
+    expect(finished?.data?.outcome).toBe("replied");
+    expect(finished?.data?.response).toBe("gemini ok");
+    expect(finished?.data?.stats?.tools?.totalCalls).toBe(1);
+    expect(finished?.data?.stats?.files?.totalLinesAdded).toBe(2);
+    expect(finished?.data?.stats?.tokens?.["gemini-2.0"]?.tokens?.input).toBe(
+      10
+    );
+
+    process.env.PATH = prevPath;
+  });
+
   it("interrupts a running subagent", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
