@@ -43,6 +43,18 @@ export type KillSubagentResult =
   | { ok: true; data: { slug: string } }
   | { ok: false; error: string };
 
+type GeminiOutput = {
+  response?: unknown;
+  stats?: {
+    models?: unknown;
+    tools?: unknown;
+    files?: unknown;
+  };
+  error?: {
+    message?: unknown;
+  };
+};
+
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
     return path.join(homedir(), p.slice(2));
@@ -281,8 +293,9 @@ function buildArgs(
       return args;
     }
     case "gemini": {
-      if (sessionId) return ["--resume", sessionId, "--prompt", prompt];
-      return ["-p", prompt, "--output-format", "stream-json"];
+      const args = ["--yolo", "--prompt", prompt, "--output-format", "json"];
+      if (sessionId) return ["--resume", sessionId, ...args];
+      return args;
     }
     case "codex": {
       const base = [
@@ -294,6 +307,68 @@ function buildArgs(
       return [...base, prompt];
     }
   }
+}
+
+const GEMINI_COMPLETION_SUFFIX = `After completing all changes:
+- Run the test suite
+- Run linter/formatter
+- Fix any failures before committing
+- Make atomic commit(s)
+- When done: run \`openclaw system event --text "Done: <summary>" --mode now\``;
+
+function appendGeminiCompletionSuffix(prompt: string): string {
+  if (prompt.includes('openclaw system event --text "Done:')) {
+    return prompt;
+  }
+  return `${prompt.trimEnd()}\n\n${GEMINI_COMPLETION_SUFFIX}`;
+}
+
+function parseGeminiOutput(stdout: string): {
+  response?: string;
+  errorMessage?: string;
+  stats?: {
+    tokens?: unknown;
+    tools?: unknown;
+    files?: unknown;
+  };
+} | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+
+  const candidates = [trimmed];
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim());
+  const lastLine = lines.filter((line) => line.length > 0).at(-1);
+  if (lastLine && lastLine !== trimmed) {
+    candidates.push(lastLine);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as GeminiOutput;
+      const response =
+        typeof parsed.response === "string" ? parsed.response : undefined;
+      const errorMessage =
+        typeof parsed.error?.message === "string"
+          ? parsed.error.message
+          : undefined;
+      const stats =
+        parsed.stats &&
+        (parsed.stats.models !== undefined ||
+          parsed.stats.tools !== undefined ||
+          parsed.stats.files !== undefined)
+          ? {
+              tokens: parsed.stats.models,
+              tools: parsed.stats.tools,
+              files: parsed.stats.files,
+            }
+          : undefined;
+      return { response, errorMessage, stats };
+    } catch {
+      // ignore parse failures
+    }
+  }
+
+  return null;
 }
 
 async function createWorktree(
@@ -463,6 +538,9 @@ export async function spawnSubagent(
     }
     prompt = prompt.trimEnd();
   }
+  if (input.cli === "gemini") {
+    prompt = appendGeminiCompletionSuffix(prompt);
+  }
   const args = buildArgs(input.cli, prompt, existingSessionId);
   let resolved;
   try {
@@ -477,6 +555,7 @@ export async function spawnSubagent(
     cwd: worktreePath,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  let stdoutBuffer = "";
 
   child.on("error", async () => {
     const finishedAt = new Date().toISOString();
@@ -552,6 +631,7 @@ export async function spawnSubagent(
 
   child.stdout?.on("data", async (chunk: Buffer) => {
     const text = chunk.toString("utf8");
+    stdoutBuffer += text;
     await fs.appendFile(logsPath, text, "utf8");
     await writeJson(progressPath, {
       last_active: new Date().toISOString(),
@@ -601,21 +681,34 @@ export async function spawnSubagent(
 
   child.on("exit", async (code, signal) => {
     const finishedAt = new Date().toISOString();
-    const outcome = code === 0 ? "replied" : "error";
+    const parsedGemini =
+      input.cli === "gemini" ? parseGeminiOutput(stdoutBuffer) : null;
+    let outcome: "replied" | "error" = code === 0 ? "replied" : "error";
     const exitMessage =
       code !== null && code !== 0
         ? `process exited (code ${code})`
         : signal
           ? `process exited (signal ${signal})`
           : "process exited";
+    let errorMessage = exitMessage;
+    if (parsedGemini?.errorMessage) {
+      outcome = "error";
+      errorMessage = parsedGemini.errorMessage;
+    }
     const data: Record<string, unknown> = {
       run_id: `${Date.now()}`,
       duration_ms: 0,
       tool_calls: 0,
       outcome,
     };
+    if (parsedGemini?.response) {
+      data.response = parsedGemini.response;
+    }
+    if (parsedGemini?.stats) {
+      data.stats = parsedGemini.stats;
+    }
     if (outcome === "error") {
-      data.error_message = exitMessage;
+      data.error_message = errorMessage;
     }
     await appendHistory(historyPath, {
       ts: finishedAt,
@@ -626,7 +719,7 @@ export async function spawnSubagent(
       try {
         const raw = await fs.readFile(statePath, "utf8");
         const current = JSON.parse(raw) as Record<string, unknown>;
-        current.last_error = exitMessage;
+        current.last_error = errorMessage;
         await writeJson(statePath, current);
       } catch {
         // ignore

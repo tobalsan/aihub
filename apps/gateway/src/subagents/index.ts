@@ -351,6 +351,21 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
       }
       return { type: "skip" };
     }
+    if ("response" in parsed || "stats" in parsed || "error" in parsed) {
+      const events: SubagentLogEvent[] = [];
+      const response =
+        typeof parsed.response === "string" ? parsed.response : "";
+      if (response) {
+        events.push({ type: "assistant", text: response });
+      }
+      const error = parsed.error as Record<string, unknown> | undefined;
+      const errorMessage =
+        typeof error?.message === "string" ? error.message : "";
+      if (errorMessage) {
+        events.push({ type: "error", text: errorMessage });
+      }
+      return events.length > 0 ? events : { type: "skip" };
+    }
     if (topType === "response_item") {
       const payload = parsed.payload as Record<string, unknown> | undefined;
       const payloadType = typeof payload?.type === "string" ? payload.type : "";
