@@ -5477,7 +5477,7 @@ export function ProjectsBoard() {
 
         .detail-body tbody tr:nth-child(even),
         .thread-body tbody tr:nth-child(even) {
-          background: #161616;
+          background: rgba(255, 255, 255, 0.02);
         }
 
         .thread-edit-textarea,

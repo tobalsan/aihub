@@ -1799,7 +1799,7 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .log-markdown tbody tr:nth-child(even) {
-          background: #161616;
+          background: rgba(255, 255, 255, 0.02);
         }
 
         .log-empty {
