@@ -2328,6 +2328,9 @@ export function ProjectsBoard() {
       if (e.key === "c" && !createModalOpen() && !activeProjectId()) {
         const target = e.target as HTMLElement;
         if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+        if (target.isContentEditable) return;
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        if (window.getSelection()?.toString()) return;
         e.preventDefault();
         openCreateModal();
       }
