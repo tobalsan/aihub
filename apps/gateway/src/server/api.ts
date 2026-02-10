@@ -9,6 +9,7 @@ import {
   UpdateScheduleRequestSchema,
   CreateProjectRequestSchema,
   CreateConversationProjectRequestSchema,
+  PostConversationMessageRequestSchema,
   UpdateProjectRequestSchema,
   ProjectCommentRequestSchema,
   UpdateProjectCommentRequestSchema,
@@ -59,6 +60,7 @@ import {
   listConversations,
   getConversation,
   resolveConversationAttachment,
+  appendConversationMessage,
 } from "../conversations/index.js";
 import type { ConversationDetail } from "../conversations/index.js";
 import {
@@ -108,6 +110,90 @@ function slugifyTitle(value: string): string {
 function formatThreadDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatClockTime(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+type MentionTarget = "cloud" | "codex" | "claude" | "gemini";
+
+function extractMentions(input: string): MentionTarget[] {
+  const found: MentionTarget[] = [];
+  const seen = new Set<MentionTarget>();
+  const pattern = /@(cloud|codex|claude|gemini)\b/gi;
+  for (const match of input.matchAll(pattern)) {
+    const target = (match[1] ?? "").toLowerCase() as MentionTarget;
+    if (!seen.has(target)) {
+      seen.add(target);
+      found.push(target);
+    }
+  }
+  return found;
+}
+
+function toSpeakerName(target: MentionTarget): string {
+  if (target === "cloud") return "Cloud";
+  if (target === "codex") return "Codex";
+  if (target === "claude") return "Claude";
+  return "Gemini";
+}
+
+function resolveMentionAgent(target: MentionTarget): {
+  ok: true;
+  data: { id: string; name: string; sdk: string };
+} | {
+  ok: false;
+  error: string;
+} {
+  const agents = getActiveAgents();
+  const byIdOrName = (name: string) =>
+    agents.find((agent) => {
+      const id = agent.id.trim().toLowerCase();
+      const label = agent.name.trim().toLowerCase();
+      return id === name || label === name;
+    });
+
+  if (target === "cloud") {
+    const namedCloud = byIdOrName("cloud");
+    if (namedCloud) {
+      if ((namedCloud.sdk ?? "pi") !== "openclaw") {
+        return { ok: false, error: "@cloud agent must use openclaw sdk" };
+      }
+      return {
+        ok: true,
+        data: {
+          id: namedCloud.id,
+          name: namedCloud.name || "Cloud",
+          sdk: namedCloud.sdk ?? "pi",
+        },
+      };
+    }
+    const openclaw = agents.find((agent) => (agent.sdk ?? "pi") === "openclaw");
+    if (!openclaw) {
+      return { ok: false, error: "No openclaw agent available for @cloud" };
+    }
+    return {
+      ok: true,
+      data: {
+        id: openclaw.id,
+        name: openclaw.name || "Cloud",
+        sdk: openclaw.sdk ?? "pi",
+      },
+    };
+  }
+
+  const matched = byIdOrName(target);
+  if (!matched) return { ok: false, error: `No agent found for @${target}` };
+  return {
+    ok: true,
+    data: {
+      id: matched.id,
+      name: matched.name || toSpeakerName(target),
+      sdk: matched.sdk ?? "pi",
+    },
+  };
 }
 
 function buildConversationSpecs(conversation: ConversationDetail): string {
@@ -950,6 +1036,137 @@ api.get("/conversations/:id", async (c) => {
     return c.json({ error: result.error }, 404);
   }
   return c.json(result.data);
+});
+
+// POST /api/conversations/:id/messages - append message and dispatch mentions
+api.post("/conversations/:id/messages", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const existing = await getConversation(config, id);
+  if (!existing.ok) {
+    return c.json({ error: existing.error }, 404);
+  }
+
+  const body = await c.req.json();
+  const parsed = PostConversationMessageRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const userMessage = parsed.data.message.trim();
+  if (!userMessage) {
+    return c.json({ error: "message is required" }, 400);
+  }
+
+  const userTimestamp = formatClockTime(new Date());
+  const appendedUser = await appendConversationMessage(config, id, {
+    speaker: "User",
+    timestamp: userTimestamp,
+    body: userMessage,
+  });
+  if (!appendedUser.ok) {
+    return c.json({ error: appendedUser.error }, 400);
+  }
+
+  const mentions = extractMentions(userMessage);
+  const forDispatch = await getConversation(config, id);
+  if (!forDispatch.ok) {
+    return c.json({ error: forDispatch.error }, 404);
+  }
+  const dispatchPrompt = [
+    "Conversation thread context:",
+    forDispatch.data.content.trim(),
+    "",
+    "Latest user message:",
+    userMessage,
+  ]
+    .join("\n")
+    .trim();
+  const dispatches: Array<{
+    mention: MentionTarget;
+    status: "ok" | "error";
+    agentId?: string;
+    sdk?: string;
+    error?: string;
+    replies: string[];
+  }> = [];
+
+  for (const mention of mentions) {
+    const resolved = resolveMentionAgent(mention);
+    if (!resolved.ok) {
+      dispatches.push({
+        mention,
+        status: "error",
+        error: resolved.error,
+        replies: [],
+      });
+      continue;
+    }
+
+    try {
+      const run = await runAgent({
+        agentId: resolved.data.id,
+        message: dispatchPrompt,
+        sessionKey: `conversation:${id}:${mention}`,
+      });
+      const replies = run.payloads
+        .map((payload) => payload.text?.trim() ?? "")
+        .filter(Boolean);
+
+      for (const reply of replies) {
+        const agentTimestamp = formatClockTime(new Date());
+        const appendedReply = await appendConversationMessage(config, id, {
+          speaker: resolved.data.name || toSpeakerName(mention),
+          timestamp: agentTimestamp,
+          body: reply,
+        });
+        if (!appendedReply.ok) {
+          dispatches.push({
+            mention,
+            status: "error",
+            agentId: resolved.data.id,
+            sdk: resolved.data.sdk,
+            error: appendedReply.error,
+            replies: [],
+          });
+          continue;
+        }
+      }
+
+      dispatches.push({
+        mention,
+        status: "ok",
+        agentId: resolved.data.id,
+        sdk: resolved.data.sdk,
+        replies,
+      });
+    } catch (err) {
+      dispatches.push({
+        mention,
+        status: "error",
+        agentId: resolved.data.id,
+        sdk: resolved.data.sdk,
+        error: err instanceof Error ? err.message : String(err),
+        replies: [],
+      });
+    }
+  }
+
+  const updated = await getConversation(config, id);
+  if (!updated.ok) {
+    return c.json({ error: updated.error }, 404);
+  }
+
+  return c.json({
+    conversation: updated.data,
+    mentions,
+    dispatches,
+    ui: {
+      shouldRefresh: true,
+      isThinking: false,
+      pendingMentions: [],
+    },
+  });
 });
 
 // GET /api/conversations/:id/attachments/:name - fetch attachment

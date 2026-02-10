@@ -6,6 +6,7 @@ import { ConversationsPage } from "./ConversationsPage";
 vi.mock("../../api/client", () => ({
   fetchConversations: vi.fn(),
   fetchConversation: vi.fn(),
+  postConversationMessage: vi.fn(),
   createProjectFromConversation: vi.fn(),
   getConversationAttachmentUrl: vi.fn((id: string, name: string) => `/api/conversations/${id}/attachments/${name}`),
 }));
@@ -14,6 +15,7 @@ import {
   createProjectFromConversation,
   fetchConversation,
   fetchConversations,
+  postConversationMessage,
 } from "../../api/client";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -21,6 +23,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("ConversationsPage", () => {
   const mockedFetchConversations = vi.mocked(fetchConversations);
   const mockedFetchConversation = vi.mocked(fetchConversation);
+  const mockedPostConversationMessage = vi.mocked(postConversationMessage);
   const mockedCreateProjectFromConversation = vi.mocked(
     createProjectFromConversation
   );
@@ -235,6 +238,89 @@ describe("ConversationsPage", () => {
 
     const raw = container.querySelector(".thread-raw");
     expect(raw?.textContent).toContain("Raw Thread");
+
+    dispose();
+  });
+
+  it("posts a thread reply and refreshes selected conversation", async () => {
+    mockedFetchConversations.mockResolvedValue([
+      {
+        id: "conv-1",
+        title: "Design session",
+        date: "2026-02-10",
+        source: "slack",
+        participants: ["thinh"],
+        tags: ["ui"],
+        preview: "Discussed conversation browsing UI.",
+        attachments: [],
+      },
+    ]);
+    mockedFetchConversation
+      .mockResolvedValueOnce({
+        id: "conv-1",
+        title: "Design session",
+        date: "2026-02-10",
+        source: "slack",
+        participants: ["thinh"],
+        tags: ["ui"],
+        preview: "Discussed conversation browsing UI.",
+        attachments: [],
+        frontmatter: {},
+        content: "",
+        messages: [{ speaker: "Thinh", timestamp: "10:00", body: "First message" }],
+      })
+      .mockResolvedValueOnce({
+        id: "conv-1",
+        title: "Design session",
+        date: "2026-02-10",
+        source: "slack",
+        participants: ["thinh"],
+        tags: ["ui"],
+        preview: "Discussed conversation browsing UI.",
+        attachments: [],
+        frontmatter: {},
+        content: "",
+        messages: [
+          { speaker: "Thinh", timestamp: "10:00", body: "First message" },
+          { speaker: "AIHub", timestamp: "10:02", body: "Reply posted" },
+        ],
+      });
+
+    let resolvePost: ((value: { mentions?: string[] }) => void) | null = null;
+    mockedPostConversationMessage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePost = resolve;
+        })
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ConversationsPage />, container);
+
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector(".thread-reply-textarea") as HTMLTextAreaElement | null;
+    expect(textarea).not.toBeNull();
+    textarea!.value = "Ping @codex";
+    textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const form = container.querySelector(".thread-reply-form") as HTMLFormElement | null;
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await tick();
+
+    expect(container.textContent).toContain("Posting...");
+    expect(mockedPostConversationMessage).toHaveBeenCalledWith("conv-1", {
+      message: "Ping @codex",
+    });
+
+    resolvePost?.({ mentions: ["codex"] });
+    await tick();
+    await tick();
+
+    expect(mockedFetchConversation).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Reply posted");
 
     dispose();
   });

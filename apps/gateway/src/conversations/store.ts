@@ -41,6 +41,16 @@ export type ResolveConversationAttachmentResult =
   | { ok: true; data: { name: string; path: string } }
   | { ok: false; error: string };
 
+export type AppendConversationMessageInput = {
+  speaker: string;
+  timestamp: string;
+  body: string;
+};
+
+export type AppendConversationMessageResult =
+  | { ok: true; data: { id: string } }
+  | { ok: false; error: string };
+
 export type ConversationFilters = {
   q?: string;
   source?: string;
@@ -359,4 +369,31 @@ export async function resolveConversationAttachment(
       path: filePath,
     },
   };
+}
+
+export async function appendConversationMessage(
+  config: GatewayConfig,
+  id: string,
+  input: AppendConversationMessageInput
+): Promise<AppendConversationMessageResult> {
+  if (!safeName(id)) {
+    return { ok: false, error: "Invalid conversation id" };
+  }
+  const root = getConversationsRoot(config);
+  const dirPath = path.join(root, id);
+  if (!(await dirExists(dirPath))) {
+    return { ok: false, error: `Conversation not found: ${id}` };
+  }
+
+  const threadPath = path.join(dirPath, THREAD_FILE);
+  if (!(await fileExists(threadPath))) {
+    return { ok: false, error: `THREAD.md not found: ${id}` };
+  }
+
+  const body = input.body.trim();
+  if (!body) return { ok: false, error: "Message body is required" };
+
+  const nextEntry = `\n\n**${input.speaker}** (${input.timestamp}):\n${body}\n`;
+  await fs.appendFile(threadPath, nextEntry, "utf8");
+  return { ok: true, data: { id } };
 }

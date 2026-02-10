@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
+import type { RunAgentParams, RunAgentResult } from "../agents/runner.js";
 
 describe("conversations API", () => {
   let tmpDir: string;
@@ -14,6 +15,9 @@ describe("conversations API", () => {
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
   const conversationId = "2026-02-10_agent-routing-ideas";
+  const runAgentMock = vi.fn<
+    (params: RunAgentParams) => Promise<RunAgentResult>
+  >();
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-conversations-"));
@@ -31,13 +35,38 @@ describe("conversations API", () => {
         {
           agents: [
             {
-              id: "test-agent",
-              name: "Test Agent",
+              id: "codex",
+              name: "Codex",
               workspace: "~/test",
               model: {
                 provider: "anthropic",
                 model: "claude-3-5-sonnet-20241022",
               },
+            },
+            {
+              id: "claude",
+              name: "Claude",
+              workspace: "~/test",
+              model: {
+                provider: "anthropic",
+                model: "claude-3-5-sonnet-20241022",
+              },
+            },
+            {
+              id: "gemini",
+              name: "Gemini",
+              workspace: "~/test",
+              model: {
+                provider: "google",
+                model: "gemini-2.0-flash",
+              },
+            },
+            {
+              id: "cloud",
+              name: "Cloud",
+              workspace: "~/test",
+              sdk: "openclaw",
+              openclaw: { token: "test-token" },
             },
           ],
           projects: { root: path.join(tmpDir, "projects") },
@@ -86,6 +115,29 @@ Yes, route by mention, then append each response to THREAD.md.
     );
 
     vi.resetModules();
+    runAgentMock.mockReset();
+    runAgentMock.mockImplementation(async (params) => {
+      const text =
+        params.agentId === "cloud"
+          ? "Cloud routed via openclaw."
+          : `${params.agentId} reply`;
+      return {
+        payloads: [{ text }],
+        meta: {
+          durationMs: 1,
+          sessionId: `${params.agentId}-session`,
+        },
+      };
+    });
+    vi.doMock("../agents/index.js", async () => {
+      const actual = await vi.importActual<
+        typeof import("../agents/index.js")
+      >("../agents/index.js");
+      return {
+        ...actual,
+        runAgent: runAgentMock,
+      };
+    });
     const mod = await import("../server/api.js");
     api = mod.api;
   });
@@ -142,6 +194,88 @@ Yes, route by mention, then append each response to THREAD.md.
       api.request("/conversations/2026-02-10_missing-thread")
     );
     expect(detailRes.status).toBe(404);
+  });
+
+  it("appends user message when posting conversation message without mentions", async () => {
+    const postRes = await Promise.resolve(
+      api.request(`/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "plain update, no mentions" }),
+      })
+    );
+
+    expect(postRes.status).toBe(200);
+    const payload = await postRes.json();
+    expect(payload.mentions).toEqual([]);
+    expect(payload.dispatches).toEqual([]);
+    expect(payload.ui).toEqual({
+      shouldRefresh: true,
+      isThinking: false,
+      pendingMentions: [],
+    });
+    expect(runAgentMock).not.toHaveBeenCalled();
+    const lastMessage =
+      payload.conversation.messages[payload.conversation.messages.length - 1];
+    expect(lastMessage?.speaker).toBe("User");
+    expect(lastMessage?.body).toContain(
+      "plain update, no mentions"
+    );
+  });
+
+  it("dispatches @codex and @cloud mentions and appends replies", async () => {
+    const postRes = await Promise.resolve(
+      api.request(`/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Need checks from @codex and @cloud" }),
+      })
+    );
+
+    expect(postRes.status).toBe(200);
+    const payload = await postRes.json();
+    expect(payload.mentions).toEqual(["codex", "cloud"]);
+    expect(payload.dispatches).toHaveLength(2);
+    expect(payload.dispatches[0]).toMatchObject({
+      mention: "codex",
+      status: "ok",
+      agentId: "codex",
+      replies: ["codex reply"],
+    });
+    expect(payload.dispatches[1]).toMatchObject({
+      mention: "cloud",
+      status: "ok",
+      agentId: "cloud",
+      sdk: "openclaw",
+      replies: ["Cloud routed via openclaw."],
+    });
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "codex",
+        message: expect.stringContaining("Latest user message:\nNeed checks from @codex and @cloud"),
+        sessionKey: `conversation:${conversationId}:codex`,
+      })
+    );
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "cloud",
+        message: expect.stringContaining("Conversation thread context:"),
+        sessionKey: `conversation:${conversationId}:cloud`,
+      })
+    );
+
+    const detailRes = await Promise.resolve(
+      api.request(`/conversations/${conversationId}`)
+    );
+    expect(detailRes.status).toBe(200);
+    const detail = await detailRes.json();
+    const speakers = detail.messages.map((m: { speaker: string }) => m.speaker);
+    expect(speakers).toContain("User");
+    expect(speakers).toContain("Codex");
+    expect(speakers).toContain("Cloud");
+    expect(detail.content).toContain("Need checks from @codex and @cloud");
+    expect(detail.content).toContain("codex reply");
+    expect(detail.content).toContain("Cloud routed via openclaw.");
   });
 
   it("creates project from conversation with specs and thread comment", async () => {

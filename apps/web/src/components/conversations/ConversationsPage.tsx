@@ -5,11 +5,16 @@ import {
   createSignal,
   Show,
 } from "solid-js";
-import { fetchConversation, fetchConversations } from "../../api/client";
+import {
+  fetchConversation,
+  fetchConversations,
+  postConversationMessage,
+} from "../../api/client";
 import type { ConversationFilters } from "../../api/types";
 import { ConversationList } from "./ConversationList";
 import { ConversationThreadView } from "./ConversationThreadView";
 import { CreateProjectFromConversationModal } from "./CreateProjectFromConversationModal";
+import { ThreadReplyInput } from "./ThreadReplyInput";
 
 export function ConversationsPage() {
   const [q, setQ] = createSignal("");
@@ -18,6 +23,8 @@ export function ConversationsPage() {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [toast, setToast] = createSignal<string | null>(null);
+  const [replyStatus, setReplyStatus] = createSignal<"idle" | "submitting" | "mentions">("idle");
+  const [replyError, setReplyError] = createSignal<string | null>(null);
 
   const filters = createMemo<ConversationFilters>(() => ({
     q: q().trim() || undefined,
@@ -26,7 +33,7 @@ export function ConversationsPage() {
   }));
 
   const [items] = createResource(filters, fetchConversations);
-  const [detail] = createResource(selectedId, async (id) => {
+  const [detail, { refetch: refetchDetail }] = createResource(selectedId, async (id) => {
     if (!id) return null;
     return fetchConversation(id);
   });
@@ -48,6 +55,28 @@ export function ConversationsPage() {
     window.setTimeout(() => {
       window.location.href = `/projects/${projectId}`;
     }, 450);
+  };
+
+  const submitReply = async (message: string): Promise<boolean> => {
+    const selected = selectedConversation();
+    if (!selected) return false;
+    setReplyError(null);
+    setReplyStatus("submitting");
+    try {
+      const response = await postConversationMessage(selected.id, { message });
+      if ((response.mentions?.length ?? 0) > 0) {
+        setReplyStatus("mentions");
+      }
+      await refetchDetail();
+      setReplyStatus("idle");
+      return true;
+    } catch (error) {
+      setReplyStatus("idle");
+      setReplyError(
+        error instanceof Error ? error.message : "Failed to post conversation reply"
+      );
+      return false;
+    }
   };
 
   return (
@@ -114,7 +143,17 @@ export function ConversationsPage() {
           <Show when={selectedConversation()} fallback={<div class="empty">Select a conversation.</div>}>
             <Show when={!detail.loading} fallback={<div class="empty">Loading thread...</div>}>
               <Show when={detail()} fallback={<div class="empty">Failed to load conversation thread.</div>}>
-                {(conversation) => <ConversationThreadView conversation={conversation()} />}
+                {(conversation) => (
+                  <>
+                    <ConversationThreadView conversation={conversation()} />
+                    <ThreadReplyInput
+                      disabled={detail.loading || !selectedConversation()}
+                      status={replyStatus()}
+                      error={replyError()}
+                      onSubmit={submitReply}
+                    />
+                  </>
+                )}
               </Show>
             </Show>
           </Show>
@@ -272,6 +311,112 @@ export function ConversationsPage() {
           text-transform: uppercase;
           letter-spacing: 0.05em;
           color: #9db3d6;
+        }
+
+        .thread-reply {
+          margin-top: 14px;
+          border-top: 1px solid #1f2835;
+          padding-top: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .thread-reply h3 {
+          margin: 0;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #9db3d6;
+        }
+
+        .thread-reply-form {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .thread-reply-textarea {
+          border: 1px solid #273244;
+          background: #111827;
+          color: #d7dce3;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 13px;
+          line-height: 1.35;
+          resize: vertical;
+          min-height: 84px;
+          outline: none;
+        }
+
+        .thread-reply-textarea:focus {
+          border-color: #4166aa;
+        }
+
+        .thread-reply-textarea:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .thread-reply-actions {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .thread-reply-btn {
+          border: 1px solid #305285;
+          background: #1a3253;
+          color: #d2e5ff;
+          border-radius: 10px;
+          padding: 7px 10px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .thread-reply-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .thread-reply-thinking {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          color: #9db3d6;
+          font-size: 12px;
+        }
+
+        .thread-thinking-dots {
+          display: inline-flex;
+          gap: 4px;
+        }
+
+        .thread-thinking-dots span {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #9db3d6;
+          opacity: 0.35;
+          animation: thread-thinking 1.4s ease-in-out infinite;
+        }
+
+        .thread-thinking-dots span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+
+        .thread-thinking-dots span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+
+        .thread-reply-error {
+          border: 1px solid #743b44;
+          border-radius: 10px;
+          background: #2a1519;
+          color: #ffb4bf;
+          padding: 8px 10px;
+          font-size: 12px;
         }
 
         .thread-messages {
@@ -452,6 +597,17 @@ export function ConversationsPage() {
           padding: 20px;
           color: #8c99ab;
           font-size: 13px;
+        }
+
+        @keyframes thread-thinking {
+          0%, 80%, 100% {
+            transform: scale(0.85);
+            opacity: 0.35;
+          }
+          40% {
+            transform: scale(1);
+            opacity: 1;
+          }
         }
 
         .overlay {

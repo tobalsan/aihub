@@ -5,6 +5,7 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   createProjectFromConversation,
+  postConversationMessage,
   spawnSubagent,
   spawnRalphLoop,
   interruptSubagent,
@@ -132,6 +133,24 @@ describe("api client (projects/subagents)", () => {
     if (res.ok) {
       expect(res.data.id).toBe("PRO-7");
     }
+  });
+
+  it("posts conversation message", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ mentions: ["codex"] }),
+    });
+
+    const res = await postConversationMessage("conv-1", {
+      message: "Ping @codex",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/conversations/conv-1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Ping @codex" }),
+    });
+    expect(res.mentions).toEqual(["codex"]);
   });
 
   it("spawns subagent", async () => {

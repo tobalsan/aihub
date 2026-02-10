@@ -253,6 +253,14 @@ export type CreateConversationProjectInput = {
   title?: string;
 };
 
+export type CreateConversationMessageInput = {
+  message: string;
+};
+
+export type PostConversationMessageResponse = {
+  mentions?: string[];
+};
+
 // Projects API types
 export type ProjectListItem = {
   id: string;

@@ -9,7 +9,9 @@ import type {
   ConversationFilters,
   ConversationDetail,
   ConversationListItem,
+  CreateConversationMessageInput,
   CreateConversationProjectInput,
+  PostConversationMessageResponse,
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
@@ -441,6 +443,27 @@ export async function fetchConversation(id: string): Promise<ConversationDetail>
 
 export function getConversationAttachmentUrl(id: string, name: string): string {
   return `${API_BASE}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`;
+}
+
+export async function postConversationMessage(
+  conversationId: string,
+  input: CreateConversationMessageInput
+): Promise<PostConversationMessageResponse> {
+  const res = await fetch(
+    `${API_BASE}/conversations/${encodeURIComponent(conversationId)}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to post conversation message" }));
+    throw new Error(data.error ?? "Failed to post conversation message");
+  }
+  return res.json().catch(() => ({}));
 }
 
 export type CreateConversationProjectResult =
