@@ -1032,6 +1032,12 @@ export function ProjectsBoard() {
     () => activeProjectId(),
     async (id) => (id ? fetchProject(id) : null)
   );
+  const activeDetail = createMemo(() => {
+    const current = detail();
+    const projectId = activeProjectId();
+    if (!current || !projectId) return null;
+    return current.id === projectId ? current : null;
+  });
   const [expanded, setExpanded] = createSignal<string[]>(
     readExpandedFromStorage()
   );
@@ -2848,7 +2854,7 @@ export function ProjectsBoard() {
                   </svg>
                 </button>
                 <div class="overlay-header">
-                  <Show when={detail()}>
+                  <Show when={activeDetail()}>
                     {(data) => {
                       const project = data() as ProjectDetail;
                       const [copied, setCopied] = createSignal(false);
@@ -3003,7 +3009,7 @@ export function ProjectsBoard() {
                     <Show when={detail.error}>
                       <div class="projects-error">Failed to load project</div>
                     </Show>
-                    <Show when={detail()}>
+                    <Show when={activeDetail()}>
                       {(data) => {
                         const project = data() as ProjectDetail;
                         const fm = project.frontmatter ?? {};
