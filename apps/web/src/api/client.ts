@@ -709,6 +709,7 @@ export type SpawnSubagentInput = {
   mode?: "main-run" | "worktree";
   baseBranch?: string;
   resume?: boolean;
+  attachments?: FileAttachment[];
 };
 
 export type SpawnSubagentResult =

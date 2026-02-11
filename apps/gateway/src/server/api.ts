@@ -1282,6 +1282,13 @@ api.post("/projects/:id/subagents", async (c) => {
   const baseBranch =
     typeof body.baseBranch === "string" ? body.baseBranch : undefined;
   const resume = typeof body.resume === "boolean" ? body.resume : undefined;
+  const attachments = Array.isArray(body.attachments)
+    ? (body.attachments as Array<{ path?: unknown; mimeType?: unknown; filename?: unknown }>)
+        .filter(
+          (a): a is { path: string; mimeType: string; filename?: string } =>
+            typeof a.path === "string" && typeof a.mimeType === "string"
+        )
+    : undefined;
 
   if (!slug || !cli || !prompt) {
     return c.json({ error: "Missing required fields" }, 400);
@@ -1296,6 +1303,7 @@ api.post("/projects/:id/subagents", async (c) => {
     mode: mode as "main-run" | "worktree" | undefined,
     baseBranch,
     resume,
+    attachments,
   });
   if (!result.ok) {
     const status = result.error.startsWith("Project not found") ? 404 : 400;

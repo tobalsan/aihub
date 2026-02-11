@@ -19,6 +19,7 @@ export type SpawnSubagentInput = {
   mode?: SubagentMode;
   baseBranch?: string;
   resume?: boolean;
+  attachments?: Array<{ path: string; mimeType: string; filename?: string }>;
 };
 
 export type SpawnRalphLoopInput = {
@@ -537,6 +538,10 @@ export async function spawnSubagent(
       prompt = `${prompt}\n\n${worktreeLine}`;
     }
     prompt = prompt.trimEnd();
+  }
+  if (input.attachments && input.attachments.length > 0) {
+    const paths = input.attachments.map((a) => a.path).join(", ");
+    prompt = `${prompt}\n\n[Attached images: ${paths}]`;
   }
   if (input.cli === "gemini") {
     prompt = appendGeminiCompletionSuffix(prompt);

@@ -627,7 +627,9 @@ export function AgentChat(props: AgentChatProps) {
       !subagentSending()
   );
   const canAttach = createMemo(
-    () => props.agentType === "lead" && Boolean(props.agentId)
+    () =>
+      (props.agentType === "lead" && Boolean(props.agentId)) ||
+      (props.agentType === "subagent" && Boolean(props.subagentInfo?.cli))
   );
 
   onMount(() => {
@@ -949,10 +951,21 @@ export function AgentChat(props: AgentChatProps) {
       setError("");
       setPendingCliUserMessages((prev) => [...prev, text]);
       setSubagentAwaitingResponse(true);
+      const currentPending = pendingFiles();
       setInput("");
       setPendingFiles([]);
       resizeTextarea("");
       scrollToBottom(true);
+
+      let attachments: FileAttachment[] | undefined;
+      if (currentPending.length > 0) {
+        try {
+          attachments = await uploadFiles(currentPending.map((f) => f.file));
+        } catch {
+          // continue without attachments
+        }
+      }
+
       const mode = props.subagentInfo.slug === "main" ? "main-run" : "worktree";
       void spawnSubagent(props.subagentInfo.projectId, {
         slug: props.subagentInfo.slug,
@@ -960,6 +973,7 @@ export function AgentChat(props: AgentChatProps) {
         prompt: text,
         mode,
         resume: true,
+        attachments,
       }).then((res) => {
         if (!res.ok) {
           setError(res.error);
