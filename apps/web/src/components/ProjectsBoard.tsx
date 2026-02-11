@@ -4491,6 +4491,37 @@ export function ProjectsBoard() {
           max-height: calc(100vh - 180px);
         }
 
+        .column-body,
+        .detail-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #2a3446 transparent;
+        }
+
+        .column-body::-webkit-scrollbar,
+        .detail-scroll::-webkit-scrollbar {
+          width: 10px;
+        }
+
+        .column-body::-webkit-scrollbar-track,
+        .detail-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .column-body::-webkit-scrollbar-thumb,
+        .detail-scroll::-webkit-scrollbar-thumb {
+          background: #2a3446;
+          border: 2px solid transparent;
+          background-clip: content-box;
+          border-radius: 999px;
+        }
+
+        .column-body::-webkit-scrollbar-thumb:hover,
+        .detail-scroll::-webkit-scrollbar-thumb:hover {
+          background: #3a4860;
+          border: 2px solid transparent;
+          background-clip: content-box;
+        }
+
         .column.drop-target {
           background: color-mix(in oklch, var(--col) 10%, #0f141c 90%);
           box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--col) 55%, #1f2631 45%);
