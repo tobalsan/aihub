@@ -1442,6 +1442,37 @@ export function AgentChat(props: AgentChatProps) {
           scroll-behavior: smooth;
         }
 
+        .chat-messages,
+        .log-pane {
+          scrollbar-width: thin;
+          scrollbar-color: #2a3446 transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar,
+        .log-pane::-webkit-scrollbar {
+          width: 10px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track,
+        .log-pane::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb,
+        .log-pane::-webkit-scrollbar-thumb {
+          background: #2a3446;
+          border: 2px solid transparent;
+          background-clip: content-box;
+          border-radius: 999px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb:hover,
+        .log-pane::-webkit-scrollbar-thumb:hover {
+          background: #3a4860;
+          border: 2px solid transparent;
+          background-clip: content-box;
+        }
+
         .chat-empty {
           flex: 1;
           display: flex;
