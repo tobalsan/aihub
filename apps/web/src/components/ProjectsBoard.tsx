@@ -5401,11 +5401,13 @@ export function ProjectsBoard() {
         .detail-doc-body {
           display: flex;
           flex-direction: column;
+          flex: none;
           gap: 8px;
           min-height: 120px;
         }
 
         .detail-thread {
+          flex: none;
           border-top: 1px solid #223042;
           padding-top: 12px;
           display: flex;
