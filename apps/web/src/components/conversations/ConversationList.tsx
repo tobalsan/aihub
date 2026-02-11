@@ -39,7 +39,6 @@ export function ConversationList(props: ConversationListProps) {
                 {(tag) => <span class="conversation-tag">#{tag}</span>}
               </For>
             </div>
-            <p class="conversation-preview">{item.preview}</p>
           </button>
         )}
       </For>

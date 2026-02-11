@@ -422,14 +422,21 @@ export function ConversationsPage() {
         .thread-messages {
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          gap: 6px;
         }
 
         .thread-message {
           border: 1px solid #1f2835;
-          border-radius: 10px;
-          background: #101722;
-          padding: 10px;
+          border-radius: 8px;
+          padding: 16px 14px;
+        }
+
+        .thread-message:nth-child(odd) {
+          background: #0d1117;
+        }
+
+        .thread-message:nth-child(even) {
+          background: #111927;
         }
 
         .thread-message-meta {
@@ -473,12 +480,89 @@ export function ConversationsPage() {
           text-decoration: underline;
         }
 
+        .markdown-content {
+          font-size: 14px;
+          line-height: 1.7;
+        }
+
+        .markdown-content > *:first-child {
+          margin-top: 0;
+        }
+
+        .markdown-content > *:last-child {
+          margin-bottom: 0;
+        }
+
         .markdown-content p {
+          margin: 0.4em 0;
+        }
+
+        .markdown-content a {
+          color: #8fb2ff;
+          text-decoration: underline;
+          text-decoration-color: rgba(143, 178, 255, 0.35);
+          text-underline-offset: 2px;
+          transition: text-decoration-color 0.15s ease;
+        }
+
+        .markdown-content a:hover {
+          text-decoration-color: #8fb2ff;
+        }
+
+        .markdown-content ul,
+        .markdown-content ol {
+          margin: 0.5em 0;
+          padding-left: 1.6em;
+        }
+
+        .markdown-content li {
+          margin: 0.3em 0;
+        }
+
+        .markdown-content li p {
           margin: 0;
         }
 
-        .markdown-content p + p {
-          margin-top: 8px;
+        .markdown-content code {
+          background: #1a2233;
+          padding: 0.15em 0.4em;
+          border-radius: 4px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 0.9em;
+        }
+
+        .markdown-content pre {
+          background: #0a1120;
+          border: 1px solid #1f2835;
+          border-radius: 8px;
+          padding: 10px;
+          overflow-x: auto;
+          margin: 0.5em 0;
+        }
+
+        .markdown-content pre code {
+          background: none;
+          padding: 0;
+          font-size: 0.85em;
+          line-height: 1.5;
+        }
+
+        .markdown-content blockquote {
+          border-left: 3px solid #2d4264;
+          margin: 0.4em 0;
+          padding-left: 0.75em;
+          color: #9ba8bb;
+        }
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+          margin: 0.6em 0 0.3em;
+          font-weight: 600;
+        }
+
+        .markdown-content strong {
+          color: #e8ecf2;
         }
 
         .conversations-list {
