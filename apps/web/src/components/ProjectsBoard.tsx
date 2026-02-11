@@ -2513,7 +2513,12 @@ export function ProjectsBoard() {
         </div>
       </Show>
       <Show when={commandOpen()}>
-        <div class="overlay" role="dialog" aria-modal="true" aria-label="Search projects">
+        <div
+          class="overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Search projects"
+        >
           <div class="overlay-backdrop" onClick={closeCommandBar} />
           <div class="command-bar" onClick={(e) => e.stopPropagation()}>
             <input
@@ -2550,7 +2555,9 @@ export function ProjectsBoard() {
                   e.preventDefault();
                   const index = commandSelectedIndex();
                   const selected =
-                    index >= 0 && index < items.length ? items[index] : items[0];
+                    index >= 0 && index < items.length
+                      ? items[index]
+                      : items[0];
                   if (selected) openFromCommandBar(selected.id);
                 }
               }}
@@ -3221,237 +3228,253 @@ export function ProjectsBoard() {
                                   </For>
                                 </div>
                               </Show>
-                              <div class="detail-doc-body">
-                                <For each={docKeys()}>
-                                  {(key) => (
-                                    <Show when={detailDocTab() === key}>
-                                      <Show
-                                        when={editingDoc() === key}
-                                        fallback={
-                                          <div
-                                            class="detail-body markdown-content"
-                                            innerHTML={renderMarkdown(
-                                              detailDocs()[key] ?? "",
-                                              project.id
-                                            )}
-                                            onDblClick={() =>
-                                              setEditingDoc(key)
-                                            }
-                                            title="Double-click to edit"
-                                          />
-                                        }
-                                      >
-                                        <textarea
-                                          class="content-textarea"
-                                          value={detailDocs()[key] ?? ""}
-                                          onInput={(e) =>
-                                            setDetailDocs((prev) => ({
-                                              ...prev,
-                                              [key]: e.currentTarget.value,
-                                            }))
-                                          }
-                                          onBlur={() =>
-                                            handleDocSave(project.id, key)
-                                          }
-                                          onKeyDown={(e) => {
-                                            if (e.key === "Escape") {
-                                              e.stopPropagation();
-                                              setDetailDocs((prev) => ({
-                                                ...prev,
-                                                [key]: stripMarkdownMeta(
-                                                  project.docs?.[key] ?? ""
-                                                ),
-                                              }));
-                                              setDetailPendingFiles([]);
-                                              setEditingDoc(null);
-                                            } else if (
-                                              e.key === "Enter" &&
-                                              e.metaKey
-                                            ) {
-                                              e.preventDefault();
-                                              handleDocSave(project.id, key);
-                                            }
-                                          }}
-                                          autofocus
-                                        />
+                              <div class="detail-scroll">
+                                <div class="detail-doc-body">
+                                  <For each={docKeys()}>
+                                    {(key) => (
+                                      <Show when={detailDocTab() === key}>
                                         <Show
-                                          when={detailPendingFiles().length > 0}
-                                        >
-                                          <div class="detail-pending-files">
-                                            <label class="detail-pending-label">
-                                              Files to upload on save
-                                            </label>
-                                            <div class="file-list">
-                                              <For each={detailPendingFiles()}>
-                                                {(file, index) => (
-                                                  <div class="file-item">
-                                                    <span class="file-name">
-                                                      {file.name}
-                                                    </span>
-                                                    <button
-                                                      class="file-remove"
-                                                      onClick={() =>
-                                                        removeDetailFile(
-                                                          index()
-                                                        )
-                                                      }
-                                                      type="button"
-                                                      aria-label={`Remove ${file.name}`}
-                                                    >
-                                                      <svg
-                                                        width="14"
-                                                        height="14"
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        stroke-width="2"
-                                                      >
-                                                        <path d="M18 6L6 18M6 6l12 12" />
-                                                      </svg>
-                                                    </button>
-                                                  </div>
-                                                )}
-                                              </For>
-                                            </div>
-                                          </div>
-                                        </Show>
-                                      </Show>
-                                    </Show>
-                                  )}
-                                </For>
-                              </div>
-                            </div>
-                            <div class="detail-thread">
-                              <div class="thread-header">Thread</div>
-                              <Show
-                                when={detailThread().length > 0}
-                                fallback={
-                                  <div class="thread-empty">
-                                    No comments yet.
-                                  </div>
-                                }
-                              >
-                                <div class="thread-list">
-                                  <For each={detailThread()}>
-                                    {(entry, index) => (
-                                      <div class="thread-item">
-                                        <div class="thread-meta">
-                                          <span class="thread-author">
-                                            {entry.author || "unknown"}
-                                          </span>
-                                          <span class="thread-date">
-                                            {entry.date}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            class="thread-delete-btn"
-                                            onClick={() =>
-                                              handleCommentDelete(
-                                                project.id,
-                                                index()
-                                              )
-                                            }
-                                            aria-label="Delete comment"
-                                          >
-                                            <svg
-                                              width="12"
-                                              height="12"
-                                              viewBox="0 0 24 24"
-                                              fill="none"
-                                              stroke="currentColor"
-                                              stroke-width="2"
-                                            >
-                                              <path d="M18 6L6 18M6 6l12 12" />
-                                            </svg>
-                                          </button>
-                                        </div>
-                                        <Show
-                                          when={
-                                            editingCommentIndex() === index()
-                                          }
+                                          when={editingDoc() === key}
                                           fallback={
                                             <div
-                                              class="thread-body markdown-content"
+                                              class="detail-body markdown-content"
                                               innerHTML={renderMarkdown(
-                                                entry.body,
+                                                detailDocs()[key] ?? "",
                                                 project.id
                                               )}
-                                              onDblClick={() => {
-                                                setEditingCommentIndex(index());
-                                                setEditingCommentBody(
-                                                  entry.body
-                                                );
-                                              }}
+                                              onDblClick={() =>
+                                                setEditingDoc(key)
+                                              }
                                               title="Double-click to edit"
                                             />
                                           }
                                         >
                                           <textarea
-                                            class="thread-edit-textarea"
-                                            value={editingCommentBody()}
+                                            class="content-textarea"
+                                            value={detailDocs()[key] ?? ""}
                                             onInput={(e) =>
-                                              setEditingCommentBody(
-                                                e.currentTarget.value
-                                              )
+                                              setDetailDocs((prev) => ({
+                                                ...prev,
+                                                [key]: e.currentTarget.value,
+                                              }))
                                             }
                                             onBlur={() =>
-                                              handleCommentUpdate(
-                                                project.id,
-                                                index()
-                                              )
+                                              handleDocSave(project.id, key)
                                             }
                                             onKeyDown={(e) => {
                                               if (e.key === "Escape") {
                                                 e.stopPropagation();
-                                                setEditingCommentIndex(null);
+                                                setDetailDocs((prev) => ({
+                                                  ...prev,
+                                                  [key]: stripMarkdownMeta(
+                                                    project.docs?.[key] ?? ""
+                                                  ),
+                                                }));
+                                                setDetailPendingFiles([]);
+                                                setEditingDoc(null);
                                               } else if (
                                                 e.key === "Enter" &&
                                                 e.metaKey
                                               ) {
                                                 e.preventDefault();
-                                                handleCommentUpdate(
-                                                  project.id,
-                                                  index()
-                                                );
+                                                handleDocSave(project.id, key);
                                               }
                                             }}
-                                            ref={(el) =>
-                                              setTimeout(() => el.focus(), 0)
-                                            }
+                                            autofocus
                                           />
+                                          <Show
+                                            when={
+                                              detailPendingFiles().length > 0
+                                            }
+                                          >
+                                            <div class="detail-pending-files">
+                                              <label class="detail-pending-label">
+                                                Files to upload on save
+                                              </label>
+                                              <div class="file-list">
+                                                <For
+                                                  each={detailPendingFiles()}
+                                                >
+                                                  {(file, index) => (
+                                                    <div class="file-item">
+                                                      <span class="file-name">
+                                                        {file.name}
+                                                      </span>
+                                                      <button
+                                                        class="file-remove"
+                                                        onClick={() =>
+                                                          removeDetailFile(
+                                                            index()
+                                                          )
+                                                        }
+                                                        type="button"
+                                                        aria-label={`Remove ${file.name}`}
+                                                      >
+                                                        <svg
+                                                          width="14"
+                                                          height="14"
+                                                          viewBox="0 0 24 24"
+                                                          fill="none"
+                                                          stroke="currentColor"
+                                                          stroke-width="2"
+                                                        >
+                                                          <path d="M18 6L6 18M6 6l12 12" />
+                                                        </svg>
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </For>
+                                              </div>
+                                            </div>
+                                          </Show>
                                         </Show>
-                                      </div>
+                                      </Show>
                                     )}
                                   </For>
                                 </div>
-                              </Show>
-                              <div class="thread-add">
-                                <textarea
-                                  class="thread-add-textarea"
-                                  placeholder="Add a comment..."
-                                  value={newComment()}
-                                  onInput={(e) =>
-                                    setNewComment(e.currentTarget.value)
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (
-                                      e.key === "Enter" &&
-                                      e.metaKey &&
-                                      newComment().trim()
-                                    ) {
-                                      e.preventDefault();
-                                      handleAddComment(project.id);
+                                <div class="detail-thread">
+                                  <div class="thread-header">Thread</div>
+                                  <Show
+                                    when={detailThread().length > 0}
+                                    fallback={
+                                      <div class="thread-empty">
+                                        No comments yet.
+                                      </div>
                                     }
-                                  }}
-                                />
-                                <button
-                                  type="button"
-                                  class="thread-add-btn"
-                                  disabled={!newComment().trim()}
-                                  onClick={() => handleAddComment(project.id)}
-                                >
-                                  Add
-                                </button>
+                                  >
+                                    <div class="thread-list">
+                                      <For each={detailThread()}>
+                                        {(entry, index) => (
+                                          <div class="thread-item">
+                                            <div class="thread-meta">
+                                              <span class="thread-author">
+                                                {entry.author || "unknown"}
+                                              </span>
+                                              <span class="thread-date">
+                                                {entry.date}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                class="thread-delete-btn"
+                                                onClick={() =>
+                                                  handleCommentDelete(
+                                                    project.id,
+                                                    index()
+                                                  )
+                                                }
+                                                aria-label="Delete comment"
+                                              >
+                                                <svg
+                                                  width="12"
+                                                  height="12"
+                                                  viewBox="0 0 24 24"
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  stroke-width="2"
+                                                >
+                                                  <path d="M18 6L6 18M6 6l12 12" />
+                                                </svg>
+                                              </button>
+                                            </div>
+                                            <Show
+                                              when={
+                                                editingCommentIndex() ===
+                                                index()
+                                              }
+                                              fallback={
+                                                <div
+                                                  class="thread-body markdown-content"
+                                                  innerHTML={renderMarkdown(
+                                                    entry.body,
+                                                    project.id
+                                                  )}
+                                                  onDblClick={() => {
+                                                    setEditingCommentIndex(
+                                                      index()
+                                                    );
+                                                    setEditingCommentBody(
+                                                      entry.body
+                                                    );
+                                                  }}
+                                                  title="Double-click to edit"
+                                                />
+                                              }
+                                            >
+                                              <textarea
+                                                class="thread-edit-textarea"
+                                                value={editingCommentBody()}
+                                                onInput={(e) =>
+                                                  setEditingCommentBody(
+                                                    e.currentTarget.value
+                                                  )
+                                                }
+                                                onBlur={() =>
+                                                  handleCommentUpdate(
+                                                    project.id,
+                                                    index()
+                                                  )
+                                                }
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Escape") {
+                                                    e.stopPropagation();
+                                                    setEditingCommentIndex(
+                                                      null
+                                                    );
+                                                  } else if (
+                                                    e.key === "Enter" &&
+                                                    e.metaKey
+                                                  ) {
+                                                    e.preventDefault();
+                                                    handleCommentUpdate(
+                                                      project.id,
+                                                      index()
+                                                    );
+                                                  }
+                                                }}
+                                                ref={(el) =>
+                                                  setTimeout(
+                                                    () => el.focus(),
+                                                    0
+                                                  )
+                                                }
+                                              />
+                                            </Show>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                  <div class="thread-add">
+                                    <textarea
+                                      class="thread-add-textarea"
+                                      placeholder="Add a comment..."
+                                      value={newComment()}
+                                      onInput={(e) =>
+                                        setNewComment(e.currentTarget.value)
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (
+                                          e.key === "Enter" &&
+                                          e.metaKey &&
+                                          newComment().trim()
+                                        ) {
+                                          e.preventDefault();
+                                          handleAddComment(project.id);
+                                        }
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      class="thread-add-btn"
+                                      disabled={!newComment().trim()}
+                                      onClick={() =>
+                                        handleAddComment(project.id)
+                                      }
+                                    >
+                                      Add
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                             <Show when={detailIsDragging()}>
@@ -5179,12 +5202,19 @@ export function ProjectsBoard() {
           border: 1px solid #273042;
           border-radius: 16px;
           padding: 16px;
-          overflow-y: auto;
           display: flex;
           flex-direction: column;
           gap: 12px;
           min-height: 0;
           position: relative;
+        }
+
+        .detail {
+          overflow: hidden;
+        }
+
+        .monitoring {
+          overflow-y: auto;
         }
 
         .detail-actions {
@@ -5326,6 +5356,18 @@ export function ProjectsBoard() {
         }
 
         .detail-docs {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          flex: 1;
+          min-height: 0;
+        }
+
+        .detail-scroll {
+          overflow-y: auto;
+          overflow-x: hidden;
+          flex: 1;
+          min-height: 0;
           display: flex;
           flex-direction: column;
           gap: 12px;
