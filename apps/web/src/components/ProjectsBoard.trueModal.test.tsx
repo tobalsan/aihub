@@ -36,6 +36,7 @@ vi.mock("@solidjs/router", () => ({
     });
     return [params, set] as const;
   },
+  A: (props: Record<string, unknown>) => <a {...props} />,
 }));
 
 vi.mock("../api/client", () => ({

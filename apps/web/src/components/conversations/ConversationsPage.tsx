@@ -5,6 +5,7 @@ import {
   createSignal,
   Show,
 } from "solid-js";
+import { A, useNavigate } from "@solidjs/router";
 import {
   fetchConversation,
   fetchConversations,
@@ -17,6 +18,7 @@ import { CreateProjectFromConversationModal } from "./CreateProjectFromConversat
 import { ThreadReplyInput } from "./ThreadReplyInput";
 
 export function ConversationsPage() {
+  const navigate = useNavigate();
   const [q, setQ] = createSignal("");
   const [source, setSource] = createSignal("");
   const [tag, setTag] = createSignal("");
@@ -53,7 +55,7 @@ export function ConversationsPage() {
   const onProjectCreated = (projectId: string) => {
     setToast(`Project ${projectId} created`);
     window.setTimeout(() => {
-      window.location.href = `/projects/${projectId}`;
+      navigate(`/projects/${projectId}`);
     }, 450);
   };
 
@@ -92,9 +94,9 @@ export function ConversationsPage() {
           >
             Create project
           </button>
-          <a class="back-link" href="/projects">
+          <A class="back-link" href="/projects">
             Back to projects
-          </a>
+          </A>
         </div>
       </header>
 

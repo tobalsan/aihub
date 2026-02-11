@@ -87,6 +87,7 @@ vi.mock("./ActivityFeed", () => ({ ActivityFeed: () => null }));
 
 vi.mock("@solidjs/router", () => ({
   useSearchParams: () => [{ project: "PRO-1" }, () => {}],
+  A: (props: Record<string, unknown>) => <a {...props} />,
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));

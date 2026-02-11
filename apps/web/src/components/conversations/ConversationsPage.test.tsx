@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ConversationsPage } from "./ConversationsPage";
 
+vi.mock("@solidjs/router", () => ({
+  A: (props: Record<string, unknown>) => <a {...props} />,
+  useNavigate: () => vi.fn(),
+}));
+
 vi.mock("../../api/client", () => ({
   fetchConversations: vi.fn(),
   fetchConversation: vi.fn(),

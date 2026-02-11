@@ -9,7 +9,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { useSearchParams } from "@solidjs/router";
+import { A, useSearchParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -2639,9 +2639,9 @@ export function ProjectsBoard() {
               value={filterText()}
               onInput={(e) => setFilterText(e.currentTarget.value)}
             />
-            <a class="archive-link" href="/conversations">
+            <A class="archive-link" href="/conversations">
               Conversations
-            </a>
+            </A>
             <button
               class="archive-link"
               type="button"
