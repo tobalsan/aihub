@@ -278,7 +278,7 @@ Yes, route by mention, then append each response to THREAD.md.
     expect(detail.content).toContain("Cloud routed via openclaw.");
   });
 
-  it("creates project from conversation with specs and thread comment", async () => {
+  it("creates project from conversation with inception doc and thread comment", async () => {
     const createRes = await Promise.resolve(
       api.request(`/conversations/${conversationId}/projects`, {
         method: "POST",
@@ -293,10 +293,10 @@ Yes, route by mention, then append each response to THREAD.md.
     expect(created.frontmatter.status).toBe("shaping");
 
     const projectDir = path.join(tmpDir, "projects", created.path);
-    const specs = await fs.readFile(path.join(projectDir, "SPECS.md"), "utf8");
-    expect(specs).toContain("## Source conversation");
-    expect(specs).toContain(`- id: ${conversationId}`);
-    expect(specs).toContain("Can we route @codex and @claude");
+    const inception = await fs.readFile(path.join(projectDir, "INCEPTION.md"), "utf8");
+    expect(inception).toContain("## Source conversation");
+    expect(inception).toContain(`- id: ${conversationId}`);
+    expect(inception).toContain("Can we route @codex and @claude");
 
     const thread = await fs.readFile(path.join(projectDir, "THREAD.md"), "utf8");
     expect(thread).toContain(`Created from conversation ${conversationId}`);

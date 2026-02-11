@@ -196,7 +196,7 @@ function resolveMentionAgent(target: MentionTarget): {
   };
 }
 
-function buildConversationSpecs(conversation: ConversationDetail): string {
+function buildConversationInception(conversation: ConversationDetail): string {
   const participants = conversation.participants.length
     ? conversation.participants.join(", ")
     : "none";
@@ -209,7 +209,7 @@ function buildConversationSpecs(conversation: ConversationDetail): string {
   const transcript = conversation.content.trim() || "_No transcript content._";
 
   return [
-    "# SPECS",
+    "# Inception",
     "",
     "## Source conversation",
     `- id: ${conversation.id}`,
@@ -1210,8 +1210,8 @@ api.post("/conversations/:id/projects", async (c) => {
     return c.json({ error: created.error }, 400);
   }
 
-  const specs = buildConversationSpecs(conversation.data);
-  const updated = await updateProject(config, created.data.id, { specs });
+  const inception = buildConversationInception(conversation.data);
+  const updated = await updateProject(config, created.data.id, { docs: { INCEPTION: inception } });
   if (!updated.ok) {
     return c.json({ error: updated.error }, 400);
   }
