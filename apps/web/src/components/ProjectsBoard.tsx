@@ -5590,8 +5590,8 @@ export function ProjectsBoard() {
         }
 
         .detail-body {
-          flex: 1;
-          overflow: auto;
+          flex: none;
+          overflow: visible;
           background: transparent;
           border: none;
           padding: 0;
