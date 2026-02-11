@@ -218,6 +218,49 @@ export type TaskboardItemResponse = {
   companions: string[];
 };
 
+// Conversations API types
+export type ConversationFilters = {
+  q?: string;
+  source?: string;
+  tag?: string;
+  participant?: string;
+};
+
+export type ConversationListItem = {
+  id: string;
+  title: string;
+  date?: string;
+  source?: string;
+  participants: string[];
+  tags: string[];
+  preview: string;
+  attachments: string[];
+};
+
+export type ConversationMessage = {
+  speaker: string;
+  timestamp?: string;
+  body: string;
+};
+
+export type ConversationDetail = ConversationListItem & {
+  frontmatter: Record<string, unknown>;
+  content: string;
+  messages: ConversationMessage[];
+};
+
+export type CreateConversationProjectInput = {
+  title?: string;
+};
+
+export type CreateConversationMessageInput = {
+  message: string;
+};
+
+export type PostConversationMessageResponse = {
+  mentions?: string[];
+};
+
 // Projects API types
 export type ProjectListItem = {
   id: string;

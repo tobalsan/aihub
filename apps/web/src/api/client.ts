@@ -6,6 +6,12 @@ import type {
   ThinkLevel,
   TaskboardResponse,
   TaskboardItemResponse,
+  ConversationFilters,
+  ConversationDetail,
+  ConversationListItem,
+  CreateConversationMessageInput,
+  CreateConversationProjectInput,
+  PostConversationMessageResponse,
   ProjectListItem,
   ProjectDetail,
   ProjectUpdatePayload,
@@ -409,6 +415,83 @@ export async function fetchTaskboardItem(
     return { ok: false, error: data.error ?? "Failed to fetch item" };
   }
   const data = await res.json();
+  return { ok: true, data };
+}
+
+export async function fetchConversations(
+  filters: ConversationFilters = {}
+): Promise<ConversationListItem[]> {
+  const params = new URLSearchParams();
+  if (filters.q) params.set("q", filters.q);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.tag) params.set("tag", filters.tag);
+  if (filters.participant) params.set("participant", filters.participant);
+  const query = params.toString();
+  const url = query
+    ? `${API_BASE}/conversations?${query}`
+    : `${API_BASE}/conversations`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch conversations");
+  return res.json();
+}
+
+export async function fetchConversation(id: string): Promise<ConversationDetail> {
+  const res = await fetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error("Failed to fetch conversation");
+  return res.json();
+}
+
+export function getConversationAttachmentUrl(id: string, name: string): string {
+  return `${API_BASE}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`;
+}
+
+export async function postConversationMessage(
+  conversationId: string,
+  input: CreateConversationMessageInput
+): Promise<PostConversationMessageResponse> {
+  const res = await fetch(
+    `${API_BASE}/conversations/${encodeURIComponent(conversationId)}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to post conversation message" }));
+    throw new Error(data.error ?? "Failed to post conversation message");
+  }
+  return res.json().catch(() => ({}));
+}
+
+export type CreateConversationProjectResult =
+  | { ok: true; data: ProjectDetail }
+  | { ok: false; error: string };
+
+export async function createProjectFromConversation(
+  conversationId: string,
+  input: CreateConversationProjectInput
+): Promise<CreateConversationProjectResult> {
+  const res = await fetch(
+    `${API_BASE}/conversations/${encodeURIComponent(conversationId)}/projects`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to create project from conversation" }));
+    return {
+      ok: false,
+      error: data.error ?? "Failed to create project from conversation",
+    };
+  }
+  const data = (await res.json()) as ProjectDetail;
   return { ok: true, data };
 }
 

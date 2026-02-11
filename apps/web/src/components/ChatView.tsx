@@ -1223,7 +1223,7 @@ export function ChatView() {
 
         /* Markdown content */
         .markdown-content {
-          line-height: 1.5;
+          line-height: 1.7;
           white-space: normal;
         }
 
@@ -1265,12 +1265,12 @@ export function ChatView() {
 
         .markdown-content ul,
         .markdown-content ol {
-          margin: 0.4em 0;
-          padding-left: 1.25em;
+          margin: 0.6em 0;
+          padding-left: 1.5em;
         }
 
         .markdown-content li {
-          margin: 0.15em 0;
+          margin: 0.25em 0;
         }
 
         .markdown-content li p {
@@ -1278,12 +1278,15 @@ export function ChatView() {
         }
 
         .markdown-content a {
-          color: var(--accent);
-          text-decoration: none;
+          color: #818cf8;
+          text-decoration: underline;
+          text-decoration-color: rgba(129, 140, 248, 0.35);
+          text-underline-offset: 2px;
+          transition: text-decoration-color 0.15s ease;
         }
 
         .markdown-content a:hover {
-          text-decoration: underline;
+          text-decoration-color: #818cf8;
         }
 
         .markdown-content blockquote {
