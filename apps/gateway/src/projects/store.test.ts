@@ -180,4 +180,30 @@ describe("projects store", () => {
     expect(project.data.thread[0].body).toBe("Updated first comment");
     expect(project.data.thread[1].body).toBe("Second comment");
   });
+
+  it("keeps runAgent/runMode/baseBranch in frontmatter after updateProject", async () => {
+    const { createProject, updateProject } = await import("./store.js");
+    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+
+    const created = await createProject(config, { title: "Frontmatter Persist" });
+    if (!created.ok) throw new Error(created.error);
+
+    const readmePath = path.join(projectsRoot, created.data.path, "README.md");
+    const originalReadme = await fs.readFile(readmePath, "utf8");
+    const seededReadme = originalReadme.replace(
+      "id: \"PRO-1\"",
+      "id: \"PRO-1\"\nrunAgent: \"cloud\"\nrunMode: \"worktree\"\nbaseBranch: \"main\"",
+    );
+    await fs.writeFile(readmePath, seededReadme, "utf8");
+
+    const updated = await updateProject(config, created.data.id, { status: "in_progress" });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+
+    const nextReadme = await fs.readFile(readmePath, "utf8");
+    expect(nextReadme).toContain('runAgent: "cloud"');
+    expect(nextReadme).toContain('runMode: "worktree"');
+    expect(nextReadme).toContain('baseBranch: "main"');
+    expect(nextReadme).toContain('status: "in_progress"');
+  });
 });

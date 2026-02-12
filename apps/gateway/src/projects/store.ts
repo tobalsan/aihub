@@ -512,10 +512,6 @@ export async function updateProject(
   if (input.repo === "") delete nextFrontmatter.repo;
   else if (input.repo) nextFrontmatter.repo = input.repo;
 
-  delete nextFrontmatter.runAgent;
-  delete nextFrontmatter.runMode;
-  delete nextFrontmatter.baseBranch;
-
   if (input.sessionKeys === null) delete nextFrontmatter.sessionKeys;
   else if (input.sessionKeys) nextFrontmatter.sessionKeys = input.sessionKeys;
 
