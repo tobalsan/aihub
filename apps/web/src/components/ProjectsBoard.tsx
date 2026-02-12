@@ -3236,17 +3236,48 @@ export function ProjectsBoard() {
                                         <Show
                                           when={editingDoc() === key}
                                           fallback={
-                                            <div
-                                              class="detail-body markdown-content"
-                                              innerHTML={renderMarkdown(
-                                                detailDocs()[key] ?? "",
-                                                project.id
-                                              )}
-                                              onDblClick={() =>
-                                                setEditingDoc(key)
-                                              }
-                                              title="Double-click to edit"
-                                            />
+                                            <div class="doc-edit-wrapper">
+                                              <button
+                                                type="button"
+                                                class="doc-edit-icon"
+                                                onClick={() =>
+                                                  setEditingDoc(key)
+                                                }
+                                                title="Edit document"
+                                                aria-label="Edit document"
+                                              >
+                                                <svg
+                                                  viewBox="0 0 24 24"
+                                                  width="14"
+                                                  height="14"
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  stroke-width="1.8"
+                                                  stroke-linecap="round"
+                                                  stroke-linejoin="round"
+                                                >
+                                                  <path d="M12 20h9" />
+                                                  <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+                                                </svg>
+                                              </button>
+                                              <div
+                                                class="detail-body markdown-content"
+                                                classList={{
+                                                  "empty-doc":
+                                                    (detailDocs()[key] ?? "")
+                                                      .trim()
+                                                      .length === 0,
+                                                }}
+                                                innerHTML={renderMarkdown(
+                                                  detailDocs()[key] ?? "",
+                                                  project.id
+                                                )}
+                                                onDblClick={() =>
+                                                  setEditingDoc(key)
+                                                }
+                                                title="Double-click to edit"
+                                              />
+                                            </div>
                                           }
                                         >
                                           <textarea
@@ -3283,18 +3314,14 @@ export function ProjectsBoard() {
                                             autofocus
                                           />
                                           <Show
-                                            when={
-                                              detailPendingFiles().length > 0
-                                            }
+                                            when={detailPendingFiles().length > 0}
                                           >
                                             <div class="detail-pending-files">
                                               <label class="detail-pending-label">
                                                 Files to upload on save
                                               </label>
                                               <div class="file-list">
-                                                <For
-                                                  each={detailPendingFiles()}
-                                                >
+                                                <For each={detailPendingFiles()}>
                                                   {(file, index) => (
                                                     <div class="file-item">
                                                       <span class="file-name">
@@ -5634,10 +5661,49 @@ export function ProjectsBoard() {
           cursor: text;
           border-radius: 8px;
           transition: background 0.15s ease;
+          min-height: 80px;
         }
 
         .detail-body:hover {
           background: rgba(255, 255, 255, 0.02);
+        }
+
+        .doc-edit-wrapper {
+          position: relative;
+        }
+
+        .doc-edit-icon {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          opacity: 0;
+          transition: opacity 0.15s ease;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 4px;
+          border: none;
+          color: #8b96a5;
+          background: rgba(255, 255, 255, 0.06);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1;
+        }
+
+        .doc-edit-wrapper:hover .doc-edit-icon {
+          opacity: 0.6;
+        }
+
+        .doc-edit-icon:hover {
+          opacity: 1;
+          color: #d4dbe5;
+        }
+
+        .detail-body.empty-doc::after {
+          content: "Double-click to edit";
+          color: #7f8a9a;
+          font-size: 13px;
+          font-style: italic;
         }
 
         .content-textarea {
