@@ -5423,7 +5423,7 @@ export function ProjectsBoard() {
 
         .detail-scroll {
           overflow-y: auto;
-          overflow-x: hidden;
+          overflow-x: auto;
           flex: 1;
           min-height: 0;
           display: flex;
@@ -5559,6 +5559,26 @@ export function ProjectsBoard() {
 
         .thread-body p {
           margin: 0;
+        }
+
+        .detail-body pre,
+        .thread-body pre {
+          background: #0a1120;
+          border: 1px solid #1f2835;
+          border-radius: 8px;
+          padding: 10px;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          margin: 0.5em 0;
+        }
+
+        .detail-body pre code,
+        .thread-body pre code {
+          background: none;
+          padding: 0;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 0.85em;
+          line-height: 1.5;
         }
 
         .detail-body table,
