@@ -22,6 +22,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let webProcess: ChildProcess | null = null;
 let tailscaleServeEnabled = false;
 let tailscaleServeResetOnExit = false;
+let tailscaleServeRefreshTimer: ReturnType<typeof setInterval> | null = null;
+const TAILSCALE_SERVE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 const TAILSCALE_CANDIDATES = [
   "tailscale",
@@ -61,6 +63,30 @@ function resetTailscaleServe(): void {
   } catch {
     // Ignore reset errors
   }
+}
+
+function refreshTailscaleServe(port: number, gatewayPort: number): void {
+  enableTailscaleServe(port, "/aihub");
+  enableTailscaleServe(gatewayPort, "/api");
+  enableTailscaleServe(gatewayPort, "/ws");
+}
+
+function stopTailscaleServeRefresh(): void {
+  if (tailscaleServeRefreshTimer) {
+    clearInterval(tailscaleServeRefreshTimer);
+    tailscaleServeRefreshTimer = null;
+  }
+}
+
+function startTailscaleServeRefresh(port: number, gatewayPort: number): void {
+  stopTailscaleServeRefresh();
+  tailscaleServeRefreshTimer = setInterval(() => {
+    try {
+      refreshTailscaleServe(port, gatewayPort);
+    } catch (err) {
+      console.error("[gateway] Failed to refresh tailscale serve:", err);
+    }
+  }, TAILSCALE_SERVE_REFRESH_INTERVAL_MS);
 }
 
 function resolveUiHost(bind?: string): string {
@@ -140,9 +166,8 @@ function startWebUI(uiConfig: UiConfig, gatewayPort: number): ChildProcess | nul
   let tailscaleReady = false;
   if (useTailscaleServe) {
     try {
-      enableTailscaleServe(port, "/aihub");
-      enableTailscaleServe(gatewayPort, "/api");
-      enableTailscaleServe(gatewayPort, "/ws");
+      refreshTailscaleServe(port, gatewayPort);
+      startTailscaleServeRefresh(port, gatewayPort);
       tailscaleServeEnabled = true;
       tailscaleServeResetOnExit = resetOnExit;
       tailscaleReady = true;
@@ -244,6 +269,7 @@ program
       const shutdown = async () => {
         console.log("\nShutting down...");
         if (webProcess) webProcess.kill("SIGTERM");
+        stopTailscaleServeRefresh();
         if (tailscaleServeEnabled && tailscaleServeResetOnExit) {
           resetTailscaleServe();
         }
