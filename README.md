@@ -60,6 +60,7 @@ apps/
   gateway/    # Server, CLI, Discord, scheduler
   web/        # Solid.js chat UI
 packages/
+  cli/        # apm CLI (remote-friendly, API client)
   shared/     # Types & schemas
 ```
 
@@ -70,23 +71,31 @@ pnpm aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
 pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
-# Projects CLI (uses gateway API)
-pnpm projects list [--status <status>] [--owner <owner>] [--domain <domain>]
-pnpm projects create --title "My Project" [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>]
-pnpm projects get <id>
-pnpm projects update <id> [--title <title>] [--status <status>] [--content <text>|-]
-pnpm projects move <id> <status>
+# Projects CLI (apm; uses gateway API)
+pnpm apm list [--status <status>] [--owner <owner>] [--domain <domain>]
+pnpm apm create --title "My Project" [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>]
+pnpm apm get <id>
+pnpm apm update <id> [--title <title>] [--status <status>] [--content <text>|-]
+pnpm apm move <id> <status>
 
-# Override API URL
-AIHUB_API_URL=http://127.0.0.1:4000 pnpm projects list
+# Override API URL (highest precedence)
+AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
+# Backward-compatible alias
+AIHUB_URL=http://127.0.0.1:4000 pnpm apm list
+# Config file fallback (~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
 
 # Global shortcut (apm)
 mkdir -p ~/.local/bin
 cat > ~/.local/bin/apm <<'EOF'
 #!/usr/bin/env sh
-exec pnpm --dir /Users/thinh/code/aihub projects "$@"
+exec pnpm --dir /Users/thinh/code/aihub apm "$@"
 EOF
 chmod +x ~/.local/bin/apm
+
+# Or install apm globally via pnpm link
+pnpm --filter @aihub/cli build
+cd packages/cli
+pnpm link --global
 
 # OAuth authentication (Pi SDK agents)
 pnpm aihub auth login           # Interactive provider selection

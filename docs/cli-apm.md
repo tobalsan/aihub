@@ -1,16 +1,22 @@
 # apm CLI
 
-`apm` is a shortcut to the Projects CLI:
+`apm` is the standalone AIHub projects CLI package (`@aihub/cli`):
 
 ```
 apm <command> [options]
 ```
 
-It calls: `pnpm --dir /Users/thinh/code/aihub projects ...`.
+It can be run as:
+
+```
+pnpm --dir /Users/thinh/code/aihub apm ...
+```
 
 Environment:
 
-- `AIHUB_API_URL`: override API base URL (default derived from gateway config).
+- `AIHUB_API_URL`: override API base URL (highest precedence).
+- `AIHUB_URL`: fallback env alias for API URL.
+- `~/.aihub/aihub.json`: fallback file config, e.g. `{ "apiUrl": "http://..." }`.
 
 ## Commands
 
@@ -145,17 +151,17 @@ Options:
 - `--slug <slug>`: override slug for CLI worktree status.
 - `-j, --json`: JSON output.
 
-### `apm archive <id> <slug>`
+### `apm archive <id>`
 
-Archive a subagent run. Archived runs are hidden from the sidebar but remain visible in project details.
+Archive a project.
 
 Options:
 
 - `-j, --json`: JSON output.
 
-### `apm unarchive <id> <slug>`
+### `apm unarchive <id>`
 
-Unarchive a previously archived subagent run.
+Unarchive a project.
 
 Options:
 
@@ -239,11 +245,11 @@ apm resume PRO-19 --message "Continue from where you left off."
 # Status with last 5 messages
 apm status PRO-19 --limit 5
 
-# Archive a completed run
-apm archive PRO-19 feature-branch
+# Archive a project
+apm archive PRO-19
 
-# Unarchive to restore to sidebar
-apm unarchive PRO-19 feature-branch
+# Unarchive a project
+apm unarchive PRO-19
 
 # Spawn a subagent directly
 apm subagent spawn -p PRO-19 -s my-run -c codex --prompt "Implement feature X" --mode worktree --base main

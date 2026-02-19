@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @aihub/shared --filter @aihub/gateway build",
+    "build": "pnpm --filter @aihub/shared --filter @aihub/cli --filter @aihub/gateway build",
     "build:web": "pnpm --filter @aihub/web build",
     "dev": "pnpm exec tsx scripts/dev.ts",
     "dev:gateway": "pnpm --filter @aihub/shared exec tsc --watch --preserveWatchOutput & AIHUB_WEB_DEV=1 pnpm --filter @aihub/gateway exec tsx watch --include '../../packages/shared/dist/**/*' src/cli/index.ts gateway",
@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "aihub": "node apps/gateway/dist/cli/index.js",
-    "projects": "pnpm --filter @aihub/gateway exec tsx src/cli/projects.ts",
+    "projects": "pnpm --filter @aihub/cli exec node dist/index.js",
+    "apm": "pnpm --filter @aihub/cli exec node dist/index.js",
     "subagent": "pnpm --filter @aihub/gateway exec tsx src/cli/subagent.ts"
   },
   "devDependencies": {

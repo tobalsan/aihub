@@ -12,6 +12,7 @@ aihub/
 │   ├── gateway/     # Node.js server, CLI, agent runtime
 │   └── web/         # Solid.js mobile-first chat UI
 ├── packages/
+│   ├── cli/         # apm CLI package (HTTP client to gateway API)
 │   └── shared/      # Zod schemas, shared types
 └── ~/.aihub/        # Runtime config & data
 ```
@@ -51,6 +52,13 @@ Zod schemas and TypeScript types:
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
+
+### packages/cli
+
+Standalone `apm` CLI package. It only talks to the gateway API over HTTP.
+
+- Env URL precedence: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/aihub.json` (`apiUrl`)
+- Token precedence: `AIHUB_TOKEN` > `~/.aihub/aihub.json` (`token`)
 
 ## Runtime Data
 
