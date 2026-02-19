@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { program } from "./projects.js";
+import { program } from "../../../../packages/cli/src/index.js";
 
 describe("projects CLI", () => {
   let prevApiUrl: string | undefined;
@@ -243,5 +243,32 @@ describe("projects CLI", () => {
       iterations: 12,
       promptFile: "/tmp/prompt.md",
     });
+  });
+
+  it("archive command posts to project archive endpoint", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "PRO-7" }), {
+        status: 200,
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync([
+      "node",
+      "projects",
+      "archive",
+      "pro-7",
+      "--json",
+    ]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe(
+      "http://localhost:4000/api/projects/PRO-7/archive"
+    );
+    expect(calls[0].init?.method).toBe("POST");
   });
 });

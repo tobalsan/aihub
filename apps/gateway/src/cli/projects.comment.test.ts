@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProjectCommentHandler } from "./projects.js";
+import { createProjectCommentHandler } from "../../../../packages/cli/src/index.js";
 
 describe("projects CLI comment", () => {
   it("posts comment to project thread endpoint", async () => {
@@ -21,7 +21,9 @@ describe("projects CLI comment", () => {
     });
 
     expect(calls.length).toBe(1);
-    expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-7/comments");
+    expect(calls[0].url).toBe(
+      "http://localhost:4000/api/projects/PRO-7/comments"
+    );
     expect(calls[0].init?.method).toBe("POST");
     const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
     expect(body.author).toBe("human");
