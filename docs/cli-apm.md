@@ -16,7 +16,7 @@ Environment:
 
 - `AIHUB_API_URL`: override API base URL (highest precedence).
 - `AIHUB_URL`: fallback env alias for API URL.
-- `~/.aihub/config.json`: fallback file config, e.g. `{ "apiUrl": "http://..." }`.
+- `~/.aihub/aihub.json`: fallback file config, e.g. `{ "apiUrl": "http://..." }`.
 
 ## Commands
 

@@ -40,7 +40,7 @@ describe("cli config", () => {
   it("uses AIHUB_API_URL over AIHUB_URL and config file", async () => {
     await fs.mkdir(path.join(tmpHome, ".aihub"), { recursive: true });
     await fs.writeFile(
-      path.join(tmpHome, ".aihub", "config.json"),
+      path.join(tmpHome, ".aihub", "aihub.json"),
       JSON.stringify({ apiUrl: "http://file-url", token: "file-token" })
     );
 
@@ -57,7 +57,7 @@ describe("cli config", () => {
   it("uses config file when env is missing", async () => {
     await fs.mkdir(path.join(tmpHome, ".aihub"), { recursive: true });
     await fs.writeFile(
-      path.join(tmpHome, ".aihub", "config.json"),
+      path.join(tmpHome, ".aihub", "aihub.json"),
       JSON.stringify({ apiUrl: "http://from-file", token: "file-token" })
     );
 

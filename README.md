@@ -82,7 +82,7 @@ pnpm apm move <id> <status>
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
 # Backward-compatible alias
 AIHUB_URL=http://127.0.0.1:4000 pnpm apm list
-# Config file fallback (~/.aihub/config.json): { "apiUrl": "http://127.0.0.1:4000" }
+# Config file fallback (~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
 
 # Global shortcut (apm)
 mkdir -p ~/.local/bin

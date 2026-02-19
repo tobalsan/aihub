@@ -57,8 +57,8 @@ Zod schemas and TypeScript types:
 
 Standalone `apm` CLI package. It only talks to the gateway API over HTTP.
 
-- Env URL precedence: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/config.json` (`apiUrl`)
-- Token precedence: `AIHUB_TOKEN` > `~/.aihub/config.json` (`token`)
+- Env URL precedence: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/aihub.json` (`apiUrl`)
+- Token precedence: `AIHUB_TOKEN` > `~/.aihub/aihub.json` (`token`)
 
 ## Runtime Data
 

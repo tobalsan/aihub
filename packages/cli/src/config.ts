@@ -13,7 +13,7 @@ export type CliConfig = {
 };
 
 function readUserConfig(): UserConfig {
-  const filePath = path.join(os.homedir(), ".aihub", "config.json");
+  const filePath = path.join(os.homedir(), ".aihub", "aihub.json");
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw) as UserConfig;
@@ -37,7 +37,7 @@ export function resolveConfig(): CliConfig {
 
   if (!apiUrl) {
     throw new Error(
-      'Missing AIHub API URL. Set AIHUB_API_URL (or AIHUB_URL) or add ~/.aihub/config.json with {"apiUrl":"http://..."}.'
+      'Missing AIHub API URL. Set AIHUB_API_URL (or AIHUB_URL) or add ~/.aihub/aihub.json with {"apiUrl":"http://..."}.'
     );
   }
 
