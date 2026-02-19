@@ -350,7 +350,8 @@ program
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
-    const message = opts.message === "-" ? await readStdin() : opts.message;
+    const raw = opts.message === "-" ? await readStdin() : opts.message;
+    const message = raw.replace(/\\n/g, "\n");
     const author = opts.author ?? os.userInfo().username ?? "unknown";
     const comment = createProjectCommentHandler();
     const res = await comment({ projectId: normalizedId, author, message });
