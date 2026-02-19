@@ -65,8 +65,8 @@ const COLUMNS: ColumnDef[] = [
 ];
 
 const CLI_OPTIONS = [
-  { id: "cli:claude", label: "Claude CLI", cli: "claude" },
   { id: "cli:codex", label: "Codex CLI", cli: "codex" },
+  { id: "cli:claude", label: "Claude CLI", cli: "claude" },
   { id: "cli:droid", label: "Droid CLI", cli: "droid" },
   { id: "cli:gemini", label: "Gemini CLI", cli: "gemini" },
 ];
@@ -1642,7 +1642,7 @@ export function ProjectsBoard() {
     if (!detail() || detailRunAgent()) return;
     const options = runAgentOptions();
     if (options.length > 0) {
-      // Default to first CLI option (Claude CLI)
+      // Default to first CLI option (Codex CLI)
       setDetailRunAgent(options[0].id);
     }
   });
