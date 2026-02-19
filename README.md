@@ -92,6 +92,11 @@ exec pnpm --dir /Users/thinh/code/aihub apm "$@"
 EOF
 chmod +x ~/.local/bin/apm
 
+# Or install apm globally via pnpm link
+pnpm --filter @aihub/cli build
+cd packages/cli
+pnpm link --global
+
 # OAuth authentication (Pi SDK agents)
 pnpm aihub auth login           # Interactive provider selection
 pnpm aihub auth login anthropic # Login to specific provider
