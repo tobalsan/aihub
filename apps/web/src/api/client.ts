@@ -435,8 +435,12 @@ export async function fetchConversations(
   return res.json();
 }
 
-export async function fetchConversation(id: string): Promise<ConversationDetail> {
-  const res = await fetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`);
+export async function fetchConversation(
+  id: string
+): Promise<ConversationDetail> {
+  const res = await fetch(
+    `${API_BASE}/conversations/${encodeURIComponent(id)}`
+  );
   if (!res.ok) throw new Error("Failed to fetch conversation");
   return res.json();
 }
@@ -706,7 +710,7 @@ export type SpawnSubagentInput = {
   slug: string;
   cli: string;
   prompt: string;
-  mode?: "main-run" | "worktree";
+  mode?: "main-run" | "worktree" | "clone";
   baseBranch?: string;
   resume?: boolean;
   attachments?: FileAttachment[];
@@ -739,7 +743,7 @@ export type SpawnRalphLoopInput = {
   cli: "codex" | "claude";
   iterations: number;
   promptFile?: string;
-  mode?: "main-run" | "worktree";
+  mode?: "main-run" | "worktree" | "clone";
   baseBranch?: string;
 };
 

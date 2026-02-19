@@ -91,6 +91,8 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 
 const api = new Hono();
 
+type CliRunMode = "main-run" | "worktree" | "clone";
+
 function normalizeRunAgent(
   value?: string
 ): { type: "aihub"; id: string } | { type: "cli"; id: string } | null {
@@ -98,6 +100,13 @@ function normalizeRunAgent(
   if (value.startsWith("aihub:")) return { type: "aihub", id: value.slice(6) };
   if (value.startsWith("cli:")) return { type: "cli", id: value.slice(4) };
   return null;
+}
+
+function normalizeCliRunMode(value: string): CliRunMode {
+  if (value === "main-run") return "main-run";
+  if (value === "worktree") return "worktree";
+  if (value === "clone") return "clone";
+  return "clone";
 }
 
 function slugifyTitle(value: string): string {
@@ -140,13 +149,15 @@ function toSpeakerName(target: MentionTarget): string {
   return "Gemini";
 }
 
-function resolveMentionAgent(target: MentionTarget): {
-  ok: true;
-  data: { id: string; name: string; sdk: string };
-} | {
-  ok: false;
-  error: string;
-} {
+function resolveMentionAgent(target: MentionTarget):
+  | {
+      ok: true;
+      data: { id: string; name: string; sdk: string };
+    }
+  | {
+      ok: false;
+      error: string;
+    } {
   const agents = getActiveAgents();
   const byIdOrName = (name: string) =>
     agents.find((agent) => {
@@ -489,7 +500,7 @@ api.post("/projects/:id/start", async (c) => {
     runAgentSelection = { type: "aihub", id: selected.id };
   }
 
-  let runMode: "main-run" | "worktree" | undefined;
+  let runMode: CliRunMode | undefined;
   let slug: string | undefined;
   let baseBranch: string | undefined;
   const requestedRunModeValue =
@@ -497,17 +508,16 @@ api.post("/projects/:id/start", async (c) => {
   const frontmatterRunModeValue =
     typeof frontmatter.runMode === "string" ? frontmatter.runMode.trim() : "";
   const resolvedRunModeValue =
-    requestedRunModeValue || frontmatterRunModeValue || "worktree";
-  const resolvedRunMode =
-    resolvedRunModeValue === "main-run" ? "main-run" : "worktree";
+    requestedRunModeValue || frontmatterRunModeValue || "clone";
+  const resolvedRunMode = normalizeCliRunMode(resolvedRunModeValue);
   if (runAgentSelection.type === "cli") {
     runMode = resolvedRunMode;
     const requestedSlugValue =
       typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
     slug =
-      runMode === "worktree"
-        ? requestedSlugValue || slugifyTitle(project.title)
-        : "main";
+      runMode === "main-run"
+        ? "main"
+        : requestedSlugValue || slugifyTitle(project.title);
     baseBranch =
       typeof parsed.data.baseBranch === "string" &&
       parsed.data.baseBranch.trim()
@@ -534,7 +544,7 @@ api.post("/projects/:id/start", async (c) => {
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
   let implementationRepo = repo;
-  if (runMode === "worktree" && slug) {
+  if (runMode && runMode !== "main-run" && slug) {
     const root = config.projects?.root ?? "~/projects";
     const resolvedRoot = root.startsWith("~/")
       ? path.join(os.homedir(), root.slice(2))
@@ -696,7 +706,7 @@ api.post("/projects/:id/start", async (c) => {
     slug: slugValue,
     cli: runAgentSelection.id as "claude" | "codex" | "droid" | "gemini",
     prompt,
-    mode: runModeValue === "worktree" ? "worktree" : "main-run",
+    mode: runModeValue,
     baseBranch: baseBranchValue,
   });
   if (!result.ok) {
@@ -1211,7 +1221,9 @@ api.post("/conversations/:id/projects", async (c) => {
   }
 
   const inception = buildConversationInception(conversation.data);
-  const updated = await updateProject(config, created.data.id, { docs: { INCEPTION: inception } });
+  const updated = await updateProject(config, created.data.id, {
+    docs: { INCEPTION: inception },
+  });
   if (!updated.ok) {
     return c.json({ error: updated.error }, 400);
   }
@@ -1283,11 +1295,16 @@ api.post("/projects/:id/subagents", async (c) => {
     typeof body.baseBranch === "string" ? body.baseBranch : undefined;
   const resume = typeof body.resume === "boolean" ? body.resume : undefined;
   const attachments = Array.isArray(body.attachments)
-    ? (body.attachments as Array<{ path?: unknown; mimeType?: unknown; filename?: unknown }>)
-        .filter(
-          (a): a is { path: string; mimeType: string; filename?: string } =>
-            typeof a.path === "string" && typeof a.mimeType === "string"
-        )
+    ? (
+        body.attachments as Array<{
+          path?: unknown;
+          mimeType?: unknown;
+          filename?: unknown;
+        }>
+      ).filter(
+        (a): a is { path: string; mimeType: string; filename?: string } =>
+          typeof a.path === "string" && typeof a.mimeType === "string"
+      )
     : undefined;
 
   if (!slug || !cli || !prompt) {
@@ -1300,7 +1317,7 @@ api.post("/projects/:id/subagents", async (c) => {
     slug,
     cli: cli as "claude" | "codex" | "droid" | "gemini",
     prompt,
-    mode: mode as "main-run" | "worktree" | undefined,
+    mode: mode as "main-run" | "worktree" | "clone" | undefined,
     baseBranch,
     resume,
     attachments,
@@ -1341,7 +1358,7 @@ api.post("/projects/:id/ralph-loop", async (c) => {
     cli: cli as "codex" | "claude",
     iterations,
     promptFile,
-    mode: mode as "main-run" | "worktree" | undefined,
+    mode: mode as "main-run" | "worktree" | "clone" | undefined,
     baseBranch,
   });
   if (!result.ok) {

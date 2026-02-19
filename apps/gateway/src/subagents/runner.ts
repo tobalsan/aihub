@@ -9,7 +9,7 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 
 export type SubagentCli = "claude" | "codex" | "droid" | "gemini";
 export type RalphLoopCli = "claude" | "codex";
-export type SubagentMode = "main-run" | "worktree";
+export type SubagentMode = "main-run" | "worktree" | "clone";
 
 export type SpawnSubagentInput = {
   projectId: string;
@@ -395,6 +395,79 @@ async function createWorktree(
   });
 }
 
+async function runGit(args: string[], errorMessage: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("git", args, { stdio: "ignore" });
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(errorMessage));
+    });
+    child.on("error", reject);
+  });
+}
+
+async function createClone(
+  repo: string,
+  clonePath: string,
+  branch: string,
+  baseBranch: string
+): Promise<void> {
+  await fs.mkdir(path.dirname(clonePath), { recursive: true });
+  await runGit(["clone", repo, clonePath], "git clone failed");
+  try {
+    await runGit(
+      ["-C", clonePath, "checkout", "-b", branch, `origin/${baseBranch}`],
+      "git checkout -b failed"
+    );
+  } catch {
+    await runGit(
+      ["-C", clonePath, "checkout", "-b", branch, baseBranch],
+      "git checkout -b failed"
+    );
+  }
+}
+
+function cloneRemoteName(projectId: string): string {
+  return `agent-${projectId}`.toLowerCase();
+}
+
+async function ensureCloneRemote(
+  repo: string,
+  projectId: string,
+  clonePath: string
+): Promise<void> {
+  const remote = cloneRemoteName(projectId);
+  const realClonePath = await fs.realpath(clonePath).catch(() => clonePath);
+  try {
+    await runGit(
+      ["-C", repo, "remote", "set-url", remote, realClonePath],
+      "git remote set-url failed"
+    );
+  } catch {
+    await runGit(
+      ["-C", repo, "remote", "add", remote, realClonePath],
+      "git remote add failed"
+    );
+  }
+}
+
+async function removeCloneRemote(
+  repo: string,
+  projectId: string
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const child = spawn(
+      "git",
+      ["-C", repo, "remote", "remove", cloneRemoteName(projectId)],
+      {
+        stdio: "ignore",
+      }
+    );
+    child.on("exit", () => resolve());
+    child.on("error", () => resolve());
+  });
+}
+
 export async function spawnSubagent(
   config: GatewayConfig,
   input: SpawnSubagentInput
@@ -423,13 +496,6 @@ export async function spawnSubagent(
     typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
-  // Validate mandatory parameters
-  if (!input.mode) {
-    return {
-      ok: false,
-      error: "mode is required (must be 'worktree' or 'main-run')",
-    };
-  }
   if (!repo) {
     return { ok: false, error: "Project repo not set in frontmatter" };
   }
@@ -475,12 +541,12 @@ export async function spawnSubagent(
     fullContent
   );
 
-  const mode: SubagentMode = input.mode;
+  const mode: SubagentMode = input.mode ?? "clone";
   const repoHasGit = await fs
     .stat(path.join(repo, ".git"))
     .then(() => true)
     .catch(() => false);
-  if (mode === "worktree" && !repoHasGit) {
+  if (mode !== "main-run" && !repoHasGit) {
     return { ok: false, error: "Project repo is not a git repo" };
   }
   if (await dirExists(sessionDir)) {
@@ -496,7 +562,7 @@ export async function spawnSubagent(
 
   let worktreePath = repo || projectDir;
   const baseBranch = input.baseBranch ?? "main";
-  if (mode === "worktree") {
+  if (mode === "worktree" || mode === "clone") {
     const branch = `${input.projectId}/${input.slug}`;
     worktreePath = worktreeDir;
     await fs.mkdir(workspacesRoot, { recursive: true });
@@ -505,7 +571,14 @@ export async function spawnSubagent(
       .then(() => true)
       .catch(() => false);
     if (!worktreeGitExists) {
-      await createWorktree(repo, worktreePath, branch, baseBranch);
+      if (mode === "worktree") {
+        await createWorktree(repo, worktreePath, branch, baseBranch);
+      } else {
+        await createClone(repo, worktreePath, branch, baseBranch);
+      }
+    }
+    if (mode === "clone") {
+      await ensureCloneRemote(repo, input.projectId, worktreePath);
     }
   }
 
@@ -527,8 +600,11 @@ export async function spawnSubagent(
   }
 
   let prompt = summary ? `${summary}\n\n${input.prompt}` : input.prompt;
-  if (mode === "worktree") {
-    const worktreeLine = `Worktree path: ${worktreePath}`;
+  if (mode === "worktree" || mode === "clone") {
+    const worktreeLine =
+      mode === "worktree"
+        ? `Worktree path: ${worktreePath}`
+        : `Clone path: ${worktreePath}`;
     if (prompt.includes("Repo path:")) {
       prompt = prompt.replace(
         /\n\nRepo path:[^\n]*(\n|$)/,
@@ -775,12 +851,12 @@ export async function spawnRalphLoop(
     return { ok: false, error: "Project repo not set in frontmatter" };
   }
 
-  const mode: SubagentMode = input.mode ?? "main-run";
+  const mode: SubagentMode = input.mode ?? "clone";
   const repoHasGit = await fs
     .stat(path.join(repo, ".git"))
     .then(() => true)
     .catch(() => false);
-  if (mode === "worktree" && !repoHasGit) {
+  if (mode !== "main-run" && !repoHasGit) {
     return { ok: false, error: "Project repo is not a git repo" };
   }
 
@@ -795,7 +871,7 @@ export async function spawnRalphLoop(
   const worktreeDir = path.join(workspacesRoot, input.slug);
   const baseBranch = input.baseBranch ?? "main";
   let workspacePath = repo;
-  if (mode === "worktree") {
+  if (mode === "worktree" || mode === "clone") {
     const branch = `${input.projectId}/${input.slug}`;
     workspacePath = worktreeDir;
     await fs.mkdir(workspacesRoot, { recursive: true });
@@ -804,7 +880,14 @@ export async function spawnRalphLoop(
       .then(() => true)
       .catch(() => false);
     if (!worktreeGitExists) {
-      await createWorktree(repo, worktreeDir, branch, baseBranch);
+      if (mode === "worktree") {
+        await createWorktree(repo, worktreeDir, branch, baseBranch);
+      } else {
+        await createClone(repo, worktreeDir, branch, baseBranch);
+      }
+    }
+    if (mode === "clone") {
+      await ensureCloneRemote(repo, input.projectId, workspacePath);
     }
   }
 
@@ -1160,6 +1243,19 @@ export async function killSubagent(
     } catch {
       // ignore
     }
+  } else if (runMode === "clone") {
+    const readmePath = path.join(root, dirName, "README.md");
+    const { frontmatter } = await parseMarkdownFile(readmePath);
+    const repoValue =
+      typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
+    const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+
+    if (repo) {
+      await removeCloneRemote(repo, projectId);
+    }
+
+    const resolvedClonePath = worktreePath || worktreeDir;
+    await fs.rm(resolvedClonePath, { recursive: true, force: true });
   }
 
   await fs.rm(sessionDir, { recursive: true, force: true });

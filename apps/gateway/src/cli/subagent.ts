@@ -65,7 +65,10 @@ function pickTailnetIPv4(): string | null {
 
 function getTailscaleIP(): string | null {
   try {
-    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const output = execSync("tailscale status --json", {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
     const status = JSON.parse(output);
     const ips = status?.Self?.TailscaleIPs as string[] | undefined;
     return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
@@ -122,7 +125,9 @@ export function createSubagentHandlers(options?: {
     logs: (args) => {
       const projectId = normalizeProjectId(args.projectId);
       const since = args.since ?? 0;
-      return requestJson(`/projects/${projectId}/subagents/${args.slug}/logs?since=${since}`);
+      return requestJson(
+        `/projects/${projectId}/subagents/${args.slug}/logs?since=${since}`
+      );
     },
     status: async (args) => {
       const projectId = normalizeProjectId(args.projectId);
@@ -133,9 +138,15 @@ export function createSubagentHandlers(options?: {
       return new Response(JSON.stringify(item ?? null), { status: 200 });
     },
     interrupt: (args) =>
-      requestJson(`/projects/${normalizeProjectId(args.projectId)}/subagents/${args.slug}/interrupt`, { method: "POST" }),
+      requestJson(
+        `/projects/${normalizeProjectId(args.projectId)}/subagents/${args.slug}/interrupt`,
+        { method: "POST" }
+      ),
     kill: (args) =>
-      requestJson(`/projects/${normalizeProjectId(args.projectId)}/subagents/${args.slug}/kill`, { method: "POST" }),
+      requestJson(
+        `/projects/${normalizeProjectId(args.projectId)}/subagents/${args.slug}/kill`,
+        { method: "POST" }
+      ),
   };
 }
 
@@ -150,7 +161,7 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .requiredOption("-c, --cli <cli>", "CLI (claude|codex|droid|gemini)")
     .requiredOption("--prompt <text>", "Prompt")
-    .option("--mode <mode>", "Mode (worktree|main-run)")
+    .option("--mode <mode>", "Mode (clone|worktree|main-run)")
     .option("--base <branch>", "Base branch")
     .option("--resume", "Resume existing session")
     .action(async (opts) => {
@@ -176,7 +187,10 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-p, --project <id>", "Project ID")
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .action(async (opts) => {
-      const res = await handlers.status({ projectId: opts.project, slug: opts.slug });
+      const res = await handlers.status({
+        projectId: opts.project,
+        slug: opts.slug,
+      });
       const text = await res.text();
       if (!res.ok) {
         console.error(text);
@@ -209,7 +223,10 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-p, --project <id>", "Project ID")
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .action(async (opts) => {
-      const res = await handlers.interrupt({ projectId: opts.project, slug: opts.slug });
+      const res = await handlers.interrupt({
+        projectId: opts.project,
+        slug: opts.slug,
+      });
       const text = await res.text();
       if (!res.ok) {
         console.error(text);

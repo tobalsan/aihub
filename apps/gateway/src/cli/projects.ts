@@ -400,7 +400,7 @@ program
     "-m, --message <message>",
     "Message to send (use '-' for stdin)"
   )
-  .option("--slug <slug>", "Slug override (CLI worktree resume)")
+  .option("--slug <slug>", "Slug override (CLI clone/worktree resume)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
@@ -467,7 +467,12 @@ program
       console.error("CLI not found for slug.");
       process.exit(1);
     }
-    const runMode = item.runMode === "worktree" ? "worktree" : "main-run";
+    const runMode =
+      item.runMode === "clone"
+        ? "clone"
+        : item.runMode === "worktree"
+          ? "worktree"
+          : "main-run";
     const res = await requestJson(`/projects/${normalizedId}/subagents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -496,7 +501,7 @@ program
   .command("status")
   .argument("<id>", "Project ID")
   .option("--limit <n>", "Number of messages to return", "10")
-  .option("--slug <slug>", "Slug override (CLI worktree)")
+  .option("--slug <slug>", "Slug override (CLI clone/worktree)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
@@ -663,8 +668,8 @@ program
     "--prompt-file <path>",
     "Prompt file path (optional; otherwise generated from ralph template)"
   )
-  .option("--mode <mode>", "Run mode (main-run|worktree)")
-  .option("--branch <branch>", "Base branch for worktree")
+  .option("--mode <mode>", "Run mode (main-run|clone|worktree)")
+  .option("--branch <branch>", "Base branch for clone/worktree")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     const normalizedId = normalizeProjectId(id);
@@ -701,9 +706,9 @@ program
   .command("start")
   .argument("<id>", "Project ID")
   .option("--agent <agent>", "Agent name (cli name or aihub:<id>)")
-  .option("--mode <mode>", "Run mode (main-run|worktree)")
-  .option("--branch <branch>", "Base branch for worktree")
-  .option("--slug <slug>", "Slug override (worktree)")
+  .option("--mode <mode>", "Run mode (main-run|clone|worktree)")
+  .option("--branch <branch>", "Base branch for clone/worktree")
+  .option("--slug <slug>", "Slug override (clone/worktree)")
   .option("--custom-prompt <prompt>", "Custom prompt (use '-' for stdin)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {

@@ -1052,7 +1052,7 @@ export function ProjectsBoard() {
   );
   const [detailRalphIterations, setDetailRalphIterations] = createSignal("20");
   const [detailRalphPromptFile, setDetailRalphPromptFile] = createSignal("");
-  const [detailRunMode, setDetailRunMode] = createSignal("main-run");
+  const [detailRunMode, setDetailRunMode] = createSignal("clone");
   const [detailRepo, setDetailRepo] = createSignal("");
   const [repoStatus, setRepoStatus] = createSignal<
     "idle" | "checking" | "ok" | "error"
@@ -1245,7 +1245,7 @@ export function ProjectsBoard() {
     if (!agent) return false;
     if (agent.type === "aihub") return true;
     if (!detailRepo()) return false;
-    if (detailRunMode() === "worktree" && !detailSlug().trim()) return false;
+    if (detailRunMode() !== "main-run" && !detailSlug().trim()) return false;
     return true;
   });
 
@@ -1274,6 +1274,11 @@ export function ProjectsBoard() {
           projectId,
           slug: projectItems[0].slug,
           cli: projectItems[0].cli,
+          runMode: projectItems[0].runMode as
+            | "main-run"
+            | "worktree"
+            | "clone"
+            | undefined,
           status: projectItems[0].status as SubagentStatus,
         };
       }
@@ -1282,6 +1287,7 @@ export function ProjectsBoard() {
       projectId,
       slug: match?.slug ?? token,
       cli: match?.cli,
+      runMode: match?.runMode as "main-run" | "worktree" | "clone" | undefined,
       status: (match?.status ?? "idle") as SubagentStatus,
     };
   });
@@ -1574,7 +1580,7 @@ export function ProjectsBoard() {
         getFrontmatterString(current.frontmatter, "appetite") ?? ""
       );
       setDetailRunAgent("");
-      setDetailRunMode("main-run");
+      setDetailRunMode("clone");
       const repo = getFrontmatterString(current.frontmatter, "repo") ?? "";
       setDetailRepo(repo);
       savedRepo = repo;
@@ -1945,7 +1951,7 @@ export function ProjectsBoard() {
       runMode: agent?.type === "cli" ? detailRunMode() : undefined,
       baseBranch: agent?.type === "cli" ? detailBranch() : undefined,
       slug:
-        agent?.type === "cli" && detailRunMode() === "worktree"
+        agent?.type === "cli" && detailRunMode() !== "main-run"
           ? detailSlug().trim()
           : undefined,
     });
@@ -3264,9 +3270,9 @@ export function ProjectsBoard() {
                                                 class="detail-body markdown-content"
                                                 classList={{
                                                   "empty-doc":
-                                                    (detailDocs()[key] ?? "")
-                                                      .trim()
-                                                      .length === 0,
+                                                    (
+                                                      detailDocs()[key] ?? ""
+                                                    ).trim().length === 0,
                                                 }}
                                                 innerHTML={renderMarkdown(
                                                   detailDocs()[key] ?? "",
@@ -3314,14 +3320,18 @@ export function ProjectsBoard() {
                                             autofocus
                                           />
                                           <Show
-                                            when={detailPendingFiles().length > 0}
+                                            when={
+                                              detailPendingFiles().length > 0
+                                            }
                                           >
                                             <div class="detail-pending-files">
                                               <label class="detail-pending-label">
                                                 Files to upload on save
                                               </label>
                                               <div class="file-list">
-                                                <For each={detailPendingFiles()}>
+                                                <For
+                                                  each={detailPendingFiles()}
+                                                >
                                                   {(file, index) => (
                                                     <div class="file-item">
                                                       <span class="file-name">
@@ -3744,6 +3754,7 @@ export function ProjectsBoard() {
                                   handleRunModeChange(e.currentTarget.value)
                                 }
                               >
+                                <option value="clone">clone</option>
                                 <option value="main-run">main-run</option>
                                 <option value="worktree">worktree</option>
                               </select>
@@ -3785,7 +3796,7 @@ export function ProjectsBoard() {
                               placeholder="short-slug"
                               disabled={
                                 selectedRunAgent()?.type !== "cli" ||
-                                detailRunMode() !== "worktree"
+                                detailRunMode() === "main-run"
                               }
                             />
                           </div>

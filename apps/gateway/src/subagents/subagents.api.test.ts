@@ -899,7 +899,7 @@ describe("subagents API", () => {
     );
     expect(config.type).toBe("ralph_loop");
     expect(config.cli).toBe("codex");
-    expect(config.runMode).toBe("worktree");
+    expect(config.runMode).toBe("clone");
     expect(config.baseBranch).toBe("main");
     expect(config.iterations).toBe(20);
     expect(config.generatedPrompt).toBe(true);
@@ -1486,6 +1486,185 @@ describe("subagents API", () => {
     expect(listRes.stdout).toContain(`worktree ${realWorkDir}`);
 
     process.env.PATH = prevPath;
+  });
+
+  it("creates clone when mode is clone and adds named remote", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Clone" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-clone");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-clone");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s1"}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "sigma",
+          cli: "codex",
+          prompt: "hi",
+          mode: "clone",
+          baseBranch: "main",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(201);
+
+    const cloneDir = path.join(
+      projectsRoot,
+      ".workspaces",
+      created.id,
+      "sigma"
+    );
+    await expect(fs.stat(path.join(cloneDir, ".git"))).resolves.toBeDefined();
+    const branchRes = await execFileAsync("git", [
+      "-C",
+      cloneDir,
+      "branch",
+      "--show-current",
+    ]);
+    expect(branchRes.stdout.trim()).toBe(`${created.id}/sigma`);
+
+    const remote = `agent-${String(created.id).toLowerCase()}`;
+    const remoteUrl = await execFileAsync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "get-url",
+      remote,
+    ]);
+    const realCloneDir = await fs.realpath(cloneDir);
+    expect(remoteUrl.stdout.trim()).toBe(realCloneDir);
+
+    process.env.PATH = prevPath;
+  });
+
+  it("kills clone subagent and removes named remote", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Kill Clone" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-kill-clone");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const workspacesRoot = path.join(projectsRoot, ".workspaces", created.id);
+    await fs.mkdir(workspacesRoot, { recursive: true });
+    const cloneDir = path.join(workspacesRoot, "omega");
+    const branch = `${created.id}/omega`;
+    await execFileAsync("git", ["clone", repoDir, cloneDir]);
+    await execFileAsync("git", [
+      "-C",
+      cloneDir,
+      "checkout",
+      "-b",
+      branch,
+      "origin/main",
+    ]);
+    const remote = `agent-${String(created.id).toLowerCase()}`;
+    await execFileAsync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      remote,
+      cloneDir,
+    ]);
+
+    const now = new Date().toISOString();
+    const state = {
+      session_id: "s1",
+      supervisor_pid: 0,
+      started_at: now,
+      last_error: "",
+      cli: "codex",
+      run_mode: "clone",
+      worktree_path: cloneDir,
+      base_branch: "main",
+    };
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "omega"
+    );
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "state.json"),
+      JSON.stringify(state, null, 2)
+    );
+
+    const killRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/omega/kill`, {
+        method: "POST",
+      })
+    );
+    expect(killRes.status).toBe(200);
+
+    await expect(fs.stat(cloneDir)).rejects.toThrow();
+    const remotes = await execFileAsync("git", ["-C", repoDir, "remote"]);
+    expect(remotes.stdout).not.toContain(remote);
   });
 
   it("kills worktree subagent and removes branch", async () => {

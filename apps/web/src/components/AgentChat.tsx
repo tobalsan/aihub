@@ -37,6 +37,7 @@ type AgentChatProps = {
     projectId: string;
     slug: string;
     cli?: string;
+    runMode?: "main-run" | "worktree" | "clone";
     status?: SubagentStatus;
   };
   onBack: () => void;
@@ -966,7 +967,16 @@ export function AgentChat(props: AgentChatProps) {
         }
       }
 
-      const mode = props.subagentInfo.slug === "main" ? "main-run" : "worktree";
+      const mode =
+        props.subagentInfo.runMode === "main-run"
+          ? "main-run"
+          : props.subagentInfo.runMode === "worktree"
+            ? "worktree"
+            : props.subagentInfo.runMode === "clone"
+              ? "clone"
+              : props.subagentInfo.slug === "main"
+                ? "main-run"
+                : "clone";
       void spawnSubagent(props.subagentInfo.projectId, {
         slug: props.subagentInfo.slug,
         cli: props.subagentInfo.cli,
