@@ -305,7 +305,8 @@ program
   .action(async (id, opts) => {
     try {
       const normalizedId = normalizeProjectId(id);
-      const message = opts.message === "-" ? await readStdin() : opts.message;
+      const raw = opts.message === "-" ? await readStdin() : opts.message;
+      const message = raw.replace(/\\n/g, "\n");
       const author = opts.author ?? os.userInfo().username ?? "unknown";
       const data = await getClient().addComment(normalizedId, {
         author,
