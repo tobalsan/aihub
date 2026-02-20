@@ -941,7 +941,7 @@ export async function spawnRalphLoop(
         PROJECT_FILE: readmePath,
         SCOPES_FILE: scopesPath,
         PROGRESS_FILE: progressFilePath,
-        SOURCE_DIR: repo,
+        SOURCE_DIR: workspacePath,
       },
     });
 
