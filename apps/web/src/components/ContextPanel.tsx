@@ -203,7 +203,7 @@ export function ContextPanel(props: ContextPanelProps) {
           border-bottom: 1px solid #2a2a2a;
         }
 
-        .collapse-btn {
+        .context-panel .collapse-btn {
           width: 28px;
           height: 28px;
           border-radius: 6px;
@@ -211,9 +211,14 @@ export function ContextPanel(props: ContextPanelProps) {
           background: #1a1a1a;
           color: #e6e6e6;
           cursor: pointer;
+          margin-left: 0;
         }
 
-        .collapse-btn:focus-visible {
+        .context-panel .panel-tabs {
+          margin-left: auto;
+        }
+
+        .context-panel .collapse-btn:focus-visible {
           outline: 2px solid rgba(59, 130, 246, 0.6);
           outline-offset: 2px;
         }
