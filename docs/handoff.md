@@ -493,12 +493,36 @@ Kanban UI details:
   - `apps/web/src/App.tsx` (dynamic document title)
   - `apps/web/src/components/AgentSidebar.tsx` (DEV badge)
 
-## Next (Not Done)
+### 27) UI v3 Overhaul (PRO-127, in progress)
 
-### UI v2 — Complete ✓
-All 6 phases implemented. See `docs/ui_v2.md` for full spec.
+Goal: reduce unused space and modernize the interface from terminal aesthetic to a clean coding-agent UI.
 
-### Deferred
+**Completed:**
+
+- **Right sidebar pin button**: Scoped `.collapse-btn` CSS in ContextPanel to prevent style leak from AgentSidebar's `margin-left:auto`. Pin button now on the left (mirroring left sidebar).
+- **AgentChat modernization**: Replaced terminal/log look with flat, content-focused coding-agent design inspired by Codex/Intent UIs:
+  - Full-width messages, no container chrome on `.log-pane` (transparent background, no border)
+  - User messages: subtle teal left-border accent
+  - Assistant messages: clean, no background
+  - Tool calls: compact collapsible rows with `▸` chevron, muted gray
+  - Clean markdown: headings (h1–h4), blockquotes, code blocks with border, better spacing
+  - Softer neutral palette throughout
+- **Right sidebar width**: 520px → 600px (all breakpoints including hover-expand)
+- **Inter font**: Added via Google Fonts globally. Applied to AgentChat via explicit `font-family` on `pre.log-text` (overrides browser UA monospace default for `<pre>` elements). Also applied to `.log-line.collapsible .log-text` and ProjectsBoard log pane. Monospace preserved only for markdown `<code>` and `<pre>` inside `.log-markdown`.
+- Files:
+  - `apps/web/index.html` (Inter font import, global font-family)
+  - `apps/web/src/components/AgentChat.tsx` (full CSS overhaul)
+  - `apps/web/src/components/ContextPanel.tsx` (pin button fix, width increase)
+  - `apps/web/src/components/ProjectsBoard.tsx` (Inter font)
+- Also fixed: pre-existing test failure in `subagents.api.test.ts` — ralph `SOURCE_DIR` test now expects workspace path (matching commit e888e76).
+
+**TODO:**
+- Further layout and spacing refinements
+- Left sidebar styling refresh
+- ProjectsBoard / Kanban styling refresh
+- Mobile responsiveness review with new styles
+
+## Deferred
 - Quick create (floating button / keyboard shortcut)
 - Notifications (agent needs attention, task finished)
 - File upload cleanup/expiry (currently no auto-cleanup of `~/.aihub/media/inbound/`)
