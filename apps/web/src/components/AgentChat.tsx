@@ -1357,7 +1357,7 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           flex-direction: column;
           height: 100%;
-          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 14px;
           line-height: 1.6;
           color: #e0e0e0;
@@ -1620,7 +1620,7 @@ export function AgentChat(props: AgentChatProps) {
           border-radius: 0 0 6px 6px;
           border-top: 1px solid rgba(255, 255, 255, 0.05);
           padding: 10px 12px;
-          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 12px;
           line-height: 1.5;
           color: #999;
@@ -1654,11 +1654,12 @@ export function AgentChat(props: AgentChatProps) {
           flex: 0 0 auto;
         }
 
-        .log-text {
+        pre.log-text {
           margin: 0;
           white-space: pre-wrap;
           word-break: break-word;
           line-height: 1.6;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
         }
 
         /* ── Markdown rendering ── */

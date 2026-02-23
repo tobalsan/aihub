@@ -178,7 +178,7 @@ export function ContextPanel(props: ContextPanelProps) {
 
       <style>{`
         .context-panel {
-          width: 520px;
+          width: 600px;
           background: #1a1a1a;
           border-left: 1px solid #2a2a2a;
           display: flex;
@@ -192,7 +192,7 @@ export function ContextPanel(props: ContextPanelProps) {
         }
 
         .context-panel.collapsed:hover {
-          width: 520px;
+          width: 600px;
         }
 
         .panel-header {
