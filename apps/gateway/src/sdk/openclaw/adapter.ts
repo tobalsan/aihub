@@ -71,7 +71,14 @@ export class OpenClawConnector implements SdkAdapter {
     const debugEnabled =
       process.env.OPENCLAW_DEBUG === "1" || process.env.OPENCLAW_DEBUG === "true";
     const gatewayUrl = openclaw.gatewayUrl ?? DEFAULT_GATEWAY_URL;
-    const sessionKey = openclaw.sessionKey ?? params.sessionKey ?? "main";
+    let sessionKey: string;
+    if (openclaw.sessionKey) {
+      sessionKey = openclaw.sessionKey;
+    } else if (openclaw.sessionMode === "fixed") {
+      sessionKey = params.sessionKey ?? "main";
+    } else {
+      sessionKey = `aihub:${params.sessionId}`;
+    }
 
     let assistantText = "";
     let aborted = false;

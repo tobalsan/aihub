@@ -34,4 +34,34 @@ describe("AgentConfigSchema openclaw model handling", () => {
 
     expect(result.model).toEqual({ provider: "openclaw", model: "unknown" });
   });
+
+  it("accepts openclaw sessionMode dedicated", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "openclaw-agent",
+      name: "OpenClaw Agent",
+      workspace: "~/agents/openclaw",
+      sdk: "openclaw",
+      openclaw: {
+        token: "token",
+        sessionMode: "dedicated",
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts openclaw sessionMode fixed", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "openclaw-agent",
+      name: "OpenClaw Agent",
+      workspace: "~/agents/openclaw",
+      sdk: "openclaw",
+      openclaw: {
+        token: "token",
+        sessionMode: "fixed",
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

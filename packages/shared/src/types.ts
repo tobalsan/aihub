@@ -105,6 +105,7 @@ export const OpenClawConfigSchema = z.object({
   gatewayUrl: z.string().optional(),
   token: z.string(),
   sessionKey: z.string().optional(),
+  sessionMode: z.enum(["dedicated", "fixed"]).optional(),
 });
 export type OpenClawConfig = z.infer<typeof OpenClawConfigSchema>;
 
