@@ -707,7 +707,13 @@ describe("subagents API", () => {
     expect(generatedPrompt).toContain(path.join(projectDir, "README.md"));
     expect(generatedPrompt).toContain(path.join(projectDir, "SCOPES.md"));
     expect(generatedPrompt).toContain(path.join(projectDir, "progress.md"));
-    expect(generatedPrompt).toContain(repoDir);
+    const workspaceDir = path.join(
+      projectsRoot,
+      ".workspaces",
+      created.id,
+      spawned.slug
+    );
+    expect(generatedPrompt).toContain(workspaceDir);
 
     const progressFilePath = path.join(projectDir, "progress.md");
     await expect(fs.stat(progressFilePath)).resolves.toBeDefined();
