@@ -1,5 +1,12 @@
 import { useNavigate, useParams } from "@solidjs/router";
-import { Show, createMemo, createResource } from "solid-js";
+import {
+  Show,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import {
   createTask,
   fetchAreas,
@@ -15,6 +22,8 @@ import { AgentPanel } from "./AgentPanel";
 import { CenterPanel } from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
 
+type MergedTab = "chat" | "activity" | "changes" | "spec";
+
 function getFrontmatterString(
   frontmatter: Record<string, unknown> | undefined,
   key: string
@@ -28,6 +37,8 @@ export function ProjectDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
   const projectId = createMemo(() => params.id ?? "");
+  const [compactLayout, setCompactLayout] = createSignal(false);
+  const [mergedTab, setMergedTab] = createSignal<MergedTab>("spec");
 
   const [project, { refetch: refetchProject }] = createResource(
     projectId,
@@ -39,6 +50,21 @@ export function ProjectDetailPage() {
     fetchTasks
   );
   const [spec, { refetch: refetchSpec }] = createResource(projectId, fetchSpec);
+
+  onMount(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 1599px)");
+    const update = (matches: boolean) => setCompactLayout(matches);
+    update(media.matches);
+    const handler = (event: MediaQueryListEvent) => update(event.matches);
+    if (media.addEventListener) {
+      media.addEventListener("change", handler);
+      onCleanup(() => media.removeEventListener("change", handler));
+      return;
+    }
+    media.addListener(handler);
+    onCleanup(() => media.removeListener(handler));
+  });
 
   const area = createMemo(() => {
     const current = project();
@@ -59,6 +85,20 @@ export function ProjectDetailPage() {
     const id = projectId();
     if (!id) return;
     await updateProject(id, { status });
+    await refetchProject();
+  };
+
+  const handleRepoChange = async (repo: string) => {
+    const id = projectId();
+    if (!id) return;
+    await updateProject(id, { repo });
+    await refetchProject();
+  };
+
+  const handleAreaChange = async (areaId: string) => {
+    const id = projectId();
+    if (!id) return;
+    await updateProject(id, { area: areaId });
     await refetchProject();
   };
 
@@ -119,24 +159,84 @@ export function ProjectDetailPage() {
                 <AgentPanel
                   project={detail()}
                   area={area()}
+                  areas={areas() ?? []}
                   onStatusChange={handleStatusChange}
+                  onAreaChange={handleAreaChange}
+                  onRepoChange={handleRepoChange}
                 />
               </div>
-              <div class="project-detail__center">
-                <CenterPanel project={detail()} />
-              </div>
-              <div class="project-detail__right">
-                <SpecEditor
-                  specContent={spec()?.content ?? ""}
-                  tasks={tasks()?.tasks ?? []}
-                  progress={tasks()?.progress ?? { done: 0, total: 0 }}
-                  areaColor={area()?.color}
-                  onToggleTask={handleToggleTask}
-                  onAddTask={handleAddTask}
-                  onSaveSpec={handleSaveSpec}
-                  onRefresh={handleRefreshSpec}
-                />
-              </div>
+              <Show when={!compactLayout()}>
+                <div class="project-detail__center">
+                  <CenterPanel project={detail()} />
+                </div>
+                <div class="project-detail__right">
+                  <SpecEditor
+                    specContent={spec()?.content ?? ""}
+                    tasks={tasks()?.tasks ?? []}
+                    progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                    areaColor={area()?.color}
+                    onToggleTask={handleToggleTask}
+                    onAddTask={handleAddTask}
+                    onSaveSpec={handleSaveSpec}
+                    onRefresh={handleRefreshSpec}
+                  />
+                </div>
+              </Show>
+              <Show when={compactLayout()}>
+                <div class="project-detail__merged">
+                  <header class="project-detail-merged-tabs">
+                    <button
+                      type="button"
+                      classList={{ active: mergedTab() === "chat" }}
+                      onClick={() => setMergedTab("chat")}
+                    >
+                      Chat
+                    </button>
+                    <button
+                      type="button"
+                      classList={{ active: mergedTab() === "activity" }}
+                      onClick={() => setMergedTab("activity")}
+                    >
+                      Activity
+                    </button>
+                    <button
+                      type="button"
+                      classList={{ active: mergedTab() === "changes" }}
+                      onClick={() => setMergedTab("changes")}
+                    >
+                      Changes
+                    </button>
+                    <button
+                      type="button"
+                      classList={{ active: mergedTab() === "spec" }}
+                      onClick={() => setMergedTab("spec")}
+                    >
+                      Spec
+                    </button>
+                  </header>
+                  <div class="project-detail__merged-body">
+                    <Show when={mergedTab() === "spec"}>
+                      <SpecEditor
+                        specContent={spec()?.content ?? ""}
+                        tasks={tasks()?.tasks ?? []}
+                        progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                        areaColor={area()?.color}
+                        onToggleTask={handleToggleTask}
+                        onAddTask={handleAddTask}
+                        onSaveSpec={handleSaveSpec}
+                        onRefresh={handleRefreshSpec}
+                      />
+                    </Show>
+                    <Show when={mergedTab() !== "spec"}>
+                      <CenterPanel
+                        project={detail()}
+                        showTabs={false}
+                        tab={mergedTab() as "chat" | "activity" | "changes"}
+                      />
+                    </Show>
+                  </div>
+                </div>
+              </Show>
             </div>
           </div>
         )}
@@ -174,7 +274,7 @@ export function ProjectDetailPage() {
         }
 
         .project-detail__left {
-          width: 240px;
+          width: 480px;
           flex-shrink: 0;
           border-right: 1px solid #1c2430;
           overflow-y: auto;
@@ -187,10 +287,77 @@ export function ProjectDetailPage() {
         }
 
         .project-detail__right {
-          width: 360px;
+          width: 33vw;
+          min-width: 420px;
           flex-shrink: 0;
           border-left: 1px solid #1c2430;
           overflow-y: auto;
+        }
+
+        .project-detail__merged {
+          flex: 1;
+          min-width: 0;
+          display: grid;
+          grid-template-rows: auto 1fr;
+          background: #0a0a0f;
+        }
+
+        .project-detail-merged-tabs {
+          display: flex;
+          gap: 8px;
+          padding: 16px 18px;
+          border-bottom: 1px solid #1c2430;
+          background: #0a0a0f;
+        }
+
+        .project-detail-merged-tabs button {
+          border: 1px solid #2a3240;
+          background: #111722;
+          color: #a1a1aa;
+          border-radius: 999px;
+          padding: 6px 12px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .project-detail-merged-tabs button.active {
+          color: #e4e4e7;
+          border-color: #3b82f6;
+          background: #172554;
+        }
+
+        .project-detail__merged-body {
+          min-height: 0;
+          overflow-y: auto;
+        }
+
+        @media (max-width: 1599px) {
+          .project-detail__left {
+            width: 40%;
+            min-width: 0;
+          }
+
+          .project-detail__merged {
+            width: 60%;
+            flex: 0 0 60%;
+          }
+        }
+
+        @media (min-width: 1600px) {
+          .project-detail__left {
+            width: 20%;
+            min-width: 0;
+          }
+
+          .project-detail__center {
+            width: 40%;
+            flex: 0 0 40%;
+          }
+
+          .project-detail__right {
+            width: 40%;
+            min-width: 0;
+          }
         }
 
         .project-detail-state {

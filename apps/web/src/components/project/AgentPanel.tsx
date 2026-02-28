@@ -1,3 +1,11 @@
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import type { Area, ProjectDetail } from "../../api/types";
 
 const STATUS_OPTIONS = [
@@ -15,7 +23,10 @@ const STATUS_OPTIONS = [
 type AgentPanelProps = {
   project: ProjectDetail;
   area?: Area;
+  areas: Area[];
   onStatusChange: (status: string) => Promise<void> | void;
+  onAreaChange: (area: string) => Promise<void> | void;
+  onRepoChange: (repo: string) => Promise<void> | void;
 };
 
 function getFrontmatterString(
@@ -26,77 +37,234 @@ function getFrontmatterString(
   return typeof value === "string" ? value : "";
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+function formatCreatedRelative(raw: string): string {
+  if (!raw) return "Created —";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "Created —";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const created = new Date(date);
+  created.setHours(0, 0, 0, 0);
+
+  const days = Math.floor((today.getTime() - created.getTime()) / 86400000);
+  if (days <= 0) return "Created today";
+  if (days === 1) return "Created yesterday";
+  if (days < 14) return `Created ${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  return `Created ${weeks} week${weeks === 1 ? "" : "s"} ago`;
 }
 
 export function AgentPanel(props: AgentPanelProps) {
+  const [statusMenuOpen, setStatusMenuOpen] = createSignal(false);
+  const [areaMenuOpen, setAreaMenuOpen] = createSignal(false);
+  const [copied, setCopied] = createSignal(false);
+  const [editingRepo, setEditingRepo] = createSignal(false);
+  const [repoDraft, setRepoDraft] = createSignal("");
+  const [savingRepo, setSavingRepo] = createSignal(false);
+
   const status = () =>
-    getFrontmatterString(props.project.frontmatter, "status");
+    getFrontmatterString(props.project.frontmatter, "status") || "unknown";
   const repo = () => getFrontmatterString(props.project.frontmatter, "repo");
   const created = () =>
     getFrontmatterString(props.project.frontmatter, "created");
-  const updated = () =>
-    getFrontmatterString(props.project.frontmatter, "updated");
+  const areaLabel = () => props.area?.title || "No area";
+
+  let statusMenuRef: HTMLDivElement | undefined;
+  let areaMenuRef: HTMLDivElement | undefined;
+  let copiedTimer: number | undefined;
+
+  createEffect(() => {
+    if (editingRepo()) return;
+    setRepoDraft(repo());
+  });
+
+  onMount(() => {
+    const onDocumentClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (statusMenuOpen() && !statusMenuRef?.contains(target ?? null)) {
+        setStatusMenuOpen(false);
+      }
+      if (areaMenuOpen() && !areaMenuRef?.contains(target ?? null)) {
+        setAreaMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("click", onDocumentClick);
+    onCleanup(() => {
+      document.removeEventListener("click", onDocumentClick);
+      if (copiedTimer) window.clearTimeout(copiedTimer);
+    });
+  });
+
+  const handleCopyPath = async () => {
+    const text = props.project.absolutePath || props.project.path;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (copiedTimer) window.clearTimeout(copiedTimer);
+      copiedTimer = window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // ignore clipboard failures
+    }
+  };
+
+  const saveRepo = async () => {
+    if (savingRepo()) return;
+    const value = repoDraft().trim();
+    if (value === repo().trim()) {
+      setEditingRepo(false);
+      return;
+    }
+    setSavingRepo(true);
+    try {
+      await props.onRepoChange(value);
+      setEditingRepo(false);
+    } finally {
+      setSavingRepo(false);
+    }
+  };
 
   return (
     <>
       <aside class="agent-panel">
         <section class="agent-panel-block">
-          <h2 class="agent-panel-title">{props.project.title}</h2>
+          <div class="agent-panel-headline">
+            <button
+              type="button"
+              class="project-id-pill"
+              classList={{ copied: copied() }}
+              onClick={() => void handleCopyPath()}
+              title="Copy project path"
+            >
+              {props.project.id}
+            </button>
+            <h2 class="agent-panel-title">{props.project.title}</h2>
+          </div>
+
           <div class="agent-panel-meta">
-            <span class="agent-badge">{status() || "unknown"}</span>
-            {props.area && (
-              <span
-                class="agent-badge area"
-                style={{
-                  "border-color": props.area.color,
-                  color: props.area.color,
+            <div class="meta-field" ref={areaMenuRef}>
+              <button
+                type="button"
+                class="agent-badge"
+                style={
+                  props.area
+                    ? {
+                        "border-color": props.area.color,
+                        color: props.area.color,
+                      }
+                    : undefined
+                }
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setAreaMenuOpen((open) => !open);
                 }}
               >
-                {props.area.title}
-              </span>
-            )}
+                {areaLabel()}
+              </button>
+              <Show when={areaMenuOpen()}>
+                <div class="meta-menu">
+                  <button
+                    type="button"
+                    class="meta-item"
+                    onClick={() => {
+                      void props.onAreaChange("");
+                      setAreaMenuOpen(false);
+                    }}
+                  >
+                    Unset area
+                  </button>
+                  <For each={props.areas}>
+                    {(item) => (
+                      <button
+                        type="button"
+                        class="meta-item"
+                        onClick={() => {
+                          void props.onAreaChange(item.id);
+                          setAreaMenuOpen(false);
+                        }}
+                      >
+                        {item.title}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+            <div class="meta-field" ref={statusMenuRef}>
+              <button
+                type="button"
+                class="agent-badge"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setStatusMenuOpen((open) => !open);
+                }}
+              >
+                {status()}
+              </button>
+              <Show when={statusMenuOpen()}>
+                <div class="meta-menu">
+                  <For each={STATUS_OPTIONS}>
+                    {(option) => (
+                      <button
+                        type="button"
+                        class="meta-item"
+                        onClick={() => {
+                          void props.onStatusChange(option);
+                          setStatusMenuOpen(false);
+                        }}
+                      >
+                        {option}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+            <span class="created-chip">{formatCreatedRelative(created())}</span>
           </div>
         </section>
 
         <section class="agent-panel-block">
-          <label class="agent-panel-label" for="project-status-select">
-            Status
-          </label>
-          <select
-            id="project-status-select"
-            class="agent-panel-select"
-            value={status() || "maybe"}
-            onChange={(e) => void props.onStatusChange(e.currentTarget.value)}
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <option value={option}>{option}</option>
-            ))}
-          </select>
-        </section>
-
-        <section class="agent-panel-block">
           <div class="agent-panel-label">Repo</div>
-          <p class="agent-panel-text">{repo() || "No repo set"}</p>
-        </section>
-
-        <section class="agent-panel-block">
-          <div class="agent-panel-label">Path</div>
-          <p class="agent-panel-text">{props.project.absolutePath}</p>
-        </section>
-
-        <section class="agent-panel-block">
-          <div class="agent-panel-label">Created</div>
-          <p class="agent-panel-text">
-            {created() ? formatDate(created()) : "—"}
-          </p>
-          <div class="agent-panel-label">Last modified</div>
-          <p class="agent-panel-text">
-            {updated() ? formatDate(updated()) : "—"}
-          </p>
+          <Show
+            when={!editingRepo()}
+            fallback={
+              <input
+                class="agent-panel-input"
+                type="text"
+                value={repoDraft()}
+                placeholder={props.area?.repo || "Project repo path"}
+                disabled={savingRepo()}
+                onInput={(event) => setRepoDraft(event.currentTarget.value)}
+                onBlur={() => void saveRepo()}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setEditingRepo(false);
+                    setRepoDraft(repo());
+                    return;
+                  }
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void saveRepo();
+                  }
+                }}
+                autofocus
+              />
+            }
+          >
+            <p
+              class="agent-panel-text repo-value"
+              ondblclick={() => {
+                setRepoDraft(repo());
+                setEditingRepo(true);
+              }}
+              title="Double-click to edit"
+            >
+              {repo() || props.area?.repo || "No repo set"}
+            </p>
+          </Show>
         </section>
 
         <section class="agent-panel-block">
@@ -123,15 +291,52 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-panel-title {
-          margin: 0 0 8px;
+          margin: 0;
           font-size: 15px;
           line-height: 1.4;
+        }
+
+        .agent-panel-headline {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+          min-width: 0;
+        }
+
+        .project-id-pill {
+          background: #141a23;
+          border: 1px solid #2a3240;
+          color: #9aa3b2;
+          font-size: 11px;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          padding: 5px 9px;
+          border-radius: 999px;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+
+        .project-id-pill:hover {
+          background: #1a2330;
+          border-color: #3a4250;
+          color: #b0b8c6;
+        }
+
+        .project-id-pill.copied {
+          background: #2a4a3a;
+          border-color: #4a7a5a;
+          color: #a0e0b0;
         }
 
         .agent-panel-meta {
           display: flex;
           flex-wrap: wrap;
           gap: 6px;
+        }
+
+        .meta-field {
+          position: relative;
         }
 
         .agent-badge {
@@ -142,6 +347,50 @@ export function AgentPanel(props: AgentPanelProps) {
           text-transform: uppercase;
           letter-spacing: 0.04em;
           color: #a1a1aa;
+          background: transparent;
+          cursor: pointer;
+        }
+
+        .meta-menu {
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 0;
+          z-index: 3;
+          background: #151c26;
+          border: 1px solid #2a3240;
+          border-radius: 10px;
+          padding: 6px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 140px;
+        }
+
+        .meta-item {
+          background: transparent;
+          border: none;
+          color: #e0e6ef;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          text-align: left;
+          padding: 6px 8px;
+          border-radius: 8px;
+          cursor: pointer;
+        }
+
+        .meta-item:hover {
+          background: #232c3a;
+        }
+
+        .created-chip {
+          color: #8b93a1;
+          font-size: 11px;
+          line-height: 1.4;
+          align-self: center;
+          margin-left: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
         }
 
         .agent-panel-label {
@@ -160,14 +409,31 @@ export function AgentPanel(props: AgentPanelProps) {
           overflow-wrap: anywhere;
         }
 
-        .agent-panel-select {
+        .repo-value {
+          cursor: text;
+          border-radius: 6px;
+          padding: 0 8px;
+          margin: 0;
+          height: 30px;
+          line-height: 30px;
+          box-sizing: border-box;
+          display: block;
+        }
+
+        .repo-value:hover {
+          background: rgba(255, 255, 255, 0.04);
+        }
+
+        .agent-panel-input {
           width: 100%;
           border: 1px solid #2a3240;
+          border-radius: 8px;
           background: #0f1724;
           color: #e4e4e7;
-          border-radius: 8px;
-          padding: 6px 8px;
+          padding: 0 8px;
+          height: 30px;
           font-size: 12px;
+          box-sizing: border-box;
         }
       `}</style>
     </>

@@ -90,9 +90,10 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
 
         .task-checkbox-row {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: space-between;
           gap: 8px;
+          min-width: 0;
         }
 
         .task-checkbox-title {
@@ -100,6 +101,8 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
           font-size: 14px;
           font-weight: 600;
           line-height: 1.4;
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
 
         .task-checkbox-status {
@@ -109,6 +112,7 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
           border-radius: 999px;
           padding: 2px 8px;
           border: 1px solid transparent;
+          flex-shrink: 0;
         }
 
         .task-checkbox-status.todo {

@@ -305,6 +305,7 @@ export type ProjectUpdatePayload = {
   executionMode?: string;
   appetite?: string;
   status?: string;
+  area?: string;
   readme?: string;
   specs?: string;
   docs?: Record<string, string>;

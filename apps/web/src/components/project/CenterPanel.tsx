@@ -5,10 +5,13 @@ type CenterTab = "chat" | "activity" | "changes";
 
 type CenterPanelProps = {
   project: ProjectDetail;
+  tab?: CenterTab;
+  showTabs?: boolean;
 };
 
 export function CenterPanel(props: CenterPanelProps) {
-  const [tab, setTab] = createSignal<CenterTab>("chat");
+  const [internalTab, setInternalTab] = createSignal<CenterTab>("chat");
+  const tab = () => props.tab ?? internalTab();
   const tabs: Array<{ id: CenterTab; label: string }> = [
     { id: "chat", label: "Chat" },
     { id: "activity", label: "Activity" },
@@ -18,20 +21,22 @@ export function CenterPanel(props: CenterPanelProps) {
   return (
     <>
       <section class="center-panel">
-        <header class="center-panel-tabs">
-          <For each={tabs}>
-            {(item) => (
-              <button
-                type="button"
-                class="center-tab"
-                classList={{ active: tab() === item.id }}
-                onClick={() => setTab(item.id)}
-              >
-                {item.label}
-              </button>
-            )}
-          </For>
-        </header>
+        <Show when={props.showTabs !== false}>
+          <header class="center-panel-tabs">
+            <For each={tabs}>
+              {(item) => (
+                <button
+                  type="button"
+                  class="center-tab"
+                  classList={{ active: tab() === item.id }}
+                  onClick={() => setInternalTab(item.id)}
+                >
+                  {item.label}
+                </button>
+              )}
+            </For>
+          </header>
+        </Show>
         <div class="center-panel-body">
           <Show when={tab() === "chat"}>
             <p class="center-placeholder">Select an agent to chat</p>

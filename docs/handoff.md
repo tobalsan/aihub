@@ -34,6 +34,27 @@ Delivered in current implementation:
   - `PATCH /api/projects/:id/tasks/:order`
   - `POST /api/projects/:id/tasks`
 
+### Iteration Delta (2026-02-28)
+
+- Responsive project detail layout:
+  - Desktop (`>=1600px`): `20% / 40% / 40%` (left / center / right).
+  - Laptop (`<1600px`): `40% / 60%` with merged center+right panel.
+  - Merged panel tabs: `Chat`, `Activity`, `Changes`, `Spec`.
+- Spec editor updates:
+  - Preview order: spec body first, tasks second, acceptance criteria third.
+  - `Tasks` + `Acceptance Criteria` stripped from markdown preview body (rendered in dedicated sections only).
+  - Markdown style aligned to v2 conversation markdown renderer.
+- Left panel updates:
+  - Project ID pill in header (click copies project path).
+  - Inline status editing from status badge dropdown.
+  - Inline area editing from area badge dropdown, including `Unset area`.
+  - Created label moved into top metadata row as relative uppercase text.
+  - Removed separate path box.
+  - Removed separate created/updated box.
+  - Repo path inline edit via double-click; empty value unsets project repo (area repo inheritance applies).
+- API typing update:
+  - `ProjectUpdatePayload` now includes `area`.
+
 ### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:

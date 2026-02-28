@@ -65,11 +65,28 @@ function setLineChecked(
 }
 
 function stripSection(content: string, heading: string): string {
-  const regex = new RegExp(
-    String.raw`^##\s+${heading}\s*\n[\s\S]*?(?=^##\s+|$)`,
-    "gim"
-  );
-  return content.replace(regex, "").trim();
+  const lines = content.split("\n");
+  const headingPattern = new RegExp(`^##\\s+${heading}\\s*$`, "i");
+
+  let start = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (headingPattern.test((lines[i] ?? "").trim())) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return content.trim();
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^##\s+/.test((lines[i] ?? "").trim())) {
+      end = i;
+      break;
+    }
+  }
+
+  const next = [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+  return next.trim();
 }
 
 function renderMarkdown(content: string): string {
@@ -189,6 +206,12 @@ export function SpecEditor(props: SpecEditorProps) {
 
         <Show when={mode() === "preview"}>
           <div class="spec-editor-preview">
+            <article
+              class="spec-doc markdown"
+              innerHTML={documentHtml()}
+              aria-label="Spec markdown preview"
+            />
+
             <Show when={props.tasks.length > 0}>
               <section class="spec-section">
                 <h3>Tasks</h3>
@@ -266,12 +289,6 @@ export function SpecEditor(props: SpecEditorProps) {
                 </ul>
               </section>
             </Show>
-
-            <article
-              class="spec-doc markdown"
-              innerHTML={documentHtml()}
-              aria-label="Spec markdown preview"
-            />
           </div>
         </Show>
 
@@ -299,6 +316,7 @@ export function SpecEditor(props: SpecEditorProps) {
           grid-template-rows: auto 1fr;
           background: #0a0a0f;
           color: #e4e4e7;
+          min-width: 0;
         }
 
         .spec-editor-header {
@@ -350,6 +368,11 @@ export function SpecEditor(props: SpecEditorProps) {
           display: grid;
           gap: 18px;
           align-content: start;
+          min-width: 0;
+        }
+
+        .spec-editor-preview > * {
+          min-width: 0;
         }
 
         .spec-section {
@@ -438,26 +461,138 @@ export function SpecEditor(props: SpecEditorProps) {
           border-radius: 12px;
           padding: 20px;
           background: #0f131d;
-          max-width: 70ch;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+          color: #d4dbe5;
+          font-size: 13px;
           line-height: 1.6;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
         }
 
-        .spec-doc :global(h1),
-        .spec-doc :global(h2),
-        .spec-doc :global(h3) {
-          line-height: 1.35;
-          color: #e4e4e7;
+        .spec-doc p {
+          margin: 0;
+          overflow-wrap: anywhere;
         }
 
-        .spec-doc :global(p),
-        .spec-doc :global(li) {
-          color: #d4d4d8;
+        .spec-doc p + p {
+          margin-top: 8px;
         }
 
-        .spec-doc :global(code) {
-          background: #1f2937;
-          border-radius: 6px;
-          padding: 2px 5px;
+        .spec-doc strong {
+          color: #f0f0f0;
+          font-weight: 600;
+        }
+
+        .spec-doc code {
+          background: rgba(255, 255, 255, 0.06);
+          border-radius: 4px;
+          padding: 2px 6px;
+          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+          font-size: 0.9em;
+          color: #ccc;
+          overflow-wrap: anywhere;
+        }
+
+        .spec-doc pre {
+          margin: 10px 0;
+          padding: 12px 14px;
+          background: rgba(0, 0, 0, 0.3);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 8px;
+          overflow: auto;
+          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+          font-size: 13px;
+          line-height: 1.5;
+          color: #ccc;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+
+        .spec-doc pre code {
+          background: transparent;
+          padding: 0;
+          color: inherit;
+        }
+
+        .spec-doc ul,
+        .spec-doc ol {
+          margin: 8px 0;
+          padding-left: 22px;
+        }
+
+        .spec-doc li {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .spec-doc li + li {
+          margin-top: 4px;
+        }
+
+        .spec-doc li > p {
+          margin: 0;
+        }
+
+        .spec-doc hr {
+          margin: 12px 0;
+          border: 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .spec-doc h1,
+        .spec-doc h2,
+        .spec-doc h3,
+        .spec-doc h4 {
+          color: #f0f0f0;
+          margin: 16px 0 8px;
+          line-height: 1.3;
+        }
+
+        .spec-doc h1 { font-size: 1.25em; }
+        .spec-doc h2 { font-size: 1.15em; }
+        .spec-doc h3 { font-size: 1.05em; }
+        .spec-doc h4 { font-size: 1em; }
+
+        .spec-doc h1:first-child,
+        .spec-doc h2:first-child,
+        .spec-doc h3:first-child,
+        .spec-doc h4:first-child {
+          margin-top: 0;
+        }
+
+        .spec-doc blockquote {
+          margin: 8px 0;
+          padding: 4px 12px;
+          border-left: 2px solid rgba(255, 255, 255, 0.15);
+          color: #999;
+        }
+
+        .spec-doc table {
+          width: 100%;
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          border-collapse: collapse;
+          margin: 10px 0;
+          font-size: 13px;
+        }
+
+        .spec-doc th,
+        .spec-doc td {
+          border: 1px solid #2a2a2a;
+          padding: 8px 12px;
+          text-align: left;
+        }
+
+        .spec-doc th {
+          background: rgba(255, 255, 255, 0.04);
+          color: #ddd;
+          font-weight: 600;
+        }
+
+        .spec-doc tbody tr:nth-child(even) {
+          background: rgba(255, 255, 255, 0.02);
         }
 
         .spec-editor-edit {
