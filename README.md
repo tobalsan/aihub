@@ -404,6 +404,47 @@ pnpm dev:gateway  # gateway only with hot reload (no --dev flag, all services en
 pnpm dev:web      # web UI only
 ```
 
+### Remote Web Dev (Projects on Another Machine)
+
+If your web UI runs on machine A but projects live on machine B:
+
+1. On machine B, run gateway and expose it on a reachable interface:
+
+```json
+{
+  "gateway": {
+    "bind": "lan",
+    "port": 4000
+  }
+}
+```
+
+2. On machine A, configure the proxy target:
+
+```json
+{
+  "gateway": {
+    "host": "<machine-b-host-or-ip>",
+    "port": 4000
+  }
+}
+```
+
+3. On machine A, run `pnpm dev:web` only.
+
+In web dev mode, Vite proxies `/api` and `/ws` to `gateway.host:gateway.port`, so Kanban loads projects from machine B.
+
+Do not run `pnpm dev`, `pnpm dev:gateway`, or `pnpm aihub gateway` on machine A with a remote `gateway.host`; those commands start a local gateway process that will try to bind that host and can fail with `EADDRNOTAVAIL`.
+
+### `apiUrl` vs `gateway.host`/`gateway.port`
+
+| Setting | Used by | Purpose |
+| --- | --- | --- |
+| `apiUrl` (or `AIHUB_API_URL`) | `apm` CLI | Direct base URL for CLI HTTP requests |
+| `gateway.host` + `gateway.port` | Gateway server config; reused by `pnpm dev:web` | Gateway listen host/port for gateway process. In `pnpm dev:web`, these same values are reused as Vite proxy target. |
+
+In short: `apiUrl` controls CLI target. Web app uses relative `/api`/`/ws`; in `pnpm dev:web`, proxy target currently comes from `gateway.host`/`gateway.port`.
+
 ### Dev Mode
 
 `pnpm dev` runs with the `--dev` flag, which:
