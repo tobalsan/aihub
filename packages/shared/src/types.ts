@@ -309,6 +309,27 @@ export type ProjectExecutionMode = z.infer<typeof ProjectExecutionModeSchema>;
 export const ProjectAppetiteSchema = z.enum(["small", "big"]);
 export type ProjectAppetite = z.infer<typeof ProjectAppetiteSchema>;
 
+export const AreaSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  color: z.string(),
+  icon: z.string().optional(),
+  description: z.string().optional(),
+  repo: z.string().optional(),
+  order: z.number().optional(),
+});
+export type Area = z.infer<typeof AreaSchema>;
+
+export const TaskSchema = z.object({
+  title: z.string(),
+  description: z.string().optional(),
+  status: z.enum(["todo", "in_progress", "done"]).default("todo"),
+  checked: z.boolean(),
+  agentId: z.string().optional(),
+  order: z.number(),
+});
+export type Task = z.infer<typeof TaskSchema>;
+
 export const CreateProjectRequestSchema = z.object({
   title: z.string(),
   description: z.string().optional(),
@@ -317,6 +338,7 @@ export const CreateProjectRequestSchema = z.object({
   executionMode: ProjectExecutionModeSchema.optional(),
   appetite: ProjectAppetiteSchema.optional(),
   status: ProjectStatusSchema.optional(),
+  area: z.string().optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
@@ -348,6 +370,7 @@ export const UpdateProjectRequestSchema = z.object({
   specs: z.string().optional(),
   docs: z.record(z.string()).optional(),
   repo: z.union([z.string(), z.literal("")]).optional(),
+  area: z.union([z.string(), z.literal("")]).optional(),
   sessionKeys: z.record(z.string()).nullable().optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;

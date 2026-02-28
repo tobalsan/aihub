@@ -31,8 +31,13 @@ describe("projects store", () => {
   });
 
   it("creates projects with metadata and increments ids", async () => {
-    const { createProject, listProjects, getProject } = await import("./store.js");
-    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+    const { createProject, listProjects, getProject } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
 
     const firstResult = await createProject(config, {
       title: "Alpha Project",
@@ -53,8 +58,16 @@ describe("projects store", () => {
     expect(firstResult.data.id).toBe("PRO-1");
     expect(secondResult.data.id).toBe("PRO-2");
 
-    const readmePath = path.join(projectsRoot, firstResult.data.path, "README.md");
-    const threadPath = path.join(projectsRoot, firstResult.data.path, "THREAD.md");
+    const readmePath = path.join(
+      projectsRoot,
+      firstResult.data.path,
+      "README.md"
+    );
+    const threadPath = path.join(
+      projectsRoot,
+      firstResult.data.path,
+      "THREAD.md"
+    );
     const readme = await fs.readFile(readmePath, "utf8");
     const thread = await fs.readFile(threadPath, "utf8");
     expect(readme).toContain('domain: "coding"');
@@ -66,7 +79,10 @@ describe("projects store", () => {
     expect(readme).toContain("Ship it.");
     expect(thread).toContain("project: PRO-1");
 
-    const stateRaw = await fs.readFile(path.join(tmpDir, ".aihub", "projects.json"), "utf8");
+    const stateRaw = await fs.readFile(
+      path.join(tmpDir, ".aihub", "projects.json"),
+      "utf8"
+    );
     expect(JSON.parse(stateRaw)).toEqual({ lastId: 2 });
 
     const listResult = await listProjects(config);
@@ -84,7 +100,11 @@ describe("projects store", () => {
 
   it("rejects titles with fewer than two words", async () => {
     const { createProject } = await import("./store.js");
-    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
 
     const result = await createProject(config, { title: "Solo" });
     expect(result.ok).toBe(false);
@@ -94,7 +114,11 @@ describe("projects store", () => {
 
   it("moves deleted projects into trash and creates the trash folder", async () => {
     const { createProject, deleteProject } = await import("./store.js");
-    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
 
     const created = await createProject(config, { title: "Trash Project" });
     if (!created.ok) throw new Error(created.error);
@@ -115,10 +139,17 @@ describe("projects store", () => {
   });
 
   it("archives and unarchives projects", async () => {
-    const { createProject, archiveProject, unarchiveProject } = await import("./store.js");
-    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+    const { createProject, archiveProject, unarchiveProject } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
 
-    const created = await createProject(config, { title: "Archive Me Project" });
+    const created = await createProject(config, {
+      title: "Archive Me Project",
+    });
     if (!created.ok) throw new Error(created.error);
 
     const archiveResult = await archiveProject(config, created.data.id);
@@ -126,17 +157,27 @@ describe("projects store", () => {
     if (!archiveResult.ok) return;
 
     const archiveRoot = path.join(projectsRoot, ".archive");
-    const archivedDir = path.join(projectsRoot, archiveResult.data.archivedPath);
+    const archivedDir = path.join(
+      projectsRoot,
+      archiveResult.data.archivedPath
+    );
     const sourcePath = path.join(projectsRoot, created.data.path);
 
     await expect(fs.access(sourcePath)).rejects.toBeDefined();
     await expect(fs.stat(archiveRoot)).resolves.toBeDefined();
     await expect(fs.stat(archivedDir)).resolves.toBeDefined();
 
-    const archivedReadme = await fs.readFile(path.join(archivedDir, "README.md"), "utf8");
+    const archivedReadme = await fs.readFile(
+      path.join(archivedDir, "README.md"),
+      "utf8"
+    );
     expect(archivedReadme).toContain('status: "archived"');
 
-    const unarchiveResult = await unarchiveProject(config, created.data.id, "maybe");
+    const unarchiveResult = await unarchiveProject(
+      config,
+      created.data.id,
+      "maybe"
+    );
     expect(unarchiveResult.ok).toBe(true);
     if (!unarchiveResult.ok) return;
 
@@ -144,13 +185,25 @@ describe("projects store", () => {
     await expect(fs.access(archivedDir)).rejects.toBeDefined();
     await expect(fs.stat(activeDir)).resolves.toBeDefined();
 
-    const activeReadme = await fs.readFile(path.join(activeDir, "README.md"), "utf8");
+    const activeReadme = await fs.readFile(
+      path.join(activeDir, "README.md"),
+      "utf8"
+    );
     expect(activeReadme).toContain('status: "maybe"');
   });
 
   it("updates thread comments preserving author and date", async () => {
-    const { createProject, appendProjectComment, updateProjectComment, getProject } = await import("./store.js");
-    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+    const {
+      createProject,
+      appendProjectComment,
+      updateProjectComment,
+      getProject,
+    } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
 
     const created = await createProject(config, { title: "Comment Test" });
     if (!created.ok) throw new Error(created.error);
@@ -167,7 +220,12 @@ describe("projects store", () => {
       body: "Second comment",
     });
 
-    const updated = await updateProjectComment(config, created.data.id, 0, "Updated first comment");
+    const updated = await updateProjectComment(
+      config,
+      created.data.id,
+      0,
+      "Updated first comment"
+    );
     expect(updated.ok).toBe(true);
     if (!updated.ok) return;
     expect(updated.data.author).toBe("Alice");
@@ -183,20 +241,28 @@ describe("projects store", () => {
 
   it("keeps runAgent/runMode/baseBranch in frontmatter after updateProject", async () => {
     const { createProject, updateProject } = await import("./store.js");
-    const config = { agents: [], sessions: { idleMinutes: 360 }, projects: { root: projectsRoot } };
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
 
-    const created = await createProject(config, { title: "Frontmatter Persist" });
+    const created = await createProject(config, {
+      title: "Frontmatter Persist",
+    });
     if (!created.ok) throw new Error(created.error);
 
     const readmePath = path.join(projectsRoot, created.data.path, "README.md");
     const originalReadme = await fs.readFile(readmePath, "utf8");
     const seededReadme = originalReadme.replace(
-      "id: \"PRO-1\"",
-      "id: \"PRO-1\"\nrunAgent: \"cloud\"\nrunMode: \"worktree\"\nbaseBranch: \"main\"",
+      'id: "PRO-1"',
+      'id: "PRO-1"\nrunAgent: "cloud"\nrunMode: "worktree"\nbaseBranch: "main"'
     );
     await fs.writeFile(readmePath, seededReadme, "utf8");
 
-    const updated = await updateProject(config, created.data.id, { status: "in_progress" });
+    const updated = await updateProject(config, created.data.id, {
+      status: "in_progress",
+    });
     expect(updated.ok).toBe(true);
     if (!updated.ok) return;
 
@@ -205,5 +271,44 @@ describe("projects store", () => {
     expect(nextReadme).toContain('runMode: "worktree"');
     expect(nextReadme).toContain('baseBranch: "main"');
     expect(nextReadme).toContain('status: "in_progress"');
+  });
+
+  it("inherits repo from area when project repo is missing", async () => {
+    const { createProject, updateProject, getProject } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    await fs.mkdir(path.join(projectsRoot, ".areas"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectsRoot, ".areas", "aihub.yaml"),
+      'id: "aihub"\ntitle: "AIHub"\ncolor: "#3b8ecc"\nrepo: "~/code/aihub"\n',
+      "utf8"
+    );
+
+    const created = await createProject(config, { title: "Repo Inherit" });
+    if (!created.ok) throw new Error(created.error);
+
+    const withArea = await updateProject(config, created.data.id, {
+      area: "aihub",
+    });
+    expect(withArea.ok).toBe(true);
+    if (!withArea.ok) return;
+    expect(withArea.data.frontmatter.repo).toBe("~/code/aihub");
+
+    const fetched = await getProject(config, created.data.id);
+    expect(fetched.ok).toBe(true);
+    if (!fetched.ok) return;
+    expect(fetched.data.frontmatter.repo).toBe("~/code/aihub");
+
+    const withRepo = await updateProject(config, created.data.id, {
+      repo: "/tmp/custom-repo",
+    });
+    expect(withRepo.ok).toBe(true);
+    if (!withRepo.ok) return;
+    expect(withRepo.data.frontmatter.repo).toBe("/tmp/custom-repo");
   });
 });

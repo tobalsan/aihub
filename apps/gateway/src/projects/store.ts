@@ -1,9 +1,16 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { GatewayConfig, CreateProjectRequest, UpdateProjectRequest, UploadedAttachment, ProjectStatus } from "@aihub/shared";
+import type {
+  GatewayConfig,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  UploadedAttachment,
+  ProjectStatus,
+} from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { CONFIG_DIR } from "../config/index.js";
+import { listAreas } from "../areas/store.js";
 
 const PROJECTS_STATE_PATH = path.join(CONFIG_DIR, "projects.json");
 const THREAD_FILE = "THREAD.md";
@@ -124,7 +131,11 @@ async function readProjectsState(): Promise<ProjectsState> {
 
 async function writeProjectsState(state: ProjectsState): Promise<void> {
   await ensureDir(CONFIG_DIR);
-  await fs.writeFile(PROJECTS_STATE_PATH, JSON.stringify(state, null, 2), "utf8");
+  await fs.writeFile(
+    PROJECTS_STATE_PATH,
+    JSON.stringify(state, null, 2),
+    "utf8"
+  );
 }
 
 async function allocateProjectId(): Promise<string> {
@@ -154,7 +165,10 @@ function formatFrontmatter(frontmatter: Record<string, unknown>): string {
   return `---\n${lines.join("\n")}\n---\n`;
 }
 
-function formatMarkdown(frontmatter: Record<string, unknown>, content: string): string {
+function formatMarkdown(
+  frontmatter: Record<string, unknown>,
+  content: string
+): string {
   const fm = formatFrontmatter(frontmatter);
   return `${fm}${content}`;
 }
@@ -204,12 +218,19 @@ function parseThreadEntry(section: string): ProjectThreadEntry | null {
 
 async function readMarkdownIfExists(
   filePath: string
-): Promise<{ frontmatter: Record<string, unknown>; content: string; title: string } | null> {
+): Promise<{
+  frontmatter: Record<string, unknown>;
+  content: string;
+  title: string;
+} | null> {
   if (!(await fileExists(filePath))) return null;
   return parseMarkdownFile(filePath);
 }
 
-async function findProjectDir(root: string, id: string): Promise<string | null> {
+async function findProjectDir(
+  root: string,
+  id: string
+): Promise<string | null> {
   if (!(await dirExists(root))) return null;
   const entries = await fs.readdir(root, { withFileTypes: true });
   for (const entry of entries) {
@@ -221,7 +242,10 @@ async function findProjectDir(root: string, id: string): Promise<string | null> 
   return null;
 }
 
-async function findArchivedProjectDir(root: string, id: string): Promise<string | null> {
+async function findArchivedProjectDir(
+  root: string,
+  id: string
+): Promise<string | null> {
   return findProjectDir(path.join(root, ARCHIVE_DIR), id);
 }
 
@@ -229,12 +253,38 @@ function toStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export async function listProjects(config: GatewayConfig): Promise<ProjectListResult> {
+async function getAreaRepoMap(
+  config: GatewayConfig
+): Promise<Map<string, string>> {
+  const areas = await listAreas(config);
+  const map = new Map<string, string>();
+  for (const area of areas) {
+    if (!area.repo) continue;
+    map.set(area.id, area.repo);
+  }
+  return map;
+}
+
+function resolveProjectRepo(
+  frontmatter: Record<string, unknown>,
+  areaRepoMap: Map<string, string>
+): string | undefined {
+  const projectRepo = toStringField(frontmatter.repo);
+  if (projectRepo) return projectRepo;
+  const areaId = toStringField(frontmatter.area);
+  if (!areaId) return undefined;
+  return areaRepoMap.get(areaId);
+}
+
+export async function listProjects(
+  config: GatewayConfig
+): Promise<ProjectListResult> {
   const root = getProjectsRoot(config);
   if (!(await dirExists(root))) {
     return { ok: true, data: [] };
   }
   await migrateTrashRoot(root);
+  const areaRepoMap = await getAreaRepoMap(config);
 
   const entries = await fs.readdir(root, { withFileTypes: true });
   const projects: ProjectListItem[] = [];
@@ -247,18 +297,22 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
     try {
       const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
       const mdFiles = dirEntries
-        .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
-        .map(e => e.name);
+        .filter(
+          (e) => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE
+        )
+        .map((e) => e.name);
       if (mdFiles.length === 0) continue;
 
       // Priority: README.md frontmatter > SPECS.md frontmatter > first .md file
       let frontmatter: Record<string, unknown> = {};
       let title = dirName;
-      const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
-      const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
+      const specsFile = mdFiles.find((f) => f.toUpperCase() === "SPECS.MD");
+      const readmeFile = mdFiles.find((f) => f.toUpperCase() === "README.MD");
       const primaryFile = readmeFile ?? specsFile ?? mdFiles[0];
       if (primaryFile) {
-        const parsed = await readMarkdownIfExists(path.join(dirPath, primaryFile));
+        const parsed = await readMarkdownIfExists(
+          path.join(dirPath, primaryFile)
+        );
         if (parsed) {
           frontmatter = parsed.frontmatter;
           title = parsed.title;
@@ -267,12 +321,21 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
 
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
+      const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
+      const resolvedFrontmatter: Record<string, unknown> = {
+        ...frontmatter,
+        id,
+        title: resolvedTitle,
+      };
+      if (resolvedRepo) {
+        resolvedFrontmatter.repo = resolvedRepo;
+      }
       projects.push({
         id,
         title: resolvedTitle,
         path: dirName,
         absolutePath: dirPath,
-        frontmatter: { ...frontmatter, id, title: resolvedTitle },
+        frontmatter: resolvedFrontmatter,
       });
     } catch {
       // Skip invalid project folder
@@ -282,12 +345,15 @@ export async function listProjects(config: GatewayConfig): Promise<ProjectListRe
   return { ok: true, data: projects };
 }
 
-export async function listArchivedProjects(config: GatewayConfig): Promise<ProjectListResult> {
+export async function listArchivedProjects(
+  config: GatewayConfig
+): Promise<ProjectListResult> {
   const root = getProjectsRoot(config);
   const archiveRoot = path.join(root, ARCHIVE_DIR);
   if (!(await dirExists(archiveRoot))) {
     return { ok: true, data: [] };
   }
+  const areaRepoMap = await getAreaRepoMap(config);
 
   const entries = await fs.readdir(archiveRoot, { withFileTypes: true });
   const projects: ProjectListItem[] = [];
@@ -300,17 +366,21 @@ export async function listArchivedProjects(config: GatewayConfig): Promise<Proje
     try {
       const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
       const mdFiles = dirEntries
-        .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
-        .map(e => e.name);
+        .filter(
+          (e) => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE
+        )
+        .map((e) => e.name);
       if (mdFiles.length === 0) continue;
 
       let frontmatter: Record<string, unknown> = {};
       let title = dirName;
-      const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
-      const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
+      const specsFile = mdFiles.find((f) => f.toUpperCase() === "SPECS.MD");
+      const readmeFile = mdFiles.find((f) => f.toUpperCase() === "README.MD");
       const primaryFile = readmeFile ?? specsFile ?? mdFiles[0];
       if (primaryFile) {
-        const parsed = await readMarkdownIfExists(path.join(dirPath, primaryFile));
+        const parsed = await readMarkdownIfExists(
+          path.join(dirPath, primaryFile)
+        );
         if (parsed) {
           frontmatter = parsed.frontmatter;
           title = parsed.title;
@@ -319,12 +389,21 @@ export async function listArchivedProjects(config: GatewayConfig): Promise<Proje
 
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
+      const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
+      const resolvedFrontmatter: Record<string, unknown> = {
+        ...frontmatter,
+        id,
+        title: resolvedTitle,
+      };
+      if (resolvedRepo) {
+        resolvedFrontmatter.repo = resolvedRepo;
+      }
       projects.push({
         id,
         title: resolvedTitle,
         path: path.join(ARCHIVE_DIR, dirName),
         absolutePath: dirPath,
-        frontmatter: { ...frontmatter, id, title: resolvedTitle },
+        frontmatter: resolvedFrontmatter,
       });
     } catch {
       // Skip invalid project folder
@@ -339,6 +418,7 @@ export async function getProject(
   id: string
 ): Promise<ProjectItemResult> {
   const root = getProjectsRoot(config);
+  const areaRepoMap = await getAreaRepoMap(config);
   await migrateTrashRoot(root);
   let dirName = await findProjectDir(root, id);
   let baseRoot = root;
@@ -355,21 +435,29 @@ export async function getProject(
 
   const dirPath = path.join(baseRoot, dirName);
   const threadPath = path.join(dirPath, THREAD_FILE);
-  const threadRaw = (await fileExists(threadPath)) ? await fs.readFile(threadPath, "utf8") : "";
-  const thread = threadRaw ? parseThreadSections(threadRaw).map(parseThreadEntry).filter(Boolean) as ProjectThreadEntry[] : [];
+  const threadRaw = (await fileExists(threadPath))
+    ? await fs.readFile(threadPath, "utf8")
+    : "";
+  const thread = threadRaw
+    ? (parseThreadSections(threadRaw)
+        .map(parseThreadEntry)
+        .filter(Boolean) as ProjectThreadEntry[])
+    : [];
 
   // Scan for all .md files at root (non-recursive)
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
   const mdFiles = entries
-    .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
-    .map(e => e.name);
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE
+    )
+    .map((e) => e.name);
 
   // Build docs map
   const docs: Record<string, string> = {};
   let frontmatter: Record<string, unknown> = {};
   let title = dirName;
-  const specsFile = mdFiles.find(f => f.toUpperCase() === "SPECS.MD");
-  const readmeFile = mdFiles.find(f => f.toUpperCase() === "README.MD");
+  const specsFile = mdFiles.find((f) => f.toUpperCase() === "SPECS.MD");
+  const readmeFile = mdFiles.find((f) => f.toUpperCase() === "README.MD");
 
   for (const file of mdFiles) {
     const parsed = await readMarkdownIfExists(path.join(dirPath, file));
@@ -389,6 +477,15 @@ export async function getProject(
 
   const resolvedTitle = toStringField(frontmatter.title) ?? title;
   const resolvedId = toStringField(frontmatter.id) ?? id;
+  const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
+  const resolvedFrontmatter: Record<string, unknown> = {
+    ...frontmatter,
+    id: resolvedId,
+    title: resolvedTitle,
+  };
+  if (resolvedRepo) {
+    resolvedFrontmatter.repo = resolvedRepo;
+  }
 
   return {
     ok: true,
@@ -397,7 +494,7 @@ export async function getProject(
       title: resolvedTitle,
       path: baseRoot === root ? dirName : path.join(ARCHIVE_DIR, dirName),
       absolutePath: dirPath,
-      frontmatter: { ...frontmatter, id: resolvedId, title: resolvedTitle },
+      frontmatter: resolvedFrontmatter,
       docs,
       thread,
     },
@@ -435,12 +532,17 @@ export async function createProject(
   if (input.owner) frontmatter.owner = input.owner;
   if (input.executionMode) frontmatter.executionMode = input.executionMode;
   if (input.appetite) frontmatter.appetite = input.appetite;
+  if (input.area) frontmatter.area = input.area;
   const readmeBody = input.description
     ? `# ${trimmedTitle}\n\n${input.description}\n`
     : `# ${trimmedTitle}\n`;
   const readmeContent = formatMarkdown(frontmatter, readmeBody);
   await fs.writeFile(path.join(dirPath, "README.md"), readmeContent, "utf8");
-  await fs.writeFile(path.join(dirPath, THREAD_FILE), formatThreadFrontmatter(id), "utf8");
+  await fs.writeFile(
+    path.join(dirPath, THREAD_FILE),
+    formatThreadFrontmatter(id),
+    "utf8"
+  );
 
   return {
     ok: true,
@@ -473,9 +575,13 @@ export async function updateProject(
   const currentReadmePath = path.join(dirPath, "README.md");
   const parsedSpecs = await readMarkdownIfExists(currentSpecsPath);
   const parsedReadme = await readMarkdownIfExists(currentReadmePath);
-  const currentFrontmatter = parsedReadme?.frontmatter ?? parsedSpecs?.frontmatter ?? {};
+  const currentFrontmatter =
+    parsedReadme?.frontmatter ?? parsedSpecs?.frontmatter ?? {};
   const currentTitle =
-    toStringField(currentFrontmatter.title) ?? parsedReadme?.title ?? parsedSpecs?.title ?? id;
+    toStringField(currentFrontmatter.title) ??
+    parsedReadme?.title ??
+    parsedSpecs?.title ??
+    id;
   const nextTitle = input.title ?? currentTitle;
   const nextSlug = slugifyTitle(nextTitle);
   const nextDirName = `${id}_${nextSlug}`;
@@ -507,10 +613,14 @@ export async function updateProject(
   else if (input.owner) nextFrontmatter.owner = input.owner;
 
   if (input.executionMode === "") delete nextFrontmatter.executionMode;
-  else if (input.executionMode) nextFrontmatter.executionMode = input.executionMode;
+  else if (input.executionMode)
+    nextFrontmatter.executionMode = input.executionMode;
 
   if (input.repo === "") delete nextFrontmatter.repo;
   else if (input.repo) nextFrontmatter.repo = input.repo;
+
+  if (input.area === "") delete nextFrontmatter.area;
+  else if (input.area) nextFrontmatter.area = input.area;
 
   if (input.sessionKeys === null) delete nextFrontmatter.sessionKeys;
   else if (input.sessionKeys) nextFrontmatter.sessionKeys = input.sessionKeys;
@@ -525,7 +635,11 @@ export async function updateProject(
       const filePath = path.join(finalDirPath, fileName);
       // README.md gets frontmatter
       if (key === "README") {
-        await fs.writeFile(filePath, formatMarkdown(nextFrontmatter, content), "utf8");
+        await fs.writeFile(
+          filePath,
+          formatMarkdown(nextFrontmatter, content),
+          "utf8"
+        );
       } else {
         await fs.writeFile(filePath, content, "utf8");
       }
@@ -534,16 +648,28 @@ export async function updateProject(
 
   // Handle legacy readme/specs updates
   if (input.readme !== undefined && !input.docs?.README) {
-    await fs.writeFile(path.join(finalDirPath, "README.md"), formatMarkdown(nextFrontmatter, input.readme), "utf8");
+    await fs.writeFile(
+      path.join(finalDirPath, "README.md"),
+      formatMarkdown(nextFrontmatter, input.readme),
+      "utf8"
+    );
   }
   if (input.specs !== undefined && !input.docs?.SPECS) {
-    await fs.writeFile(path.join(finalDirPath, "SPECS.md"), input.specs, "utf8");
+    await fs.writeFile(
+      path.join(finalDirPath, "SPECS.md"),
+      input.specs,
+      "utf8"
+    );
   }
 
   // Ensure frontmatter update even if no docs changed
   if (!input.docs?.README && input.readme === undefined) {
     const existingReadme = parsedReadme?.content ?? "";
-    await fs.writeFile(path.join(finalDirPath, "README.md"), formatMarkdown(nextFrontmatter, existingReadme), "utf8");
+    await fs.writeFile(
+      path.join(finalDirPath, "README.md"),
+      formatMarkdown(nextFrontmatter, existingReadme),
+      "utf8"
+    );
   }
 
   const finalThreadPath = path.join(finalDirPath, THREAD_FILE);
@@ -554,8 +680,10 @@ export async function updateProject(
   // Re-read all docs
   const entries = await fs.readdir(finalDirPath, { withFileTypes: true });
   const mdFiles = entries
-    .filter(e => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE)
-    .map(e => e.name);
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE
+    )
+    .map((e) => e.name);
 
   const docs: Record<string, string> = {};
   for (const file of mdFiles) {
@@ -566,6 +694,13 @@ export async function updateProject(
     }
   }
 
+  const areaRepoMap = await getAreaRepoMap(config);
+  const resolvedRepo = resolveProjectRepo(nextFrontmatter, areaRepoMap);
+  const resolvedFrontmatter = { ...nextFrontmatter };
+  if (resolvedRepo) {
+    resolvedFrontmatter.repo = resolvedRepo;
+  }
+
   return {
     ok: true,
     data: {
@@ -573,7 +708,7 @@ export async function updateProject(
       title: nextTitle,
       path: finalDirName,
       absolutePath: finalDirPath,
-      frontmatter: nextFrontmatter,
+      frontmatter: resolvedFrontmatter,
       docs,
       thread: [],
     },
@@ -602,7 +737,10 @@ export async function deleteProject(
 
   await fs.rename(sourcePath, targetPath);
 
-  return { ok: true, data: { id, path: dirName, trashedPath: path.join(TRASH_DIR, dirName) } };
+  return {
+    ok: true,
+    data: { id, path: dirName, trashedPath: path.join(TRASH_DIR, dirName) },
+  };
 }
 
 export async function archiveProject(
@@ -631,7 +769,10 @@ export async function archiveProject(
 
   await fs.rename(sourcePath, targetPath);
 
-  return { ok: true, data: { id, path: dirName, archivedPath: path.join(ARCHIVE_DIR, dirName) } };
+  return {
+    ok: true,
+    data: { id, path: dirName, archivedPath: path.join(ARCHIVE_DIR, dirName) },
+  };
 }
 
 export async function unarchiveProject(
@@ -694,15 +835,30 @@ export async function appendProjectComment(
   return { ok: true, data: entry };
 }
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+]);
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
-async function generateUniqueName(dir: string, baseName: string): Promise<string> {
+async function generateUniqueName(
+  dir: string,
+  baseName: string
+): Promise<string> {
   const ext = path.extname(baseName);
   const nameWithoutExt = path.basename(baseName, ext);
   let candidate = baseName;
   let counter = 1;
-  while (await fs.access(path.join(dir, candidate)).then(() => true).catch(() => false)) {
+  while (
+    await fs
+      .access(path.join(dir, candidate))
+      .then(() => true)
+      .catch(() => false)
+  ) {
     candidate = `${nameWithoutExt}-${counter}${ext}`;
     counter++;
   }
@@ -767,7 +923,11 @@ export async function resolveAttachmentFile(
   if (!fileName || fileName === "." || fileName === "..") {
     return { ok: false, error: "Invalid attachment name" };
   }
-  if (fileName !== path.basename(fileName) || fileName.includes("/") || fileName.includes("\\")) {
+  if (
+    fileName !== path.basename(fileName) ||
+    fileName.includes("/") ||
+    fileName.includes("\\")
+  ) {
     return { ok: false, error: "Invalid attachment name" };
   }
 
@@ -811,7 +971,8 @@ export async function updateProjectComment(
   }
 
   const updatedEntry = { ...entry, body };
-  sections[index] = `[author:${updatedEntry.author}]\n[date:${updatedEntry.date}]\n${body.trim()}`;
+  sections[index] =
+    `[author:${updatedEntry.author}]\n[date:${updatedEntry.date}]\n${body.trim()}`;
 
   const next = prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n");
   await fs.writeFile(threadPath, next, "utf8");
@@ -850,9 +1011,10 @@ export async function deleteProjectComment(
 
   sections.splice(index, 1);
 
-  const next = sections.length > 0
-    ? prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n")
-    : prefix;
+  const next =
+    sections.length > 0
+      ? prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n")
+      : prefix;
   await fs.writeFile(threadPath, next, "utf8");
 
   return { ok: true, data: { index } };

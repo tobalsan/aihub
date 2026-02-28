@@ -7,6 +7,7 @@ import {
   SendMessageRequestSchema,
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
+  AreaSchema,
   CreateProjectRequestSchema,
   CreateConversationProjectRequestSchema,
   PostConversationMessageRequestSchema,
@@ -17,6 +18,7 @@ import {
 } from "@aihub/shared";
 import type { UpdateProjectRequest } from "@aihub/shared";
 import { buildProjectStartPrompt, normalizeProjectStatus } from "@aihub/shared";
+import { z } from "zod";
 import {
   getActiveAgents,
   getAgent,
@@ -55,7 +57,18 @@ import {
   deleteProjectComment,
   saveAttachments,
   resolveAttachmentFile,
+  parseTasks,
+  serializeTasks,
+  readSpec,
+  writeSpec,
 } from "../projects/index.js";
+import {
+  listAreas,
+  createArea,
+  updateArea,
+  deleteArea,
+  migrateAreas,
+} from "../areas/index.js";
 import {
   listConversations,
   getConversation,
@@ -244,6 +257,22 @@ function generateRalphLoopSlug(): string {
   const rand = Math.random().toString(36).slice(2, 7);
   return `ralph-${now}-${rand}`;
 }
+
+const UpdateTaskRequestSchema = z.object({
+  checked: z.boolean().optional(),
+  status: z.enum(["todo", "in_progress", "done"]).optional(),
+  agentId: z.union([z.string(), z.null()]).optional(),
+});
+
+const CreateTaskRequestSchema = z.object({
+  title: z.string(),
+  description: z.string().optional(),
+  status: z.enum(["todo", "in_progress", "done"]).optional(),
+});
+
+const PutSpecRequestSchema = z.object({
+  content: z.string(),
+});
 
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", (c) => {
@@ -453,6 +482,68 @@ api.delete("/schedules/:id", async (c) => {
     return c.json({ error: "Schedule not found" }, 404);
   }
   return c.json({ ok: true });
+});
+
+// GET /api/areas - list areas from YAML store
+api.get("/areas", async (c) => {
+  const config = getConfig();
+  const areas = await listAreas(config);
+  return c.json(areas);
+});
+
+// POST /api/areas - create area
+api.post("/areas", async (c) => {
+  const body = await c.req.json();
+  const parsed = AreaSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  try {
+    const area = await createArea(config, parsed.data);
+    return c.json(area, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = message.startsWith("Area already exists") ? 409 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+// PATCH /api/areas/:id - update area
+api.patch("/areas/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = AreaSchema.partial().safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  try {
+    const area = await updateArea(config, id, parsed.data);
+    return c.json(area);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = message.startsWith("Area not found") ? 404 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+// DELETE /api/areas/:id - delete area file
+api.delete("/areas/:id", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const deleted = await deleteArea(config, id);
+  if (!deleted) {
+    return c.json({ error: "Area not found" }, 404);
+  }
+  return c.json({ ok: true });
+});
+
+// POST /api/areas/migrate - seed defaults + infer project areas
+api.post("/areas/migrate", async (c) => {
+  const config = getConfig();
+  const result = await migrateAreas(config);
+  return c.json(result);
 });
 
 // POST /api/projects/:id/start - start project run using stored metadata
@@ -768,6 +859,159 @@ api.get("/projects/:id", async (c) => {
     return c.json({ error: result.error }, 404);
   }
   return c.json(result.data);
+});
+
+// GET /api/projects/:id/spec - read raw SPECS.md
+api.get("/projects/:id/spec", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const project = await getProject(config, id);
+  if (!project.ok) {
+    return c.json({ error: project.error }, 404);
+  }
+  const content = await readSpec(config, id);
+  return c.json({ content });
+});
+
+// PUT /api/projects/:id/spec - overwrite SPECS.md
+api.put("/projects/:id/spec", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = PutSpecRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  const project = await getProject(config, id);
+  if (!project.ok) {
+    return c.json({ error: project.error }, 404);
+  }
+  await writeSpec(config, id, parsed.data.content);
+  return c.json({ ok: true });
+});
+
+// GET /api/projects/:id/tasks - parse tasks from SPECS.md
+api.get("/projects/:id/tasks", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const project = await getProject(config, id);
+  if (!project.ok) {
+    return c.json({ error: project.error }, 404);
+  }
+  const specs = await readSpec(config, id);
+  const tasks = parseTasks(specs);
+  const done = tasks.filter((task) => task.checked).length;
+  return c.json({
+    tasks,
+    progress: { done, total: tasks.length },
+  });
+});
+
+// POST /api/projects/:id/tasks - append task to ## Tasks
+api.post("/projects/:id/tasks", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = CreateTaskRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  const project = await getProject(config, id);
+  if (!project.ok) {
+    return c.json({ error: project.error }, 404);
+  }
+
+  const specs = await readSpec(config, id);
+  const tasks = parseTasks(specs);
+  const status = parsed.data.status ?? "todo";
+  const checked = status === "done";
+  tasks.push({
+    title: parsed.data.title,
+    description: parsed.data.description,
+    status,
+    checked,
+    order: tasks.length,
+  });
+  const nextSpecs = serializeTasks(tasks, specs);
+  await writeSpec(config, id, nextSpecs);
+  return c.json({ task: tasks[tasks.length - 1] }, 201);
+});
+
+// PATCH /api/projects/:id/tasks/:order - update task state
+api.patch("/projects/:id/tasks/:order", async (c) => {
+  const id = c.req.param("id");
+  const order = Number(c.req.param("order"));
+  if (!Number.isInteger(order) || order < 0) {
+    return c.json({ error: "Invalid task order" }, 400);
+  }
+  const body = await c.req.json();
+  const parsed = UpdateTaskRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  const project = await getProject(config, id);
+  if (!project.ok) {
+    return c.json({ error: project.error }, 404);
+  }
+
+  const specs = await readSpec(config, id);
+  const tasks = parseTasks(specs);
+  const task = tasks[order];
+  if (!task) {
+    return c.json({ error: "Task not found" }, 404);
+  }
+
+  let checked = parsed.data.checked ?? task.checked;
+  let status = parsed.data.status ?? task.status;
+  if (parsed.data.checked !== undefined && parsed.data.status === undefined) {
+    status = parsed.data.checked ? "done" : "todo";
+  }
+  if (parsed.data.status !== undefined && parsed.data.checked === undefined) {
+    checked = parsed.data.status === "done";
+  }
+
+  const agentId =
+    parsed.data.agentId === undefined
+      ? task.agentId
+      : parsed.data.agentId === null
+        ? undefined
+        : parsed.data.agentId;
+
+  tasks[order] = {
+    ...task,
+    checked,
+    status,
+    agentId,
+    order,
+  };
+  const nextSpecs = serializeTasks(tasks, specs);
+  await writeSpec(config, id, nextSpecs);
+  return c.json({ task: tasks[order] });
+});
+
+// DELETE /api/projects/:id/tasks/:order - remove a task
+api.delete("/projects/:id/tasks/:order", async (c) => {
+  const id = c.req.param("id");
+  const order = Number(c.req.param("order"));
+  if (!Number.isInteger(order) || order < 0) {
+    return c.json({ error: "Invalid task order" }, 400);
+  }
+  const config = getConfig();
+  const project = await getProject(config, id);
+  if (!project.ok) {
+    return c.json({ error: project.error }, 404);
+  }
+
+  const specs = await readSpec(config, id);
+  const tasks = parseTasks(specs);
+  if (!tasks[order]) {
+    return c.json({ error: "Task not found" }, 404);
+  }
+  tasks.splice(order, 1);
+  const nextSpecs = serializeTasks(tasks, specs);
+  await writeSpec(config, id, nextSpecs);
+  return c.json({ ok: true });
 });
 
 // PATCH /api/projects/:id - update project (frontmatter + docs)
