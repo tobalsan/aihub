@@ -26,6 +26,14 @@ import { SpecEditor } from "./SpecEditor";
 
 type MergedTab = "chat" | "activity" | "changes" | "spec";
 
+function getBaseAppTitle(): string {
+  if (import.meta.env.VITE_AIHUB_DEV === "true") {
+    const port = import.meta.env.VITE_AIHUB_UI_PORT ?? "?";
+    return `[DEV :${port}] AIHub`;
+  }
+  return "AIHub";
+}
+
 function getFrontmatterString(
   frontmatter: Record<string, unknown> | undefined,
   key: string
@@ -246,6 +254,16 @@ export function ProjectDetailPage() {
       agentId: leadAgentId,
       agentName: leadAgentId,
     });
+  });
+
+  createEffect(() => {
+    const current = project();
+    if (!current) return;
+    document.title = `${current.title} · ${getBaseAppTitle()}`;
+  });
+
+  onCleanup(() => {
+    document.title = getBaseAppTitle();
   });
 
   return (

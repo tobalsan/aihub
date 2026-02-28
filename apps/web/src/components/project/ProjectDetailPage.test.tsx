@@ -84,6 +84,7 @@ describe("ProjectDetailPage", () => {
     expect(container.textContent).toContain("Back to Projects");
     expect(container.textContent).toContain("AIHub");
     expect(container.textContent).toContain("Alpha Project");
+    expect(document.title).toContain("Alpha Project");
 
     dispose();
   });

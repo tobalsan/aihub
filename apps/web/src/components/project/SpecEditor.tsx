@@ -576,6 +576,12 @@ export function SpecEditor(props: SpecEditorProps) {
           overflow: auto;
         }
 
+        .spec-edit-pane {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+        }
+
         .spec-bottom-pane {
           display: grid;
           gap: 10px;
@@ -861,8 +867,9 @@ export function SpecEditor(props: SpecEditorProps) {
 
         .spec-textarea {
           width: 100%;
+          flex: 1;
           height: 100%;
-          min-height: 100%;
+          min-height: 0;
           border: 1px solid #1c2430;
           border-top: 0;
           border-radius: 0 0 12px 12px;
