@@ -124,7 +124,7 @@ export function ChangesView(props: ChangesViewProps) {
   const [commitError, setCommitError] = createSignal<string | null>(null);
   const [committing, setCommitting] = createSignal(false);
   const [autoCommit, setAutoCommit] = createSignal(false);
-  const fileRefs = new Map<string, HTMLDivElement>();
+  const fileRefs = new Map<string, HTMLElement>();
 
   const refresh = async (initial = false) => {
     if (initial) setLoading(true);

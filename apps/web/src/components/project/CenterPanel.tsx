@@ -227,7 +227,7 @@ export function CenterPanel(props: CenterPanelProps) {
                     selected().type === "subagent" && selected().slug
                       ? {
                           projectId: selected().projectId,
-                          slug: selected().slug,
+                          slug: selected().slug!,
                           cli: selected().cli,
                           status: selected().status as
                             | "running"
