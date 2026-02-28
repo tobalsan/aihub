@@ -47,6 +47,8 @@ import {
   listProjects,
   listArchivedProjects,
   getProject,
+  getProjectChanges,
+  commitProjectChanges,
   createProject,
   updateProject,
   deleteProject,
@@ -272,6 +274,9 @@ const CreateTaskRequestSchema = z.object({
 
 const PutSpecRequestSchema = z.object({
   content: z.string(),
+});
+const CommitProjectChangesRequestSchema = z.object({
+  message: z.string(),
 });
 
 // GET /api/agents - list all agents (respects single-agent mode)
@@ -1703,6 +1708,61 @@ api.get("/projects/:id/branches", async (c) => {
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
+});
+
+// GET /api/projects/:id/changes - get git changes
+api.get("/projects/:id/changes", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  try {
+    const result = await getProjectChanges(config, id);
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message === "Project repo not set" || message === "Not a git repository"
+        ? 400
+        : message.startsWith("Project not found")
+          ? 404
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// POST /api/projects/:id/commit - commit all project changes
+api.post("/projects/:id/commit", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = CommitProjectChangesRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const config = getConfig();
+  try {
+    const result = await commitProjectChanges(config, id, parsed.data.message);
+    if (!result.ok) {
+      const status =
+        result.error === "Project repo not set" ||
+        result.error === "Not a git repository" ||
+        result.error === "Nothing to commit"
+          ? 400
+          : result.error.startsWith("Project not found")
+            ? 404
+            : 500;
+      return c.json({ error: result.error }, status);
+    }
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message === "Project repo not set" || message === "Not a git repository"
+        ? 400
+        : message.startsWith("Project not found")
+          ? 404
+          : 500;
+    return c.json({ error: message }, status);
+  }
 });
 
 // GET /api/taskboard - list all todos and projects (excluding done)

@@ -409,3 +409,24 @@ export type SubagentLogsResponse = {
 export type ProjectBranchesResponse = {
   branches: string[];
 };
+
+export type FileChange = {
+  path: string;
+  status: "modified" | "added" | "deleted" | "renamed";
+  staged: boolean;
+};
+
+export type ProjectChanges = {
+  branch: string;
+  baseBranch: string;
+  files: FileChange[];
+  diff: string;
+  stats: { filesChanged: number; insertions: number; deletions: number };
+};
+
+export type CommitResult = {
+  ok: boolean;
+  sha?: string;
+  message?: string;
+  error?: string;
+};

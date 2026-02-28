@@ -114,11 +114,21 @@ async function appendHistory(
   event: Record<string, unknown>
 ): Promise<void> {
   const line = `${JSON.stringify(event)}\n`;
-  await fs.appendFile(historyPath, line, "utf8");
+  try {
+    await fs.appendFile(historyPath, line, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
 }
 
 async function writeJson(filePath: string, data: unknown): Promise<void> {
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+  try {
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
 }
 
 function isExecutableFile(p: string): Promise<boolean> {
@@ -711,53 +721,73 @@ export async function spawnSubagent(
   });
 
   child.stdout?.on("data", async (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    stdoutBuffer += text;
-    await fs.appendFile(logsPath, text, "utf8");
-    await writeJson(progressPath, {
-      last_active: new Date().toISOString(),
-      tool_calls: 0,
-    });
+    try {
+      const text = chunk.toString("utf8");
+      stdoutBuffer += text;
+      await fs.appendFile(logsPath, text, "utf8");
+      await writeJson(progressPath, {
+        last_active: new Date().toISOString(),
+        tool_calls: 0,
+      });
 
-    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-    for (const line of lines) {
-      if (input.cli === "codex") {
-        try {
-          const ev = JSON.parse(line) as { type?: string; thread_id?: string };
-          if (ev.type === "thread.started" && ev.thread_id) {
-            const next = { ...state, session_id: ev.thread_id };
-            await writeJson(statePath, next);
+      const lines = text
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0);
+      for (const line of lines) {
+        if (input.cli === "codex") {
+          try {
+            const ev = JSON.parse(line) as {
+              type?: string;
+              thread_id?: string;
+            };
+            if (ev.type === "thread.started" && ev.thread_id) {
+              const next = { ...state, session_id: ev.thread_id };
+              await writeJson(statePath, next);
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
+        }
+        if (input.cli === "claude") {
+          try {
+            const ev = JSON.parse(line) as {
+              type?: string;
+              session_id?: string;
+            };
+            if (ev.type === "system" && ev.session_id) {
+              const next = { ...state, session_id: ev.session_id };
+              await writeJson(statePath, next);
+            }
+          } catch {
+            // ignore
+          }
         }
       }
-      if (input.cli === "claude") {
-        try {
-          const ev = JSON.parse(line) as { type?: string; session_id?: string };
-          if (ev.type === "system" && ev.session_id) {
-            const next = { ...state, session_id: ev.session_id };
-            await writeJson(statePath, next);
-          }
-        } catch {
-          // ignore
-        }
-      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
     }
   });
 
   child.stderr?.on("data", async (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-    if (lines.length === 0) return;
-    const stamped = lines
-      .map((line) => JSON.stringify({ type: "stderr", text: line }))
-      .join("\n");
-    await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-    await writeJson(progressPath, {
-      last_active: new Date().toISOString(),
-      tool_calls: 0,
-    });
+    try {
+      const text = chunk.toString("utf8");
+      const lines = text
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0);
+      if (lines.length === 0) return;
+      const stamped = lines
+        .map((line) => JSON.stringify({ type: "stderr", text: line }))
+        .join("\n");
+      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+      await writeJson(progressPath, {
+        last_active: new Date().toISOString(),
+        tool_calls: 0,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
   });
 
   child.on("exit", async (code, signal) => {

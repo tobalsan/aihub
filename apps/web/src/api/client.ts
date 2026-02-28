@@ -24,6 +24,8 @@ import type {
   SubagentListResponse,
   SubagentLogsResponse,
   ProjectBranchesResponse,
+  ProjectChanges,
+  CommitResult,
   FileAttachment,
   UploadResponse,
   ProjectThreadEntry,
@@ -764,6 +766,37 @@ export async function fetchProjectBranches(
   }
   const data = (await res.json()) as ProjectBranchesResponse;
   return { ok: true, data };
+}
+
+export async function fetchProjectChanges(
+  projectId: string
+): Promise<ProjectChanges> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/changes`);
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch changes" }));
+    throw new Error(data.error ?? "Failed to fetch changes");
+  }
+  return (await res.json()) as ProjectChanges;
+}
+
+export async function commitProjectChanges(
+  projectId: string,
+  message: string
+): Promise<CommitResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to commit changes" }));
+    return { ok: false, error: data.error ?? "Failed to commit changes" };
+  }
+  return (await res.json()) as CommitResult;
 }
 
 export type SpawnSubagentInput = {

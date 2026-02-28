@@ -20,6 +20,8 @@ export {
   readSpec,
   writeSpec,
 } from "./tasks.js";
+export { getProjectChanges, commitProjectChanges } from "./git.js";
+export type { ProjectChanges, CommitResult, FileChange } from "./git.js";
 export type {
   ProjectListItem,
   ProjectDetail,

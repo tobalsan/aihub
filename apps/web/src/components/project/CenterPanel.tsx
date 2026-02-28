@@ -13,6 +13,7 @@ import type {
   SubagentListItem,
   SubagentLogEvent,
 } from "../../api/types";
+import { ChangesView } from "./ChangesView";
 
 export type CenterTab = "chat" | "activity" | "changes";
 export type SelectedProjectAgent = {
@@ -292,7 +293,7 @@ export function CenterPanel(props: CenterPanelProps) {
             </Show>
           </Show>
           <Show when={tab() === "changes"}>
-            <p class="center-placeholder">Git changes — coming soon</p>
+            <ChangesView projectId={props.project.id} />
           </Show>
         </div>
       </section>

@@ -1,6 +1,8 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchProjectBranches,
+  fetchProjectChanges,
+  commitProjectChanges,
   fetchAllSubagents,
   fetchSubagents,
   fetchSubagentLogs,
@@ -114,21 +116,64 @@ describe("api client (projects/subagents)", () => {
     }
   });
 
+  it("fetches project changes", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        branch: "feature/x",
+        baseBranch: "main",
+        files: [{ path: "src/a.ts", status: "modified", staged: false }],
+        diff: "diff --git a/src/a.ts b/src/a.ts",
+        stats: { filesChanged: 1, insertions: 2, deletions: 1 },
+      }),
+    });
+
+    const res = await fetchProjectChanges("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/changes");
+    expect(res.branch).toBe("feature/x");
+    expect(res.stats.filesChanged).toBe(1);
+  });
+
+  it("commits project changes", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, sha: "abc123", message: "test commit" }),
+    });
+
+    const res = await commitProjectChanges("PRO-9", "test commit");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/commit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "test commit" }),
+    });
+    expect(res.ok).toBe(true);
+    expect(res.sha).toBe("abc123");
+  });
+
   it("creates project from conversation", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ id: "PRO-7", title: "Routing", path: "PRO-7_routing" }),
+      json: async () => ({
+        id: "PRO-7",
+        title: "Routing",
+        path: "PRO-7_routing",
+      }),
     });
 
     const res = await createProjectFromConversation("conv-1", {
       title: "Routing",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/conversations/conv-1/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Routing" }),
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/conversations/conv-1/projects",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Routing" }),
+      }
+    );
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.id).toBe("PRO-7");
@@ -145,11 +190,14 @@ describe("api client (projects/subagents)", () => {
       message: "Ping @codex",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/conversations/conv-1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Ping @codex" }),
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/conversations/conv-1/messages",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Ping @codex" }),
+      }
+    );
     expect(res.mentions).toEqual(["codex"]);
   });
 
