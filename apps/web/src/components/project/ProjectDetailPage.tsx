@@ -141,10 +141,10 @@ export function ProjectDetailPage() {
     }
   };
 
-  const handleAddTask = async (title: string) => {
+  const handleAddTask = async (title: string, description?: string) => {
     const id = projectId();
     if (!id) return;
-    await createTask(id, { title });
+    await createTask(id, { title, description });
     await Promise.all([refetchTasks(), refetchSpec()]);
   };
 

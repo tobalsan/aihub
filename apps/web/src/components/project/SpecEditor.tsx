@@ -12,7 +12,7 @@ type SpecEditorProps = {
   progress: { done: number; total: number };
   areaColor?: string;
   onToggleTask: (task: Task) => Promise<void>;
-  onAddTask: (title: string) => Promise<void>;
+  onAddTask: (title: string, description?: string) => Promise<void>;
   onSaveSpec: (content: string) => Promise<void>;
   onSaveDoc?: (docKey: string, content: string) => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -144,6 +144,7 @@ export function SpecEditor(props: SpecEditorProps) {
   const [updatingOrder, setUpdatingOrder] = createSignal<number | null>(null);
   const [addingTask, setAddingTask] = createSignal(false);
   const [newTaskTitle, setNewTaskTitle] = createSignal("");
+  const [newTaskDesc, setNewTaskDesc] = createSignal("");
   const [optimisticCheckedByOrder, setOptimisticCheckedByOrder] = createSignal<
     Record<number, boolean>
   >({});
@@ -303,8 +304,10 @@ export function SpecEditor(props: SpecEditorProps) {
   const handleCreateTask = async () => {
     const title = newTaskTitle().trim();
     if (!title) return;
-    await props.onAddTask(title);
+    const desc = newTaskDesc().trim();
+    await props.onAddTask(title, desc || undefined);
     setNewTaskTitle("");
+    setNewTaskDesc("");
     setAddingTask(false);
   };
 
@@ -341,24 +344,57 @@ export function SpecEditor(props: SpecEditorProps) {
           </button>
         </Show>
         <Show when={addingTask()}>
-          <input
-            class="spec-add-input"
-            type="text"
-            placeholder="Task title"
-            value={newTaskTitle()}
-            onInput={(e) => setNewTaskTitle(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setAddingTask(false);
-                setNewTaskTitle("");
-                return;
-              }
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void handleCreateTask();
-              }
-            }}
-          />
+          <div class="spec-add-form">
+            <input
+              class="spec-add-input"
+              type="text"
+              placeholder="Task title"
+              value={newTaskTitle()}
+              onInput={(e) => setNewTaskTitle(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setAddingTask(false);
+                  setNewTaskTitle("");
+                  setNewTaskDesc("");
+                }
+              }}
+            />
+            <textarea
+              class="spec-add-input spec-add-desc"
+              placeholder="Description (optional)"
+              value={newTaskDesc()}
+              onInput={(e) => setNewTaskDesc(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setAddingTask(false);
+                  setNewTaskTitle("");
+                  setNewTaskDesc("");
+                }
+              }}
+              rows={2}
+            />
+            <div class="spec-add-actions">
+              <button
+                type="button"
+                class="spec-add-confirm"
+                onClick={() => void handleCreateTask()}
+                disabled={!newTaskTitle().trim()}
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                class="spec-add-cancel"
+                onClick={() => {
+                  setAddingTask(false);
+                  setNewTaskTitle("");
+                  setNewTaskDesc("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </Show>
       </section>
 
@@ -578,6 +614,11 @@ export function SpecEditor(props: SpecEditorProps) {
           cursor: pointer;
         }
 
+        .spec-add-form {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
         .spec-add-input {
           width: 100%;
           border: 1px solid #2a3240;
@@ -586,6 +627,40 @@ export function SpecEditor(props: SpecEditorProps) {
           color: #e4e4e7;
           padding: 8px;
           font-size: 12px;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .spec-add-desc {
+          font-size: 11px;
+          color: #a0a0b0;
+          min-height: 40px;
+        }
+        .spec-add-actions {
+          display: flex;
+          gap: 6px;
+        }
+        .spec-add-confirm,
+        .spec-add-cancel {
+          border: none;
+          border-radius: 6px;
+          padding: 6px 14px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .spec-add-confirm {
+          background: #3b8ecc;
+          color: #fff;
+        }
+        .spec-add-confirm:disabled {
+          opacity: 0.4;
+          cursor: default;
+        }
+        .spec-add-cancel {
+          background: #1c2430;
+          color: #a0a0b0;
+        }
+        .spec-add-cancel:hover {
+          background: #2a3240;
         }
 
         .acceptance-list {
