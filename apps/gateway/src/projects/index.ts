@@ -13,6 +13,13 @@ export {
   saveAttachments,
   resolveAttachmentFile,
 } from "./store.js";
+export {
+  parseTasks,
+  serializeTasks,
+  parseAcceptanceCriteria,
+  readSpec,
+  writeSpec,
+} from "./tasks.js";
 export type {
   ProjectListItem,
   ProjectDetail,
