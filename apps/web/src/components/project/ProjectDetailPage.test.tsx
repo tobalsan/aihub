@@ -41,6 +41,12 @@ vi.mock("../../api/client", () => ({
   updateTask: vi.fn(async () => ({})),
   createTask: vi.fn(async () => ({})),
   saveSpec: vi.fn(async () => ({})),
+  fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
+  fetchSubagentLogs: vi.fn(async () => ({
+    ok: true,
+    data: { cursor: 0, events: [] },
+  })),
+  spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "alpha" } })),
 }));
 
 describe("ProjectDetailPage", () => {
@@ -111,11 +117,10 @@ describe("ProjectDetailPage", () => {
     expect(updateProject).toHaveBeenCalledWith("PRO-1", {
       title: "Renamed Project",
     });
-    expect(container.querySelector(".project-detail-breadcrumb")?.textContent).toContain(
-      "Renamed Project"
-    );
+    expect(
+      container.querySelector(".project-detail-breadcrumb")?.textContent
+    ).toContain("Renamed Project");
 
     dispose();
   });
-
 });

@@ -3,6 +3,26 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import type { ProjectDetail } from "../../api/types";
 import { CenterPanel } from "./CenterPanel";
+import { fetchSubagentLogs, fetchSubagents } from "../../api/client";
+
+vi.mock("../AgentChat", () => ({
+  AgentChat: (props: {
+    agentType: string | null;
+    agentName: string | null;
+  }) => (
+    <div class="agent-chat-mock">
+      {props.agentType}:{props.agentName}
+    </div>
+  ),
+}));
+
+vi.mock("../../api/client", () => ({
+  fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
+  fetchSubagentLogs: vi.fn(async () => ({
+    ok: true,
+    data: { cursor: 0, events: [] },
+  })),
+}));
 
 const project: ProjectDetail = {
   id: "PRO-1",
@@ -15,6 +35,55 @@ const project: ProjectDetail = {
 };
 
 describe("CenterPanel", () => {
+  it("shows placeholder when no selected agent in chat tab", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={project}
+          tab="chat"
+          showTabs={false}
+          selectedAgent={null}
+        />
+      ),
+      container
+    );
+
+    expect(container.textContent).toContain("Select an agent to chat");
+    expect(container.querySelector(".agent-chat-mock")).toBeNull();
+
+    dispose();
+  });
+
+  it("renders AgentChat when selected agent is set", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={project}
+          tab="chat"
+          showTabs={false}
+          selectedAgent={{
+            type: "subagent",
+            projectId: "PRO-1",
+            slug: "alpha",
+            cli: "codex",
+            status: "running",
+          }}
+        />
+      ),
+      container
+    );
+
+    expect(container.querySelector(".agent-chat-mock")?.textContent).toContain(
+      "subagent:PRO-1/codex"
+    );
+
+    dispose();
+  });
+
   it("adds activity comment via composer", async () => {
     const onAddComment = vi.fn(async () => {});
     const container = document.createElement("div");
@@ -26,6 +95,7 @@ describe("CenterPanel", () => {
           tab="activity"
           showTabs={false}
           onAddComment={onAddComment}
+          selectedAgent={null}
         />
       ),
       container
@@ -72,6 +142,7 @@ describe("CenterPanel", () => {
           }}
           tab="activity"
           showTabs={false}
+          selectedAgent={null}
         />
       ),
       container
@@ -86,6 +157,73 @@ describe("CenterPanel", () => {
     expect(date?.textContent).toBe("2026-02-28 20:53");
     expect(meta?.firstElementChild).toBe(author);
     expect(meta?.lastElementChild).toBe(date);
+
+    dispose();
+  });
+
+  it("merges thread and subagent activity entries", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            status: "replied",
+            lastActive: "2026-02-28T21:10:00.000Z",
+          },
+        ],
+      },
+    });
+    vi.mocked(fetchSubagentLogs).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        cursor: 10,
+        events: [
+          {
+            ts: "2026-02-28T21:00:00.000Z",
+            type: "user",
+            text: "Implement task A",
+          },
+          {
+            ts: "2026-02-28T21:05:00.000Z",
+            type: "assistant",
+            text: "Done with task A",
+          },
+        ],
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={{
+            ...project,
+            thread: [
+              {
+                author: "Thinh",
+                date: "2026-02-28T20:55:00.000Z",
+                body: "Status changed to in_progress",
+              },
+            ],
+          }}
+          tab="activity"
+          showTabs={false}
+          selectedAgent={null}
+        />
+      ),
+      container
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Status changed to in_progress");
+    expect(text).toContain("Agent started. Prompt: Implement task A");
+    expect(text).toContain("Agent completed. Done with task A");
 
     dispose();
   });

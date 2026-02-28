@@ -21,7 +21,7 @@ import {
 } from "../../api/client";
 import type { Task } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
-import { CenterPanel } from "./CenterPanel";
+import { CenterPanel, type SelectedProjectAgent } from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
 
 type MergedTab = "chat" | "activity" | "changes" | "spec";
@@ -33,6 +33,18 @@ function getFrontmatterString(
   if (!frontmatter) return "";
   const value = frontmatter[key];
   return typeof value === "string" ? value : "";
+}
+
+function getFrontmatterRecord(
+  frontmatter: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown> | undefined {
+  if (!frontmatter) return undefined;
+  const value = frontmatter[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function buildTaskProgress(tasks: Task[]): { done: number; total: number } {
@@ -48,19 +60,17 @@ export function ProjectDetailPage() {
   const projectId = createMemo(() => params.id ?? "");
   const [compactLayout, setCompactLayout] = createSignal(false);
   const [mergedTab, setMergedTab] = createSignal<MergedTab>("spec");
+  const [selectedAgent, setSelectedAgent] =
+    createSignal<SelectedProjectAgent | null>(null);
   const [isEditingTitle, setIsEditingTitle] = createSignal(false);
   const [titleDraft, setTitleDraft] = createSignal("");
   let titleInputRef: HTMLInputElement | undefined;
 
-  const [project, { mutate: mutateProject, refetch: refetchProject }] = createResource(
-    projectId,
-    fetchProject
-  );
+  const [project, { mutate: mutateProject, refetch: refetchProject }] =
+    createResource(projectId, fetchProject);
   const [areas] = createResource(fetchAreas);
-  const [tasks, { mutate: mutateTasks, refetch: refetchTasks }] = createResource(
-    projectId,
-    fetchTasks
-  );
+  const [tasks, { mutate: mutateTasks, refetch: refetchTasks }] =
+    createResource(projectId, fetchTasks);
   const [spec, { refetch: refetchSpec }] = createResource(projectId, fetchSpec);
 
   onMount(() => {
@@ -212,6 +222,32 @@ export function ProjectDetailPage() {
     }
   });
 
+  createEffect(() => {
+    const current = project();
+    const selected = selectedAgent();
+    if (!current) return;
+    if (selected && selected.projectId === current.id) return;
+    const sessionKeys = getFrontmatterRecord(
+      current.frontmatter,
+      "sessionKeys"
+    );
+    const leadAgentId = sessionKeys
+      ? Object.keys(sessionKeys).find(
+          (key) => typeof sessionKeys[key] === "string"
+        )
+      : undefined;
+    if (!leadAgentId) {
+      setSelectedAgent(null);
+      return;
+    }
+    setSelectedAgent({
+      type: "lead",
+      projectId: current.id,
+      agentId: leadAgentId,
+      agentName: leadAgentId,
+    });
+  });
+
   return (
     <>
       <Show when={project.loading && !project()}>
@@ -257,7 +293,9 @@ export function ProjectDetailPage() {
                     ref={(el) => (titleInputRef = el)}
                     class="project-detail-title-input"
                     value={titleDraft()}
-                    onInput={(event) => setTitleDraft(event.currentTarget.value)}
+                    onInput={(event) =>
+                      setTitleDraft(event.currentTarget.value)
+                    }
                   />
                   <button type="submit" class="project-detail-title-save">
                     Save
@@ -282,11 +320,38 @@ export function ProjectDetailPage() {
                   onStatusChange={handleStatusChange}
                   onAreaChange={handleAreaChange}
                   onRepoChange={handleRepoChange}
+                  selectedAgentSlug={
+                    selectedAgent()?.type === "lead"
+                      ? `lead:${selectedAgent()?.agentId ?? ""}`
+                      : (selectedAgent()?.slug ?? null)
+                  }
+                  onSelectAgent={(info) => {
+                    if (info.type === "lead") {
+                      setSelectedAgent({
+                        type: "lead",
+                        projectId: info.projectId,
+                        agentId: info.agentId,
+                        agentName: info.agentId,
+                      });
+                      return;
+                    }
+                    setSelectedAgent({
+                      type: "subagent",
+                      projectId: info.projectId,
+                      slug: info.slug,
+                      cli: info.cli,
+                      status: info.status,
+                    });
+                  }}
                 />
               </div>
               <Show when={!compactLayout()}>
                 <div class="project-detail__center">
-                  <CenterPanel project={detail()} onAddComment={handleAddComment} />
+                  <CenterPanel
+                    project={detail()}
+                    onAddComment={handleAddComment}
+                    selectedAgent={selectedAgent()}
+                  />
                 </div>
                 <div class="project-detail__right">
                   <SpecEditor
@@ -356,6 +421,7 @@ export function ProjectDetailPage() {
                         onAddComment={handleAddComment}
                         showTabs={false}
                         tab={mergedTab() as "chat" | "activity" | "changes"}
+                        selectedAgent={selectedAgent()}
                       />
                     </Show>
                   </div>

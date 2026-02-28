@@ -2,11 +2,13 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   createSignal,
   onCleanup,
   onMount,
 } from "solid-js";
-import type { Area, ProjectDetail } from "../../api/types";
+import { fetchSubagents, spawnSubagent } from "../../api/client";
+import type { Area, ProjectDetail, SubagentListItem } from "../../api/types";
 
 const STATUS_OPTIONS = [
   "not_now",
@@ -24,6 +26,15 @@ type AgentPanelProps = {
   project: ProjectDetail;
   area?: Area;
   areas: Area[];
+  selectedAgentSlug: string | null;
+  onSelectAgent: (info: {
+    type: "lead" | "subagent";
+    agentId?: string;
+    slug?: string;
+    cli?: string;
+    status?: string;
+    projectId: string;
+  }) => void;
   onTitleChange: (title: string) => Promise<void> | void;
   onStatusChange: (status: string) => Promise<void> | void;
   onAreaChange: (area: string) => Promise<void> | void;
@@ -36,6 +47,17 @@ function getFrontmatterString(
 ): string {
   const value = frontmatter[key];
   return typeof value === "string" ? value : "";
+}
+
+function getFrontmatterRecord(
+  frontmatter: Record<string, unknown>,
+  key: string
+): Record<string, unknown> | undefined {
+  const value = frontmatter[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function formatCreatedRelative(raw: string): string {
@@ -66,6 +88,14 @@ export function AgentPanel(props: AgentPanelProps) {
   const [editingRepo, setEditingRepo] = createSignal(false);
   const [repoDraft, setRepoDraft] = createSignal("");
   const [savingRepo, setSavingRepo] = createSignal(false);
+  const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
+  const [showAddAgentForm, setShowAddAgentForm] = createSignal(false);
+  const [addAgentCli, setAddAgentCli] = createSignal<"codex" | "claude">(
+    "codex"
+  );
+  const [addAgentPrompt, setAddAgentPrompt] = createSignal("");
+  const [addingAgent, setAddingAgent] = createSignal(false);
+  const [agentError, setAgentError] = createSignal<string | null>(null);
 
   const status = () =>
     getFrontmatterString(props.project.frontmatter, "status") || "unknown";
@@ -73,6 +103,22 @@ export function AgentPanel(props: AgentPanelProps) {
   const created = () =>
     getFrontmatterString(props.project.frontmatter, "created");
   const areaLabel = () => props.area?.title || "No area";
+  const leadAgentId = createMemo(() => {
+    const sessionKeys = getFrontmatterRecord(
+      props.project.frontmatter,
+      "sessionKeys"
+    );
+    if (!sessionKeys) return null;
+    const keys = Object.keys(sessionKeys).filter(
+      (key) => typeof sessionKeys[key] === "string"
+    );
+    return keys[0] ?? null;
+  });
+  const selectedLeadId = createMemo(() => {
+    const selected = props.selectedAgentSlug;
+    if (!selected || !selected.startsWith("lead:")) return null;
+    return selected.slice("lead:".length);
+  });
 
   let statusMenuRef: HTMLDivElement | undefined;
   let areaMenuRef: HTMLDivElement | undefined;
@@ -100,7 +146,25 @@ export function AgentPanel(props: AgentPanelProps) {
     };
 
     document.addEventListener("click", onDocumentClick);
+    let active = true;
+    const loadSubagents = async () => {
+      const result = await fetchSubagents(props.project.id, true);
+      if (!active) return;
+      if (result.ok) {
+        setSubagents(result.data.items);
+        setAgentError(null);
+      } else {
+        setAgentError(result.error);
+      }
+    };
+    void loadSubagents();
+    const timer = window.setInterval(() => {
+      void loadSubagents();
+    }, 10000);
+
     onCleanup(() => {
+      active = false;
+      window.clearInterval(timer);
       document.removeEventListener("click", onDocumentClick);
       if (copiedTimer) window.clearTimeout(copiedTimer);
     });
@@ -149,6 +213,50 @@ export function AgentPanel(props: AgentPanelProps) {
       setEditingTitle(false);
     } finally {
       setSavingTitle(false);
+    }
+  };
+
+  const statusIndicator = (statusValue: SubagentListItem["status"]) => {
+    if (statusValue === "running") return { symbol: "●", tone: "running" };
+    if (statusValue === "replied") return { symbol: "✓", tone: "done" };
+    if (statusValue === "error") return { symbol: "✗", tone: "error" };
+    return { symbol: "○", tone: "idle" };
+  };
+
+  const taskLabel = (item: SubagentListItem) => {
+    const metadata = item as Record<string, unknown>;
+    const task =
+      metadata.task ??
+      metadata.taskLabel ??
+      metadata.assignedTask ??
+      metadata.assignment;
+    return typeof task === "string" ? task : "";
+  };
+
+  const createSlug = (cli: string) =>
+    `${cli}-${Date.now().toString(36).slice(-6)}`;
+
+  const submitAddAgent = async () => {
+    if (addingAgent()) return;
+    setAddingAgent(true);
+    setAgentError(null);
+    const prompt =
+      addAgentPrompt().trim() || "Review project and execute next task.";
+    const result = await spawnSubagent(props.project.id, {
+      slug: createSlug(addAgentCli()),
+      cli: addAgentCli(),
+      prompt,
+    });
+    setAddingAgent(false);
+    if (!result.ok) {
+      setAgentError(result.error);
+      return;
+    }
+    setShowAddAgentForm(false);
+    setAddAgentPrompt("");
+    const refresh = await fetchSubagents(props.project.id, true);
+    if (refresh.ok) {
+      setSubagents(refresh.data.items);
     }
   };
 
@@ -329,7 +437,130 @@ export function AgentPanel(props: AgentPanelProps) {
 
         <section class="agent-panel-block">
           <div class="agent-panel-label">Agents</div>
-          <p class="agent-panel-text">Agents — coming soon</p>
+          <div class="agent-list">
+            <Show when={leadAgentId()}>
+              {(leadId) => (
+                <button
+                  type="button"
+                  class="agent-list-item lead"
+                  classList={{ selected: selectedLeadId() === leadId() }}
+                  onClick={() =>
+                    props.onSelectAgent({
+                      type: "lead",
+                      agentId: leadId(),
+                      projectId: props.project.id,
+                    })
+                  }
+                >
+                  <span class="agent-status running">●</span>
+                  <span class="agent-list-main">
+                    <span class="agent-name">{leadId()}</span>
+                    <span class="agent-task">Lead agent</span>
+                  </span>
+                </button>
+              )}
+            </Show>
+            <For each={subagents()}>
+              {(item) => {
+                const indicator = statusIndicator(item.status);
+                return (
+                  <button
+                    type="button"
+                    class="agent-list-item"
+                    classList={{
+                      selected: props.selectedAgentSlug === item.slug,
+                    }}
+                    onClick={() =>
+                      props.onSelectAgent({
+                        type: "subagent",
+                        slug: item.slug,
+                        cli: item.cli,
+                        status: item.status,
+                        projectId: props.project.id,
+                      })
+                    }
+                  >
+                    <span class={`agent-status ${indicator.tone}`}>
+                      {indicator.symbol}
+                    </span>
+                    <span class="agent-list-main">
+                      <span class="agent-name">{item.cli ?? item.slug}</span>
+                      <Show when={taskLabel(item)}>
+                        {(label) => <span class="agent-task">{label()}</span>}
+                      </Show>
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+          <Show
+            when={showAddAgentForm()}
+            fallback={
+              <button
+                type="button"
+                class="add-agent-btn"
+                onClick={() => setShowAddAgentForm(true)}
+              >
+                + Add Agent
+              </button>
+            }
+          >
+            <form
+              class="add-agent-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitAddAgent();
+              }}
+            >
+              <label class="add-agent-label">
+                CLI
+                <select
+                  class="add-agent-select"
+                  value={addAgentCli()}
+                  onChange={(event) =>
+                    setAddAgentCli(
+                      event.currentTarget.value as "codex" | "claude"
+                    )
+                  }
+                >
+                  <option value="codex">codex</option>
+                  <option value="claude">claude</option>
+                </select>
+              </label>
+              <label class="add-agent-label">
+                Prompt override (optional)
+                <textarea
+                  class="add-agent-prompt"
+                  value={addAgentPrompt()}
+                  onInput={(event) =>
+                    setAddAgentPrompt(event.currentTarget.value)
+                  }
+                  placeholder="Optional custom prompt"
+                />
+              </label>
+              <div class="add-agent-actions">
+                <button
+                  type="button"
+                  class="add-agent-cancel"
+                  onClick={() => setShowAddAgentForm(false)}
+                  disabled={addingAgent()}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="add-agent-submit"
+                  disabled={addingAgent()}
+                >
+                  {addingAgent() ? "Adding..." : "Spawn"}
+                </button>
+              </div>
+            </form>
+          </Show>
+          <Show when={agentError()}>
+            {(message) => <p class="agent-error">{message()}</p>}
+          </Show>
         </section>
       </aside>
       <style>{`
@@ -523,6 +754,153 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .title-input {
           margin-left: 8px;
+        }
+
+        .agent-list {
+          display: grid;
+          gap: 6px;
+        }
+
+        .agent-list-item {
+          width: 100%;
+          border: 1px solid #1f2937;
+          border-radius: 8px;
+          padding: 7px 8px;
+          background: #0f1724;
+          color: #e4e4e7;
+          display: flex;
+          gap: 8px;
+          align-items: flex-start;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .agent-list-item:hover {
+          border-color: #334155;
+        }
+
+        .agent-list-item.selected {
+          border-color: #3b82f6;
+          box-shadow: inset 2px 0 0 #3b82f6;
+        }
+
+        .agent-list-item.lead {
+          background: #101a2b;
+        }
+
+        .agent-status {
+          font-size: 13px;
+          line-height: 1;
+          padding-top: 2px;
+          width: 12px;
+        }
+
+        .agent-status.running,
+        .agent-status.done {
+          color: #34d399;
+        }
+
+        .agent-status.idle {
+          color: #71717a;
+        }
+
+        .agent-status.error {
+          color: #f87171;
+        }
+
+        .agent-list-main {
+          min-width: 0;
+          display: grid;
+          gap: 2px;
+        }
+
+        .agent-name {
+          font-size: 12px;
+          color: #e4e4e7;
+          line-height: 1.3;
+        }
+
+        .agent-task {
+          font-size: 11px;
+          color: #94a3b8;
+          line-height: 1.3;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .add-agent-btn {
+          margin-top: 8px;
+          width: 100%;
+          border: 1px dashed #3b82f6;
+          border-radius: 8px;
+          background: transparent;
+          color: #93c5fd;
+          padding: 8px 10px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .add-agent-form {
+          margin-top: 8px;
+          display: grid;
+          gap: 8px;
+          border: 1px solid #1f2937;
+          border-radius: 8px;
+          padding: 8px;
+          background: #0f1724;
+        }
+
+        .add-agent-label {
+          display: grid;
+          gap: 4px;
+          color: #94a3b8;
+          font-size: 11px;
+        }
+
+        .add-agent-select,
+        .add-agent-prompt {
+          border: 1px solid #2a3240;
+          border-radius: 6px;
+          background: #0b1220;
+          color: #e4e4e7;
+          font: inherit;
+          font-size: 12px;
+          padding: 6px 8px;
+        }
+
+        .add-agent-prompt {
+          min-height: 74px;
+          resize: vertical;
+        }
+
+        .add-agent-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 6px;
+        }
+
+        .add-agent-cancel,
+        .add-agent-submit {
+          border: 1px solid #2a3240;
+          border-radius: 6px;
+          background: #111722;
+          color: #e4e4e7;
+          font-size: 12px;
+          padding: 5px 10px;
+          cursor: pointer;
+        }
+
+        .add-agent-submit {
+          border-color: #3b82f6;
+          background: #1d4ed8;
+          color: #fff;
+        }
+
+        .agent-error {
+          margin: 8px 0 0;
+          font-size: 11px;
+          color: #fca5a5;
         }
       `}</style>
     </>
