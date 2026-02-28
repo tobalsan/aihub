@@ -35,6 +35,13 @@ function getFrontmatterString(
   return typeof value === "string" ? value : "";
 }
 
+function buildTaskProgress(tasks: Task[]): { done: number; total: number } {
+  return {
+    done: tasks.filter((task) => task.checked).length,
+    total: tasks.length,
+  };
+}
+
 export function ProjectDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -50,7 +57,7 @@ export function ProjectDetailPage() {
     fetchProject
   );
   const [areas] = createResource(fetchAreas);
-  const [tasks, { refetch: refetchTasks }] = createResource(
+  const [tasks, { mutate: mutateTasks, refetch: refetchTasks }] = createResource(
     projectId,
     fetchTasks
   );
@@ -107,11 +114,31 @@ export function ProjectDetailPage() {
     const id = projectId();
     if (!id) return;
     const checked = !task.checked;
-    await updateTask(id, task.order, {
-      checked,
-      status: checked ? "done" : "todo",
-    });
-    await refetchTasks();
+    const previous = tasks();
+
+    if (previous) {
+      const nextTasks = previous.tasks.map((item) =>
+        item.order === task.order
+          ? { ...item, checked, status: checked ? "done" : "todo" }
+          : item
+      );
+      mutateTasks({
+        ...previous,
+        tasks: nextTasks,
+        progress: buildTaskProgress(nextTasks),
+      });
+    }
+
+    try {
+      await updateTask(id, task.order, {
+        checked,
+        status: checked ? "done" : "todo",
+      });
+    } catch (error) {
+      if (previous) mutateTasks(previous);
+      await refetchTasks();
+      throw error;
+    }
   };
 
   const handleAddTask = async (title: string) => {
@@ -130,7 +157,8 @@ export function ProjectDetailPage() {
   const handleSaveDoc = async (docKey: string, content: string) => {
     const id = projectId();
     if (!id) return;
-    await updateProject(id, { docs: { [docKey]: content } });
+    const updated = await updateProject(id, { docs: { [docKey]: content } });
+    mutateProject(updated);
   };
 
   const handleAddComment = async (body: string) => {
@@ -141,7 +169,7 @@ export function ProjectDetailPage() {
   };
 
   const handleRefreshSpec = async () => {
-    await Promise.all([refetchSpec(), refetchTasks(), refetchProject()]);
+    await Promise.all([refetchSpec(), refetchTasks()]);
   };
 
   const handleTitleChange = async (title: string) => {
@@ -186,7 +214,7 @@ export function ProjectDetailPage() {
 
   return (
     <>
-      <Show when={project.loading}>
+      <Show when={project.loading && !project()}>
         <div class="project-detail-state">Loading project...</div>
       </Show>
       <Show when={project.error}>

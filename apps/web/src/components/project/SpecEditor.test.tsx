@@ -265,4 +265,54 @@ describe("SpecEditor", () => {
 
     dispose();
   });
+
+  it("updates progress immediately while task toggle request is pending", async () => {
+    const task: Task = {
+      title: "Route setup",
+      status: "todo",
+      checked: false,
+      order: 0,
+    };
+    let resolveToggle: (() => void) | undefined;
+    const onToggleTask = vi.fn(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveToggle = resolve;
+        })
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={"# Title"}
+          docs={{ "SPECS.md": "# Title" }}
+          tasks={[task]}
+          progress={{ done: 0, total: 1 }}
+          onToggleTask={onToggleTask}
+          onAddTask={async () => {}}
+          onSaveSpec={async () => {}}
+          onRefresh={async () => {}}
+        />
+      ),
+      container
+    );
+
+    const before = container.querySelector(".progress-bar-label");
+    expect(before?.textContent).toContain("0/1 tasks");
+
+    const taskButton = container.querySelector(".task-checkbox");
+    expect(taskButton).not.toBeNull();
+    taskButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const after = container.querySelector(".progress-bar-label");
+    expect(after?.textContent).toContain("1/1 tasks");
+
+    resolveToggle?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    dispose();
+  });
 });

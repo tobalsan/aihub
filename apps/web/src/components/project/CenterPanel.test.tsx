@@ -53,4 +53,40 @@ describe("CenterPanel", () => {
 
     dispose();
   });
+
+  it("renders activity date below author", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={{
+            ...project,
+            thread: [
+              {
+                author: "Thinh",
+                date: "2026-02-28 20:53",
+                body: "Updated spec",
+              },
+            ],
+          }}
+          tab="activity"
+          showTabs={false}
+        />
+      ),
+      container
+    );
+
+    const meta = container.querySelector(".activity-meta");
+    const author = container.querySelector(".activity-author");
+    const date = container.querySelector(".activity-date");
+
+    expect(meta).not.toBeNull();
+    expect(author?.textContent).toBe("Thinh");
+    expect(date?.textContent).toBe("2026-02-28 20:53");
+    expect(meta?.firstElementChild).toBe(author);
+    expect(meta?.lastElementChild).toBe(date);
+
+    dispose();
+  });
 });

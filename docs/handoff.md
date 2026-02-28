@@ -87,6 +87,43 @@ Files touched in this follow-up:
 - `apps/web/src/components/project/ProjectDetailPage.test.tsx`
 - `apps/web/src/components/project/SpecEditor.test.tsx`
 
+### Follow-up Delta (2026-02-28 later, spec/editor UX polish)
+
+Latest commits in this workspace:
+- `66641ca fix(web): restore inline doc edit in spec panel`
+- `2f014b0 fix(web): polish project detail interactions`
+
+Delivered in these follow-ups:
+- Spec editor interaction model restored to inline editing:
+  - Removed `Preview/Edit` pills and dedicated mode toggle container.
+  - Double-click file content to enter edit mode.
+  - Save on blur and `Cmd/Ctrl+Enter`.
+  - `Esc` cancels editing.
+- Right panel tab/container styling:
+  - Removed the subtle horizontal separator between file tabs and file content.
+- Right panel split layout:
+  - Spec/doc content pane and checklist pane are now persistent split panes.
+  - Final ratio is `50% / 50%` (top content / bottom tasks+acceptance).
+  - Both panes scroll independently so checklist stays visible with long docs.
+- Loading flash removal:
+  - Avoided `Loading project...` flash during background spec/task refresh after toggles.
+  - Keep stale project data rendered while refetching.
+- Real-time progress feedback:
+  - Task completion/progress now updates immediately in UI on checkbox click.
+  - Added optimistic task state in `SpecEditor`.
+  - Fixed `ProgressBar` reactivity so label and bar width update on prop changes.
+- Activity tab layout:
+  - Timestamp moved below post author in each activity card.
+
+Files touched in these follow-ups:
+- `apps/web/src/components/project/CenterPanel.tsx`
+- `apps/web/src/components/project/CenterPanel.test.tsx`
+- `apps/web/src/components/project/ProgressBar.tsx`
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+- `apps/web/src/components/project/ProjectDetailPage.test.tsx`
+- `apps/web/src/components/project/SpecEditor.tsx`
+- `apps/web/src/components/project/SpecEditor.test.tsx`
+
 ### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:

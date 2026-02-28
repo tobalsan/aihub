@@ -5,19 +5,19 @@ type ProgressBarProps = {
 };
 
 export function ProgressBar(props: ProgressBarProps) {
-  const safeTotal = Math.max(props.total, 0);
-  const safeDone = Math.min(Math.max(props.done, 0), safeTotal || 0);
-  const ratio = safeTotal > 0 ? safeDone / safeTotal : 0;
+  const safeTotal = () => Math.max(props.total, 0);
+  const safeDone = () => Math.min(Math.max(props.done, 0), safeTotal() || 0);
+  const ratio = () => (safeTotal() > 0 ? safeDone() / safeTotal() : 0);
 
   return (
     <>
       <div class="progress-bar-wrap">
-        <div class="progress-bar-label">{safeDone + "/" + safeTotal} tasks</div>
+        <div class="progress-bar-label">{safeDone() + "/" + safeTotal()} tasks</div>
         <div class="progress-bar-track" aria-label="Task progress">
           <div
             class="progress-bar-fill"
             style={{
-              width: `${ratio * 100}%`,
+              width: `${ratio() * 100}%`,
               "background-color": props.color ?? "#53b97c",
             }}
           />

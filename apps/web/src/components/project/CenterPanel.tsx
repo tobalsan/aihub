@@ -70,8 +70,8 @@ export function CenterPanel(props: CenterPanelProps) {
                   {(entry) => (
                     <li class="activity-item">
                       <div class="activity-meta">
-                        <span>{entry.author}</span>
-                        <span>{entry.date}</span>
+                        <span class="activity-author">{entry.author}</span>
+                        <span class="activity-date">{entry.date}</span>
                       </div>
                       <p>{entry.body}</p>
                     </li>
@@ -180,10 +180,19 @@ export function CenterPanel(props: CenterPanelProps) {
         }
 
         .activity-meta {
-          display: flex;
-          justify-content: space-between;
-          gap: 8px;
+          display: grid;
+          gap: 2px;
+        }
+
+        .activity-author {
+          color: #9ca3af;
+          font-weight: 600;
+          line-height: 1.2;
+        }
+
+        .activity-date {
           color: #71717a;
+          line-height: 1.2;
           font-size: 12px;
         }
 

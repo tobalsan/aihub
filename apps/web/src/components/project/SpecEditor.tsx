@@ -144,6 +144,9 @@ export function SpecEditor(props: SpecEditorProps) {
   const [updatingOrder, setUpdatingOrder] = createSignal<number | null>(null);
   const [addingTask, setAddingTask] = createSignal(false);
   const [newTaskTitle, setNewTaskTitle] = createSignal("");
+  const [optimisticCheckedByOrder, setOptimisticCheckedByOrder] = createSignal<
+    Record<number, boolean>
+  >({});
   let editorRef: HTMLTextAreaElement | undefined;
 
   createEffect(() => {
@@ -179,6 +182,43 @@ export function SpecEditor(props: SpecEditorProps) {
   const acceptanceItems = createMemo(() =>
     parseSectionCheckboxes(props.specContent, "Acceptance Criteria")
   );
+
+  const displayedTasks = createMemo(() => {
+    const optimistic = optimisticCheckedByOrder();
+    return props.tasks.map((task) => {
+      const checked = optimistic[task.order];
+      if (typeof checked !== "boolean") return task;
+      return {
+        ...task,
+        checked,
+        status: checked ? "done" : "todo",
+      };
+    });
+  });
+
+  const displayedProgress = createMemo(() => {
+    const items = displayedTasks();
+    return {
+      done: items.filter((task) => task.checked).length,
+      total: items.length,
+    };
+  });
+
+  createEffect(() => {
+    const optimistic = optimisticCheckedByOrder();
+    const keys = Object.keys(optimistic);
+    if (keys.length === 0) return;
+    let changed = false;
+    const next = { ...optimistic };
+    for (const task of props.tasks) {
+      const pending = next[task.order];
+      if (typeof pending === "boolean" && pending === task.checked) {
+        delete next[task.order];
+        changed = true;
+      }
+    }
+    if (changed) setOptimisticCheckedByOrder(next);
+  });
 
   const documentHtml = createMemo(() => {
     if (!viewingSpec()) return renderMarkdown(activeContent());
@@ -225,9 +265,21 @@ export function SpecEditor(props: SpecEditorProps) {
   };
 
   const handleToggleTask = async (task: Task) => {
+    const nextChecked = !task.checked;
+    setOptimisticCheckedByOrder((prev) => ({
+      ...prev,
+      [task.order]: nextChecked,
+    }));
     setUpdatingOrder(task.order);
     try {
       await props.onToggleTask(task);
+    } catch (error) {
+      setOptimisticCheckedByOrder((prev) => {
+        const next = { ...prev };
+        delete next[task.order];
+        return next;
+      });
+      throw error;
     } finally {
       setUpdatingOrder(null);
     }
@@ -255,6 +307,89 @@ export function SpecEditor(props: SpecEditorProps) {
     setNewTaskTitle("");
     setAddingTask(false);
   };
+
+  const specChecklistPane = () => (
+    <div class="spec-bottom-pane">
+      <section class="spec-section">
+        <h3>Tasks</h3>
+        <ProgressBar
+          done={displayedProgress().done}
+          total={displayedProgress().total}
+          color={props.areaColor}
+        />
+        <div class="spec-task-list">
+          <For each={displayedTasks()}>
+            {(task) => (
+              <TaskCheckbox
+                task={task}
+                disabled={updatingOrder() === task.order || saving()}
+                onToggle={(current) => void handleToggleTask(current)}
+              />
+            )}
+          </For>
+          <Show when={displayedTasks().length === 0}>
+            <p class="spec-empty-note">No tasks yet.</p>
+          </Show>
+        </div>
+        <Show when={!addingTask()}>
+          <button
+            class="spec-add-task"
+            type="button"
+            onClick={() => setAddingTask(true)}
+          >
+            + Add task
+          </button>
+        </Show>
+        <Show when={addingTask()}>
+          <input
+            class="spec-add-input"
+            type="text"
+            placeholder="Task title"
+            value={newTaskTitle()}
+            onInput={(e) => setNewTaskTitle(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setAddingTask(false);
+                setNewTaskTitle("");
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleCreateTask();
+              }
+            }}
+          />
+        </Show>
+      </section>
+
+      <Show when={acceptanceItems().length > 0}>
+        <section class="spec-section">
+          <h3>Acceptance Criteria</h3>
+          <ul class="acceptance-list">
+            <For each={acceptanceItems()}>
+              {(item) => (
+                <li>
+                  <button
+                    type="button"
+                    class="acceptance-item"
+                    onClick={() => void handleToggleAcceptance(item)}
+                    disabled={saving()}
+                  >
+                    <span
+                      class={`acceptance-check ${item.checked ? "checked" : ""}`}
+                    >
+                      {item.checked ? "x" : ""}
+                    </span>
+                    <span>{item.label}</span>
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </section>
+      </Show>
+    </div>
+  );
 
   return (
     <>
@@ -285,121 +420,56 @@ export function SpecEditor(props: SpecEditorProps) {
         <Show
           when={!isEditingSelectedDoc()}
           fallback={
-            <div class="spec-editor-edit">
-              <textarea
-                ref={(el) => (editorRef = el)}
-                class="spec-textarea"
-                value={draft()}
-                onInput={(e) => setDraft(e.currentTarget.value)}
-                onBlur={() => void saveDraft()}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setEditingDocKey(null);
-                    setDraft("");
-                    return;
-                  }
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    void saveDraft();
-                  }
-                }}
-              />
+            <div
+              class="spec-editor-edit"
+              classList={{ "split-view": viewingSpec() }}
+            >
+              <div class="spec-edit-pane">
+                <textarea
+                  ref={(el) => (editorRef = el)}
+                  class="spec-textarea"
+                  value={draft()}
+                  onInput={(e) => setDraft(e.currentTarget.value)}
+                  onBlur={() => void saveDraft()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setEditingDocKey(null);
+                      setDraft("");
+                      return;
+                    }
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      void saveDraft();
+                    }
+                  }}
+                />
+              </div>
+              <Show when={viewingSpec()}>{specChecklistPane()}</Show>
             </div>
           }
         >
-          <div class="spec-editor-preview">
-            <article
-              class="spec-doc markdown"
-              innerHTML={documentHtml()}
-              aria-label="Spec markdown preview"
-              onDblClick={startEditingDoc}
-              title="Double-click to edit"
-            />
-
-            <Show when={viewingSpec() && props.tasks.length > 0}>
-              <section class="spec-section">
-                <h3>Tasks</h3>
-                <ProgressBar
-                  done={props.progress.done}
-                  total={props.progress.total}
-                  color={props.areaColor}
-                />
-                <div class="spec-task-list">
-                  <For each={props.tasks}>
-                    {(task) => (
-                      <TaskCheckbox
-                        task={task}
-                        disabled={updatingOrder() === task.order || saving()}
-                        onToggle={(current) => void handleToggleTask(current)}
-                      />
-                    )}
-                  </For>
-                </div>
-                <Show when={!addingTask()}>
-                  <button
-                    class="spec-add-task"
-                    type="button"
-                    onClick={() => setAddingTask(true)}
-                  >
-                    + Add task
-                  </button>
-                </Show>
-                <Show when={addingTask()}>
-                  <input
-                    class="spec-add-input"
-                    type="text"
-                    placeholder="Task title"
-                    value={newTaskTitle()}
-                    onInput={(e) => setNewTaskTitle(e.currentTarget.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setAddingTask(false);
-                        setNewTaskTitle("");
-                        return;
-                      }
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleCreateTask();
-                      }
-                    }}
-                  />
-                </Show>
-              </section>
-            </Show>
-
-            <Show when={viewingSpec() && acceptanceItems().length > 0}>
-              <section class="spec-section">
-                <h3>Acceptance Criteria</h3>
-                <ul class="acceptance-list">
-                  <For each={acceptanceItems()}>
-                    {(item) => (
-                      <li>
-                        <button
-                          type="button"
-                          class="acceptance-item"
-                          onClick={() => void handleToggleAcceptance(item)}
-                          disabled={saving()}
-                        >
-                          <span
-                            class={`acceptance-check ${item.checked ? "checked" : ""}`}
-                          >
-                            {item.checked ? "x" : ""}
-                          </span>
-                          <span>{item.label}</span>
-                        </button>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </section>
-            </Show>
+          <div
+            class="spec-editor-preview"
+            classList={{ "split-view": viewingSpec() }}
+          >
+            <div class="spec-doc-pane">
+              <article
+                class="spec-doc markdown"
+                innerHTML={documentHtml()}
+                aria-label="Spec markdown preview"
+                onDblClick={startEditingDoc}
+                title="Double-click to edit"
+              />
+            </div>
+            <Show when={viewingSpec()}>{specChecklistPane()}</Show>
           </div>
         </Show>
       </section>
       <style>{`
         .spec-editor {
-          min-height: 100%;
+          height: 100%;
+          min-height: 0;
           display: flex;
           flex-direction: column;
           background: #0a0a0f;
@@ -440,14 +510,33 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-editor-preview {
+          flex: 1;
+          min-height: 0;
           padding: 0 20px 20px;
-          display: grid;
-          gap: 18px;
-          align-content: start;
           min-width: 0;
         }
 
-        .spec-editor-preview > * {
+        .spec-editor-preview.split-view,
+        .spec-editor-edit.split-view {
+          display: grid;
+          grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 12px;
+        }
+
+        .spec-doc-pane,
+        .spec-edit-pane,
+        .spec-bottom-pane {
+          min-height: 0;
+          overflow: auto;
+        }
+
+        .spec-bottom-pane {
+          display: grid;
+          gap: 10px;
+          align-content: start;
+        }
+
+        .spec-doc-pane > * {
           min-width: 0;
         }
 
@@ -471,6 +560,12 @@ export function SpecEditor(props: SpecEditorProps) {
         .spec-task-list {
           display: grid;
           gap: 8px;
+        }
+
+        .spec-empty-note {
+          margin: 0;
+          font-size: 12px;
+          color: #71717a;
         }
 
         .spec-add-task {
@@ -673,20 +768,22 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-editor-edit {
-          padding: 0 16px 16px;
-          height: 100%;
+          flex: 1;
+          min-height: 0;
+          padding: 0 20px 20px;
+          min-width: 0;
         }
 
         .spec-textarea {
           width: 100%;
           height: 100%;
-          min-height: 70vh;
+          min-height: 100%;
           border: 1px solid #1c2430;
           border-top: 0;
           border-radius: 0 0 12px 12px;
           background: #0f131d;
           color: #e4e4e7;
-          resize: vertical;
+          resize: none;
           padding: 14px;
           line-height: 1.6;
           font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;

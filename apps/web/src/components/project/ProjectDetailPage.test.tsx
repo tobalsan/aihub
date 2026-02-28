@@ -25,8 +25,15 @@ vi.mock("../../api/client", () => ({
     { id: "aihub", title: "AIHub", color: "#53b97c" },
   ]),
   fetchTasks: vi.fn(async () => ({
-    tasks: [],
-    progress: { done: 0, total: 0 },
+    tasks: [
+      {
+        title: "Route setup",
+        status: "todo",
+        checked: false,
+        order: 0,
+      },
+    ],
+    progress: { done: 0, total: 1 },
   })),
   fetchSpec: vi.fn(async () => ({ content: "# Title" })),
   addProjectComment: vi.fn(async () => ({})),
@@ -110,4 +117,5 @@ describe("ProjectDetailPage", () => {
 
     dispose();
   });
+
 });
