@@ -1,6 +1,6 @@
 import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { fetchActivity, fetchAgents } from "../api/client";
-import type { ActivityEvent, AgentListItem } from "../api/types";
+import type { ActivityEvent, Agent } from "../api/types";
 
 function formatRelativeTime(ts: string): string {
   const date = new Date(ts);
@@ -32,7 +32,7 @@ export function ActivityFeed(props: ActivityFeedProps) {
   const [agents] = createResource(fetchAgents);
 
   const resolveAgentId = (name: string) => {
-    const list = (agents() ?? []) as AgentListItem[];
+    const list = (agents() ?? []) as Agent[];
     return list.find((agent) => agent.name === name)?.id ?? null;
   };
 

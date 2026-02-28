@@ -19,7 +19,7 @@ type FetchResponse = {
 };
 
 describe("api client (projects/subagents)", () => {
-  const fetchMock = vi.fn<[], Promise<FetchResponse>>();
+  const fetchMock = vi.fn<() => Promise<FetchResponse>>();
 
   beforeEach(() => {
     fetchMock.mockReset();

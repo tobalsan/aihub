@@ -574,7 +574,10 @@ function mergePendingAihubMessages(
   const base = buildAihubLogs(messages);
   const merged =
     remaining.length > 0
-      ? [...base, ...remaining.map((text) => ({ tone: "user", body: text }))]
+      ? [
+          ...base,
+          ...remaining.map((text) => ({ tone: "user" as const, body: text })),
+        ]
       : base;
   return { merged, remaining };
 }
@@ -824,11 +827,12 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   const setupSubagent = () => {
-    if (!props.subagentInfo) return;
-    let activeSlug = props.subagentInfo.slug;
+    const subagentInfo = props.subagentInfo;
+    if (!subagentInfo) return;
+    let activeSlug = subagentInfo.slug;
     const resolveSlug = async () => {
       if (!cliTokens.has(activeSlug)) return;
-      const res = await fetchSubagents(props.subagentInfo.projectId);
+      const res = await fetchSubagents(subagentInfo.projectId);
       if (!res.ok) return;
       const token = activeSlug;
       const match = res.data.items.find(
@@ -842,7 +846,7 @@ export function AgentChat(props: AgentChatProps) {
     };
     const loadLogs = async () => {
       const res = await fetchSubagentLogs(
-        props.subagentInfo.projectId,
+        subagentInfo.projectId,
         activeSlug,
         cliCursor()
       );

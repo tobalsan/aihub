@@ -7,7 +7,7 @@ type FetchResponse = {
 };
 
 describe("api client (activity/status)", () => {
-  const fetchMock = vi.fn<[], Promise<FetchResponse>>();
+  const fetchMock = vi.fn<() => Promise<FetchResponse>>();
 
   beforeEach(() => {
     fetchMock.mockReset();

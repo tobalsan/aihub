@@ -506,7 +506,7 @@ export function ChatView() {
             }
           },
         },
-        levelToSend || undefined
+        levelToSend ? { thinkLevel: levelToSend } : undefined
       );
       return;
     }
@@ -630,7 +630,7 @@ export function ChatView() {
           setPendingQueuedMessages([]);
         },
       },
-      levelToSend || undefined
+      levelToSend ? { thinkLevel: levelToSend } : undefined
     );
   };
 

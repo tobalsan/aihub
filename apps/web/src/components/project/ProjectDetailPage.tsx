@@ -117,7 +117,7 @@ export function ProjectDetailPage() {
     const previous = tasks();
 
     if (previous) {
-      const nextTasks = previous.tasks.map((item) =>
+      const nextTasks: Task[] = previous.tasks.map((item) =>
         item.order === task.order
           ? { ...item, checked, status: checked ? "done" : "todo" }
           : item

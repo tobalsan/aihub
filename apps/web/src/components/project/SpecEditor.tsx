@@ -184,7 +184,7 @@ export function SpecEditor(props: SpecEditorProps) {
     parseSectionCheckboxes(props.specContent, "Acceptance Criteria")
   );
 
-  const displayedTasks = createMemo(() => {
+  const displayedTasks = createMemo<Task[]>(() => {
     const optimistic = optimisticCheckedByOrder();
     return props.tasks.map((task) => {
       const checked = optimistic[task.order];

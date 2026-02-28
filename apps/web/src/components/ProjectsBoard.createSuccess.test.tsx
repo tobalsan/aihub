@@ -77,7 +77,6 @@ const setupMatchMedia = () => {
 };
 
 const setupRaf = () => {
-  if (window.requestAnimationFrame) return;
   window.requestAnimationFrame = (callback: FrameRequestCallback) =>
     window.setTimeout(() => callback(Date.now()), 0);
   window.cancelAnimationFrame = (id: number) => window.clearTimeout(id);

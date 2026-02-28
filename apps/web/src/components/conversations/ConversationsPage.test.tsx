@@ -291,11 +291,11 @@ describe("ConversationsPage", () => {
         ],
       });
 
-    let resolvePost: ((value: { mentions?: string[] }) => void) | null = null;
+    let resolvePost: (value: { mentions?: string[] }) => void = () => {};
     mockedPostConversationMessage.mockImplementation(
       () =>
-        new Promise((resolve) => {
-          resolvePost = resolve;
+        new Promise<{ mentions?: string[] }>((resolve) => {
+          resolvePost = (value) => resolve(value);
         })
     );
 
@@ -320,7 +320,7 @@ describe("ConversationsPage", () => {
       message: "Ping @codex",
     });
 
-    resolvePost?.({ mentions: ["codex"] });
+    resolvePost({ mentions: ["codex"] });
     await tick();
     await tick();
 

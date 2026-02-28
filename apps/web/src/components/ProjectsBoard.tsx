@@ -10,7 +10,7 @@ import {
   untrack,
 } from "solid-js";
 import { A, useNavigate, useSearchParams } from "@solidjs/router";
-import { marked } from "marked";
+import { marked, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 import {
   fetchProjects,
@@ -42,6 +42,7 @@ import type {
   ProjectListItem,
   ProjectDetail,
   FullHistoryMessage,
+  FullToolResultMessage,
   ContentBlock,
   SubagentListItem,
   SubagentLogEvent,
@@ -370,7 +371,7 @@ function renderMarkdown(content: string, projectId?: string): string {
     .replace(/^\s*---[\s\S]*?\n---\s*\n?/, "")
     .replace(/^\s*#\s+.+\n+/, "");
   const renderer = new marked.Renderer();
-  renderer.link = (href, title, text) => {
+  renderer.link = ({ href, title, text }: Tokens.Link) => {
     const rawHref = normalizeHref(href) ?? "";
     const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
     const safeTitle =
@@ -381,7 +382,7 @@ function renderMarkdown(content: string, projectId?: string): string {
         : getFilenameFromHref(rawHref || next);
     return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${safeText}</a>`;
   };
-  renderer.image = (href, title, _text) => {
+  renderer.image = ({ href, title }: Tokens.Image) => {
     const rawHref = normalizeHref(href) ?? "";
     const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
     const safeTitle =
@@ -1198,13 +1199,17 @@ export function ProjectsBoard() {
     const value = selectedAgent();
     if (!value) return;
     if (value.startsWith("PRO-")) {
-      const items = subagents()?.items ?? [];
+      const items = subagents() ?? [];
       if (items.length === 0) return;
       const [projectId, token] = value.split("/");
+      const activeId = activeProjectId();
+      if (activeId && projectId !== activeId) {
+        setSelectedAgent(null);
+        return;
+      }
       const exists = items.some(
         (item) =>
-          item.projectId === projectId &&
-          (item.slug === token || item.cli === token)
+          item.slug === token || item.cli === token
       );
       if (!exists) setSelectedAgent(null);
       return;
