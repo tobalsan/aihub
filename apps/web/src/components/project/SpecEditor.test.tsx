@@ -315,4 +315,96 @@ describe("SpecEditor", () => {
 
     dispose();
   });
+
+  it("submits new task with Cmd/Ctrl+Enter from title field", async () => {
+    const onAddTask = vi.fn(async () => {});
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={"# Title"}
+          docs={{ "SPECS.md": "# Title" }}
+          tasks={[]}
+          progress={{ done: 0, total: 0 }}
+          onToggleTask={async () => {}}
+          onAddTask={onAddTask}
+          onSaveSpec={async () => {}}
+          onRefresh={async () => {}}
+        />
+      ),
+      container
+    );
+
+    const addButton = container.querySelector(".spec-add-task");
+    expect(addButton).not.toBeNull();
+    addButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const titleInput = container.querySelector<HTMLInputElement>(".spec-add-input");
+    expect(titleInput).not.toBeNull();
+    titleInput!.value = "Ship inline editing";
+    titleInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    titleInput!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        key: "Enter",
+        ctrlKey: true,
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onAddTask).toHaveBeenCalledWith("Ship inline editing", undefined);
+
+    dispose();
+  });
+
+  it("submits new task with Cmd/Ctrl+Enter from description field", async () => {
+    const onAddTask = vi.fn(async () => {});
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={"# Title"}
+          docs={{ "SPECS.md": "# Title" }}
+          tasks={[]}
+          progress={{ done: 0, total: 0 }}
+          onToggleTask={async () => {}}
+          onAddTask={onAddTask}
+          onSaveSpec={async () => {}}
+          onRefresh={async () => {}}
+        />
+      ),
+      container
+    );
+
+    const addButton = container.querySelector(".spec-add-task");
+    expect(addButton).not.toBeNull();
+    addButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const titleInput = container.querySelector<HTMLInputElement>(".spec-add-input");
+    const descInput = container.querySelector<HTMLTextAreaElement>(".spec-add-desc");
+    expect(titleInput).not.toBeNull();
+    expect(descInput).not.toBeNull();
+
+    titleInput!.value = "Polish activity layout";
+    titleInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    descInput!.value = "Move timestamp under author.";
+    descInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    descInput!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        key: "Enter",
+        ctrlKey: true,
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onAddTask).toHaveBeenCalledWith(
+      "Polish activity layout",
+      "Move timestamp under author."
+    );
+
+    dispose();
+  });
 });

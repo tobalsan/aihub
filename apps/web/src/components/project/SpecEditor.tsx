@@ -356,6 +356,11 @@ export function SpecEditor(props: SpecEditorProps) {
                   setAddingTask(false);
                   setNewTaskTitle("");
                   setNewTaskDesc("");
+                  return;
+                }
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateTask();
                 }
               }}
             />
@@ -369,6 +374,11 @@ export function SpecEditor(props: SpecEditorProps) {
                   setAddingTask(false);
                   setNewTaskTitle("");
                   setNewTaskDesc("");
+                  return;
+                }
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateTask();
                 }
               }}
               rows={2}
@@ -525,10 +535,9 @@ export function SpecEditor(props: SpecEditorProps) {
 
         .spec-doc-tab {
           border: 1px solid #2a3240;
-          border-bottom: 0;
           border-radius: 8px 8px 0 0;
           background: #111722;
-          color: #9ca3af;
+          color: #525865;
           font-size: 11px;
           letter-spacing: 0.03em;
           text-transform: uppercase;
@@ -540,9 +549,10 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-doc-tab.active {
-          background: #172554;
+          background: #0f131d;
           color: #e4e4e7;
-          border-color: #1e3a8a;
+          border-color: #1c2430;
+          border-bottom-color: transparent;
         }
 
         .spec-editor-preview {
