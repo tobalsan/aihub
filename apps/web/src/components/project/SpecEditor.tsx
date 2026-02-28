@@ -14,6 +14,7 @@ type SpecEditorProps = {
   onToggleTask: (task: Task) => Promise<void>;
   onAddTask: (title: string) => Promise<void>;
   onSaveSpec: (content: string) => Promise<void>;
+  onSaveDoc?: (docKey: string, content: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 };
 
@@ -136,33 +137,43 @@ export function SpecEditor(props: SpecEditorProps) {
       }));
   });
 
-  const [activeDoc, setActiveDoc] = createSignal(markdownDocs()[0]?.filename ?? "");
-  const [mode, setMode] = createSignal<"preview" | "edit">("preview");
-  const [draft, setDraft] = createSignal(props.specContent);
+  const [activeDoc, setActiveDoc] = createSignal(markdownDocs()[0]?.key ?? "");
+  const [editingDocKey, setEditingDocKey] = createSignal<string | null>(null);
+  const [draft, setDraft] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [updatingOrder, setUpdatingOrder] = createSignal<number | null>(null);
   const [addingTask, setAddingTask] = createSignal(false);
   const [newTaskTitle, setNewTaskTitle] = createSignal("");
-  let autosaveTimer: number | undefined;
+  let editorRef: HTMLTextAreaElement | undefined;
 
   createEffect(() => {
     const docs = markdownDocs();
     const current = activeDoc();
-    const exists = docs.some((doc) => doc.filename === current);
-    if (!exists && docs.length > 0) setActiveDoc(docs[0]?.filename ?? "");
+    const exists = docs.some((doc) => doc.key === current);
+    if (!exists && docs.length > 0) setActiveDoc(docs[0]?.key ?? "");
   });
 
   const selectedDoc = createMemo(
-    () => markdownDocs().find((doc) => doc.filename === activeDoc()) ?? markdownDocs()[0]
+    () => markdownDocs().find((doc) => doc.key === activeDoc()) ?? markdownDocs()[0]
   );
   const viewingSpec = createMemo(() => selectedDoc()?.isSpec ?? false);
+  const isEditingSelectedDoc = createMemo(
+    () => editingDocKey() === selectedDoc()?.key
+  );
   const activeContent = createMemo(() =>
     viewingSpec() ? props.specContent : selectedDoc()?.content ?? ""
   );
 
   createEffect(() => {
-    if (!viewingSpec() && mode() === "edit") setMode("preview");
-    if (mode() === "preview") setDraft(props.specContent);
+    if (editingDocKey() && !markdownDocs().some((doc) => doc.key === editingDocKey())) {
+      setEditingDocKey(null);
+      setDraft("");
+    }
+  });
+
+  createEffect(() => {
+    if (!isEditingSelectedDoc()) return;
+    queueMicrotask(() => editorRef?.focus());
   });
 
   const acceptanceItems = createMemo(() =>
@@ -176,27 +187,41 @@ export function SpecEditor(props: SpecEditorProps) {
     return renderMarkdown(withoutAcceptance);
   });
 
-  const saveDraft = async (switchToPreview = false) => {
+  const startEditingDoc = () => {
+    const doc = selectedDoc();
+    if (!doc) return;
+    setDraft(activeContent());
+    setEditingDocKey(doc.key);
+  };
+
+  const saveDraft = async () => {
+    if (saving()) return;
+    const doc = selectedDoc();
+    if (!doc) return;
     const content = draft();
-    if (content === props.specContent) {
-      if (switchToPreview) setMode("preview");
+    const currentContent = viewingSpec()
+      ? props.specContent
+      : selectedDoc()?.content ?? "";
+
+    if (content === currentContent) {
+      setEditingDocKey(null);
+      setDraft("");
       return;
     }
+
     setSaving(true);
     try {
-      await props.onSaveSpec(content);
+      if (viewingSpec()) {
+        await props.onSaveSpec(content);
+      } else {
+        await props.onSaveDoc?.(doc.key, content);
+      }
       await props.onRefresh();
-      if (switchToPreview) setMode("preview");
     } finally {
       setSaving(false);
     }
-  };
-
-  const scheduleAutosave = () => {
-    if (autosaveTimer) window.clearTimeout(autosaveTimer);
-    autosaveTimer = window.setTimeout(() => {
-      void saveDraft(false);
-    }, 500);
+    setEditingDocKey(null);
+    setDraft("");
   };
 
   const handleToggleTask = async (task: Task) => {
@@ -234,36 +259,6 @@ export function SpecEditor(props: SpecEditorProps) {
   return (
     <>
       <section class="spec-editor">
-        <header class="spec-editor-header">
-          <div class="spec-mode-toggle">
-            <button
-              type="button"
-              classList={{ active: mode() === "preview" }}
-              onClick={() => setMode("preview")}
-            >
-              Preview
-            </button>
-            <Show when={viewingSpec()}>
-              <button
-                type="button"
-                classList={{ active: mode() === "edit" }}
-                onClick={() => setMode("edit")}
-              >
-                Edit
-              </button>
-            </Show>
-          </div>
-          <Show when={mode() === "edit"}>
-            <button
-              class="spec-save-button"
-              type="button"
-              onClick={() => void saveDraft(true)}
-              disabled={saving()}
-            >
-              {saving() ? "Saving..." : "Save"}
-            </button>
-          </Show>
-        </header>
         <Show when={markdownDocs().length > 0}>
           <div class="spec-doc-tabs" role="tablist" aria-label="Project markdown docs">
             <For each={markdownDocs()}>
@@ -272,11 +267,12 @@ export function SpecEditor(props: SpecEditorProps) {
                   type="button"
                   role="tab"
                   class="spec-doc-tab"
-                  classList={{ active: activeDoc() === doc.filename }}
-                  aria-selected={activeDoc() === doc.filename}
+                  classList={{ active: activeDoc() === doc.key }}
+                  aria-selected={activeDoc() === doc.key}
                   onClick={() => {
-                    setActiveDoc(doc.filename);
-                    setMode("preview");
+                    setEditingDocKey(null);
+                    setDraft("");
+                    setActiveDoc(doc.key);
                   }}
                 >
                   {doc.filename}
@@ -286,12 +282,39 @@ export function SpecEditor(props: SpecEditorProps) {
           </div>
         </Show>
 
-        <Show when={mode() === "preview"}>
+        <Show
+          when={!isEditingSelectedDoc()}
+          fallback={
+            <div class="spec-editor-edit">
+              <textarea
+                ref={(el) => (editorRef = el)}
+                class="spec-textarea"
+                value={draft()}
+                onInput={(e) => setDraft(e.currentTarget.value)}
+                onBlur={() => void saveDraft()}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setEditingDocKey(null);
+                    setDraft("");
+                    return;
+                  }
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    void saveDraft();
+                  }
+                }}
+              />
+            </div>
+          }
+        >
           <div class="spec-editor-preview">
             <article
               class="spec-doc markdown"
               innerHTML={documentHtml()}
               aria-label="Spec markdown preview"
+              onDblClick={startEditingDoc}
+              title="Double-click to edit"
             />
 
             <Show when={viewingSpec() && props.tasks.length > 0}>
@@ -373,23 +396,6 @@ export function SpecEditor(props: SpecEditorProps) {
             </Show>
           </div>
         </Show>
-
-        <Show when={mode() === "edit"}>
-          <div class="spec-editor-edit">
-            <textarea
-              class="spec-textarea"
-              value={draft()}
-              onInput={(e) => setDraft(e.currentTarget.value)}
-              onBlur={scheduleAutosave}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-                  e.preventDefault();
-                  void saveDraft(true);
-                }
-              }}
-            />
-          </div>
-        </Show>
       </section>
       <style>{`
         .spec-editor {
@@ -401,26 +407,12 @@ export function SpecEditor(props: SpecEditorProps) {
           min-width: 0;
         }
 
-        .spec-editor-header {
-          position: sticky;
-          top: 0;
-          z-index: 3;
-          background: #0a0a0f;
-          border-bottom: 1px solid #1c2430;
-          padding: 14px 16px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-        }
-
         .spec-doc-tabs {
           display: flex;
           align-items: flex-end;
           gap: 6px;
           overflow-x: auto;
-          padding: 10px 20px 0;
-          border-bottom: 1px solid #1c2430;
+          padding: 14px 20px 0;
           background: #0a0a0f;
           flex: 0 0 auto;
         }
@@ -445,37 +437,6 @@ export function SpecEditor(props: SpecEditorProps) {
           background: #172554;
           color: #e4e4e7;
           border-color: #1e3a8a;
-        }
-
-        .spec-mode-toggle {
-          display: inline-flex;
-          border: 1px solid #2a3240;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-
-        .spec-mode-toggle button {
-          border: 0;
-          background: #111722;
-          color: #a1a1aa;
-          padding: 7px 12px;
-          font-size: 12px;
-          cursor: pointer;
-        }
-
-        .spec-mode-toggle button.active {
-          background: #172554;
-          color: #e4e4e7;
-        }
-
-        .spec-save-button {
-          border: 1px solid #2a3240;
-          border-radius: 8px;
-          background: #111722;
-          color: #e4e4e7;
-          font-size: 12px;
-          padding: 7px 10px;
-          cursor: pointer;
         }
 
         .spec-editor-preview {
@@ -573,6 +534,7 @@ export function SpecEditor(props: SpecEditorProps) {
 
         .spec-doc {
           border: 1px solid #1c2430;
+          border-top: 0;
           border-radius: 0 0 12px 12px;
           padding: 20px;
           background: #0f131d;
@@ -720,6 +682,7 @@ export function SpecEditor(props: SpecEditorProps) {
           height: 100%;
           min-height: 70vh;
           border: 1px solid #1c2430;
+          border-top: 0;
           border-radius: 0 0 12px 12px;
           background: #0f131d;
           color: #e4e4e7;

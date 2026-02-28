@@ -173,4 +173,96 @@ describe("SpecEditor", () => {
 
     dispose();
   });
+
+  it("enters edit mode on double-click and saves spec on blur", async () => {
+    const onSaveSpec = vi.fn(async () => {});
+    const onRefresh = vi.fn(async () => {});
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={"# Spec title"}
+          docs={{ "SPECS.md": "# Spec title" }}
+          tasks={[]}
+          progress={{ done: 0, total: 0 }}
+          onToggleTask={async () => {}}
+          onAddTask={async () => {}}
+          onSaveSpec={onSaveSpec}
+          onRefresh={onRefresh}
+        />
+      ),
+      container
+    );
+
+    const preview = container.querySelector(".spec-doc");
+    expect(preview).not.toBeNull();
+    preview?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    const textarea = container.querySelector<HTMLTextAreaElement>(".spec-textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.value = "# Updated spec";
+    textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea!.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onSaveSpec).toHaveBeenCalledWith("# Updated spec");
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    dispose();
+  });
+
+  it("saves non-spec docs on Cmd/Ctrl+Enter", async () => {
+    const onSaveDoc = vi.fn(async () => {});
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={"# Spec title"}
+          docs={{
+            "README.md": "# Readme",
+            "SPECS.md": "# Spec title",
+          }}
+          tasks={[]}
+          progress={{ done: 0, total: 0 }}
+          onToggleTask={async () => {}}
+          onAddTask={async () => {}}
+          onSaveSpec={async () => {}}
+          onSaveDoc={onSaveDoc}
+          onRefresh={async () => {}}
+        />
+      ),
+      container
+    );
+
+    const readmeTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".spec-doc-tab")
+    ).find((tab) => tab.textContent === "README.md");
+    expect(readmeTab).toBeDefined();
+    readmeTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const preview = container.querySelector(".spec-doc");
+    expect(preview).not.toBeNull();
+    preview?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    const textarea = container.querySelector<HTMLTextAreaElement>(".spec-textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.value = "# Updated readme";
+    textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        key: "Enter",
+        ctrlKey: true,
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onSaveDoc).toHaveBeenCalledWith("README.md", "# Updated readme");
+
+    dispose();
+  });
 });

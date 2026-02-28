@@ -127,6 +127,12 @@ export function ProjectDetailPage() {
     await saveSpec(id, content);
   };
 
+  const handleSaveDoc = async (docKey: string, content: string) => {
+    const id = projectId();
+    if (!id) return;
+    await updateProject(id, { docs: { [docKey]: content } });
+  };
+
   const handleAddComment = async (body: string) => {
     const id = projectId();
     if (!id) return;
@@ -135,7 +141,7 @@ export function ProjectDetailPage() {
   };
 
   const handleRefreshSpec = async () => {
-    await Promise.all([refetchSpec(), refetchTasks()]);
+    await Promise.all([refetchSpec(), refetchTasks(), refetchProject()]);
   };
 
   const handleTitleChange = async (title: string) => {
@@ -264,6 +270,7 @@ export function ProjectDetailPage() {
                     onToggleTask={handleToggleTask}
                     onAddTask={handleAddTask}
                     onSaveSpec={handleSaveSpec}
+                    onSaveDoc={handleSaveDoc}
                     onRefresh={handleRefreshSpec}
                   />
                 </div>
@@ -311,6 +318,7 @@ export function ProjectDetailPage() {
                         onToggleTask={handleToggleTask}
                         onAddTask={handleAddTask}
                         onSaveSpec={handleSaveSpec}
+                        onSaveDoc={handleSaveDoc}
                         onRefresh={handleRefreshSpec}
                       />
                     </Show>
