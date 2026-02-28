@@ -9,7 +9,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { A, useSearchParams } from "@solidjs/router";
+import { A, useNavigate, useSearchParams } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -1011,6 +1011,7 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
 
 export function ProjectsBoard() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeProjectId = createMemo(() => {
     const value = searchParams.project;
     return typeof value === "string" && value.trim() ? value : undefined;
@@ -2174,7 +2175,7 @@ export function ProjectsBoard() {
   };
 
   const openDetail = (id: string) => {
-    setSearchParams({ project: id });
+    navigate(`/projects/${id}`);
   };
 
   const scrollSubagentLogToBottom = () => {

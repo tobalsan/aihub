@@ -27,6 +27,9 @@ import type {
   FileAttachment,
   UploadResponse,
   ProjectThreadEntry,
+  Area,
+  Task,
+  TasksResponse,
 } from "./types";
 
 const API_BASE = "/api";
@@ -512,6 +515,12 @@ export async function fetchArchivedProjects(): Promise<ProjectListItem[]> {
   return res.json();
 }
 
+export async function fetchAreas(): Promise<Area[]> {
+  const res = await fetch(`${API_BASE}/areas`);
+  if (!res.ok) throw new Error("Failed to fetch areas");
+  return res.json();
+}
+
 export async function fetchActivity(
   offset = 0,
   limit = 20
@@ -562,6 +571,57 @@ export async function fetchProject(id: string): Promise<ProjectDetail> {
   const res = await fetch(`${API_BASE}/projects/${id}`);
   if (!res.ok) throw new Error("Failed to fetch project");
   return res.json();
+}
+
+export async function fetchTasks(projectId: string): Promise<TasksResponse> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/tasks`);
+  if (!res.ok) throw new Error("Failed to fetch tasks");
+  return res.json();
+}
+
+export async function updateTask(
+  projectId: string,
+  order: number,
+  patch: { checked?: boolean; status?: Task["status"]; agentId?: string | null }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/tasks/${order}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error("Failed to update task");
+}
+
+export async function createTask(
+  projectId: string,
+  input: { title: string; description?: string; status?: Task["status"] }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to create task");
+}
+
+export async function fetchSpec(
+  projectId: string
+): Promise<{ content: string }> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/spec`);
+  if (!res.ok) throw new Error("Failed to fetch spec");
+  return res.json();
+}
+
+export async function saveSpec(
+  projectId: string,
+  content: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/spec`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error("Failed to save spec");
 }
 
 export async function updateProject(

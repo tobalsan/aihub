@@ -1,9 +1,10 @@
-import { Navigate, Router, Route, useParams } from "@solidjs/router";
+import { Router, Route } from "@solidjs/router";
 import { onMount, type JSX } from "solid-js";
 import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
 import { ConversationsPage } from "./components/conversations/ConversationsPage";
 import { ProjectsBoard } from "./components/ProjectsBoard";
+import { ProjectDetailPage } from "./components/project/ProjectDetailPage";
 
 function Layout(props: { children?: JSX.Element }) {
   // Set document title based on dev mode
@@ -38,12 +39,7 @@ export default function App() {
       <Route path="/chat/:agentId/:view?" component={ChatView} />
       <Route path="/conversations" component={ConversationsPage} />
       <Route path="/projects" component={ProjectsBoard} />
-      <Route path="/projects/:id" component={ProjectsRouteRedirect} />
+      <Route path="/projects/:id" component={ProjectDetailPage} />
     </Router>
   );
-}
-
-function ProjectsRouteRedirect() {
-  const params = useParams();
-  return <Navigate href={`/projects?project=${params.id ?? ""}`} />;
 }

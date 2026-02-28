@@ -4,38 +4,18 @@ import { createSignal } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { ProjectsBoard } from "./ProjectsBoard";
 
-const { routerState } = vi.hoisted(() => ({
-  routerState: {
-    project: undefined as string | undefined,
-    backStack: [undefined as string | undefined],
-    index: 0,
-  },
-}));
+const navigateMock = vi.fn();
 
 vi.mock("@solidjs/router", () => ({
   useSearchParams: () => {
-    const [project, setProject] = createSignal<string | undefined>(
-      routerState.project
-    );
-    const onPopState = () => setProject(routerState.project);
-    window.addEventListener("popstate", onPopState);
-    const set = (next: { project?: string | undefined }) => {
-      const nextProject = next.project;
-      routerState.project = nextProject;
-      routerState.backStack = routerState.backStack.slice(
-        0,
-        routerState.index + 1
-      );
-      routerState.backStack.push(nextProject);
-      routerState.index = routerState.backStack.length - 1;
-      setProject(nextProject);
-    };
+    const [project] = createSignal<string | undefined>(undefined);
     const params = {} as { readonly project?: string };
     Object.defineProperty(params, "project", {
       get: () => project(),
     });
-    return [params, set] as const;
+    return [params, () => {}] as const;
   },
+  useNavigate: () => navigateMock,
   A: (props: Record<string, unknown>) => <a {...props} />,
 }));
 
@@ -55,11 +35,7 @@ vi.mock("../api/client", () => ({
     title: "Alpha Project",
     path: "PRO-1_alpha-project",
     absolutePath: "/tmp/PRO-1_alpha-project",
-    frontmatter: {
-      status: "maybe",
-      domain: "coding",
-      executionMode: "subagent",
-    },
+    frontmatter: {},
     docs: { README: "Project details" },
     thread: [],
   })),
@@ -96,18 +72,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("./AgentSidebar", () => ({ AgentSidebar: () => null }));
-vi.mock("./ContextPanel", () => ({
-  ContextPanel: () => {
-    const [draft, setDraft] = createSignal("");
-    return (
-      <input
-        data-testid="sidebar-draft"
-        value={draft()}
-        onInput={(e) => setDraft(e.currentTarget.value)}
-      />
-    );
-  },
-}));
+vi.mock("./ContextPanel", () => ({ ContextPanel: () => null }));
 vi.mock("./ActivityFeed", () => ({ ActivityFeed: () => null }));
 vi.mock("./AgentChat", () => ({ AgentChat: () => null }));
 
@@ -136,7 +101,7 @@ const setupRaf = () => {
   window.cancelAnimationFrame = (id: number) => window.clearTimeout(id);
 };
 
-describe("ProjectsBoard true modal", () => {
+describe("ProjectsBoard card navigation", () => {
   beforeEach(() => {
     delegateEvents(["click", "input", "keydown"]);
     setupMatchMedia();
@@ -146,17 +111,15 @@ describe("ProjectsBoard true modal", () => {
       "aihub:projects:expanded-columns",
       JSON.stringify(["maybe", "not_now"])
     );
-    routerState.project = undefined;
-    routerState.backStack = [undefined];
-    routerState.index = 0;
   });
 
   afterEach(() => {
+    navigateMock.mockReset();
     document.body.innerHTML = "";
     vi.clearAllMocks();
   });
 
-  it("keeps board and sidebar draft state across open/close and back/forward", async () => {
+  it("navigates to detail route on project click", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ProjectsBoard />, container);
@@ -164,82 +127,9 @@ describe("ProjectsBoard true modal", () => {
     await tick();
     await tick();
 
-    const filterInput = container.querySelector(
-      ".filter-input"
-    ) as HTMLInputElement;
-    filterInput.value = "alpha";
-    filterInput.dispatchEvent(new Event("input", { bubbles: true }));
-
-    const chatDraft = container.querySelector(
-      '[data-testid="sidebar-draft"]'
-    ) as HTMLInputElement;
-    chatDraft.value = "keep me";
-    chatDraft.dispatchEvent(new Event("input", { bubbles: true }));
-
-    const columnBody = container.querySelector(
-      ".column-body"
-    ) as HTMLDivElement;
-    columnBody.scrollTop = 180;
-
     const card = container.querySelector(".card") as HTMLDivElement;
     card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await tick();
-    await tick();
-
-    expect(container.querySelector(".overlay")).not.toBeNull();
-    expect(routerState.project).toBe("PRO-1");
-
-    const closeButton = container.querySelector(
-      ".overlay-close"
-    ) as HTMLButtonElement;
-    closeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await tick();
-    await tick();
-
-    expect(container.querySelector(".overlay")).toBeNull();
-    expect(
-      (container.querySelector(".filter-input") as HTMLInputElement).value
-    ).toBe("alpha");
-    expect(
-      (
-        container.querySelector(
-          '[data-testid="sidebar-draft"]'
-        ) as HTMLInputElement
-      ).value
-    ).toBe("keep me");
-    const columnBodyAfterClose = container.querySelector(
-      ".column-body"
-    ) as HTMLDivElement;
-    expect(columnBodyAfterClose).toBe(columnBody);
-    expect(columnBodyAfterClose.scrollTop).toBe(180);
-
-    card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await tick();
-    expect(container.querySelector(".overlay")).not.toBeNull();
-
-    routerState.index -= 1;
-    routerState.project = routerState.backStack[routerState.index];
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    await tick();
-    await tick();
-    expect(container.querySelector(".overlay")).toBeNull();
-
-    routerState.index += 1;
-    routerState.project = routerState.backStack[routerState.index];
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    await tick();
-    await tick();
-    expect(container.querySelector(".overlay")).not.toBeNull();
-    expect(
-      (container.querySelector(".filter-input") as HTMLInputElement).value
-    ).toBe("alpha");
-    expect(
-      (
-        container.querySelector(
-          '[data-testid="sidebar-draft"]'
-        ) as HTMLInputElement
-      ).value
-    ).toBe("keep me");
+    expect(navigateMock).toHaveBeenCalledWith("/projects/PRO-1");
 
     dispose();
   });

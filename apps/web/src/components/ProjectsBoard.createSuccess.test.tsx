@@ -54,6 +54,7 @@ vi.mock("./ActivityFeed", () => ({ ActivityFeed: () => null }));
 
 vi.mock("@solidjs/router", () => ({
   useSearchParams: () => [{}, () => {}],
+  useNavigate: () => vi.fn(),
   A: (props: Record<string, unknown>) => <a {...props} />,
 }));
 

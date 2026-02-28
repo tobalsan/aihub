@@ -1,3 +1,4 @@
+import type { Area as SharedArea, Task as SharedTask } from "@aihub/shared";
 export type SdkId = "pi" | "claude" | "openclaw";
 export type ThinkLevel =
   | "off"
@@ -315,6 +316,14 @@ export type ProjectThreadEntry = {
   author: string;
   date: string;
   body: string;
+};
+
+export type Area = SharedArea;
+export type Task = SharedTask;
+
+export type TasksResponse = {
+  tasks: Task[];
+  progress: { done: number; total: number };
 };
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";

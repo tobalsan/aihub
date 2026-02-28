@@ -1,15 +1,40 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-02-04)
-Repo: `/Users/thinh/code/aihub`
+Date: 2026-01-27 (updated 2026-02-28)
+Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-editor`
 
 ---
 
-## Executive Summary: UI v2 Redesign
+## Executive Summary: UI v3 Iteration
 
-**Status**: ✅ Implementation complete.
+**Status**: 🔄 In progress (iterating on project detail/spec editor UI).
 
-### What Changed
+### Current Focus (PRO-146)
+
+Latest commit on this branch/workspace:
+- `f1ca892 feat(web): add project detail spec editor`
+
+Delivered in current implementation:
+- New route: `/projects/:id` (`ProjectDetailPage`) with three-column shell.
+- Project cards now navigate to detail route (instead of opening the legacy modal).
+- Right panel `SpecEditor` added:
+  - Preview/Edit modes
+  - Markdown preview (sanitized)
+  - Interactive task toggles
+  - Progress bar
+  - Add task flow
+  - Acceptance Criteria checkbox toggles
+  - Save + blur autosave + Cmd/Ctrl+S
+- Left panel `AgentPanel` scaffold with project metadata + status dropdown.
+- Center panel `CenterPanel` scaffold with Chat/Activity/Changes tabs.
+- API client wiring for project detail spec/task endpoints:
+  - `GET /api/projects/:id/spec`
+  - `PUT /api/projects/:id/spec`
+  - `GET /api/projects/:id/tasks`
+  - `PATCH /api/projects/:id/tasks/:order`
+  - `POST /api/projects/:id/tasks`
+
+### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:
 
