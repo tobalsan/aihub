@@ -6028,7 +6028,7 @@ export function ProjectsBoard() {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          font-family: "SF Mono", "Menlo", monospace;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 12px;
           color: #cfd6e2;
           flex: 1;

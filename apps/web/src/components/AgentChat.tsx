@@ -1357,21 +1357,27 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           flex-direction: column;
           height: 100%;
-          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          font-size: 14px;
+          line-height: 1.6;
+          color: #e0e0e0;
         }
+
+        /* ── Header ── */
 
         .chat-header {
           display: flex;
           align-items: center;
           gap: 12px;
           padding: 16px;
-          border-bottom: 1px solid #2a2a2a;
+          border-bottom: 1px solid #232323;
         }
 
         .chat-header h3 {
           margin: 0;
           font-size: 14px;
           font-weight: 600;
+          color: #f0f0f0;
         }
 
         .chat-title-row {
@@ -1389,9 +1395,7 @@ export function AgentChat(props: AgentChatProps) {
           cursor: pointer;
         }
 
-        .back-btn:hover {
-          color: #fff;
-        }
+        .back-btn:hover { color: #fff; }
 
         .back-btn:focus-visible {
           outline: 2px solid rgba(59, 130, 246, 0.6);
@@ -1417,17 +1421,9 @@ export function AgentChat(props: AgentChatProps) {
           height: 16px;
         }
 
-        .chat-header .open-project-btn:hover {
-          color: #d4dbe5;
-        }
-
-        .chat-header .archive-btn {
-          margin-left: auto;
-        }
-
-        .chat-header .archive-btn:hover {
-          color: #f6c454;
-        }
+        .chat-header .open-project-btn:hover { color: #d4dbe5; }
+        .chat-header .archive-btn { margin-left: auto; }
+        .chat-header .archive-btn:hover { color: #f6c454; }
 
         .chat-header .kill-btn {
           background: none;
@@ -1440,14 +1436,14 @@ export function AgentChat(props: AgentChatProps) {
           justify-content: center;
         }
 
-        .chat-header .kill-btn:hover {
-          color: #e53935;
-        }
+        .chat-header .kill-btn:hover { color: #e53935; }
+
+        /* ── Messages area ── */
 
         .chat-messages {
           flex: 1;
           overflow-y: auto;
-          padding: 16px;
+          padding: 0;
           display: flex;
           scroll-behavior: smooth;
         }
@@ -1455,22 +1451,18 @@ export function AgentChat(props: AgentChatProps) {
         .chat-messages,
         .log-pane {
           scrollbar-width: thin;
-          scrollbar-color: #2a3446 transparent;
+          scrollbar-color: #333 transparent;
         }
 
         .chat-messages::-webkit-scrollbar,
-        .log-pane::-webkit-scrollbar {
-          width: 10px;
-        }
+        .log-pane::-webkit-scrollbar { width: 8px; }
 
         .chat-messages::-webkit-scrollbar-track,
-        .log-pane::-webkit-scrollbar-track {
-          background: transparent;
-        }
+        .log-pane::-webkit-scrollbar-track { background: transparent; }
 
         .chat-messages::-webkit-scrollbar-thumb,
         .log-pane::-webkit-scrollbar-thumb {
-          background: #2a3446;
+          background: #333;
           border: 2px solid transparent;
           background-clip: content-box;
           border-radius: 999px;
@@ -1478,7 +1470,7 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-messages::-webkit-scrollbar-thumb:hover,
         .log-pane::-webkit-scrollbar-thumb:hover {
-          background: #3a4860;
+          background: #444;
           border: 2px solid transparent;
           background-clip: content-box;
         }
@@ -1488,24 +1480,355 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           align-items: center;
           justify-content: center;
-          color: #666;
+          color: #555;
           font-size: 14px;
-          text-align: center;
         }
 
         .chat-error {
           padding: 8px 16px;
           font-size: 12px;
           color: #f5b0b0;
-          border-top: 1px solid #2a2a2a;
+          border-top: 1px solid #232323;
         }
+
+        /* ── Log pane — flat, no container chrome ── */
+
+        .log-pane {
+          background: transparent;
+          border: none;
+          border-radius: 0;
+          padding: 16px 20px;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          flex: 1;
+          min-height: 0;
+        }
+
+        /* ── Log lines — flat, full-width ── */
+
+        .log-line {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          padding: 10px 12px;
+          border-radius: 6px;
+          background: transparent;
+        }
+
+        .log-line + .log-line {
+          border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        /* ── User messages — subtle green left accent ── */
+
+        .log-line.user {
+          color: #d0ebe0;
+          background: rgba(45, 212, 191, 0.04);
+          border-left: 2px solid rgba(45, 212, 191, 0.4);
+          border-radius: 0 6px 6px 0;
+          padding-left: 14px;
+          margin: 8px 0 4px;
+        }
+
+        .log-line.user + .log-line {
+          border-top: none;
+        }
+
+        .log-line + .log-line.user {
+          border-top: none;
+        }
+
+        /* ── Assistant messages — clean, no background ── */
+
+        .log-line.assistant {
+          color: #e0e0e0;
+          padding: 10px 12px;
+        }
+
+        .log-line.live {
+          color: #e8f0ff;
+        }
+
+        /* ── Muted / tool calls — compact, subtle ── */
+
+        .log-line.muted {
+          color: #777;
+          background: transparent;
+          font-size: 13px;
+          padding: 4px 12px;
+        }
+
+        .log-line.error {
+          color: #f5b0b0;
+          background: rgba(220, 50, 50, 0.06);
+          border-left: 2px solid rgba(220, 50, 50, 0.4);
+          border-radius: 0 6px 6px 0;
+          padding-left: 14px;
+        }
+
+        /* ── Collapsible tool calls ── */
+
+        .log-line.collapsible {
+          padding: 0;
+          display: block;
+          border-radius: 6px;
+        }
+
+        .log-line.collapsible + .log-line,
+        .log-line + .log-line.collapsible {
+          border-top: none;
+        }
+
+        .log-summary {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 5px 12px;
+          cursor: pointer;
+          list-style: none;
+          width: 100%;
+          font-size: 13px;
+          color: #777;
+          border-radius: 6px;
+          transition: background 0.1s;
+        }
+
+        .log-summary:hover {
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .log-summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .log-summary::before {
+          content: "\\25B8";
+          font-size: 10px;
+          color: #555;
+          transition: transform 0.15s;
+          flex: 0 0 auto;
+        }
+
+        details[open] > .log-summary::before {
+          transform: rotate(90deg);
+        }
+
+        .log-line.collapsible .log-text {
+          background: rgba(255, 255, 255, 0.02);
+          border-radius: 0 0 6px 6px;
+          border-top: 1px solid rgba(255, 255, 255, 0.05);
+          padding: 10px 12px;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          font-size: 12px;
+          line-height: 1.5;
+          color: #999;
+          max-height: 300px;
+          overflow: auto;
+        }
+
+        /* ── Content layout ── */
+
+        .log-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 0;
+          flex: 1;
+        }
+
+        .log-title {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #666;
+          font-weight: 500;
+        }
+
+        .log-icon {
+          width: 14px;
+          height: 14px;
+          opacity: 0.5;
+          margin-top: 3px;
+          flex: 0 0 auto;
+        }
+
+        pre.log-text {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          line-height: 1.6;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        }
+
+        /* ── Markdown rendering ── */
+
+        .log-markdown {
+          white-space: normal;
+        }
+
+        .log-markdown p {
+          margin: 0;
+        }
+
+        .log-markdown p + p {
+          margin-top: 8px;
+        }
+
+        .log-markdown strong {
+          color: #f0f0f0;
+          font-weight: 600;
+        }
+
+        .log-markdown code {
+          background: rgba(255, 255, 255, 0.06);
+          border-radius: 4px;
+          padding: 2px 6px;
+          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+          font-size: 0.9em;
+          color: #ccc;
+        }
+
+        .log-markdown pre {
+          margin: 10px 0;
+          padding: 12px 14px;
+          background: rgba(0, 0, 0, 0.3);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 8px;
+          overflow: auto;
+          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+          font-size: 13px;
+          line-height: 1.5;
+          color: #ccc;
+        }
+
+        .log-markdown pre code {
+          background: transparent;
+          padding: 0;
+          color: inherit;
+        }
+
+        .log-markdown ul,
+        .log-markdown ol {
+          margin: 8px 0;
+          padding-left: 22px;
+        }
+
+        .log-markdown li {
+          margin: 0;
+        }
+
+        .log-markdown li + li {
+          margin-top: 4px;
+        }
+
+        .log-markdown li > p {
+          margin: 0;
+        }
+
+        .log-markdown hr {
+          margin: 12px 0;
+          border: 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .log-markdown h1,
+        .log-markdown h2,
+        .log-markdown h3,
+        .log-markdown h4 {
+          color: #f0f0f0;
+          margin: 16px 0 8px;
+          line-height: 1.3;
+        }
+
+        .log-markdown h1 { font-size: 1.25em; }
+        .log-markdown h2 { font-size: 1.15em; }
+        .log-markdown h3 { font-size: 1.05em; }
+        .log-markdown h4 { font-size: 1em; }
+
+        .log-markdown h1:first-child,
+        .log-markdown h2:first-child,
+        .log-markdown h3:first-child,
+        .log-markdown h4:first-child {
+          margin-top: 0;
+        }
+
+        .log-markdown blockquote {
+          margin: 8px 0;
+          padding: 4px 12px;
+          border-left: 2px solid rgba(255, 255, 255, 0.15);
+          color: #999;
+        }
+
+        .log-markdown table {
+          width: 100%;
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          border-collapse: collapse;
+          margin: 10px 0;
+          font-size: 13px;
+        }
+
+        .log-markdown th,
+        .log-markdown td {
+          border: 1px solid #2a2a2a;
+          padding: 8px 12px;
+          text-align: left;
+        }
+
+        .log-markdown th {
+          background: rgba(255, 255, 255, 0.04);
+          color: #ddd;
+          font-weight: 600;
+        }
+
+        .log-markdown tbody tr:nth-child(even) {
+          background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* ── Pending / spinner ── */
+
+        .log-line.pending {
+          opacity: 0.9;
+          align-items: center;
+          background: transparent;
+          padding: 8px 12px;
+        }
+
+        .log-spinner {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          height: 12px;
+          padding: 0 4px;
+        }
+
+        .log-spinner span {
+          width: 4px;
+          height: 4px;
+          border-radius: 999px;
+          background: rgba(45, 212, 191, 0.8);
+          animation: chat-pulse 1s ease-in-out infinite;
+        }
+
+        .log-spinner span:nth-child(2) { animation-delay: 0.15s; }
+        .log-spinner span:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes chat-pulse {
+          0%, 100% { transform: translateY(0); opacity: 0.3; }
+          50% { transform: translateY(-3px); opacity: 1; }
+        }
+
+        /* ── Input area ── */
 
         .chat-input {
           display: flex;
           flex-direction: column;
           gap: 10px;
-          padding: 16px;
-          border-top: 1px solid #2a2a2a;
+          padding: 12px 16px 16px;
+          border-top: 1px solid #232323;
         }
 
         .chat-controls {
@@ -1526,8 +1849,8 @@ export function AgentChat(props: AgentChatProps) {
           justify-content: center;
           border-radius: 8px;
           border: 1px solid #2a2a2a;
-          background: #121212;
-          color: #cfd6e2;
+          background: transparent;
+          color: #888;
           cursor: pointer;
         }
 
@@ -1536,23 +1859,22 @@ export function AgentChat(props: AgentChatProps) {
           height: 18px;
         }
 
-        .attach-btn:hover {
-          background: #1c1c1c;
-        }
+        .attach-btn:hover { background: rgba(255, 255, 255, 0.04); color: #bbb; }
 
         .attach-btn:disabled {
-          opacity: 0.5;
+          opacity: 0.4;
           cursor: not-allowed;
         }
 
         .chat-input textarea {
           flex: 1;
-          background: #0a0a0a;
+          background: rgba(255, 255, 255, 0.03);
           border: 1px solid #2a2a2a;
           border-radius: 8px;
           padding: 12px 14px;
-          color: #fff;
+          color: #e0e0e0;
           font-size: 13px;
+          font-family: inherit;
           outline: none;
           resize: none;
           min-height: 44px;
@@ -1561,11 +1883,32 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-input textarea:focus {
           border-color: #444;
+          background: rgba(255, 255, 255, 0.04);
         }
 
         .chat-input textarea:disabled {
-          opacity: 0.5;
+          opacity: 0.4;
         }
+
+        .chat-input .send-btn {
+          background: #3b82f6;
+          border: none;
+          border-radius: 8px;
+          padding: 10px 16px;
+          color: #fff;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+
+        .chat-input .send-btn:hover { background: #2563eb; }
+
+        .chat-input .send-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+
+        /* ── Attachments ── */
 
         .chat-attachments {
           display: flex;
@@ -1578,16 +1921,16 @@ export function AgentChat(props: AgentChatProps) {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          padding: 6px 8px;
+          padding: 6px 10px;
           border-radius: 999px;
-          background: #1b1b1b;
+          background: rgba(255, 255, 255, 0.04);
           border: 1px solid #2a2a2a;
           max-width: 180px;
         }
 
         .attachment-name {
           font-size: 12px;
-          color: #cfd6e2;
+          color: #bbb;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -1596,79 +1939,15 @@ export function AgentChat(props: AgentChatProps) {
         .attachment-remove {
           border: none;
           background: none;
-          color: #888;
+          color: #666;
           cursor: pointer;
           font-size: 12px;
           padding: 0;
         }
 
-        .attachment-remove:hover {
-          color: #f5b0b0;
-        }
+        .attachment-remove:hover { color: #f5b0b0; }
 
-        .log-line.pending {
-          opacity: 0.9;
-          align-items: center;
-        }
-
-        .log-spinner {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          height: 12px;
-          padding: 0 6px;
-          border-radius: 999px;
-          background: rgba(6, 78, 59, 0.35);
-          box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.35);
-        }
-
-        .log-spinner span {
-          width: 4px;
-          height: 4px;
-          border-radius: 999px;
-          background: rgba(45, 212, 191, 0.95);
-          box-shadow: 0 0 6px rgba(20, 184, 166, 0.85);
-          animation: chat-pulse 1s ease-in-out infinite;
-        }
-
-        .log-spinner span:nth-child(2) {
-          animation-delay: 0.15s;
-        }
-
-        .log-spinner span:nth-child(3) {
-          animation-delay: 0.3s;
-        }
-
-        @keyframes chat-pulse {
-          0%,
-          100% {
-            transform: translateY(0);
-            opacity: 0.4;
-          }
-          50% {
-            transform: translateY(-3px);
-            opacity: 1;
-          }
-        }
-
-        .chat-input .send-btn {
-          background: #3b82f6;
-          border: none;
-          border-radius: 8px;
-          padding: 10px 16px;
-          color: #fff;
-          font-size: 13px;
-          cursor: pointer;
-        }
-
-        .chat-input .send-btn:hover {
-          background: #2563eb;
-        }
-
-        .chat-input .send-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
+        /* ── Fullscreen overrides ── */
 
         .agent-chat.fullscreen .chat-header h3 {
           font-size: 16px;
@@ -1679,187 +1958,10 @@ export function AgentChat(props: AgentChatProps) {
           padding-bottom: 20px;
         }
 
-        .log-pane {
-          background: #0d121a;
-          border: 1px solid #1f2631;
-          border-radius: 12px;
-          padding: 10px;
-          overflow: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          font-size: 14px;
-          color: #cfd6e2;
-          flex: 1;
-          min-height: 0;
-        }
-
-        .log-line {
-          display: flex;
-          gap: 10px;
-          align-items: flex-start;
-          padding: 6px 8px;
-          border-radius: 10px;
-          background: rgba(17, 23, 34, 0.6);
-        }
-
-        .log-line.collapsible {
-          padding: 0;
-          display: block;
-        }
-
-        .log-summary {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 6px 8px;
-          cursor: pointer;
-          list-style: none;
-          width: 100%;
-        }
-
-        .log-summary::-webkit-details-marker {
-          display: none;
-        }
-
-        .log-line.collapsible .log-text {
-          background: rgba(8, 11, 16, 0.6);
-          border-radius: 10px;
-          padding: 8px;
-        }
-
-        .log-stack {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-width: 0;
-          flex: 1;
-        }
-
-        .log-title {
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.12em;
-          color: inherit;
-        }
-
-        .log-line.assistant {
-          color: #d6e4ff;
-        }
-
-        .log-line.user {
-          color: #c8f2e6;
-          background: rgba(17, 34, 28, 0.5);
-        }
-
-        .log-line.muted {
-          color: #8b96a5;
-          background: rgba(20, 25, 34, 0.6);
-        }
-
-        .log-line.error {
-          color: #f5b0b0;
-          background: rgba(42, 27, 27, 0.6);
-        }
-
-        .log-line.live {
-          color: #e8f6ff;
-        }
-
-        .log-icon {
-          width: 14px;
-          height: 14px;
-          opacity: 0.8;
-          margin-top: 2px;
-          flex: 0 0 auto;
-        }
-
-        .log-text {
-          margin: 0;
-          white-space: pre-wrap;
-          word-break: break-word;
-          line-height: 1.45;
-        }
-
-        .log-markdown {
-          white-space: normal;
-        }
-
-        .log-markdown p {
-          margin: 0;
-        }
-
-        .log-markdown p + p {
-          margin-top: 6px;
-        }
-
-        .log-markdown code {
-          background: rgba(8, 11, 16, 0.7);
-          border-radius: 4px;
-          padding: 1px 4px;
-          font-family: "SF Mono", "Consolas", monospace;
-        }
-
-        .log-markdown pre {
-          margin: 6px 0 0;
-          padding: 8px;
-          background: rgba(8, 11, 16, 0.6);
-          border-radius: 8px;
-          overflow: auto;
-          font-family: "SF Mono", "Consolas", monospace;
-        }
-
-        .log-markdown pre code {
-          background: transparent;
-          padding: 0;
-        }
-
-        .log-markdown ul,
-        .log-markdown ol {
-          margin: 6px 0;
-          padding-left: 20px;
-        }
-
-        .log-markdown li + li {
-          margin-top: 4px;
-        }
-
-        .log-markdown hr {
-          margin: 8px 0;
-          border: 0;
-          border-top: 1px solid rgba(255, 255, 255, 0.12);
-        }
-
-        .log-markdown table {
-          width: 100%;
-          display: block;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          border-collapse: collapse;
-          margin: 8px 0;
-          font-size: 0.875rem;
-        }
-
-        .log-markdown th,
-        .log-markdown td {
-          border: 1px solid #2a2a2a;
-          padding: 8px 12px;
-          text-align: left;
-        }
-
-        .log-markdown th {
-          background: #1a1a1a;
-          color: #fff;
-          font-weight: 600;
-        }
-
-        .log-markdown tbody tr:nth-child(even) {
-          background: rgba(255, 255, 255, 0.02);
-        }
-
         .log-empty {
-          color: #7f8a9a;
-          font-size: 12px;
+          color: #555;
+          font-size: 13px;
+          padding: 4px 0;
         }
       `}</style>
     </div>
