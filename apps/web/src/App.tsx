@@ -1,5 +1,5 @@
-import { Router, Route } from "@solidjs/router";
-import { onMount, type JSX } from "solid-js";
+import { Router, Route, useParams } from "@solidjs/router";
+import { Show, createMemo, onMount, type JSX } from "solid-js";
 import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
 import { ConversationsPage } from "./components/conversations/ConversationsPage";
@@ -30,6 +30,35 @@ function Layout(props: { children?: JSX.Element }) {
   );
 }
 
+function ProjectsRouteShell() {
+  const params = useParams();
+  const showDetail = createMemo(
+    () => typeof params.id === "string" && params.id.length > 0
+  );
+  return (
+    <div class="projects-route-shell">
+      <ProjectsBoard />
+      <Show when={showDetail()}>
+        <div class="projects-route-detail-layer">
+          <ProjectDetailPage />
+        </div>
+      </Show>
+      <style>{`
+        .projects-route-shell {
+          height: 100%;
+          position: relative;
+        }
+
+        .projects-route-detail-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 20;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function App() {
   const base = import.meta.env.BASE_URL;
   return (
@@ -38,8 +67,7 @@ export default function App() {
       <Route path="/agents" component={AgentList} />
       <Route path="/chat/:agentId/:view?" component={ChatView} />
       <Route path="/conversations" component={ConversationsPage} />
-      <Route path="/projects" component={ProjectsBoard} />
-      <Route path="/projects/:id" component={ProjectDetailPage} />
+      <Route path="/projects/:id?" component={ProjectsRouteShell} />
     </Router>
   );
 }

@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-02-28)
+Date: 2026-01-27 (updated 2026-02-28, later)
 Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-editor`
 
 ---
@@ -54,6 +54,38 @@ Delivered in current implementation:
   - Repo path inline edit via double-click; empty value unsets project repo (area repo inheritance applies).
 - API typing update:
   - `ProjectUpdatePayload` now includes `area`.
+
+### Follow-up Delta (2026-02-28, UI polish + behavior fixes)
+
+- Navigation/state preservation:
+  - Routes now use a shared shell (`/projects/:id?`) that keeps `ProjectsBoard` mounted while project detail is shown as an overlay layer.
+  - `Back to Projects` now always navigates to `/projects` (not history back), so returning from detail feels instant and avoids board reload flash.
+- Right panel file tabs (`SpecEditor`):
+  - Added file-style tabs (rectangular) for markdown docs, visually distinct from pill tabs.
+  - Ordering: `SPECS.md` first when present; otherwise no synthetic SPECS tab and `README.md` is first if present.
+  - Supports project docs keys with and without extension (e.g. `README`/`SPECS` and `README.md`/`SPECS.md`).
+  - Fixed tabs/layout polish:
+    - Tab controls have fixed height (no vertical stretching on short content).
+    - Tabs are flush/adjacent to file container (no top gap).
+    - File container top border radius removed (square top edge under tabs).
+    - Left alignment of tabs and file container corrected.
+- Left panel (`AgentPanel`) updates:
+  - Repo label/value now render on one row (label left, value right) with inline edit preserved.
+  - Project title in the title box is now editable via double-click (inline input save/cancel).
+- Breadcrumb/title sync:
+  - Saving title updates project detail state immediately and breadcrumb title reflects the new value after save.
+- Center panel (`Activity` tab):
+  - Restored thread comment composer (textarea + Add button + Cmd/Ctrl+Enter) wired to project comments API.
+
+Files touched in this follow-up:
+- `apps/web/src/App.tsx`
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/CenterPanel.tsx`
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+- `apps/web/src/components/project/SpecEditor.tsx`
+- `apps/web/src/components/project/CenterPanel.test.tsx`
+- `apps/web/src/components/project/ProjectDetailPage.test.tsx`
+- `apps/web/src/components/project/SpecEditor.test.tsx`
 
 ### What Changed Previously (UI v2 baseline)
 

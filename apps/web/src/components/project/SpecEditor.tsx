@@ -7,6 +7,7 @@ import { TaskCheckbox } from "./TaskCheckbox";
 
 type SpecEditorProps = {
   specContent: string;
+  docs?: Record<string, string>;
   tasks: Task[];
   progress: { done: number; total: number };
   areaColor?: string;
@@ -20,6 +21,13 @@ type SectionCheckbox = {
   lineIndex: number;
   label: string;
   checked: boolean;
+};
+
+type MarkdownDoc = {
+  key: string;
+  filename: string;
+  content: string;
+  isSpec: boolean;
 };
 
 function parseSectionCheckboxes(
@@ -95,6 +103,40 @@ function renderMarkdown(content: string): string {
 }
 
 export function SpecEditor(props: SpecEditorProps) {
+  const markdownDocs = createMemo<MarkdownDoc[]>(() => {
+    const entries = Object.entries(props.docs ?? {})
+      .map(([key, content]) => {
+        const filename = /\.md$/i.test(key) ? key : `${key}.md`;
+        return {
+          key,
+          filename,
+          content,
+          isSpec: /^SPECS\.md$/i.test(filename),
+          isReadme: /^README\.md$/i.test(filename),
+        };
+      })
+      .filter((doc) => /\.md$/i.test(doc.filename));
+    const hasSpec = entries.some((doc) => doc.isSpec);
+
+    return entries
+      .sort((a, b) => {
+        if (a.isSpec && !b.isSpec) return -1;
+        if (!a.isSpec && b.isSpec) return 1;
+        if (!hasSpec) {
+          if (a.isReadme && !b.isReadme) return -1;
+          if (!a.isReadme && b.isReadme) return 1;
+        }
+        return a.filename.localeCompare(b.filename);
+      })
+      .map((doc) => ({
+        key: doc.key,
+        filename: doc.filename,
+        content: doc.content,
+        isSpec: doc.isSpec,
+      }));
+  });
+
+  const [activeDoc, setActiveDoc] = createSignal(markdownDocs()[0]?.filename ?? "");
   const [mode, setMode] = createSignal<"preview" | "edit">("preview");
   const [draft, setDraft] = createSignal(props.specContent);
   const [saving, setSaving] = createSignal(false);
@@ -104,6 +146,22 @@ export function SpecEditor(props: SpecEditorProps) {
   let autosaveTimer: number | undefined;
 
   createEffect(() => {
+    const docs = markdownDocs();
+    const current = activeDoc();
+    const exists = docs.some((doc) => doc.filename === current);
+    if (!exists && docs.length > 0) setActiveDoc(docs[0]?.filename ?? "");
+  });
+
+  const selectedDoc = createMemo(
+    () => markdownDocs().find((doc) => doc.filename === activeDoc()) ?? markdownDocs()[0]
+  );
+  const viewingSpec = createMemo(() => selectedDoc()?.isSpec ?? false);
+  const activeContent = createMemo(() =>
+    viewingSpec() ? props.specContent : selectedDoc()?.content ?? ""
+  );
+
+  createEffect(() => {
+    if (!viewingSpec() && mode() === "edit") setMode("preview");
     if (mode() === "preview") setDraft(props.specContent);
   });
 
@@ -112,7 +170,8 @@ export function SpecEditor(props: SpecEditorProps) {
   );
 
   const documentHtml = createMemo(() => {
-    const withoutTasks = stripSection(props.specContent, "Tasks");
+    if (!viewingSpec()) return renderMarkdown(activeContent());
+    const withoutTasks = stripSection(activeContent(), "Tasks");
     const withoutAcceptance = stripSection(withoutTasks, "Acceptance Criteria");
     return renderMarkdown(withoutAcceptance);
   });
@@ -184,13 +243,15 @@ export function SpecEditor(props: SpecEditorProps) {
             >
               Preview
             </button>
-            <button
-              type="button"
-              classList={{ active: mode() === "edit" }}
-              onClick={() => setMode("edit")}
-            >
-              Edit
-            </button>
+            <Show when={viewingSpec()}>
+              <button
+                type="button"
+                classList={{ active: mode() === "edit" }}
+                onClick={() => setMode("edit")}
+              >
+                Edit
+              </button>
+            </Show>
           </div>
           <Show when={mode() === "edit"}>
             <button
@@ -203,6 +264,27 @@ export function SpecEditor(props: SpecEditorProps) {
             </button>
           </Show>
         </header>
+        <Show when={markdownDocs().length > 0}>
+          <div class="spec-doc-tabs" role="tablist" aria-label="Project markdown docs">
+            <For each={markdownDocs()}>
+              {(doc) => (
+                <button
+                  type="button"
+                  role="tab"
+                  class="spec-doc-tab"
+                  classList={{ active: activeDoc() === doc.filename }}
+                  aria-selected={activeDoc() === doc.filename}
+                  onClick={() => {
+                    setActiveDoc(doc.filename);
+                    setMode("preview");
+                  }}
+                >
+                  {doc.filename}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
 
         <Show when={mode() === "preview"}>
           <div class="spec-editor-preview">
@@ -212,7 +294,7 @@ export function SpecEditor(props: SpecEditorProps) {
               aria-label="Spec markdown preview"
             />
 
-            <Show when={props.tasks.length > 0}>
+            <Show when={viewingSpec() && props.tasks.length > 0}>
               <section class="spec-section">
                 <h3>Tasks</h3>
                 <ProgressBar
@@ -263,7 +345,7 @@ export function SpecEditor(props: SpecEditorProps) {
               </section>
             </Show>
 
-            <Show when={acceptanceItems().length > 0}>
+            <Show when={viewingSpec() && acceptanceItems().length > 0}>
               <section class="spec-section">
                 <h3>Acceptance Criteria</h3>
                 <ul class="acceptance-list">
@@ -312,8 +394,8 @@ export function SpecEditor(props: SpecEditorProps) {
       <style>{`
         .spec-editor {
           min-height: 100%;
-          display: grid;
-          grid-template-rows: auto 1fr;
+          display: flex;
+          flex-direction: column;
           background: #0a0a0f;
           color: #e4e4e7;
           min-width: 0;
@@ -330,6 +412,39 @@ export function SpecEditor(props: SpecEditorProps) {
           align-items: center;
           justify-content: space-between;
           gap: 10px;
+        }
+
+        .spec-doc-tabs {
+          display: flex;
+          align-items: flex-end;
+          gap: 6px;
+          overflow-x: auto;
+          padding: 10px 20px 0;
+          border-bottom: 1px solid #1c2430;
+          background: #0a0a0f;
+          flex: 0 0 auto;
+        }
+
+        .spec-doc-tab {
+          border: 1px solid #2a3240;
+          border-bottom: 0;
+          border-radius: 8px 8px 0 0;
+          background: #111722;
+          color: #9ca3af;
+          font-size: 11px;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          height: 30px;
+          padding: 0 10px;
+          cursor: pointer;
+          white-space: nowrap;
+          flex: 0 0 auto;
+        }
+
+        .spec-doc-tab.active {
+          background: #172554;
+          color: #e4e4e7;
+          border-color: #1e3a8a;
         }
 
         .spec-mode-toggle {
@@ -364,7 +479,7 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-editor-preview {
-          padding: 20px;
+          padding: 0 20px 20px;
           display: grid;
           gap: 18px;
           align-content: start;
@@ -458,7 +573,7 @@ export function SpecEditor(props: SpecEditorProps) {
 
         .spec-doc {
           border: 1px solid #1c2430;
-          border-radius: 12px;
+          border-radius: 0 0 12px 12px;
           padding: 20px;
           background: #0f131d;
           width: 100%;
@@ -596,7 +711,7 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-editor-edit {
-          padding: 16px;
+          padding: 0 16px 16px;
           height: 100%;
         }
 
@@ -605,7 +720,7 @@ export function SpecEditor(props: SpecEditorProps) {
           height: 100%;
           min-height: 70vh;
           border: 1px solid #1c2430;
-          border-radius: 12px;
+          border-radius: 0 0 12px 12px;
           background: #0f131d;
           color: #e4e4e7;
           resize: vertical;

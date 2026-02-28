@@ -2,10 +2,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ProjectDetailPage } from "./ProjectDetailPage";
+import { updateProject } from "../../api/client";
+
+const navigateMock = vi.fn();
 
 vi.mock("@solidjs/router", () => ({
   useParams: () => ({ id: "PRO-1" }),
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigateMock,
 }));
 
 vi.mock("../../api/client", () => ({
@@ -26,6 +29,7 @@ vi.mock("../../api/client", () => ({
     progress: { done: 0, total: 0 },
   })),
   fetchSpec: vi.fn(async () => ({ content: "# Title" })),
+  addProjectComment: vi.fn(async () => ({})),
   updateProject: vi.fn(async () => ({})),
   updateTask: vi.fn(async () => ({})),
   createTask: vi.fn(async () => ({})),
@@ -33,6 +37,25 @@ vi.mock("../../api/client", () => ({
 }));
 
 describe("ProjectDetailPage", () => {
+  it("navigates to /projects when Back to Projects is clicked", async () => {
+    navigateMock.mockReset();
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const backButton = container.querySelector(
+      ".project-detail-back"
+    ) as HTMLButtonElement;
+    backButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(navigateMock).toHaveBeenCalledWith("/projects");
+
+    dispose();
+  });
+
   it("renders three-column shell and breadcrumb", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -48,6 +71,42 @@ describe("ProjectDetailPage", () => {
     expect(container.textContent).toContain("Back to Projects");
     expect(container.textContent).toContain("AIHub");
     expect(container.textContent).toContain("Alpha Project");
+
+    dispose();
+  });
+
+  it("allows inline title edit on double-click and updates breadcrumb after save", async () => {
+    vi.mocked(updateProject).mockClear();
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const titleEl = container.querySelector(
+      ".project-detail-title"
+    ) as HTMLSpanElement;
+    titleEl.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    const input = container.querySelector(
+      ".project-detail-title-input"
+    ) as HTMLInputElement;
+    input.value = "Renamed Project";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const saveButton = container.querySelector(
+      ".project-detail-title-save"
+    ) as HTMLButtonElement;
+    saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(updateProject).toHaveBeenCalledWith("PRO-1", {
+      title: "Renamed Project",
+    });
+    expect(container.querySelector(".project-detail-breadcrumb")?.textContent).toContain(
+      "Renamed Project"
+    );
 
     dispose();
   });

@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from "@solidjs/router";
 import {
   Show,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -8,6 +9,7 @@ import {
   onMount,
 } from "solid-js";
 import {
+  addProjectComment,
   createTask,
   fetchAreas,
   fetchProject,
@@ -39,8 +41,11 @@ export function ProjectDetailPage() {
   const projectId = createMemo(() => params.id ?? "");
   const [compactLayout, setCompactLayout] = createSignal(false);
   const [mergedTab, setMergedTab] = createSignal<MergedTab>("spec");
+  const [isEditingTitle, setIsEditingTitle] = createSignal(false);
+  const [titleDraft, setTitleDraft] = createSignal("");
+  let titleInputRef: HTMLInputElement | undefined;
 
-  const [project, { refetch: refetchProject }] = createResource(
+  const [project, { mutate: mutateProject, refetch: refetchProject }] = createResource(
     projectId,
     fetchProject
   );
@@ -74,10 +79,6 @@ export function ProjectDetailPage() {
   });
 
   const handleBack = () => {
-    if (window.history.length > 1) {
-      navigate(-1);
-      return;
-    }
     navigate("/projects");
   };
 
@@ -126,9 +127,56 @@ export function ProjectDetailPage() {
     await saveSpec(id, content);
   };
 
+  const handleAddComment = async (body: string) => {
+    const id = projectId();
+    if (!id) return;
+    await addProjectComment(id, body);
+    await refetchProject();
+  };
+
   const handleRefreshSpec = async () => {
     await Promise.all([refetchSpec(), refetchTasks()]);
   };
+
+  const handleTitleChange = async (title: string) => {
+    const id = projectId();
+    const current = project();
+    if (!id || !current) return;
+    const nextTitle = title.trim();
+    if (!nextTitle || nextTitle === current.title) return;
+    mutateProject({ ...current, title: nextTitle });
+    await updateProject(id, { title: nextTitle });
+    await refetchProject();
+  };
+
+  const handleStartTitleEdit = () => {
+    const currentTitle = project()?.title ?? "";
+    setTitleDraft(currentTitle);
+    setIsEditingTitle(true);
+  };
+
+  const handleCancelTitleEdit = () => {
+    setTitleDraft(project()?.title ?? "");
+    setIsEditingTitle(false);
+  };
+
+  const handleSaveTitle = async () => {
+    const current = project();
+    const nextTitle = titleDraft().trim();
+    if (!current || !nextTitle || nextTitle === current.title) {
+      setIsEditingTitle(false);
+      if (current) setTitleDraft(current.title);
+      return;
+    }
+    setIsEditingTitle(false);
+    await handleTitleChange(nextTitle);
+  };
+
+  createEffect(() => {
+    if (isEditingTitle()) {
+      queueMicrotask(() => titleInputRef?.focus());
+    }
+  });
 
   return (
     <>
@@ -152,7 +200,43 @@ export function ProjectDetailPage() {
               <span>/</span>
               <span>{area()?.title ?? "Unknown area"}</span>
               <span>/</span>
-              <span>{detail().title}</span>
+              <Show
+                when={isEditingTitle()}
+                fallback={
+                  <span
+                    class="project-detail-title"
+                    onDblClick={handleStartTitleEdit}
+                    title="Double-click to edit title"
+                  >
+                    {detail().title}
+                  </span>
+                }
+              >
+                <form
+                  class="project-detail-title-edit"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSaveTitle();
+                  }}
+                >
+                  <input
+                    ref={(el) => (titleInputRef = el)}
+                    class="project-detail-title-input"
+                    value={titleDraft()}
+                    onInput={(event) => setTitleDraft(event.currentTarget.value)}
+                  />
+                  <button type="submit" class="project-detail-title-save">
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    class="project-detail-title-cancel"
+                    onClick={handleCancelTitleEdit}
+                  >
+                    Cancel
+                  </button>
+                </form>
+              </Show>
             </header>
             <div class="project-detail">
               <div class="project-detail__left">
@@ -160,6 +244,7 @@ export function ProjectDetailPage() {
                   project={detail()}
                   area={area()}
                   areas={areas() ?? []}
+                  onTitleChange={handleTitleChange}
                   onStatusChange={handleStatusChange}
                   onAreaChange={handleAreaChange}
                   onRepoChange={handleRepoChange}
@@ -167,11 +252,12 @@ export function ProjectDetailPage() {
               </div>
               <Show when={!compactLayout()}>
                 <div class="project-detail__center">
-                  <CenterPanel project={detail()} />
+                  <CenterPanel project={detail()} onAddComment={handleAddComment} />
                 </div>
                 <div class="project-detail__right">
                   <SpecEditor
                     specContent={spec()?.content ?? ""}
+                    docs={detail().docs}
                     tasks={tasks()?.tasks ?? []}
                     progress={tasks()?.progress ?? { done: 0, total: 0 }}
                     areaColor={area()?.color}
@@ -218,6 +304,7 @@ export function ProjectDetailPage() {
                     <Show when={mergedTab() === "spec"}>
                       <SpecEditor
                         specContent={spec()?.content ?? ""}
+                        docs={detail().docs}
                         tasks={tasks()?.tasks ?? []}
                         progress={tasks()?.progress ?? { done: 0, total: 0 }}
                         areaColor={area()?.color}
@@ -230,6 +317,7 @@ export function ProjectDetailPage() {
                     <Show when={mergedTab() !== "spec"}>
                       <CenterPanel
                         project={detail()}
+                        onAddComment={handleAddComment}
                         showTabs={false}
                         tab={mergedTab() as "chat" | "activity" | "changes"}
                       />
@@ -265,6 +353,37 @@ export function ProjectDetailPage() {
           cursor: pointer;
           padding: 0;
           font-size: 13px;
+        }
+
+        .project-detail-title {
+          cursor: text;
+        }
+
+        .project-detail-title-edit {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .project-detail-title-input {
+          min-width: 220px;
+          border: 1px solid #2a3240;
+          border-radius: 6px;
+          background: #111722;
+          color: #e4e4e7;
+          padding: 4px 8px;
+          font-size: 13px;
+        }
+
+        .project-detail-title-save,
+        .project-detail-title-cancel {
+          border: 1px solid #2a3240;
+          border-radius: 6px;
+          background: #111722;
+          color: #e4e4e7;
+          font-size: 12px;
+          padding: 4px 8px;
+          cursor: pointer;
         }
 
         .project-detail {
