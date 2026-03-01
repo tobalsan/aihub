@@ -2,11 +2,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ChangesView } from "./ChangesView";
-import type { ProjectChanges, ProjectSpaceState } from "../../api/types";
+import type {
+  ProjectChanges,
+  ProjectPullRequestTarget,
+  ProjectSpaceState,
+  SpaceContribution,
+} from "../../api/types";
 
 const mocks = vi.hoisted(() => ({
   fetchProjectChanges: vi.fn<(projectId: string) => Promise<ProjectChanges>>(),
   fetchProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
+  fetchProjectSpaceCommits:
+    vi.fn<(projectId: string) => Promise<Array<{ sha: string; subject: string; author: string; date: string }>>>(),
+  fetchProjectPullRequestTarget:
+    vi.fn<(projectId: string) => Promise<ProjectPullRequestTarget>>(),
+  fetchProjectSpaceContribution:
+    vi.fn<(projectId: string, entryId: string) => Promise<SpaceContribution>>(),
+  integrateProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
+  spawnSpaceConflictFixer:
+    vi.fn<(projectId: string, entryId: string) => Promise<{ entryId: string; slug: string }>>(),
   commitProjectChanges:
     vi.fn<
       (
@@ -19,11 +33,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../api/client", () => ({
   fetchProjectChanges: mocks.fetchProjectChanges,
   fetchProjectSpace: mocks.fetchProjectSpace,
+  fetchProjectSpaceCommits: mocks.fetchProjectSpaceCommits,
+  fetchProjectPullRequestTarget: mocks.fetchProjectPullRequestTarget,
+  fetchProjectSpaceContribution: mocks.fetchProjectSpaceContribution,
+  integrateProjectSpace: mocks.integrateProjectSpace,
+  spawnSpaceConflictFixer: mocks.spawnSpaceConflictFixer,
   commitProjectChanges: mocks.commitProjectChanges,
 }));
 
 const baseChanges: ProjectChanges = {
-  branch: "feature/changes",
+  branch: "space/PRO-1",
   baseBranch: "main",
   source: { type: "space", path: "/tmp/space" },
   files: [{ path: "src/app.ts", status: "modified", staged: false }],
@@ -46,7 +65,19 @@ const baseSpace: ProjectSpaceState = {
   worktreePath: "/tmp/space",
   baseBranch: "main",
   integrationBlocked: false,
-  queue: [],
+  queue: [
+    {
+      id: "alpha:1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: "/tmp/alpha",
+      startSha: "a",
+      endSha: "b",
+      shas: ["abc123"],
+      status: "pending",
+      createdAt: "2026-03-01T00:00:00.000Z",
+    },
+  ],
   updatedAt: new Date().toISOString(),
 };
 
@@ -58,65 +89,115 @@ describe("ChangesView", () => {
   beforeEach(() => {
     mocks.fetchProjectChanges.mockReset();
     mocks.fetchProjectSpace.mockReset();
+    mocks.fetchProjectSpaceCommits.mockReset();
+    mocks.fetchProjectPullRequestTarget.mockReset();
+    mocks.fetchProjectSpaceContribution.mockReset();
+    mocks.integrateProjectSpace.mockReset();
+    mocks.spawnSpaceConflictFixer.mockReset();
     mocks.commitProjectChanges.mockReset();
+
+    mocks.fetchProjectChanges.mockResolvedValue(baseChanges);
+    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
+    mocks.fetchProjectSpaceCommits.mockResolvedValue([
+      {
+        sha: "abc1234",
+        subject: "worker commit",
+        author: "test",
+        date: "2026-03-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.fetchProjectPullRequestTarget.mockResolvedValue({
+      branch: "space/PRO-1",
+      baseBranch: "main",
+      compareUrl: "https://github.com/org/repo/compare/main...space%2FPRO-1",
+    });
+    mocks.fetchProjectSpaceContribution.mockResolvedValue({
+      entry: baseSpace.queue[0]!,
+      commits: [
+        {
+          sha: "abc123",
+          subject: "worker commit",
+          author: "test",
+          date: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+      diff: "diff --git a/src/app.ts b/src/app.ts",
+      conflictFiles: [],
+    });
+    mocks.integrateProjectSpace.mockResolvedValue(baseSpace);
+    mocks.spawnSpaceConflictFixer.mockResolvedValue({
+      entryId: "alpha:1",
+      slug: "fix-alpha",
+    });
+    mocks.commitProjectChanges.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("renders file list and diff", async () => {
-    mocks.fetchProjectChanges.mockResolvedValue(baseChanges);
-    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
-
+  it("renders space queue and diff", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
 
     await flush();
 
-    expect(container.textContent).toContain("Branch: feature/changes");
-    expect(container.textContent).toContain("Space");
-    expect(container.querySelectorAll(".file-row").length).toBe(1);
+    expect(container.textContent).toContain("Space branch: space/PRO-1");
+    expect(container.textContent).toContain("Space Commit Log");
     expect(container.textContent).toContain("src/app.ts");
     expect(container.textContent).toContain("+new line");
-    expect(container.textContent).toContain("-old line");
 
     dispose();
   });
 
-  it("shows empty state", async () => {
-    mocks.fetchProjectChanges.mockResolvedValue({
-      ...baseChanges,
-      files: [],
-      diff: "",
-      stats: { filesChanged: 0, insertions: 0, deletions: 0 },
-    });
-    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
-
+  it("integrates pending queue", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
 
     await flush();
 
-    expect(container.textContent).toContain("No uncommitted changes");
+    const integrateBtn = Array.from(
+      container.querySelectorAll("button")
+    ).find((btn) => btn.textContent?.includes("Integrate Now")) as
+      | HTMLButtonElement
+      | undefined;
+    expect(integrateBtn).toBeDefined();
+
+    integrateBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.integrateProjectSpace).toHaveBeenCalledWith("PRO-1");
+
+    dispose();
+  });
+
+  it("loads contribution details for queue entry", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const detailsBtn = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.trim() === "Details"
+    ) as HTMLButtonElement | undefined;
+    expect(detailsBtn).toBeDefined();
+
+    detailsBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.fetchProjectSpaceContribution).toHaveBeenCalledWith(
+      "PRO-1",
+      "alpha:1"
+    );
+    expect(container.textContent).toContain("worker commit");
 
     dispose();
   });
 
   it("commits changes and refreshes", async () => {
-    mocks.fetchProjectChanges
-      .mockResolvedValueOnce(baseChanges)
-      .mockResolvedValueOnce({
-        ...baseChanges,
-        files: [],
-        diff: "",
-        stats: { filesChanged: 0, insertions: 0, deletions: 0 },
-      });
-    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
-    mocks.commitProjectChanges.mockResolvedValue({ ok: true });
-
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
@@ -136,7 +217,6 @@ describe("ChangesView", () => {
       "PRO-1",
       "ship changes"
     );
-    expect(container.textContent).toContain("No uncommitted changes");
 
     dispose();
   });

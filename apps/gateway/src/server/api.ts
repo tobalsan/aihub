@@ -53,6 +53,7 @@ import {
   getProject,
   getProjectChanges,
   commitProjectChanges,
+  getProjectPullRequestTarget,
   createProject,
   updateProject,
   deleteProject,
@@ -68,7 +69,14 @@ import {
   readSpec,
   writeSpec,
   getProjectSpace,
+  getProjectSpaceCommitLog,
+  getProjectSpaceContribution,
+  getProjectSpaceConflictContext,
   integrateProjectSpaceQueue,
+  isSpaceWriteLeaseEnabled,
+  getProjectSpaceWriteLease,
+  acquireProjectSpaceWriteLease,
+  releaseProjectSpaceWriteLease,
 } from "../projects/index.js";
 import {
   listAreas,
@@ -390,6 +398,13 @@ function generateRalphLoopSlug(): string {
   return `ralph-${now}-${rand}`;
 }
 
+function generateConflictFixerSlug(workerSlug: string): string {
+  const now = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 6);
+  const base = slugifyTitle(workerSlug) || "worker";
+  return `fix-${base}-${now}-${rand}`;
+}
+
 const UpdateTaskRequestSchema = z.object({
   checked: z.boolean().optional(),
   status: z.enum(["todo", "in_progress", "done"]).optional(),
@@ -407,6 +422,22 @@ const PutSpecRequestSchema = z.object({
 });
 const CommitProjectChangesRequestSchema = z.object({
   message: z.string(),
+});
+const AcquireSpaceLeaseRequestSchema = z.object({
+  holder: z.string(),
+  ttlSeconds: z.number().int().positive().optional(),
+  force: z.boolean().optional(),
+});
+const ReleaseSpaceLeaseRequestSchema = z.object({
+  holder: z.string().optional(),
+  force: z.boolean().optional(),
+});
+const SpawnConflictFixerRequestSchema = z.object({
+  slug: z.string().optional(),
+  cli: z.enum(["codex", "claude", "pi"]).optional(),
+  model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+  thinking: z.string().optional(),
 });
 
 // GET /api/agents - list all agents (respects single-agent mode)
@@ -1951,6 +1982,50 @@ api.get("/projects/:id/space", async (c) => {
   return c.json(result.data);
 });
 
+// GET /api/projects/:id/space/commits - recent commits in Space branch
+api.get("/projects/:id/space/commits", async (c) => {
+  const id = c.req.param("id");
+  const limitParam = c.req.query("limit");
+  const limit = limitParam ? Number(limitParam) : 20;
+  const config = getConfig();
+  try {
+    const commits = await getProjectSpaceCommitLog(config, id, limit);
+    return c.json({ commits });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message === "Project repo not set"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// GET /api/projects/:id/space/contributions/:entryId - per-entry diff/log
+api.get("/projects/:id/space/contributions/:entryId", async (c) => {
+  const id = c.req.param("id");
+  const entryId = c.req.param("entryId");
+  const config = getConfig();
+  try {
+    const contribution = await getProjectSpaceContribution(config, id, entryId);
+    return c.json(contribution);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found" ||
+      message === "Space integration entry not found"
+        ? 404
+        : message === "Project repo not set"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
 // POST /api/projects/:id/space/integrate - resume/integrate pending Space queue
 api.post("/projects/:id/space/integrate", async (c) => {
   const id = c.req.param("id");
@@ -1973,6 +2048,150 @@ api.post("/projects/:id/space/integrate", async (c) => {
   }
 });
 
+// POST /api/projects/:id/space/conflicts/:entryId/fix - spawn conflict fixer worker
+api.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
+  const id = c.req.param("id");
+  const entryId = c.req.param("entryId");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = SpawnConflictFixerRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const cli = parsed.data.cli ?? "codex";
+  const resolvedCliOptions = resolveCliSpawnOptions(
+    cli,
+    parsed.data.model,
+    parsed.data.reasoningEffort,
+    parsed.data.thinking
+  );
+  if (!resolvedCliOptions.ok) {
+    return c.json({ error: resolvedCliOptions.error }, 400);
+  }
+
+  const config = getConfig();
+  try {
+    const context = await getProjectSpaceConflictContext(config, id, entryId);
+    const prompt = [
+      "Resolve Space integration conflict in this project.",
+      "",
+      `Project: ${id}`,
+      `Space branch: ${context.space.branch}`,
+      `Base branch: ${context.space.baseBranch}`,
+      `Failed worker: ${context.entry.workerSlug}`,
+      `Failed delivery id: ${context.entry.id}`,
+      `Failed SHAs: ${context.entry.shas.join(", ") || "(none)"}`,
+      "",
+      "Conflicted files:",
+      ...(context.conflictFiles.length > 0
+        ? context.conflictFiles.map((file) => `- ${file}`)
+        : ["- (no unmerged files reported)"]),
+      "",
+      "Checklist:",
+      "1. Inspect and resolve conflicts in the listed files.",
+      "2. Run targeted tests for touched files.",
+      "3. Commit the conflict resolution with a clear message.",
+      "4. Comment the resolution and next steps in project thread.",
+    ].join("\n");
+
+    const slug = parsed.data.slug?.trim()
+      ? parsed.data.slug.trim()
+      : generateConflictFixerSlug(context.entry.workerSlug);
+    const spawned = await spawnSubagent(config, {
+      projectId: id,
+      slug,
+      cli,
+      prompt,
+      model: resolvedCliOptions.data.model,
+      reasoningEffort: resolvedCliOptions.data.reasoningEffort,
+      thinking: resolvedCliOptions.data.thinking,
+      mode: "worktree",
+      baseBranch: context.space.branch,
+    });
+    if (!spawned.ok) {
+      const status = spawned.error.startsWith("Project not found") ? 404 : 400;
+      return c.json({ error: spawned.error }, status);
+    }
+    return c.json({ entryId, ...spawned.data }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found" ||
+      message === "Space conflict entry not found"
+        ? 404
+        : message === "Project repo not set"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// GET /api/projects/:id/space/lease - active write lease
+api.get("/projects/:id/space/lease", async (c) => {
+  const id = c.req.param("id");
+  if (!isSpaceWriteLeaseEnabled()) {
+    return c.json({ enabled: false, lease: null });
+  }
+  const config = getConfig();
+  const lease = await getProjectSpaceWriteLease(config, id);
+  if (!lease.ok) {
+    const status = lease.error.startsWith("Project not found") ? 404 : 400;
+    return c.json({ error: lease.error }, status);
+  }
+  return c.json({ enabled: true, lease: lease.data });
+});
+
+// POST /api/projects/:id/space/lease - acquire/renew write lease
+api.post("/projects/:id/space/lease", async (c) => {
+  const id = c.req.param("id");
+  if (!isSpaceWriteLeaseEnabled()) {
+    return c.json({ error: "Space write lease is disabled" }, 404);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = AcquireSpaceLeaseRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  const lease = await acquireProjectSpaceWriteLease(config, id, parsed.data);
+  if (!lease.ok) {
+    const status =
+      lease.error.startsWith("Project not found")
+        ? 404
+        : lease.error.includes("held by")
+          ? 409
+          : 400;
+    return c.json({ error: lease.error }, status);
+  }
+  return c.json({ enabled: true, lease: lease.data });
+});
+
+// DELETE /api/projects/:id/space/lease - release write lease
+api.delete("/projects/:id/space/lease", async (c) => {
+  const id = c.req.param("id");
+  if (!isSpaceWriteLeaseEnabled()) {
+    return c.json({ enabled: false, lease: null });
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = ReleaseSpaceLeaseRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  const released = await releaseProjectSpaceWriteLease(config, id, parsed.data);
+  if (!released.ok) {
+    const status =
+      released.error.startsWith("Project not found")
+        ? 404
+        : released.error.includes("held by")
+          ? 409
+          : 400;
+    return c.json({ error: released.error }, status);
+  }
+  return c.json({ enabled: true, lease: null });
+});
+
 // GET /api/projects/:id/changes - get git changes
 api.get("/projects/:id/changes", async (c) => {
   const id = c.req.param("id");
@@ -1980,6 +2199,25 @@ api.get("/projects/:id/changes", async (c) => {
   try {
     const result = await getProjectChanges(config, id);
     return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message === "Project repo not set" || message === "Not a git repository"
+        ? 400
+        : message.startsWith("Project not found")
+          ? 404
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// GET /api/projects/:id/pr-target - compare URL for PR creation
+api.get("/projects/:id/pr-target", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  try {
+    const target = await getProjectPullRequestTarget(config, id);
+    return c.json(target);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const status =

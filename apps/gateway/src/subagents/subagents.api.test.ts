@@ -1412,6 +1412,114 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("spawns conflict fixer subagent from conflicted Space entry", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Space Conflict Fixer" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-conflict-fixer");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-conflict-fixer");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      [
+        "#!/bin/sh",
+        'echo "{\"type\":\"thread.started\",\"thread_id\":\"s1\"}"',
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const seedSpaceRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "seed-space",
+          cli: "codex",
+          prompt: "seed",
+          mode: "main-run",
+        }),
+      })
+    );
+    expect(seedSpaceRes.status).toBe(201);
+
+    const projectDir = path.join(projectsRoot, created.path);
+    const spacePath = path.join(projectDir, "space.json");
+    const rawSpace = JSON.parse(await fs.readFile(spacePath, "utf8")) as {
+      worktreePath: string;
+      branch: string;
+      baseBranch: string;
+      queue: Array<Record<string, unknown>>;
+    };
+    rawSpace.integrationBlocked = true;
+    rawSpace.queue.push({
+      id: "conflict-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: path.join(projectsRoot, ".workspaces", created.id, "alpha"),
+      startSha: "a",
+      endSha: "b",
+      shas: ["abc123"],
+      status: "conflict",
+      createdAt: new Date().toISOString(),
+      error: "git cherry-pick failed",
+    });
+    await fs.writeFile(spacePath, JSON.stringify(rawSpace, null, 2), "utf8");
+
+    const fixRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/space/conflicts/conflict-1/fix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: "fix-alpha" }),
+      })
+    );
+    expect(fixRes.status).toBe(201);
+    const fixBody = await fixRes.json();
+    expect(fixBody.slug).toBe("fix-alpha");
+    expect(fixBody.entryId).toBe("conflict-1");
+
+    const fixerConfig = JSON.parse(
+      await fs.readFile(
+        path.join(projectDir, "sessions", "fix-alpha", "config.json"),
+        "utf8"
+      )
+    ) as { runMode?: string; baseBranch?: string };
+    expect(fixerConfig.runMode).toBe("worktree");
+    expect(fixerConfig.baseBranch).toBe(`space/${created.id}`);
+
+    process.env.PATH = prevPath;
+  });
+
   it("rejects legacy CLI values on subagent spawn", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

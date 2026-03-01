@@ -7,7 +7,14 @@ import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
 import { buildRalphPromptFromTemplate } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
-import { ensureProjectSpace, recordWorkerDelivery } from "../projects/space.js";
+import {
+  ensureProjectSpace,
+  recordWorkerDelivery,
+  isSpaceWriteLeaseEnabled,
+  acquireProjectSpaceWriteLease,
+  releaseProjectSpaceWriteLease,
+  pruneProjectRepoWorktrees,
+} from "../projects/space.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -541,11 +548,21 @@ export async function spawnSubagent(
   const worktreeDir = path.join(workspacesRoot, input.slug);
 
   let worktreePath = mode === "none" ? repo || projectDir : repo;
+  let acquiredSpaceLease = false;
   const baseBranch = input.baseBranch ?? "main";
   if (mode === "main-run") {
     try {
       const space = await ensureProjectSpace(config, input.projectId, baseBranch);
       worktreePath = space.worktreePath;
+      if (isSpaceWriteLeaseEnabled()) {
+        const lease = await acquireProjectSpaceWriteLease(config, input.projectId, {
+          holder: input.slug,
+        });
+        if (!lease.ok) {
+          return { ok: false, error: lease.error };
+        }
+        acquiredSpaceLease = true;
+      }
     } catch (error) {
       return {
         ok: false,
@@ -633,6 +650,11 @@ export async function spawnSubagent(
   try {
     resolved = await resolveCliCommand(cli, args);
   } catch (err) {
+    if (acquiredSpaceLease) {
+      await releaseProjectSpaceWriteLease(config, input.projectId, {
+        holder: input.slug,
+      }).catch(() => {});
+    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : "CLI not found",
@@ -658,6 +680,11 @@ export async function spawnSubagent(
         error_message: "spawn failed",
       },
     });
+    if (acquiredSpaceLease) {
+      await releaseProjectSpaceWriteLease(config, input.projectId, {
+        holder: input.slug,
+      }).catch(() => {});
+    }
   });
 
   const startedAt = new Date().toISOString();
@@ -840,6 +867,12 @@ export async function spawnSubagent(
       } catch {
         // ignore
       }
+      if (acquiredSpaceLease) {
+        await releaseProjectSpaceWriteLease(config, input.projectId, {
+          holder: input.slug,
+        }).catch(() => {});
+      }
+      await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
       return;
     }
 
@@ -868,6 +901,12 @@ export async function spawnSubagent(
         }).catch(() => {});
       }
     }
+    if (acquiredSpaceLease) {
+      await releaseProjectSpaceWriteLease(config, input.projectId, {
+        holder: input.slug,
+      }).catch(() => {});
+    }
+    await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
   });
 
   return { ok: true, data: { slug: input.slug } };
@@ -1319,6 +1358,13 @@ export async function killSubagent(
     const resolvedClonePath = worktreePath || worktreeDir;
     await fs.rm(resolvedClonePath, { recursive: true, force: true });
   }
+
+  if (runMode === "main-run" && isSpaceWriteLeaseEnabled()) {
+    await releaseProjectSpaceWriteLease(config, projectId, {
+      holder: slug,
+    }).catch(() => {});
+  }
+  await pruneProjectRepoWorktrees(config, projectId).catch(() => {});
 
   await fs.rm(sessionDir, { recursive: true, force: true });
 

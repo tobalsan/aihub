@@ -27,6 +27,12 @@ export type CommitResult =
   | { ok: true; sha: string; message: string }
   | { ok: false; error: string };
 
+export type ProjectPullRequestTarget = {
+  branch: string;
+  baseBranch: string;
+  compareUrl?: string;
+};
+
 function expandPath(p: string): string {
   if (p.startsWith("~/")) return path.join(homedir(), p.slice(2));
   return p;
@@ -42,6 +48,17 @@ function mapStatus(code: string): FileChange["status"] {
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trimEnd();
+}
+
+function normalizeGithubRepoUrl(remote: string): string | null {
+  const value = remote.trim();
+  if (!value) return null;
+  const cleaned = value.replace(/\.git$/i, "");
+  const sshMatch = cleaned.match(/^git@github\.com:(.+\/.+)$/i);
+  if (sshMatch?.[1]) return `https://github.com/${sshMatch[1]}`;
+  const httpsMatch = cleaned.match(/^https?:\/\/github\.com\/(.+\/.+)$/i);
+  if (httpsMatch?.[1]) return `https://github.com/${httpsMatch[1]}`;
+  return null;
 }
 
 async function isGitRepo(cwd: string): Promise<boolean> {
@@ -216,4 +233,32 @@ export async function commitProjectChanges(
 
   const sha = await runGit(repo, ["rev-parse", "--short", "HEAD"]);
   return { ok: true, sha: sha.trim(), message: commitMessage };
+}
+
+export async function getProjectPullRequestTarget(
+  config: GatewayConfig,
+  projectId: string
+): Promise<ProjectPullRequestTarget> {
+  const resolved = await resolveRepoPath(config, projectId);
+  const repo = resolved.repoPath;
+  if (!(await isGitRepo(repo))) {
+    throw new Error("Not a git repository");
+  }
+
+  const branchRaw = await runGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = branchRaw.trim() || "HEAD";
+  const baseBranch = resolved.baseBranch || "main";
+
+  let compareUrl: string | undefined;
+  try {
+    const remoteRaw = await runGit(repo, ["remote", "get-url", "origin"]);
+    const githubRepo = normalizeGithubRepoUrl(remoteRaw);
+    if (githubRepo) {
+      compareUrl = `${githubRepo}/compare/${encodeURIComponent(baseBranch)}...${encodeURIComponent(branch)}?expand=1`;
+    }
+  } catch {
+    // no origin remote configured
+  }
+
+  return { branch, baseBranch, compareUrl };
 }

@@ -45,6 +45,7 @@ Features:
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
+- Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
@@ -337,8 +338,15 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | PATCH  | `/api/projects/:id`        | Update project                                             |
 | GET    | `/api/projects/:id/space`  | Get project Space state                                    |
 | POST   | `/api/projects/:id/space/integrate` | Resume Space integration queue                     |
+| GET    | `/api/projects/:id/space/commits` | Get Space commit log                                  |
+| GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log      |
+| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Spawn conflict fixer worker             |
+| GET    | `/api/projects/:id/space/lease` | Get Space write lease (feature-flagged)                |
+| POST   | `/api/projects/:id/space/lease` | Acquire Space write lease (feature-flagged)            |
+| DELETE | `/api/projects/:id/space/lease` | Release Space write lease (feature-flagged)            |
 | GET    | `/api/projects/:id/changes` | Get project changes (Space-first source resolution)       |
 | POST   | `/api/projects/:id/commit` | Commit project changes in resolved source                  |
+| GET    | `/api/projects/:id/pr-target` | Get PR compare target for current resolved branch         |
 
 ## Projects Execution Modes
 
@@ -359,6 +367,13 @@ Behavior:
 - Worker commit ranges are derived from `start_head_sha..end_head_sha` and queued.
 - Gateway cherry-picks pending worker SHAs into Space (`git cherry-pick -x`).
 - On conflict, Space queue is blocked (`integrationBlocked=true`) until resumed by `/api/projects/:id/space/integrate`.
+- Queue statuses include: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
+- Stale worker handling:
+  - Clone workers are marked `stale_worker` when their base diverges from Space HEAD.
+  - Worktree workers can auto-rebase onto Space HEAD when `AIHUB_SPACE_AUTO_REBASE=true` (default).
+- Optional Space write lease (`AIHUB_SPACE_WRITE_LEASE=true`):
+  - Persists lease at `<projectDir>/space-lease.json`.
+  - Enforced for `main-run` workers (acquire on spawn, release on exit/kill).
 
 ### Subagent CLI Harnesses
 

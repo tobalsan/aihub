@@ -116,6 +116,9 @@ Project Space model:
 - `main-run` executes in project Space (`space/<projectId>` branch, `.../.workspaces/<projectId>/_space` worktree).
 - `worktree` and `clone` remain isolated worker sandboxes.
 - Worker commits are queued and cherry-picked into Space; conflicts block queue until resumed.
+- Queue statuses: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
+- Stale handling: clone deliveries can be marked `stale_worker`; worktree runs can auto-rebase with `AIHUB_SPACE_AUTO_REBASE=true`.
+- Optional write lease (`AIHUB_SPACE_WRITE_LEASE=true`) enforces exclusive `main-run` writer access via project `space-lease.json`.
 
 Project subagent CLIs:
 
@@ -227,8 +230,13 @@ openclaw sessions list
 | `/api/projects/:id`        | GET/PATCH    | Get/update project                                   |
 | `/api/projects/:id/space`  | GET          | Get project Space state                              |
 | `/api/projects/:id/space/integrate` | POST | Resume/pick pending Space queue                     |
+| `/api/projects/:id/space/commits` | GET  | Get Space commit log                                 |
+| `/api/projects/:id/space/contributions/:entryId` | GET | Get per-entry contribution details     |
+| `/api/projects/:id/space/conflicts/:entryId/fix` | POST | Spawn conflict-fixer worker           |
+| `/api/projects/:id/space/lease` | GET/POST/DELETE | Read/acquire/release Space write lease (flagged) |
 | `/api/projects/:id/changes` | GET         | Get project changes (Space-first source)             |
 | `/api/projects/:id/commit` | POST         | Commit project changes in resolved source            |
+| `/api/projects/:id/pr-target` | GET       | Get compare URL for PR creation from current branch  |
 | `/ws`                      | WS           | WebSocket streaming (send + subscribe)               |
 
 Project API details: `docs/projects_api.md`

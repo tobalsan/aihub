@@ -25,6 +25,11 @@ import type {
   SubagentLogsResponse,
   ProjectBranchesResponse,
   ProjectSpaceState,
+  SpaceCommitSummary,
+  SpaceContribution,
+  SpaceLeaseState,
+  SpaceWriteLease,
+  ProjectPullRequestTarget,
   ProjectChanges,
   CommitResult,
   FileAttachment,
@@ -808,6 +813,129 @@ export async function integrateProjectSpace(
     throw new Error(data.error ?? "Failed to integrate project space");
   }
   return (await res.json()) as ProjectSpaceState;
+}
+
+export async function fetchProjectSpaceCommits(
+  projectId: string,
+  limit = 20
+): Promise<SpaceCommitSummary[]> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/space/commits?limit=${limit}`
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch space commits" }));
+    throw new Error(data.error ?? "Failed to fetch space commits");
+  }
+  const data = (await res.json()) as { commits?: SpaceCommitSummary[] };
+  return data.commits ?? [];
+}
+
+export async function fetchProjectSpaceContribution(
+  projectId: string,
+  entryId: string
+): Promise<SpaceContribution> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/space/contributions/${encodeURIComponent(entryId)}`
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch space contribution" }));
+    throw new Error(data.error ?? "Failed to fetch space contribution");
+  }
+  return (await res.json()) as SpaceContribution;
+}
+
+export async function spawnSpaceConflictFixer(
+  projectId: string,
+  entryId: string,
+  input?: {
+    slug?: string;
+    cli?: "codex" | "claude" | "pi";
+    model?: string;
+    reasoningEffort?: string;
+    thinking?: string;
+  }
+): Promise<{ entryId: string; slug: string }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/space/conflicts/${encodeURIComponent(entryId)}/fix`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input ?? {}),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to spawn conflict fixer" }));
+    throw new Error(data.error ?? "Failed to spawn conflict fixer");
+  }
+  return (await res.json()) as { entryId: string; slug: string };
+}
+
+export async function fetchProjectSpaceLease(
+  projectId: string
+): Promise<SpaceLeaseState> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/lease`);
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch space lease" }));
+    throw new Error(data.error ?? "Failed to fetch space lease");
+  }
+  return (await res.json()) as SpaceLeaseState;
+}
+
+export async function acquireProjectSpaceLease(
+  projectId: string,
+  input: { holder: string; ttlSeconds?: number; force?: boolean }
+): Promise<SpaceWriteLease | null> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/lease`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to acquire space lease" }));
+    throw new Error(data.error ?? "Failed to acquire space lease");
+  }
+  const data = (await res.json()) as SpaceLeaseState;
+  return data.lease;
+}
+
+export async function releaseProjectSpaceLease(
+  projectId: string,
+  input: { holder?: string; force?: boolean }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/lease`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to release space lease" }));
+    throw new Error(data.error ?? "Failed to release space lease");
+  }
+}
+
+export async function fetchProjectPullRequestTarget(
+  projectId: string
+): Promise<ProjectPullRequestTarget> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/pr-target`);
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch PR target" }));
+    throw new Error(data.error ?? "Failed to fetch PR target");
+  }
+  return (await res.json()) as ProjectPullRequestTarget;
 }
 
 export async function commitProjectChanges(

@@ -5,7 +5,11 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
-import { getProjectChanges, commitProjectChanges } from "./git.js";
+import {
+  getProjectChanges,
+  commitProjectChanges,
+  getProjectPullRequestTarget,
+} from "./git.js";
 import { ensureProjectSpace } from "./space.js";
 
 const execFileAsync = promisify(execFile);
@@ -172,5 +176,28 @@ describe("projects git", () => {
     expect(result.baseBranch).toBe("main");
     expect(result.branch).toBe("space/PRO-1");
     expect(result.files.length).toBe(1);
+  });
+
+  it("builds PR compare target from origin remote", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+    await runGit(repoDir, ["remote", "add", "origin", "git@github.com:acme/aihub.git"]);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_changes-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    await fs.writeFile(path.join(space.worktreePath, "README.md"), "space\n", "utf8");
+    await runGit(space.worktreePath, ["add", "README.md"]);
+    await runGit(space.worktreePath, ["commit", "-m", "space change"]);
+
+    const target = await getProjectPullRequestTarget(config, "PRO-1");
+
+    expect(target.branch).toBe("space/PRO-1");
+    expect(target.baseBranch).toBe("main");
+    expect(target.compareUrl).toContain(
+      "https://github.com/acme/aihub/compare/main...space%2FPRO-1"
+    );
   });
 });

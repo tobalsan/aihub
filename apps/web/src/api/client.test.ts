@@ -184,6 +184,17 @@ describe("api client (projects/subagents)", () => {
     expect(res.projectId).toBe("PRO-9");
   });
 
+  it("throws project space integrate error from API response", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: "integration blocked" }),
+    });
+
+    await expect(integrateProjectSpace("PRO-9")).rejects.toThrow(
+      "integration blocked"
+    );
+  });
+
   it("commits project changes", async () => {
     fetchMock.mockResolvedValue({
       ok: true,

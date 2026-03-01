@@ -20,13 +20,30 @@ export {
   readSpec,
   writeSpec,
 } from "./tasks.js";
-export { getProjectChanges, commitProjectChanges } from "./git.js";
-export type { ProjectChanges, CommitResult, FileChange } from "./git.js";
+export {
+  getProjectChanges,
+  commitProjectChanges,
+  getProjectPullRequestTarget,
+} from "./git.js";
+export type {
+  ProjectChanges,
+  CommitResult,
+  FileChange,
+  ProjectPullRequestTarget,
+} from "./git.js";
 export {
   ensureProjectSpace,
   getProjectSpace,
+  getProjectSpaceCommitLog,
+  getProjectSpaceContribution,
+  getProjectSpaceConflictContext,
   integrateProjectSpaceQueue,
   recordWorkerDelivery,
+  pruneProjectRepoWorktrees,
+  isSpaceWriteLeaseEnabled,
+  getProjectSpaceWriteLease,
+  acquireProjectSpaceWriteLease,
+  releaseProjectSpaceWriteLease,
 } from "./space.js";
 export type {
   ProjectSpace,
@@ -34,6 +51,10 @@ export type {
   IntegrationEntry,
   IntegrationStatus,
   RecordWorkerDeliveryInput,
+  SpaceCommitSummary,
+  SpaceContribution,
+  SpaceWriteLease,
+  SpaceWriteLeaseResult,
 } from "./space.js";
 export type {
   ProjectListItem,

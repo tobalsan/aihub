@@ -441,10 +441,25 @@ export type SpaceIntegrationEntry = {
   startSha?: string;
   endSha?: string;
   shas: string[];
-  status: "pending" | "integrated" | "conflict" | "skipped";
+  status: "pending" | "integrated" | "conflict" | "skipped" | "stale_worker";
   createdAt: string;
   integratedAt?: string;
   error?: string;
+  staleAgainstSha?: string;
+};
+
+export type SpaceCommitSummary = {
+  sha: string;
+  subject: string;
+  author: string;
+  date: string;
+};
+
+export type SpaceContribution = {
+  entry: SpaceIntegrationEntry;
+  commits: SpaceCommitSummary[];
+  diff: string;
+  conflictFiles: string[];
 };
 
 export type ProjectSpaceState = {
@@ -456,6 +471,23 @@ export type ProjectSpaceState = {
   integrationBlocked: boolean;
   queue: SpaceIntegrationEntry[];
   updatedAt: string;
+};
+
+export type SpaceWriteLease = {
+  holder: string;
+  acquiredAt: string;
+  expiresAt: string;
+};
+
+export type SpaceLeaseState = {
+  enabled: boolean;
+  lease: SpaceWriteLease | null;
+};
+
+export type ProjectPullRequestTarget = {
+  branch: string;
+  baseBranch: string;
+  compareUrl?: string;
 };
 
 export type CommitResult = {

@@ -250,4 +250,63 @@ describe("project space", () => {
       expect(content).toContain("clone");
     }
   });
+
+  it("marks stale clone delivery as stale_worker when Space advanced", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+
+    const alphaPath = path.join(projectsRoot, ".workspaces", "PRO-1", "alpha");
+    await fs.mkdir(path.dirname(alphaPath), { recursive: true });
+    await runGit(repoDir, [
+      "worktree",
+      "add",
+      "-b",
+      "PRO-1/alpha",
+      alphaPath,
+      "main",
+    ]);
+    const alphaStart = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(alphaPath, "app.txt"), "alpha\n", "utf8");
+    await runGit(alphaPath, ["add", "app.txt"]);
+    await runGit(alphaPath, ["commit", "-m", "alpha"]);
+    const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: alphaPath,
+      startSha: alphaStart,
+      endSha: alphaEnd,
+    });
+
+    const clonePath = path.join(projectsRoot, ".workspaces", "PRO-1", "clone-a");
+    await runGit(repoDir, ["clone", repoDir, clonePath]);
+    await runGit(clonePath, ["checkout", "-b", "PRO-1/clone-a", "main"]);
+    const cloneStart = await runGit(clonePath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(clonePath, "clone.txt"), "stale\n", "utf8");
+    await runGit(clonePath, ["add", "clone.txt"]);
+    await runGit(clonePath, ["commit", "-m", "clone stale"]);
+    const cloneEnd = await runGit(clonePath, ["rev-parse", "HEAD"]);
+
+    const updated = await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "clone-a",
+      runMode: "clone",
+      worktreePath: clonePath,
+      startSha: cloneStart,
+      endSha: cloneEnd,
+    });
+
+    const staleEntry = updated.queue.find((item) => item.workerSlug === "clone-a");
+    expect(staleEntry?.status).toBe("stale_worker");
+    expect(staleEntry?.staleAgainstSha).toBeTruthy();
+    const spaceContent = await fs.readFile(path.join(space.worktreePath, "app.txt"), "utf8");
+    expect(spaceContent).not.toContain("stale");
+  });
 });
