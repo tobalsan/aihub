@@ -1163,6 +1163,12 @@ export function ProjectsBoard() {
   });
 
   onMount(() => {
+    const archived = searchParams.archived;
+    if (archived === "1" || archived === "true") {
+      setShowArchived(true);
+      setSearchParams({ archived: undefined });
+    }
+
     const media = window.matchMedia("(max-width: 768px)");
     const update = (matches: boolean) => setIsMobile(matches);
     update(media.matches);
@@ -2632,8 +2638,8 @@ export function ProjectsBoard() {
       <AgentSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
-        selectedAgent={selectedAgent}
-        onSelectAgent={handleSelectAgent}
+        showArchived={showArchived}
+        onToggleArchived={() => setShowArchived((prev) => !prev)}
       />
       <Show when={isMobile()}>
         <button
@@ -2655,7 +2661,6 @@ export function ProjectsBoard() {
       <main class="kanban-main">
         <div class="projects-page">
           <header class="projects-header">
-            <h1 class="header-title">AIHub</h1>
             <input
               class="filter-input"
               type="text"
@@ -2663,16 +2668,6 @@ export function ProjectsBoard() {
               value={filterText()}
               onInput={(e) => setFilterText(e.currentTarget.value)}
             />
-            <A class="archive-link" href="/conversations">
-              Conversations
-            </A>
-            <button
-              class="archive-link"
-              type="button"
-              onClick={() => setShowArchived((prev) => !prev)}
-            >
-              {showArchived() ? "Hide archive" : "Archived"}
-            </button>
           </header>
 
           <Show when={projects.loading}>
@@ -4286,14 +4281,7 @@ export function ProjectsBoard() {
           z-index: 5;
         }
 
-        .header-title {
-          font-size: 20px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-        }
-
         .filter-input {
-          margin-left: auto;
           padding: 8px 12px;
           font-size: 14px;
           border-radius: 8px;
@@ -4311,26 +4299,6 @@ export function ProjectsBoard() {
 
         .filter-input:focus {
           border-color: #3b6ecc;
-        }
-
-        .archive-link {
-          display: inline-flex;
-          align-items: center;
-          border: 1px solid #1f242c;
-          background: transparent;
-          color: #98a3b2;
-          padding: 6px 10px;
-          font-size: 12px;
-          border-radius: 999px;
-          cursor: pointer;
-          text-decoration: none;
-          transition: all 0.15s ease;
-        }
-
-        .archive-link:hover {
-          border-color: #2a3240;
-          color: #c4cbd6;
-          background: rgba(255, 255, 255, 0.03);
         }
 
         .archive-panel {

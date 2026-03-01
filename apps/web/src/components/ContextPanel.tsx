@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
+import { AgentDirectory } from "./AgentDirectory";
 import { fetchAgents, fetchAllSubagents } from "../api/client";
 
 type ContextPanelProps = {
@@ -20,10 +21,10 @@ type ContextPanelProps = {
   onOpenProject: (id: string) => void;
 };
 
-type PanelMode = "feed" | "chat";
+type PanelMode = "agents" | "feed" | "chat";
 
 export function ContextPanel(props: ContextPanelProps) {
-  const [mode, setMode] = createSignal<PanelMode>("feed");
+  const [mode, setMode] = createSignal<PanelMode>("agents");
   const [agents] = createResource(fetchAgents);
   const [subagents] = createResource(fetchAllSubagents);
   const storageKey = "aihub:context-panel:mode";
@@ -89,7 +90,7 @@ export function ContextPanel(props: ContextPanelProps) {
 
   onMount(() => {
     const saved = localStorage.getItem(storageKey);
-    if (saved === "feed" || saved === "chat") {
+    if (saved === "agents" || saved === "feed" || saved === "chat") {
       setMode(saved);
     }
   });
@@ -107,7 +108,7 @@ export function ContextPanel(props: ContextPanelProps) {
 
   const handleBack = () => {
     props.onClearSelection();
-    setMode("feed");
+    setMode("agents");
   };
 
   return (
@@ -123,10 +124,10 @@ export function ContextPanel(props: ContextPanelProps) {
         <div class="panel-tabs">
           <button
             type="button"
-            classList={{ active: mode() === "feed" }}
-            onClick={() => setMode("feed")}
+            classList={{ active: mode() === "agents" }}
+            onClick={() => setMode("agents")}
           >
-            Feed
+            Agents
           </button>
           <button
             type="button"
@@ -135,17 +136,24 @@ export function ContextPanel(props: ContextPanelProps) {
           >
             Chat
           </button>
+          <button
+            type="button"
+            classList={{ active: mode() === "feed" }}
+            onClick={() => setMode("feed")}
+          >
+            Feed
+          </button>
         </div>
       </div>
 
       <div class="collapsed-icons">
         <button
           type="button"
-          classList={{ active: mode() === "feed" }}
-          onClick={() => expandAndShow("feed")}
-          title="Activity Feed"
+          classList={{ active: mode() === "agents" }}
+          onClick={() => expandAndShow("agents")}
+          title="Agents"
         >
-          📋
+          🤖
         </button>
         <button
           type="button"
@@ -155,9 +163,23 @@ export function ContextPanel(props: ContextPanelProps) {
         >
           💬
         </button>
+        <button
+          type="button"
+          classList={{ active: mode() === "feed" }}
+          onClick={() => expandAndShow("feed")}
+          title="Activity Feed"
+        >
+          📋
+        </button>
       </div>
 
       <div class="panel-content">
+        <Show when={mode() === "agents"}>
+          <AgentDirectory
+            selectedAgent={props.selectedAgent}
+            onSelectAgent={props.onSelectAgent}
+          />
+        </Show>
         <Show when={mode() === "feed"}>
           <ActivityFeed
             onSelectAgent={props.onSelectAgent}

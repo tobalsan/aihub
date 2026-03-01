@@ -42,6 +42,11 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
+- Projects board shell uses split sidebars:
+  - Left sidebar: AIHub logo + primary nav (`Projects`, `Conversations`, `Chats`) + `Archived` toggle
+  - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
+  - Archived projects section is toggled from the left sidebar `Archived` control
+- Left sidebar nav shell is reused on `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list

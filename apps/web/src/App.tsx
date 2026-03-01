@@ -1,6 +1,15 @@
-import { Router, Route, useParams } from "@solidjs/router";
-import { Show, createMemo, onMount, type JSX } from "solid-js";
+import { Router, Route, useNavigate, useParams } from "@solidjs/router";
+import {
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from "solid-js";
 import { AgentList } from "./components/AgentList";
+import { AgentSidebar } from "./components/AgentSidebar";
 import { ChatView } from "./components/ChatView";
 import { ConversationsPage } from "./components/conversations/ConversationsPage";
 import { ProjectsBoard } from "./components/ProjectsBoard";
@@ -59,14 +68,133 @@ function ProjectsRouteShell() {
   );
 }
 
+function LeftNavShell(props: { children?: JSX.Element }) {
+  const navigate = useNavigate();
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const [isMobile, setIsMobile] = createSignal(false);
+
+  onMount(() => {
+    const media = window.matchMedia("(max-width: 768px)");
+    const update = (matches: boolean) => setIsMobile(matches);
+    update(media.matches);
+    const handler = (event: MediaQueryListEvent) => update(event.matches);
+    if (media.addEventListener) {
+      media.addEventListener("change", handler);
+      onCleanup(() => media.removeEventListener("change", handler));
+    } else {
+      media.addListener(handler);
+      onCleanup(() => media.removeListener(handler));
+    }
+  });
+
+  createEffect(() => {
+    if (isMobile()) setSidebarCollapsed(true);
+  });
+
+  return (
+    <div class="left-nav-shell">
+      <AgentSidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        showArchived={() => false}
+        onToggleArchived={() => navigate("/projects?archived=1")}
+      />
+      <Show when={isMobile()}>
+        <button
+          class="mobile-sidebar-toggle"
+          type="button"
+          onClick={() => setSidebarCollapsed((prev) => !prev)}
+          aria-label="Toggle sidebar"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M3 12h18M3 6h18M3 18h18" />
+          </svg>
+        </button>
+      </Show>
+      <div class="left-nav-main">{props.children}</div>
+      <style>{`
+        .left-nav-shell {
+          height: 100%;
+          display: flex;
+          width: 100%;
+          position: relative;
+          min-height: 0;
+        }
+
+        .left-nav-main {
+          flex: 1;
+          min-width: 0;
+          min-height: 0;
+        }
+
+        .left-nav-shell .mobile-sidebar-toggle {
+          position: fixed;
+          top: 14px;
+          left: 12px;
+          z-index: 900;
+          width: 40px;
+          height: 40px;
+          border-radius: 10px;
+          border: 1px solid #303030;
+          background: rgba(18, 18, 18, 0.96);
+          color: #d4d4d4;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .left-nav-shell .mobile-sidebar-toggle svg {
+          width: 18px;
+          height: 18px;
+        }
+
+        @media (min-width: 769px) {
+          .left-nav-shell .mobile-sidebar-toggle {
+            display: none;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function ConversationsRouteShell() {
+  return (
+    <LeftNavShell>
+      <ConversationsPage />
+    </LeftNavShell>
+  );
+}
+
+function AgentsRouteShell() {
+  return (
+    <LeftNavShell>
+      <AgentList />
+    </LeftNavShell>
+  );
+}
+
+function ChatRouteShell() {
+  return (
+    <LeftNavShell>
+      <ChatView />
+    </LeftNavShell>
+  );
+}
+
 export default function App() {
   const base = import.meta.env.BASE_URL;
   return (
     <Router root={Layout} base={base}>
       <Route path="/" component={ProjectsBoard} />
-      <Route path="/agents" component={AgentList} />
-      <Route path="/chat/:agentId/:view?" component={ChatView} />
-      <Route path="/conversations" component={ConversationsPage} />
+      <Route path="/agents" component={AgentsRouteShell} />
+      <Route path="/chat/:agentId/:view?" component={ChatRouteShell} />
+      <Route path="/conversations" component={ConversationsRouteShell} />
       <Route path="/projects/:id?" component={ProjectsRouteShell} />
     </Router>
   );

@@ -64,6 +64,15 @@ packages/
   shared/     # Types & schemas
 ```
 
+## Web UI Navigation
+
+- Left sidebar: AIHub logo + primary links (`Projects`, `Conversations`, `Chats`) plus `Archived` toggle
+- Main route: `/projects` for Kanban project management
+- Right sidebar tabs: `Agents`, `Chat`, `Feed`
+- Legacy direct-chat agent list remains at `/agents`
+- `Archived` in left nav toggles the archived-projects section in the center panel
+- Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
+
 ## CLI
 
 ```bash
