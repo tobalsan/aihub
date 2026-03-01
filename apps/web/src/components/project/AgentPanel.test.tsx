@@ -8,6 +8,11 @@ import { fetchSubagents, spawnSubagent } from "../../api/client";
 vi.mock("../../api/client", () => ({
   fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "codex-abc" } })),
+  archiveSubagent: vi.fn(async () => ({
+    ok: true,
+    data: { slug: "codex-abc", archived: true },
+  })),
+  killSubagent: vi.fn(async () => ({ ok: true, data: { slug: "codex-abc" } })),
 }));
 
 const project: ProjectDetail = {

@@ -43,6 +43,7 @@ type AgentChatProps = {
   onBack: () => void;
   onOpenProject?: (id: string) => void;
   fullscreen?: boolean;
+  showHeader?: boolean;
 };
 
 type LogItem = {
@@ -1109,22 +1110,52 @@ export function AgentChat(props: AgentChatProps) {
       class="agent-chat"
       classList={{ fullscreen: Boolean(props.fullscreen) }}
     >
-      <div class="chat-header">
-        <button class="back-btn" type="button" onClick={props.onBack}>
-          ←
-        </button>
-        <div class="chat-title-row">
-          <h3>{props.agentName ?? "Select an agent"}</h3>
+      <Show when={props.showHeader !== false}>
+        <div class="chat-header">
+          <button class="back-btn" type="button" onClick={props.onBack}>
+            ←
+          </button>
+          <div class="chat-title-row">
+            <h3>{props.agentName ?? "Select an agent"}</h3>
+            <Show when={props.agentType === "subagent" && props.subagentInfo}>
+              <button
+                class="open-project-btn"
+                type="button"
+                title="Open project details"
+                aria-label="Open project details"
+                onClick={() => {
+                  const info = props.subagentInfo;
+                  if (!info || !props.onOpenProject) return;
+                  props.onOpenProject(info.projectId);
+                }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            </Show>
+          </div>
           <Show when={props.agentType === "subagent" && props.subagentInfo}>
             <button
-              class="open-project-btn"
+              class="archive-btn"
               type="button"
-              title="Open project details"
-              aria-label="Open project details"
-              onClick={() => {
-                const info = props.subagentInfo;
-                if (!info || !props.onOpenProject) return;
-                props.onOpenProject(info.projectId);
+              title="Archive run"
+              aria-label="Archive run"
+              onClick={async () => {
+                const info = props.subagentInfo!;
+                if (!window.confirm(`Archive run ${info.slug}?`)) return;
+                const res = await archiveSubagent(info.projectId, info.slug);
+                if (res.ok) {
+                  props.onBack();
+                } else {
+                  setError(res.error);
+                }
               }}
             >
               <svg
@@ -1133,73 +1164,45 @@ export function AgentChat(props: AgentChatProps) {
                 stroke="currentColor"
                 stroke-width="2"
               >
-                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
-                <circle cx="12" cy="12" r="3" />
+                <path d="M3 7h18v13H3z" />
+                <path d="M7 7V4h10v3" />
+                <path d="M7 12h10" />
+              </svg>
+            </button>
+          </Show>
+          <Show when={props.agentType === "subagent" && props.subagentInfo}>
+            <button
+              class="kill-btn"
+              type="button"
+              title="Kill subagent"
+              onClick={async () => {
+                const info = props.subagentInfo!;
+                if (
+                  !window.confirm(
+                    `Kill subagent ${info.slug}? This removes all workspace data.`
+                  )
+                )
+                  return;
+                const res = await killSubagent(info.projectId, info.slug);
+                if (res.ok) {
+                  props.onBack();
+                } else {
+                  setError(res.error);
+                }
+              }}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
               </svg>
             </button>
           </Show>
         </div>
-        <Show when={props.agentType === "subagent" && props.subagentInfo}>
-          <button
-            class="archive-btn"
-            type="button"
-            title="Archive run"
-            aria-label="Archive run"
-            onClick={async () => {
-              const info = props.subagentInfo!;
-              if (!window.confirm(`Archive run ${info.slug}?`)) return;
-              const res = await archiveSubagent(info.projectId, info.slug);
-              if (res.ok) {
-                props.onBack();
-              } else {
-                setError(res.error);
-              }
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M3 7h18v13H3z" />
-              <path d="M7 7V4h10v3" />
-              <path d="M7 12h10" />
-            </svg>
-          </button>
-        </Show>
-        <Show when={props.agentType === "subagent" && props.subagentInfo}>
-          <button
-            class="kill-btn"
-            type="button"
-            title="Kill subagent"
-            onClick={async () => {
-              const info = props.subagentInfo!;
-              if (
-                !window.confirm(
-                  `Kill subagent ${info.slug}? This removes all workspace data.`
-                )
-              )
-                return;
-              const res = await killSubagent(info.projectId, info.slug);
-              if (res.ok) {
-                props.onBack();
-              } else {
-                setError(res.error);
-              }
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
-            </svg>
-          </button>
-        </Show>
-      </div>
+      </Show>
 
       <div
         class="chat-messages"
@@ -1608,23 +1611,17 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .log-summary::before {
-          content: "\\25B8";
-          font-size: 10px;
-          color: #555;
-          transition: transform 0.15s;
-          flex: 0 0 auto;
-        }
-
-        details[open] > .log-summary::before {
-          transform: rotate(90deg);
+          display: none;
+          content: "";
         }
 
         .log-line.collapsible .log-text {
           background: rgba(255, 255, 255, 0.02);
           border-radius: 0 0 6px 6px;
           border-top: 1px solid rgba(255, 255, 255, 0.05);
-          padding: 10px 12px;
-          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          /* Align expanded tool output with tool-call label text (after chevron+icon). */
+          padding: 10px 12px 10px 36px;
+          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 12px;
           line-height: 1.5;
           color: #999;
@@ -1664,6 +1661,12 @@ export function AgentChat(props: AgentChatProps) {
           word-break: break-word;
           line-height: 1.6;
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        }
+
+        /* Terminal/tool output should stay monospace. */
+        .log-line.muted pre.log-text,
+        .log-line.error pre.log-text {
+          font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
         }
 
         /* ── Markdown rendering ── */
@@ -1833,6 +1836,10 @@ export function AgentChat(props: AgentChatProps) {
           gap: 10px;
           padding: 12px 16px 16px;
           border-top: 1px solid #232323;
+          background: #0a0a0f;
+          position: sticky;
+          bottom: 0;
+          z-index: 2;
         }
 
         .chat-controls {

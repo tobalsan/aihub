@@ -204,102 +204,110 @@ export function CenterPanel(props: CenterPanelProps) {
         </Show>
         <div class="center-panel-body">
           <Show when={tab() === "chat"}>
-            <Show
-              when={props.selectedAgent}
-              fallback={
-                <p class="center-placeholder">Select an agent to chat</p>
-              }
-            >
-              {(selected) => (
-                <AgentChat
-                  agentType={selected().type}
-                  agentId={
-                    selected().type === "lead"
-                      ? (selected().agentId ?? null)
-                      : null
-                  }
-                  agentName={
-                    selected().type === "lead"
-                      ? (selected().agentName ?? selected().agentId ?? null)
-                      : `${selected().projectId}/${selected().cli ?? selected().slug ?? "agent"}`
-                  }
-                  subagentInfo={
-                    selected().type === "subagent" && selected().slug
-                      ? {
-                          projectId: selected().projectId,
-                          slug: selected().slug!,
-                          cli: selected().cli,
-                          status: selected().status as
-                            | "running"
-                            | "replied"
-                            | "error"
-                            | "idle"
-                            | undefined,
-                        }
-                      : undefined
-                  }
-                  onBack={() => {}}
-                />
-              )}
-            </Show>
+            <div class="center-chat-shell">
+              <Show
+                when={props.selectedAgent}
+                fallback={
+                  <p class="center-placeholder">Select an agent to chat</p>
+                }
+              >
+                {(selected) => (
+                  <AgentChat
+                    agentType={selected().type}
+                    agentId={
+                      selected().type === "lead"
+                        ? (selected().agentId ?? null)
+                        : null
+                    }
+                    agentName={
+                      selected().type === "lead"
+                        ? (selected().agentName ?? selected().agentId ?? null)
+                        : `${selected().projectId}/${selected().cli ?? selected().slug ?? "agent"}`
+                    }
+                    subagentInfo={
+                      selected().type === "subagent" && selected().slug
+                        ? {
+                            projectId: selected().projectId,
+                            slug: selected().slug!,
+                            cli: selected().cli,
+                            status: selected().status as
+                              | "running"
+                              | "replied"
+                              | "error"
+                              | "idle"
+                              | undefined,
+                          }
+                        : undefined
+                    }
+                    onBack={() => {}}
+                    showHeader={false}
+                  />
+                )}
+              </Show>
+            </div>
           </Show>
           <Show when={tab() === "activity"}>
-            <Show
-              when={timelineItems().length > 0}
-              fallback={<p class="center-placeholder">No activity yet</p>}
-            >
-              <ul class="activity-list">
-                <For each={timelineItems()}>
-                  {(entry) => (
-                    <li class="activity-item">
-                      <div class="activity-meta">
-                        <span class="activity-author">{entry.author}</span>
-                        <span class="activity-date">{entry.dateLabel}</span>
-                      </div>
-                      <p>{entry.body}</p>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-            <Show when={props.onAddComment}>
-              <div class="thread-add">
-                <textarea
-                  class="thread-add-textarea"
-                  placeholder="Add a comment..."
-                  value={newComment()}
-                  onInput={(e) => setNewComment(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      (e.metaKey || e.ctrlKey) &&
-                      canSubmitComment()
-                    ) {
-                      e.preventDefault();
-                      void handleAddComment();
-                    }
-                  }}
-                  disabled={addingComment()}
-                />
-                <button
-                  type="button"
-                  class="thread-add-btn"
-                  disabled={!canSubmitComment() || addingComment()}
-                  onClick={() => void handleAddComment()}
-                >
-                  Add
-                </button>
-              </div>
-            </Show>
+            <div class="center-scroll-view">
+              <Show
+                when={timelineItems().length > 0}
+                fallback={<p class="center-placeholder">No activity yet</p>}
+              >
+                <ul class="activity-list">
+                  <For each={timelineItems()}>
+                    {(entry) => (
+                      <li class="activity-item">
+                        <div class="activity-meta">
+                          <span class="activity-author">{entry.author}</span>
+                          <span class="activity-date">{entry.dateLabel}</span>
+                        </div>
+                        <p>{entry.body}</p>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+              <Show when={props.onAddComment}>
+                <div class="thread-add">
+                  <textarea
+                    class="thread-add-textarea"
+                    placeholder="Add a comment..."
+                    value={newComment()}
+                    onInput={(e) => setNewComment(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        (e.metaKey || e.ctrlKey) &&
+                        canSubmitComment()
+                      ) {
+                        e.preventDefault();
+                        void handleAddComment();
+                      }
+                    }}
+                    disabled={addingComment()}
+                  />
+                  <button
+                    type="button"
+                    class="thread-add-btn"
+                    disabled={!canSubmitComment() || addingComment()}
+                    onClick={() => void handleAddComment()}
+                  >
+                    Add
+                  </button>
+                </div>
+              </Show>
+            </div>
           </Show>
           <Show when={tab() === "changes"}>
-            <ChangesView projectId={props.project.id} />
+            <div class="center-scroll-view">
+              <ChangesView projectId={props.project.id} />
+            </div>
           </Show>
         </div>
       </section>
       <style>{`
         .center-panel {
-          min-height: 100%;
+          height: 100%;
+          min-height: 0;
           display: grid;
           grid-template-rows: auto 1fr;
           background: #0a0a0f;
@@ -335,6 +343,27 @@ export function CenterPanel(props: CenterPanelProps) {
         .center-panel-body {
           padding: 20px;
           color: #e4e4e7;
+          min-height: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .center-chat-shell {
+          min-height: 0;
+          flex: 1;
+          display: flex;
+        }
+
+        .center-chat-shell .agent-chat {
+          flex: 1;
+          min-height: 0;
+        }
+
+        .center-scroll-view {
+          min-height: 0;
+          flex: 1;
+          overflow-y: auto;
         }
 
         .center-placeholder {

@@ -7,7 +7,12 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { fetchSubagents, spawnSubagent } from "../../api/client";
+import {
+  archiveSubagent,
+  fetchSubagents,
+  killSubagent,
+  spawnSubagent,
+} from "../../api/client";
 import type { Area, ProjectDetail, SubagentListItem } from "../../api/types";
 
 const STATUS_OPTIONS = [
@@ -95,6 +100,7 @@ export function AgentPanel(props: AgentPanelProps) {
   );
   const [addAgentPrompt, setAddAgentPrompt] = createSignal("");
   const [addingAgent, setAddingAgent] = createSignal(false);
+  const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
 
   const status = () =>
@@ -258,6 +264,62 @@ export function AgentPanel(props: AgentPanelProps) {
     if (refresh.ok) {
       setSubagents(refresh.data.items);
     }
+  };
+
+  const refreshSubagents = async () => {
+    const refresh = await fetchSubagents(props.project.id, true);
+    if (refresh.ok) {
+      setSubagents(refresh.data.items);
+      return true;
+    }
+    setAgentError(refresh.error);
+    return false;
+  };
+
+  const selectLeadIfNeeded = (slug: string) => {
+    if (props.selectedAgentSlug !== slug) return;
+    const leadId = leadAgentId();
+    if (!leadId) return;
+    props.onSelectAgent({
+      type: "lead",
+      agentId: leadId,
+      projectId: props.project.id,
+    });
+  };
+
+  const handleArchiveSubagent = async (item: SubagentListItem) => {
+    if (busyActionSlug()) return;
+    if (!window.confirm(`Archive run ${item.slug}?`)) return;
+    setBusyActionSlug(item.slug);
+    setAgentError(null);
+    const result = await archiveSubagent(props.project.id, item.slug);
+    setBusyActionSlug(null);
+    if (!result.ok) {
+      setAgentError(result.error);
+      return;
+    }
+    await refreshSubagents();
+    selectLeadIfNeeded(item.slug);
+  };
+
+  const handleKillSubagent = async (item: SubagentListItem) => {
+    if (busyActionSlug()) return;
+    if (
+      !window.confirm(
+        `Kill subagent ${item.slug}? This removes all workspace data.`
+      )
+    )
+      return;
+    setBusyActionSlug(item.slug);
+    setAgentError(null);
+    const result = await killSubagent(props.project.id, item.slug);
+    setBusyActionSlug(null);
+    if (!result.ok) {
+      setAgentError(result.error);
+      return;
+    }
+    await refreshSubagents();
+    selectLeadIfNeeded(item.slug);
   };
 
   return (
@@ -464,12 +526,13 @@ export function AgentPanel(props: AgentPanelProps) {
               {(item) => {
                 const indicator = statusIndicator(item.status);
                 return (
-                  <button
-                    type="button"
-                    class="agent-list-item"
+                  <div
+                    class="agent-list-item subagent"
                     classList={{
                       selected: props.selectedAgentSlug === item.slug,
                     }}
+                    role="button"
+                    tabIndex={0}
                     onClick={() =>
                       props.onSelectAgent({
                         type: "subagent",
@@ -479,6 +542,17 @@ export function AgentPanel(props: AgentPanelProps) {
                         projectId: props.project.id,
                       })
                     }
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      props.onSelectAgent({
+                        type: "subagent",
+                        slug: item.slug,
+                        cli: item.cli,
+                        status: item.status,
+                        projectId: props.project.id,
+                      });
+                    }}
                   >
                     <span class={`agent-status ${indicator.tone}`}>
                       {indicator.symbol}
@@ -489,7 +563,51 @@ export function AgentPanel(props: AgentPanelProps) {
                         {(label) => <span class="agent-task">{label()}</span>}
                       </Show>
                     </span>
-                  </button>
+                    <div class="agent-row-actions">
+                      <button
+                        type="button"
+                        class="agent-row-action archive"
+                        title={`Archive ${item.cli ?? item.slug}`}
+                        aria-label={`Archive ${item.cli ?? item.slug}`}
+                        disabled={Boolean(busyActionSlug())}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleArchiveSubagent(item);
+                        }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M3 7h18v13H3z" />
+                          <path d="M7 7V4h10v3" />
+                          <path d="M7 12h10" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="agent-row-action kill"
+                        title={`Kill ${item.cli ?? item.slug}`}
+                        aria-label={`Kill ${item.cli ?? item.slug}`}
+                        disabled={Boolean(busyActionSlug())}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleKillSubagent(item);
+                        }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 );
               }}
             </For>
@@ -786,6 +904,72 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-list-item.lead {
           background: #101a2b;
+        }
+
+        .agent-list-item.subagent {
+          position: relative;
+          align-items: center;
+          padding-right: 64px;
+        }
+
+        .agent-list-item.subagent:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 1px;
+        }
+
+        .agent-row-actions {
+          position: absolute;
+          right: 8px;
+          top: 50%;
+          transform: translateY(-50%);
+          display: flex;
+          gap: 4px;
+          align-items: center;
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          transition: opacity 0.12s ease;
+        }
+
+        .agent-list-item.subagent:hover .agent-row-actions,
+        .agent-list-item.subagent:focus-within .agent-row-actions {
+          opacity: 1;
+          visibility: visible;
+          pointer-events: auto;
+        }
+
+        .agent-row-action {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          border: 1px solid #2a3240;
+          background: #0f1724;
+          color: #7f8a9a;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          padding: 0;
+        }
+
+        .agent-row-action svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .agent-row-action.archive:hover:not(:disabled) {
+          color: #f6c454;
+          border-color: #5a4a22;
+        }
+
+        .agent-row-action.kill:hover:not(:disabled) {
+          color: #f87171;
+          border-color: #5a2525;
+        }
+
+        .agent-row-action:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
         }
 
         .agent-status {
