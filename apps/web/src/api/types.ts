@@ -427,9 +427,35 @@ export type FileChange = {
 export type ProjectChanges = {
   branch: string;
   baseBranch: string;
+  source?: { type: "space" | "repo"; path: string };
   files: FileChange[];
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
+};
+
+export type SpaceIntegrationEntry = {
+  id: string;
+  workerSlug: string;
+  runMode: "worktree" | "clone";
+  worktreePath: string;
+  startSha?: string;
+  endSha?: string;
+  shas: string[];
+  status: "pending" | "integrated" | "conflict" | "skipped";
+  createdAt: string;
+  integratedAt?: string;
+  error?: string;
+};
+
+export type ProjectSpaceState = {
+  version: 1;
+  projectId: string;
+  branch: string;
+  worktreePath: string;
+  baseBranch: string;
+  integrationBlocked: boolean;
+  queue: SpaceIntegrationEntry[];
+  updatedAt: string;
 };
 
 export type CommitResult = {

@@ -335,12 +335,30 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | POST   | `/api/projects`            | Create project                                             |
 | GET    | `/api/projects/:id`        | Get project                                                |
 | PATCH  | `/api/projects/:id`        | Update project                                             |
+| GET    | `/api/projects/:id/space`  | Get project Space state                                    |
+| POST   | `/api/projects/:id/space/integrate` | Resume Space integration queue                     |
+| GET    | `/api/projects/:id/changes` | Get project changes (Space-first source resolution)       |
+| POST   | `/api/projects/:id/commit` | Commit project changes in resolved source                  |
 
 ## Projects Execution Modes
 
 - `subagent`: spawn and monitor CLI subagent runs.
 - `ralph_loop`: spawn and monitor Ralph loop iterations/logs.
 - unset (`""`): no execution mode selected.
+
+### Space-First Workspace Model
+
+- Project Space branch: `space/<projectId>`
+- Project Space worktree: `<projectsRoot>/.workspaces/<projectId>/_space`
+- Persisted state and queue: `<projectDir>/space.json`
+
+Behavior:
+
+- `main-run` subagents execute in the Space worktree.
+- `worktree` and `clone` subagents remain isolated sandboxes.
+- Worker commit ranges are derived from `start_head_sha..end_head_sha` and queued.
+- Gateway cherry-picks pending worker SHAs into Space (`git cherry-pick -x`).
+- On conflict, Space queue is blocked (`integrationBlocked=true`) until resumed by `/api/projects/:id/space/integrate`.
 
 ### Subagent CLI Harnesses
 

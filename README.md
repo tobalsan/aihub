@@ -111,6 +111,12 @@ Projects execution modes:
 - `ralph_loop`: iterative Ralph loop monitoring mode.
 - unset: no execution mode selected.
 
+Project Space model:
+
+- `main-run` executes in project Space (`space/<projectId>` branch, `.../.workspaces/<projectId>/_space` worktree).
+- `worktree` and `clone` remain isolated worker sandboxes.
+- Worker commits are queued and cherry-picked into Space; conflicts block queue until resumed.
+
 Project subagent CLIs:
 
 - Supported: `claude`, `codex`, `pi`
@@ -219,6 +225,10 @@ openclaw sessions list
 | `/api/schedules/:id`       | PATCH/DELETE | Update/delete schedule                               |
 | `/api/projects`            | GET/POST     | List/create projects                                 |
 | `/api/projects/:id`        | GET/PATCH    | Get/update project                                   |
+| `/api/projects/:id/space`  | GET          | Get project Space state                              |
+| `/api/projects/:id/space/integrate` | POST | Resume/pick pending Space queue                     |
+| `/api/projects/:id/changes` | GET         | Get project changes (Space-first source)             |
+| `/api/projects/:id/commit` | POST         | Commit project changes in resolved source            |
 | `/ws`                      | WS           | WebSocket streaming (send + subscribe)               |
 
 Project API details: `docs/projects_api.md`

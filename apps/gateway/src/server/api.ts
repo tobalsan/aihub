@@ -67,6 +67,8 @@ import {
   serializeTasks,
   readSpec,
   writeSpec,
+  getProjectSpace,
+  integrateProjectSpaceQueue,
 } from "../projects/index.js";
 import {
   listAreas,
@@ -1929,6 +1931,46 @@ api.get("/projects/:id/branches", async (c) => {
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data);
+});
+
+// GET /api/projects/:id/space - get project Space state
+api.get("/projects/:id/space", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  const result = await getProjectSpace(config, id);
+  if (!result.ok) {
+    const status =
+      result.error.startsWith("Project not found") ||
+      result.error === "Project space not found"
+        ? 404
+        : result.error === "Project repo not set"
+          ? 400
+          : 500;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
+});
+
+// POST /api/projects/:id/space/integrate - resume/integrate pending Space queue
+api.post("/projects/:id/space/integrate", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  try {
+    const result = await integrateProjectSpaceQueue(config, id, {
+      resume: true,
+    });
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message === "Project repo not set" || message === "Not a git repository"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
 });
 
 // GET /api/projects/:id/changes - get git changes

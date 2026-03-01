@@ -1,11 +1,10 @@
 import { execFile } from "node:child_process";
-import * as fs from "node:fs/promises";
 import { promisify } from "node:util";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import type { GatewayConfig } from "@aihub/shared";
 import { getProject } from "./store.js";
-import { listSubagents } from "../subagents/index.js";
+import { getProjectSpace } from "./space.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +17,7 @@ export type FileChange = {
 export type ProjectChanges = {
   branch: string;
   baseBranch: string;
+  source: { type: "space" | "repo"; path: string };
   files: FileChange[];
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
@@ -53,19 +53,10 @@ async function isGitRepo(cwd: string): Promise<boolean> {
   }
 }
 
-async function hasUncommittedChanges(cwd: string): Promise<boolean> {
-  try {
-    const status = await runGit(cwd, ["status", "--porcelain"]);
-    return status.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
 async function resolveRepoPath(
   config: GatewayConfig,
   projectId: string
-): Promise<string> {
+): Promise<{ repoPath: string; baseBranch: string; source: ProjectChanges["source"] }> {
   const project = await getProject(config, projectId);
   if (!project.ok) throw new Error(project.error);
 
@@ -76,29 +67,26 @@ async function resolveRepoPath(
   if (!rawRepo.trim()) throw new Error("Project repo not set");
 
   const repo = expandPath(rawRepo.trim());
-  const subagents = await listSubagents(config, projectId, true);
-  if (subagents.ok) {
-    const candidates = [...subagents.data.items]
-      .sort((a, b) => {
-        if (a.status === "running" && b.status !== "running") return -1;
-        if (b.status === "running" && a.status !== "running") return 1;
-        return 0;
-      })
-      .map((item) => item.worktreePath)
-      .filter((item): item is string => Boolean(item && item.trim()))
-      .map((item) => item.trim());
-
-    for (const candidate of candidates) {
-      const stat = await fs.stat(candidate).catch(() => null);
-      if (!stat?.isDirectory()) continue;
-      if (!(await isGitRepo(candidate))) continue;
-      if (await hasUncommittedChanges(candidate)) {
-        return candidate;
-      }
-    }
+  const space = await getProjectSpace(config, projectId);
+  if (space.ok && (await isGitRepo(space.data.worktreePath))) {
+    return {
+      repoPath: space.data.worktreePath,
+      baseBranch: space.data.baseBranch || "main",
+      source: {
+        type: "space",
+        path: space.data.worktreePath,
+      },
+    };
   }
 
-  return repo;
+  return {
+    repoPath: repo,
+    baseBranch: "main",
+    source: {
+      type: "repo",
+      path: repo,
+    },
+  };
 }
 
 function parseStatusPorcelain(statusText: string): FileChange[] {
@@ -150,7 +138,8 @@ export async function getProjectChanges(
   config: GatewayConfig,
   projectId: string
 ): Promise<ProjectChanges> {
-  const repo = await resolveRepoPath(config, projectId);
+  const resolved = await resolveRepoPath(config, projectId);
+  const repo = resolved.repoPath;
   if (!(await isGitRepo(repo))) {
     throw new Error("Not a git repository");
   }
@@ -180,7 +169,8 @@ export async function getProjectChanges(
 
   return {
     branch: branch.trim() || "HEAD",
-    baseBranch: "main",
+    baseBranch: resolved.baseBranch,
+    source: resolved.source,
     files,
     diff,
     stats: {
@@ -196,7 +186,8 @@ export async function commitProjectChanges(
   projectId: string,
   message: string
 ): Promise<CommitResult> {
-  const repo = await resolveRepoPath(config, projectId);
+  const resolved = await resolveRepoPath(config, projectId);
+  const repo = resolved.repoPath;
   if (!(await isGitRepo(repo))) {
     return { ok: false, error: "Not a git repository" };
   }

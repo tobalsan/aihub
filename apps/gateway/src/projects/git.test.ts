@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
 import { getProjectChanges, commitProjectChanges } from "./git.js";
+import { ensureProjectSpace } from "./space.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -77,6 +78,7 @@ describe("projects git", () => {
     const result = await getProjectChanges(config, "PRO-1");
 
     expect(result.branch).toBe("main");
+    expect(result.source.type).toBe("repo");
     expect(result.files.length).toBe(1);
     expect(result.files[0]?.path).toBe("README.md");
     expect(result.files[0]?.status).toBe("modified");
@@ -110,6 +112,7 @@ describe("projects git", () => {
     const changes = await getProjectChanges(config, "PRO-1");
     expect(changes.files.length).toBe(0);
     expect(changes.stats.filesChanged).toBe(0);
+    expect(changes.source.type).toBe("repo");
   });
 
   it("errors when project repo is missing", async () => {
@@ -149,5 +152,25 @@ describe("projects git", () => {
     if (!result.ok) {
       expect(result.error).toBe("Nothing to commit");
     }
+  });
+
+  it("prefers Space worktree when project space exists", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_changes-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    await fs.writeFile(path.join(space.worktreePath, "README.md"), "space\n", "utf8");
+
+    const result = await getProjectChanges(config, "PRO-1");
+
+    expect(result.source.type).toBe("space");
+    expect(result.source.path).toBe(space.worktreePath);
+    expect(result.baseBranch).toBe("main");
+    expect(result.branch).toBe("space/PRO-1");
+    expect(result.files.length).toBe(1);
   });
 });

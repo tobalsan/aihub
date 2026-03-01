@@ -24,6 +24,7 @@ import type {
   SubagentListResponse,
   SubagentLogsResponse,
   ProjectBranchesResponse,
+  ProjectSpaceState,
   ProjectChanges,
   CommitResult,
   FileAttachment,
@@ -779,6 +780,34 @@ export async function fetchProjectChanges(
     throw new Error(data.error ?? "Failed to fetch changes");
   }
   return (await res.json()) as ProjectChanges;
+}
+
+export async function fetchProjectSpace(
+  projectId: string
+): Promise<ProjectSpaceState> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space`);
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fetch project space" }));
+    throw new Error(data.error ?? "Failed to fetch project space");
+  }
+  return (await res.json()) as ProjectSpaceState;
+}
+
+export async function integrateProjectSpace(
+  projectId: string
+): Promise<ProjectSpaceState> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/integrate`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to integrate project space" }));
+    throw new Error(data.error ?? "Failed to integrate project space");
+  }
+  return (await res.json()) as ProjectSpaceState;
 }
 
 export async function commitProjectChanges(

@@ -1,6 +1,14 @@
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { commitProjectChanges, fetchProjectChanges } from "../../api/client";
-import type { FileChange, ProjectChanges } from "../../api/types";
+import {
+  commitProjectChanges,
+  fetchProjectChanges,
+  fetchProjectSpace,
+} from "../../api/client";
+import type {
+  FileChange,
+  ProjectChanges,
+  ProjectSpaceState,
+} from "../../api/types";
 
 type ChangesViewProps = {
   projectId: string;
@@ -118,6 +126,7 @@ function statusGlyph(change: FileChange): string {
 
 export function ChangesView(props: ChangesViewProps) {
   const [changes, setChanges] = createSignal<ProjectChanges | null>(null);
+  const [space, setSpace] = createSignal<ProjectSpaceState | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [commitMessage, setCommitMessage] = createSignal("");
@@ -129,8 +138,12 @@ export function ChangesView(props: ChangesViewProps) {
   const refresh = async (initial = false) => {
     if (initial) setLoading(true);
     try {
-      const data = await fetchProjectChanges(props.projectId);
-      setChanges(data);
+      const [changesData, spaceData] = await Promise.all([
+        fetchProjectChanges(props.projectId),
+        fetchProjectSpace(props.projectId).catch(() => null),
+      ]);
+      setChanges(changesData);
+      setSpace(spaceData);
       setLoadError(null);
     } catch (error) {
       const message =
@@ -169,6 +182,20 @@ export function ChangesView(props: ChangesViewProps) {
   });
 
   const diffFiles = () => parseDiff(changes()?.diff ?? "");
+  const sourceLabel = () =>
+    changes()?.source?.type === "space" ? "Space" : "Repo";
+  const queueCounts = () => {
+    const items = space()?.queue ?? [];
+    let pending = 0;
+    let integrated = 0;
+    let conflict = 0;
+    for (const item of items) {
+      if (item.status === "pending") pending += 1;
+      else if (item.status === "integrated") integrated += 1;
+      else if (item.status === "conflict") conflict += 1;
+    }
+    return { pending, integrated, conflict };
+  };
 
   return (
     <section class="changes-view">
@@ -190,6 +217,9 @@ export function ChangesView(props: ChangesViewProps) {
                 <span class="changes-base">
                   ← {changes()?.baseBranch ?? "main"}
                 </span>
+                <span class={`changes-source source-${sourceLabel().toLowerCase()}`}>
+                  {sourceLabel()}
+                </span>
               </div>
               <div class="changes-stats">
                 <span>{changes()?.stats.filesChanged ?? 0} files</span>
@@ -197,6 +227,21 @@ export function ChangesView(props: ChangesViewProps) {
                 <span class="del">-{changes()?.stats.deletions ?? 0}</span>
               </div>
             </header>
+            <Show when={space()}>
+              <div class="space-meta">
+                <span>Queue: {queueCounts().pending} pending</span>
+                <span>Integrated: {queueCounts().integrated}</span>
+                <span class="space-conflicts">
+                  Conflicts: {queueCounts().conflict}
+                </span>
+              </div>
+            </Show>
+            <Show when={space()?.integrationBlocked}>
+              <p class="changes-error">
+                Space integration blocked by conflict. Resolve manually, then
+                retry integration.
+              </p>
+            </Show>
 
             <div class="changes-main">
               <aside class="changes-files">
@@ -331,12 +376,42 @@ export function ChangesView(props: ChangesViewProps) {
           color: #94a3b8;
         }
 
+        .changes-source {
+          border: 1px solid #334155;
+          border-radius: 999px;
+          padding: 1px 8px;
+          font-size: 11px;
+        }
+
+        .source-space {
+          color: #93c5fd;
+          border-color: #1d4ed8;
+          background: rgba(29, 78, 216, 0.14);
+        }
+
+        .source-repo {
+          color: #94a3b8;
+          background: rgba(100, 116, 139, 0.14);
+        }
+
         .changes-stats .ins {
           color: #34d399;
         }
 
         .changes-stats .del {
           color: #fb7185;
+        }
+
+        .space-meta {
+          display: flex;
+          gap: 10px;
+          margin: -2px 0 10px;
+          font-size: 12px;
+          color: #94a3b8;
+        }
+
+        .space-conflicts {
+          color: #fda4af;
         }
 
         .changes-main {

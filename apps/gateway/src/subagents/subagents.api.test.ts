@@ -1163,6 +1163,15 @@ describe("subagents API", () => {
     expect(config.name).toBe("Worker A");
     expect(config.model).toBe("gpt-5.2");
     expect(config.reasoningEffort).toBe("low");
+    const state = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "state.json"), "utf8")
+    );
+    expect(state.worktree_path).toContain(
+      path.join(".workspaces", created.id, "_space")
+    );
+    await expect(
+      fs.stat(path.join(projectsRoot, created.path, "space.json"))
+    ).resolves.toBeDefined();
 
     process.env.PATH = prevPath;
   });
@@ -1260,6 +1269,9 @@ describe("subagents API", () => {
       await fs.readFile(path.join(sessionDir, "state.json"), "utf8")
     );
     expect(state.session_id).toBe("s1");
+    expect(state.worktree_path).toContain(
+      path.join(".workspaces", created.id, "_space")
+    );
 
     const config = JSON.parse(
       await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
@@ -1271,6 +1283,21 @@ describe("subagents API", () => {
     expect(config.runMode).toBe("main-run");
     expect(config.baseBranch).toBe("main");
     expect(typeof config.created).toBe("string");
+
+    const spaceRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/space`)
+    );
+    expect(spaceRes.status).toBe(200);
+    const space = await spaceRes.json();
+    expect(space.projectId).toBe(created.id);
+    expect(space.branch).toBe(`space/${created.id}`);
+
+    const integrateRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/space/integrate`, {
+        method: "POST",
+      })
+    );
+    expect(integrateRes.status).toBe(200);
 
     process.env.PATH = prevPath;
   });
@@ -2179,7 +2206,7 @@ describe("subagents API", () => {
     await fs.writeFile(claudePath, script, { mode: 0o755 });
 
     const prevPath = process.env.PATH;
-    process.env.PATH = "";
+    process.env.PATH = "/usr/bin:/bin";
 
     const spawnRes = await Promise.resolve(
       api.request(`/projects/${created.id}/subagents`, {

@@ -2,10 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ChangesView } from "./ChangesView";
-import type { ProjectChanges } from "../../api/types";
+import type { ProjectChanges, ProjectSpaceState } from "../../api/types";
 
 const mocks = vi.hoisted(() => ({
   fetchProjectChanges: vi.fn<(projectId: string) => Promise<ProjectChanges>>(),
+  fetchProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
   commitProjectChanges:
     vi.fn<
       (
@@ -17,12 +18,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../api/client", () => ({
   fetchProjectChanges: mocks.fetchProjectChanges,
+  fetchProjectSpace: mocks.fetchProjectSpace,
   commitProjectChanges: mocks.commitProjectChanges,
 }));
 
 const baseChanges: ProjectChanges = {
   branch: "feature/changes",
   baseBranch: "main",
+  source: { type: "space", path: "/tmp/space" },
   files: [{ path: "src/app.ts", status: "modified", staged: false }],
   diff: [
     "diff --git a/src/app.ts b/src/app.ts",
@@ -36,6 +39,17 @@ const baseChanges: ProjectChanges = {
   stats: { filesChanged: 1, insertions: 1, deletions: 1 },
 };
 
+const baseSpace: ProjectSpaceState = {
+  version: 1,
+  projectId: "PRO-1",
+  branch: "space/PRO-1",
+  worktreePath: "/tmp/space",
+  baseBranch: "main",
+  integrationBlocked: false,
+  queue: [],
+  updatedAt: new Date().toISOString(),
+};
+
 async function flush(): Promise<void> {
   await new Promise((resolve) => window.setTimeout(resolve, 0));
 }
@@ -43,6 +57,7 @@ async function flush(): Promise<void> {
 describe("ChangesView", () => {
   beforeEach(() => {
     mocks.fetchProjectChanges.mockReset();
+    mocks.fetchProjectSpace.mockReset();
     mocks.commitProjectChanges.mockReset();
   });
 
@@ -52,6 +67,7 @@ describe("ChangesView", () => {
 
   it("renders file list and diff", async () => {
     mocks.fetchProjectChanges.mockResolvedValue(baseChanges);
+    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -60,6 +76,7 @@ describe("ChangesView", () => {
     await flush();
 
     expect(container.textContent).toContain("Branch: feature/changes");
+    expect(container.textContent).toContain("Space");
     expect(container.querySelectorAll(".file-row").length).toBe(1);
     expect(container.textContent).toContain("src/app.ts");
     expect(container.textContent).toContain("+new line");
@@ -75,6 +92,7 @@ describe("ChangesView", () => {
       diff: "",
       stats: { filesChanged: 0, insertions: 0, deletions: 0 },
     });
+    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -96,6 +114,7 @@ describe("ChangesView", () => {
         diff: "",
         stats: { filesChanged: 0, insertions: 0, deletions: 0 },
       });
+    mocks.fetchProjectSpace.mockResolvedValue(baseSpace);
     mocks.commitProjectChanges.mockResolvedValue({ ok: true });
 
     const container = document.createElement("div");

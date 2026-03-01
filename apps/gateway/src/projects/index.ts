@@ -22,6 +22,19 @@ export {
 } from "./tasks.js";
 export { getProjectChanges, commitProjectChanges } from "./git.js";
 export type { ProjectChanges, CommitResult, FileChange } from "./git.js";
+export {
+  ensureProjectSpace,
+  getProjectSpace,
+  integrateProjectSpaceQueue,
+  recordWorkerDelivery,
+} from "./space.js";
+export type {
+  ProjectSpace,
+  ProjectSpaceResult,
+  IntegrationEntry,
+  IntegrationStatus,
+  RecordWorkerDeliveryInput,
+} from "./space.js";
 export type {
   ProjectListItem,
   ProjectDetail,

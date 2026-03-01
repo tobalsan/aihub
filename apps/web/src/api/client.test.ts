@@ -2,6 +2,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchProjectBranches,
   fetchProjectChanges,
+  fetchProjectSpace,
+  integrateProjectSpace,
   commitProjectChanges,
   fetchAllSubagents,
   fetchSubagents,
@@ -133,6 +135,53 @@ describe("api client (projects/subagents)", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/changes");
     expect(res.branch).toBe("feature/x");
     expect(res.stats.filesChanged).toBe(1);
+  });
+
+  it("fetches project space", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: 1,
+        projectId: "PRO-9",
+        branch: "space/PRO-9",
+        worktreePath: "/tmp/space",
+        baseBranch: "main",
+        integrationBlocked: false,
+        queue: [],
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+    });
+
+    const res = await fetchProjectSpace("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space");
+    expect(res.branch).toBe("space/PRO-9");
+  });
+
+  it("posts project space integrate", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: 1,
+        projectId: "PRO-9",
+        branch: "space/PRO-9",
+        worktreePath: "/tmp/space",
+        baseBranch: "main",
+        integrationBlocked: false,
+        queue: [],
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+    });
+
+    const res = await integrateProjectSpace("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-9/space/integrate",
+      {
+        method: "POST",
+      }
+    );
+    expect(res.projectId).toBe("PRO-9");
   });
 
   it("commits project changes", async () => {

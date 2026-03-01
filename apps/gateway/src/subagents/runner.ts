@@ -2,10 +2,14 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import os from "node:os";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
 import { buildRalphPromptFromTemplate } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
+import { ensureProjectSpace, recordWorkerDelivery } from "../projects/space.js";
+
+const execFileAsync = promisify(execFile);
 
 export const SUPPORTED_SUBAGENT_CLIS = ["claude", "codex", "pi"] as const;
 export type SubagentCli = (typeof SUPPORTED_SUBAGENT_CLIS)[number];
@@ -360,6 +364,20 @@ async function runGit(args: string[], errorMessage: string): Promise<void> {
   });
 }
 
+async function runGitStdout(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd });
+  return stdout.trim();
+}
+
+async function getGitHead(cwd: string): Promise<string | undefined> {
+  try {
+    const out = await runGitStdout(cwd, ["rev-parse", "HEAD"]);
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function createClone(
   repo: string,
   clonePath: string,
@@ -508,7 +526,7 @@ export async function spawnSubagent(
         .then(() => true)
         .catch(() => false)
     : false;
-  if ((mode === "clone" || mode === "worktree") && !repoHasGit) {
+  if ((mode === "clone" || mode === "worktree" || mode === "main-run") && !repoHasGit) {
     return { ok: false, error: "Project repo is not a git repo" };
   }
   if (await dirExists(sessionDir)) {
@@ -524,7 +542,20 @@ export async function spawnSubagent(
 
   let worktreePath = mode === "none" ? repo || projectDir : repo;
   const baseBranch = input.baseBranch ?? "main";
-  if (mode === "worktree" || mode === "clone") {
+  if (mode === "main-run") {
+    try {
+      const space = await ensureProjectSpace(config, input.projectId, baseBranch);
+      worktreePath = space.worktreePath;
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to initialize project space",
+      };
+    }
+  } else if (mode === "worktree" || mode === "clone") {
     const branch = `${input.projectId}/${input.slug}`;
     worktreePath = worktreeDir;
     await fs.mkdir(workspacesRoot, { recursive: true });
@@ -582,6 +613,8 @@ export async function spawnSubagent(
       prompt = `${prompt}\n\n${worktreeLine}`;
     }
     prompt = prompt.trimEnd();
+  } else if (mode === "main-run") {
+    prompt = `${prompt}\n\nSpace path: ${worktreePath}`.trimEnd();
   }
   if (input.attachments && input.attachments.length > 0) {
     const paths = input.attachments.map((a) => a.path).join(", ");
@@ -609,6 +642,10 @@ export async function spawnSubagent(
     cwd: worktreePath,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const startHeadSha =
+    mode === "worktree" || mode === "clone"
+      ? await getGitHead(worktreePath)
+      : undefined;
 
   child.on("error", async () => {
     const finishedAt = new Date().toISOString();
@@ -655,6 +692,9 @@ export async function spawnSubagent(
     run_mode: mode,
     worktree_path: worktreePath,
     base_branch: baseBranch,
+    start_head_sha: startHeadSha,
+    end_head_sha: "",
+    commit_range: "",
   };
 
   await writeJson(configPath, {
@@ -799,6 +839,33 @@ export async function spawnSubagent(
         await writeJson(statePath, current);
       } catch {
         // ignore
+      }
+      return;
+    }
+
+    if ((mode === "worktree" || mode === "clone") && startHeadSha) {
+      const endHeadSha = await getGitHead(worktreePath);
+      try {
+        const raw = await fs.readFile(statePath, "utf8");
+        const current = JSON.parse(raw) as Record<string, unknown>;
+        current.end_head_sha = endHeadSha ?? "";
+        current.commit_range =
+          endHeadSha && endHeadSha !== startHeadSha
+            ? `${startHeadSha}..${endHeadSha}`
+            : "";
+        await writeJson(statePath, current);
+      } catch {
+        // ignore
+      }
+      if (endHeadSha) {
+        await recordWorkerDelivery(config, {
+          projectId: input.projectId,
+          workerSlug: input.slug,
+          runMode: mode,
+          worktreePath,
+          startSha: startHeadSha,
+          endSha: endHeadSha,
+        }).catch(() => {});
       }
     }
   });

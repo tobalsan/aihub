@@ -15,6 +15,34 @@ Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
 
+### Follow-up Delta (2026-03-01, PRO-152 Space-first foundation)
+
+- Added project Space core (`apps/gateway/src/projects/space.ts`):
+  - One Space per project (`space/<projectId>` + `_space` worktree).
+  - Persistent `space.json` queue with integration statuses.
+  - Worker delivery ingestion from commit ranges.
+  - Cherry-pick integration loop with conflict blocking + resume API support.
+- Updated project changes resolution (`apps/gateway/src/projects/git.ts`):
+  - Removed \"first dirty worktree wins\" heuristic.
+  - Space-first source resolution.
+  - Changes payload now includes `source: { type: \"space\" | \"repo\", path }`.
+- Updated subagent runner (`apps/gateway/src/subagents/runner.ts`):
+  - `main-run` now executes in Space worktree.
+  - Worker runs capture `start_head_sha` / `end_head_sha` / `commit_range`.
+  - Successful worker exits enqueue/integrate commits into Space.
+- Added new gateway API routes (`apps/gateway/src/server/api.ts`):
+  - `GET /api/projects/:id/space`
+  - `POST /api/projects/:id/space/integrate`
+- Web updates:
+  - `apps/web/src/api/client.ts` + `apps/web/src/api/types.ts` include Space APIs/types.
+  - `apps/web/src/components/project/ChangesView.tsx` shows source badge + queue/conflict metadata.
+- Tests added/updated:
+  - New `apps/gateway/src/projects/space.test.ts`
+  - Updated `apps/gateway/src/projects/git.test.ts`
+  - Updated `apps/gateway/src/subagents/subagents.api.test.ts`
+  - Updated `apps/web/src/api/client.test.ts`
+  - Updated `apps/web/src/components/project/ChangesView.test.tsx`
+
 ### Follow-up Delta (2026-03-01, left panel agent card refresh)
 
 - Project detail left panel `AgentPanel` agent list is now card-oriented instead of line-oriented.
