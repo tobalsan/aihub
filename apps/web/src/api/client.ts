@@ -804,6 +804,10 @@ export type SpawnSubagentInput = {
   cli: string;
   name?: string;
   prompt: string;
+  template?: "coordinator" | "worker" | "reviewer" | "custom";
+  promptRole?: "coordinator" | "worker" | "reviewer" | "legacy";
+  includeDefaultPrompt?: boolean;
+  includePostRun?: boolean;
   model?: string;
   reasoningEffort?: string;
   thinking?: string;

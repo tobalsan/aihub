@@ -17,7 +17,11 @@ import {
   StartProjectRunRequestSchema,
 } from "@aihub/shared";
 import type { UpdateProjectRequest } from "@aihub/shared";
-import { buildProjectStartPrompt, normalizeProjectStatus } from "@aihub/shared";
+import {
+  buildRolePrompt,
+  normalizeProjectStatus,
+  type PromptRole,
+} from "@aihub/shared";
 import { z } from "zod";
 import {
   getActiveAgents,
@@ -110,6 +114,7 @@ const api = new Hono();
 
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
+type SpawnTemplate = "coordinator" | "worker" | "reviewer" | "custom";
 
 const CODEX_MODELS = ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
 const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
@@ -139,6 +144,17 @@ function normalizeCliRunMode(value: string): CliRunMode {
   if (value === "clone") return "clone";
   if (value === "none") return "none";
   return "clone";
+}
+
+function mapTemplateToPromptRole(
+  template?: SpawnTemplate,
+  explicitRole?: PromptRole
+): PromptRole {
+  if (explicitRole) return explicitRole;
+  if (template === "coordinator") return "coordinator";
+  if (template === "worker") return "worker";
+  if (template === "reviewer") return "reviewer";
+  return "legacy";
 }
 
 function resolveCliSpawnOptions(
@@ -812,15 +828,37 @@ api.post("/projects/:id/start", async (c) => {
     }
   }
 
-  const prompt = buildProjectStartPrompt({
+  const template =
+    parsed.data.template === "coordinator" ||
+    parsed.data.template === "worker" ||
+    parsed.data.template === "reviewer" ||
+    parsed.data.template === "custom"
+      ? parsed.data.template
+      : undefined;
+  const explicitRole =
+    parsed.data.promptRole === "coordinator" ||
+    parsed.data.promptRole === "worker" ||
+    parsed.data.promptRole === "reviewer" ||
+    parsed.data.promptRole === "legacy"
+      ? parsed.data.promptRole
+      : undefined;
+  const promptRole = mapTemplateToPromptRole(template, explicitRole);
+  const prompt = buildRolePrompt({
+    role: promptRole,
     title: project.title,
     status,
     path: basePath,
     content: fullContent,
     specsPath: readmePath,
+    projectFiles: ["README.md", "THREAD.md", ...docKeys.map((k) => `${k}.md`)],
+    projectId: project.id,
     repo: implementationRepo,
     customPrompt: parsed.data.customPrompt,
     runAgentLabel,
+    owner:
+      typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,
+    includeDefaultPrompt: parsed.data.includeDefaultPrompt,
+    includePostRun: parsed.data.includePostRun,
   });
 
   const updates: Partial<UpdateProjectRequest> = {};

@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { buildRolePrompt, type PromptRole } from "@aihub/shared";
 import { spawnSubagent } from "../../api/client";
 import type { ProjectDetail, SubagentListItem } from "../../api/types";
 
@@ -25,32 +26,6 @@ export type SpawnFormProps = {
   onCancel: () => void;
 };
 
-const PREPARE_DEFAULT_PROMPT =
-  "Review the full project context and implement the next highest-impact step.";
-const PREPARE_POST_RUN_INSTRUCTIONS = [
-  "When done, run relevant tests.",
-  "Post a concise update with what changed and what remains.",
-  "If implementation is complete, move the project to review.",
-].join("\n");
-
-const COORDINATOR_ROLE_INSTRUCTIONS = [
-  "## Your Role: Coordinator",
-  "You manage this project's execution. You do NOT implement code yourself.",
-  "- Review the spec and break it into discrete tasks if not already done",
-  "- Monitor worker agents and their progress",
-  "- Update SPECS.md task statuses as work progresses",
-  "- When all tasks are done, verify acceptance criteria",
-].join("\n");
-
-const REVIEWER_ROLE_INSTRUCTIONS = [
-  "## Your Role: Reviewer",
-  "Review the implementation done by worker agents. For each worker workspace:",
-  "- Read the changes (git diff)",
-  "- Run the test suite",
-  "- Check code quality and adherence to specs",
-  "- Report findings and flag any issues",
-].join("\n");
-
 const HARNESS_MODELS = {
   codex: ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
   claude: ["opus", "sonnet", "haiku"],
@@ -71,6 +46,40 @@ const HARNESS_REASONING = {
 
 function createSlug(cli: string): string {
   return `${cli}-${Date.now().toString(36).slice(-6)}`;
+}
+
+function normalizeDocFilename(key: string): string {
+  return key.toLowerCase().endsWith(".md") ? key : `${key}.md`;
+}
+
+function getFrontmatterString(
+  frontmatter: Record<string, unknown>,
+  key: string
+): string {
+  const value = frontmatter[key];
+  return typeof value === "string" ? value : "";
+}
+
+function mapTemplateToPromptRole(template: SpawnTemplate): PromptRole {
+  if (template === "coordinator") return "coordinator";
+  if (template === "worker") return "worker";
+  if (template === "reviewer") return "reviewer";
+  return "legacy";
+}
+
+function parseReviewerWorkspaces(list: string) {
+  return list
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "))
+    .map((line) => {
+      const parsed = /^- (.+?) \((.+?)\): (.+)$/.exec(line);
+      if (!parsed) return null;
+      return { name: parsed[1], cli: parsed[2], path: parsed[3] };
+    })
+    .filter((item): item is { name: string; cli: string; path: string } =>
+      Boolean(item)
+    );
 }
 
 export function buildReviewerWorkspaceList(
@@ -126,11 +135,11 @@ export function SpawnForm(props: SpawnFormProps) {
   createEffect(() => {
     const cli = addAgentCli();
     const models = HARNESS_MODELS[cli];
-    if (!models.includes(addAgentModel() as (typeof models)[number])) {
+    if (!models.some((model) => model === addAgentModel())) {
       setAddAgentModel(models[0]);
     }
     const efforts = HARNESS_REASONING[cli];
-    if (!efforts.includes(addAgentReasoning() as (typeof efforts)[number])) {
+    if (!efforts.some((effort) => effort === addAgentReasoning())) {
       setAddAgentReasoning(efforts[0]);
     }
   });
@@ -138,26 +147,44 @@ export function SpawnForm(props: SpawnFormProps) {
   const reviewerWorkspaceList = createMemo(() =>
     buildReviewerWorkspaceList(props.projectId, props.subagents)
   );
-
-  const templatePromptAdditions = createMemo(() => {
-    if (props.template === "coordinator") {
-      return COORDINATOR_ROLE_INSTRUCTIONS;
+  const effectiveProjectPath = createMemo(
+    () => props.project.absolutePath || props.project.path
+  );
+  const projectFiles = createMemo(() => {
+    const files = new Set<string>(["README.md", "THREAD.md"]);
+    for (const key of Object.keys(props.project.docs ?? {})) {
+      files.add(normalizeDocFilename(key));
     }
-    if (props.template === "reviewer") {
-      return `${REVIEWER_ROLE_INSTRUCTIONS}\n\n## Active Worker Workspaces\n${reviewerWorkspaceList()}`;
-    }
-    return "";
+    return Array.from(files);
   });
 
   const preparedPrompt = createMemo(() => {
-    const parts: string[] = [];
-    if (includeDefaultPrompt()) parts.push(PREPARE_DEFAULT_PROMPT);
-    if (includePostRun()) parts.push(PREPARE_POST_RUN_INSTRUCTIONS);
-    const custom = addAgentCustomInstructions().trim();
-    if (custom) parts.push(custom);
-    const templateInstructions = templatePromptAdditions().trim();
-    if (templateInstructions) parts.push(templateInstructions);
-    return parts.join("\n\n");
+    const status =
+      getFrontmatterString(props.project.frontmatter, "status") || "unknown";
+    const owner = getFrontmatterString(props.project.frontmatter, "owner");
+    const repoPath = getFrontmatterString(props.project.frontmatter, "repo").trim();
+    const cli = addAgentCli();
+    const author =
+      addAgentName().trim() ||
+      (cli === "codex" ? "Codex" : cli === "claude" ? "Claude" : "Pi");
+    const promptRole = mapTemplateToPromptRole(props.template);
+    return buildRolePrompt({
+      role: promptRole,
+      title: `${props.project.id} — ${props.project.title}`,
+      status,
+      path: effectiveProjectPath(),
+      projectId: props.projectId,
+      repo: repoPath,
+      runAgentLabel: author,
+      owner,
+      customPrompt: addAgentCustomInstructions().trim(),
+      includeDefaultPrompt: includeDefaultPrompt(),
+      includePostRun: includePostRun(),
+      projectFiles: projectFiles(),
+      workerWorkspaces: parseReviewerWorkspaces(reviewerWorkspaceList()),
+      specsPath: `${effectiveProjectPath().replace(/\/$/, "")}/README.md`,
+      content: Object.values(props.project.docs ?? {}).join("\n\n"),
+    });
   });
 
   const canSpawnPreparedAgent = createMemo(
@@ -192,11 +219,16 @@ export function SpawnForm(props: SpawnFormProps) {
     setAgentError(null);
 
     const prompt = preparedPrompt();
+    const promptRole = mapTemplateToPromptRole(props.template);
     const result = await spawnSubagent(props.projectId, {
       slug: createSlug(addAgentCli()),
       cli: addAgentCli(),
       name: addAgentName().trim() || undefined,
       prompt,
+      template: props.template,
+      promptRole,
+      includeDefaultPrompt: includeDefaultPrompt(),
+      includePostRun: includePostRun(),
       model: addAgentModel(),
       reasoningEffort: addAgentCli() === "pi" ? undefined : addAgentReasoning(),
       thinking: addAgentCli() === "pi" ? addAgentReasoning() : undefined,

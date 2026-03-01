@@ -391,6 +391,14 @@ export type UpdateProjectCommentRequest = z.infer<
 export const StartProjectRunRequestSchema = z.object({
   customPrompt: z.string().optional(),
   runAgent: z.string().optional(),
+  template: z
+    .enum(["coordinator", "worker", "reviewer", "custom"])
+    .optional(),
+  promptRole: z
+    .enum(["coordinator", "worker", "reviewer", "legacy"])
+    .optional(),
+  includeDefaultPrompt: z.boolean().optional(),
+  includePostRun: z.boolean().optional(),
   runMode: z.string().optional(),
   baseBranch: z.string().optional(),
   slug: z.string().optional(),

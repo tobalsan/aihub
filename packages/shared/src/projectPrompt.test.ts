@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCoordinatorPrompt,
+  buildLegacyPrompt,
+  buildProjectStartPrompt,
+  buildReviewerPrompt,
+  buildRolePrompt,
+  buildWorkerPrompt,
   buildRalphPromptFromTemplate,
   renderTemplate,
 } from "./projectPrompt.js";
@@ -46,5 +52,94 @@ describe("projectPrompt template helpers", () => {
         vars: { PROJECT_FILE: "/tmp/README.md" },
       })
     ).toThrow("Missing required template vars");
+  });
+});
+
+describe("role-based project prompts", () => {
+  const baseInput = {
+    title: "PRO-151 - Role prompts",
+    status: "in_progress",
+    path: "/tmp/PRO-151",
+    projectId: "PRO-151",
+    repo: "/tmp/repo",
+    runAgentLabel: "Worker Alpha",
+    projectFiles: ["README.md", "THREAD.md", "SPECS.md"],
+    content: "README content",
+    specsPath: "/tmp/PRO-151/README.md",
+  } as const;
+
+  it("builds coordinator prompt without implementation repo or commit instructions", () => {
+    const out = buildCoordinatorPrompt({
+      ...baseInput,
+      role: "coordinator",
+    });
+    expect(out).toContain("## Your Role: Coordinator");
+    expect(out).not.toContain("## Implementation Repository");
+    expect(out).not.toContain("Run relevant tests after changes.");
+    expect(out).not.toContain("apm move PRO-151 review");
+  });
+
+  it("builds worker prompt with implementation repo and no move-to-review", () => {
+    const out = buildWorkerPrompt({
+      ...baseInput,
+      role: "worker",
+    });
+    expect(out).toContain("## Your Role: Worker");
+    expect(out).toContain("## Implementation Repository");
+    expect(out).toContain("Run relevant tests after changes.");
+    expect(out).not.toContain("apm move PRO-151 review");
+  });
+
+  it("builds reviewer prompt with workspace list and no commit block", () => {
+    const out = buildReviewerPrompt({
+      ...baseInput,
+      role: "reviewer",
+      workerWorkspaces: [
+        {
+          name: "Worker Alpha",
+          cli: "codex",
+          path: "~/projects/.workspaces/PRO-151/worker-alpha/",
+        },
+      ],
+    });
+    expect(out).toContain("## Your Role: Reviewer");
+    expect(out).toContain("## Active Worker Workspaces");
+    expect(out).toContain("~/projects/.workspaces/PRO-151/worker-alpha/");
+    expect(out).not.toContain("Run relevant tests after changes.");
+    expect(out).not.toContain("apm move PRO-151 review");
+  });
+
+  it("keeps legacy prompt output identical to buildProjectStartPrompt", () => {
+    const legacyInput = {
+      title: "Legacy",
+      status: "todo",
+      path: "/tmp/legacy",
+      content: "doc body",
+      specsPath: "/tmp/legacy/README.md",
+      repo: "/tmp/repo",
+      customPrompt: "custom",
+      runAgentLabel: "Codex",
+    };
+    const oldOut = buildProjectStartPrompt(legacyInput);
+    const newOut = buildLegacyPrompt({
+      role: "legacy",
+      ...legacyInput,
+    });
+    expect(newOut).toBe(oldOut);
+  });
+
+  it("dispatches role prompt builder and defaults to legacy", () => {
+    const workerOut = buildRolePrompt({
+      ...baseInput,
+      role: "worker",
+    });
+    expect(workerOut).toContain("## Your Role: Worker");
+
+    const legacyOut = buildRolePrompt({
+      ...baseInput,
+      role: "legacy",
+    });
+    expect(legacyOut).toContain("## IMPORTANT: MUST DO AFTER IMPLEMENTATION");
+    expect(legacyOut).toContain("apm move <project_id> review");
   });
 });
