@@ -339,6 +339,17 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 - `ralph_loop`: spawn and monitor Ralph loop iterations/logs.
 - unset (`""`): no execution mode selected.
 
+### Subagent CLI Harnesses
+
+- Supported subagent CLIs: `claude`, `codex`, `pi`.
+- Legacy subagent CLIs `droid` and `gemini` are rejected by API validation.
+- Runtime split:
+  - Lead agents (`sdk: "pi"`) use embedded Pi SDK sessions.
+  - Project subagents (`executionMode: subagent`) run as external CLI processes.
+- Pi subagent harness uses JSON event mode:
+  - Spawn: `pi --mode json --session <session_file> "<prompt>"`
+  - Resume: reuses the same `--session <session_file>`.
+
 ## Single-Agent Mode
 
 `aihub gateway --agent-id <id>` filters all services to one agent. Useful for isolated testing.

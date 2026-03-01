@@ -83,7 +83,7 @@ Options:
 - `--status <status>`: `not_now|maybe|shaping|todo|in_progress|review|done`.
 - `--run-agent <agent>`: agent used by monitoring start.
   - `aihub:<agentId>` (AIHub agent)
-  - `cli:claude|cli:codex|cli:droid|cli:gemini` (external CLI)
+  - `cli:claude|cli:codex|cli:pi` (external CLI)
   - Use `apm agent list` to see configured AIHub agents.
 - `--run-mode <mode>`: `main-run` or `worktree` (CLI runs only).
   - `main-run`: use the main repo working tree, slug is `main`.
@@ -175,7 +175,7 @@ Options:
 
 - `-p, --project <id>`: required. Project ID.
 - `-s, --slug <slug>`: required. Subagent slug.
-- `-c, --cli <cli>`: required. CLI to use (`claude|codex|droid|gemini`).
+- `-c, --cli <cli>`: required. CLI to use (`claude|codex|pi`).
 - `--prompt <text>`: required. Prompt to send.
 - `--mode <mode>`: run mode (`worktree|main-run`).
 - `--base <branch>`: base branch for worktree mode.

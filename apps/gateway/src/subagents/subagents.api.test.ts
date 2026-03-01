@@ -1118,18 +1118,18 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
-  it("spawns gemini subagent and records structured JSON output", async () => {
+  it("spawns pi subagent and records JSON mode output", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Gemini Spawn" }),
+        body: JSON.stringify({ title: "Pi Spawn" }),
       })
     );
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-gemini");
+    const repoDir = path.join(tmpDir, "repo-pi");
     await fs.mkdir(repoDir, { recursive: true });
     await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
     await execFileAsync("git", ["config", "user.email", "test@example.com"], {
@@ -1151,19 +1151,20 @@ describe("subagents API", () => {
     );
     expect(patchRes.status).toBe(200);
 
-    const binDir = path.join(tmpDir, "bin-gemini");
+    const binDir = path.join(tmpDir, "bin-pi");
     await fs.mkdir(binDir, { recursive: true });
-    const geminiPath = path.join(binDir, "gemini");
+    const piPath = path.join(binDir, "pi");
     const script = [
       "#!/bin/sh",
       'ARGS="$*"',
-      'echo "$ARGS" | grep -F -- "--yolo" >/dev/null 2>&1 || { echo \'{"error":{"message":"missing --yolo"}}\'; exit 1; }',
-      'echo "$ARGS" | grep -F -- "--prompt" >/dev/null 2>&1 || { echo \'{"error":{"message":"missing --prompt"}}\'; exit 1; }',
-      'echo "$ARGS" | grep -F -- "--output-format json" >/dev/null 2>&1 || { echo \'{"error":{"message":"missing output-format"}}\'; exit 1; }',
-      'echo "$ARGS" | grep -F -- \'openclaw system event --text "Done: <summary>" --mode now\' >/dev/null 2>&1 || { echo \'{"error":{"message":"missing completion suffix"}}\'; exit 1; }',
-      `    echo '{"response":"gemini ok","stats":{"models":{"gemini-2.0":{"tokens":{"input":10,"output":5}}},"tools":{"totalCalls":1},"files":{"totalLinesAdded":2,"totalLinesRemoved":1}}}'`,
+      'echo "$ARGS" | grep -F -- "--mode json" >/dev/null 2>&1 || { echo "missing --mode json" >&2; exit 1; }',
+      'echo "$ARGS" | grep -F -- "--session" >/dev/null 2>&1 || { echo "missing --session" >&2; exit 1; }',
+      `echo '{"type":"session","id":"pi-s1","timestamp":"2026-02-01T00:00:00.000Z","cwd":"$PWD"}'`,
+      `echo '{"type":"tool_execution_start","toolCallId":"t1","toolName":"bash","args":{"command":"echo hi"}}'`,
+      `echo '{"type":"tool_execution_end","toolCallId":"t1","toolName":"bash","result":"ok","isError":false}'`,
+      `echo '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"pi ok"}]}}'`,
     ].join("\n");
-    await fs.writeFile(geminiPath, script, { mode: 0o755 });
+    await fs.writeFile(piPath, script, { mode: 0o755 });
     const prevPath = process.env.PATH;
     process.env.PATH = `${binDir}:${prevPath ?? ""}`;
 
@@ -1172,8 +1173,8 @@ describe("subagents API", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          slug: "gem",
-          cli: "gemini",
+          slug: "pi-run",
+          cli: "pi",
           prompt: "hi",
           mode: "main-run",
         }),
@@ -1181,7 +1182,12 @@ describe("subagents API", () => {
     );
     expect(spawnRes.status).toBe(201);
 
-    const sessionDir = path.join(projectsRoot, created.path, "sessions", "gem");
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "pi-run"
+    );
     const historyPath = path.join(sessionDir, "history.jsonl");
     const start = Date.now();
     while (Date.now() - start < 2000) {
@@ -1202,14 +1208,67 @@ describe("subagents API", () => {
       .reverse()
       .find((line) => line.type === "worker.finished");
     expect(finished?.data?.outcome).toBe("replied");
-    expect(finished?.data?.response).toBe("gemini ok");
-    expect(finished?.data?.stats?.tools?.totalCalls).toBe(1);
-    expect(finished?.data?.stats?.files?.totalLinesAdded).toBe(2);
-    expect(finished?.data?.stats?.tokens?.["gemini-2.0"]?.tokens?.input).toBe(
-      10
-    );
+
+    const stateRaw = await fs.readFile(path.join(sessionDir, "state.json"), "utf8");
+    const state = JSON.parse(stateRaw) as { session_id?: string; session_file?: string };
+    expect(state.session_id).toBe("pi-s1");
+    expect(typeof state.session_file).toBe("string");
+    expect(state.session_file?.endsWith("pi-session.jsonl")).toBe(true);
 
     process.env.PATH = prevPath;
+  });
+
+  it("rejects legacy CLI values on subagent spawn", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Legacy CLI Spawn Reject" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "legacy",
+          cli: "droid",
+          prompt: "hi",
+          mode: "main-run",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(400);
+    const payload = await spawnRes.json();
+    expect(payload.error).toContain("Unsupported CLI");
+    expect(payload.error).toContain("claude, codex, pi");
+  });
+
+  it("rejects legacy CLI values on project start", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Legacy CLI Start Reject" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runAgent: "cli:gemini" }),
+      })
+    );
+    expect(startRes.status).toBe(400);
+    const payload = await startRes.json();
+    expect(payload.error).toContain("Unsupported CLI");
+    expect(payload.error).toContain("claude, codex, pi");
   });
 
   it("interrupts a running subagent", async () => {

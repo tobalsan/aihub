@@ -16,17 +16,13 @@ session=$(claude -p "task" --output-format json | jq -r '.session_id')
 
 ---
 
-## Gemini CLI
+## Pi CLI
 ```bash
-# Resume by UUID
-gemini --resume <uuid> --prompt "continue"
-
-# Get session ID from streaming JSON (init event)
+# Resume by session file path
+pi --mode json --session <session_file> "continue"
 ```
 
-**Limitation:** No direct `--session-id` flag documented. Must use `--resume <uuid>`.
-
-**Storage:** `~/.gemini/tmp/<project_hash>/chats/`
+**Storage:** session file path supplied to `--session`
 
 ---
 
@@ -42,24 +38,10 @@ codex exec --resume <session-id>
 
 ---
 
-## Droid (Factory)
-```bash
-# Resume (prompt required)
-droid exec --session-id <id> "continue"
-
-# Get session ID
-session=$(droid exec --output-format json "task" | jq -r '.session_id')
-```
-
-**Storage:** Not documented
-
----
-
 ## Bottom Line
 
 | Tool | Headless Resume Command | Session ID Extraction | Official Support |
 |------|------------------------|----------------------|------------------|
 | **Claude Code** | `claude -r <id> -p "..."` | `--output-format json` | ✅ Yes |
-| **Droid** | `droid exec -s <id> "..."` | `--output-format json` | ✅ Yes |
-| **Gemini** | `gemini --resume <uuid> --prompt "..."` | Streaming JSON | ⚠️ Partial |
+| **Pi** | `pi --mode json --session <file> "..."` | session file path | ✅ Yes |
 | **Codex** | N/A | `.jsonl` files | ❌ No (fork only) |

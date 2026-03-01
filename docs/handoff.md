@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-02-28, later)
+Date: 2026-01-27 (updated 2026-02-28, later; 2026-03-01)
 Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-editor`
 
 ---
@@ -124,6 +124,39 @@ Files touched in these follow-ups:
 - `apps/web/src/components/project/SpecEditor.tsx`
 - `apps/web/src/components/project/SpecEditor.test.tsx`
 
+### Follow-up Delta (2026-03-01, CLI harness consolidation)
+
+- Project subagent CLI catalog is now `claude|codex|pi`.
+- Removed `droid`/`gemini` from project-run and subagent spawn surfaces.
+- Hard-cutover behavior:
+  - Legacy `cli:droid` / `cli:gemini` runAgent values are rejected by API validation.
+  - Legacy `droid` / `gemini` subagent spawn values are rejected by API validation.
+- Added Pi CLI subagent harness:
+  - Uses `pi --mode json --session <session_file> "<prompt>"`.
+  - Stores `session_file` in subagent `state.json` for deterministic resume.
+- Subagent log normalization now understands Pi JSON events (`message_end`, `tool_execution_*`) and maps them to assistant/tool events for UI.
+- Upgraded Pi packages in gateway:
+  - `@mariozechner/pi-coding-agent` `^0.55.3`
+  - `@mariozechner/pi-ai` `^0.55.3`
+  - `@mariozechner/pi-agent-core` `^0.55.3`
+- Updated project docs/UI for new CLI set and added API tests for legacy CLI rejection.
+
+Files touched in this follow-up:
+- `apps/gateway/src/subagents/runner.ts`
+- `apps/gateway/src/subagents/index.ts`
+- `apps/gateway/src/subagents/claude_tools.ts`
+- `apps/gateway/src/subagents/pi_tools.ts`
+- `apps/gateway/src/server/api.ts`
+- `apps/gateway/src/cli/subagent.ts`
+- `apps/gateway/src/cli/index.ts`
+- `apps/gateway/src/sdk/pi/adapter.ts`
+- `apps/gateway/src/subagents/subagents.api.test.ts`
+- `apps/gateway/package.json`
+- `pnpm-lock.yaml`
+- `apps/web/src/components/ProjectsBoard.tsx`
+- `apps/web/src/components/AgentChat.tsx`
+- `apps/web/src/components/project/AgentPanel.tsx`
+
 ### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:
@@ -202,7 +235,7 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Appetite + status now in metadata row (same style + icons).
 - Owner + execution mode moved to top of right (monitoring) pane.
 - Monitoring pane uses project frontmatter for run config:
-  - `runAgent`: `aihub:<agentId>` or `cli:<claude|codex|droid|gemini>`
+  - `runAgent`: `aihub:<agentId>` or `cli:<claude|codex|pi>`
   - `runMode`: `main-run|worktree` (CLI only)
   - `sessionKeys`: map `{ [agentId]: sessionKey }` for AIHub runs
   - `repo`: required for domain=coding (repo root path)

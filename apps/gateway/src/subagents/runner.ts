@@ -7,7 +7,8 @@ import type { GatewayConfig } from "@aihub/shared";
 import { buildRalphPromptFromTemplate } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
-export type SubagentCli = "claude" | "codex" | "droid" | "gemini";
+export const SUPPORTED_SUBAGENT_CLIS = ["claude", "codex", "pi"] as const;
+export type SubagentCli = (typeof SUPPORTED_SUBAGENT_CLIS)[number];
 export type RalphLoopCli = "claude" | "codex";
 export type SubagentMode = "main-run" | "worktree" | "clone";
 
@@ -44,17 +45,13 @@ export type KillSubagentResult =
   | { ok: true; data: { slug: string } }
   | { ok: false; error: string };
 
-type GeminiOutput = {
-  response?: unknown;
-  stats?: {
-    models?: unknown;
-    tools?: unknown;
-    files?: unknown;
-  };
-  error?: {
-    message?: unknown;
-  };
-};
+export function isSupportedSubagentCli(value: string): value is SubagentCli {
+  return (SUPPORTED_SUBAGENT_CLIS as readonly string[]).includes(value);
+}
+
+export function getUnsupportedSubagentCliError(value: string): string {
+  return `Unsupported CLI: ${value}. Supported CLIs: ${SUPPORTED_SUBAGENT_CLIS.join(", ")}.`;
+}
 
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
@@ -214,11 +211,8 @@ function commonCandidatePaths(execName: string): string[] {
           path.join(home, ".cargo", "bin", "codex")
         );
         break;
-      case "gemini":
-        candidates.push(path.join(home, ".local", "bin", "gemini"));
-        break;
-      case "droid":
-        candidates.push(path.join(home, ".local", "bin", "droid"));
+      case "pi":
+        candidates.push(path.join(home, ".local", "bin", "pi"));
         break;
     }
 
@@ -275,7 +269,10 @@ async function resolveCliCommand(
 function buildArgs(
   cli: SubagentCli,
   prompt: string,
-  sessionId: string | undefined
+  options: {
+    sessionId?: string;
+    sessionFile?: string;
+  }
 ): string[] {
   switch (cli) {
     case "claude": {
@@ -287,25 +284,8 @@ function buildArgs(
         "--verbose",
         "--dangerously-skip-permissions",
       ];
+      const sessionId = options.sessionId;
       if (sessionId) return ["-r", sessionId, ...args];
-      return args;
-    }
-    case "droid": {
-      const args = ["exec", prompt, "--output-format", "stream-json"];
-      if (sessionId)
-        return [
-          "exec",
-          "--session-id",
-          sessionId,
-          prompt,
-          "--output-format",
-          "stream-json",
-        ];
-      return args;
-    }
-    case "gemini": {
-      const args = ["--yolo", "--prompt", prompt, "--output-format", "json"];
-      if (sessionId) return ["--resume", sessionId, ...args];
       return args;
     }
     case "codex": {
@@ -314,72 +294,18 @@ function buildArgs(
         "--json",
         "--dangerously-bypass-approvals-and-sandbox",
       ];
+      const sessionId = options.sessionId;
       if (sessionId) return [...base, "resume", sessionId, prompt];
       return [...base, prompt];
     }
-  }
-}
-
-const GEMINI_COMPLETION_SUFFIX = `After completing all changes:
-- Run the test suite
-- Run linter/formatter
-- Fix any failures before committing
-- Make atomic commit(s)
-- When done: run \`openclaw system event --text "Done: <summary>" --mode now\``;
-
-function appendGeminiCompletionSuffix(prompt: string): string {
-  if (prompt.includes('openclaw system event --text "Done:')) {
-    return prompt;
-  }
-  return `${prompt.trimEnd()}\n\n${GEMINI_COMPLETION_SUFFIX}`;
-}
-
-function parseGeminiOutput(stdout: string): {
-  response?: string;
-  errorMessage?: string;
-  stats?: {
-    tokens?: unknown;
-    tools?: unknown;
-    files?: unknown;
-  };
-} | null {
-  const trimmed = stdout.trim();
-  if (!trimmed) return null;
-
-  const candidates = [trimmed];
-  const lines = trimmed.split(/\r?\n/).map((line) => line.trim());
-  const lastLine = lines.filter((line) => line.length > 0).at(-1);
-  if (lastLine && lastLine !== trimmed) {
-    candidates.push(lastLine);
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as GeminiOutput;
-      const response =
-        typeof parsed.response === "string" ? parsed.response : undefined;
-      const errorMessage =
-        typeof parsed.error?.message === "string"
-          ? parsed.error.message
-          : undefined;
-      const stats =
-        parsed.stats &&
-        (parsed.stats.models !== undefined ||
-          parsed.stats.tools !== undefined ||
-          parsed.stats.files !== undefined)
-          ? {
-              tokens: parsed.stats.models,
-              tools: parsed.stats.tools,
-              files: parsed.stats.files,
-            }
-          : undefined;
-      return { response, errorMessage, stats };
-    } catch {
-      // ignore parse failures
+    case "pi": {
+      const sessionFile = options.sessionFile;
+      if (!sessionFile) {
+        throw new Error("Missing Pi session file path");
+      }
+      return ["--mode", "json", "--session", sessionFile, prompt];
     }
   }
-
-  return null;
 }
 
 async function createWorktree(
@@ -482,6 +408,11 @@ export async function spawnSubagent(
   config: GatewayConfig,
   input: SpawnSubagentInput
 ): Promise<SpawnSubagentResult> {
+  if (!isSupportedSubagentCli(input.cli)) {
+    return { ok: false, error: getUnsupportedSubagentCliError(input.cli) };
+  }
+  const cli = input.cli;
+
   const root = getProjectsRoot(config);
   const dirName = await findProjectDir(root, input.projectId);
   if (!dirName) {
@@ -597,13 +528,19 @@ export async function spawnSubagent(
   const progressPath = path.join(sessionDir, "progress.json");
   const logsPath = path.join(sessionDir, "logs.jsonl");
   const configPath = path.join(sessionDir, "config.json");
+  const piSessionFilePath = path.join(sessionDir, "pi-session.jsonl");
 
   let existingSessionId: string | undefined;
+  let existingSessionFile: string | undefined;
   if (input.resume) {
     try {
       const raw = await fs.readFile(statePath, "utf8");
-      const state = JSON.parse(raw) as { session_id?: string };
+      const state = JSON.parse(raw) as {
+        session_id?: string;
+        session_file?: string;
+      };
       if (state.session_id) existingSessionId = state.session_id;
+      if (state.session_file) existingSessionFile = state.session_file;
     } catch {
       // ignore
     }
@@ -629,13 +566,14 @@ export async function spawnSubagent(
     const paths = input.attachments.map((a) => a.path).join(", ");
     prompt = `${prompt}\n\n[Attached images: ${paths}]`;
   }
-  if (input.cli === "gemini") {
-    prompt = appendGeminiCompletionSuffix(prompt);
-  }
-  const args = buildArgs(input.cli, prompt, existingSessionId);
+  const piSessionFile = cli === "pi" ? existingSessionFile ?? piSessionFilePath : undefined;
+  const args = buildArgs(cli, prompt, {
+    sessionId: existingSessionId,
+    sessionFile: piSessionFile,
+  });
   let resolved;
   try {
-    resolved = await resolveCliCommand(input.cli, args);
+    resolved = await resolveCliCommand(cli, args);
   } catch (err) {
     return {
       ok: false,
@@ -646,7 +584,6 @@ export async function spawnSubagent(
     cwd: worktreePath,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let stdoutBuffer = "";
 
   child.on("error", async () => {
     const finishedAt = new Date().toISOString();
@@ -682,19 +619,20 @@ export async function spawnSubagent(
   } catch {
     // ignore
   }
-  const state = {
-    session_id: existingSessionId ?? "",
+  let state = {
+    session_id: cli === "pi" ? piSessionFile ?? "" : (existingSessionId ?? ""),
+    session_file: cli === "pi" ? piSessionFile ?? "" : undefined,
     supervisor_pid: child.pid ?? 0,
     started_at: startedAt,
     last_error: "",
-    cli: input.cli,
+    cli,
     run_mode: mode,
     worktree_path: worktreePath,
     base_branch: baseBranch,
   };
 
   await writeJson(configPath, {
-    cli: input.cli,
+    cli,
     runMode: mode,
     baseBranch,
     created: createdAt,
@@ -715,15 +653,14 @@ export async function spawnSubagent(
     type: "worker.started",
     data: {
       action: input.resume ? "follow_up" : "started",
-      harness: input.cli,
-      session_id: existingSessionId ?? "",
+      harness: cli,
+      session_id: state.session_id,
     },
   });
 
   child.stdout?.on("data", async (chunk: Buffer) => {
     try {
       const text = chunk.toString("utf8");
-      stdoutBuffer += text;
       await fs.appendFile(logsPath, text, "utf8");
       await writeJson(progressPath, {
         last_active: new Date().toISOString(),
@@ -734,29 +671,40 @@ export async function spawnSubagent(
         .split(/\r?\n/)
         .filter((line) => line.trim().length > 0);
       for (const line of lines) {
-        if (input.cli === "codex") {
+        if (cli === "codex") {
           try {
             const ev = JSON.parse(line) as {
               type?: string;
               thread_id?: string;
             };
             if (ev.type === "thread.started" && ev.thread_id) {
-              const next = { ...state, session_id: ev.thread_id };
-              await writeJson(statePath, next);
+              state = { ...state, session_id: ev.thread_id };
+              await writeJson(statePath, state);
             }
           } catch {
             // ignore
           }
         }
-        if (input.cli === "claude") {
+        if (cli === "claude") {
           try {
             const ev = JSON.parse(line) as {
               type?: string;
               session_id?: string;
             };
             if (ev.type === "system" && ev.session_id) {
-              const next = { ...state, session_id: ev.session_id };
-              await writeJson(statePath, next);
+              state = { ...state, session_id: ev.session_id };
+              await writeJson(statePath, state);
+            }
+          } catch {
+            // ignore
+          }
+        }
+        if (cli === "pi") {
+          try {
+            const ev = JSON.parse(line) as { type?: string; id?: string };
+            if (ev.type === "session" && ev.id) {
+              state = { ...state, session_id: ev.id };
+              await writeJson(statePath, state);
             }
           } catch {
             // ignore
@@ -792,34 +740,21 @@ export async function spawnSubagent(
 
   child.on("exit", async (code, signal) => {
     const finishedAt = new Date().toISOString();
-    const parsedGemini =
-      input.cli === "gemini" ? parseGeminiOutput(stdoutBuffer) : null;
-    let outcome: "replied" | "error" = code === 0 ? "replied" : "error";
+    const outcome: "replied" | "error" = code === 0 ? "replied" : "error";
     const exitMessage =
       code !== null && code !== 0
         ? `process exited (code ${code})`
         : signal
           ? `process exited (signal ${signal})`
           : "process exited";
-    let errorMessage = exitMessage;
-    if (parsedGemini?.errorMessage) {
-      outcome = "error";
-      errorMessage = parsedGemini.errorMessage;
-    }
     const data: Record<string, unknown> = {
       run_id: `${Date.now()}`,
       duration_ms: 0,
       tool_calls: 0,
       outcome,
     };
-    if (parsedGemini?.response) {
-      data.response = parsedGemini.response;
-    }
-    if (parsedGemini?.stats) {
-      data.stats = parsedGemini.stats;
-    }
     if (outcome === "error") {
-      data.error_message = errorMessage;
+      data.error_message = exitMessage;
     }
     await appendHistory(historyPath, {
       ts: finishedAt,
@@ -830,7 +765,7 @@ export async function spawnSubagent(
       try {
         const raw = await fs.readFile(statePath, "utf8");
         const current = JSON.parse(raw) as Record<string, unknown>;
-        current.last_error = errorMessage;
+        current.last_error = exitMessage;
         await writeJson(statePath, current);
       } catch {
         // ignore

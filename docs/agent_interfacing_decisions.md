@@ -32,11 +32,10 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 - Frontmatter should be hidden in Kanban view (UI).
 
 ### External CLI agents
-- Supported CLIs (v1): `claude`, `codex`, `droid`, `gemini`.
+- Supported CLIs (v1): `claude`, `codex`, `pi`.
   - Flags:
     - claude: `claude -p "<prompt>" --output-format stream-json`
-    - droid: `droid exec "<prompt>" --output-format stream-json`
-    - gemini: `gemini -p "<prompt>" --output-format stream-json`
+    - pi: `pi --mode json "<prompt>"`
     - codex: `codex exec "<prompt>" --json`
 - Resume/follow‑up supported for all; store session IDs.
   - codex resume syntax: `codex exec --json ... resume <session_id> <prompt>` (per Subtask).
@@ -90,5 +89,5 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 - Subagent spawn auto‑prepends same project summary before prompt.
 
 ## Open Items
-- Exact CLI resume flags for claude/droid/gemini (from `session_resume.md`) to codify.
+- Exact CLI resume flags for claude/codex/pi to codify.
 - UI design specifics for tabs + log rendering.

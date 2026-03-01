@@ -221,6 +221,99 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
     if (topType === "system") {
       return { type: "skip" };
     }
+    if (topType === "message_end") {
+      const message = parsed.message as Record<string, unknown> | undefined;
+      const role = typeof message?.role === "string" ? message.role : "";
+      const content = Array.isArray(message?.content) ? message.content : [];
+      const events: SubagentLogEvent[] = [];
+
+      for (const entry of content) {
+        if (!entry || typeof entry !== "object") continue;
+        const item = entry as Record<string, unknown>;
+        const itemType = typeof item.type === "string" ? item.type : "";
+        if (
+          itemType === "text" ||
+          itemType === "input_text" ||
+          itemType === "output_text"
+        ) {
+          const text = typeof item.text === "string" ? item.text : "";
+          if (!text) continue;
+          if (role === "toolResult") {
+            events.push({
+              type: "tool_output",
+              text,
+              tool: {
+                id:
+                  typeof message?.toolCallId === "string"
+                    ? message.toolCallId
+                    : "",
+                name:
+                  typeof message?.toolName === "string"
+                    ? message.toolName
+                    : "",
+              },
+            });
+          } else {
+            events.push({
+              type: role === "assistant" ? "assistant" : "user",
+              text,
+            });
+          }
+          continue;
+        }
+        if (itemType === "toolCall" || itemType === "tool_use") {
+          const name = typeof item.name === "string" ? item.name : "";
+          const id = typeof item.id === "string" ? item.id : "";
+          const args =
+            item.arguments ??
+            item.input ??
+            (typeof item.args === "object" ? item.args : undefined);
+          const text =
+            typeof args === "string"
+              ? args
+              : args
+                ? JSON.stringify(args)
+                : "";
+          events.push({ type: "tool_call", text, tool: { name, id } });
+        }
+      }
+      return events.length > 0 ? events : { type: "skip" };
+    }
+    if (topType === "tool_execution_start") {
+      const toolName =
+        typeof parsed.toolName === "string" ? parsed.toolName : "";
+      const toolId =
+        typeof parsed.toolCallId === "string" ? parsed.toolCallId : "";
+      const args =
+        typeof parsed.args === "string"
+          ? parsed.args
+          : parsed.args
+            ? JSON.stringify(parsed.args)
+            : "";
+      return {
+        type: "tool_call",
+        text: args,
+        tool: { name: toolName, id: toolId },
+      };
+    }
+    if (topType === "tool_execution_end") {
+      const toolId =
+        typeof parsed.toolCallId === "string" ? parsed.toolCallId : "";
+      const toolName =
+        typeof parsed.toolName === "string" ? parsed.toolName : "";
+      const result =
+        typeof parsed.result === "string"
+          ? parsed.result
+          : parsed.result
+            ? JSON.stringify(parsed.result)
+            : "";
+      const isError = parsed.isError === true;
+      return {
+        type: isError ? "error" : "tool_output",
+        text: result,
+        tool: { name: toolName, id: toolId },
+      };
+    }
     if (topType === "assistant" || topType === "user") {
       const message = parsed.message as Record<string, unknown> | undefined;
       const role = typeof message?.role === "string" ? message.role : topType;
@@ -285,6 +378,12 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
     if (
       topType === "session_meta" ||
       topType === "turn_context" ||
+      topType === "session" ||
+      topType === "agent_start" ||
+      topType === "agent_end" ||
+      topType === "turn_start" ||
+      topType === "turn_end" ||
+      topType === "message_start" ||
       topType === "thread.started" ||
       topType === "turn.started" ||
       topType === "turn.completed"

@@ -18,7 +18,7 @@ Add fields (optional unless noted):
 sessionKeys:
   <agentId>: "project:<id>:<agentId>"
 repo: "/abs/path/to/repo"           # required when domain=coding
-runAgent: "aihub:<agentId>"        # or "cli:claude|codex|droid|gemini"
+runAgent: "aihub:<agentId>"        # or "cli:claude|codex|pi"
 runMode: "main-run|worktree"       # only for cli agents
 ```
 
@@ -51,7 +51,7 @@ Root: `{projects.root}/.workspaces/PRO-<id>/`
   "supervisor_pid": 12345,
   "started_at": "2026-01-25T...Z",
   "last_error": "",
-  "cli": "claude|codex|droid|gemini",
+  "cli": "claude|codex|pi",
   "run_mode": "main-run|worktree",
   "worktree_path": "/abs/path" ,
   "base_branch": "main"
@@ -88,16 +88,14 @@ Raw CLI stdout stream (JSONL where supported). Keep raw lines to allow re‑pars
 
 ### Supported CLIs
 - **claude**: `claude -p "<prompt>" --output-format stream-json`
-- **droid**: `droid exec "<prompt>" --output-format stream-json`
-- **gemini**: `gemini -p "<prompt>" --output-format stream-json`
+- **pi**: `pi --mode json "<prompt>"`
 - **codex**: `codex exec "<prompt>" --json`
 
 ### Resume / Follow‑up
 - Keep `session_id` in state.json.
 - Resume flags (from `session_resume.md`):
   - claude: `-r <session_id> -p "..."` (or `-c` continue last)
-  - droid: `droid exec --session-id <id> "..."`
-  - gemini: `gemini --resume <uuid> --prompt "..."`
+  - pi: `pi --mode json --session <session_file> "..."`
   - codex: `codex exec --json ... resume <session_id> <prompt>`
 
 ### CLI Resolution
@@ -224,7 +222,7 @@ Notes:
 
 Provide `aihub subagent` commands (shell‑callable):
 
-- `aihub subagent spawn --project <id> --slug <slug> --cli <claude|codex|droid|gemini> --prompt "..." [--mode worktree|main-run] [--base <branch>]`
+- `aihub subagent spawn --project <id> --slug <slug> --cli <claude|codex|pi> --prompt "..." [--mode worktree|main-run] [--base <branch>]`
 - `aihub subagent status --project <id> --slug <slug>`
 - `aihub subagent logs --project <id> --slug <slug> [--since <byte>]`
 - `aihub subagent interrupt --project <id> --slug <slug>`

@@ -4,6 +4,7 @@ import {
   createSubagentToolHandlers,
   type SubagentToolHandlers,
 } from "./tool_handlers.js";
+import { SUPPORTED_SUBAGENT_CLIS } from "./runner.js";
 
 export const SUBAGENT_MCP_SERVER = "aihub-subagents";
 export const SUBAGENT_TOOL_NAMES = {
@@ -20,7 +21,7 @@ export function createSubagentMcpServer(handlers?: SubagentToolHandlers) {
   const spawnSchema = {
     projectId: z.string(),
     slug: z.string(),
-    cli: z.enum(["claude", "codex", "droid", "gemini"]),
+    cli: z.enum(SUPPORTED_SUBAGENT_CLIS),
     prompt: z.string(),
     mode: z.enum(["main-run", "worktree", "clone"]).optional(),
     baseBranch: z.string().optional(),

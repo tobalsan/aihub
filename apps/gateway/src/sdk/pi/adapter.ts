@@ -140,7 +140,7 @@ export const piAdapter: SdkAdapter = {
       throw new Error(`Agent not found: ${params.agentId}`);
     }
 
-    const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
+    const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
     const modelRegistry = new ModelRegistry(authStorage, path.join(CONFIG_DIR, "models.json"));
     if (!agent.model.provider) {
       throw new Error(`Pi SDK requires model.provider to be set for agent: ${agent.id}`);

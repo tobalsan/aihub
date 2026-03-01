@@ -159,7 +159,7 @@ export function registerSubagentCommands(program: Command): void {
     .command("spawn")
     .requiredOption("-p, --project <id>", "Project ID")
     .requiredOption("-s, --slug <slug>", "Subagent slug")
-    .requiredOption("-c, --cli <cli>", "CLI (claude|codex|droid|gemini)")
+    .requiredOption("-c, --cli <cli>", "CLI (claude|codex|pi)")
     .requiredOption("--prompt <text>", "Prompt")
     .option("--mode <mode>", "Mode (clone|worktree|main-run)")
     .option("--base <branch>", "Base branch")

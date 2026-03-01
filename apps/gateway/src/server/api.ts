@@ -91,6 +91,8 @@ import {
   spawnRalphLoop,
   interruptSubagent,
   killSubagent,
+  isSupportedSubagentCli,
+  getUnsupportedSubagentCliError,
 } from "../subagents/runner.js";
 import {
   getRecentActivity,
@@ -141,12 +143,12 @@ function formatClockTime(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-type MentionTarget = "cloud" | "codex" | "claude" | "gemini";
+type MentionTarget = "cloud" | "codex" | "claude" | "pi";
 
 function extractMentions(input: string): MentionTarget[] {
   const found: MentionTarget[] = [];
   const seen = new Set<MentionTarget>();
-  const pattern = /@(cloud|codex|claude|gemini)\b/gi;
+  const pattern = /@(cloud|codex|claude|pi)\b/gi;
   for (const match of input.matchAll(pattern)) {
     const target = (match[1] ?? "").toLowerCase() as MentionTarget;
     if (!seen.has(target)) {
@@ -161,7 +163,7 @@ function toSpeakerName(target: MentionTarget): string {
   if (target === "cloud") return "Cloud";
   if (target === "codex") return "Codex";
   if (target === "claude") return "Claude";
-  return "Gemini";
+  return "Pi";
 }
 
 function resolveMentionAgent(target: MentionTarget):
@@ -629,11 +631,9 @@ api.post("/projects/:id/start", async (c) => {
         ? "Codex"
         : id === "claude"
           ? "Claude"
-          : id === "droid"
-            ? "Droid"
-            : id === "gemini"
-              ? "Gemini"
-              : undefined;
+          : id === "pi"
+            ? "Pi"
+            : undefined;
   } else {
     runAgentLabel = getAgent(runAgentSelection.id)?.name;
   }
@@ -740,17 +740,22 @@ api.post("/projects/:id/start", async (c) => {
     return c.json({ ok: true, type: "aihub", sessionKey });
   }
 
-  if (!["claude", "codex", "droid", "gemini"].includes(runAgentSelection.id)) {
-    return c.json({ error: `Unsupported CLI: ${runAgentSelection.id}` }, 400);
+  if (!isSupportedSubagentCli(runAgentSelection.id)) {
+    return c.json(
+      { error: getUnsupportedSubagentCliError(runAgentSelection.id) },
+      400
+    );
   }
+  const runCli = runAgentSelection.id;
 
   if (frontmatter.executionMode === "ralph_loop") {
-    if (!["claude", "codex"].includes(runAgentSelection.id)) {
+    if (!["claude", "codex"].includes(runCli)) {
       return c.json(
-        { error: `Unsupported CLI for ralph_loop: ${runAgentSelection.id}` },
+        { error: `Unsupported CLI for ralph_loop: ${runCli}` },
         400
       );
     }
+    const ralphCli = runCli as "claude" | "codex";
 
     const ralphIterationsRaw =
       typeof frontmatter.iterations === "number"
@@ -771,7 +776,7 @@ api.post("/projects/:id/start", async (c) => {
     const result = await spawnRalphLoop(config, {
       projectId: project.id,
       slug: ralphSlug,
-      cli: runAgentSelection.id as "codex" | "claude",
+      cli: ralphCli,
       iterations: ralphIterations,
       mode: ralphMode,
       baseBranch: ralphBaseBranch,
@@ -800,7 +805,7 @@ api.post("/projects/:id/start", async (c) => {
   const result = await spawnSubagent(config, {
     projectId: project.id,
     slug: slugValue,
-    cli: runAgentSelection.id as "claude" | "codex" | "droid" | "gemini",
+    cli: runCli,
     prompt,
     mode: runModeValue,
     baseBranch: baseBranchValue,
@@ -1559,12 +1564,15 @@ api.post("/projects/:id/subagents", async (c) => {
   if (!slug || !cli || !prompt) {
     return c.json({ error: "Missing required fields" }, 400);
   }
+  if (!isSupportedSubagentCli(cli)) {
+    return c.json({ error: getUnsupportedSubagentCliError(cli) }, 400);
+  }
 
   const config = getConfig();
   const result = await spawnSubagent(config, {
     projectId: id,
     slug,
-    cli: cli as "claude" | "codex" | "droid" | "gemini",
+    cli,
     prompt,
     mode: mode as "main-run" | "worktree" | "clone" | undefined,
     baseBranch,

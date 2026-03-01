@@ -95,7 +95,9 @@ export function AgentPanel(props: AgentPanelProps) {
   const [savingRepo, setSavingRepo] = createSignal(false);
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
   const [showAddAgentForm, setShowAddAgentForm] = createSignal(false);
-  const [addAgentCli, setAddAgentCli] = createSignal<"codex" | "claude">(
+  const [addAgentCli, setAddAgentCli] = createSignal<
+    "codex" | "claude" | "pi"
+  >(
     "codex"
   );
   const [addAgentPrompt, setAddAgentPrompt] = createSignal("");
@@ -638,12 +640,13 @@ export function AgentPanel(props: AgentPanelProps) {
                   value={addAgentCli()}
                   onChange={(event) =>
                     setAddAgentCli(
-                      event.currentTarget.value as "codex" | "claude"
+                      event.currentTarget.value as "codex" | "claude" | "pi"
                     )
                   }
                 >
                   <option value="codex">codex</option>
                   <option value="claude">claude</option>
+                  <option value="pi">pi</option>
                 </select>
               </label>
               <label class="add-agent-label">

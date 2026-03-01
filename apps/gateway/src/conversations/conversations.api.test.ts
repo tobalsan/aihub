@@ -53,12 +53,12 @@ describe("conversations API", () => {
               },
             },
             {
-              id: "gemini",
-              name: "Gemini",
+              id: "pi",
+              name: "Pi",
               workspace: "~/test",
               model: {
-                provider: "google",
-                model: "gemini-2.0-flash",
+                provider: "anthropic",
+                model: "claude-3-5-sonnet-20241022",
               },
             },
             {
@@ -276,6 +276,59 @@ Yes, route by mention, then append each response to THREAD.md.
     expect(detail.content).toContain("Need checks from @codex and @cloud");
     expect(detail.content).toContain("codex reply");
     expect(detail.content).toContain("Cloud routed via openclaw.");
+  });
+
+  it("dispatches @pi mention and appends reply", async () => {
+    const postRes = await Promise.resolve(
+      api.request(`/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Need a pass from @pi" }),
+      })
+    );
+
+    expect(postRes.status).toBe(200);
+    const payload = await postRes.json();
+    expect(payload.mentions).toEqual(["pi"]);
+    expect(payload.dispatches).toHaveLength(1);
+    expect(payload.dispatches[0]).toMatchObject({
+      mention: "pi",
+      status: "ok",
+      agentId: "pi",
+      replies: ["pi reply"],
+    });
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "pi",
+        message: expect.stringContaining("Latest user message:\nNeed a pass from @pi"),
+        sessionKey: `conversation:${conversationId}:pi`,
+      })
+    );
+  });
+
+  it("does not dispatch legacy @gemini mention", async () => {
+    const postRes = await Promise.resolve(
+      api.request(`/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Need a pass from @gemini" }),
+      })
+    );
+
+    expect(postRes.status).toBe(200);
+    const payload = await postRes.json();
+    expect(payload.mentions).toEqual([]);
+    expect(payload.dispatches).toEqual([]);
+    expect(payload.ui).toEqual({
+      shouldRefresh: true,
+      isThinking: false,
+      pendingMentions: [],
+    });
+    expect(runAgentMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: `conversation:${conversationId}:gemini`,
+      })
+    );
   });
 
   it("creates project from conversation with inception doc and thread comment", async () => {

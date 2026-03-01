@@ -68,8 +68,7 @@ const COLUMNS: ColumnDef[] = [
 const CLI_OPTIONS = [
   { id: "cli:codex", label: "Codex CLI", cli: "codex" },
   { id: "cli:claude", label: "Claude CLI", cli: "claude" },
-  { id: "cli:droid", label: "Droid CLI", cli: "droid" },
-  { id: "cli:gemini", label: "Gemini CLI", cli: "gemini" },
+  { id: "cli:pi", label: "Pi CLI", cli: "pi" },
 ];
 
 const COLUMN_STORAGE_KEY = "aihub:projects:expanded-columns";

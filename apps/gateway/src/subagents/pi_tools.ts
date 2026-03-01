@@ -1,12 +1,13 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { createSubagentToolHandlers, type SubagentToolHandlers } from "./tool_handlers.js";
+import { SUPPORTED_SUBAGENT_CLIS } from "./runner.js";
 
 const spawnParams = {
   type: "object",
   properties: {
     projectId: { type: "string" },
     slug: { type: "string" },
-    cli: { type: "string" },
+    cli: { type: "string", enum: [...SUPPORTED_SUBAGENT_CLIS] },
     prompt: { type: "string" },
     mode: { type: "string" },
     baseBranch: { type: "string" },

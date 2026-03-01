@@ -44,7 +44,7 @@ Transform AIHub from a project-centric tool into an agent-centric command center
 | Type | Examples | Session | Can Create Projects | Killable |
 |------|----------|---------|---------------------|----------|
 | **Lead** | CTO, Executive Assistant, Project Manager | Persistent | Yes | No |
-| **Subagent** | CLI processes (codex, claude, gemini) | Ephemeral | No | Yes |
+| **Subagent** | CLI processes (codex, claude, pi) | Ephemeral | No | Yes |
 
 ### Lead Agents
 

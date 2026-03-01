@@ -110,6 +110,12 @@ Projects execution modes:
 - `ralph_loop`: iterative Ralph loop monitoring mode.
 - unset: no execution mode selected.
 
+Project subagent CLIs:
+
+- Supported: `claude`, `codex`, `pi`
+- Removed: `droid`, `gemini` (API returns validation error)
+- Lead agents continue to run through the embedded Pi SDK; project subagents run as external CLIs.
+
 ## OAuth Authentication
 
 Pi SDK agents can use OAuth tokens instead of API keys. Supported providers: `anthropic`, `openai-codex`, `github-copilot`, `google-gemini-cli`, `google-antigravity`.

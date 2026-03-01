@@ -619,7 +619,7 @@ export function AgentChat(props: AgentChatProps) {
   const sessionKey = createMemo(() =>
     props.agentId ? getSessionKey(props.agentId) : "main"
   );
-  const cliTokens = new Set(["claude", "codex", "droid", "gemini"]);
+  const cliTokens = new Set(["claude", "codex", "pi"]);
   const canSendLead = createMemo(
     () => props.agentType === "lead" && props.agentId && !aihubStreaming()
   );

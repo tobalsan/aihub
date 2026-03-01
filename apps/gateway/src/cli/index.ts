@@ -404,8 +404,11 @@ authCmd
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
       const { getOAuthProviders } = await import("@mariozechner/pi-ai");
-      const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
-      const providers = getOAuthProviders();
+      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
+      const providers = getOAuthProviders() as Array<{
+        id: string;
+        name: string;
+      }>;
 
       // If no provider specified, show menu
       let selectedProvider = provider;
@@ -440,17 +443,17 @@ authCmd
 
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       await authStorage.login(selectedProvider as Parameters<typeof authStorage.login>[0], {
-        onAuth: (info) => {
+        onAuth: (info: { url: string; instructions?: string }) => {
           console.log(`\nOpen this URL in your browser:\n${info.url}`);
           if (info.instructions) console.log(info.instructions);
           console.log();
         },
-        onPrompt: async (prompt) => {
+        onPrompt: async (prompt: { message: string; placeholder?: string }) => {
           return new Promise((resolve) =>
             rl.question(`${prompt.message}${prompt.placeholder ? ` (${prompt.placeholder})` : ""}: `, resolve)
           );
         },
-        onProgress: (msg) => console.log(msg),
+        onProgress: (msg: string) => console.log(msg),
       });
       rl.close();
 
@@ -467,7 +470,7 @@ authCmd
   .action(async () => {
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
+      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
       const providers = authStorage.list();
 
       if (providers.length === 0) {
@@ -499,7 +502,7 @@ authCmd
   .action(async (provider: string) => {
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = new AuthStorage(path.join(CONFIG_DIR, "auth.json"));
+      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
 
       if (!authStorage.has(provider)) {
         console.log(`Not logged in to ${provider}`);
