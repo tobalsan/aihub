@@ -641,3 +641,110 @@ Goal: reduce unused space and modernize the interface from terminal aesthetic to
 - Quick create (floating button / keyboard shortcut)
 - Notifications (agent needs attention, task finished)
 - File upload cleanup/expiry (currently no auto-cleanup of `~/.aihub/media/inbound/`)
+
+### 28) Three-Level Hierarchy: Areas + Tasks (PRO-145)
+
+New organizational hierarchy: Area → Project → Task.
+
+**Areas:**
+- Top-level groupings stored as YAML in `~/projects/.areas/*.yaml`
+- Schema: `id`, `title`, `color`, `icon`, `description`, `repo` (default for projects), `order`
+- CRUD endpoints: `GET/POST/PATCH/DELETE /api/areas`
+- Projects link via `area` field in frontmatter; inherit repo from area unless overridden
+- Fallback "Wild Garden" area for unlinked projects
+
+**Tasks:**
+- Live inside SPECS.md as structured markdown checkboxes with inline metadata (`status:value`, `agent:value`)
+- Task parser extracts `## Tasks` section from SPECS.md
+- API endpoints:
+  - `GET /api/projects/:id/tasks` — parsed task list
+  - `PATCH /api/projects/:id/tasks/:order` — update task status/agent
+  - `POST /api/projects/:id/tasks` — append task
+- Progress derived from `tasks_done / tasks_total`
+- Acceptance criteria parsed from `## Acceptance Criteria` section
+
+**Files:**
+- `apps/gateway/src/areas/store.ts` (area CRUD)
+- `apps/gateway/src/projects/store.ts` (task parser, repo inheritance)
+- `packages/shared/src/types.ts` (AreaSchema, TaskSchema)
+- `apps/gateway/src/server/api.ts` (area + task endpoints)
+
+### 29) Project Detail Page + Spec Editor (PRO-146)
+
+Full-page project detail view replacing the old popup/modal.
+
+**Route:** `/projects/:id` → `ProjectDetailPage`
+
+**Three-column layout:**
+- Left (AgentPanel): project metadata (title, status, area, repo, created), inline editing
+- Center (CenterPanel): tabbed view (Chat / Activity / Changes)
+- Right (SpecEditor): living spec rendering with interactive task checkboxes, progress bar, edit/preview mode, add task form
+
+**Key features:**
+- Inline title/repo editing via double-click
+- Status/area dropdown selectors
+- Spec preview/edit with Cmd+S save
+- Task checkbox toggles → PATCH API
+- Progress bar with completion count
+- Responsive: 3-col on desktop, 2-col merged on laptop
+
+**Files:**
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/CenterPanel.tsx`
+- `apps/web/src/components/project/SpecEditor.tsx`
+- `apps/web/src/components/project/ProgressBar.tsx`
+- `apps/web/src/components/project/TaskCheckbox.tsx`
+- `apps/web/src/api/client.ts` (fetchTasks, updateTask, createTask, fetchSpec, saveSpec)
+
+### 30) Agent Panel + Agent Chat (PRO-147)
+
+Wired up the Agent Panel and Center Panel chat/activity tabs.
+
+**Agent Panel (left column):**
+- Lists subagents for the project with status indicators (● running / ○ idle / ✓ done / ✗ error)
+- Click agent → selects it, center panel shows that agent's chat
+- "Add Agent" inline form: pick CLI type, spawn subagent
+- Polls `fetchSubagents()` every 10s
+
+**Center Panel — Chat tab:**
+- Renders existing `AgentChat` component for selected agent
+- Supports lead agents (streaming + full history) and subagents (log polling)
+- "Select an agent to chat" placeholder when none selected
+
+**Center Panel — Activity tab:**
+- Merges project thread comments with subagent events chronologically
+- Comment composer with Cmd/Ctrl+Enter submit
+
+**Files:**
+- `apps/web/src/components/project/AgentPanel.tsx` (agent list section)
+- `apps/web/src/components/project/CenterPanel.tsx` (chat + activity wiring)
+- `apps/web/src/components/project/ProjectDetailPage.tsx` (selected agent state)
+
+### 31) Changes View (PRO-148)
+
+Git diff view as a center-panel tab in the project detail page.
+
+**New gateway module:** `apps/gateway/src/projects/git.ts`
+- `getProjectChanges()`: runs `git status --porcelain` + `git diff` on project repo
+- `commitProjectChanges()`: `git add -A` + `git commit -m`
+
+**New API endpoints:**
+- `GET /api/projects/:id/changes` — returns branch, files, diff, stats
+- `POST /api/projects/:id/commit` — commit with message
+
+**ChangesView component:**
+- File list sidebar with status icons (M/A/D)
+- Unified diff rendering with red/green line coloring
+- Click file → scrolls to that file's diff hunk
+- Commit form (message input + button)
+- Auto-refresh polling every 15s
+- Empty state when no changes
+
+**Files:**
+- `apps/gateway/src/projects/git.ts`
+- `apps/gateway/src/projects/git.test.ts`
+- `apps/web/src/components/project/ChangesView.tsx`
+- `apps/web/src/components/project/ChangesView.test.tsx`
+- `apps/web/src/api/client.ts` (fetchProjectChanges, commitProjectChanges)
+- `apps/web/src/api/types.ts` (FileChange, ProjectChanges, CommitResult)
