@@ -9,10 +9,17 @@ import {
 } from "solid-js";
 import {
   archiveSubagent,
+  fetchSimpleHistory,
+  fetchSubagentLogs,
   fetchSubagents,
   killSubagent,
 } from "../../api/client";
-import type { Area, ProjectDetail, SubagentListItem } from "../../api/types";
+import type {
+  Area,
+  ProjectDetail,
+  SubagentListItem,
+  SubagentLogEvent,
+} from "../../api/types";
 import type { SpawnPrefill, SpawnTemplate } from "./SpawnForm";
 
 const STATUS_OPTIONS = [
@@ -130,6 +137,54 @@ function formatCreatedRelative(raw: string): string {
   return `Created ${weeks} week${weeks === 1 ? "" : "s"} ago`;
 }
 
+function formatElapsed(raw?: string): string {
+  if (!raw) return "—";
+  const timestamp = new Date(raw).getTime();
+  if (!Number.isFinite(timestamp)) return "—";
+  const deltaMs = Date.now() - timestamp;
+  if (deltaMs < 60000) return "now";
+  const minutes = Math.floor(deltaMs / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
+function normalizeExcerpt(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  return compact.length > 96 ? `${compact.slice(0, 95)}…` : compact;
+}
+
+function pickPreviewFromEvents(events: SubagentLogEvent[]): {
+  text: string;
+  at?: string;
+} | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (
+      event.type !== "assistant" &&
+      event.type !== "user" &&
+      event.type !== "tool_output" &&
+      event.type !== "stdout" &&
+      event.type !== "stderr" &&
+      event.type !== "error"
+    ) {
+      continue;
+    }
+    const text = normalizeExcerpt(event.text ?? "");
+    if (!text) continue;
+    return { text, at: event.ts };
+  }
+  return null;
+}
+
 export function AgentPanel(props: AgentPanelProps) {
   const [statusMenuOpen, setStatusMenuOpen] = createSignal(false);
   const [areaMenuOpen, setAreaMenuOpen] = createSignal(false);
@@ -144,6 +199,16 @@ export function AgentPanel(props: AgentPanelProps) {
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
+  const [nowTick, setNowTick] = createSignal(Date.now());
+  const [leadPreview, setLeadPreview] = createSignal<{
+    text: string;
+    at?: string;
+  }>({
+    text: "No messages yet",
+  });
+  const [subagentPreview, setSubagentPreview] = createSignal<
+    Record<string, { text: string; at?: string; cursor: number }>
+  >({});
 
   const status = () =>
     getFrontmatterString(props.project.frontmatter, "status") || "unknown";
@@ -166,6 +231,16 @@ export function AgentPanel(props: AgentPanelProps) {
     const selected = props.selectedAgentSlug;
     if (!selected || !selected.startsWith("lead:")) return null;
     return selected.slice("lead:".length);
+  });
+  const leadSessionKey = createMemo(() => {
+    const leadId = leadAgentId();
+    if (!leadId) return "main";
+    const sessionKeys = getFrontmatterRecord(
+      props.project.frontmatter,
+      "sessionKeys"
+    );
+    const value = sessionKeys?.[leadId];
+    return typeof value === "string" && value.trim() ? value : "main";
   });
 
   let statusMenuRef: HTMLDivElement | undefined;
@@ -213,12 +288,92 @@ export function AgentPanel(props: AgentPanelProps) {
     const timer = window.setInterval(() => {
       void loadSubagents();
     }, 10000);
+    const tickTimer = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 60000);
 
     onCleanup(() => {
       active = false;
       window.clearInterval(timer);
+      window.clearInterval(tickTimer);
       document.removeEventListener("click", onDocumentClick);
       if (copiedTimer) window.clearTimeout(copiedTimer);
+    });
+  });
+
+  createEffect(() => {
+    const leadId = leadAgentId();
+    const sessionKey = leadSessionKey();
+    if (!leadId) {
+      setLeadPreview({ text: "No messages yet" });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const history = await fetchSimpleHistory(leadId, sessionKey);
+      if (cancelled) return;
+      const last = history.messages.at(-1);
+      const text = normalizeExcerpt(last?.content ?? "");
+      setLeadPreview({
+        text: text || "No messages yet",
+        at:
+          typeof last?.timestamp === "number"
+            ? new Date(last.timestamp).toISOString()
+            : undefined,
+      });
+    })();
+    onCleanup(() => {
+      cancelled = true;
+    });
+  });
+
+  createEffect(() => {
+    const projectId = props.project.id;
+    const items = props.subagents;
+    const activeSlugs = new Set(items.map((item) => item.slug));
+    let previousPreview: Record<
+      string,
+      { text: string; at?: string; cursor: number }
+    > = {};
+    setSubagentPreview((prev) => {
+      previousPreview = prev;
+      const next: Record<
+        string,
+        { text: string; at?: string; cursor: number }
+      > = {};
+      for (const [slug, value] of Object.entries(prev)) {
+        if (activeSlugs.has(slug)) next[slug] = value;
+      }
+      return next;
+    });
+    if (items.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      items.map(async (item) => {
+        const current = previousPreview[item.slug];
+        const logs = await fetchSubagentLogs(
+          projectId,
+          item.slug,
+          current?.cursor ?? 0
+        );
+        if (!logs.ok || cancelled) return;
+        const picked = pickPreviewFromEvents(logs.data.events);
+        setSubagentPreview((prev) => ({
+          ...prev,
+          [item.slug]: {
+            text:
+              picked?.text ??
+              prev[item.slug]?.text ??
+              normalizeExcerpt(taskLabel(item)) ??
+              "",
+            at: picked?.at ?? item.lastActive ?? prev[item.slug]?.at,
+            cursor: logs.data.cursor,
+          },
+        }));
+      })
+    );
+    onCleanup(() => {
+      cancelled = true;
     });
   });
 
@@ -283,6 +438,19 @@ export function AgentPanel(props: AgentPanelProps) {
       metadata.assignedTask ??
       metadata.assignment;
     return typeof task === "string" ? task : "";
+  };
+
+  const previewText = (item: SubagentListItem) =>
+    subagentPreview()[item.slug]?.text ||
+    normalizeExcerpt(taskLabel(item)) ||
+    "No messages yet";
+
+  const previewAt = (item: SubagentListItem) =>
+    subagentPreview()[item.slug]?.at ?? item.lastActive;
+
+  const elapsedLabel = (raw?: string) => {
+    nowTick();
+    return formatElapsed(raw);
   };
 
   const refreshSubagents = async () => {
@@ -484,7 +652,12 @@ export function AgentPanel(props: AgentPanelProps) {
               aria-label={showRepoBlock() ? "Hide repo path" : "Show repo path"}
               aria-expanded={showRepoBlock()}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <path d="M3 7h6l2 2h10v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
               </svg>
             </button>
@@ -538,121 +711,6 @@ export function AgentPanel(props: AgentPanelProps) {
 
         <section class="agent-panel-block">
           <div class="agent-panel-label">Agents</div>
-          <div class="agent-list">
-            <Show when={leadAgentId()}>
-              {(leadId) => (
-                <button
-                  type="button"
-                  class="agent-list-item lead"
-                  classList={{ selected: selectedLeadId() === leadId() }}
-                  onClick={() =>
-                    props.onSelectAgent({
-                      type: "lead",
-                      agentId: leadId(),
-                      projectId: props.project.id,
-                    })
-                  }
-                >
-                  <span class="agent-status running">●</span>
-                  <span class="agent-list-main">
-                    <span class="agent-name">{leadId()}</span>
-                    <span class="agent-task">Lead agent</span>
-                  </span>
-                </button>
-              )}
-            </Show>
-            <For each={props.subagents}>
-              {(item) => {
-                const indicator = statusIndicator(item.status);
-                return (
-                  <div
-                    class="agent-list-item subagent"
-                    classList={{
-                      selected: props.selectedAgentSlug === item.slug,
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() =>
-                      props.onSelectAgent({
-                        type: "subagent",
-                        slug: item.slug,
-                        cli: item.cli,
-                        status: item.status,
-                        projectId: props.project.id,
-                      })
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      props.onSelectAgent({
-                        type: "subagent",
-                        slug: item.slug,
-                        cli: item.cli,
-                        status: item.status,
-                        projectId: props.project.id,
-                      });
-                    }}
-                  >
-                    <span class={`agent-status ${indicator.tone}`}>
-                      {indicator.symbol}
-                    </span>
-                    <span class="agent-list-main">
-                      <span class="agent-name">
-                        {item.name ?? item.cli ?? item.slug}
-                      </span>
-                      <Show when={taskLabel(item)}>
-                        {(label) => <span class="agent-task">{label()}</span>}
-                      </Show>
-                    </span>
-                    <div class="agent-row-actions">
-                      <button
-                        type="button"
-                        class="agent-row-action archive"
-                        title={`Archive ${item.name ?? item.cli ?? item.slug}`}
-                        aria-label={`Archive ${item.name ?? item.cli ?? item.slug}`}
-                        disabled={Boolean(busyActionSlug())}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleArchiveSubagent(item);
-                        }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path d="M3 7h18v13H3z" />
-                          <path d="M7 7V4h10v3" />
-                          <path d="M7 12h10" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        class="agent-row-action kill"
-                        title={`Kill ${item.name ?? item.cli ?? item.slug}`}
-                        aria-label={`Kill ${item.name ?? item.cli ?? item.slug}`}
-                        disabled={Boolean(busyActionSlug())}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleKillSubagent(item);
-                        }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
           <div class="add-agent-wrap" ref={templateMenuRef}>
             <button
               type="button"
@@ -662,7 +720,7 @@ export function AgentPanel(props: AgentPanelProps) {
                 setTemplateMenuOpen((open) => !open);
               }}
             >
-              + Add Agent
+              + Create new agent
             </button>
             <Show when={templateMenuOpen()}>
               <div class="template-menu">
@@ -739,6 +797,129 @@ export function AgentPanel(props: AgentPanelProps) {
                 </button>
               </div>
             </Show>
+          </div>
+          <div class="agent-list">
+            <Show when={leadAgentId()}>
+              {(leadId) => (
+                <button
+                  type="button"
+                  class="agent-list-item lead"
+                  classList={{ selected: selectedLeadId() === leadId() }}
+                  onClick={() =>
+                    props.onSelectAgent({
+                      type: "lead",
+                      agentId: leadId(),
+                      projectId: props.project.id,
+                    })
+                  }
+                >
+                  <span class="agent-status running">●</span>
+                  <span class="agent-list-main">
+                    <span class="agent-list-head">
+                      <span class="agent-name">{leadId()}</span>
+                      <span class="agent-elapsed">
+                        {elapsedLabel(leadPreview().at)}
+                      </span>
+                    </span>
+                    <span class="agent-task">{leadPreview().text}</span>
+                  </span>
+                </button>
+              )}
+            </Show>
+            <For each={props.subagents}>
+              {(item) => {
+                const indicator = statusIndicator(item.status);
+                return (
+                  <div
+                    class="agent-list-item subagent"
+                    classList={{
+                      selected: props.selectedAgentSlug === item.slug,
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      props.onSelectAgent({
+                        type: "subagent",
+                        slug: item.slug,
+                        cli: item.cli,
+                        status: item.status,
+                        projectId: props.project.id,
+                      })
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      props.onSelectAgent({
+                        type: "subagent",
+                        slug: item.slug,
+                        cli: item.cli,
+                        status: item.status,
+                        projectId: props.project.id,
+                      });
+                    }}
+                  >
+                    <span class={`agent-status ${indicator.tone}`}>
+                      {indicator.symbol}
+                    </span>
+                    <span class="agent-list-main">
+                      <span class="agent-list-head">
+                        <span class="agent-name">
+                          {item.name ?? item.cli ?? item.slug}
+                        </span>
+                        <span class="agent-elapsed">
+                          {elapsedLabel(previewAt(item))}
+                        </span>
+                      </span>
+                      <span class="agent-task">{previewText(item)}</span>
+                    </span>
+                    <div class="agent-row-actions">
+                      <button
+                        type="button"
+                        class="agent-row-action archive"
+                        title={`Archive ${item.name ?? item.cli ?? item.slug}`}
+                        aria-label={`Archive ${item.name ?? item.cli ?? item.slug}`}
+                        disabled={Boolean(busyActionSlug())}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleArchiveSubagent(item);
+                        }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M3 7h18v13H3z" />
+                          <path d="M7 7V4h10v3" />
+                          <path d="M7 12h10" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="agent-row-action kill"
+                        title={`Kill ${item.name ?? item.cli ?? item.slug}`}
+                        aria-label={`Kill ${item.name ?? item.cli ?? item.slug}`}
+                        disabled={Boolean(busyActionSlug())}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleKillSubagent(item);
+                        }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                );
+              }}
+            </For>
           </div>
           <Show when={agentError()}>
             {(message) => <p class="agent-error">{message()}</p>}
@@ -973,21 +1154,22 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-list {
           display: grid;
-          gap: 6px;
+          gap: 8px;
         }
 
         .agent-list-item {
           width: 100%;
           border: 1px solid #1f2937;
-          border-radius: 8px;
-          padding: 7px 8px;
-          background: #0f1724;
+          border-radius: 10px;
+          padding: 10px;
+          background: #0e1521;
           color: #e4e4e7;
           display: flex;
-          gap: 8px;
+          gap: 10px;
           align-items: flex-start;
           text-align: left;
           cursor: pointer;
+          min-width: 0;
         }
 
         .agent-list-item:hover {
@@ -996,17 +1178,15 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-list-item.selected {
           border-color: #3b82f6;
-          box-shadow: inset 2px 0 0 #3b82f6;
+          box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
         }
 
         .agent-list-item.lead {
-          background: #101a2b;
+          background: #10192a;
         }
 
         .agent-list-item.subagent {
           position: relative;
-          align-items: center;
-          padding-right: 64px;
         }
 
         .agent-list-item.subagent:focus-visible {
@@ -1017,8 +1197,8 @@ export function AgentPanel(props: AgentPanelProps) {
         .agent-row-actions {
           position: absolute;
           right: 8px;
-          top: 50%;
-          transform: translateY(-50%);
+          bottom: 8px;
+          z-index: 2;
           display: flex;
           gap: 4px;
           align-items: center;
@@ -1072,7 +1252,7 @@ export function AgentPanel(props: AgentPanelProps) {
         .agent-status {
           font-size: 13px;
           line-height: 1;
-          padding-top: 2px;
+          padding-top: 4px;
           width: 12px;
         }
 
@@ -1092,18 +1272,40 @@ export function AgentPanel(props: AgentPanelProps) {
         .agent-list-main {
           min-width: 0;
           display: grid;
-          gap: 2px;
+          gap: 4px;
+          width: 100%;
+        }
+
+        .agent-list-head {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .agent-elapsed {
+          margin-left: auto;
+          font-size: 11px;
+          color: #7f8a9a;
+          line-height: 1;
+          text-transform: lowercase;
+          letter-spacing: 0.02em;
         }
 
         .agent-name {
-          font-size: 12px;
+          font-size: 13px;
+          font-weight: 600;
           color: #e4e4e7;
           line-height: 1.3;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .agent-task {
           font-size: 11px;
-          color: #94a3b8;
+          color: #8fa0b5;
           line-height: 1.3;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -1111,19 +1313,24 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .add-agent-btn {
-          margin-top: 8px;
           width: 100%;
-          border: 1px dashed #3b82f6;
-          border-radius: 8px;
+          border: none;
           background: transparent;
-          color: #93c5fd;
-          padding: 8px 10px;
-          font-size: 12px;
+          color: #9aa3b2;
+          padding: 0;
+          font-size: 13px;
+          line-height: 1.4;
           cursor: pointer;
+          text-align: left;
+          transition: color 0.12s ease;
+        }
+
+        .add-agent-btn:hover {
+          color: #d4d4d8;
         }
 
         .add-agent-wrap {
-          margin-top: 8px;
+          margin: 2px 0 8px;
           position: relative;
         }
 

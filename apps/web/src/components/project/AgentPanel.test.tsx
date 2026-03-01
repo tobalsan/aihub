@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import type { ProjectDetail, SubagentListItem } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
-import { fetchSubagents } from "../../api/client";
+import {
+  fetchSimpleHistory,
+  fetchSubagentLogs,
+  fetchSubagents,
+} from "../../api/client";
 
 vi.mock("../../api/client", () => ({
   fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
+  fetchSubagentLogs: vi.fn(async () => ({
+    ok: true,
+    data: { cursor: 0, events: [] },
+  })),
+  fetchSimpleHistory: vi.fn(async () => ({ messages: [] })),
   archiveSubagent: vi.fn(async () => ({
     ok: true,
     data: { slug: "codex-abc", archived: true },
@@ -30,6 +39,14 @@ const project: ProjectDetail = {
 };
 
 describe("AgentPanel", () => {
+  beforeEach(() => {
+    vi.mocked(fetchSimpleHistory).mockResolvedValue({ messages: [] });
+    vi.mocked(fetchSubagentLogs).mockResolvedValue({
+      ok: true,
+      data: { cursor: 0, events: [] },
+    });
+  });
+
   const setup = (options?: {
     onSelectAgent?: (input: unknown) => void;
     onOpenSpawn?: (input: unknown) => void;
@@ -184,6 +201,9 @@ describe("AgentPanel", () => {
           project={projectWithRepo}
           area={undefined}
           areas={[]}
+          subagents={[]}
+          onSubagentsChange={() => {}}
+          onOpenSpawn={() => {}}
           onTitleChange={() => {}}
           onStatusChange={() => {}}
           onAreaChange={() => {}}
@@ -204,7 +224,9 @@ describe("AgentPanel", () => {
     toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const repoValue = container.querySelector(".repo-value") as HTMLParagraphElement;
+    const repoValue = container.querySelector(
+      ".repo-value"
+    ) as HTMLParagraphElement;
     expect(repoValue).toBeTruthy();
     expect(repoValue.textContent).toContain("~/code/aihub");
 

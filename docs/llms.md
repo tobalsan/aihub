@@ -44,6 +44,7 @@ Features:
 - Thinking indicator dots while waiting for response
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
+- Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 

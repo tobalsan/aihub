@@ -15,6 +15,23 @@ Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
 
+### Follow-up Delta (2026-03-01, left panel agent card refresh)
+
+- Project detail left panel `AgentPanel` agent list is now card-oriented instead of line-oriented.
+- Agent cards now show:
+  - Muted last-message excerpt
+  - Top-right relative elapsed time since the latest message/activity (`now`, `5m`, `2h`, etc.)
+- Data source for card preview:
+  - Subagents: derived from latest parsed subagent logs (`fetchSubagentLogs`)
+  - Lead agent: derived from simple chat history (`fetchSimpleHistory`)
+- `+ Add Agent` moved above the agent list and restyled as minimalist, left-aligned text action (dashed border removed).
+- Subagent row action icons (archive/kill) now render as hover overlays without reserving right-side layout space, so card content can use full width when actions are hidden.
+
+Files touched in this follow-up:
+
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/AgentPanel.test.tsx`
+
 Delivered in current implementation:
 
 - New route: `/projects/:id` (`ProjectDetailPage`) with three-column shell.
