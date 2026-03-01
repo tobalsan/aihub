@@ -381,7 +381,6 @@ export function ProjectDetailPage() {
                     project={detail()}
                     onAddComment={handleAddComment}
                     selectedAgent={selectedAgent()}
-                    tab={spawnMode() ? "chat" : undefined}
                     spawnMode={spawnMode()}
                     subagents={subagents()}
                     onCancelSpawn={() => setSpawnMode(null)}
@@ -464,11 +463,7 @@ export function ProjectDetailPage() {
                         project={detail()}
                         onAddComment={handleAddComment}
                         showTabs={false}
-                        tab={
-                          spawnMode()
-                            ? "chat"
-                            : (mergedTab() as "chat" | "activity" | "changes")
-                        }
+                        tab={mergedTab() as "chat" | "activity" | "changes"}
                         selectedAgent={selectedAgent()}
                         spawnMode={spawnMode()}
                         subagents={subagents()}
