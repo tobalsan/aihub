@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
-import type { ProjectDetail } from "../../api/types";
+import { createSignal } from "solid-js";
+import type { ProjectDetail, SubagentListItem } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
-import { fetchSubagents, spawnSubagent } from "../../api/client";
+import { fetchSubagents } from "../../api/client";
 
 vi.mock("../../api/client", () => ({
   fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
-  spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "codex-abc" } })),
   archiveSubagent: vi.fn(async () => ({
     ok: true,
     data: { slug: "codex-abc", archived: true },
@@ -30,6 +30,35 @@ const project: ProjectDetail = {
 };
 
 describe("AgentPanel", () => {
+  const setup = (options?: {
+    onSelectAgent?: (input: unknown) => void;
+    onOpenSpawn?: (input: unknown) => void;
+  }) => {
+    const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <AgentPanel
+          project={project}
+          area={undefined}
+          areas={[]}
+          subagents={subagents()}
+          onSubagentsChange={(items) => setSubagents(items)}
+          onOpenSpawn={(input) => options?.onOpenSpawn?.(input)}
+          onTitleChange={() => {}}
+          onStatusChange={() => {}}
+          onAreaChange={() => {}}
+          onRepoChange={() => {}}
+          selectedAgentSlug={null}
+          onSelectAgent={(info) => options?.onSelectAgent?.(info)}
+        />
+      ),
+      container
+    );
+    return { container, dispose };
+  };
+
   it("renders agent rows and selects subagent on click", async () => {
     vi.mocked(fetchSubagents).mockResolvedValueOnce({
       ok: true,
@@ -44,24 +73,7 @@ describe("AgentPanel", () => {
       },
     });
     const onSelectAgent = vi.fn();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const dispose = render(
-      () => (
-        <AgentPanel
-          project={project}
-          area={undefined}
-          areas={[]}
-          onTitleChange={() => {}}
-          onStatusChange={() => {}}
-          onAreaChange={() => {}}
-          onRepoChange={() => {}}
-          selectedAgentSlug={null}
-          onSelectAgent={onSelectAgent}
-        />
-      ),
-      container
-    );
+    const { container, dispose } = setup({ onSelectAgent });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -84,73 +96,72 @@ describe("AgentPanel", () => {
     dispose();
   });
 
-  it("spawns prepared subagent from add-agent form", async () => {
+  it("opens template menu and emits worker prefill", async () => {
     vi.mocked(fetchSubagents).mockResolvedValue({
       ok: true,
-      data: { items: [] },
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            status: "running",
+            name: "Worker Alpha",
+          },
+        ],
+      },
     });
-    vi.mocked(spawnSubagent).mockResolvedValueOnce({
-      ok: true,
-      data: { slug: "codex-123" },
-    });
+    const randSpy = vi.spyOn(Math, "random").mockReturnValue(0.1);
+    const onOpenSpawn = vi.fn();
 
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const dispose = render(
-      () => (
-        <AgentPanel
-          project={project}
-          area={undefined}
-          areas={[]}
-          onTitleChange={() => {}}
-          onStatusChange={() => {}}
-          onAreaChange={() => {}}
-          onRepoChange={() => {}}
-          selectedAgentSlug={null}
-          onSelectAgent={() => {}}
-        />
-      ),
-      container
-    );
+    const { container, dispose } = setup({ onOpenSpawn });
 
     const openButton = container.querySelector(
       ".add-agent-btn"
     ) as HTMLButtonElement;
     openButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const nameInput = container.querySelector(
-      ".add-agent-input"
-    ) as HTMLInputElement;
-    nameInput.value = "Coordinator";
-    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    const workerOption = Array.from(
+      container.querySelectorAll(".template-option")
+    ).find((item) => item.textContent?.includes("Worker")) as HTMLButtonElement;
+    workerOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const prompt = container.querySelector(
-      ".add-agent-prompt"
-    ) as HTMLTextAreaElement;
-    prompt.value = "Do task B";
-    prompt.dispatchEvent(new Event("input", { bubbles: true }));
-
-    const submit = container.querySelector(
-      ".add-agent-submit"
-    ) as HTMLButtonElement;
-    submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(spawnSubagent).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(spawnSubagent).mock.calls[0]?.[0]).toBe("PRO-1");
-    expect(vi.mocked(spawnSubagent).mock.calls[0]?.[1]).toMatchObject({
+    expect(onOpenSpawn).toHaveBeenCalledTimes(1);
+    const payload = onOpenSpawn.mock.calls[0]?.[0];
+    expect(payload.template).toBe("worker");
+    expect(payload.prefill).toMatchObject({
       cli: "codex",
-      name: "Coordinator",
       model: "gpt-5.3-codex",
-      reasoningEffort: "high",
-      mode: "clone",
+      reasoning: "medium",
+      runMode: "clone",
+      includeDefaultPrompt: true,
+      includePostRun: true,
     });
-    const payload = vi.mocked(spawnSubagent).mock.calls[0]?.[1];
-    expect(payload?.prompt).toContain("Review the full project context");
-    expect(payload?.prompt).toContain("When done, run relevant tests.");
-    expect(payload?.prompt).toContain("Do task B");
+    expect(payload.prefill.name).not.toBe("Worker Alpha");
+
+    expect(container.querySelector(".template-menu")).toBeNull();
+
+    randSpy.mockRestore();
+    dispose();
+  });
+
+  it("shows all four template options", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValue({
+      ok: true,
+      data: { items: [] },
+    });
+
+    const { container, dispose } = setup();
+    const openButton = container.querySelector(
+      ".add-agent-btn"
+    ) as HTMLButtonElement;
+    openButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const text = container.textContent ?? "";
+    expect(text).toContain("Coordinator");
+    expect(text).toContain("Worker");
+    expect(text).toContain("Reviewer");
+    expect(text).toContain("Custom");
 
     dispose();
   });

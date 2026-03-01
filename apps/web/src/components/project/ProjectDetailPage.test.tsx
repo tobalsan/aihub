@@ -124,4 +124,29 @@ describe("ProjectDetailPage", () => {
 
     dispose();
   });
+
+  it("opens spawn form in center panel after selecting a template", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const addButton = container.querySelector(
+      ".add-agent-btn"
+    ) as HTMLButtonElement;
+    addButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const workerOption = Array.from(
+      container.querySelectorAll(".template-option")
+    ).find((item) => item.textContent?.includes("Worker")) as HTMLButtonElement;
+    workerOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.textContent).toContain("Spawn Agent");
+
+    dispose();
+  });
 });

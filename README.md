@@ -77,7 +77,7 @@ pnpm apm create --title "My Project" [--domain <domain>] [--owner <owner>] [--ex
 pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--content <text>|-]
 pnpm apm move <id> <status>
-pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree>] [--branch <branch>] [--slug <slug>] [--custom-prompt <text>|-]
+pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--custom-prompt <text>|-]
 
 # Override API URL (highest precedence)
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
@@ -164,7 +164,7 @@ Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
 
 ## OpenClaw Connector
 
-Connect to an [OpenClaw](https://github.com/openclaw/openclaw) gateway to use an OpenClaw agent from AIHub. This allows you to interact with OpenClaw agents through the AIHub web UI. 
+Connect to an [OpenClaw](https://github.com/openclaw/openclaw) gateway to use an OpenClaw agent from AIHub. This allows you to interact with OpenClaw agents through the AIHub web UI.
 
 If you use the `sessionKey: agent:main:main`, then it while share the same conversation context. The first two elements must match the configured agents in OpenClaw, e.g. if you configured a `main` agent, the session key must start with `agent:main:`, otherwise it will create a new agent profile in `~/.openclaw`. The third key is how control the behavior. Using `main` will continue in the OpenClaw main session, while anything else will create a new session id `third_key-openclaw`.
 
@@ -445,9 +445,9 @@ Do not run `pnpm dev`, `pnpm dev:gateway`, or `pnpm aihub gateway` on machine A 
 
 ### `apiUrl` vs `gateway.host`/`gateway.port`
 
-| Setting | Used by | Purpose |
-| --- | --- | --- |
-| `apiUrl` (or `AIHUB_API_URL`) | `apm` CLI | Direct base URL for CLI HTTP requests |
+| Setting                         | Used by                                         | Purpose                                                                                                             |
+| ------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `apiUrl` (or `AIHUB_API_URL`)   | `apm` CLI                                       | Direct base URL for CLI HTTP requests                                                                               |
 | `gateway.host` + `gateway.port` | Gateway server config; reused by `pnpm dev:web` | Gateway listen host/port for gateway process. In `pnpm dev:web`, these same values are reused as Vite proxy target. |
 
 In short: `apiUrl` controls CLI target. Web app uses relative `/api`/`/ws`; in `pnpm dev:web`, proxy target currently comes from `gateway.host`/`gateway.port`.

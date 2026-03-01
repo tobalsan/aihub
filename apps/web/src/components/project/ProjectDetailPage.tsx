@@ -19,10 +19,11 @@ import {
   updateProject,
   updateTask,
 } from "../../api/client";
-import type { Task } from "../../api/types";
+import type { SubagentListItem, Task } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import { CenterPanel, type SelectedProjectAgent } from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
+import type { SpawnPrefill, SpawnTemplate } from "./SpawnForm";
 
 type MergedTab = "chat" | "activity" | "changes" | "spec";
 
@@ -70,6 +71,11 @@ export function ProjectDetailPage() {
   const [mergedTab, setMergedTab] = createSignal<MergedTab>("spec");
   const [selectedAgent, setSelectedAgent] =
     createSignal<SelectedProjectAgent | null>(null);
+  const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
+  const [spawnMode, setSpawnMode] = createSignal<{
+    template: SpawnTemplate;
+    prefill: SpawnPrefill;
+  } | null>(null);
   const [isEditingTitle, setIsEditingTitle] = createSignal(false);
   const [titleDraft, setTitleDraft] = createSignal("");
   let titleInputRef: HTMLInputElement | undefined;
@@ -334,6 +340,12 @@ export function ProjectDetailPage() {
                   project={detail()}
                   area={area()}
                   areas={areas() ?? []}
+                  subagents={subagents()}
+                  onSubagentsChange={(items) => setSubagents(items)}
+                  onOpenSpawn={(input) => {
+                    setSpawnMode(input);
+                    setMergedTab("chat");
+                  }}
                   onTitleChange={handleTitleChange}
                   onStatusChange={handleStatusChange}
                   onAreaChange={handleAreaChange}
@@ -369,6 +381,20 @@ export function ProjectDetailPage() {
                     project={detail()}
                     onAddComment={handleAddComment}
                     selectedAgent={selectedAgent()}
+                    tab={spawnMode() ? "chat" : undefined}
+                    spawnMode={spawnMode()}
+                    subagents={subagents()}
+                    onCancelSpawn={() => setSpawnMode(null)}
+                    onSpawned={(slug) => {
+                      setSpawnMode(null);
+                      setSelectedAgent({
+                        type: "subagent",
+                        projectId: detail().id,
+                        slug,
+                        cli: undefined,
+                        status: "running",
+                      });
+                    }}
                   />
                 </div>
                 <div class="project-detail__right">
@@ -438,8 +464,25 @@ export function ProjectDetailPage() {
                         project={detail()}
                         onAddComment={handleAddComment}
                         showTabs={false}
-                        tab={mergedTab() as "chat" | "activity" | "changes"}
+                        tab={
+                          spawnMode()
+                            ? "chat"
+                            : (mergedTab() as "chat" | "activity" | "changes")
+                        }
                         selectedAgent={selectedAgent()}
+                        spawnMode={spawnMode()}
+                        subagents={subagents()}
+                        onCancelSpawn={() => setSpawnMode(null)}
+                        onSpawned={(slug) => {
+                          setSpawnMode(null);
+                          setSelectedAgent({
+                            type: "subagent",
+                            projectId: detail().id,
+                            slug,
+                            cli: undefined,
+                            status: "running",
+                          });
+                        }}
                       />
                     </Show>
                   </div>

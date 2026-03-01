@@ -42,6 +42,8 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
+- Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
+- Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 

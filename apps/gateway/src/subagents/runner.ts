@@ -10,7 +10,7 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 export const SUPPORTED_SUBAGENT_CLIS = ["claude", "codex", "pi"] as const;
 export type SubagentCli = (typeof SUPPORTED_SUBAGENT_CLIS)[number];
 export type RalphLoopCli = "claude" | "codex";
-export type SubagentMode = "main-run" | "worktree" | "clone";
+export type SubagentMode = "main-run" | "worktree" | "clone" | "none";
 
 export type SpawnSubagentInput = {
   projectId: string;
@@ -292,7 +292,8 @@ function buildArgs(
         "--dangerously-skip-permissions",
       ];
       if (options.model) args.push("--model", options.model);
-      if (options.reasoningEffort) args.push("--effort", options.reasoningEffort);
+      if (options.reasoningEffort)
+        args.push("--effort", options.reasoningEffort);
       const sessionId = options.sessionId;
       if (sessionId) return ["-r", sessionId, ...args];
       return args;
@@ -454,7 +455,9 @@ export async function spawnSubagent(
     typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
-  if (!repo) {
+  const mode: SubagentMode = input.mode ?? "clone";
+
+  if (mode !== "none" && !repo) {
     return { ok: false, error: "Project repo not set in frontmatter" };
   }
 
@@ -499,12 +502,13 @@ export async function spawnSubagent(
     fullContent
   );
 
-  const mode: SubagentMode = input.mode ?? "clone";
-  const repoHasGit = await fs
-    .stat(path.join(repo, ".git"))
-    .then(() => true)
-    .catch(() => false);
-  if (mode !== "main-run" && !repoHasGit) {
+  const repoHasGit = repo
+    ? await fs
+        .stat(path.join(repo, ".git"))
+        .then(() => true)
+        .catch(() => false)
+    : false;
+  if ((mode === "clone" || mode === "worktree") && !repoHasGit) {
     return { ok: false, error: "Project repo is not a git repo" };
   }
   if (await dirExists(sessionDir)) {
@@ -518,7 +522,7 @@ export async function spawnSubagent(
   const workspacesRoot = path.join(root, ".workspaces", input.projectId);
   const worktreeDir = path.join(workspacesRoot, input.slug);
 
-  let worktreePath = repo || projectDir;
+  let worktreePath = mode === "none" ? repo || projectDir : repo;
   const baseBranch = input.baseBranch ?? "main";
   if (mode === "worktree" || mode === "clone") {
     const branch = `${input.projectId}/${input.slug}`;
@@ -583,7 +587,8 @@ export async function spawnSubagent(
     const paths = input.attachments.map((a) => a.path).join(", ");
     prompt = `${prompt}\n\n[Attached images: ${paths}]`;
   }
-  const piSessionFile = cli === "pi" ? existingSessionFile ?? piSessionFilePath : undefined;
+  const piSessionFile =
+    cli === "pi" ? (existingSessionFile ?? piSessionFilePath) : undefined;
   const args = buildArgs(cli, prompt, {
     sessionId: existingSessionId,
     sessionFile: piSessionFile,
@@ -640,8 +645,9 @@ export async function spawnSubagent(
     // ignore
   }
   let state = {
-    session_id: cli === "pi" ? piSessionFile ?? "" : (existingSessionId ?? ""),
-    session_file: cli === "pi" ? piSessionFile ?? "" : undefined,
+    session_id:
+      cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
+    session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
     supervisor_pid: child.pid ?? 0,
     started_at: startedAt,
     last_error: "",

@@ -108,7 +108,7 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 
 const api = new Hono();
 
-type CliRunMode = "main-run" | "worktree" | "clone";
+type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
 
 const CODEX_MODELS = ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
@@ -137,6 +137,7 @@ function normalizeCliRunMode(value: string): CliRunMode {
   if (value === "main-run") return "main-run";
   if (value === "worktree") return "worktree";
   if (value === "clone") return "clone";
+  if (value === "none") return "none";
   return "clone";
 }
 
@@ -729,11 +730,7 @@ api.post("/projects/:id/start", async (c) => {
       : undefined;
   const requestedRunModeValue =
     typeof parsed.data.runMode === "string" ? parsed.data.runMode.trim() : "";
-  const frontmatterRunModeValue =
-    typeof frontmatter.runMode === "string" ? frontmatter.runMode.trim() : "";
-  const resolvedRunModeValue =
-    requestedRunModeValue || frontmatterRunModeValue || "clone";
-  const resolvedRunMode = normalizeCliRunMode(resolvedRunModeValue);
+  const resolvedRunMode = normalizeCliRunMode(requestedRunModeValue || "clone");
   if (runAgentSelection.type === "cli") {
     runMode = resolvedRunMode;
     const requestedSlugValue =
@@ -766,7 +763,7 @@ api.post("/projects/:id/start", async (c) => {
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
   let implementationRepo = repo;
-  if (runMode && runMode !== "main-run" && slug) {
+  if (runMode && (runMode === "clone" || runMode === "worktree") && slug) {
     const root = config.projects?.root ?? "~/projects";
     const resolvedRoot = root.startsWith("~/")
       ? path.join(os.homedir(), root.slice(2))
@@ -1742,7 +1739,7 @@ api.post("/projects/:id/subagents", async (c) => {
     model: resolvedCliOptions.data.model,
     reasoningEffort: resolvedCliOptions.data.reasoningEffort,
     thinking: resolvedCliOptions.data.thinking,
-    mode: mode as "main-run" | "worktree" | "clone" | undefined,
+    mode: mode as "main-run" | "worktree" | "clone" | "none" | undefined,
     baseBranch,
     resume,
     attachments,
@@ -1783,7 +1780,7 @@ api.post("/projects/:id/ralph-loop", async (c) => {
     cli: cli as "codex" | "claude",
     iterations,
     promptFile,
-    mode: mode as "main-run" | "worktree" | "clone" | undefined,
+    mode: mode as "main-run" | "worktree" | "clone" | "none" | undefined,
     baseBranch,
   });
   if (!result.ok) {

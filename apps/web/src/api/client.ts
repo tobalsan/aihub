@@ -807,7 +807,7 @@ export type SpawnSubagentInput = {
   model?: string;
   reasoningEffort?: string;
   thinking?: string;
-  mode?: "main-run" | "worktree" | "clone";
+  mode?: "main-run" | "worktree" | "clone" | "none";
   baseBranch?: string;
   resume?: boolean;
   attachments?: FileAttachment[];
@@ -840,7 +840,7 @@ export type SpawnRalphLoopInput = {
   cli: "codex" | "claude";
   iterations: number;
   promptFile?: string;
-  mode?: "main-run" | "worktree" | "clone";
+  mode?: "main-run" | "worktree" | "clone" | "none";
   baseBranch?: string;
 };
 

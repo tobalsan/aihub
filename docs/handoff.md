@@ -12,9 +12,11 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 ### Current Focus (PRO-146)
 
 Latest commit on this branch/workspace:
+
 - `f1ca892 feat(web): add project detail spec editor`
 
 Delivered in current implementation:
+
 - New route: `/projects/:id` (`ProjectDetailPage`) with three-column shell.
 - Project cards now navigate to detail route (instead of opening the legacy modal).
 - Right panel `SpecEditor` added:
@@ -78,6 +80,7 @@ Delivered in current implementation:
   - Restored thread comment composer (textarea + Add button + Cmd/Ctrl+Enter) wired to project comments API.
 
 Files touched in this follow-up:
+
 - `apps/web/src/App.tsx`
 - `apps/web/src/components/project/AgentPanel.tsx`
 - `apps/web/src/components/project/CenterPanel.tsx`
@@ -90,10 +93,12 @@ Files touched in this follow-up:
 ### Follow-up Delta (2026-02-28 later, spec/editor UX polish)
 
 Latest commits in this workspace:
+
 - `66641ca fix(web): restore inline doc edit in spec panel`
 - `2f014b0 fix(web): polish project detail interactions`
 
 Delivered in these follow-ups:
+
 - Spec editor interaction model restored to inline editing:
   - Removed `Preview/Edit` pills and dedicated mode toggle container.
   - Double-click file content to enter edit mode.
@@ -116,6 +121,7 @@ Delivered in these follow-ups:
   - Timestamp moved below post author in each activity card.
 
 Files touched in these follow-ups:
+
 - `apps/web/src/components/project/CenterPanel.tsx`
 - `apps/web/src/components/project/CenterPanel.test.tsx`
 - `apps/web/src/components/project/ProgressBar.tsx`
@@ -142,6 +148,7 @@ Files touched in these follow-ups:
 - Updated project docs/UI for new CLI set and added API tests for legacy CLI rejection.
 
 Files touched in this follow-up:
+
 - `apps/gateway/src/subagents/runner.ts`
 - `apps/gateway/src/subagents/index.ts`
 - `apps/gateway/src/subagents/claude_tools.ts`
@@ -183,6 +190,7 @@ Files touched in this follow-up:
   - `name`, `model`, `reasoningEffort`, `thinking`
 
 Files touched in this follow-up:
+
 - `packages/shared/src/types.ts`
 - `apps/gateway/src/server/api.ts`
 - `apps/gateway/src/subagents/runner.ts`
@@ -197,17 +205,49 @@ Files touched in this follow-up:
 - `README.md`
 - `docs/llms.md`
 
+### Follow-up Delta (2026-03-01, spawn templates + center-panel form + per-agent none mode)
+
+- Spawn prep moved from left `AgentPanel` into a dedicated center-panel `SpawnForm`.
+- `+ Add Agent` now opens a popup template selector:
+  - `Coordinator` (claude/opus/medium/none)
+  - `Worker` (codex/gpt-5.3-codex/medium/clone)
+  - `Reviewer` (codex/gpt-5.3-codex/medium/none)
+  - `Custom` (blank)
+- Added random unique naming for Worker/Reviewer templates from a fixed callsign list.
+- Reviewer template prompt now injects a dynamic active workspace section built from current subagents with real workspace paths.
+- Added per-agent run mode `none` end-to-end:
+  - Web spawn form includes `none`.
+  - API accepts `none` for subagent spawn.
+  - Runner supports `none` by skipping clone/worktree creation and using repo-or-project dir as cwd while still writing session logs/state.
+- `/api/projects/:id/start` no longer reads project frontmatter `runMode`; request value (or default `clone`) is used.
+
+Files touched in this follow-up:
+
+- `apps/web/src/components/project/SpawnForm.tsx` (new)
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/CenterPanel.tsx`
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+- `apps/web/src/components/project/SpawnForm.test.tsx` (new)
+- `apps/web/src/components/project/AgentPanel.test.tsx`
+- `apps/web/src/components/project/CenterPanel.test.tsx`
+- `apps/web/src/api/client.ts`
+- `apps/gateway/src/subagents/runner.ts`
+- `apps/gateway/src/server/api.ts`
+- `apps/gateway/src/subagents/subagents.api.test.ts`
+- `README.md`
+- `docs/llms.md`
+
 ### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:
 
-| Aspect | v1 (Current) | v2 (Planned) |
-|--------|--------------|--------------|
-| Homepage | Agent list | Kanban board |
-| Primary entity | Projects | Agents |
-| Project creation | Manual form | Agent-assisted via chat |
-| Monitoring | Per-project pane | Unified chat = monitoring |
-| Navigation | Drill-down to projects | Agents always visible in sidebar |
+| Aspect           | v1 (Current)           | v2 (Planned)                     |
+| ---------------- | ---------------------- | -------------------------------- |
+| Homepage         | Agent list             | Kanban board                     |
+| Primary entity   | Projects               | Agents                           |
+| Project creation | Manual form            | Agent-assisted via chat          |
+| Monitoring       | Per-project pane       | Unified chat = monitoring        |
+| Navigation       | Drill-down to projects | Agents always visible in sidebar |
 
 ### New Layout: Three-Column
 
@@ -242,11 +282,13 @@ Shifting from **project-centric** to **agent-centric** model:
 ---
 
 ## Initial Context
+
 Goal: add a project management/overview system with Kanban and per-project agent sessions. First step: implement Projects API. Projects live in `~/projects` (configurable), flat folder (no status subfolders). Status stored in YAML frontmatter. Status flow: NOT NOW, MAYBE, SHAPING, TODO, IN PROGRESS, REVIEW, DONE. Projects are folders named `PRO-<id>_<slug>` with `README.md` containing YAML frontmatter + markdown body. Additional `.md` files are optional and included in start prompts.
 
 Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Single-row horizontally scrolling columns. Collapsible columns with up to two expanded at a time. Card click opens near-maximized overlay with details + monitoring pane. No drag/drop in v1; status moves via detail view.
 
 ## Decisions (Key)
+
 - Projects root config: `projects.root` in `~/.aihub/aihub.json`. Default `~/projects`.
 - Project folder naming: `PRO-<n>_<slug>` (no spaces), slug = lowercase, non-alnum→`_`, collapsed.
 - Frontmatter fields: `id, title, status, created, domain, owner, executionMode, appetite`.
@@ -290,7 +332,9 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Branch listing and repo handling expand `~` to home in gateway.
 
 ## Implemented
+
 ### 1) Projects API (Gateway)
+
 - Files added:
   - `apps/gateway/src/projects/store.ts`
   - `apps/gateway/src/projects/index.ts`
@@ -301,17 +345,20 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
   - `PATCH /api/projects/:id` (update, rename on title change)
 
 Create behavior:
+
 - Allocates ID from `~/.aihub/projects.json`.
 - Creates `PRO-<n>_<slug>` directory.
 - Writes `README.md` with YAML frontmatter + `# <title>` body (no SPECS.md auto-created).
 - Frontmatter includes `status=maybe`, `created` ISO timestamp; other fields only if provided.
 
 Update behavior:
+
 - Reads `README.md`, merges fields, optional content update.
 - Renames folder if title slug changes.
 - Empty string for domain/owner/executionMode/appetite deletes field.
 
 ### 2) Shared types (schemas)
+
 - `packages/shared/src/types.ts`:
   - Added `ProjectsConfigSchema` with `root`.
   - Added project schemas: `ProjectStatusSchema`, `ProjectDomainSchema`, `ProjectExecutionModeSchema`, `ProjectAppetiteSchema`.
@@ -319,28 +366,33 @@ Update behavior:
   - `UpdateProjectRequestSchema` accepts empty string for domain/owner/executionMode/appetite.
 
 ### 3) Projects CLI
+
 - New CLI: `apps/gateway/src/cli/projects.ts`.
 - Root script: `"projects": "pnpm --filter @aihub/gateway exec tsx src/cli/projects.ts"`.
 - Commands: list/create/get/update/move.
 - Base URL resolution: env `AIHUB_API_URL` override; else config `gateway.host/bind` + port.
 
 ### 4) Tests
+
 - Integration test: `apps/gateway/src/projects/projects.api.test.ts` (temp HOME + temp root; create/update; cleanup). Adjusted to allow sync/async `Hono.request` type.
 - `vitest.config.ts` alias `@aihub/shared` → `packages/shared/src/index.ts`.
 
 ### 5) Docs
+
 - New: `docs/projects_api.md`.
 - `README.md` updated with project API + CLI + `projects.root` config.
 - `docs/llms.md` updated for projects config and endpoints.
 - README mentions global `apm` shim for `pnpm projects`.
 
 ### 6) Kanban Web UI (Basic v1)
+
 - New component: `apps/web/src/components/ProjectsBoard.tsx`.
 - Routes in `apps/web/src/App.tsx`: `/projects`, `/projects/:id`.
 - Taskboard button now links to `/projects` (AgentList + ChatView); Cmd/Ctrl+K navigates there.
 - API client/types added for projects: `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`.
 
 Kanban UI details:
+
 - Horizontal scroll single-row board; columns colored and collapsible (2 expanded max).
 - Cards show id/title/meta and created relative time.
 - Detail overlay: near-maximized, two panes (detail + monitoring placeholder), ESC/backdrop closes.
@@ -353,6 +405,7 @@ Kanban UI details:
 - Detail overlay max width: 1920px; detail + monitoring panels are equal width.
 
 ### 7) Subagents + Monitoring (Gateway)
+
 - New subagent API + runner:
   - `apps/gateway/src/subagents/index.ts` (list/logs/branches)
   - `apps/gateway/src/subagents/runner.ts` (spawn/interrupt, worktree, resume, logs/history/progress)
@@ -370,6 +423,7 @@ Kanban UI details:
 - Project frontmatter updates wired in `apps/gateway/src/projects/store.ts` (repo/runAgent/runMode/sessionKeys).
 
 ### 8) Monitoring UI + client wiring (Web)
+
 - Monitoring pane fully wired in `apps/web/src/components/ProjectsBoard.tsx`.
 - API client + types for subagents/branches:
   - `apps/web/src/api/client.ts`
@@ -380,26 +434,31 @@ Kanban UI details:
 - Monitoring list now surfaces subagent error state (last_error).
 
 ### 9) Docs
+
 - New: `docs/agent_interfacing_decisions.md`
 - New: `docs/agent_interfacing_specs.md`
 
 ### 10) UI v2 Phase 2 — Agents Sidebar
+
 - Added global subagent list endpoint: `GET /api/subagents`.
 - New sidebar component: `apps/web/src/components/AgentSidebar.tsx`.
 - Kanban layout now supports left sidebar; main width no longer capped.
 
 ### 11) UI v2 Phase 3 — Right Context Panel
+
 - Added context panel with Feed/Chat modes.
 - New components: `ContextPanel`, `ActivityFeed`, `AgentChat`.
 - Right panel auto-collapses on <1400px, hidden on mobile, and stays open when left sidebar is collapsed.
 
 ### 12) UI v2 Phase 4 — Real Data Wiring
+
 - Added `/api/agents/status` and `/api/activity` endpoints.
 - Activity feed now polls backend events (simple in-memory tracking).
 - Context panel chat wired: AIHub chat uses history + streaming; subagent view is read-only logs.
 - Lead agent status dots now reflect streaming state.
 
 ## Commits
+
 - `feat(web): persist column collapse state`
 - `feat(web): add new session button for monitoring`
 - `fix(web): show aihub messages immediately`
@@ -477,12 +536,14 @@ Kanban UI details:
 - `fix(gateway): use README.md as primary project file`
 
 ## Recent Improvements
+
 - Context panel: persisted mode + selected agent across refresh; wider panel on large screens.
 - Right chat: optimistic user sends, `/new` reset handling, auto-scroll, subagent resume input, and pending spinner.
 - Chat input: textarea with Shift+Enter newline and auto-grow up to 10 lines.
 - Activity feed: backend cache + pagination; infinite scroll (20 initial) with 10s polling.
 
 ## Known Issues / Notes
+
 - Claude SDK runs in Projects monitoring UI can show duplicated/garbled live logs because both local streaming and subscription events update the same live buffer. Fixed by ignoring subscription callbacks while a local stream is active (`apps/web/src/components/ProjectsBoard.tsx`).
 - Projects board: column collapse state persisted to localStorage (`aihub:projects:expanded-columns`).
 - Projects monitoring: AIHub runs now have a "New" button to reset sessionKey; Start returns after reset.
@@ -518,12 +579,14 @@ Kanban UI details:
 - Kill subagent: Worktree mode also deletes the git branch; main-run mode only removes workspace.
 
 ### 13) UI v2 Phase 5 — Project Detail Agent Runs
+
 - Replaced monitoring pane with Agent Runs list in project detail overlay.
 - Shows active + past runs from subagents and sessionKeys.
 - Click run to expand logs; relative timestamps.
 - Removed ~600 lines of unused streaming/monitoring logic.
 
 ### 14) UI v2 Phase 6 — Mobile & Polish
+
 - Mobile responsive breakpoints (≤768px): right panel hidden, sidebar fixed/collapsed.
 - Fullscreen chat overlay when clicking agent on mobile.
 - Floating activity button (bottom-right) opens fullscreen feed overlay.
@@ -532,6 +595,7 @@ Kanban UI details:
 - Smooth transitions on collapse/expand.
 
 ### 15) OpenClaw Connector
+
 - New SDK adapter for OpenClaw gateway integration via WebSocket.
 - WebSocket protocol v3 with proper handshake (connect → chat.history → chat.send).
 - Supports streaming responses, tool call/result events, full transcript history.
@@ -544,6 +608,7 @@ Kanban UI details:
   - `apps/gateway/src/sdk/openclaw/adapter.test.ts`
 
 ### 16) Image/File Attachments
+
 - HTTP file upload via `/api/media/upload` (multipart/form-data).
 - Files saved to `~/.aihub/media/inbound/{uuid}.{ext}`.
 - Supported types: images (JPEG, PNG, GIF, WebP, SVG), documents (PDF, MD, TXT), office (DOCX, XLSX, PPTX), code/data (JSON, CSV, HTML, CSS, JS).
@@ -559,6 +624,7 @@ Kanban UI details:
   - `apps/gateway/src/sdk/{claude,pi,openclaw}/adapter.ts`
 
 ### 17) Subagent Kill
+
 - Kill tool terminates supervisor process via SIGTERM.
 - Worktree mode: removes git worktree, deletes branch, cleans workspace.
 - Main-run mode: removes workspace directory only.
@@ -572,6 +638,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx` (kill button in run rows)
 
 ### 18) Real-Time Agent Status Updates
+
 - WebSocket-based status broadcasting (streaming/idle).
 - Event bus emits `AgentStatusChangeEvent` when agent overall status changes.
 - Clients subscribe via `subscribeStatus` message.
@@ -584,6 +651,7 @@ Kanban UI details:
   - `apps/web/src/components/AgentSidebar.tsx` (status pills)
 
 ### 19) Project Deletion (PRO-30)
+
 - Soft delete: moves project folder to `{projects.root}/.trash/`.
 - Returns metadata: `{ id, path, trashedPath }`.
 - Error if trash already contains same project name.
@@ -594,6 +662,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx`
 
 ### 20) Multi-File Document Structure (PRO-34)
+
 - Projects support multiple markdown files beyond README.
 - `docs` field: `Record<string, string>` mapping filename → content.
 - Files without `.md` extension converted to uppercase keys.
@@ -606,6 +675,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx` (doc tabs UI)
 
 ### 21) Kanban Drag-and-Drop
+
 - Drag projects between status columns.
 - Updates project `status` frontmatter on drop.
 - Optimistic UI update before server confirmation.
@@ -613,6 +683,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx` (drag event handlers)
 
 ### 22) Project Attachments
+
 - Drag-and-drop file attachments in project detail view.
 - View mode: upload immediately, append links to docs.
 - Edit mode: queue files for upload on save.
@@ -627,6 +698,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx` (drag-drop handlers)
 
 ### 23) Project Creation Form Redesign
+
 - Enhanced form with title, description, and drag-and-drop file uploads.
 - Multiple files supported; stored in IndexedDB during editing.
 - On submit, files uploaded to `attachments/` and links added to README.
@@ -635,6 +707,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx` (create form)
 
 ### 24) Project Thread/Comments
+
 - Comments stored in `THREAD.md` file per project.
 - Format: frontmatter + sections separated by `---\n---\n`.
 - Each entry: `[author:X]\n[date:Y]\n{body}`.
@@ -646,6 +719,7 @@ Kanban UI details:
   - `apps/gateway/src/projects/store.ts` (`appendComment()`, `updateComment()`)
 
 ### 25) UI/UX Polish
+
 - **Avatar squares**: Agent initials in colored squares (28×28px); green when running.
 - **Mobile sidebar**: Slide-out with hamburger toggle; click-outside dismisses.
 - **Mobile project details**: Scrollable panel with tab switcher (Details/Agent Runs).
@@ -661,6 +735,7 @@ Kanban UI details:
   - `apps/web/src/components/ProjectsBoard.tsx`
 
 ### 26) Dev Mode (`--dev` flag)
+
 - Enables fast iteration by running dev instances alongside production.
 - Auto port discovery: scans from base port +50 if default ports (4000/3000) are in use.
 - Service isolation: Discord, scheduler, amsg watcher, heartbeats all disabled in dev mode.
@@ -705,12 +780,14 @@ Goal: reduce unused space and modernize the interface from terminal aesthetic to
 - Also fixed: pre-existing test failure in `subagents.api.test.ts` — ralph `SOURCE_DIR` test now expects workspace path (matching commit e888e76).
 
 **TODO:**
+
 - Further layout and spacing refinements
 - Left sidebar styling refresh
 - ProjectsBoard / Kanban styling refresh
 - Mobile responsiveness review with new styles
 
 ## Deferred
+
 - Quick create (floating button / keyboard shortcut)
 - Notifications (agent needs attention, task finished)
 - File upload cleanup/expiry (currently no auto-cleanup of `~/.aihub/media/inbound/`)
@@ -720,6 +797,7 @@ Goal: reduce unused space and modernize the interface from terminal aesthetic to
 New organizational hierarchy: Area → Project → Task.
 
 **Areas:**
+
 - Top-level groupings stored as YAML in `~/projects/.areas/*.yaml`
 - Schema: `id`, `title`, `color`, `icon`, `description`, `repo` (default for projects), `order`
 - CRUD endpoints: `GET/POST/PATCH/DELETE /api/areas`
@@ -727,6 +805,7 @@ New organizational hierarchy: Area → Project → Task.
 - Fallback "Wild Garden" area for unlinked projects
 
 **Tasks:**
+
 - Live inside SPECS.md as structured markdown checkboxes with inline metadata (`status:value`, `agent:value`)
 - Task parser extracts `## Tasks` section from SPECS.md
 - API endpoints:
@@ -737,6 +816,7 @@ New organizational hierarchy: Area → Project → Task.
 - Acceptance criteria parsed from `## Acceptance Criteria` section
 
 **Files:**
+
 - `apps/gateway/src/areas/store.ts` (area CRUD)
 - `apps/gateway/src/projects/store.ts` (task parser, repo inheritance)
 - `packages/shared/src/types.ts` (AreaSchema, TaskSchema)
@@ -749,11 +829,13 @@ Full-page project detail view replacing the old popup/modal.
 **Route:** `/projects/:id` → `ProjectDetailPage`
 
 **Three-column layout:**
+
 - Left (AgentPanel): project metadata (title, status, area, repo, created), inline editing
 - Center (CenterPanel): tabbed view (Chat / Activity / Changes)
 - Right (SpecEditor): living spec rendering with interactive task checkboxes, progress bar, edit/preview mode, add task form
 
 **Key features:**
+
 - Inline title/repo editing via double-click
 - Status/area dropdown selectors
 - Spec preview/edit with Cmd+S save
@@ -762,6 +844,7 @@ Full-page project detail view replacing the old popup/modal.
 - Responsive: 3-col on desktop, 2-col merged on laptop
 
 **Files:**
+
 - `apps/web/src/components/project/ProjectDetailPage.tsx`
 - `apps/web/src/components/project/AgentPanel.tsx`
 - `apps/web/src/components/project/CenterPanel.tsx`
@@ -775,21 +858,25 @@ Full-page project detail view replacing the old popup/modal.
 Wired up the Agent Panel and Center Panel chat/activity tabs.
 
 **Agent Panel (left column):**
+
 - Lists subagents for the project with status indicators (● running / ○ idle / ✓ done / ✗ error)
 - Click agent → selects it, center panel shows that agent's chat
 - "Add Agent" inline form: pick CLI type, spawn subagent
 - Polls `fetchSubagents()` every 10s
 
 **Center Panel — Chat tab:**
+
 - Renders existing `AgentChat` component for selected agent
 - Supports lead agents (streaming + full history) and subagents (log polling)
 - "Select an agent to chat" placeholder when none selected
 
 **Center Panel — Activity tab:**
+
 - Merges project thread comments with subagent events chronologically
 - Comment composer with Cmd/Ctrl+Enter submit
 
 **Files:**
+
 - `apps/web/src/components/project/AgentPanel.tsx` (agent list section)
 - `apps/web/src/components/project/CenterPanel.tsx` (chat + activity wiring)
 - `apps/web/src/components/project/ProjectDetailPage.tsx` (selected agent state)
@@ -799,14 +886,17 @@ Wired up the Agent Panel and Center Panel chat/activity tabs.
 Git diff view as a center-panel tab in the project detail page.
 
 **New gateway module:** `apps/gateway/src/projects/git.ts`
+
 - `getProjectChanges()`: runs `git status --porcelain` + `git diff` on project repo
 - `commitProjectChanges()`: `git add -A` + `git commit -m`
 
 **New API endpoints:**
+
 - `GET /api/projects/:id/changes` — returns branch, files, diff, stats
 - `POST /api/projects/:id/commit` — commit with message
 
 **ChangesView component:**
+
 - File list sidebar with status icons (M/A/D)
 - Unified diff rendering with red/green line coloring
 - Click file → scrolls to that file's diff hunk
@@ -815,6 +905,7 @@ Git diff view as a center-panel tab in the project detail page.
 - Empty state when no changes
 
 **Files:**
+
 - `apps/gateway/src/projects/git.ts`
 - `apps/gateway/src/projects/git.test.ts`
 - `apps/web/src/components/project/ChangesView.tsx`

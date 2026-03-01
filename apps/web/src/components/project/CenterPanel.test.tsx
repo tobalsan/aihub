@@ -84,6 +84,32 @@ describe("CenterPanel", () => {
     dispose();
   });
 
+  it("renders SpawnForm when spawn mode is active", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={project}
+          tab="chat"
+          showTabs={false}
+          selectedAgent={null}
+          spawnMode={{
+            template: "custom",
+            prefill: { cli: "codex", model: "gpt-5.3-codex" },
+          }}
+          subagents={[]}
+        />
+      ),
+      container
+    );
+
+    expect(container.textContent).toContain("Spawn Agent");
+    expect(container.querySelector(".agent-chat-mock")).toBeNull();
+
+    dispose();
+  });
+
   it("adds activity comment via composer", async () => {
     const onAddComment = vi.fn(async () => {});
     const container = document.createElement("div");

@@ -14,6 +14,7 @@ import type {
   SubagentLogEvent,
 } from "../../api/types";
 import { ChangesView } from "./ChangesView";
+import { SpawnForm, type SpawnPrefill, type SpawnTemplate } from "./SpawnForm";
 
 export type CenterTab = "chat" | "activity" | "changes";
 export type SelectedProjectAgent = {
@@ -32,6 +33,10 @@ type CenterPanelProps = {
   showTabs?: boolean;
   onAddComment?: (body: string) => Promise<void>;
   selectedAgent: SelectedProjectAgent | null;
+  spawnMode?: { template: SpawnTemplate; prefill: SpawnPrefill } | null;
+  subagents?: SubagentListItem[];
+  onSpawned?: (slug: string) => void;
+  onCancelSpawn?: () => void;
 };
 
 type TimelineItem = {
@@ -206,9 +211,26 @@ export function CenterPanel(props: CenterPanelProps) {
           <Show when={tab() === "chat"}>
             <div class="center-chat-shell">
               <Show
-                when={props.selectedAgent}
+                when={!props.spawnMode && props.selectedAgent}
                 fallback={
-                  <p class="center-placeholder">Select an agent to chat</p>
+                  <Show
+                    when={props.spawnMode}
+                    fallback={
+                      <p class="center-placeholder">Select an agent to chat</p>
+                    }
+                  >
+                    {(spawnMode) => (
+                      <SpawnForm
+                        projectId={props.project.id}
+                        project={props.project}
+                        prefill={spawnMode().prefill}
+                        template={spawnMode().template}
+                        subagents={props.subagents ?? []}
+                        onSpawned={(slug) => props.onSpawned?.(slug)}
+                        onCancel={() => props.onCancelSpawn?.()}
+                      />
+                    )}
+                  </Show>
                 }
               >
                 {(selected) => (

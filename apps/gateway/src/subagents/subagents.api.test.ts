@@ -923,7 +923,7 @@ describe("subagents API", () => {
     else process.env.USERPROFILE = prevUserProfile2;
   });
 
-  it("uses frontmatter runAgent/runMode for /projects/:id/start when request omits them", async () => {
+  it("uses frontmatter runAgent but ignores frontmatter runMode for /projects/:id/start", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -991,14 +991,14 @@ describe("subagents API", () => {
     const started = await startRes.json();
     expect(started.ok).toBe(true);
     expect(started.type).toBe("cli");
-    expect(started.slug).toBe("main");
-    expect(started.runMode).toBe("main-run");
+    expect(started.slug).toBe("start-frontmatter-fallback");
+    expect(started.runMode).toBe("clone");
 
     const sessionDir = path.join(
       projectsRoot,
       created.path,
       "sessions",
-      "main"
+      "start-frontmatter-fallback"
     );
     const start = Date.now();
     while (Date.now() - start < 2000) {
@@ -1013,7 +1013,63 @@ describe("subagents API", () => {
       await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
     );
     expect(config.cli).toBe("codex");
-    expect(config.runMode).toBe("main-run");
+    expect(config.runMode).toBe("clone");
+
+    process.env.PATH = prevPath;
+  });
+
+  it("spawns mode none without creating a workspace clone", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "No Workspace Spawn" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-mode-none");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-none"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "reviewer-none",
+          cli: "codex",
+          prompt: "review changes",
+          mode: "none",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(201);
+
+    const projectDir = path.join(projectsRoot, created.path);
+    const sessionDir = path.join(projectDir, "sessions", "reviewer-none");
+    const state = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "state.json"), "utf8")
+    );
+    expect(state.run_mode).toBe("none");
+    expect(state.worktree_path).toBe(projectDir);
+
+    const workspaceDir = path.join(
+      projectsRoot,
+      ".workspaces",
+      created.id,
+      "reviewer-none"
+    );
+    await expect(fs.stat(workspaceDir)).rejects.toThrow();
 
     process.env.PATH = prevPath;
   });
@@ -1079,7 +1135,12 @@ describe("subagents API", () => {
     );
     expect(startRes.status).toBe(200);
 
-    const sessionDir = path.join(projectsRoot, created.path, "sessions", "main");
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "main"
+    );
     const logsPath = path.join(sessionDir, "logs.jsonl");
     const start = Date.now();
     while (Date.now() - start < 2000) {
@@ -1309,8 +1370,14 @@ describe("subagents API", () => {
       .find((line) => line.type === "worker.finished");
     expect(finished?.data?.outcome).toBe("replied");
 
-    const stateRaw = await fs.readFile(path.join(sessionDir, "state.json"), "utf8");
-    const state = JSON.parse(stateRaw) as { session_id?: string; session_file?: string };
+    const stateRaw = await fs.readFile(
+      path.join(sessionDir, "state.json"),
+      "utf8"
+    );
+    const state = JSON.parse(stateRaw) as {
+      session_id?: string;
+      session_file?: string;
+    };
     expect(state.session_id).toBe("pi-s1");
     expect(typeof state.session_file).toBe("string");
     expect(state.session_file?.endsWith("pi-session.jsonl")).toBe(true);
