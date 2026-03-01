@@ -157,6 +157,46 @@ Files touched in this follow-up:
 - `apps/web/src/components/AgentChat.tsx`
 - `apps/web/src/components/project/AgentPanel.tsx`
 
+### Follow-up Delta (2026-03-01 later, prepare + model controls + apm parity)
+
+- Project detail left panel now has a prepare-before-spawn flow for CLI subagents:
+  - Harness picker (`codex|claude|pi`)
+  - Model picker (harness-specific allowlist)
+  - Reasoning/thinking picker (harness-specific allowlist)
+  - Run mode picker (`clone|main|worktree` in UI; `main` maps to `main-run`)
+  - Prompt assembly controls:
+    - Default AI prompt toggle
+    - AIHub post-run instructions toggle
+    - Custom instructions (appended last)
+  - Prompt preview + CLI preview before clicking Spawn
+- API/runner now support harness-specific spawn controls:
+  - Optional `model`, `reasoningEffort`, `thinking`
+  - Optional `name` for custom spawned run label
+  - Server-side validation + defaults per harness
+- Runner flag mapping:
+  - codex: `-m <model>` + `-c reasoning_effort=<...>`
+  - claude: `--model <model>` + `--effort <...>`
+  - pi: `--model <id>` + `--thinking <...>`
+- `apm start` now supports full CLI run controls:
+  - `--name`, `--model`, `--reasoning-effort`, `--thinking`
+- Subagent listing surfaces persisted run metadata:
+  - `name`, `model`, `reasoningEffort`, `thinking`
+
+Files touched in this follow-up:
+- `packages/shared/src/types.ts`
+- `apps/gateway/src/server/api.ts`
+- `apps/gateway/src/subagents/runner.ts`
+- `apps/gateway/src/subagents/index.ts`
+- `apps/gateway/src/subagents/subagents.api.test.ts`
+- `apps/web/src/api/client.ts`
+- `apps/web/src/api/types.ts`
+- `apps/web/src/api/client.test.ts`
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/AgentPanel.test.tsx`
+- `packages/cli/src/index.ts`
+- `README.md`
+- `docs/llms.md`
+
 ### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:
@@ -236,7 +276,7 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Owner + execution mode moved to top of right (monitoring) pane.
 - Monitoring pane uses project frontmatter for run config:
   - `runAgent`: `aihub:<agentId>` or `cli:<claude|codex|pi>`
-  - `runMode`: `main-run|worktree` (CLI only)
+  - `runMode`: `main-run|worktree|clone` (CLI only)
   - `sessionKeys`: map `{ [agentId]: sessionKey }` for AIHub runs
   - `repo`: required for domain=coding (repo root path)
 - CLI agents use Subtask-style workspaces: `{projects.root}/.workspaces/PRO-<id>/<slug>`.

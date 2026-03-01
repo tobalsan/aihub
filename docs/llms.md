@@ -349,6 +349,16 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 - Pi subagent harness uses JSON event mode:
   - Spawn: `pi --mode json --session <session_file> "<prompt>"`
   - Resume: reuses the same `--session <session_file>`.
+- Harness-specific model/reasoning flags:
+  - Codex: `-m <model>` and `-c reasoning_effort=<xhigh|high|medium|low>`
+  - Claude: `--model <model>` and `--effort <high|medium|low>`
+  - Pi: `--model <id>` and `--thinking <off|low|medium|high|xhigh>`
+- Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/harness naming.
+- `apm start` supports these fields directly:
+  - `--name <run-name>`
+  - `--model <id>`
+  - `--reasoning-effort <level>`
+  - `--thinking <level>`
 
 ## Single-Agent Mode
 

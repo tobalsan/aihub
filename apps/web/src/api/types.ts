@@ -334,6 +334,10 @@ export type SubagentGlobalListItem = {
   slug: string;
   type?: "subagent" | "ralph_loop";
   cli?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
   runMode?: string;
   role?: "supervisor" | "worker";
   parentSlug?: string;
@@ -353,6 +357,10 @@ export type SubagentListItem = {
   slug: string;
   type?: "subagent" | "ralph_loop";
   cli?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
   runMode?: string;
   role?: "supervisor" | "worker";
   parentSlug?: string;

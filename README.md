@@ -77,6 +77,7 @@ pnpm apm create --title "My Project" [--domain <domain>] [--owner <owner>] [--ex
 pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--content <text>|-]
 pnpm apm move <id> <status>
+pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree>] [--branch <branch>] [--slug <slug>] [--custom-prompt <text>|-]
 
 # Override API URL (highest precedence)
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list

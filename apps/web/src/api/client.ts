@@ -802,7 +802,11 @@ export async function commitProjectChanges(
 export type SpawnSubagentInput = {
   slug: string;
   cli: string;
+  name?: string;
   prompt: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
   mode?: "main-run" | "worktree" | "clone";
   baseBranch?: string;
   resume?: boolean;
@@ -1050,6 +1054,10 @@ export type StartProjectRunInput = {
   runMode?: string;
   baseBranch?: string;
   slug?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
 };
 
 export async function startProjectRun(

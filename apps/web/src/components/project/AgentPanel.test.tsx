@@ -84,7 +84,7 @@ describe("AgentPanel", () => {
     dispose();
   });
 
-  it("spawns subagent from add-agent form", async () => {
+  it("spawns prepared subagent from add-agent form", async () => {
     vi.mocked(fetchSubagents).mockResolvedValue({
       ok: true,
       data: { items: [] },
@@ -118,6 +118,12 @@ describe("AgentPanel", () => {
     ) as HTMLButtonElement;
     openButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
+    const nameInput = container.querySelector(
+      ".add-agent-input"
+    ) as HTMLInputElement;
+    nameInput.value = "Coordinator";
+    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+
     const prompt = container.querySelector(
       ".add-agent-prompt"
     ) as HTMLTextAreaElement;
@@ -136,8 +142,15 @@ describe("AgentPanel", () => {
     expect(vi.mocked(spawnSubagent).mock.calls[0]?.[0]).toBe("PRO-1");
     expect(vi.mocked(spawnSubagent).mock.calls[0]?.[1]).toMatchObject({
       cli: "codex",
-      prompt: "Do task B",
+      name: "Coordinator",
+      model: "gpt-5.3-codex",
+      reasoningEffort: "high",
+      mode: "clone",
     });
+    const payload = vi.mocked(spawnSubagent).mock.calls[0]?.[1];
+    expect(payload?.prompt).toContain("Review the full project context");
+    expect(payload?.prompt).toContain("When done, run relevant tests.");
+    expect(payload?.prompt).toContain("Do task B");
 
     dispose();
   });

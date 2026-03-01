@@ -11,6 +11,10 @@ export type SubagentListItem = {
   slug: string;
   type?: "subagent" | "ralph_loop";
   cli?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
   runMode?: string;
   role?: "supervisor" | "worker";
   parentSlug?: string;
@@ -597,6 +601,10 @@ export async function listSubagents(
     const configData = await readJson<{
       type?: "subagent" | "ralph_loop";
       cli?: string;
+      name?: string;
+      model?: string;
+      reasoningEffort?: string;
+      thinking?: string;
       runMode?: string;
       baseBranch?: string;
       archived?: boolean;
@@ -634,6 +642,10 @@ export async function listSubagents(
       slug,
       type: configData?.type ?? "subagent",
       cli: configData?.cli ?? state?.cli,
+      name: configData?.name,
+      model: configData?.model,
+      reasoningEffort: configData?.reasoningEffort,
+      thinking: configData?.thinking,
       runMode: configData?.runMode ?? state?.run_mode,
       status,
       lastActive: progress?.last_active,
@@ -730,6 +742,10 @@ export async function listAllSubagents(
       const configData = await readJson<{
         type?: "subagent" | "ralph_loop";
         cli?: string;
+        name?: string;
+        model?: string;
+        reasoningEffort?: string;
+        thinking?: string;
         runMode?: string;
         baseBranch?: string;
         archived?: boolean;
@@ -768,6 +784,10 @@ export async function listAllSubagents(
         slug,
         type: configData?.type ?? "subagent",
         cli: configData?.cli ?? state?.cli,
+        name: configData?.name,
+        model: configData?.model,
+        reasoningEffort: configData?.reasoningEffort,
+        thinking: configData?.thinking,
         runMode: configData?.runMode ?? state?.run_mode,
         baseBranch: configData?.baseBranch,
         worktreePath: state?.worktree_path,

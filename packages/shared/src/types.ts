@@ -394,6 +394,10 @@ export const StartProjectRunRequestSchema = z.object({
   runMode: z.string().optional(),
   baseBranch: z.string().optional(),
   slug: z.string().optional(),
+  name: z.string().optional(),
+  model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+  thinking: z.string().optional(),
 });
 export type StartProjectRunRequest = z.infer<
   typeof StartProjectRunRequestSchema
@@ -404,6 +408,10 @@ export type SubagentGlobalListItem = {
   slug: string;
   type?: "subagent" | "ralph_loop";
   cli?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
   runMode?: string;
   role?: "supervisor" | "worker";
   parentSlug?: string;

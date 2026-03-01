@@ -626,6 +626,13 @@ program
   .command("start")
   .argument("<id>", "Project ID")
   .option("--agent <agent>", "Agent name (cli name or aihub:<id>)")
+  .option("--name <name>", "Optional spawned CLI run name")
+  .option("--model <model>", "Model override for CLI harness")
+  .option(
+    "--reasoning-effort <level>",
+    "Reasoning effort (codex|claude)"
+  )
+  .option("--thinking <level>", "Thinking level (pi)")
   .option("--mode <mode>", "Run mode (main-run|clone|worktree)")
   .option("--branch <branch>", "Base branch for clone/worktree")
   .option("--slug <slug>", "Slug override (clone/worktree)")
@@ -640,6 +647,21 @@ program
         body.runAgent = agentValue.includes(":")
           ? agentValue
           : `cli:${agentValue}`;
+      }
+      if (typeof opts.name === "string" && opts.name.trim()) {
+        body.name = opts.name.trim();
+      }
+      if (typeof opts.model === "string" && opts.model.trim()) {
+        body.model = opts.model.trim();
+      }
+      if (
+        typeof opts.reasoningEffort === "string" &&
+        opts.reasoningEffort.trim()
+      ) {
+        body.reasoningEffort = opts.reasoningEffort.trim();
+      }
+      if (typeof opts.thinking === "string" && opts.thinking.trim()) {
+        body.thinking = opts.thinking.trim();
       }
       if (typeof opts.mode === "string" && opts.mode.trim()) {
         body.runMode = opts.mode.trim();

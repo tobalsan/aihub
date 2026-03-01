@@ -109,6 +109,20 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 const api = new Hono();
 
 type CliRunMode = "main-run" | "worktree" | "clone";
+type CliHarness = "codex" | "claude" | "pi";
+
+const CODEX_MODELS = ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
+const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
+const PI_MODELS = [
+  "qwen3.5-plus",
+  "qwen3-max-2026-01-23",
+  "MiniMax-M2.5",
+  "glm-5",
+  "kimi-k2.5",
+];
+const CODEX_REASONING = ["xhigh", "high", "medium", "low"];
+const CLAUDE_EFFORT = ["high", "medium", "low"];
+const PI_THINKING = ["off", "low", "medium", "high", "xhigh"];
 
 function normalizeRunAgent(
   value?: string
@@ -124,6 +138,101 @@ function normalizeCliRunMode(value: string): CliRunMode {
   if (value === "worktree") return "worktree";
   if (value === "clone") return "clone";
   return "clone";
+}
+
+function resolveCliSpawnOptions(
+  cli: CliHarness,
+  model?: string,
+  reasoningEffort?: string,
+  thinking?: string
+):
+  | {
+      ok: true;
+      data: {
+        model: string;
+        reasoningEffort?: string;
+        thinking?: string;
+      };
+    }
+  | { ok: false; error: string } {
+  if (cli === "codex") {
+    const resolvedModel = model || "gpt-5.3-codex";
+    if (!CODEX_MODELS.includes(resolvedModel)) {
+      return {
+        ok: false,
+        error: `Invalid codex model: ${resolvedModel}. Allowed: ${CODEX_MODELS.join(", ")}`,
+      };
+    }
+    const resolvedEffort = reasoningEffort || "high";
+    if (!CODEX_REASONING.includes(resolvedEffort)) {
+      return {
+        ok: false,
+        error: `Invalid codex reasoning effort: ${resolvedEffort}. Allowed: ${CODEX_REASONING.join(", ")}`,
+      };
+    }
+    if (thinking) {
+      return {
+        ok: false,
+        error: "thinking is only valid for pi CLI",
+      };
+    }
+    return {
+      ok: true,
+      data: { model: resolvedModel, reasoningEffort: resolvedEffort },
+    };
+  }
+
+  if (cli === "claude") {
+    const resolvedModel = model || "sonnet";
+    if (!CLAUDE_MODELS.includes(resolvedModel)) {
+      return {
+        ok: false,
+        error: `Invalid claude model: ${resolvedModel}. Allowed: ${CLAUDE_MODELS.join(", ")}`,
+      };
+    }
+    const resolvedEffort = reasoningEffort || "high";
+    if (!CLAUDE_EFFORT.includes(resolvedEffort)) {
+      return {
+        ok: false,
+        error: `Invalid claude effort: ${resolvedEffort}. Allowed: ${CLAUDE_EFFORT.join(", ")}`,
+      };
+    }
+    if (thinking) {
+      return {
+        ok: false,
+        error: "thinking is only valid for pi CLI",
+      };
+    }
+    return {
+      ok: true,
+      data: { model: resolvedModel, reasoningEffort: resolvedEffort },
+    };
+  }
+
+  const resolvedModel = model || "qwen3.5-plus";
+  if (!PI_MODELS.includes(resolvedModel)) {
+    return {
+      ok: false,
+      error: `Invalid pi model: ${resolvedModel}. Allowed: ${PI_MODELS.join(", ")}`,
+    };
+  }
+  const resolvedThinking = thinking || "medium";
+  if (!PI_THINKING.includes(resolvedThinking)) {
+    return {
+      ok: false,
+      error: `Invalid pi thinking: ${resolvedThinking}. Allowed: ${PI_THINKING.join(", ")}`,
+    };
+  }
+  if (reasoningEffort) {
+    return {
+      ok: false,
+      error: "reasoningEffort is only valid for codex and claude CLIs",
+    };
+  }
+  return {
+    ok: true,
+    data: { model: resolvedModel, thinking: resolvedThinking },
+  };
 }
 
 function slugifyTitle(value: string): string {
@@ -601,6 +710,23 @@ api.post("/projects/:id/start", async (c) => {
   let runMode: CliRunMode | undefined;
   let slug: string | undefined;
   let baseBranch: string | undefined;
+  const requestedName =
+    typeof parsed.data.name === "string" && parsed.data.name.trim()
+      ? parsed.data.name.trim()
+      : undefined;
+  const requestedModel =
+    typeof parsed.data.model === "string" && parsed.data.model.trim()
+      ? parsed.data.model.trim()
+      : undefined;
+  const requestedReasoningEffort =
+    typeof parsed.data.reasoningEffort === "string" &&
+    parsed.data.reasoningEffort.trim()
+      ? parsed.data.reasoningEffort.trim()
+      : undefined;
+  const requestedThinking =
+    typeof parsed.data.thinking === "string" && parsed.data.thinking.trim()
+      ? parsed.data.thinking.trim()
+      : undefined;
   const requestedRunModeValue =
     typeof parsed.data.runMode === "string" ? parsed.data.runMode.trim() : "";
   const frontmatterRunModeValue =
@@ -747,6 +873,15 @@ api.post("/projects/:id/start", async (c) => {
     );
   }
   const runCli = runAgentSelection.id;
+  const resolvedCliOptions = resolveCliSpawnOptions(
+    runCli,
+    requestedModel,
+    requestedReasoningEffort,
+    requestedThinking
+  );
+  if (!resolvedCliOptions.ok) {
+    return c.json({ error: resolvedCliOptions.error }, 400);
+  }
 
   if (frontmatter.executionMode === "ralph_loop") {
     if (!["claude", "codex"].includes(runCli)) {
@@ -806,7 +941,11 @@ api.post("/projects/:id/start", async (c) => {
     projectId: project.id,
     slug: slugValue,
     cli: runCli,
+    name: requestedName,
     prompt,
+    model: resolvedCliOptions.data.model,
+    reasoningEffort: resolvedCliOptions.data.reasoningEffort,
+    thinking: resolvedCliOptions.data.thinking,
     mode: runModeValue,
     baseBranch: baseBranchValue,
   });
@@ -1545,6 +1684,22 @@ api.post("/projects/:id/subagents", async (c) => {
   const cli = typeof body.cli === "string" ? body.cli : "";
   const prompt = typeof body.prompt === "string" ? body.prompt : "";
   const mode = typeof body.mode === "string" ? body.mode : undefined;
+  const name =
+    typeof body.name === "string" && body.name.trim()
+      ? body.name.trim()
+      : undefined;
+  const model =
+    typeof body.model === "string" && body.model.trim()
+      ? body.model.trim()
+      : undefined;
+  const reasoningEffort =
+    typeof body.reasoningEffort === "string" && body.reasoningEffort.trim()
+      ? body.reasoningEffort.trim()
+      : undefined;
+  const thinking =
+    typeof body.thinking === "string" && body.thinking.trim()
+      ? body.thinking.trim()
+      : undefined;
   const baseBranch =
     typeof body.baseBranch === "string" ? body.baseBranch : undefined;
   const resume = typeof body.resume === "boolean" ? body.resume : undefined;
@@ -1567,13 +1722,26 @@ api.post("/projects/:id/subagents", async (c) => {
   if (!isSupportedSubagentCli(cli)) {
     return c.json({ error: getUnsupportedSubagentCliError(cli) }, 400);
   }
+  const resolvedCliOptions = resolveCliSpawnOptions(
+    cli,
+    model,
+    reasoningEffort,
+    thinking
+  );
+  if (!resolvedCliOptions.ok) {
+    return c.json({ error: resolvedCliOptions.error }, 400);
+  }
 
   const config = getConfig();
   const result = await spawnSubagent(config, {
     projectId: id,
     slug,
     cli,
+    name,
     prompt,
+    model: resolvedCliOptions.data.model,
+    reasoningEffort: resolvedCliOptions.data.reasoningEffort,
+    thinking: resolvedCliOptions.data.thinking,
     mode: mode as "main-run" | "worktree" | "clone" | undefined,
     baseBranch,
     resume,

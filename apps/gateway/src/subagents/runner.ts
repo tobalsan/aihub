@@ -16,7 +16,11 @@ export type SpawnSubagentInput = {
   projectId: string;
   slug: string;
   cli: SubagentCli;
+  name?: string;
   prompt: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
   mode?: SubagentMode;
   baseBranch?: string;
   resume?: boolean;
@@ -272,6 +276,9 @@ function buildArgs(
   options: {
     sessionId?: string;
     sessionFile?: string;
+    model?: string;
+    reasoningEffort?: string;
+    thinking?: string;
   }
 ): string[] {
   switch (cli) {
@@ -284,6 +291,8 @@ function buildArgs(
         "--verbose",
         "--dangerously-skip-permissions",
       ];
+      if (options.model) args.push("--model", options.model);
+      if (options.reasoningEffort) args.push("--effort", options.reasoningEffort);
       const sessionId = options.sessionId;
       if (sessionId) return ["-r", sessionId, ...args];
       return args;
@@ -294,6 +303,10 @@ function buildArgs(
         "--json",
         "--dangerously-bypass-approvals-and-sandbox",
       ];
+      if (options.model) base.push("-m", options.model);
+      if (options.reasoningEffort) {
+        base.push("-c", `reasoning_effort=${options.reasoningEffort}`);
+      }
       const sessionId = options.sessionId;
       if (sessionId) return [...base, "resume", sessionId, prompt];
       return [...base, prompt];
@@ -303,7 +316,11 @@ function buildArgs(
       if (!sessionFile) {
         throw new Error("Missing Pi session file path");
       }
-      return ["--mode", "json", "--session", sessionFile, prompt];
+      const args = ["--mode", "json", "--session", sessionFile];
+      if (options.model) args.push("--model", options.model);
+      if (options.thinking) args.push("--thinking", options.thinking);
+      args.push(prompt);
+      return args;
     }
   }
 }
@@ -570,6 +587,9 @@ export async function spawnSubagent(
   const args = buildArgs(cli, prompt, {
     sessionId: existingSessionId,
     sessionFile: piSessionFile,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+    thinking: input.thinking,
   });
   let resolved;
   try {
@@ -632,7 +652,11 @@ export async function spawnSubagent(
   };
 
   await writeJson(configPath, {
+    name: input.name,
     cli,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+    thinking: input.thinking,
     runMode: mode,
     baseBranch,
     created: createdAt,

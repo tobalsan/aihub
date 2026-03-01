@@ -210,7 +210,10 @@ describe("api client (projects/subagents)", () => {
     const res = await spawnSubagent("PRO-2", {
       slug: "alpha",
       cli: "claude",
+      name: "Worker A",
       prompt: "hello",
+      model: "sonnet",
+      reasoningEffort: "medium",
       mode: "worktree",
       baseBranch: "main",
       resume: true,
@@ -222,7 +225,10 @@ describe("api client (projects/subagents)", () => {
       body: JSON.stringify({
         slug: "alpha",
         cli: "claude",
+        name: "Worker A",
         prompt: "hello",
+        model: "sonnet",
+        reasoningEffort: "medium",
         mode: "worktree",
         baseBranch: "main",
         resume: true,

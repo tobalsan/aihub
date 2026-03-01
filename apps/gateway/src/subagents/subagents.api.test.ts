@@ -1018,6 +1018,94 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("applies model/effort and name when spawning from /projects/:id/start", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Start With Options" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-start-options");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-start-options");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo "$@"',
+      'echo \'{"type":"thread.started","thread_id":"s-start-options"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runAgent: "cli:codex",
+          runMode: "main-run",
+          name: "Worker A",
+          model: "gpt-5.2",
+          reasoningEffort: "low",
+        }),
+      })
+    );
+    expect(startRes.status).toBe(200);
+
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "main");
+    const logsPath = path.join(sessionDir, "logs.jsonl");
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      try {
+        const logs = await fs.readFile(logsPath, "utf8");
+        if (logs.includes("thread.started")) break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    const logs = await fs.readFile(logsPath, "utf8");
+    expect(logs).toContain("-m gpt-5.2");
+    expect(logs).toContain("-c reasoning_effort=low");
+
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    );
+    expect(config.name).toBe("Worker A");
+    expect(config.model).toBe("gpt-5.2");
+    expect(config.reasoningEffort).toBe("low");
+
+    process.env.PATH = prevPath;
+  });
+
   it("spawns subagent via API and writes logs", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
@@ -1071,7 +1159,10 @@ describe("subagents API", () => {
         body: JSON.stringify({
           slug: "alpha",
           cli: "codex",
+          name: "Coordinator",
           prompt: "hi",
+          model: "gpt-5.3-codex-spark",
+          reasoningEffort: "medium",
           mode: "main-run",
         }),
       })
@@ -1101,6 +1192,8 @@ describe("subagents API", () => {
     const logs = await fs.readFile(logsPath, "utf8");
     expect(logs).toContain("thread.started");
     expect(logs).toContain("Let's tackle the following project:");
+    expect(logs).toContain("-m gpt-5.3-codex-spark");
+    expect(logs).toContain("-c reasoning_effort=medium");
 
     const state = JSON.parse(
       await fs.readFile(path.join(sessionDir, "state.json"), "utf8")
@@ -1110,7 +1203,10 @@ describe("subagents API", () => {
     const config = JSON.parse(
       await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
     );
+    expect(config.name).toBe("Coordinator");
     expect(config.cli).toBe("codex");
+    expect(config.model).toBe("gpt-5.3-codex-spark");
+    expect(config.reasoningEffort).toBe("medium");
     expect(config.runMode).toBe("main-run");
     expect(config.baseBranch).toBe("main");
     expect(typeof config.created).toBe("string");
@@ -1159,6 +1255,8 @@ describe("subagents API", () => {
       'ARGS="$*"',
       'echo "$ARGS" | grep -F -- "--mode json" >/dev/null 2>&1 || { echo "missing --mode json" >&2; exit 1; }',
       'echo "$ARGS" | grep -F -- "--session" >/dev/null 2>&1 || { echo "missing --session" >&2; exit 1; }',
+      'echo "$ARGS" | grep -F -- "--model qwen3-max-2026-01-23" >/dev/null 2>&1 || { echo "missing --model" >&2; exit 1; }',
+      'echo "$ARGS" | grep -F -- "--thinking high" >/dev/null 2>&1 || { echo "missing --thinking" >&2; exit 1; }',
       `echo '{"type":"session","id":"pi-s1","timestamp":"2026-02-01T00:00:00.000Z","cwd":"$PWD"}'`,
       `echo '{"type":"tool_execution_start","toolCallId":"t1","toolName":"bash","args":{"command":"echo hi"}}'`,
       `echo '{"type":"tool_execution_end","toolCallId":"t1","toolName":"bash","result":"ok","isError":false}'`,
@@ -1176,6 +1274,8 @@ describe("subagents API", () => {
           slug: "pi-run",
           cli: "pi",
           prompt: "hi",
+          model: "qwen3-max-2026-01-23",
+          thinking: "high",
           mode: "main-run",
         }),
       })
@@ -1245,6 +1345,50 @@ describe("subagents API", () => {
     const payload = await spawnRes.json();
     expect(payload.error).toContain("Unsupported CLI");
     expect(payload.error).toContain("claude, codex, pi");
+  });
+
+  it("rejects invalid model/effort combos on subagent spawn", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Invalid Model Spawn Reject" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const badModel = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "bad-model",
+          cli: "codex",
+          prompt: "hi",
+          model: "haiku",
+        }),
+      })
+    );
+    expect(badModel.status).toBe(400);
+    const badModelPayload = await badModel.json();
+    expect(badModelPayload.error).toContain("Invalid codex model");
+
+    const badThinking = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "bad-thinking",
+          cli: "codex",
+          prompt: "hi",
+          thinking: "high",
+        }),
+      })
+    );
+    expect(badThinking.status).toBe(400);
+    const badThinkingPayload = await badThinking.json();
+    expect(badThinkingPayload.error).toContain("thinking is only valid for pi");
   });
 
   it("rejects legacy CLI values on project start", async () => {
