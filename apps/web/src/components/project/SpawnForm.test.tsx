@@ -147,6 +147,151 @@ describe("SpawnForm", () => {
 
     dispose();
   });
+
+  it("hides custom instructions by default and excludes when unchecked", async () => {
+    vi.mocked(spawnSubagent).mockClear();
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpawnForm
+          projectId={project.id}
+          project={project}
+          template="custom"
+          prefill={{
+            customInstructions: "Prefill custom text",
+          }}
+          subagents={[]}
+          onSpawned={() => {}}
+          onCancel={() => {}}
+        />
+      ),
+      container
+    );
+
+    expect(container.querySelector(".add-agent-prompt")).toBeNull();
+
+    const toggle = container.querySelector(
+      ".custom-instructions-toggle"
+    ) as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const promptArea = container.querySelector(
+      ".add-agent-prompt"
+    ) as HTMLTextAreaElement;
+    expect(promptArea).not.toBeNull();
+    promptArea.value = "Custom hidden text should not be used";
+    promptArea.dispatchEvent(new Event("input", { bubbles: true }));
+
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".add-agent-prompt")).toBeNull();
+
+    const submit = container.querySelector(
+      ".add-agent-submit"
+    ) as HTMLButtonElement;
+    submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const payload = vi.mocked(spawnSubagent).mock.calls[0]?.[1];
+    expect(payload?.prompt).not.toContain("Custom hidden text should not be used");
+    expect(payload?.prompt).not.toContain("Prefill custom text");
+
+    dispose();
+  });
+
+  it("updates custom template preview when toggles change", async () => {
+    vi.mocked(spawnSubagent).mockClear();
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpawnForm
+          projectId={project.id}
+          project={project}
+          template="custom"
+          prefill={{}}
+          subagents={[]}
+          onSpawned={() => {}}
+          onCancel={() => {}}
+        />
+      ),
+      container
+    );
+
+    const preview = container.querySelector(".add-agent-preview pre");
+    expect(preview?.textContent).toContain(
+      "## IMPORTANT: MUST DO AFTER IMPLEMENTATION"
+    );
+
+    const defaultToggle = container.querySelector(
+      ".project-context-toggle"
+    ) as HTMLInputElement;
+    const roleToggle = container.querySelector(
+      ".role-instructions-toggle"
+    ) as HTMLInputElement;
+    const postRunToggle = container.querySelector(
+      ".post-run-toggle"
+    ) as HTMLInputElement;
+
+    postRunToggle.checked = false;
+    postRunToggle.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(preview?.textContent).not.toContain(
+      "## IMPORTANT: MUST DO AFTER IMPLEMENTATION"
+    );
+    expect(preview?.textContent).toContain("## Your Role");
+
+    defaultToggle.checked = false;
+    defaultToggle.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(preview?.textContent).toContain("## Your Role");
+
+    roleToggle.checked = false;
+    roleToggle.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(preview?.textContent).toContain("(empty)");
+
+    dispose();
+  });
+
+  it("updates worker preview when role instructions toggle changes", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpawnForm
+          projectId={project.id}
+          project={project}
+          template="worker"
+          prefill={{}}
+          subagents={[]}
+          onSpawned={() => {}}
+          onCancel={() => {}}
+        />
+      ),
+      container
+    );
+
+    const preview = container.querySelector(".add-agent-preview pre");
+    expect(preview?.textContent).toContain("## Your Role: Worker");
+
+    const roleToggle = container.querySelector(
+      ".role-instructions-toggle"
+    ) as HTMLInputElement;
+    roleToggle.checked = false;
+    roleToggle.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(preview?.textContent).not.toContain("## Your Role: Worker");
+
+    dispose();
+  });
 });
 
 describe("buildReviewerWorkspaceList", () => {

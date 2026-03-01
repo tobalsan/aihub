@@ -795,12 +795,20 @@ api.post("/projects/:id/start", async (c) => {
   const absReadmePath = basePath.endsWith("README.md")
     ? basePath
     : `${basePath}/README.md`;
+  const absSpecsPath = basePath.endsWith("SPECS.md")
+    ? basePath
+    : `${basePath}/SPECS.md`;
   const relBasePath = project.path.replace(/\/$/, "");
   const relReadmePath = relBasePath.endsWith("README.md")
     ? relBasePath
     : `${relBasePath}/README.md`;
+  const relSpecsPath = relBasePath.endsWith("SPECS.md")
+    ? relBasePath
+    : `${relBasePath}/SPECS.md`;
   const readmePath =
     runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
+  const specsPathForRole =
+    runAgentSelection.type === "aihub" ? absSpecsPath : relSpecsPath;
   const threadPath = path.join(basePath, "THREAD.md");
   let threadContent = "";
   try {
@@ -843,13 +851,14 @@ api.post("/projects/:id/start", async (c) => {
       ? parsed.data.promptRole
       : undefined;
   const promptRole = mapTemplateToPromptRole(template, explicitRole);
+  const specsPath = promptRole === "legacy" ? readmePath : specsPathForRole;
   const prompt = buildRolePrompt({
     role: promptRole,
     title: project.title,
     status,
     path: basePath,
     content: fullContent,
-    specsPath: readmePath,
+    specsPath,
     projectFiles: ["README.md", "THREAD.md", ...docKeys.map((k) => `${k}.md`)],
     projectId: project.id,
     repo: implementationRepo,
@@ -858,6 +867,7 @@ api.post("/projects/:id/start", async (c) => {
     owner:
       typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,
     includeDefaultPrompt: parsed.data.includeDefaultPrompt,
+    includeRoleInstructions: parsed.data.includeRoleInstructions,
     includePostRun: parsed.data.includePostRun,
   });
 

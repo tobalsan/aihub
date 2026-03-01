@@ -677,6 +677,7 @@ export function AgentPanel(props: AgentPanelProps) {
                       reasoning: "medium",
                       runMode: "none",
                       includeDefaultPrompt: true,
+                      includeRoleInstructions: true,
                       includePostRun: false,
                     })
                   }
@@ -697,6 +698,7 @@ export function AgentPanel(props: AgentPanelProps) {
                       reasoning: "medium",
                       runMode: "clone",
                       includeDefaultPrompt: true,
+                      includeRoleInstructions: true,
                       includePostRun: true,
                     })
                   }
@@ -717,6 +719,7 @@ export function AgentPanel(props: AgentPanelProps) {
                       reasoning: "medium",
                       runMode: "none",
                       includeDefaultPrompt: true,
+                      includeRoleInstructions: true,
                       includePostRun: false,
                     })
                   }

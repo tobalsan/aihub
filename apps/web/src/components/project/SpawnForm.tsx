@@ -13,6 +13,7 @@ export type SpawnPrefill = {
   runMode?: "clone" | "main" | "worktree" | "none";
   customInstructions?: string;
   includeDefaultPrompt?: boolean;
+  includeRoleInstructions?: boolean;
   includePostRun?: boolean;
 };
 
@@ -112,7 +113,11 @@ export function SpawnForm(props: SpawnFormProps) {
     "clone" | "main" | "worktree" | "none"
   >("clone");
   const [includeDefaultPrompt, setIncludeDefaultPrompt] = createSignal(true);
+  const [includeRoleInstructions, setIncludeRoleInstructions] =
+    createSignal(true);
   const [includePostRun, setIncludePostRun] = createSignal(true);
+  const [includeCustomInstructions, setIncludeCustomInstructions] =
+    createSignal(false);
   const [addAgentCustomInstructions, setAddAgentCustomInstructions] =
     createSignal("");
   const [addingAgent, setAddingAgent] = createSignal(false);
@@ -127,7 +132,9 @@ export function SpawnForm(props: SpawnFormProps) {
     setAddAgentReasoning(prefill.reasoning ?? HARNESS_REASONING[nextCli][0]);
     setAddAgentRunMode(prefill.runMode ?? "clone");
     setIncludeDefaultPrompt(prefill.includeDefaultPrompt ?? true);
+    setIncludeRoleInstructions(prefill.includeRoleInstructions ?? true);
     setIncludePostRun(prefill.includePostRun ?? true);
+    setIncludeCustomInstructions(false);
     setAddAgentCustomInstructions(prefill.customInstructions ?? "");
     setAgentError(null);
   });
@@ -177,12 +184,15 @@ export function SpawnForm(props: SpawnFormProps) {
       repo: repoPath,
       runAgentLabel: author,
       owner,
-      customPrompt: addAgentCustomInstructions().trim(),
+      customPrompt: includeCustomInstructions()
+        ? addAgentCustomInstructions().trim()
+        : "",
       includeDefaultPrompt: includeDefaultPrompt(),
+      includeRoleInstructions: includeRoleInstructions(),
       includePostRun: includePostRun(),
       projectFiles: projectFiles(),
       workerWorkspaces: parseReviewerWorkspaces(reviewerWorkspaceList()),
-      specsPath: `${effectiveProjectPath().replace(/\/$/, "")}/README.md`,
+      specsPath: `${effectiveProjectPath().replace(/\/$/, "")}/SPECS.md`,
       content: Object.values(props.project.docs ?? {}).join("\n\n"),
     });
   });
@@ -228,6 +238,7 @@ export function SpawnForm(props: SpawnFormProps) {
       template: props.template,
       promptRole,
       includeDefaultPrompt: includeDefaultPrompt(),
+      includeRoleInstructions: includeRoleInstructions(),
       includePostRun: includePostRun(),
       model: addAgentModel(),
       reasoningEffort: addAgentCli() === "pi" ? undefined : addAgentReasoning(),
@@ -259,97 +270,112 @@ export function SpawnForm(props: SpawnFormProps) {
           void submitAddAgent();
         }}
       >
-        <label class="add-agent-label">
-          Agent name (optional)
-          <input
-            class="add-agent-input"
-            type="text"
-            value={addAgentName()}
-            onInput={(event) => setAddAgentName(event.currentTarget.value)}
-            placeholder="Defaults to current naming"
-          />
-        </label>
-        <label class="add-agent-label">
-          Harness
-          <select
-            class="add-agent-select"
-            value={addAgentCli()}
-            onChange={(event) =>
-              setAddAgentCli(
-                event.currentTarget.value as "codex" | "claude" | "pi"
-              )
-            }
-          >
-            <option value="codex">codex</option>
-            <option value="claude">claude</option>
-            <option value="pi">pi</option>
-          </select>
-        </label>
-        <label class="add-agent-label">
-          Model
-          <select
-            class="add-agent-select"
-            value={addAgentModel()}
-            onChange={(event) => setAddAgentModel(event.currentTarget.value)}
-          >
-            <For each={HARNESS_MODELS[addAgentCli()]}>
-              {(model) => <option value={model}>{model}</option>}
-            </For>
-          </select>
-        </label>
-        <label class="add-agent-label">
-          <Show
-            when={addAgentCli() === "pi"}
-            fallback={addAgentCli() === "claude" ? "Effort" : "Reasoning"}
-          >
-            Thinking
-          </Show>
-          <select
-            class="add-agent-select"
-            value={addAgentReasoning()}
-            onChange={(event) =>
-              setAddAgentReasoning(event.currentTarget.value)
-            }
-          >
-            <For each={HARNESS_REASONING[addAgentCli()]}>
-              {(value) => <option value={value}>{value}</option>}
-            </For>
-          </select>
-        </label>
-        <label class="add-agent-label">
-          Run mode
-          <select
-            class="add-agent-select"
-            value={addAgentRunMode()}
-            onChange={(event) =>
-              setAddAgentRunMode(
-                event.currentTarget.value as
-                  | "clone"
-                  | "main"
-                  | "worktree"
-                  | "none"
-              )
-            }
-          >
-            <option value="clone">clone</option>
-            <option value="main">main</option>
-            <option value="worktree">worktree</option>
-            <option value="none">none</option>
-          </select>
-        </label>
+        <div class="spawn-form-grid">
+          <label class="add-agent-label wide">
+            Agent name (optional)
+            <input
+              class="add-agent-input"
+              type="text"
+              value={addAgentName()}
+              onInput={(event) => setAddAgentName(event.currentTarget.value)}
+              placeholder="Defaults to current naming"
+            />
+          </label>
+          <label class="add-agent-label">
+            Harness
+            <select
+              class="add-agent-select"
+              value={addAgentCli()}
+              onChange={(event) =>
+                setAddAgentCli(
+                  event.currentTarget.value as "codex" | "claude" | "pi"
+                )
+              }
+            >
+              <option value="codex">codex</option>
+              <option value="claude">claude</option>
+              <option value="pi">pi</option>
+            </select>
+          </label>
+          <label class="add-agent-label">
+            Model
+            <select
+              class="add-agent-select"
+              value={addAgentModel()}
+              onChange={(event) => setAddAgentModel(event.currentTarget.value)}
+            >
+              <For each={HARNESS_MODELS[addAgentCli()]}>
+                {(model) => <option value={model}>{model}</option>}
+              </For>
+            </select>
+          </label>
+          <label class="add-agent-label">
+            <Show
+              when={addAgentCli() === "pi"}
+              fallback={addAgentCli() === "claude" ? "Effort" : "Reasoning"}
+            >
+              Thinking
+            </Show>
+            <select
+              class="add-agent-select"
+              value={addAgentReasoning()}
+              onChange={(event) =>
+                setAddAgentReasoning(event.currentTarget.value)
+              }
+            >
+              <For each={HARNESS_REASONING[addAgentCli()]}>
+                {(value) => <option value={value}>{value}</option>}
+              </For>
+            </select>
+          </label>
+          <label class="add-agent-label">
+            Run mode
+            <select
+              class="add-agent-select"
+              value={addAgentRunMode()}
+              onChange={(event) =>
+                setAddAgentRunMode(
+                  event.currentTarget.value as
+                    | "clone"
+                    | "main"
+                    | "worktree"
+                    | "none"
+                )
+              }
+            >
+              <option value="clone">clone</option>
+              <option value="main">main</option>
+              <option value="worktree">worktree</option>
+              <option value="none">none</option>
+            </select>
+          </label>
+        </div>
         <div class="add-agent-checklist">
           <label class="add-agent-check">
             <input
+              class="project-context-toggle"
               type="checkbox"
               checked={includeDefaultPrompt()}
               onInput={(event) =>
                 setIncludeDefaultPrompt(event.currentTarget.checked)
               }
             />
-            Default AI prompt
+            Project context prompt
           </label>
           <label class="add-agent-check">
             <input
+              class="role-instructions-toggle"
+              type="checkbox"
+              checked={includeRoleInstructions()}
+              onInput={(event) =>
+                setIncludeRoleInstructions(event.currentTarget.checked)
+              }
+            />
+            Role instructions
+          </label>
+          <label class="add-agent-check">
+            <input
+              class="post-run-toggle"
               type="checkbox"
               checked={includePostRun()}
               onInput={(event) =>
@@ -358,18 +384,31 @@ export function SpawnForm(props: SpawnFormProps) {
             />
             AIHub post-run instructions
           </label>
+          <label class="add-agent-check">
+            <input
+              class="custom-instructions-toggle"
+              type="checkbox"
+              checked={includeCustomInstructions()}
+              onInput={(event) =>
+                setIncludeCustomInstructions(event.currentTarget.checked)
+              }
+            />
+            Custom instructions
+          </label>
         </div>
-        <label class="add-agent-label">
-          Custom instructions (appended last)
-          <textarea
-            class="add-agent-prompt"
-            value={addAgentCustomInstructions()}
-            onInput={(event) =>
-              setAddAgentCustomInstructions(event.currentTarget.value)
-            }
-            placeholder="Optional custom instructions"
-          />
-        </label>
+        <Show when={includeCustomInstructions()}>
+          <label class="add-agent-label wide">
+            Custom instructions (appended last)
+            <textarea
+              class="add-agent-prompt"
+              value={addAgentCustomInstructions()}
+              onInput={(event) =>
+                setAddAgentCustomInstructions(event.currentTarget.value)
+              }
+              placeholder="Optional custom instructions"
+            />
+          </label>
+        </Show>
         <details class="add-agent-preview">
           <summary>Final prompt preview</summary>
           <pre>{preparedPrompt() || "(empty)"}</pre>
@@ -398,33 +437,56 @@ export function SpawnForm(props: SpawnFormProps) {
       </Show>
       <style>{`
         .spawn-form-panel {
-          padding: 18px;
-          display: grid;
-          gap: 10px;
-          min-height: 100%;
-          background: #0a0a0f;
+          width: 100%;
+          flex: 1;
+          min-width: 0;
+          min-height: 0;
+          height: 100%;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          align-items: stretch;
+          background: transparent;
           color: #e4e4e7;
+          overflow: hidden;
+        }
+
+        .spawn-form-header {
+          padding-bottom: 10px;
+          border-bottom: 1px solid #1c2430;
         }
 
         .spawn-form-header h3 {
           margin: 0;
-          font-size: 14px;
+          font-size: 18px;
+          font-weight: 650;
+          letter-spacing: -0.01em;
         }
 
         .spawn-form-header p {
           margin: 4px 0 0;
           font-size: 12px;
           color: #94a3b8;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
         }
 
         .add-agent-form {
-          margin-top: 8px;
           display: grid;
-          gap: 8px;
-          border: 1px solid #1f2937;
-          border-radius: 8px;
-          padding: 8px;
-          background: #0f1724;
+          gap: 12px;
+          border: 1px solid #1c2430;
+          border-radius: 12px;
+          padding: 14px;
+          background: #111722;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .spawn-form-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
         }
 
         .add-agent-label {
@@ -432,6 +494,12 @@ export function SpawnForm(props: SpawnFormProps) {
           gap: 4px;
           color: #94a3b8;
           font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .add-agent-label.wide {
+          grid-column: 1 / -1;
         }
 
         .add-agent-select,
@@ -447,13 +515,18 @@ export function SpawnForm(props: SpawnFormProps) {
         }
 
         .add-agent-prompt {
-          min-height: 74px;
+          min-height: 92px;
           resize: vertical;
         }
 
         .add-agent-checklist {
-          display: grid;
-          gap: 4px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px 16px;
+          padding: 8px 10px;
+          border: 1px solid #243042;
+          border-radius: 10px;
+          background: #0e1625;
         }
 
         .add-agent-check {
@@ -465,10 +538,10 @@ export function SpawnForm(props: SpawnFormProps) {
         }
 
         .add-agent-preview {
-          border: 1px solid #2a3240;
-          border-radius: 6px;
+          border: 1px solid #243042;
+          border-radius: 10px;
           background: #0b1220;
-          padding: 6px 8px;
+          padding: 8px 10px;
         }
 
         .add-agent-preview summary {
@@ -476,7 +549,7 @@ export function SpawnForm(props: SpawnFormProps) {
           font-size: 11px;
           color: #93c5fd;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.06em;
         }
 
         .add-agent-preview pre {
@@ -486,16 +559,19 @@ export function SpawnForm(props: SpawnFormProps) {
           font-size: 11px;
           line-height: 1.45;
           color: #dbeafe;
+          max-height: min(34vh, 300px);
+          overflow-y: auto;
+          padding-right: 4px;
         }
 
         .add-agent-cli-preview {
-          border: 1px solid #2a3240;
-          border-radius: 6px;
+          border: 1px solid #243042;
+          border-radius: 10px;
           background: #0b1220;
           color: #cbd5e1;
           font-size: 11px;
           line-height: 1.4;
-          padding: 6px 8px;
+          padding: 8px 10px;
           overflow-wrap: anywhere;
         }
 
@@ -507,12 +583,12 @@ export function SpawnForm(props: SpawnFormProps) {
 
         .add-agent-cancel,
         .add-agent-submit {
-          border: 1px solid #2a3240;
-          border-radius: 6px;
-          background: #111722;
+          border: 1px solid #334155;
+          border-radius: 8px;
+          background: #0f1724;
           color: #e4e4e7;
           font-size: 12px;
-          padding: 5px 10px;
+          padding: 6px 12px;
           cursor: pointer;
         }
 
@@ -522,10 +598,25 @@ export function SpawnForm(props: SpawnFormProps) {
           color: #fff;
         }
 
+        .add-agent-cancel:hover:not(:disabled) {
+          border-color: #475569;
+          background: #162033;
+        }
+
+        .add-agent-submit:hover:not(:disabled) {
+          background: #2563eb;
+        }
+
         .agent-error {
           margin: 8px 0 0;
           font-size: 11px;
           color: #fca5a5;
+        }
+
+        @media (max-width: 960px) {
+          .spawn-form-grid {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </section>

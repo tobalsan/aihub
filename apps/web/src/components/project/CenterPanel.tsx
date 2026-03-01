@@ -382,6 +382,12 @@ export function CenterPanel(props: CenterPanelProps) {
           min-height: 0;
         }
 
+        .center-chat-shell .spawn-form-panel {
+          flex: 1;
+          min-width: 0;
+          min-height: 0;
+        }
+
         .center-scroll-view {
           min-height: 0;
           flex: 1;

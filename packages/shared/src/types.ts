@@ -398,6 +398,7 @@ export const StartProjectRunRequestSchema = z.object({
     .enum(["coordinator", "worker", "reviewer", "legacy"])
     .optional(),
   includeDefaultPrompt: z.boolean().optional(),
+  includeRoleInstructions: z.boolean().optional(),
   includePostRun: z.boolean().optional(),
   runMode: z.string().optional(),
   baseBranch: z.string().optional(),

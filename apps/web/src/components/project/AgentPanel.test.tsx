@@ -134,6 +134,7 @@ describe("AgentPanel", () => {
       reasoning: "medium",
       runMode: "clone",
       includeDefaultPrompt: true,
+      includeRoleInstructions: true,
       includePostRun: true,
     });
     expect(payload.prefill.name).not.toBe("Worker Alpha");

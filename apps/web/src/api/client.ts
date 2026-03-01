@@ -807,6 +807,7 @@ export type SpawnSubagentInput = {
   template?: "coordinator" | "worker" | "reviewer" | "custom";
   promptRole?: "coordinator" | "worker" | "reviewer" | "legacy";
   includeDefaultPrompt?: boolean;
+  includeRoleInstructions?: boolean;
   includePostRun?: boolean;
   model?: string;
   reasoningEffort?: string;
@@ -1055,6 +1056,11 @@ export type StartProjectRunResult =
 export type StartProjectRunInput = {
   customPrompt?: string;
   runAgent?: string;
+  template?: "coordinator" | "worker" | "reviewer" | "custom";
+  promptRole?: "coordinator" | "worker" | "reviewer" | "legacy";
+  includeDefaultPrompt?: boolean;
+  includeRoleInstructions?: boolean;
+  includePostRun?: boolean;
   runMode?: string;
   baseBranch?: string;
   slug?: string;

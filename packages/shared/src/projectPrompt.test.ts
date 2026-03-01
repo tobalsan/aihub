@@ -65,7 +65,7 @@ describe("role-based project prompts", () => {
     runAgentLabel: "Worker Alpha",
     projectFiles: ["README.md", "THREAD.md", "SPECS.md"],
     content: "README content",
-    specsPath: "/tmp/PRO-151/README.md",
+    specsPath: "/tmp/PRO-151/SPECS.md",
   } as const;
 
   it("builds coordinator prompt without implementation repo or commit instructions", () => {
@@ -77,6 +77,8 @@ describe("role-based project prompts", () => {
     expect(out).not.toContain("## Implementation Repository");
     expect(out).not.toContain("Run relevant tests after changes.");
     expect(out).not.toContain("apm move PRO-151 review");
+    expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
+    expect(out).toContain("other relevant project markdown files");
   });
 
   it("builds worker prompt with implementation repo and no move-to-review", () => {
@@ -88,6 +90,9 @@ describe("role-based project prompts", () => {
     expect(out).toContain("## Implementation Repository");
     expect(out).toContain("Run relevant tests after changes.");
     expect(out).not.toContain("apm move PRO-151 review");
+    expect(out).toContain(
+      "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."
+    );
   });
 
   it("builds reviewer prompt with workspace list and no commit block", () => {
@@ -107,6 +112,9 @@ describe("role-based project prompts", () => {
     expect(out).toContain("~/projects/.workspaces/PRO-151/worker-alpha/");
     expect(out).not.toContain("Run relevant tests after changes.");
     expect(out).not.toContain("apm move PRO-151 review");
+    expect(out).toContain(
+      "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."
+    );
   });
 
   it("keeps legacy prompt output identical to buildProjectStartPrompt", () => {
@@ -139,7 +147,30 @@ describe("role-based project prompts", () => {
       ...baseInput,
       role: "legacy",
     });
+    expect(legacyOut).toContain("## Your Role");
     expect(legacyOut).toContain("## IMPORTANT: MUST DO AFTER IMPLEMENTATION");
     expect(legacyOut).toContain("apm move <project_id> review");
+  });
+
+  it("honors include flags for legacy/custom prompt mode", () => {
+    const out = buildRolePrompt({
+      ...baseInput,
+      role: "legacy",
+      includeDefaultPrompt: false,
+      includeRoleInstructions: false,
+      includePostRun: false,
+    });
+    expect(out).not.toContain("Let's tackle the following project:");
+    expect(out).not.toContain("## Your Role");
+    expect(out).not.toContain("## IMPORTANT: MUST DO AFTER IMPLEMENTATION");
+  });
+
+  it("can omit role instruction section for role prompts", () => {
+    const out = buildRolePrompt({
+      ...baseInput,
+      role: "worker",
+      includeRoleInstructions: false,
+    });
+    expect(out).not.toContain("## Your Role: Worker");
   });
 });

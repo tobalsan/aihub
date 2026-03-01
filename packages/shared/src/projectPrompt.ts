@@ -57,6 +57,7 @@ export type RolePromptInput = {
   projectFiles?: readonly string[];
   workerWorkspaces?: WorkerWorkspaceRef[];
   includeDefaultPrompt?: boolean;
+  includeRoleInstructions?: boolean;
   includePostRun?: boolean;
 };
 
@@ -100,30 +101,51 @@ export function buildProjectStartPrompt(input: {
   repo?: string;
   customPrompt?: string;
   runAgentLabel?: string;
+  includeDefaultPrompt?: boolean;
+  includeRoleInstructions?: boolean;
+  includePostRun?: boolean;
 }): string {
   const normalized = normalizeProjectStatus(input.status);
   const custom = input.customPrompt?.trim();
-  let prompt =
-    normalized === "shaping"
-      ? custom || `/drill-specs ${input.specsPath}`
-      : buildStartPrompt(
-          buildProjectSummary(
-            input.title,
-            input.status,
-            input.path,
-            input.content
-          )
-        );
+  const includeDefault = input.includeDefaultPrompt !== false;
+  const includeRole = input.includeRoleInstructions !== false;
+  const includePostRun = input.includePostRun !== false;
+  let prompt = "";
+  if (normalized === "shaping") {
+    prompt = custom || `/drill-specs ${input.specsPath}`;
+  } else if (includeDefault) {
+    prompt = buildStartPrompt(
+      buildProjectSummary(
+        input.title,
+        input.status,
+        input.path,
+        input.content
+      )
+    );
+  }
   if (normalized !== "shaping" && custom) {
-    prompt = `${prompt}\n\n${custom}`;
+    prompt = prompt ? `${prompt}\n\n${custom}` : custom;
   }
   const repo = input.repo?.trim();
   if (repo) {
-    prompt = `${prompt}\n\n## Implementation Repository\nPath: ${repo}\n(This is your working directory. Implement all code changes here.)`;
+    const repoBlock = `## Implementation Repository\nPath: ${repo}\n(This is your working directory. Implement all code changes here.)`;
+    prompt = prompt ? `${prompt}\n\n${repoBlock}` : repoBlock;
   }
-  const cliUsed = input.runAgentLabel?.trim() || "{cli_used}";
-  prompt = `${prompt}\n\n## IMPORTANT: MUST DO AFTER IMPLEMENTATION\n\n- Run the test suite after changes\n- Run linter/formatter (if any)\n- Fix any failure/error before committing\n- Once everything is green, perform atomic commit(s)\n- Add a project comment using \`apm comment <project_id> --message "<your summary>" --author "${cliUsed}"\`. Write a clear summary of what you did — use paragraphs, newlines, and bullet points as appropriate for readability (don't force everything into bullets). Use \\n for newlines in the message string.\n- Move the project to review status using \`apm move <project_id> review --agent ${cliUsed}\`\n- When done, if project owner is \`Cloud\`, also run \`openclaw system event --text "Done: <your summary>" --mode now\``;
-  return prompt;
+  if (includeRole) {
+    const roleBlock = [
+      "## Your Role",
+      "Implement the requested project work end-to-end.",
+      "- Keep changes aligned with task status and acceptance criteria in SPECS.md.",
+      "- Preserve consistency across related project markdown docs when needed.",
+    ].join("\n");
+    prompt = prompt ? `${prompt}\n\n${roleBlock}` : roleBlock;
+  }
+  if (includePostRun) {
+    const cliUsed = input.runAgentLabel?.trim() || "{cli_used}";
+    const postRun = `## IMPORTANT: MUST DO AFTER IMPLEMENTATION\n\n- Run the test suite after changes\n- Run linter/formatter (if any)\n- Fix any failure/error before committing\n- Once everything is green, perform atomic commit(s)\n- Add a project comment using \`apm comment <project_id> --message "<your summary>" --author "${cliUsed}"\`. Write a clear summary of what you did — use paragraphs, newlines, and bullet points as appropriate for readability (don't force everything into bullets). Use \\n for newlines in the message string.\n- Move the project to review status using \`apm move <project_id> review --agent ${cliUsed}\`\n- When done, if project owner is \`Cloud\`, also run \`openclaw system event --text "Done: <your summary>" --mode now\``;
+    prompt = prompt ? `${prompt}\n\n${postRun}` : postRun;
+  }
+  return prompt.trim();
 }
 
 function normalizeDocFilename(name: string): string {
@@ -199,10 +221,17 @@ function postRunNotifyCloudBlock(): string {
   return '- When done, if project owner is `Cloud`, also run `openclaw system event --text "Done: <your summary>" --mode now`';
 }
 
-function postRunUpdateSpecBlock(specsPath: string): string {
+function postRunUpdateCoordinatorDocsBlock(specsPath: string): string {
   return [
-    `- Update task statuses in ${specsPath} as you complete them.`,
-    "- Add blockers or discovered sub-tasks back into project docs.",
+    `- Update task statuses primarily in ${specsPath}.`,
+    "- Also update any other relevant project markdown files when context changes.",
+  ].join("\n");
+}
+
+function postRunUpdateSpecsPrimaryBlock(specsPath: string): string {
+  return [
+    `- Update task statuses and acceptance criteria notes in ${specsPath}.`,
+    `- Record blockers and follow-up items in ${specsPath}.`,
   ].join("\n");
 }
 
@@ -252,27 +281,32 @@ function roleDefaultPrompt(
 
 export function buildCoordinatorPrompt(input: RolePromptInput): string {
   const includeDefault = input.includeDefaultPrompt !== false;
+  const includeRole = input.includeRoleInstructions !== false;
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
   const agentLabel = runAuthorLabel(input);
   const postRun = includePostRun
     ? [
         "## IMPORTANT: MUST DO AFTER IMPLEMENTATION",
-        postRunUpdateSpecBlock(input.specsPath || `${input.path}/README.md`),
+        postRunUpdateCoordinatorDocsBlock(
+          input.specsPath || `${input.path}/SPECS.md`
+        ),
         postRunApmCommentBlock(projectId, agentLabel),
         postRunNotifyCloudBlock(),
       ].join("\n")
     : "";
   return joinPromptParts([
     includeDefault ? roleDefaultPrompt(input, false) : "",
-    [
-      "## Your Role: Coordinator",
-      "You manage this project's execution. You do NOT implement code yourself.",
-      "- Review the spec and break it into discrete tasks if needed",
-      "- Delegate implementation to worker agents",
-      "- Track progress and keep project docs updated",
-      "- Verify acceptance criteria before signaling completion",
-    ].join("\n"),
+    includeRole
+      ? [
+          "## Your Role: Coordinator",
+          "You manage this project's execution. You do NOT implement code yourself.",
+          "- Review the spec and break it into discrete tasks if needed",
+          "- Delegate implementation to worker agents",
+          "- Track progress and keep project docs updated",
+          "- Verify acceptance criteria before signaling completion",
+        ].join("\n")
+      : "",
     postRun,
     input.customPrompt,
   ]);
@@ -280,6 +314,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
 
 export function buildWorkerPrompt(input: RolePromptInput): string {
   const includeDefault = input.includeDefaultPrompt !== false;
+  const includeRole = input.includeRoleInstructions !== false;
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
   const agentLabel = runAuthorLabel(input);
@@ -287,15 +322,20 @@ export function buildWorkerPrompt(input: RolePromptInput): string {
     ? [
         "## IMPORTANT: MUST DO AFTER IMPLEMENTATION",
         postRunCommitBlock(),
+        postRunUpdateSpecsPrimaryBlock(
+          input.specsPath || `${input.path}/SPECS.md`
+        ),
         postRunApmCommentBlock(projectId, agentLabel),
       ].join("\n")
     : "";
   return joinPromptParts([
     includeDefault ? roleDefaultPrompt(input, true) : "",
-    [
-      "## Your Role: Worker",
-      "Implement the assigned tasks in the repository workspace.",
-    ].join("\n"),
+    includeRole
+      ? [
+          "## Your Role: Worker",
+          "Implement the assigned tasks in the repository workspace.",
+        ].join("\n")
+      : "",
     postRun,
     input.customPrompt,
   ]);
@@ -303,24 +343,30 @@ export function buildWorkerPrompt(input: RolePromptInput): string {
 
 export function buildReviewerPrompt(input: RolePromptInput): string {
   const includeDefault = input.includeDefaultPrompt !== false;
+  const includeRole = input.includeRoleInstructions !== false;
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
   const agentLabel = runAuthorLabel(input);
   const postRun = includePostRun
     ? [
         "## IMPORTANT: MUST DO AFTER REVIEW",
+        postRunUpdateSpecsPrimaryBlock(
+          input.specsPath || `${input.path}/SPECS.md`
+        ),
         postRunApmCommentBlock(projectId, agentLabel),
       ].join("\n")
     : "";
   return joinPromptParts([
     includeDefault ? roleDefaultPrompt(input, false) : "",
-    [
-      "## Your Role: Reviewer",
-      "Review implementation done by worker agents.",
-      "- Read code changes in each worker workspace",
-      "- Run tests and verify spec alignment",
-      "- Report findings and remaining issues clearly",
-    ].join("\n"),
+    includeRole
+      ? [
+          "## Your Role: Reviewer",
+          "Review implementation done by worker agents.",
+          "- Read code changes in each worker workspace",
+          "- Run tests and verify spec alignment",
+          "- Report findings and remaining issues clearly",
+        ].join("\n")
+      : "",
     reviewerWorkspaceBlock(input.workerWorkspaces ?? []),
     postRun,
     input.customPrompt,
@@ -337,6 +383,9 @@ export function buildLegacyPrompt(input: RolePromptInput): string {
     repo: input.repo,
     customPrompt: input.customPrompt,
     runAgentLabel: input.runAgentLabel,
+    includeDefaultPrompt: input.includeDefaultPrompt,
+    includeRoleInstructions: input.includeRoleInstructions,
+    includePostRun: input.includePostRun,
   });
 }
 

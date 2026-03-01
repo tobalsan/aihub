@@ -237,6 +237,40 @@ Files touched in this follow-up:
 - `README.md`
 - `docs/llms.md`
 
+### Follow-up Delta (2026-03-01 later, spawn-form polish + prompt semantics)
+
+- Center-panel spawn form polish:
+  - Kept form viewport-fit so action buttons remain reachable.
+  - Restricted scrolling to `Final prompt preview` content only.
+  - Added full-width, center-native layout refinements from prior iteration.
+- Spawn form prompt controls:
+  - Renamed `Default AI prompt` to `Project context prompt`.
+  - Added `Role instructions` checkbox (second position, enabled by default).
+  - `Custom instructions` stays hidden by default and only applies when enabled.
+- Fixed preview reactivity for `template: custom`:
+  - Legacy prompt builder now honors `includeRoleInstructions`, so checking/unchecking updates the preview.
+- Prompt/post-run semantics update:
+  - Coordinator post-run now says to update primarily `SPECS.md`, plus any relevant project markdown files.
+  - Worker and Reviewer post-run now both focus on updating `SPECS.md` task/acceptance state and blockers.
+  - Role-based prompts now use `SPECS.md` path; legacy keeps README-based behavior.
+- API/type plumbing:
+  - Added `includeRoleInstructions` support through web client + shared request schema + gateway prompt build input.
+- Updated template defaults:
+  - Coordinator/Worker/Reviewer prefill now include `includeRoleInstructions: true`.
+
+Files touched in this follow-up:
+
+- `apps/web/src/components/project/SpawnForm.tsx`
+- `apps/web/src/components/project/CenterPanel.tsx`
+- `apps/web/src/components/project/SpawnForm.test.tsx`
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/AgentPanel.test.tsx`
+- `apps/web/src/api/client.ts`
+- `packages/shared/src/projectPrompt.ts`
+- `packages/shared/src/projectPrompt.test.ts`
+- `packages/shared/src/types.ts`
+- `apps/gateway/src/server/api.ts`
+
 ### What Changed Previously (UI v2 baseline)
 
 Shifting from **project-centric** to **agent-centric** model:
