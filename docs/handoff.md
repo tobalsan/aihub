@@ -41,7 +41,56 @@ Latest commit on this branch/workspace:
   - Updated `apps/gateway/src/projects/git.test.ts`
   - Updated `apps/gateway/src/subagents/subagents.api.test.ts`
   - Updated `apps/web/src/api/client.test.ts`
-  - Updated `apps/web/src/components/project/ChangesView.test.tsx`
+- Updated `apps/web/src/components/project/ChangesView.test.tsx`
+
+### PRO-152 Next Path (Remaining Phase 3 + 4)
+
+Execution target: finish UI parity and operational polish on top of shipped Space backend.
+
+#### Phase 3 — ChangesView redesign (next implementation slice)
+
+1. Add Space dashboard section in `ChangesView`:
+   - Queue table grouped by worker slug (`pending/integrated/conflict/skipped`).
+   - Per-entry metadata: SHAs, timestamps, error text, run mode.
+2. Add explicit actions:
+   - `Integrate Now` button calls `POST /api/projects/:id/space/integrate`.
+   - Disable button while request in flight.
+   - Refresh queue + diff after completion.
+3. Add per-agent contribution drill-down:
+   - Fetch diff/log slices per worker entry and render collapsible blocks.
+   - Keep main unified Space diff as default top panel.
+4. Tighten commit/PR UX:
+   - Commit panel text should explicitly state commits go to Space branch.
+   - PR button should open/create PR from `space/<projectId>`.
+5. Add tests:
+   - `ChangesView.test.tsx`: queue rendering, conflict banner, integrate action.
+   - `client.test.ts`: integrate endpoint error handling.
+
+#### Phase 4 — Operational polish
+
+1. Auto-rebase/reconcile strategy for stale workers:
+   - Before recording delivery, detect worker base mismatch from Space HEAD.
+   - Surface `stale_worker` status in queue when rebasing is needed.
+2. Conflict assist flow:
+   - Add API endpoint to spawn conflict-fixer worker from conflicted entry context.
+   - Pre-seed prompt with conflict files + failed SHAs + resolution checklist.
+3. Optional write-lease mode (feature-flagged):
+   - Add per-project lease file to allow one temporary direct Space writer.
+   - Lease expiry + force-release semantics.
+4. Cleanup lifecycle:
+   - On subagent kill/archive, prune stale worktrees and detached branches.
+   - Add periodic `git worktree prune` safe cleanup job.
+5. Add tests:
+   - Queue stale detection.
+   - Conflict-fixer spawn payload.
+   - Cleanup behaviors for clone/worktree/main-run artifacts.
+
+#### Order of execution
+
+1. Phase 3 UI/actions and tests.
+2. Phase 4 conflict assist + stale worker detection.
+3. Phase 4 cleanup + optional write-lease behind flag.
+4. Final pass on docs (`docs/llms.md`, README, PRO-127 Step 7, PRO-152 SPECS).
 
 ### Follow-up Delta (2026-03-01, left panel agent card refresh)
 
