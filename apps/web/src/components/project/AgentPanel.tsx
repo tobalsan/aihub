@@ -137,6 +137,7 @@ export function AgentPanel(props: AgentPanelProps) {
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [titleDraft, setTitleDraft] = createSignal("");
   const [savingTitle, setSavingTitle] = createSignal(false);
+  const [showRepoBlock, setShowRepoBlock] = createSignal(false);
   const [editingRepo, setEditingRepo] = createSignal(false);
   const [repoDraft, setRepoDraft] = createSignal("");
   const [savingRepo, setSavingRepo] = createSignal(false);
@@ -474,51 +475,66 @@ export function AgentPanel(props: AgentPanelProps) {
               </Show>
             </div>
             <span class="created-chip">{formatCreatedRelative(created())}</span>
+            <button
+              type="button"
+              class="repo-toggle-btn"
+              classList={{ active: showRepoBlock() }}
+              onClick={() => setShowRepoBlock((value) => !value)}
+              title={showRepoBlock() ? "Hide repo path" : "Show repo path"}
+              aria-label={showRepoBlock() ? "Hide repo path" : "Show repo path"}
+              aria-expanded={showRepoBlock()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 7h6l2 2h10v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+            </button>
           </div>
         </section>
 
-        <section class="agent-panel-block">
-          <div class="repo-row">
-            <div class="agent-panel-label repo-label">Repo</div>
-            <Show
-              when={!editingRepo()}
-              fallback={
-                <input
-                  class="agent-panel-input repo-input"
-                  type="text"
-                  value={repoDraft()}
-                  placeholder={props.area?.repo || "Project repo path"}
-                  disabled={savingRepo()}
-                  onInput={(event) => setRepoDraft(event.currentTarget.value)}
-                  onBlur={() => void saveRepo()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setEditingRepo(false);
-                      setRepoDraft(repo());
-                      return;
-                    }
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void saveRepo();
-                    }
-                  }}
-                  autofocus
-                />
-              }
-            >
-              <p
-                class="agent-panel-text repo-value"
-                ondblclick={() => {
-                  setRepoDraft(repo());
-                  setEditingRepo(true);
-                }}
-                title="Double-click to edit"
+        <Show when={showRepoBlock()}>
+          <section class="agent-panel-block">
+            <div class="repo-row">
+              <div class="agent-panel-label repo-label">Repo</div>
+              <Show
+                when={!editingRepo()}
+                fallback={
+                  <input
+                    class="agent-panel-input repo-input"
+                    type="text"
+                    value={repoDraft()}
+                    placeholder={props.area?.repo || "Project repo path"}
+                    disabled={savingRepo()}
+                    onInput={(event) => setRepoDraft(event.currentTarget.value)}
+                    onBlur={() => void saveRepo()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setEditingRepo(false);
+                        setRepoDraft(repo());
+                        return;
+                      }
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void saveRepo();
+                      }
+                    }}
+                    autofocus
+                  />
+                }
               >
-                {repo() || props.area?.repo || "No repo set"}
-              </p>
-            </Show>
-          </div>
-        </section>
+                <p
+                  class="agent-panel-text repo-value"
+                  ondblclick={() => {
+                    setRepoDraft(repo());
+                    setEditingRepo(true);
+                  }}
+                  title="Double-click to edit"
+                >
+                  {repo() || props.area?.repo || "No repo set"}
+                </p>
+              </Show>
+            </div>
+          </section>
+        </Show>
 
         <section class="agent-panel-block">
           <div class="agent-panel-label">Agents</div>
@@ -845,6 +861,39 @@ export function AgentPanel(props: AgentPanelProps) {
           margin-left: 8px;
           text-transform: uppercase;
           letter-spacing: 0.06em;
+        }
+
+        .repo-toggle-btn {
+          margin-left: auto;
+          width: 26px;
+          height: 26px;
+          border-radius: 8px;
+          border: 1px solid #2a3240;
+          background: transparent;
+          color: #7f8a9a;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          padding: 0;
+          flex-shrink: 0;
+        }
+
+        .repo-toggle-btn svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .repo-toggle-btn:hover {
+          color: #b0b8c6;
+          border-color: #3a4250;
+          background: #1a2330;
+        }
+
+        .repo-toggle-btn.active {
+          color: #93c5fd;
+          border-color: #3b82f6;
+          background: #1e2e4f;
         }
 
         .agent-panel-label {

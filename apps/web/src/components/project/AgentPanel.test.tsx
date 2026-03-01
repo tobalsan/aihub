@@ -165,4 +165,52 @@ describe("AgentPanel", () => {
 
     dispose();
   });
+
+  it("toggles repo block and allows repo editing", async () => {
+    const projectWithRepo: ProjectDetail = {
+      ...project,
+      frontmatter: {
+        ...project.frontmatter,
+        repo: "~/code/aihub",
+      },
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <AgentPanel
+          project={projectWithRepo}
+          area={undefined}
+          areas={[]}
+          onTitleChange={() => {}}
+          onStatusChange={() => {}}
+          onAreaChange={() => {}}
+          onRepoChange={() => {}}
+          selectedAgentSlug={null}
+          onSelectAgent={() => {}}
+        />
+      ),
+      container
+    );
+
+    expect(container.querySelector(".repo-row")).toBeNull();
+
+    const toggle = container.querySelector(
+      ".repo-toggle-btn"
+    ) as HTMLButtonElement;
+    expect(toggle).toBeTruthy();
+    toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const repoValue = container.querySelector(".repo-value") as HTMLParagraphElement;
+    expect(repoValue).toBeTruthy();
+    expect(repoValue.textContent).toContain("~/code/aihub");
+
+    repoValue.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".repo-input")).not.toBeNull();
+
+    dispose();
+  });
 });
