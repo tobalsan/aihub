@@ -75,7 +75,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 pnpm apm list [--status <status>] [--owner <owner>] [--domain <domain>]
 pnpm apm create --title "My Project" [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>]
 pnpm apm get <id>
-pnpm apm update <id> [--title <title>] [--status <status>] [--content <text>|-]
+pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm apm move <id> <status>
 pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--custom-prompt <text>|-]
 

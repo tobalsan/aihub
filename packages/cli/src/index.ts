@@ -265,7 +265,8 @@ program
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
   .option("--repo <path>", "Repo path")
-  .option("--content <content>", "README content string or '-' for stdin")
+  .option("--readme <content>", "README content string or '-' for stdin")
+  .option("--specs <content>", "SPECS content string or '-' for stdin")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     try {
@@ -278,8 +279,24 @@ program
       if (opts.appetite) body.appetite = opts.appetite;
       if (opts.status) body.status = opts.status;
       if (opts.repo !== undefined) body.repo = opts.repo;
-      if (opts.content !== undefined) {
-        body.readme = opts.content === "-" ? await readStdin() : opts.content;
+      let stdinContent: string | undefined;
+      const readStdinOnce = async () => {
+        if (stdinContent === undefined) stdinContent = await readStdin();
+        return stdinContent;
+      };
+      if (opts.readme !== undefined) {
+        body.readme =
+          opts.readme === "-" ? await readStdinOnce() : opts.readme;
+      }
+      if (opts.specs !== undefined) {
+        body.specs = opts.specs === "-" ? await readStdinOnce() : opts.specs;
+      }
+      if (opts.readme === undefined && opts.specs === undefined) {
+        const pipedContent =
+          process.stdin.isTTY === false ? await readStdin() : "";
+        if (pipedContent.length > 0) {
+          body.specs = pipedContent;
+        }
       }
 
       const data = (await getClient().updateProject(

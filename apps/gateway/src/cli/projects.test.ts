@@ -102,7 +102,7 @@ describe("projects CLI", () => {
     expect(body).toEqual({ status: "done", agent: "Sage" });
   });
 
-  it("update command sends --content as readme", async () => {
+  it("update command sends --readme and --specs", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -119,15 +119,17 @@ describe("projects CLI", () => {
       "projects",
       "update",
       "pro-5",
-      "--content",
+      "--readme",
       "# Updated",
+      "--specs",
+      "## Tasks",
       "--json",
     ]);
 
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-5");
     const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
-    expect(body).toEqual({ readme: "# Updated" });
+    expect(body).toEqual({ readme: "# Updated", specs: "## Tasks" });
   });
 
   it("start command omits runAgent/runMode when flags omitted", async () => {

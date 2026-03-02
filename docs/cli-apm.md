@@ -71,7 +71,7 @@ Options:
 
 ### `apm update <id>`
 
-Update project fields and/or README content.
+Update project fields and/or project docs content.
 
 Options:
 
@@ -89,12 +89,14 @@ Options:
   - `main-run`: use the main repo working tree, slug is `main`.
   - `worktree`: create/use a git worktree at `projects/.workspaces/...`, slug required.
 - `--repo <path>`: repo path (used by subagents and start prompt).
-- `--content <content>`: raw markdown content for README (no frontmatter). Use `-` to read from stdin.
+- `--readme <content>`: raw markdown content for `README.md` (no frontmatter). Use `-` to read from stdin.
+- `--specs <content>`: raw markdown content for `SPECS.md`. Use `-` to read from stdin.
 - `-j, --json`: JSON output.
 
 Notes:
 
 - To unset optional fields, pass empty string (e.g. `--owner ""`).
+- If stdin is piped and neither `--readme` nor `--specs` is provided, piped content is written to `SPECS.md`.
 
 ### `apm move <id> <status>`
 
@@ -231,7 +233,13 @@ apm create -t "Add kill tool" --domain coding "Implement a kill command for suba
 apm update PRO-19 --run-agent cli:codex --repo ~/code/aihub --run-mode worktree
 
 # Update README via stdin
-cat README.md | apm update PRO-19 --content -
+cat README.md | apm update PRO-19 --readme -
+
+# Update SPECS via stdin
+cat SPECS.md | apm update PRO-19 --specs -
+
+# Default stdin update target is SPECS.md
+cat SPECS.md | apm update PRO-19
 
 # Start a run with a custom prompt
 apm start PRO-19 --custom-prompt "Focus on the rollout plan."

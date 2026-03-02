@@ -437,7 +437,7 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Unset metadata by sending empty string; server deletes frontmatter field.
 - CLI should use HTTP API (default), not direct FS; base URL from config + env override.
 - CLI output: Markdown tables by default; `--json/-j` for JSON.
-- CLI update content supports `--content` string and stdin when `--content -`.
+- CLI update docs supports `--readme` and `--specs`; stdin defaults to `SPECS.md` when neither is provided.
 - No `updated` field for now.
 - Kanban columns order: Not now → Maybe → Shaping → Todo → In Progress → Review → Done.
 - Sort cards by created ascending (oldest first).
