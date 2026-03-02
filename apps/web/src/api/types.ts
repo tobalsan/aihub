@@ -380,6 +380,7 @@ export type SubagentLogEvent = {
   text?: string;
   tool?: { name?: string; id?: string };
   diff?: { path?: string; summary?: string };
+  parentToolUseId?: string;
 };
 
 export type ActivityEvent = {

@@ -47,6 +47,11 @@ type AgentChatProps = {
   showHeader?: boolean;
 };
 
+type SubagentRunInfo = {
+  toolUseId: string;
+  nestedItems: LogItem[];
+};
+
 type LogItem = {
   tone: "assistant" | "user" | "muted" | "error";
   icon?:
@@ -57,10 +62,12 @@ type LogItem = {
     | "output"
     | "diff"
     | "system"
-    | "error";
+    | "error"
+    | "subagent";
   title?: string;
   body: string;
   collapsible?: boolean;
+  subagentRun?: SubagentRunInfo;
 };
 
 // Local UI state for file attachments (before upload)
@@ -196,6 +203,46 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             skipResults.add(block.id);
             continue;
           }
+          if (toolKey === "agent") {
+            const prompt =
+              typeof args?.prompt === "string" ? args.prompt : "";
+            const description =
+              typeof args?.description === "string" ? args.description : "";
+            const subagentType =
+              typeof args?.subagent_type === "string"
+                ? args.subagent_type
+                : "";
+            const agentOutput = toolResults.get(block.id);
+            const summary = agentOutput
+              ? getTextBlocks(agentOutput.content)
+              : "";
+            const nestedItems: LogItem[] = [];
+            if (prompt) {
+              nestedItems.push({
+                tone: "user",
+                title: "Coordinator \u2192 Subagent",
+                body: prompt,
+              });
+            }
+            if (summary) {
+              nestedItems.push({
+                tone: "assistant",
+                title: "Subagent summary returned",
+                body: summary,
+              });
+            }
+            entries.push({
+              tone: "muted",
+              icon: "subagent",
+              title: `Subagent Run${subagentType ? ` (${subagentType})` : ""}`,
+              body:
+                description ||
+                (prompt ? prompt.slice(0, 200) : "Subagent run"),
+              subagentRun: { toolUseId: block.id, nestedItems },
+            });
+            skipResults.add(block.id);
+            continue;
+          }
           const output = toolResults.get(block.id);
           const outputText = output ? getTextBlocks(output.content) : "";
           entries.push({
@@ -300,17 +347,43 @@ function toLogItem(entry: SubagentLogEvent): LogItem {
   };
 }
 
+function relabelAsSubagent(items: LogItem[]): LogItem[] {
+  return items.map((item) => {
+    if (item.subagentRun) return item;
+    if (item.tone === "assistant") return { ...item, title: "Subagent" };
+    if (item.icon === "tool")
+      return {
+        ...item,
+        title: item.title?.replace(/^Tool:/, "Subagent Tool:") ?? "Subagent Tool",
+      };
+    if (item.icon === "output") return { ...item, title: "Subagent Result" };
+    return item;
+  });
+}
+
 function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
+  // Phase 1: group nested events by parentToolUseId
+  const nestedByParent = new Map<string, SubagentLogEvent[]>();
+  for (const event of events) {
+    if (event.parentToolUseId) {
+      const group = nestedByParent.get(event.parentToolUseId) ?? [];
+      group.push(event);
+      nestedByParent.set(event.parentToolUseId, group);
+    }
+  }
+
+  // Phase 2: build log items, filtering out nested events
   const entries: LogItem[] = [];
   const toolOutputs = new Map<string, SubagentLogEvent>();
   for (const event of events) {
-    if (event.type === "tool_output" && event.tool?.id) {
+    if (event.type === "tool_output" && event.tool?.id && !event.parentToolUseId) {
       toolOutputs.set(event.tool.id, event);
     }
   }
   const skipOutputs = new Set<string>();
 
   for (const event of events) {
+    if (event.parentToolUseId) continue;
     if (event.type === "skip") continue;
     if (event.type === "user") {
       if (event.text) {
@@ -332,10 +405,53 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
     }
     if (event.type === "tool_call") {
       const toolId = event.tool?.id ?? "";
-      const output = toolId ? toolOutputs.get(toolId) : undefined;
       const toolName = (event.tool?.name ?? "").trim();
       const toolKey = toolName.toLowerCase();
       const args = parseToolArgs(event.text ?? "");
+
+      // Agent tool call → Subagent Run card
+      if (toolKey === "agent" && toolId) {
+        const prompt =
+          typeof args?.prompt === "string" ? args.prompt : "";
+        const description =
+          typeof args?.description === "string" ? args.description : "";
+        const subagentType =
+          typeof args?.subagent_type === "string" ? args.subagent_type : "";
+        const output = toolOutputs.get(toolId);
+        const summary = output?.text ?? "";
+        const nested = nestedByParent.get(toolId) ?? [];
+        const nestedLogItems =
+          nested.length > 0 ? relabelAsSubagent(buildCliLogs(nested)) : [];
+
+        const allNested: LogItem[] = [];
+        if (prompt) {
+          allNested.push({
+            tone: "user",
+            title: "Coordinator \u2192 Subagent",
+            body: prompt,
+          });
+        }
+        allNested.push(...nestedLogItems);
+        if (summary) {
+          allNested.push({
+            tone: "assistant",
+            title: "Subagent summary returned",
+            body: summary,
+          });
+        }
+        entries.push({
+          tone: "muted",
+          icon: "subagent",
+          title: `Subagent Run${subagentType ? ` (${subagentType})` : ""}`,
+          body:
+            description || (prompt ? prompt.slice(0, 200) : "Subagent run"),
+          subagentRun: { toolUseId: toolId, nestedItems: allNested },
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
+
+      const output = toolId ? toolOutputs.get(toolId) : undefined;
       if (toolKey === "exec_command" || toolKey === "bash") {
         const command =
           typeof args?.cmd === "string"
@@ -390,7 +506,36 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   return entries;
 }
 
-function renderLogItem(item: LogItem) {
+function renderSubagentRunCard(item: LogItem, showNested: boolean) {
+  const run = item.subagentRun!;
+  const count = run.nestedItems.length;
+  return (
+    <details class="subagent-run-card">
+      <summary class="subagent-run-header">
+        <span class="subagent-fork-icon" aria-hidden="true">
+          &#x2442;
+        </span>
+        <div class="subagent-run-info">
+          <span class="subagent-run-title">{item.title}</span>
+          <span class="subagent-run-desc">{item.body}</span>
+        </div>
+        <span class="subagent-run-badge">
+          {count} {count === 1 ? "item" : "items"}
+        </span>
+      </summary>
+      <Show when={showNested && count > 0}>
+        <div class="subagent-run-content">
+          {run.nestedItems.map((nested) => renderLogItem(nested, showNested))}
+        </div>
+      </Show>
+    </details>
+  );
+}
+
+function renderLogItem(item: LogItem, showNested = true) {
+  if (item.subagentRun) {
+    return renderSubagentRunCard(item, showNested);
+  }
   const useMarkdown = item.tone === "assistant" || item.tone === "user";
   if (item.collapsible) {
     const summaryText = item.title ?? item.body.split("\n")[0] ?? "Details";
@@ -534,6 +679,21 @@ function logIcon(icon?: LogItem["icon"]) {
       </svg>
     );
   }
+  if (icon === "subagent") {
+    return (
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M6 3v12" />
+        <path d="M6 15c0-3 6-3 6-6" />
+        <path d="M12 9v12" />
+      </svg>
+    );
+  }
   return null;
 }
 
@@ -644,6 +804,7 @@ export function AgentChat(props: AgentChatProps) {
     }
     return false;
   });
+  const [showSubagents, setShowSubagents] = createSignal(true);
 
   onMount(() => {
     resizeTextarea("");
@@ -757,6 +918,32 @@ export function AgentChat(props: AgentChatProps) {
         body: content,
         collapsible: true,
       };
+    } else if (toolKey === "agent") {
+      const prompt = typeof args.prompt === "string" ? args.prompt : "";
+      const description =
+        typeof args.description === "string" ? args.description : "";
+      const subagentType =
+        typeof args.subagent_type === "string" ? args.subagent_type : "";
+      item = {
+        tone: "muted",
+        icon: "subagent",
+        title: `Subagent Run${subagentType ? ` (${subagentType})` : ""}`,
+        body:
+          description ||
+          (prompt ? prompt.slice(0, 200) : "Subagent running..."),
+        subagentRun: {
+          toolUseId: id,
+          nestedItems: prompt
+            ? [
+                {
+                  tone: "user",
+                  title: "Coordinator \u2192 Subagent",
+                  body: prompt,
+                },
+              ]
+            : [],
+        },
+      };
     } else {
       item = {
         tone: "muted",
@@ -783,6 +970,31 @@ export function AgentChat(props: AgentChatProps) {
 
     const toolKey = entry.name.toLowerCase();
     if (toolKey === "write") return;
+
+    if (toolKey === "agent") {
+      if (!content) return;
+      setAihubLogs((prev) => {
+        if (entry.index < 0 || entry.index >= prev.length) return prev;
+        const current = prev[entry.index];
+        if (!current.subagentRun) return prev;
+        const next = [...prev];
+        const updatedNested = [...current.subagentRun.nestedItems];
+        updatedNested.push({
+          tone: "assistant",
+          title: "Subagent summary returned",
+          body: content,
+        });
+        next[entry.index] = {
+          ...current,
+          subagentRun: {
+            ...current.subagentRun,
+            nestedItems: updatedNested,
+          },
+        };
+        return next;
+      });
+      return;
+    }
 
     const nextBody =
       content ||
@@ -1133,6 +1345,11 @@ export function AgentChat(props: AgentChatProps) {
     return [...cliLogs(), ...pending.map((text) => ({ type: "user", text }))];
   });
   const cliLogItems = createMemo(() => buildCliLogs(cliDisplayEvents()));
+  const hasSubagentRuns = createMemo(() => {
+    const items =
+      props.agentType === "lead" ? aihubLogItems() : cliLogItems();
+    return items.some((item) => item.subagentRun);
+  });
 
   return (
     <div
@@ -1253,11 +1470,25 @@ export function AgentChat(props: AgentChatProps) {
 
         <Show when={props.agentName && props.agentType === "lead"}>
           <div class="log-pane" ref={logPaneRef} onScroll={handleScroll}>
+            <Show when={hasSubagentRuns()}>
+              <div class="subagent-filter-bar">
+                <button
+                  type="button"
+                  class="subagent-filter-toggle"
+                  classList={{ active: !showSubagents() }}
+                  onClick={() => setShowSubagents((prev) => !prev)}
+                >
+                  {showSubagents() ? "All messages" : "Main only"}
+                </button>
+              </div>
+            </Show>
             <Show
               when={aihubLogItems().length > 0}
               fallback={<div class="log-empty">No messages yet.</div>}
             >
-              {aihubLogItems().map((item) => renderLogItem(item))}
+              {aihubLogItems().map((item) =>
+                renderLogItem(item, showSubagents())
+              )}
             </Show>
             <Show when={aihubLive()}>
               <div class="log-line assistant live">
@@ -1280,11 +1511,25 @@ export function AgentChat(props: AgentChatProps) {
 
         <Show when={props.agentName && props.agentType === "subagent"}>
           <div class="log-pane" ref={logPaneRef} onScroll={handleScroll}>
+            <Show when={hasSubagentRuns()}>
+              <div class="subagent-filter-bar">
+                <button
+                  type="button"
+                  class="subagent-filter-toggle"
+                  classList={{ active: !showSubagents() }}
+                  onClick={() => setShowSubagents((prev) => !prev)}
+                >
+                  {showSubagents() ? "All messages" : "Main only"}
+                </button>
+              </div>
+            </Show>
             <Show
               when={cliLogItems().length > 0}
               fallback={<div class="log-empty">No logs yet.</div>}
             >
-              {cliLogItems().map((item) => renderLogItem(item))}
+              {cliLogItems().map((item) =>
+                renderLogItem(item, showSubagents())
+              )}
             </Show>
             <Show
               when={
@@ -2028,6 +2273,109 @@ export function AgentChat(props: AgentChatProps) {
           color: var(--text-muted);
           font-size: 13px;
           padding: 4px 0;
+        }
+
+        /* ── Subagent Run Cards ── */
+
+        .subagent-run-card {
+          background: var(--subagent-bg);
+          border-left: 3px solid var(--subagent-border);
+          border-radius: 0 8px 8px 0;
+          margin: 4px 0;
+        }
+
+        .subagent-run-card > summary {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          cursor: pointer;
+          list-style: none;
+          user-select: none;
+        }
+
+        .subagent-run-card > summary::-webkit-details-marker { display: none; }
+        .subagent-run-card > summary::marker { display: none; content: ""; }
+
+        .subagent-fork-icon {
+          color: var(--subagent-text);
+          font-size: 16px;
+          flex-shrink: 0;
+        }
+
+        .subagent-run-info {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .subagent-run-title {
+          font-weight: 600;
+          font-size: 12px;
+          color: var(--subagent-text);
+        }
+
+        .subagent-run-desc {
+          font-size: 12px;
+          color: var(--text-muted);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .subagent-run-badge {
+          font-size: 11px;
+          color: var(--text-muted);
+          background: rgba(124, 58, 237, 0.1);
+          padding: 2px 8px;
+          border-radius: 999px;
+          flex-shrink: 0;
+        }
+
+        .subagent-run-content {
+          padding: 4px 12px 12px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .subagent-run-content .log-line {
+          font-size: 13px;
+        }
+
+        .subagent-run-content .log-line + .log-line {
+          border-top: 1px solid rgba(124, 58, 237, 0.08);
+        }
+
+        /* ── Subagent Filter Toggle ── */
+
+        .subagent-filter-bar {
+          display: flex;
+          justify-content: flex-end;
+          padding: 0 0 8px;
+        }
+
+        .subagent-filter-toggle {
+          background: var(--bg-overlay);
+          border: 1px solid var(--border-subtle);
+          color: var(--text-secondary);
+          border-radius: 999px;
+          padding: 4px 12px;
+          font-size: 11px;
+          cursor: pointer;
+          transition: background 0.15s, color 0.15s;
+        }
+
+        .subagent-filter-toggle:hover {
+          background: rgba(124, 58, 237, 0.08);
+        }
+
+        .subagent-filter-toggle.active {
+          background: rgba(124, 58, 237, 0.15);
+          border-color: var(--subagent-border);
+          color: var(--subagent-text);
         }
       `}</style>
     </div>

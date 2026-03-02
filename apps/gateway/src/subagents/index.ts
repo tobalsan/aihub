@@ -34,6 +34,7 @@ export type SubagentLogEvent = {
   text?: string;
   tool?: { name?: string; id?: string };
   diff?: { path?: string; summary?: string };
+  parentToolUseId?: string;
 };
 
 export type SubagentListResult =
@@ -839,10 +840,23 @@ export async function getSubagentLogs(
   const events: SubagentLogEvent[] = [];
   for (const line of lines) {
     const normalized = normalizeLogLine(line);
+    let parentToolUseId: string | undefined;
+    try {
+      const raw = JSON.parse(line) as Record<string, unknown>;
+      if (typeof raw.parent_tool_use_id === "string") {
+        parentToolUseId = raw.parent_tool_use_id;
+      }
+    } catch {
+      /* ignore */
+    }
+    const attach = (ev: SubagentLogEvent): SubagentLogEvent =>
+      parentToolUseId ? { ...ev, parentToolUseId } : ev;
     if (Array.isArray(normalized)) {
-      events.push(...normalized);
+      for (const ev of normalized) {
+        events.push(attach(ev));
+      }
     } else if (normalized.type !== "skip") {
-      events.push(normalized);
+      events.push(attach(normalized));
     }
   }
 
