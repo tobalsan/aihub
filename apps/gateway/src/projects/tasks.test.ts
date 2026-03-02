@@ -41,8 +41,12 @@ describe("projects tasks parser", () => {
       "",
       "## Tasks",
       "",
+      "### Backend",
+      "",
       "- [ ] **Add area YAML store** `status:todo`",
       "  Implement gateway endpoint",
+      "",
+      "### Frontend",
       "",
       "- [x] **Design token system** `agent:codex-1`",
       "  Define CSS custom properties",
@@ -77,7 +81,13 @@ describe("projects tasks parser", () => {
       "",
       "## Tasks",
       "",
+      "### Backend",
+      "",
       "- [ ] **Old task** `status:todo`",
+      "",
+      "### Frontend",
+      "",
+      "- [ ] **Old UI task** `status:todo`",
       "",
       "## Notes",
       "Keep this text.",
@@ -91,19 +101,70 @@ describe("projects tasks parser", () => {
         checked: false,
         order: 0,
       },
+      {
+        title: "New UI task",
+        status: "todo" as const,
+        checked: false,
+        order: 1,
+      },
     ];
 
     const next = serializeTasks(tasks, content);
     expect(next).toContain("## Tasks");
+    expect(next).toContain("### Backend");
+    expect(next).toContain("### Frontend");
     expect(next).toContain("- [ ] **New task** `status:in_progress`");
+    expect(next).toContain("- [ ] **New UI task** `status:todo`");
     expect(next).toContain("  Line 1");
     expect(next).toContain("## Notes\nKeep this text.");
 
     const roundTrip = parseTasks(next);
-    expect(roundTrip).toHaveLength(1);
+    expect(roundTrip).toHaveLength(2);
     expect(roundTrip[0].title).toBe("New task");
     expect(roundTrip[0].status).toBe("in_progress");
     expect(roundTrip[0].description).toBe("Line 1\nLine 2");
+    expect(roundTrip[1].title).toBe("New UI task");
+  });
+
+  it("appends new tasks into the last subsection when subsections exist", () => {
+    const content = [
+      "## Tasks",
+      "",
+      "### Backend",
+      "",
+      "- [ ] **Backend task** `status:todo`",
+      "",
+      "### Frontend",
+      "",
+      "- [ ] **Frontend task** `status:todo`",
+      "",
+    ].join("\n");
+    const tasks = [
+      {
+        title: "Backend task",
+        status: "todo" as const,
+        checked: false,
+        order: 0,
+      },
+      {
+        title: "Frontend task",
+        status: "todo" as const,
+        checked: false,
+        order: 1,
+      },
+      {
+        title: "New trailing task",
+        status: "todo" as const,
+        checked: false,
+        order: 2,
+      },
+    ];
+
+    const next = serializeTasks(tasks, content);
+    const frontendIndex = next.indexOf("### Frontend");
+    const trailingTaskIndex = next.indexOf("**New trailing task**");
+    expect(frontendIndex).toBeGreaterThanOrEqual(0);
+    expect(trailingTaskIndex).toBeGreaterThan(frontendIndex);
   });
 
   it("handles missing and acceptance criteria sections", () => {

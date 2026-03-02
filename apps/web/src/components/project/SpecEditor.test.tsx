@@ -407,4 +407,73 @@ describe("SpecEditor", () => {
 
     dispose();
   });
+
+  it("renders task and acceptance subsection headings from h3 blocks", () => {
+    const tasks: Task[] = [
+      {
+        title: "Build parser",
+        status: "todo",
+        checked: false,
+        order: 0,
+      },
+      {
+        title: "Build UI",
+        status: "todo",
+        checked: false,
+        order: 1,
+      },
+    ];
+    const specContent = [
+      "## Tasks",
+      "",
+      "### Backend",
+      "",
+      "- [ ] **Build parser** `status:todo`",
+      "",
+      "### Frontend",
+      "",
+      "- [ ] **Build UI** `status:todo`",
+      "",
+      "## Acceptance Criteria",
+      "",
+      "### Happy Path",
+      "",
+      "- [ ] Project detail shows grouped tasks",
+      "",
+      "### Edge Cases",
+      "",
+      "- [ ] Task updates preserve subsection headings",
+      "",
+    ].join("\n");
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={specContent}
+          docs={{ "SPECS.md": specContent }}
+          tasks={tasks}
+          progress={{ done: 0, total: 2 }}
+          onToggleTask={async () => {}}
+          onAddTask={async () => {}}
+          onSaveSpec={async () => {}}
+          onRefresh={async () => {}}
+        />
+      ),
+      container
+    );
+
+    const subsectionTitles = Array.from(
+      container.querySelectorAll(".spec-subsection-title")
+    ).map((node) => node.textContent?.trim());
+    expect(subsectionTitles).toEqual([
+      "Backend",
+      "Frontend",
+      "Happy Path",
+      "Edge Cases",
+    ]);
+
+    dispose();
+  });
 });

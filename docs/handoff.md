@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-02-28, later; 2026-03-01)
+Date: 2026-01-27 (updated 2026-02-28, later; 2026-03-01; 2026-03-02)
 Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-editor`
 
 ---
@@ -14,6 +14,26 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
+
+### Follow-up Delta (2026-03-02, SPECS parsing guideline for agents)
+
+- Added `docs/specs-task-format.md`:
+  - Canonical markdown contract for `SPECS.md` sections `## Tasks` and `## Acceptance Criteria`.
+  - Documents strict task parser requirements used by project detail (checkbox + bold title + inline metadata shape).
+  - Documents acceptance criteria checkbox format and common parsing pitfalls.
+  - Documents optional `###` subsection grouping inside both sections.
+- Parser updates to support subsection organization without changing task API shape:
+  - Gateway task serializer now preserves `###` subsection grouping in `## Tasks` during task updates (`apps/gateway/src/projects/tasks.ts`).
+  - SpecEditor now reads `###` subsection headings for both Tasks and Acceptance Criteria and renders grouped checklist blocks (`apps/web/src/components/project/SpecEditor.tsx`).
+- Prompt update:
+  - Coordinator template default role prompt now includes a concise paragraph describing parse-safe `SPECS.md` checklist format (`## Tasks`, `## Acceptance Criteria`, task line metadata shape, optional `###` subsections).
+- Tests updated:
+  - `apps/gateway/src/projects/tasks.test.ts`
+  - `apps/web/src/components/project/SpecEditor.test.tsx`
+  - `packages/shared/src/projectPrompt.test.ts`
+- Added references to this guide from:
+  - `README.md`
+  - `docs/llms.md`
 
 ### Follow-up Delta (2026-03-01, PRO-152 Space-first foundation)
 

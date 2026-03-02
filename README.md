@@ -135,6 +135,16 @@ Project subagent CLIs:
 - Removed: `droid`, `gemini` (API returns validation error)
 - Lead agents continue to run through the embedded Pi SDK; project subagents run as external CLIs.
 
+## SPECS Task/Acceptance Format
+
+Project detail parses `SPECS.md` with a specific markdown shape for `## Tasks` and `## Acceptance Criteria`.
+Both sections now support optional `###` subgroup headings for organization.
+The Coordinator spawn template prompt also reminds agents to use this parse-safe format when updating `SPECS.md`.
+
+Use the canonical guide:
+
+- `docs/specs-task-format.md`
+
 ## OAuth Authentication
 
 Pi SDK agents can use OAuth tokens instead of API keys. Supported providers: `anthropic`, `openai-codex`, `github-copilot`, `google-gemini-cli`, `google-antigravity`.

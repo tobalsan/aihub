@@ -71,13 +71,26 @@ function extractSectionLines(content: string, heading: string): string[] {
   return lines.slice(sectionStart + 1, sectionEnd);
 }
 
-function parseTasksFromSection(content: string, heading: string): Task[] {
+const TASK_LINE_PATTERN = /^- \[( |x)\] \*\*(.+?)\*\*(.*)$/;
+const SUBSECTION_H3_PATTERN = /^###\s+(.+?)\s*$/;
+
+function parseSectionTaskEntries(
+  content: string,
+  heading: string
+): Array<{ task: Task; subsection: string | null }> {
   const lines = extractSectionLines(content, heading);
-  const tasks: Task[] = [];
+  const entries: Array<{ task: Task; subsection: string | null }> = [];
+  let currentSubsection: string | null = null;
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    const taskMatch = line.match(/^- \[( |x)\] \*\*(.+?)\*\*(.*)$/);
+    const subsectionMatch = line.match(SUBSECTION_H3_PATTERN);
+    if (subsectionMatch) {
+      currentSubsection = subsectionMatch[1]?.trim() || null;
+      continue;
+    }
+
+    const taskMatch = line.match(TASK_LINE_PATTERN);
     if (!taskMatch) continue;
 
     const checked = taskMatch[1] === "x";
@@ -99,20 +112,47 @@ function parseTasksFromSection(content: string, heading: string): Task[] {
     i = cursor - 1;
 
     const derivedStatus: Task["status"] = checked ? "done" : "todo";
-    tasks.push(
-      TaskSchema.parse({
+    entries.push({
+      subsection: currentSubsection,
+      task: TaskSchema.parse({
         title,
         description:
           descriptionLines.length > 0 ? descriptionLines.join("\n") : undefined,
         status: metadata.status ?? derivedStatus,
         checked,
         agentId: metadata.agentId,
-        order: tasks.length,
-      })
-    );
+        order: entries.length,
+      }),
+    });
   }
 
-  return tasks;
+  return entries;
+}
+
+function parseTasksFromSection(content: string, heading: string): Task[] {
+  return parseSectionTaskEntries(content, heading).map((entry) => entry.task);
+}
+
+function parseTaskSubsections(
+  content: string,
+  heading: string
+): { perTask: Array<string | null>; lastSeen: string | null } {
+  const lines = extractSectionLines(content, heading);
+  const perTask: Array<string | null> = [];
+  let currentSubsection: string | null = null;
+
+  for (const line of lines) {
+    const subsectionMatch = line.match(SUBSECTION_H3_PATTERN);
+    if (subsectionMatch) {
+      currentSubsection = subsectionMatch[1]?.trim() || null;
+      continue;
+    }
+    if (TASK_LINE_PATTERN.test(line)) {
+      perTask.push(currentSubsection);
+    }
+  }
+
+  return { perTask, lastSeen: currentSubsection };
 }
 
 export function parseTasks(specsContent: string): Task[] {
@@ -124,25 +164,51 @@ export function parseAcceptanceCriteria(specsContent: string): Task[] {
 }
 
 function renderTasks(tasks: Task[]): string {
-  return tasks
-    .map((task, idx) => {
-      const checked = task.checked ? "x" : " ";
-      const metadata = [`status:${task.status}`];
-      if (task.agentId) {
-        metadata.push(`agent:${task.agentId}`);
-      }
-      const header =
-        `- [${checked}] **${task.title}** ${metadata.map((item) => `\`${item}\``).join(" ")}`.trim();
-      const description = task.description
-        ? `\n${task.description
-            .split("\n")
-            .map((line) => `  ${line}`)
-            .join("\n")}`
-        : "";
-      const nextTaskGap = idx < tasks.length - 1 ? "\n" : "";
-      return `${header}${description}${nextTaskGap}`;
-    })
-    .join("\n");
+  return tasks.map(renderTask).join("\n\n");
+}
+
+function renderTask(task: Task): string {
+  const checked = task.checked ? "x" : " ";
+  const metadata = [`status:${task.status}`];
+  if (task.agentId) {
+    metadata.push(`agent:${task.agentId}`);
+  }
+  const header =
+    `- [${checked}] **${task.title}** ${metadata.map((item) => `\`${item}\``).join(" ")}`.trim();
+  const description = task.description
+    ? `\n${task.description
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n")}`
+    : "";
+  return `${header}${description}`;
+}
+
+function renderTasksWithSubsections(
+  tasks: Task[],
+  subsectionByOrder: Array<string | null>,
+  fallbackSubsection: string | null
+): string {
+  if (tasks.length === 0) return "";
+
+  const grouped: Array<{ subsection: string | null; items: Task[] }> = [];
+  for (let i = 0; i < tasks.length; i += 1) {
+    const subsection = subsectionByOrder[i] ?? fallbackSubsection ?? null;
+    const task = tasks[i];
+    const lastGroup = grouped[grouped.length - 1];
+    if (!lastGroup || lastGroup.subsection !== subsection) {
+      grouped.push({ subsection, items: [task] });
+      continue;
+    }
+    lastGroup.items.push(task);
+  }
+
+  const blocks = grouped.map((group) => {
+    const taskBlock = group.items.map(renderTask).join("\n\n");
+    if (!group.subsection) return taskBlock;
+    return `### ${group.subsection}\n\n${taskBlock}`;
+  });
+  return blocks.join("\n\n");
 }
 
 function upsertSection(
@@ -183,7 +249,16 @@ function upsertSection(
 
 export function serializeTasks(tasks: Task[], specsContent: string): string {
   const normalized = tasks.map((task, order) => ({ ...task, order }));
-  return upsertSection(specsContent, "Tasks", renderTasks(normalized));
+  const subsectionLayout = parseTaskSubsections(specsContent, "Tasks");
+  const body =
+    subsectionLayout.perTask.length > 0 || subsectionLayout.lastSeen
+      ? renderTasksWithSubsections(
+          normalized,
+          subsectionLayout.perTask,
+          subsectionLayout.lastSeen
+        )
+      : renderTasks(normalized);
+  return upsertSection(specsContent, "Tasks", body);
 }
 
 export async function readSpec(

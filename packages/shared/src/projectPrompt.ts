@@ -299,14 +299,15 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
     includeDefault ? roleDefaultPrompt(input, false) : "",
     includeRole
       ? [
-          "## Your Role: Coordinator",
-          "You manage this project's execution. You do NOT implement code yourself.",
-          "- Review the spec and break it into discrete tasks if needed",
-          "- Delegate implementation to worker agents",
-          "- Track progress and keep project docs updated",
-          "- Verify acceptance criteria before signaling completion",
-        ].join("\n")
-      : "",
+        "## Your Role: Coordinator",
+        "You manage this project's execution. You do NOT implement code yourself.",
+        "- Review the spec and break it into discrete tasks if needed",
+        "- Delegate implementation to worker agents",
+        "- Track progress and keep project docs updated",
+        "- Verify acceptance criteria before signaling completion",
+        "When writing SPECS.md, keep checklist sections parseable: use `## Tasks` and `## Acceptance Criteria`; in `## Tasks`, format each item like ``- [ ] **Title** `status:todo` `` (or `in_progress` / `done`) with optional `` `agent:<id>` `` and indented description lines; in `## Acceptance Criteria`, use checkbox lines. Optional `###` subsections are supported in both sections.",
+      ].join("\n")
+    : "",
     postRun,
     input.customPrompt,
   ]);

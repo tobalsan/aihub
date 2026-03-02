@@ -22,6 +22,7 @@ type SectionCheckbox = {
   lineIndex: number;
   label: string;
   checked: boolean;
+  section: string | null;
 };
 
 type MarkdownDoc = {
@@ -31,6 +32,16 @@ type MarkdownDoc = {
   isSpec: boolean;
 };
 
+type TaskWithSection = Task & { section: string | null };
+
+type SectionGroup<T> = {
+  section: string | null;
+  items: T[];
+};
+
+const SUBSECTION_H3_PATTERN = /^###\s+(.+?)\s*$/;
+const TASK_LINE_PATTERN = /^- \[( |x)\] \*\*(.+?)\*\*(.*)$/;
+
 function parseSectionCheckboxes(
   content: string,
   heading: string
@@ -38,6 +49,7 @@ function parseSectionCheckboxes(
   const lines = content.split("\n");
   const headingPattern = new RegExp(`^##\\s+${heading}\\s*$`, "i");
   let inSection = false;
+  let currentSection: string | null = null;
   const items: SectionCheckbox[] = [];
 
   for (let i = 0; i < lines.length; i += 1) {
@@ -49,16 +61,72 @@ function parseSectionCheckboxes(
     if (inSection && /^##\s+/.test(line.trim())) break;
     if (!inSection) continue;
 
+    const subsectionMatch = line.match(SUBSECTION_H3_PATTERN);
+    if (subsectionMatch) {
+      currentSection = subsectionMatch[1]?.trim() || null;
+      continue;
+    }
+
     const match = line.match(/^\s*-\s+\[([ xX])\]\s+(.+)$/);
     if (!match) continue;
     items.push({
       lineIndex: i,
       checked: match[1].toLowerCase() === "x",
       label: match[2].trim(),
+      section: currentSection,
     });
   }
 
   return items;
+}
+
+function parseTaskSubsections(content: string): {
+  perTask: Array<string | null>;
+  lastSeen: string | null;
+} {
+  const lines = content.split("\n");
+  const headingPattern = /^##\s+Tasks\s*$/i;
+  let inSection = false;
+  let currentSection: string | null = null;
+  const perTask: Array<string | null> = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine ?? "";
+    const trimmed = line.trim();
+    if (!inSection && headingPattern.test(trimmed)) {
+      inSection = true;
+      continue;
+    }
+    if (!inSection) continue;
+    if (/^##\s+/.test(trimmed)) break;
+
+    const subsectionMatch = line.match(SUBSECTION_H3_PATTERN);
+    if (subsectionMatch) {
+      currentSection = subsectionMatch[1]?.trim() || null;
+      continue;
+    }
+
+    if (TASK_LINE_PATTERN.test(line)) {
+      perTask.push(currentSection);
+    }
+  }
+
+  return { perTask, lastSeen: currentSection };
+}
+
+function groupBySection<T extends { section: string | null }>(
+  items: T[]
+): SectionGroup<T>[] {
+  const groups: SectionGroup<T>[] = [];
+  for (const item of items) {
+    const previous = groups[groups.length - 1];
+    if (!previous || previous.section !== item.section) {
+      groups.push({ section: item.section, items: [item] });
+      continue;
+    }
+    previous.items.push(item);
+  }
+  return groups;
 }
 
 function setLineChecked(
@@ -184,18 +252,33 @@ export function SpecEditor(props: SpecEditorProps) {
     parseSectionCheckboxes(props.specContent, "Acceptance Criteria")
   );
 
-  const displayedTasks = createMemo<Task[]>(() => {
+  const taskSubsections = createMemo(() => parseTaskSubsections(props.specContent));
+
+  const displayedTasks = createMemo<TaskWithSection[]>(() => {
     const optimistic = optimisticCheckedByOrder();
+    const subsectionLayout = taskSubsections();
     return props.tasks.map((task) => {
       const checked = optimistic[task.order];
-      if (typeof checked !== "boolean") return task;
+      const section =
+        subsectionLayout.perTask[task.order] ??
+        subsectionLayout.lastSeen ??
+        null;
+      if (typeof checked !== "boolean") {
+        return { ...task, section };
+      }
       return {
         ...task,
         checked,
         status: checked ? "done" : "todo",
+        section,
       };
     });
   });
+
+  const groupedTasks = createMemo(() => groupBySection(displayedTasks()));
+  const groupedAcceptanceItems = createMemo(() =>
+    groupBySection(acceptanceItems())
+  );
 
   const displayedProgress = createMemo(() => {
     const items = displayedTasks();
@@ -265,7 +348,7 @@ export function SpecEditor(props: SpecEditorProps) {
     setDraft("");
   };
 
-  const handleToggleTask = async (task: Task) => {
+  const handleToggleTask = async (task: TaskWithSection) => {
     const nextChecked = !task.checked;
     setOptimisticCheckedByOrder((prev) => ({
       ...prev,
@@ -273,7 +356,8 @@ export function SpecEditor(props: SpecEditorProps) {
     }));
     setUpdatingOrder(task.order);
     try {
-      await props.onToggleTask(task);
+      const { section: _section, ...baseTask } = task;
+      await props.onToggleTask(baseTask);
     } catch (error) {
       setOptimisticCheckedByOrder((prev) => {
         const next = { ...prev };
@@ -321,13 +405,24 @@ export function SpecEditor(props: SpecEditorProps) {
           color={props.areaColor}
         />
         <div class="spec-task-list">
-          <For each={displayedTasks()}>
-            {(task) => (
-              <TaskCheckbox
-                task={task}
-                disabled={updatingOrder() === task.order || saving()}
-                onToggle={(current) => void handleToggleTask(current)}
-              />
+          <For each={groupedTasks()}>
+            {(group) => (
+              <div class="spec-subsection">
+                <Show when={group.section}>
+                  <h4 class="spec-subsection-title">{group.section}</h4>
+                </Show>
+                <div class="spec-subsection-list">
+                  <For each={group.items}>
+                    {(task) => (
+                      <TaskCheckbox
+                        task={task}
+                        disabled={updatingOrder() === task.order || saving()}
+                        onToggle={() => void handleToggleTask(task)}
+                      />
+                    )}
+                  </For>
+                </div>
+              </div>
             )}
           </For>
           <Show when={displayedTasks().length === 0}>
@@ -411,27 +506,36 @@ export function SpecEditor(props: SpecEditorProps) {
       <Show when={acceptanceItems().length > 0}>
         <section class="spec-section">
           <h3>Acceptance Criteria</h3>
-          <ul class="acceptance-list">
-            <For each={acceptanceItems()}>
-              {(item) => (
-                <li>
-                  <button
-                    type="button"
-                    class="acceptance-item"
-                    onClick={() => void handleToggleAcceptance(item)}
-                    disabled={saving()}
-                  >
-                    <span
-                      class={`acceptance-check ${item.checked ? "checked" : ""}`}
-                    >
-                      {item.checked ? "x" : ""}
-                    </span>
-                    <span>{item.label}</span>
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
+          <For each={groupedAcceptanceItems()}>
+            {(group) => (
+              <div class="spec-subsection">
+                <Show when={group.section}>
+                  <h4 class="spec-subsection-title">{group.section}</h4>
+                </Show>
+                <ul class="acceptance-list">
+                  <For each={group.items}>
+                    {(item) => (
+                      <li>
+                        <button
+                          type="button"
+                          class="acceptance-item"
+                          onClick={() => void handleToggleAcceptance(item)}
+                          disabled={saving()}
+                        >
+                          <span
+                            class={`acceptance-check ${item.checked ? "checked" : ""}`}
+                          >
+                            {item.checked ? "x" : ""}
+                          </span>
+                          <span>{item.label}</span>
+                        </button>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </div>
+            )}
+          </For>
         </section>
       </Show>
     </div>
@@ -610,6 +714,30 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-task-list {
+          display: grid;
+          gap: 8px;
+        }
+
+        .spec-subsection {
+          display: grid;
+          gap: 8px;
+        }
+
+        .spec-subsection + .spec-subsection {
+          margin-top: 2px;
+          padding-top: 10px;
+          border-top: 1px solid var(--border-subtle);
+        }
+
+        .spec-subsection-title {
+          margin: 0;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--text-muted);
+        }
+
+        .spec-subsection-list {
           display: grid;
           gap: 8px;
         }
