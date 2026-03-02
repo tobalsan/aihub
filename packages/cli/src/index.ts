@@ -128,6 +128,69 @@ function mapSubagentStatus(
 
 type StartTemplate = "coordinator" | "worker" | "reviewer" | "custom";
 type StartPromptRole = "coordinator" | "worker" | "reviewer" | "legacy";
+type StartHarness = "codex" | "claude" | "pi";
+
+type StartTemplateDefaults = {
+  runAgent: string;
+  model: string;
+  reasoningEffort: string;
+  includeDefaultPrompt: boolean;
+  includeRoleInstructions: boolean;
+  includePostRun: boolean;
+};
+
+const START_TEMPLATE_DEFAULTS: Record<StartTemplate, StartTemplateDefaults> = {
+  coordinator: {
+    runAgent: "cli:claude",
+    model: "opus",
+    reasoningEffort: "medium",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: false,
+  },
+  worker: {
+    runAgent: "cli:codex",
+    model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: true,
+  },
+  reviewer: {
+    runAgent: "cli:codex",
+    model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: false,
+  },
+  custom: {
+    runAgent: "cli:codex",
+    model: "gpt-5.3-codex",
+    reasoningEffort: "xhigh",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: true,
+  },
+};
+
+const START_HARNESS_MODELS: Record<StartHarness, readonly string[]> = {
+  codex: ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
+  claude: ["opus", "sonnet", "haiku"],
+  pi: [
+    "qwen3.5-plus",
+    "qwen3-max-2026-01-23",
+    "MiniMax-M2.5",
+    "glm-5",
+    "kimi-k2.5",
+  ],
+};
+
+const START_HARNESS_EFFORTS: Record<StartHarness, readonly string[]> = {
+  codex: ["xhigh", "high", "medium", "low"],
+  claude: ["high", "medium", "low"],
+  pi: ["off", "low", "medium", "high", "xhigh"],
+};
 
 type StartCommandOpts = {
   agent?: string;
@@ -171,12 +234,41 @@ function toStartPromptRole(
   return undefined;
 }
 
+function toStartHarness(value: unknown): StartHarness | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "cli:codex") return "codex";
+  if (normalized === "cli:claude") return "claude";
+  if (normalized === "cli:pi") return "pi";
+  return undefined;
+}
+
 export function buildStartRequestBody(opts: StartCommandOpts): {
   body: Record<string, unknown>;
   errors: string[];
 } {
   const body: Record<string, unknown> = {};
   const errors: string[] = [];
+  let selectedTemplate: StartTemplate | undefined;
+
+  if (typeof opts.template === "string" && opts.template.trim()) {
+    const template = toStartTemplate(opts.template);
+    if (!template) {
+      errors.push(
+        "Invalid --template value. Use coordinator|worker|reviewer|custom."
+      );
+    } else {
+      selectedTemplate = template;
+      body.template = template;
+      const defaults = START_TEMPLATE_DEFAULTS[template];
+      body.runAgent = defaults.runAgent;
+      body.model = defaults.model;
+      body.reasoningEffort = defaults.reasoningEffort;
+      body.includeDefaultPrompt = defaults.includeDefaultPrompt;
+      body.includeRoleInstructions = defaults.includeRoleInstructions;
+      body.includePostRun = defaults.includePostRun;
+    }
+  }
 
   if (typeof opts.agent === "string" && opts.agent.trim()) {
     const agentValue = opts.agent.trim();
@@ -209,14 +301,53 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
     body.slug = opts.slug.trim();
   }
 
-  if (typeof opts.template === "string" && opts.template.trim()) {
-    const template = toStartTemplate(opts.template);
-    if (!template) {
-      errors.push(
-        "Invalid --template value. Use coordinator|worker|reviewer|custom."
-      );
-    } else {
-      body.template = template;
+  if (selectedTemplate && typeof body.runAgent === "string") {
+    const harness = toStartHarness(body.runAgent);
+    const hasExplicitModel =
+      typeof opts.model === "string" && opts.model.trim().length > 0;
+    const hasExplicitReasoning =
+      typeof opts.reasoningEffort === "string" &&
+      opts.reasoningEffort.trim().length > 0;
+    const hasExplicitThinking =
+      typeof opts.thinking === "string" && opts.thinking.trim().length > 0;
+
+    if (harness && !hasExplicitModel) {
+      const allowedModels = START_HARNESS_MODELS[harness];
+      const model =
+        typeof body.model === "string" ? body.model.trim() : "";
+      if (!allowedModels.includes(model)) {
+        body.model = allowedModels[0];
+      }
+    }
+
+    if (harness === "pi") {
+      if (!hasExplicitThinking) {
+        const allowedThinking = START_HARNESS_EFFORTS.pi;
+        const current =
+          typeof body.reasoningEffort === "string"
+            ? body.reasoningEffort.trim()
+            : typeof body.thinking === "string"
+              ? body.thinking.trim()
+              : "";
+        body.thinking = allowedThinking.includes(current)
+          ? current
+          : allowedThinking[0];
+      }
+      if (!hasExplicitReasoning) delete body.reasoningEffort;
+    } else if (harness === "codex" || harness === "claude") {
+      if (!hasExplicitReasoning) {
+        const allowedReasoning = START_HARNESS_EFFORTS[harness];
+        const current =
+          typeof body.reasoningEffort === "string"
+            ? body.reasoningEffort.trim()
+            : typeof body.thinking === "string"
+              ? body.thinking.trim()
+              : "";
+        body.reasoningEffort = allowedReasoning.includes(current)
+          ? current
+          : allowedReasoning[0];
+      }
+      if (!hasExplicitThinking) delete body.thinking;
     }
   }
 

@@ -33,15 +33,22 @@ Latest commit on this branch/workspace:
 
 ### Follow-up Delta (2026-03-02, apm start template flags for CLI parity with UI Add Agent)
 
-- Extended `apm start` in `packages/cli/src/index.ts` to pass existing start-run template controls exposed by gateway:
+- Extended `apm start` in `packages/cli/src/index.ts` for template controls:
   - `--template <coordinator|worker|reviewer|custom>`
   - `--prompt-role <coordinator|worker|reviewer|legacy>`
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
+- `--template` now also mirrors UI prep defaults for `runAgent`, `model`, reasoning/thinking, and prompt include toggles:
+  - `coordinator`: `cli:claude`, `opus`, effort `medium`, includes `true/true/false`
+  - `worker`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, includes `true/true/true`
+  - `reviewer`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, includes `true/true/false`
+  - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, includes `true/true/true`
+- If `--agent pi` is used with a template, effort defaults are translated to `thinking` and normalized for PI.
+- Explicit start flags continue to override template defaults.
 - Added input validation for `--template` and `--prompt-role`.
 - Added focused mapping tests in `packages/cli/src/index.start.test.ts`.
-- Updated coordinator role prompt examples to use `apm start --template worker|reviewer` (matches current CLI surface).
+- Updated coordinator role prompt examples to use `apm start --template worker|reviewer` without redundant `--agent`.
 - Updated docs:
   - `README.md`
   - `docs/cli-apm.md`

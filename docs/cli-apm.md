@@ -118,7 +118,7 @@ Options:
 - `--mode <mode>`: `main-run|clone|worktree|none`. Defaults to `clone`.
 - `--branch <branch>`: base branch for worktree. Defaults to `main`.
 - `--slug <slug>`: slug override for worktree. Defaults to auto-slug.
-- `--template <template>`: prompt template (`coordinator|worker|reviewer|custom`).
+- `--template <template>`: prompt template (`coordinator|worker|reviewer|custom`); also applies UI template defaults for `runAgent`, `model`, reasoning/thinking level, and prompt include toggles.
 - `--prompt-role <role>`: prompt role override (`coordinator|worker|reviewer|legacy`).
 - `--include-default-prompt`: force-enable default project prompt context.
 - `--exclude-default-prompt`: force-disable default project prompt context.
@@ -128,6 +128,15 @@ Options:
 - `--exclude-post-run`: force-disable post-run block.
 - `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
 - `-j, --json`: JSON output.
+
+Template default mapping (`--template`) mirrors the UI preparation form:
+- `coordinator`: `runAgent=cli:claude`, `model=opus`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:false`
+- `worker`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:true`
+- `reviewer`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:false`
+- `custom`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=xhigh`, includes = `default:true`, `role:true`, `postRun:true`
+- If `--agent pi` overrides the template harness, the template effort is translated to `thinking` (and model/level are normalized to valid PI defaults when needed).
+
+Any explicit flag (`--agent`, `--model`, `--include-*`, `--exclude-*`) overrides template defaults.
 
 ### `apm ralph <id>`
 

@@ -409,6 +409,13 @@ Behavior:
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
+- `apm start --template` mirrors UI prep defaults for run agent/model/reasoning (or thinking)/prompt includes:
+  - `coordinator`: `cli:claude`, `opus`, effort `medium`, includes `true/true/false`
+  - `worker`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, includes `true/true/true`
+  - `reviewer`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, includes `true/true/false`
+  - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, includes `true/true/true`
+  - If harness is overridden to PI (`--agent pi`), template effort is translated to `thinking` and normalized for PI.
+- Explicit flags (`--agent`, `--model`, `--include-*`, `--exclude-*`) override template defaults.
 
 ## Single-Agent Mode
 
