@@ -449,7 +449,7 @@ export function SpawnForm(props: SpawnFormProps) {
           align-items: stretch;
           background: transparent;
           color: var(--text-primary);
-          overflow: hidden;
+          overflow-y: auto;
         }
 
         .spawn-form-header {
