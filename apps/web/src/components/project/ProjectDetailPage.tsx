@@ -21,9 +21,44 @@ import {
 } from "../../api/client";
 import type { SubagentListItem, Task } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
-import { CenterPanel, type SelectedProjectAgent } from "./CenterPanel";
+import {
+  CenterPanel,
+  type CenterTab,
+  type SelectedProjectAgent,
+} from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
 import type { SpawnPrefill, SpawnTemplate } from "./SpawnForm";
+
+type PersistedCenterView = {
+  tab: CenterTab;
+  agent?: { type: "lead" | "subagent"; slug?: string; agentId?: string };
+};
+
+function centerViewKey(id: string): string {
+  return `aihub:project:${id}:center-view`;
+}
+
+function readCenterView(id: string): PersistedCenterView | null {
+  try {
+    const raw = localStorage.getItem(centerViewKey(id));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed.tab === "chat" || parsed.tab === "activity" || parsed.tab === "changes")
+    ) {
+      return parsed as PersistedCenterView;
+    }
+  } catch {}
+  return null;
+}
+
+function saveCenterView(id: string, view: PersistedCenterView): void {
+  try {
+    localStorage.setItem(centerViewKey(id), JSON.stringify(view));
+  } catch {}
+}
 
 type MergedTab = "chat" | "activity" | "changes" | "spec";
 
@@ -69,6 +104,10 @@ export function ProjectDetailPage() {
   const projectId = createMemo(() => params.id ?? "");
   const [compactLayout, setCompactLayout] = createSignal(false);
   const [mergedTab, setMergedTab] = createSignal<MergedTab>("spec");
+  const savedView = readCenterView(projectId());
+  const [centerTab, setCenterTab] = createSignal<CenterTab>(
+    savedView?.tab ?? "chat"
+  );
   const [selectedAgent, setSelectedAgent] =
     createSignal<SelectedProjectAgent | null>(null);
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
@@ -236,6 +275,7 @@ export function ProjectDetailPage() {
     }
   });
 
+  let restoredFromStorage = false;
   createEffect(() => {
     const current = project();
     const selected = selectedAgent();
@@ -250,6 +290,39 @@ export function ProjectDetailPage() {
           (key) => typeof sessionKeys[key] === "string"
         )
       : undefined;
+
+    // Restore saved lead agent from localStorage
+    if (
+      !restoredFromStorage &&
+      savedView?.agent?.type === "lead" &&
+      savedView.agent.agentId &&
+      sessionKeys &&
+      savedView.agent.agentId in sessionKeys
+    ) {
+      restoredFromStorage = true;
+      setSelectedAgent({
+        type: "lead",
+        projectId: current.id,
+        agentId: savedView.agent.agentId,
+        agentName: savedView.agent.agentId,
+      });
+      return;
+    }
+    // Defer to subagent restore effect if saved agent is a subagent
+    if (!restoredFromStorage && savedView?.agent?.type === "subagent") {
+      restoredFromStorage = true;
+      // Set lead as fallback; subagent restore effect will override once subagents load
+      if (leadAgentId) {
+        setSelectedAgent({
+          type: "lead",
+          projectId: current.id,
+          agentId: leadAgentId,
+          agentName: leadAgentId,
+        });
+      }
+      return;
+    }
+
     if (!leadAgentId) {
       setSelectedAgent(null);
       return;
@@ -259,6 +332,34 @@ export function ProjectDetailPage() {
       projectId: current.id,
       agentId: leadAgentId,
       agentName: leadAgentId,
+    });
+  });
+
+  // Restore saved subagent once subagents list is available
+  let subagentRestored = false;
+  createEffect(() => {
+    const items = subagents();
+    const current = project();
+    if (subagentRestored || !current || items.length === 0) return;
+    if (savedView?.agent?.type !== "subagent" || !savedView.agent.slug) return;
+    subagentRestored = true;
+    const match = items.find((entry) => entry.slug === savedView.agent!.slug);
+    if (!match) return;
+    const runMode =
+      match.runMode === "main-run" ||
+      match.runMode === "worktree" ||
+      match.runMode === "clone" ||
+      match.runMode === "none"
+        ? match.runMode
+        : undefined;
+    setSelectedAgent({
+      type: "subagent",
+      projectId: current.id,
+      slug: match.slug,
+      cli: match.cli,
+      runMode,
+      status: match.status,
+      agentName: match.name || match.slug,
     });
   });
 
@@ -287,6 +388,18 @@ export function ProjectDetailPage() {
       status: item.status,
       runMode,
     });
+  });
+
+  // Persist center view to localStorage
+  createEffect(() => {
+    const id = projectId();
+    const selected = selectedAgent();
+    const tab = centerTab();
+    if (!id) return;
+    const agent = selected
+      ? { type: selected.type, slug: selected.slug, agentId: selected.agentId }
+      : undefined;
+    saveCenterView(id, { tab, agent });
   });
 
   createEffect(() => {
@@ -413,6 +526,8 @@ export function ProjectDetailPage() {
                 <div class="project-detail__center">
                   <CenterPanel
                     project={detail()}
+                    defaultTab={centerTab()}
+                    onTabChange={setCenterTab}
                     onAddComment={handleAddComment}
                     selectedAgent={selectedAgent()}
                     spawnMode={spawnMode()}
@@ -452,21 +567,21 @@ export function ProjectDetailPage() {
                     <button
                       type="button"
                       classList={{ active: mergedTab() === "chat" }}
-                      onClick={() => setMergedTab("chat")}
+                      onClick={() => { setMergedTab("chat"); setCenterTab("chat"); }}
                     >
                       Chat
                     </button>
                     <button
                       type="button"
                       classList={{ active: mergedTab() === "activity" }}
-                      onClick={() => setMergedTab("activity")}
+                      onClick={() => { setMergedTab("activity"); setCenterTab("activity"); }}
                     >
                       Activity
                     </button>
                     <button
                       type="button"
                       classList={{ active: mergedTab() === "changes" }}
-                      onClick={() => setMergedTab("changes")}
+                      onClick={() => { setMergedTab("changes"); setCenterTab("changes"); }}
                     >
                       Changes
                     </button>

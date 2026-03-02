@@ -31,6 +31,7 @@ export type SelectedProjectAgent = {
 type CenterPanelProps = {
   project: ProjectDetail;
   tab?: CenterTab;
+  defaultTab?: CenterTab;
   showTabs?: boolean;
   onAddComment?: (body: string) => Promise<void>;
   selectedAgent: SelectedProjectAgent | null;
@@ -38,6 +39,7 @@ type CenterPanelProps = {
   subagents?: SubagentListItem[];
   onSpawned?: (slug: string) => void;
   onCancelSpawn?: () => void;
+  onTabChange?: (tab: CenterTab) => void;
 };
 
 type TimelineItem = {
@@ -80,7 +82,9 @@ function outcomeSnippet(events: SubagentLogEvent[]): string {
 }
 
 export function CenterPanel(props: CenterPanelProps) {
-  const [internalTab, setInternalTab] = createSignal<CenterTab>("chat");
+  const [internalTab, setInternalTab] = createSignal<CenterTab>(
+    props.defaultTab ?? "chat"
+  );
   const [newComment, setNewComment] = createSignal("");
   const [addingComment, setAddingComment] = createSignal(false);
   const [subagents, setSubagents] = createSignal<SubagentListItem[]>([]);
@@ -200,7 +204,10 @@ export function CenterPanel(props: CenterPanelProps) {
                   type="button"
                   class="center-tab"
                   classList={{ active: tab() === item.id }}
-                  onClick={() => setInternalTab(item.id)}
+                  onClick={() => {
+                    setInternalTab(item.id);
+                    props.onTabChange?.(item.id);
+                  }}
                 >
                   {item.label}
                 </button>
