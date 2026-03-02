@@ -100,7 +100,6 @@ Implemented Phase 3 + 4 on top of the shipped Space backend foundation.
 - Left sidebar now shows:
   - AIHub logo at top
   - Vertical primary nav links: `Projects`, `Conversations`, `Chats` (`/agents`)
-  - `Archived` nav control that toggles the archive section in center panel
 - Left sidebar header refinement:
   - AIHub logo is aligned on the same row as the collapse chevron
   - Logo size reduced to match the previous center-header title scale
@@ -110,7 +109,7 @@ Implemented Phase 3 + 4 on top of the shipped Space backend foundation.
 - Removed the center-header `AIHub` title; projects header now only shows the search input.
 - Right sidebar tab order updated to `Agents`, `Chat`, `Feed`.
 - Left sidebar nav is now persisted on `/agents`, `/conversations`, and `/chat/:agentId/:view?` via a shared shell layout.
-- In non-project pages, left-nav `Archived` routes to `/projects?archived=1`, and ProjectsBoard auto-opens archived panel from that query.
+- Archived toggle is back in the projects header (top-right) to keep it tied to Kanban context.
 - Running-state behavior is preserved in the moved list:
   - Lead agents still use `/api/agents/status` + status websocket updates.
   - Subagents still poll `/api/subagents` and apply Ralph supervisor/worker row merging.

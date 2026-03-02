@@ -4,8 +4,6 @@ import { A, useLocation } from "@solidjs/router";
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
   onToggleCollapse: () => void;
-  showArchived: Accessor<boolean>;
-  onToggleArchived: () => void;
 };
 
 export function AgentSidebar(props: AgentSidebarProps) {
@@ -57,14 +55,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
           >
             Chats
           </A>
-          <button
-            type="button"
-            class="nav-link nav-link-btn"
-            classList={{ active: props.showArchived() }}
-            onClick={props.onToggleArchived}
-          >
-            {props.showArchived() ? "Hide Archived" : "Archived"}
-          </button>
         </nav>
       </div>
 
@@ -161,15 +151,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
           line-height: 1.2;
           transition: background 0.2s ease, color 0.2s ease;
           white-space: nowrap;
-        }
-
-        .nav-link-btn {
-          width: 100%;
-          border: 0;
-          background: transparent;
-          text-align: left;
-          cursor: pointer;
-          font: inherit;
         }
 
         .nav-link:hover {

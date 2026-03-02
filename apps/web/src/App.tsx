@@ -1,4 +1,4 @@
-import { Router, Route, useNavigate, useParams } from "@solidjs/router";
+import { Router, Route, useParams } from "@solidjs/router";
 import {
   Show,
   createEffect,
@@ -69,7 +69,6 @@ function ProjectsRouteShell() {
 }
 
 function LeftNavShell(props: { children?: JSX.Element }) {
-  const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
 
@@ -96,8 +95,6 @@ function LeftNavShell(props: { children?: JSX.Element }) {
       <AgentSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
-        showArchived={() => false}
-        onToggleArchived={() => navigate("/projects?archived=1")}
       />
       <Show when={isMobile()}>
         <button

@@ -25,8 +25,6 @@ describe("AgentSidebar", () => {
         <AgentSidebar
           collapsed={collapsed}
           onToggleCollapse={() => {}}
-          showArchived={() => false}
-          onToggleArchived={() => {}}
         />
       ),
       container
@@ -36,7 +34,6 @@ describe("AgentSidebar", () => {
     expect(container.textContent).toContain("Projects");
     expect(container.textContent).toContain("Conversations");
     expect(container.textContent).toContain("Chats");
-    expect(container.textContent).toContain("Archived");
 
     dispose();
   });

@@ -43,9 +43,9 @@ Features:
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
 - Projects board shell uses split sidebars:
-  - Left sidebar: AIHub logo + primary nav (`Projects`, `Conversations`, `Chats`) + `Archived` toggle
+  - Left sidebar: AIHub logo + primary nav (`Projects`, `Conversations`, `Chats`)
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
-  - Archived projects section is toggled from the left sidebar `Archived` control
+  - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - Left sidebar nav shell is reused on `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
