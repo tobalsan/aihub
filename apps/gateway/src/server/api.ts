@@ -156,6 +156,13 @@ function normalizeCliRunMode(value: string): CliRunMode {
   return "clone";
 }
 
+function expandHomePath(value: string): string {
+  if (value.startsWith("~/")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
 function mapTemplateToPromptRole(
   template?: SpawnTemplate,
   explicitRole?: PromptRole
@@ -811,12 +818,20 @@ api.post("/projects/:id/start", async (c) => {
   }
 
   const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
+  const root = config.projects?.root ?? "~/projects";
+  const resolvedRoot = root.startsWith("~/")
+    ? path.join(os.homedir(), root.slice(2))
+    : root;
+  const mainRepoPath = repo ? expandHomePath(repo) : "";
+  const spaceWorktreePath = path.join(
+    resolvedRoot,
+    ".workspaces",
+    project.id,
+    "_space"
+  );
+
   let implementationRepo = repo;
   if (runMode && (runMode === "clone" || runMode === "worktree") && slug) {
-    const root = config.projects?.root ?? "~/projects";
-    const resolvedRoot = root.startsWith("~/")
-      ? path.join(os.homedir(), root.slice(2))
-      : root;
     implementationRepo = path.join(
       resolvedRoot,
       ".workspaces",
@@ -885,6 +900,32 @@ api.post("/projects/:id/start", async (c) => {
       : undefined;
   const promptRole = mapTemplateToPromptRole(template, explicitRole);
   const specsPath = promptRole === "legacy" ? readmePath : specsPathForRole;
+  const coordinatorWorkspaceContext =
+    promptRole === "coordinator"
+      ? [
+          mainRepoPath
+            ? [
+                "## Main Repository",
+                `Path: ${mainRepoPath}`,
+                "(Use this canonical repo for planning and delegation.)",
+              ].join("\n")
+            : "",
+          [
+            "## Project Space Worktree",
+            `Path: ${spaceWorktreePath}`,
+            "(Integration workspace where main-run aggregates worker changes.)",
+          ].join("\n"),
+        ]
+          .filter((part) => part.length > 0)
+          .join("\n\n")
+      : "";
+  const mergedCustomPrompt = [
+    coordinatorWorkspaceContext,
+    typeof parsed.data.customPrompt === "string" ? parsed.data.customPrompt : "",
+  ]
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join("\n\n");
   const prompt = buildRolePrompt({
     role: promptRole,
     title: project.title,
@@ -894,8 +935,8 @@ api.post("/projects/:id/start", async (c) => {
     specsPath,
     projectFiles: ["README.md", "THREAD.md", ...docKeys.map((k) => `${k}.md`)],
     projectId: project.id,
-    repo: implementationRepo,
-    customPrompt: parsed.data.customPrompt,
+    repo: promptRole === "coordinator" ? mainRepoPath : implementationRepo,
+    customPrompt: mergedCustomPrompt || undefined,
     runAgentLabel,
     owner:
       typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,

@@ -143,6 +143,12 @@ Project subagent CLIs:
 Project detail parses `SPECS.md` with a specific markdown shape for `## Tasks` and `## Acceptance Criteria`.
 Both sections now support optional `###` subgroup headings for organization.
 The Coordinator spawn template prompt also reminds agents to use this parse-safe format when updating `SPECS.md`.
+Coordinator prompts now include:
+- Canonical main repository path (not worker clone/worktree paths).
+- Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
+Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
+
+Repo resolution for subagent/ralph runner modes (`clone`/`worktree`/`main-run`) now falls back to the project area's `repo` when project `frontmatter.repo` is unset.
 
 Use the canonical guide:
 

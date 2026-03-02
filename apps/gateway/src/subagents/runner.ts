@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
 import { buildRalphPromptFromTemplate } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
+import { getProject } from "../projects/store.js";
 import {
   ensureProjectSpace,
   recordWorkerDelivery,
@@ -119,6 +120,34 @@ async function findProjectDir(
     }
   }
   return null;
+}
+
+async function resolveProjectRepo(
+  config: GatewayConfig,
+  projectId: string,
+  frontmatter?: Record<string, unknown>
+): Promise<string> {
+  const readRepo = async (candidate: string): Promise<string> => {
+    const expanded = expandPath(candidate.trim());
+    if (!expanded) return "";
+    return (await dirExists(expanded)) ? expanded : "";
+  };
+
+  const directRepo =
+    typeof frontmatter?.repo === "string" ? frontmatter.repo : "";
+  if (directRepo) {
+    const resolved = await readRepo(directRepo);
+    if (resolved) return resolved;
+  }
+
+  const project = await getProject(config, projectId);
+  if (!project.ok) return "";
+  const inheritedRepo =
+    typeof project.data.frontmatter.repo === "string"
+      ? project.data.frontmatter.repo
+      : "";
+  if (!inheritedRepo) return "";
+  return readRepo(inheritedRepo);
 }
 
 async function appendHistory(
@@ -476,9 +505,7 @@ export async function spawnSubagent(
   } catch {
     // ignore missing thread
   }
-  const repoValue =
-    typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
-  const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+  const repo = await resolveProjectRepo(config, input.projectId, frontmatter);
 
   let mode: SubagentMode = input.mode ?? "clone";
   if (input.resume) {
@@ -962,9 +989,7 @@ export async function spawnRalphLoop(
     return { ok: false, error: `README.md not found: ${readmePath}` };
   }
   const { frontmatter } = await parseMarkdownFile(readmePath);
-  const repoValue =
-    typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
-  const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+  const repo = await resolveProjectRepo(config, input.projectId, frontmatter);
   if (!repo) {
     return { ok: false, error: "Project repo not set in frontmatter" };
   }
@@ -1310,11 +1335,7 @@ export async function killSubagent(
   if (!runMode) runMode = "main-run";
 
   if (runMode === "worktree") {
-    const readmePath = path.join(root, dirName, "README.md");
-    const { frontmatter } = await parseMarkdownFile(readmePath);
-    const repoValue =
-      typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
-    const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+    const repo = await resolveProjectRepo(config, projectId);
     if (!repo) {
       return { ok: false, error: "Project repo not set" };
     }
@@ -1362,11 +1383,7 @@ export async function killSubagent(
       // ignore
     }
   } else if (runMode === "clone") {
-    const readmePath = path.join(root, dirName, "README.md");
-    const { frontmatter } = await parseMarkdownFile(readmePath);
-    const repoValue =
-      typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
-    const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
+    const repo = await resolveProjectRepo(config, projectId);
 
     if (repo) {
       await removeCloneRemote(repo, projectId);

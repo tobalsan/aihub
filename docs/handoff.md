@@ -15,6 +15,21 @@ Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
 
+### Follow-up Delta (2026-03-02, coordinator repo context + runner area repo fallback)
+
+- Fixed coordinator run prompt context in `apps/gateway/src/server/api.ts`:
+  - Coordinator prompt now always gets canonical main repo path context.
+  - Coordinator prompt now also gets project Space worktree path context (`.workspaces/<projectId>/_space`).
+  - Worker/reviewer run context remains unchanged and scoped to their own run workspace paths.
+- Fixed runner repo resolution in `apps/gateway/src/subagents/runner.ts`:
+  - For subagent/ralph non-`none` modes, repo now resolves via project frontmatter first, then falls back to the project area's repo (same resolution semantics as `getProject`).
+  - This prevents `Project repo not set in frontmatter` failures when repo is inherited from area.
+- Added regression tests in `apps/gateway/src/subagents/subagents.api.test.ts`:
+  - `injects main repo and space paths in coordinator start prompt context`
+  - `resolves repo from area fallback when frontmatter repo is missing`
+- Verification:
+  - `pnpm test -- apps/gateway/src/subagents/subagents.api.test.ts` (passes).
+
 ### Follow-up Delta (2026-03-02, project Space test timeout hardening)
 
 - Stabilized `apps/gateway/src/projects/space.test.ts` by adding a shared explicit timeout (`30_000ms`) for all Space integration tests.

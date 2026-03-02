@@ -1018,6 +1018,89 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("injects main repo and space paths in coordinator start prompt context", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Coordinator Context Paths" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-coordinator-context");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-coordinator-context");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-coordinator-context"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runAgent: "cli:codex",
+          template: "coordinator",
+          runMode: "worktree",
+          slug: "coord-check",
+        }),
+      })
+    );
+    expect(startRes.status).toBe(200);
+
+    const sessionDir = path.join(projectsRoot, created.path, "sessions", "coord-check");
+    const logsPath = path.join(sessionDir, "logs.jsonl");
+    const start = Date.now();
+    while (Date.now() - start < 3000) {
+      try {
+        const logs = await fs.readFile(logsPath, "utf8");
+        if (logs.includes("thread.started")) break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const logs = await fs.readFile(logsPath, "utf8");
+
+    expect(logs).toContain("## Main Repository");
+    expect(logs).toContain(`Path: ${repoDir}`);
+    expect(logs).toContain("## Project Space Worktree");
+    expect(logs).toContain(
+      path.join(projectsRoot, ".workspaces", created.id, "_space")
+    );
+
+    process.env.PATH = prevPath;
+  });
+
   it("spawns mode none without creating a workspace clone", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
@@ -1896,6 +1979,89 @@ describe("subagents API", () => {
     // Resolve symlinks (macOS /var -> /private/var)
     const realWorkDir = await fs.realpath(workDir);
     expect(listRes.stdout).toContain(`worktree ${realWorkDir}`);
+
+    process.env.PATH = prevPath;
+  });
+
+  it("resolves repo from area fallback when frontmatter repo is missing", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Area Repo Fallback" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-area-fallback");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const createAreaRes = await Promise.resolve(
+      api.request("/areas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "qa",
+          title: "QA",
+          color: "#123456",
+          repo: repoDir,
+        }),
+      })
+    );
+    expect(createAreaRes.status).toBe(201);
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ area: "qa", domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const projectReadmePath = path.join(projectsRoot, created.path, "README.md");
+    const readme = await fs.readFile(projectReadmePath, "utf8");
+    expect(readme).not.toContain("repo:");
+
+    const binDir = path.join(tmpDir, "bin-area-fallback");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-area-fallback"}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "area-worker",
+          cli: "codex",
+          prompt: "hi",
+          mode: "worktree",
+          baseBranch: "main",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(201);
+
+    const workDir = path.join(projectsRoot, ".workspaces", created.id, "area-worker");
+    await expect(fs.stat(path.join(workDir, ".git"))).resolves.toBeDefined();
 
     process.env.PATH = prevPath;
   });

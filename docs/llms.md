@@ -51,6 +51,9 @@ Features:
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail center-panel subagent chat follow-ups reuse the selected subagent `runMode` to preserve CLI session cwd continuity (important for Claude CLI resume by `session_id`)
+- Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
+- Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
+- Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
