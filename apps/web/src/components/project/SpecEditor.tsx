@@ -830,14 +830,14 @@ export function SpecEditor(props: SpecEditorProps) {
         .acceptance-check {
           width: 16px;
           height: 16px;
-          border: 1px solid var(--border-subtle);
+          border: 1px solid var(--text-muted);
           border-radius: 4px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           font-size: 11px;
           font-weight: 700;
-          color: #0a0a0f;
+          color: var(--bg-base);
           flex-shrink: 0;
         }
 
