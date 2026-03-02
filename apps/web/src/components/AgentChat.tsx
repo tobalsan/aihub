@@ -857,6 +857,8 @@ export function AgentChat(props: AgentChatProps) {
         setCliLogs(next);
         if (res.data.events.some((event) => event.type !== "user")) {
           setSubagentAwaitingResponse(false);
+        } else if (next.every((event) => event.type === "user")) {
+          setSubagentAwaitingResponse(true);
         }
         if (pendingCliUserMessages().length > 0) {
           const historyUsers = extractCliUserTexts(next);
