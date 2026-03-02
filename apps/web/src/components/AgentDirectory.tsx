@@ -201,7 +201,7 @@ export function AgentDirectory(props: AgentDirectoryProps) {
 
         .section-title {
           font-size: 11px;
-          color: #666;
+          color: var(--text-muted);
           letter-spacing: 0.5px;
         }
 
@@ -214,14 +214,14 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           border-radius: 8px;
           border: none;
           background: transparent;
-          color: #fff;
+          color: var(--text-primary);
           cursor: pointer;
           text-align: left;
         }
 
         .agent-item:hover,
         .agent-item.selected {
-          background: #2a2a2a;
+          background: var(--bg-raised);
         }
 
         .agent-item:focus-visible {
@@ -240,7 +240,7 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           justify-content: center;
           font-size: 11px;
           font-weight: 600;
-          color: #ccc;
+          color: var(--text-secondary);
           letter-spacing: 0.02em;
           transition: background 0.2s ease;
         }
@@ -263,7 +263,7 @@ export function AgentDirectory(props: AgentDirectoryProps) {
         }
 
         .status-pill.idle {
-          background: #242424;
+          background: var(--bg-raised);
           color: #9ca3af;
           border-color: #303030;
         }
@@ -276,7 +276,7 @@ export function AgentDirectory(props: AgentDirectoryProps) {
 
         .agent-label {
           font-size: 14px;
-          color: #fff;
+          color: var(--text-primary);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;

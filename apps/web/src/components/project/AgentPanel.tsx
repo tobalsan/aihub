@@ -929,8 +929,8 @@ export function AgentPanel(props: AgentPanelProps) {
       <style>{`
         .agent-panel {
           min-height: 100%;
-          background: #0a0a0f;
-          color: #e4e4e7;
+          background: var(--bg-base);
+          color: var(--text-primary);
           padding: 18px 14px;
           display: grid;
           align-content: start;
@@ -938,9 +938,9 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-panel-block {
-          border: 1px solid #1c2430;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #111722;
+          background: var(--bg-overlay);
           padding: 10px;
         }
 
@@ -959,9 +959,9 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .project-id-pill {
-          background: #141a23;
-          border: 1px solid #2a3240;
-          color: #9aa3b2;
+          background: var(--bg-input);
+          border: 1px solid var(--border-subtle);
+          color: var(--text-secondary);
           font-size: 11px;
           letter-spacing: 0.2em;
           text-transform: uppercase;
@@ -972,9 +972,9 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .project-id-pill:hover {
-          background: #1a2330;
-          border-color: #3a4250;
-          color: #b0b8c6;
+          background: var(--mix-hover-bg);
+          border-color: var(--mix-hover-border);
+          color: var(--text-primary);
         }
 
         .project-id-pill.copied {
@@ -994,13 +994,13 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-badge {
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 999px;
           padding: 2px 8px;
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.04em;
-          color: #a1a1aa;
+          color: var(--text-secondary);
           background: transparent;
           cursor: pointer;
         }
@@ -1010,8 +1010,8 @@ export function AgentPanel(props: AgentPanelProps) {
           top: calc(100% + 6px);
           left: 0;
           z-index: 3;
-          background: #151c26;
-          border: 1px solid #2a3240;
+          background: var(--mix-modal-bg);
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
           padding: 6px;
           display: flex;
@@ -1023,7 +1023,7 @@ export function AgentPanel(props: AgentPanelProps) {
         .meta-item {
           background: transparent;
           border: none;
-          color: #e0e6ef;
+          color: var(--text-primary);
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.08em;
@@ -1034,11 +1034,11 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .meta-item:hover {
-          background: #232c3a;
+          background: var(--bg-raised);
         }
 
         .created-chip {
-          color: #8b93a1;
+          color: var(--text-secondary);
           font-size: 11px;
           line-height: 1.4;
           align-self: center;
@@ -1052,9 +1052,9 @@ export function AgentPanel(props: AgentPanelProps) {
           width: 26px;
           height: 26px;
           border-radius: 8px;
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           background: transparent;
-          color: #7f8a9a;
+          color: var(--text-tertiary);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1069,9 +1069,9 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .repo-toggle-btn:hover {
-          color: #b0b8c6;
-          border-color: #3a4250;
-          background: #1a2330;
+          color: var(--text-primary);
+          border-color: var(--mix-hover-border);
+          background: var(--mix-hover-bg);
         }
 
         .repo-toggle-btn.active {
@@ -1081,7 +1081,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-panel-label {
-          color: #71717a;
+          color: var(--text-muted);
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.05em;
@@ -1090,7 +1090,7 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-panel-text {
           margin: 0;
-          color: #d4d4d8;
+          color: var(--text-primary);
           font-size: 12px;
           line-height: 1.45;
           overflow-wrap: anywhere;
@@ -1138,10 +1138,10 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-panel-input {
           width: 100%;
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
-          background: #0f1724;
-          color: #e4e4e7;
+          background: var(--bg-input);
+          color: var(--text-primary);
           padding: 0 8px;
           height: 30px;
           font-size: 12px;
@@ -1159,11 +1159,11 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-list-item {
           width: 100%;
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
           padding: 10px;
-          background: #0e1521;
-          color: #e4e4e7;
+          background: var(--bg-inset);
+          color: var(--text-primary);
           display: flex;
           gap: 10px;
           align-items: flex-start;
@@ -1173,7 +1173,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-list-item:hover {
-          border-color: #334155;
+          border-color: var(--border-subtle);
         }
 
         .agent-list-item.selected {
@@ -1182,7 +1182,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-list-item.lead {
-          background: #10192a;
+          background: var(--bg-inset);
         }
 
         .agent-list-item.subagent {
@@ -1219,9 +1219,9 @@ export function AgentPanel(props: AgentPanelProps) {
           width: 28px;
           height: 28px;
           border-radius: 8px;
-          border: 1px solid #2a3240;
-          background: #0f1724;
-          color: #7f8a9a;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-input);
+          color: var(--text-tertiary);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1262,7 +1262,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-status.idle {
-          color: #71717a;
+          color: var(--text-muted);
         }
 
         .agent-status.error {
@@ -1286,7 +1286,7 @@ export function AgentPanel(props: AgentPanelProps) {
         .agent-elapsed {
           margin-left: auto;
           font-size: 11px;
-          color: #7f8a9a;
+          color: var(--text-tertiary);
           line-height: 1;
           text-transform: lowercase;
           letter-spacing: 0.02em;
@@ -1295,7 +1295,7 @@ export function AgentPanel(props: AgentPanelProps) {
         .agent-name {
           font-size: 13px;
           font-weight: 600;
-          color: #e4e4e7;
+          color: var(--text-primary);
           line-height: 1.3;
           min-width: 0;
           overflow: hidden;
@@ -1305,7 +1305,7 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-task {
           font-size: 11px;
-          color: #8fa0b5;
+          color: var(--text-secondary);
           line-height: 1.3;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -1316,7 +1316,7 @@ export function AgentPanel(props: AgentPanelProps) {
           width: 100%;
           border: none;
           background: transparent;
-          color: #9aa3b2;
+          color: var(--text-secondary);
           padding: 0;
           font-size: 13px;
           line-height: 1.4;
@@ -1326,7 +1326,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .add-agent-btn:hover {
-          color: #d4d4d8;
+          color: var(--text-primary);
         }
 
         .add-agent-wrap {
@@ -1342,18 +1342,18 @@ export function AgentPanel(props: AgentPanelProps) {
           left: 0;
           display: grid;
           gap: 4px;
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 8px;
-          background: #111722;
+          background: var(--bg-overlay);
         }
 
         .template-option {
           width: 100%;
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
-          background: #0f1724;
-          color: #e4e4e7;
+          background: var(--bg-input);
+          color: var(--text-primary);
           padding: 8px;
           text-align: left;
           display: grid;
@@ -1362,7 +1362,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .template-option:hover {
-          border-color: #334155;
+          border-color: var(--border-subtle);
         }
 
         .template-title {
@@ -1372,7 +1372,7 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .template-description {
           font-size: 11px;
-          color: #94a3b8;
+          color: var(--text-secondary);
         }
 
         .agent-error {

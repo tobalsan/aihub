@@ -137,9 +137,9 @@ function LeftNavShell(props: { children?: JSX.Element }) {
           width: 40px;
           height: 40px;
           border-radius: 10px;
-          border: 1px solid #303030;
-          background: rgba(18, 18, 18, 0.96);
-          color: #d4d4d4;
+          border: 1px solid var(--border-default);
+          background: var(--bg-surface);
+          color: var(--text-secondary);
           display: flex;
           align-items: center;
           justify-content: center;

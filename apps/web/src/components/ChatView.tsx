@@ -849,13 +849,10 @@ export function ChatView() {
         .chat-view {
           --accent: #6366f1;
           --accent-glow: rgba(99, 102, 241, 0.4);
-          --surface-0: #09090b;
-          --surface-1: #18181b;
-          --surface-2: #27272a;
-          --surface-3: #3f3f46;
-          --text-primary: #fafafa;
-          --text-secondary: #a1a1aa;
-          --text-muted: #52525b;
+          --surface-0: var(--bg-base);
+          --surface-1: var(--bg-surface);
+          --surface-2: var(--border-default);
+          --surface-3: var(--bg-raised);
           --user-bg: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
           --error: #ef4444;
           --success: #22c55e;
@@ -1317,11 +1314,11 @@ export function ChatView() {
         .markdown-content td {
           padding: 8px 12px;
           text-align: left;
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
         }
 
         .markdown-content th {
-          background: #1a1a1a;
+          background: var(--bg-surface);
           font-weight: 600;
           color: var(--text-primary);
         }

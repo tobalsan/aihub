@@ -1367,7 +1367,7 @@ export function AgentChat(props: AgentChatProps) {
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 14px;
           line-height: 1.6;
-          color: #e0e0e0;
+          color: var(--text-primary);
         }
 
         /* ── Header ── */
@@ -1377,14 +1377,14 @@ export function AgentChat(props: AgentChatProps) {
           align-items: center;
           gap: 12px;
           padding: 16px;
-          border-bottom: 1px solid #232323;
+          border-bottom: 1px solid var(--border-default);
         }
 
         .chat-header h3 {
           margin: 0;
           font-size: 14px;
           font-weight: 600;
-          color: #f0f0f0;
+          color: var(--text-primary);
         }
 
         .chat-title-row {
@@ -1397,12 +1397,12 @@ export function AgentChat(props: AgentChatProps) {
         .back-btn {
           background: none;
           border: none;
-          color: #888;
+          color: var(--text-tertiary);
           font-size: 16px;
           cursor: pointer;
         }
 
-        .back-btn:hover { color: #fff; }
+        .back-btn:hover { color: var(--text-primary); }
 
         .back-btn:focus-visible {
           outline: 2px solid rgba(59, 130, 246, 0.6);
@@ -1437,7 +1437,7 @@ export function AgentChat(props: AgentChatProps) {
           border: none;
           padding: 4px;
           cursor: pointer;
-          color: #666;
+          color: var(--text-muted);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1458,7 +1458,7 @@ export function AgentChat(props: AgentChatProps) {
         .chat-messages,
         .log-pane {
           scrollbar-width: thin;
-          scrollbar-color: #333 transparent;
+          scrollbar-color: var(--scrollbar-thumb) transparent;
         }
 
         .chat-messages::-webkit-scrollbar,
@@ -1469,7 +1469,7 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-messages::-webkit-scrollbar-thumb,
         .log-pane::-webkit-scrollbar-thumb {
-          background: #333;
+          background: var(--scrollbar-thumb);
           border: 2px solid transparent;
           background-clip: content-box;
           border-radius: 999px;
@@ -1477,7 +1477,7 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-messages::-webkit-scrollbar-thumb:hover,
         .log-pane::-webkit-scrollbar-thumb:hover {
-          background: #444;
+          background: var(--bg-raised);
           border: 2px solid transparent;
           background-clip: content-box;
         }
@@ -1487,7 +1487,7 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           align-items: center;
           justify-content: center;
-          color: #555;
+          color: var(--text-muted);
           font-size: 14px;
         }
 
@@ -1495,7 +1495,7 @@ export function AgentChat(props: AgentChatProps) {
           padding: 8px 16px;
           font-size: 12px;
           color: #f5b0b0;
-          border-top: 1px solid #232323;
+          border-top: 1px solid var(--border-default);
         }
 
         /* ── Log pane — flat, no container chrome ── */
@@ -1531,7 +1531,7 @@ export function AgentChat(props: AgentChatProps) {
         /* ── User messages — subtle green left accent ── */
 
         .log-line.user {
-          color: #d0ebe0;
+          color: var(--tone-user);
           background: rgba(45, 212, 191, 0.04);
           border-left: 2px solid rgba(45, 212, 191, 0.4);
           border-radius: 0 6px 6px 0;
@@ -1550,25 +1550,25 @@ export function AgentChat(props: AgentChatProps) {
         /* ── Assistant messages — clean, no background ── */
 
         .log-line.assistant {
-          color: #e0e0e0;
+          color: var(--text-primary);
           padding: 10px 12px;
         }
 
         .log-line.live {
-          color: #e8f0ff;
+          color: var(--tone-live);
         }
 
         /* ── Muted / tool calls — compact, subtle ── */
 
         .log-line.muted {
-          color: #777;
+          color: var(--text-tertiary);
           background: transparent;
           font-size: 13px;
           padding: 4px 12px;
         }
 
         .log-line.error {
-          color: #f5b0b0;
+          color: var(--tone-error);
           background: rgba(220, 50, 50, 0.06);
           border-left: 2px solid rgba(220, 50, 50, 0.4);
           border-radius: 0 6px 6px 0;
@@ -1597,7 +1597,7 @@ export function AgentChat(props: AgentChatProps) {
           list-style: none;
           width: 100%;
           font-size: 13px;
-          color: #777;
+          color: var(--text-tertiary);
           border-radius: 6px;
           transition: background 0.1s;
         }
@@ -1624,7 +1624,7 @@ export function AgentChat(props: AgentChatProps) {
           font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 12px;
           line-height: 1.5;
-          color: #999;
+          color: var(--text-tertiary);
           max-height: 300px;
           overflow: auto;
         }
@@ -1643,7 +1643,7 @@ export function AgentChat(props: AgentChatProps) {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          color: #666;
+          color: var(--text-muted);
           font-weight: 500;
         }
 
@@ -1684,7 +1684,7 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .log-markdown strong {
-          color: #f0f0f0;
+          color: var(--text-primary);
           font-weight: 600;
         }
 
@@ -1694,20 +1694,20 @@ export function AgentChat(props: AgentChatProps) {
           padding: 2px 6px;
           font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 0.9em;
-          color: #ccc;
+          color: var(--text-secondary);
         }
 
         .log-markdown pre {
           margin: 10px 0;
           padding: 12px 14px;
-          background: rgba(0, 0, 0, 0.3);
+          background: var(--shadow-md);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 8px;
           overflow: auto;
           font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 13px;
           line-height: 1.5;
-          color: #ccc;
+          color: var(--text-secondary);
         }
 
         .log-markdown pre code {
@@ -1744,7 +1744,7 @@ export function AgentChat(props: AgentChatProps) {
         .log-markdown h2,
         .log-markdown h3,
         .log-markdown h4 {
-          color: #f0f0f0;
+          color: var(--text-primary);
           margin: 16px 0 8px;
           line-height: 1.3;
         }
@@ -1765,7 +1765,7 @@ export function AgentChat(props: AgentChatProps) {
           margin: 8px 0;
           padding: 4px 12px;
           border-left: 2px solid rgba(255, 255, 255, 0.15);
-          color: #999;
+          color: var(--text-tertiary);
         }
 
         .log-markdown table {
@@ -1780,14 +1780,14 @@ export function AgentChat(props: AgentChatProps) {
 
         .log-markdown th,
         .log-markdown td {
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
           padding: 8px 12px;
           text-align: left;
         }
 
         .log-markdown th {
           background: rgba(255, 255, 255, 0.04);
-          color: #ddd;
+          color: var(--text-primary);
           font-weight: 600;
         }
 
@@ -1835,8 +1835,8 @@ export function AgentChat(props: AgentChatProps) {
           flex-direction: column;
           gap: 10px;
           padding: 12px 16px 16px;
-          border-top: 1px solid #232323;
-          background: #0a0a0f;
+          border-top: 1px solid var(--border-default);
+          background: var(--bg-base);
           position: sticky;
           bottom: 0;
           z-index: 2;
@@ -1859,9 +1859,9 @@ export function AgentChat(props: AgentChatProps) {
           align-items: center;
           justify-content: center;
           border-radius: 8px;
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
           background: transparent;
-          color: #888;
+          color: var(--text-tertiary);
           cursor: pointer;
         }
 
@@ -1870,7 +1870,7 @@ export function AgentChat(props: AgentChatProps) {
           height: 18px;
         }
 
-        .attach-btn:hover { background: rgba(255, 255, 255, 0.04); color: #bbb; }
+        .attach-btn:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-secondary); }
 
         .attach-btn:disabled {
           opacity: 0.4;
@@ -1880,10 +1880,10 @@ export function AgentChat(props: AgentChatProps) {
         .chat-input textarea {
           flex: 1;
           background: rgba(255, 255, 255, 0.03);
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
           border-radius: 8px;
           padding: 12px 14px;
-          color: #e0e0e0;
+          color: var(--text-primary);
           font-size: 13px;
           font-family: inherit;
           outline: none;
@@ -1893,7 +1893,7 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .chat-input textarea:focus {
-          border-color: #444;
+          border-color: var(--bg-raised);
           background: rgba(255, 255, 255, 0.04);
         }
 
@@ -1935,13 +1935,13 @@ export function AgentChat(props: AgentChatProps) {
           padding: 6px 10px;
           border-radius: 999px;
           background: rgba(255, 255, 255, 0.04);
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
           max-width: 180px;
         }
 
         .attachment-name {
           font-size: 12px;
-          color: #bbb;
+          color: var(--text-secondary);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -1950,7 +1950,7 @@ export function AgentChat(props: AgentChatProps) {
         .attachment-remove {
           border: none;
           background: none;
-          color: #666;
+          color: var(--text-muted);
           cursor: pointer;
           font-size: 12px;
           padding: 0;
@@ -1970,7 +1970,7 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .log-empty {
-          color: #555;
+          color: var(--text-muted);
           font-size: 13px;
           padding: 4px 0;
         }

@@ -30,7 +30,7 @@ export function ProgressBar(props: ProgressBarProps) {
         }
 
         .progress-bar-label {
-          color: #a1a1aa;
+          color: var(--text-secondary);
           font-size: 12px;
           font-weight: 600;
           letter-spacing: 0.02em;
@@ -39,8 +39,8 @@ export function ProgressBar(props: ProgressBarProps) {
         .progress-bar-track {
           height: 8px;
           border-radius: 999px;
-          background: #1c2430;
-          border: 1px solid #2a3240;
+          background: var(--border-subtle);
+          border: 1px solid var(--border-subtle);
           overflow: hidden;
         }
 

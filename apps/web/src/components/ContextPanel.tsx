@@ -201,8 +201,8 @@ export function ContextPanel(props: ContextPanelProps) {
       <style>{`
         .context-panel {
           width: 600px;
-          background: #1a1a1a;
-          border-left: 1px solid #2a2a2a;
+          background: var(--bg-surface);
+          border-left: 1px solid var(--border-default);
           display: flex;
           flex-direction: column;
           transition: width 0.2s ease;
@@ -222,16 +222,16 @@ export function ContextPanel(props: ContextPanelProps) {
           align-items: center;
           gap: 12px;
           padding: 12px 16px;
-          border-bottom: 1px solid #2a2a2a;
+          border-bottom: 1px solid var(--border-default);
         }
 
         .context-panel .collapse-btn {
           width: 28px;
           height: 28px;
           border-radius: 6px;
-          border: 1px solid #2a2a2a;
-          background: #1a1a1a;
-          color: #e6e6e6;
+          border: 1px solid var(--border-default);
+          background: var(--bg-surface);
+          color: var(--text-primary);
           cursor: pointer;
           margin-left: 0;
         }
@@ -253,7 +253,7 @@ export function ContextPanel(props: ContextPanelProps) {
         .panel-tabs button,
         .collapsed-icons button {
           background: none;
-          color: #666;
+          color: var(--text-muted);
           padding: 8px 12px;
           border-radius: 6px;
           border: none;
@@ -268,8 +268,8 @@ export function ContextPanel(props: ContextPanelProps) {
 
         .panel-tabs button.active,
         .collapsed-icons button.active {
-          background: #2a2a2a;
-          color: #fff;
+          background: var(--bg-raised);
+          color: var(--text-primary);
         }
 
         .panel-content {

@@ -332,7 +332,7 @@ export function CenterPanel(props: CenterPanelProps) {
           min-height: 0;
           display: grid;
           grid-template-rows: auto 1fr;
-          background: #0a0a0f;
+          background: var(--bg-base);
         }
 
         .center-panel-tabs {
@@ -341,15 +341,15 @@ export function CenterPanel(props: CenterPanelProps) {
           position: sticky;
           top: 0;
           z-index: 2;
-          background: #0a0a0f;
+          background: var(--bg-base);
           padding: 16px 18px;
-          border-bottom: 1px solid #1c2430;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .center-tab {
-          border: 1px solid #2a3240;
-          background: #111722;
-          color: #a1a1aa;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-overlay);
+          color: var(--text-secondary);
           border-radius: 999px;
           padding: 6px 12px;
           font-size: 12px;
@@ -357,14 +357,14 @@ export function CenterPanel(props: CenterPanelProps) {
         }
 
         .center-tab.active {
-          color: #e4e4e7;
+          color: #fff;
           border-color: #3b82f6;
-          background: #172554;
+          background: #3b82f6;
         }
 
         .center-panel-body {
           padding: 20px;
-          color: #e4e4e7;
+          color: var(--text-primary);
           min-height: 0;
           overflow: hidden;
           display: flex;
@@ -395,7 +395,7 @@ export function CenterPanel(props: CenterPanelProps) {
         }
 
         .center-placeholder {
-          color: #71717a;
+          color: var(--text-muted);
         }
 
         .activity-list {
@@ -407,15 +407,15 @@ export function CenterPanel(props: CenterPanelProps) {
         }
 
         .activity-item {
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
           padding: 12px;
-          background: #111722;
+          background: var(--bg-overlay);
         }
 
         .activity-item p {
           margin: 8px 0 0;
-          color: #d4d4d8;
+          color: var(--text-primary);
           white-space: pre-wrap;
         }
 
@@ -425,13 +425,13 @@ export function CenterPanel(props: CenterPanelProps) {
         }
 
         .activity-author {
-          color: #9ca3af;
+          color: var(--text-secondary);
           font-weight: 600;
           line-height: 1.2;
         }
 
         .activity-date {
-          color: #71717a;
+          color: var(--text-muted);
           line-height: 1.2;
           font-size: 12px;
         }
@@ -446,9 +446,9 @@ export function CenterPanel(props: CenterPanelProps) {
           width: 100%;
           min-height: 82px;
           border-radius: 10px;
-          border: 1px solid #1f2937;
-          background: #0f172a;
-          color: #e4e4e7;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-inset);
+          color: var(--text-primary);
           padding: 10px 12px;
           resize: vertical;
           font: inherit;
@@ -463,7 +463,7 @@ export function CenterPanel(props: CenterPanelProps) {
           justify-self: end;
           border: 1px solid #3b82f6;
           background: #1d4ed8;
-          color: #ffffff;
+          color: var(--text-primary);
           border-radius: 8px;
           padding: 6px 12px;
           cursor: pointer;

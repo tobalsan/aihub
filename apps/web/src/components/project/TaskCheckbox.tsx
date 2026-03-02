@@ -44,14 +44,14 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
       <style>{`
         .task-checkbox {
           width: 100%;
-          border: 1px solid #1f2937;
-          background: #111722;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-overlay);
           border-radius: 10px;
           padding: 10px 12px;
           display: flex;
           align-items: flex-start;
           gap: 10px;
-          color: #e4e4e7;
+          color: var(--text-primary);
           text-align: left;
           cursor: pointer;
         }
@@ -64,7 +64,7 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
         .task-checkbox-mark {
           width: 18px;
           height: 18px;
-          border: 1px solid #374151;
+          border: 1px solid var(--border-subtle);
           border-radius: 4px;
           display: inline-flex;
           align-items: center;
@@ -97,7 +97,7 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
         }
 
         .task-checkbox-title {
-          color: #e4e4e7;
+          color: var(--text-primary);
           font-size: 14px;
           font-weight: 600;
           line-height: 1.4;
@@ -116,7 +116,7 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
         }
 
         .task-checkbox-status.todo {
-          color: #a1a1aa;
+          color: var(--text-secondary);
           border-color: #3f3f46;
           background: #18181b;
         }
@@ -134,7 +134,7 @@ export function TaskCheckbox(props: TaskCheckboxProps) {
         }
 
         .task-checkbox-description {
-          color: #71717a;
+          color: var(--text-muted);
           font-size: 12px;
           line-height: 1.5;
         }

@@ -30,7 +30,7 @@ Core TypeScript/Node.js application. Exports:
 
 ### apps/web
 
-Solid.js SPA with sleek dark theme. Two views:
+Solid.js SPA with dark/light theme support. Two views:
 
 - `AgentList`: Select agent to chat with
 - `ChatView`: WebSocket-based streaming chat with Simple/Full view modes
@@ -47,6 +47,7 @@ Features:
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
   - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - Left sidebar nav shell is reused on `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
+- Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list

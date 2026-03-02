@@ -1,5 +1,6 @@
 import { Accessor, Show } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
+import { theme, toggleTheme } from "../theme";
 
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
@@ -57,12 +58,34 @@ export function AgentSidebar(props: AgentSidebarProps) {
           </A>
         </nav>
       </div>
+      <div class="sidebar-footer">
+        <button
+          class="theme-toggle"
+          type="button"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme() === "dark" ? "light" : "dark"} mode`}
+        >
+          <Show
+            when={theme() === "dark"}
+            fallback={
+              <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+              </svg>
+            }
+          >
+            <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
+            </svg>
+          </Show>
+          <span class="theme-label">{theme() === "dark" ? "Light" : "Dark"}</span>
+        </button>
+      </div>
 
       <style>{`
         .agent-sidebar {
           width: 250px;
-          background: #1a1a1a;
-          border-right: 1px solid #2a2a2a;
+          background: var(--bg-surface);
+          border-right: 1px solid var(--border-default);
           display: flex;
           flex-direction: column;
           transition: width 0.2s ease, box-shadow 0.2s ease;
@@ -100,9 +123,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
           width: 28px;
           height: 28px;
           border-radius: 6px;
-          border: 1px solid #2a2a2a;
-          background: #1a1a1a;
-          color: #e6e6e6;
+          border: 1px solid var(--border-default);
+          background: var(--bg-surface);
+          color: var(--text-primary);
           cursor: pointer;
         }
 
@@ -116,11 +139,45 @@ export function AgentSidebar(props: AgentSidebarProps) {
           display: flex;
           flex-direction: column;
           gap: 16px;
+          flex: 1;
+        }
+
+        .sidebar-footer {
+          padding: 8px 10px 10px;
+          border-top: 1px solid var(--border-default);
+        }
+
+        .theme-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          padding: 8px 10px;
+          border-radius: 8px;
+          border: none;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+          font-size: 14px;
+          line-height: 1.2;
+          transition: background 0.2s ease, color 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .theme-toggle:hover {
+          background: var(--bg-raised);
+          color: var(--text-primary);
+        }
+
+        .theme-icon {
+          width: 16px;
+          height: 16px;
+          flex-shrink: 0;
         }
 
         .sidebar-logo {
           display: inline-block;
-          color: #fff;
+          color: var(--text-primary);
           text-decoration: none;
           font-size: 20px;
           font-weight: 600;
@@ -132,7 +189,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         }
 
         .sidebar-logo:hover {
-          color: #e5e7eb;
+          color: var(--text-secondary);
         }
 
         .sidebar-nav {
@@ -145,7 +202,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           display: block;
           padding: 8px 10px;
           border-radius: 8px;
-          color: #b6b6b6;
+          color: var(--text-secondary);
           text-decoration: none;
           font-size: 14px;
           line-height: 1.2;
@@ -154,18 +211,20 @@ export function AgentSidebar(props: AgentSidebarProps) {
         }
 
         .nav-link:hover {
-          background: #242424;
-          color: #f0f0f0;
+          background: var(--bg-raised);
+          color: var(--text-primary);
         }
 
         .nav-link.active {
-          background: #2a2a2a;
-          color: #fff;
+          background: var(--border-default);
+          color: var(--text-primary);
         }
 
         .agent-sidebar.collapsed .dev-badge,
         .agent-sidebar.collapsed .sidebar-logo,
-        .agent-sidebar.collapsed .nav-link {
+        .agent-sidebar.collapsed .nav-link,
+        .agent-sidebar.collapsed .theme-label,
+        .agent-sidebar.collapsed .sidebar-footer {
           opacity: 0;
           pointer-events: none;
         }
@@ -176,7 +235,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
         .agent-sidebar.collapsed:hover .dev-badge,
         .agent-sidebar.collapsed:hover .sidebar-logo,
-        .agent-sidebar.collapsed:hover .nav-link {
+        .agent-sidebar.collapsed:hover .nav-link,
+        .agent-sidebar.collapsed:hover .theme-label,
+        .agent-sidebar.collapsed:hover .sidebar-footer {
           opacity: 1;
           pointer-events: auto;
         }
@@ -188,7 +249,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             left: 0;
             height: 100vh;
             z-index: 850;
-            box-shadow: 12px 0 24px rgba(0, 0, 0, 0.35);
+            box-shadow: 12px 0 24px var(--shadow-md);
             transform: translateX(0);
             transition: transform 0.2s ease, width 0.2s ease, box-shadow 0.2s ease;
           }

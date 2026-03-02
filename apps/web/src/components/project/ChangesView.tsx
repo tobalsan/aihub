@@ -629,7 +629,7 @@ export function ChangesView(props: ChangesViewProps) {
           height: 100%;
           display: grid;
           place-items: center;
-          color: #8a94a6;
+          color: var(--text-secondary);
         }
 
         .changes-error {
@@ -648,9 +648,9 @@ export function ChangesView(props: ChangesViewProps) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #111722;
+          background: var(--bg-overlay);
           padding: 10px 12px;
           margin-bottom: 12px;
         }
@@ -664,11 +664,11 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .changes-base {
-          color: #94a3b8;
+          color: var(--text-secondary);
         }
 
         .changes-source {
-          border: 1px solid #334155;
+          border: 1px solid var(--border-subtle);
           border-radius: 999px;
           padding: 1px 8px;
           font-size: 11px;
@@ -694,9 +694,9 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .space-dashboard {
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #0d1422;
+          background: var(--bg-inset);
           padding: 10px;
           margin-bottom: 10px;
           display: grid;
@@ -715,7 +715,7 @@ export function ChangesView(props: ChangesViewProps) {
           flex-wrap: wrap;
           gap: 10px;
           font-size: 12px;
-          color: #94a3b8;
+          color: var(--text-secondary);
         }
 
         .space-conflicts {
@@ -749,32 +749,32 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .worker-group {
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
-          background: #0b1220;
+          background: var(--bg-inset);
           padding: 6px 8px;
         }
 
         .worker-group > summary {
           cursor: pointer;
           font-size: 12px;
-          color: #e2e8f0;
+          color: var(--text-primary);
           display: flex;
           gap: 8px;
           align-items: center;
         }
 
         .worker-group > summary span {
-          color: #94a3b8;
+          color: var(--text-secondary);
           font-size: 11px;
         }
 
         .entry-card {
-          border: 1px solid #1e293b;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 8px;
           margin-top: 8px;
-          background: #0b1220;
+          background: var(--bg-inset);
           display: grid;
           gap: 6px;
         }
@@ -784,14 +784,14 @@ export function ChangesView(props: ChangesViewProps) {
           flex-wrap: wrap;
           gap: 8px;
           font-size: 11px;
-          color: #cbd5e1;
+          color: var(--text-primary);
         }
 
         .entry-status {
           border-radius: 999px;
           padding: 1px 8px;
-          border: 1px solid #334155;
-          color: #e2e8f0;
+          border: 1px solid var(--border-subtle);
+          color: var(--text-primary);
         }
 
         .status-pending {
@@ -831,7 +831,7 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .entry-details {
-          border-top: 1px solid #1e293b;
+          border-top: 1px solid var(--border-subtle);
           padding-top: 8px;
           display: grid;
           gap: 8px;
@@ -839,7 +839,7 @@ export function ChangesView(props: ChangesViewProps) {
 
         .entry-loading {
           margin: 0;
-          color: #94a3b8;
+          color: var(--text-secondary);
           font-size: 12px;
         }
 
@@ -860,15 +860,15 @@ export function ChangesView(props: ChangesViewProps) {
           grid-template-columns: 60px 1fr;
           gap: 8px;
           font-size: 12px;
-          color: #e2e8f0;
+          color: var(--text-primary);
         }
 
         .entry-diff {
           margin: 0;
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 8px;
-          background: #020617;
+          background: var(--bg-inset);
           max-height: 280px;
           overflow: auto;
           font-size: 11px;
@@ -878,9 +878,9 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .space-commit-log {
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #0f1522;
+          background: var(--bg-inset);
           padding: 10px;
           margin-bottom: 10px;
           display: grid;
@@ -892,7 +892,7 @@ export function ChangesView(props: ChangesViewProps) {
           font-size: 12px;
           letter-spacing: 0.04em;
           text-transform: uppercase;
-          color: #94a3b8;
+          color: var(--text-secondary);
         }
 
         .space-commit-row {
@@ -900,19 +900,19 @@ export function ChangesView(props: ChangesViewProps) {
           grid-template-columns: 60px 1fr auto;
           gap: 8px;
           font-size: 12px;
-          color: #e2e8f0;
+          color: var(--text-primary);
           align-items: center;
         }
 
         .space-commit-meta {
-          color: #94a3b8;
+          color: var(--text-secondary);
           font-size: 11px;
         }
 
         .changes-main {
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #0f1522;
+          background: var(--bg-inset);
           min-height: 440px;
           display: grid;
           grid-template-columns: 220px 1fr;
@@ -920,7 +920,7 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .changes-files {
-          border-right: 1px solid #1f2937;
+          border-right: 1px solid var(--border-subtle);
           padding: 10px;
           overflow: auto;
         }
@@ -928,7 +928,7 @@ export function ChangesView(props: ChangesViewProps) {
         .changes-files h4 {
           margin: 0 0 10px;
           font-size: 12px;
-          color: #94a3b8;
+          color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
@@ -945,7 +945,7 @@ export function ChangesView(props: ChangesViewProps) {
           width: 100%;
           border: 1px solid transparent;
           background: transparent;
-          color: #d4d4d8;
+          color: var(--text-primary);
           border-radius: 8px;
           text-align: left;
           padding: 6px 8px;
@@ -956,8 +956,8 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .file-row:hover {
-          border-color: #334155;
-          background: #131e31;
+          border-color: var(--border-subtle);
+          background: var(--bg-input);
         }
 
         .file-glyph {
@@ -996,19 +996,19 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .diff-file {
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           overflow: hidden;
           margin-bottom: 10px;
-          background: #0b1220;
+          background: var(--bg-inset);
         }
 
         .diff-file-title {
           font-size: 12px;
-          color: #94a3b8;
-          background: #121a2b;
+          color: var(--text-secondary);
+          background: var(--bg-input);
           padding: 6px 10px;
-          border-bottom: 1px solid #1f2937;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .diff-block {
@@ -1027,7 +1027,7 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .line-num {
-          color: #64748b;
+          color: var(--text-muted);
           text-align: right;
           padding: 0 8px 0 0;
           user-select: none;
@@ -1053,9 +1053,9 @@ export function ChangesView(props: ChangesViewProps) {
 
         .changes-footer {
           margin-top: 10px;
-          border: 1px solid #1f2937;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #111722;
+          background: var(--bg-overlay);
           padding: 10px;
           display: grid;
           grid-template-columns: auto auto 1fr auto;
@@ -1068,7 +1068,7 @@ export function ChangesView(props: ChangesViewProps) {
           align-items: center;
           gap: 8px;
           font-size: 12px;
-          color: #cbd5e1;
+          color: var(--text-primary);
         }
 
         .pr-btn,
@@ -1091,9 +1091,9 @@ export function ChangesView(props: ChangesViewProps) {
         .commit-input {
           width: 100%;
           border-radius: 8px;
-          border: 1px solid #334155;
-          background: #0f172a;
-          color: #e2e8f0;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-inset);
+          color: var(--text-primary);
           padding: 8px 10px;
           font-size: 13px;
         }
@@ -1105,7 +1105,7 @@ export function ChangesView(props: ChangesViewProps) {
 
         .changes-note {
           margin: 8px 0 0;
-          color: #94a3b8;
+          color: var(--text-secondary);
           font-size: 12px;
         }
       `}</style>

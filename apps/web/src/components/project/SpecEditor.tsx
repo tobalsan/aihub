@@ -518,8 +518,8 @@ export function SpecEditor(props: SpecEditorProps) {
           min-height: 0;
           display: flex;
           flex-direction: column;
-          background: #0a0a0f;
-          color: #e4e4e7;
+          background: var(--bg-base);
+          color: var(--text-primary);
           min-width: 0;
         }
 
@@ -529,15 +529,15 @@ export function SpecEditor(props: SpecEditorProps) {
           gap: 6px;
           overflow-x: auto;
           padding: 14px 20px 0;
-          background: #0a0a0f;
+          background: var(--bg-base);
           flex: 0 0 auto;
         }
 
         .spec-doc-tab {
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px 8px 0 0;
-          background: #111722;
-          color: #525865;
+          background: var(--bg-overlay);
+          color: var(--text-muted);
           font-size: 11px;
           letter-spacing: 0.03em;
           text-transform: uppercase;
@@ -549,9 +549,9 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-doc-tab.active {
-          background: #0f131d;
-          color: #e4e4e7;
-          border-color: #1c2430;
+          background: var(--bg-inset);
+          color: var(--text-primary);
+          border-color: var(--border-subtle);
           border-bottom-color: transparent;
         }
 
@@ -593,10 +593,10 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-section {
-          border: 1px solid #1c2430;
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           padding: 14px;
-          background: #101520;
+          background: var(--bg-inset);
           display: grid;
           gap: 10px;
         }
@@ -606,7 +606,7 @@ export function SpecEditor(props: SpecEditorProps) {
           font-size: 13px;
           text-transform: uppercase;
           letter-spacing: 0.05em;
-          color: #a1a1aa;
+          color: var(--text-secondary);
         }
 
         .spec-task-list {
@@ -617,14 +617,14 @@ export function SpecEditor(props: SpecEditorProps) {
         .spec-empty-note {
           margin: 0;
           font-size: 12px;
-          color: #71717a;
+          color: var(--text-muted);
         }
 
         .spec-add-task {
-          border: 1px dashed #374151;
+          border: 1px dashed var(--border-subtle);
           border-radius: 8px;
           background: transparent;
-          color: #a1a1aa;
+          color: var(--text-secondary);
           font-size: 12px;
           padding: 8px;
           cursor: pointer;
@@ -637,10 +637,10 @@ export function SpecEditor(props: SpecEditorProps) {
         }
         .spec-add-input {
           width: 100%;
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
-          background: #0f1724;
-          color: #e4e4e7;
+          background: var(--bg-input);
+          color: var(--text-primary);
           padding: 8px;
           font-size: 12px;
           font-family: inherit;
@@ -648,7 +648,7 @@ export function SpecEditor(props: SpecEditorProps) {
         }
         .spec-add-desc {
           font-size: 11px;
-          color: #a0a0b0;
+          color: var(--text-secondary);
           min-height: 40px;
         }
         .spec-add-actions {
@@ -672,11 +672,11 @@ export function SpecEditor(props: SpecEditorProps) {
           cursor: default;
         }
         .spec-add-cancel {
-          background: #1c2430;
-          color: #a0a0b0;
+          background: var(--border-subtle);
+          color: var(--text-secondary);
         }
         .spec-add-cancel:hover {
-          background: #2a3240;
+          background: var(--border-subtle);
         }
 
         .acceptance-list {
@@ -690,7 +690,7 @@ export function SpecEditor(props: SpecEditorProps) {
         .acceptance-item {
           border: 0;
           background: transparent;
-          color: #d4d4d8;
+          color: var(--text-primary);
           display: flex;
           align-items: center;
           gap: 8px;
@@ -702,7 +702,7 @@ export function SpecEditor(props: SpecEditorProps) {
         .acceptance-check {
           width: 16px;
           height: 16px;
-          border: 1px solid #374151;
+          border: 1px solid var(--border-subtle);
           border-radius: 4px;
           display: inline-flex;
           align-items: center;
@@ -719,15 +719,15 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-doc {
-          border: 1px solid #1c2430;
+          border: 1px solid var(--border-subtle);
           border-top: 0;
           border-radius: 0 0 12px 12px;
           padding: 20px;
-          background: #0f131d;
+          background: var(--bg-inset);
           width: 100%;
           max-width: 100%;
           box-sizing: border-box;
-          color: #d4dbe5;
+          color: var(--text-primary);
           font-size: 13px;
           line-height: 1.6;
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -743,7 +743,7 @@ export function SpecEditor(props: SpecEditorProps) {
         }
 
         .spec-doc strong {
-          color: #f0f0f0;
+          color: var(--text-primary);
           font-weight: 600;
         }
 
@@ -753,7 +753,7 @@ export function SpecEditor(props: SpecEditorProps) {
           padding: 2px 6px;
           font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 0.9em;
-          color: #ccc;
+          color: var(--text-primary);
           overflow-wrap: anywhere;
         }
 
@@ -767,7 +767,7 @@ export function SpecEditor(props: SpecEditorProps) {
           font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 13px;
           line-height: 1.5;
-          color: #ccc;
+          color: var(--text-primary);
           white-space: pre-wrap;
           overflow-wrap: anywhere;
         }
@@ -807,7 +807,7 @@ export function SpecEditor(props: SpecEditorProps) {
         .spec-doc h2,
         .spec-doc h3,
         .spec-doc h4 {
-          color: #f0f0f0;
+          color: var(--text-primary);
           margin: 16px 0 8px;
           line-height: 1.3;
         }
@@ -828,7 +828,7 @@ export function SpecEditor(props: SpecEditorProps) {
           margin: 8px 0;
           padding: 4px 12px;
           border-left: 2px solid rgba(255, 255, 255, 0.15);
-          color: #999;
+          color: var(--text-secondary);
         }
 
         .spec-doc table {
@@ -843,14 +843,14 @@ export function SpecEditor(props: SpecEditorProps) {
 
         .spec-doc th,
         .spec-doc td {
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
           padding: 8px 12px;
           text-align: left;
         }
 
         .spec-doc th {
           background: rgba(255, 255, 255, 0.04);
-          color: #ddd;
+          color: var(--text-primary);
           font-weight: 600;
         }
 
@@ -870,11 +870,11 @@ export function SpecEditor(props: SpecEditorProps) {
           flex: 1;
           height: 100%;
           min-height: 0;
-          border: 1px solid #1c2430;
+          border: 1px solid var(--border-subtle);
           border-top: 0;
           border-radius: 0 0 12px 12px;
-          background: #0f131d;
-          color: #e4e4e7;
+          background: var(--bg-inset);
+          color: var(--text-primary);
           resize: none;
           padding: 14px;
           line-height: 1.6;

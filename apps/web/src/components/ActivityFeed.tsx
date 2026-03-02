@@ -190,20 +190,20 @@ export function ActivityFeed(props: ActivityFeedProps) {
           align-items: center;
           justify-content: space-between;
           padding: 16px;
-          border-bottom: 1px solid #2a2a2a;
+          border-bottom: 1px solid var(--border-default);
         }
 
         .back-btn {
           background: none;
           border: none;
-          color: #888;
+          color: var(--text-tertiary);
           font-size: 16px;
           cursor: pointer;
           margin-right: 8px;
         }
 
         .back-btn:hover {
-          color: #fff;
+          color: var(--text-primary);
         }
 
         .back-btn:focus-visible {
@@ -244,7 +244,7 @@ export function ActivityFeed(props: ActivityFeedProps) {
         .activity-empty {
           padding: 16px;
           font-size: 12px;
-          color: #666;
+          color: var(--text-muted);
         }
 
         .activity-item {
@@ -276,7 +276,7 @@ export function ActivityFeed(props: ActivityFeedProps) {
           height: 8px;
           border-radius: 999px;
           margin-top: 6px;
-          background: #666;
+          background: var(--text-muted);
           flex: 0 0 auto;
         }
 
@@ -288,13 +288,13 @@ export function ActivityFeed(props: ActivityFeedProps) {
         .activity-text p {
           margin: 0;
           font-size: 13px;
-          color: #ddd;
+          color: var(--text-primary);
         }
 
         .activity-time {
           display: block;
           font-size: 11px;
-          color: #666;
+          color: var(--text-muted);
           margin-top: 4px;
         }
 

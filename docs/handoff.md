@@ -125,6 +125,43 @@ Files touched in this follow-up:
 - `docs/llms.md`
 - `README.md`
 
+### Follow-up Delta (2026-03-02, light mode with sidebar toggle)
+
+- Added full dark/light theme support via CSS custom properties on `:root` with `[data-theme="light"]` override.
+- Flash-prevention inline `<script>` in `index.html` sets `data-theme` before first paint.
+- New `apps/web/src/theme.ts`: module-level SolidJS signal + `toggleTheme()` export, syncs `data-theme` + `localStorage('aihub-theme')`.
+- Theme toggle button added to `AgentSidebar` footer (sun/moon icon, label hidden when collapsed).
+- Migrated ~20 component files from hardcoded hex colors to CSS custom properties.
+- Added `--mix-*` tokens for ProjectsBoard's blue-tinted palette (board bg, column bg, modal bg, etc.).
+- ChatView and TaskboardOverlay scoped CSS vars now alias global tokens.
+- Accent/status colors (#6366f1, #22c55e, #ef4444, #f59e0b, etc.) kept unchanged — they work on both backgrounds.
+- Added 2 new sidebar tests (toggle render + click behavior).
+- All 465 tests pass.
+
+Files touched:
+- `apps/web/index.html` (CSS vars + flash script)
+- `apps/web/src/theme.ts` (new)
+- `apps/web/src/components/AgentSidebar.tsx` (toggle + migration)
+- `apps/web/src/components/AgentSidebar.test.tsx` (new tests)
+- `apps/web/src/App.tsx`
+- `apps/web/src/components/AgentList.tsx`
+- `apps/web/src/components/AgentChat.tsx`
+- `apps/web/src/components/AgentDirectory.tsx`
+- `apps/web/src/components/ContextPanel.tsx`
+- `apps/web/src/components/ActivityFeed.tsx`
+- `apps/web/src/components/ChatView.tsx`
+- `apps/web/src/components/TaskboardOverlay.tsx`
+- `apps/web/src/components/ProjectsBoard.tsx`
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+- `apps/web/src/components/project/AgentPanel.tsx`
+- `apps/web/src/components/project/CenterPanel.tsx`
+- `apps/web/src/components/project/SpawnForm.tsx`
+- `apps/web/src/components/project/ChangesView.tsx`
+- `apps/web/src/components/project/SpecEditor.tsx`
+- `apps/web/src/components/project/TaskCheckbox.tsx`
+- `apps/web/src/components/project/ProgressBar.tsx`
+- `apps/web/src/components/conversations/ConversationsPage.tsx`
+
 ### Follow-up Delta (2026-03-01, left panel agent card refresh)
 
 - Project detail left panel `AgentPanel` agent list is now card-oriented instead of line-oriented.

@@ -4264,8 +4264,8 @@ export function ProjectsBoard() {
           display: flex;
           flex-direction: column;
           font-family: "Adwaita Sans", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-          color: #f2f2f2;
-          background: #0c0e12;
+          color: var(--text-primary);
+          background: var(--bg-inset);
         }
 
         .projects-header {
@@ -4273,10 +4273,10 @@ export function ProjectsBoard() {
           align-items: center;
           gap: 12px;
           padding: 16px 20px;
-          border-bottom: 1px solid #1f242c;
+          border-bottom: 1px solid var(--border-subtle);
           position: sticky;
           top: 0;
-          background: #0c0e12;
+          background: var(--bg-inset);
           z-index: 5;
         }
 
@@ -4285,16 +4285,16 @@ export function ProjectsBoard() {
           padding: 8px 12px;
           font-size: 14px;
           border-radius: 8px;
-          border: 1px solid #232a35;
-          background: #131821;
-          color: #e5e7eb;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-input);
+          color: var(--text-primary);
           width: 220px;
           outline: none;
           transition: border-color 0.15s;
         }
 
         .filter-input::placeholder {
-          color: #6b7280;
+          color: var(--text-muted);
         }
 
         .filter-input:focus {
@@ -4304,9 +4304,9 @@ export function ProjectsBoard() {
         .archive-link {
           display: inline-flex;
           align-items: center;
-          border: 1px solid #1f242c;
+          border: 1px solid var(--border-subtle);
           background: transparent;
-          color: #98a3b2;
+          color: var(--text-secondary);
           padding: 6px 10px;
           font-size: 12px;
           border-radius: 999px;
@@ -4316,16 +4316,16 @@ export function ProjectsBoard() {
         }
 
         .archive-link:hover {
-          border-color: #2a3240;
-          color: #c4cbd6;
+          border-color: var(--mix-col-border);
+          color: var(--text-primary);
           background: rgba(255, 255, 255, 0.03);
         }
 
         .archive-panel {
           margin: 16px 18px 0;
-          border: 1px solid #1f242c;
+          border: 1px solid var(--border-subtle);
           border-radius: 14px;
-          background: #0f131a;
+          background: var(--bg-inset);
           padding: 16px;
         }
 
@@ -4340,14 +4340,14 @@ export function ProjectsBoard() {
         .archive-panel-title {
           font-size: 14px;
           font-weight: 700;
-          color: #d4d7dd;
+          color: var(--text-primary);
           letter-spacing: 0.02em;
         }
 
         .archive-panel-close {
-          border: 1px solid #1f242c;
+          border: 1px solid var(--border-subtle);
           background: transparent;
-          color: #98a3b2;
+          color: var(--text-secondary);
           padding: 4px 10px;
           font-size: 12px;
           border-radius: 8px;
@@ -4356,15 +4356,15 @@ export function ProjectsBoard() {
         }
 
         .archive-panel-close:hover {
-          border-color: #2a3240;
-          color: #c4cbd6;
+          border-color: var(--mix-col-border);
+          color: var(--text-primary);
           background: rgba(255, 255, 255, 0.03);
         }
 
         .archive-panel-loading,
         .archive-panel-error,
         .archive-panel-empty {
-          color: #7f8896;
+          color: var(--text-tertiary);
           font-size: 13px;
           padding: 6px 2px 0;
         }
@@ -4383,17 +4383,17 @@ export function ProjectsBoard() {
           gap: 12px;
           padding: 10px 12px;
           border-radius: 10px;
-          border: 1px solid #1f242c;
-          background: #0b0f14;
-          color: #cfd6e3;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-inset);
+          color: var(--text-primary);
           cursor: pointer;
           text-align: left;
           transition: all 0.15s ease;
         }
 
         .archive-item:hover {
-          border-color: #2a3240;
-          background: #111822;
+          border-color: var(--mix-col-border);
+          background: var(--mix-hover-bg);
         }
 
         .archive-item-title {
@@ -4403,14 +4403,14 @@ export function ProjectsBoard() {
 
         .archive-item-id {
           font-size: 11px;
-          color: #7f8896;
+          color: var(--text-tertiary);
         }
 
         .projects-loading,
         .projects-error {
           padding: 24px;
           text-align: center;
-          color: #8d97a6;
+          color: var(--text-secondary);
         }
 
         .board {
@@ -4427,15 +4427,15 @@ export function ProjectsBoard() {
         }
 
         .board::-webkit-scrollbar-thumb {
-          background: #1d2430;
+          background: var(--mix-col-bg);
           border-radius: 999px;
         }
 
         .column {
           min-width: 240px;
           max-width: 320px;
-          background: color-mix(in oklch, var(--col) 6%, #0c0e12 94%);
-          border: 1px solid color-mix(in oklch, var(--col) 35%, #1d2430 65%);
+          background: color-mix(in oklch, var(--col) 6%, var(--bg-inset) 94%);
+          border: 1px solid color-mix(in oklch, var(--col) 35%, var(--mix-col-bg) 65%);
           border-radius: 16px;
           display: flex;
           flex-direction: column;
@@ -4468,9 +4468,9 @@ export function ProjectsBoard() {
         }
 
         .create-btn {
-          background: color-mix(in oklch, var(--col) 25%, #1d2430 75%);
-          border: 1px solid color-mix(in oklch, var(--col) 45%, #2a3240 55%);
-          color: color-mix(in oklch, var(--col) 90%, #e7edf5 10%);
+          background: color-mix(in oklch, var(--col) 25%, var(--mix-col-bg) 75%);
+          border: 1px solid color-mix(in oklch, var(--col) 45%, var(--mix-col-border) 55%);
+          color: color-mix(in oklch, var(--col) 90%, var(--text-primary) 10%);
           border-radius: 8px;
           padding: 8px;
           cursor: pointer;
@@ -4481,8 +4481,8 @@ export function ProjectsBoard() {
         }
 
         .create-btn:hover {
-          background: color-mix(in oklch, var(--col) 35%, #1d2430 65%);
-          border-color: color-mix(in oklch, var(--col) 55%, #2a3240 45%);
+          background: color-mix(in oklch, var(--col) 35%, var(--mix-col-bg) 65%);
+          border-color: color-mix(in oklch, var(--col) 55%, var(--mix-col-border) 45%);
         }
 
         .column-title {
@@ -4490,12 +4490,12 @@ export function ProjectsBoard() {
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          color: color-mix(in oklch, var(--col) 80%, #f1f4f8 20%);
+          color: color-mix(in oklch, var(--col) 80%, var(--text-primary) 20%);
         }
 
         .column-count {
-          background: color-mix(in oklch, var(--col) 35%, #141a22 65%);
-          color: #e7edf5;
+          background: color-mix(in oklch, var(--col) 35%, var(--bg-inset) 65%);
+          color: var(--text-primary);
           border-radius: 999px;
           padding: 2px 8px;
           font-size: 12px;
@@ -4525,7 +4525,7 @@ export function ProjectsBoard() {
         .column-body,
         .detail-scroll {
           scrollbar-width: thin;
-          scrollbar-color: #2a3446 transparent;
+          scrollbar-color: var(--scrollbar-thumb) transparent;
         }
 
         .column-body::-webkit-scrollbar,
@@ -4540,7 +4540,7 @@ export function ProjectsBoard() {
 
         .column-body::-webkit-scrollbar-thumb,
         .detail-scroll::-webkit-scrollbar-thumb {
-          background: #2a3446;
+          background: var(--scrollbar-thumb);
           border: 2px solid transparent;
           background-clip: content-box;
           border-radius: 999px;
@@ -4548,28 +4548,28 @@ export function ProjectsBoard() {
 
         .column-body::-webkit-scrollbar-thumb:hover,
         .detail-scroll::-webkit-scrollbar-thumb:hover {
-          background: #3a4860;
+          background: var(--bg-raised);
           border: 2px solid transparent;
           background-clip: content-box;
         }
 
         .column.drop-target {
-          background: color-mix(in oklch, var(--col) 10%, #0f141c 90%);
-          box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--col) 55%, #1f2631 45%);
+          background: color-mix(in oklch, var(--col) 10%, var(--bg-inset) 90%);
+          box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--col) 55%, var(--border-subtle) 45%);
         }
 
         .empty-state {
           padding: 16px;
           text-align: center;
-          color: #788391;
-          border: 1px dashed color-mix(in oklch, var(--col) 40%, #232a35 60%);
+          color: var(--text-tertiary);
+          border: 1px dashed color-mix(in oklch, var(--col) 40%, var(--border-subtle) 60%);
           border-radius: 12px;
           font-size: 13px;
         }
 
         .card {
-          background: color-mix(in oklch, var(--col) 8%, #0f141c 92%);
-          border: 1px solid color-mix(in oklch, var(--col) 30%, #1f2631 70%);
+          background: color-mix(in oklch, var(--col) 8%, var(--bg-inset) 92%);
+          border: 1px solid color-mix(in oklch, var(--col) 30%, var(--border-subtle) 70%);
           border-radius: 14px;
           padding: 12px;
           text-align: left;
@@ -4584,7 +4584,7 @@ export function ProjectsBoard() {
           font-size: 12px;
           font-weight: 700;
           letter-spacing: 0.2em;
-          color: color-mix(in oklch, var(--col) 70%, #aeb6c2 30%);
+          color: color-mix(in oklch, var(--col) 70%, var(--text-primary) 30%);
         }
 
         .card-title {
@@ -4598,14 +4598,14 @@ export function ProjectsBoard() {
           flex-wrap: wrap;
           gap: 6px 10px;
           font-size: 12px;
-          color: color-mix(in oklch, var(--col) 55%, #c1c8d2 45%);
+          color: color-mix(in oklch, var(--col) 55%, var(--text-primary) 45%);
           text-transform: uppercase;
           letter-spacing: 0.08em;
         }
 
         .card-footer {
           font-size: 12px;
-          color: #9aa3b2;
+          color: var(--text-secondary);
         }
 
         .overlay {
@@ -4630,8 +4630,8 @@ export function ProjectsBoard() {
           position: relative;
           width: min(1920px, 96vw);
           height: min(90vh, 900px);
-          background: #0f141c;
-          border: 1px solid #273042;
+          background: var(--bg-inset);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 20px;
           z-index: 1;
           display: flex;
@@ -4645,13 +4645,13 @@ export function ProjectsBoard() {
           position: relative;
           width: min(760px, 92vw);
           max-height: min(74vh, 640px);
-          background: #0f141c;
-          border: 1px solid #273042;
+          background: var(--bg-inset);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 16px;
           z-index: 2;
           display: flex;
           flex-direction: column;
-          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+          box-shadow: 0 24px 60px var(--shadow-md);
           overflow: hidden;
           animation: overlay-in 0.18s ease;
         }
@@ -4659,28 +4659,28 @@ export function ProjectsBoard() {
         .command-input {
           width: 100%;
           border: none;
-          border-bottom: 1px solid #273042;
-          background: #101722;
-          color: #e7edf5;
+          border-bottom: 1px solid var(--mix-modal-border);
+          background: var(--mix-modal-header-bg);
+          color: var(--text-primary);
           padding: 16px 18px;
           font-size: 16px;
           font-family: inherit;
         }
 
         .command-input::placeholder {
-          color: #8c96a9;
+          color: var(--text-secondary);
         }
 
         .command-input:focus {
           outline: none;
-          background: #131c2a;
+          background: var(--mix-input-bg);
         }
 
         .command-loading {
           padding: 8px 18px;
           font-size: 12px;
-          color: #8c96a9;
-          border-bottom: 1px solid #273042;
+          color: var(--text-secondary);
+          border-bottom: 1px solid var(--mix-modal-border);
         }
 
         .command-results {
@@ -4694,15 +4694,15 @@ export function ProjectsBoard() {
 
         .command-empty {
           padding: 18px;
-          color: #8c96a9;
+          color: var(--text-secondary);
           font-size: 14px;
           text-align: center;
         }
 
         .command-result {
           border: 1px solid transparent;
-          background: #131a25;
-          color: #d8e0ec;
+          background: var(--mix-input-bg);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 10px 12px;
           text-align: left;
@@ -4715,7 +4715,7 @@ export function ProjectsBoard() {
         .command-result:hover,
         .command-result.active {
           border-color: #3b6ecc;
-          background: #182336;
+          background: var(--mix-hover-bg);
         }
 
         .command-result-main {
@@ -4730,7 +4730,7 @@ export function ProjectsBoard() {
           font-size: 11px;
           font-weight: 700;
           letter-spacing: 0.12em;
-          color: #8ea7d6;
+          color: var(--text-secondary);
         }
 
         .command-result-title {
@@ -4747,7 +4747,7 @@ export function ProjectsBoard() {
           flex-wrap: wrap;
           gap: 10px;
           font-size: 11px;
-          color: #91a0b8;
+          color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
@@ -4755,9 +4755,9 @@ export function ProjectsBoard() {
         .command-status-pill {
           border-radius: 999px;
           padding: 3px 8px;
-          border: 1px solid color-mix(in oklch, var(--status-color) 65%, #2a3240 35%);
-          background: color-mix(in oklch, var(--status-color) 28%, #131a25 72%);
-          color: color-mix(in oklch, var(--status-color) 70%, #e7edf5 30%);
+          border: 1px solid color-mix(in oklch, var(--status-color) 65%, var(--mix-col-border) 35%);
+          background: color-mix(in oklch, var(--status-color) 28%, var(--mix-input-bg) 72%);
+          color: color-mix(in oklch, var(--status-color) 70%, var(--text-primary) 30%);
           font-weight: 700;
           line-height: 1;
         }
@@ -4776,9 +4776,9 @@ export function ProjectsBoard() {
           width: 36px;
           height: 36px;
           border-radius: 10px;
-          border: 1px solid #2a3240;
-          background: #151c26;
-          color: #c6ceda;
+          border: 1px solid var(--mix-col-border);
+          background: var(--mix-modal-bg);
+          color: var(--text-primary);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -4787,21 +4787,21 @@ export function ProjectsBoard() {
         }
 
         .overlay-close:hover {
-          background: #1a2330;
-          border-color: #3a4250;
+          background: var(--mix-hover-bg);
+          border-color: var(--mix-hover-border);
         }
 
         .create-modal {
           position: relative;
           width: min(700px, 92vw);
           max-height: 90vh;
-          background: #0f141c;
-          border: 1px solid #273042;
+          background: var(--bg-inset);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 4px;
           z-index: 1;
           display: flex;
           flex-direction: column;
-          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+          box-shadow: 0 24px 60px var(--shadow-md);
           animation: overlay-in 0.24s ease;
         }
 
@@ -4811,13 +4811,13 @@ export function ProjectsBoard() {
           justify-content: space-between;
           gap: 16px;
           padding: 22px 26px;
-          border-bottom: 1px solid #1d2430;
+          border-bottom: 1px solid var(--mix-col-bg);
         }
 
         .create-modal-header h2 {
           font-size: 20px;
           font-weight: 700;
-          color: #e7edf5;
+          color: var(--text-primary);
           margin: 0;
         }
 
@@ -4829,7 +4829,7 @@ export function ProjectsBoard() {
 
         .create-subtitle {
           margin: 0;
-          color: #9aa3b2;
+          color: var(--text-secondary);
           font-size: 13px;
           line-height: 1.4;
         }
@@ -4860,8 +4860,8 @@ export function ProjectsBoard() {
 
         .file-button {
           background: transparent;
-          border: 1px solid #2a3240;
-          color: #98a2b3;
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-secondary);
           padding: 6px 10px;
           border-radius: 4px;
           font-size: 12px;
@@ -4871,7 +4871,7 @@ export function ProjectsBoard() {
 
         .file-button:hover {
           border-color: #3a86ff;
-          color: #c6d0db;
+          color: var(--text-primary);
         }
 
         .file-list {
@@ -4885,15 +4885,15 @@ export function ProjectsBoard() {
           align-items: center;
           justify-content: space-between;
           padding: 10px 12px;
-          background: #141b26;
-          border: 1px solid #2a3240;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
           border-radius: 4px;
           gap: 12px;
         }
 
         .file-name {
           font-size: 13px;
-          color: #c6d0db;
+          color: var(--text-primary);
           flex: 1;
           white-space: nowrap;
           overflow: hidden;
@@ -4905,7 +4905,7 @@ export function ProjectsBoard() {
           border: none;
           padding: 4px;
           cursor: pointer;
-          color: #7d8796;
+          color: var(--text-tertiary);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -4934,7 +4934,7 @@ export function ProjectsBoard() {
           font-size: 16px;
           font-weight: 600;
           color: #3a86ff;
-          background: #0f141c;
+          background: var(--bg-inset);
           padding: 16px 32px;
           border-radius: 4px;
         }
@@ -4952,13 +4952,13 @@ export function ProjectsBoard() {
         }
 
         .create-success-card {
-          background: #0f141c;
-          border: 1px solid #273042;
+          background: var(--bg-inset);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 8px;
           padding: 24px 32px;
           text-align: center;
           min-width: min(320px, 80vw);
-          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+          box-shadow: 0 14px 40px var(--shadow-md);
         }
 
         .create-success-title {
@@ -4970,7 +4970,7 @@ export function ProjectsBoard() {
 
         .create-success-subtitle {
           font-size: 13px;
-          color: #a6b0c3;
+          color: var(--text-secondary);
         }
 
         .create-toast {
@@ -4991,7 +4991,7 @@ export function ProjectsBoard() {
         .create-label {
           font-size: 13px;
           font-weight: 600;
-          color: #c6d0db;
+          color: var(--text-primary);
           letter-spacing: 0.02em;
         }
 
@@ -5007,14 +5007,14 @@ export function ProjectsBoard() {
 
         .create-optional {
           font-size: 12px;
-          color: #7d8796;
+          color: var(--text-tertiary);
           letter-spacing: 0.03em;
         }
 
         .create-input {
-          background: #141b26;
-          border: 1px solid #2a3240;
-          color: #e7edf5;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 10px 14px;
           font-size: 14px;
@@ -5025,7 +5025,7 @@ export function ProjectsBoard() {
         .create-input:focus {
           outline: none;
           border-color: #3b6ecc;
-          background: #1a2330;
+          background: var(--mix-hover-bg);
           box-shadow: 0 0 0 3px rgba(59, 110, 204, 0.2);
         }
 
@@ -5034,9 +5034,9 @@ export function ProjectsBoard() {
         }
 
         .create-textarea {
-          background: #141b26;
-          border: 1px solid #2a3240;
-          color: #e7edf5;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 10px 14px;
           font-size: 14px;
@@ -5049,19 +5049,19 @@ export function ProjectsBoard() {
         .create-textarea:focus {
           outline: none;
           border-color: #3b6ecc;
-          background: #1a2330;
+          background: var(--mix-hover-bg);
           box-shadow: 0 0 0 3px rgba(59, 110, 204, 0.2);
         }
 
         .create-helper {
           font-size: 12px;
-          color: #7d8796;
+          color: var(--text-tertiary);
           line-height: 1.4;
         }
 
         .create-notes .create-label {
           font-size: 14px;
-          color: #e7edf5;
+          color: var(--text-primary);
         }
 
         .create-error {
@@ -5076,12 +5076,12 @@ export function ProjectsBoard() {
           justify-content: space-between;
           gap: 12px;
           padding: 16px 26px 22px;
-          border-top: 1px solid #1d2430;
+          border-top: 1px solid var(--mix-col-bg);
         }
 
         .create-footer-hints {
           font-size: 12px;
-          color: #7d8796;
+          color: var(--text-tertiary);
         }
 
         .create-footer-actions {
@@ -5090,9 +5090,9 @@ export function ProjectsBoard() {
         }
 
         .create-cancel {
-          background: #141b26;
-          border: 1px solid #2a3240;
-          color: #98a3b2;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-secondary);
           border-radius: 10px;
           padding: 10px 20px;
           font-size: 14px;
@@ -5102,9 +5102,9 @@ export function ProjectsBoard() {
         }
 
         .create-cancel:hover {
-          background: #1a2330;
-          border-color: #3a4250;
-          color: #b0b8c6;
+          background: var(--mix-hover-bg);
+          border-color: var(--mix-hover-border);
+          color: var(--text-primary);
         }
 
         .create-submit {
@@ -5138,7 +5138,7 @@ export function ProjectsBoard() {
           border-radius: 10px;
           border: 1px solid transparent;
           background: transparent;
-          color: #7f8aa1;
+          color: var(--text-tertiary);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -5153,8 +5153,8 @@ export function ProjectsBoard() {
         }
 
         .trash-button:hover {
-          background: #151b24;
-          border-color: #2a3240;
+          background: var(--mix-modal-bg);
+          border-color: var(--mix-col-border);
           color: #d48c8c;
         }
 
@@ -5164,7 +5164,7 @@ export function ProjectsBoard() {
           border-radius: 10px;
           border: 1px solid transparent;
           background: transparent;
-          color: #7f8aa1;
+          color: var(--text-tertiary);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -5178,8 +5178,8 @@ export function ProjectsBoard() {
         }
 
         .archive-button:hover {
-          background: #151b24;
-          border-color: #2a3240;
+          background: var(--mix-modal-bg);
+          border-color: var(--mix-col-border);
           color: #d2b356;
         }
 
@@ -5214,8 +5214,8 @@ export function ProjectsBoard() {
         .title-input {
           font-size: 20px;
           font-weight: 700;
-          background: #151c26;
-          color: #e0e6ef;
+          background: var(--mix-modal-bg);
+          color: var(--text-primary);
           border: 1px solid #3b6ecc;
           border-radius: 6px;
           padding: 4px 8px;
@@ -5226,9 +5226,9 @@ export function ProjectsBoard() {
         }
 
         .id-pill {
-          background: #141a23;
-          border: 1px solid #2a3240;
-          color: #9aa3b2;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-secondary);
           font-size: 11px;
           letter-spacing: 0.2em;
           text-transform: uppercase;
@@ -5239,9 +5239,9 @@ export function ProjectsBoard() {
         }
 
         .id-pill:hover {
-          background: #1a2330;
-          border-color: #3a4250;
-          color: #b0b8c6;
+          background: var(--mix-hover-bg);
+          border-color: var(--mix-hover-border);
+          color: var(--text-primary);
         }
 
         .id-pill.copied {
@@ -5260,8 +5260,8 @@ export function ProjectsBoard() {
 
         .detail,
         .monitoring {
-          background: #111722;
-          border: 1px solid #273042;
+          background: var(--mix-modal-header-bg);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 16px;
           padding: 16px;
           display: flex;
@@ -5286,9 +5286,9 @@ export function ProjectsBoard() {
         }
 
         .status-select {
-          background: #151c26;
-          color: #e0e6ef;
-          border: 1px solid #2a3240;
+          background: var(--mix-modal-bg);
+          color: var(--text-primary);
+          border: 1px solid var(--mix-col-border);
           border-radius: 999px;
           padding: 6px 12px;
           font-size: 12px;
@@ -5301,7 +5301,7 @@ export function ProjectsBoard() {
           flex-wrap: wrap;
           gap: 8px 16px;
           font-size: 12px;
-          color: #9aa3b2;
+          color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.08em;
           align-items: center;
@@ -5335,7 +5335,7 @@ export function ProjectsBoard() {
 
         .meta-button:focus {
           outline: none;
-          color: #e4e9f1;
+          color: var(--text-primary);
         }
 
         .meta-icon {
@@ -5348,8 +5348,8 @@ export function ProjectsBoard() {
           position: absolute;
           top: calc(100% + 6px);
           left: 0;
-          background: #151c26;
-          border: 1px solid #2a3240;
+          background: var(--mix-modal-bg);
+          border: 1px solid var(--mix-col-border);
           border-radius: 10px;
           padding: 6px;
           display: flex;
@@ -5362,7 +5362,7 @@ export function ProjectsBoard() {
         .meta-item {
           background: transparent;
           border: none;
-          color: #e0e6ef;
+          color: var(--text-primary);
           text-transform: uppercase;
           letter-spacing: 0.08em;
           font-size: 11px;
@@ -5373,7 +5373,7 @@ export function ProjectsBoard() {
         }
 
         .meta-item:hover {
-          background: #232c3a;
+          background: var(--mix-hover-bg);
         }
 
         .monitoring-meta {
@@ -5388,23 +5388,23 @@ export function ProjectsBoard() {
           font-size: 10px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #7f8a9a;
+          color: var(--text-tertiary);
           margin-bottom: 6px;
         }
 
         .meta-select,
         .meta-input {
           width: 100%;
-          background: #151c26;
-          color: #e0e6ef;
-          border: 1px solid #2a3240;
+          background: var(--mix-modal-bg);
+          color: var(--text-primary);
+          border: 1px solid var(--mix-col-border);
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 12px;
         }
 
         .meta-input::placeholder {
-          color: #7f8a9a;
+          color: var(--text-tertiary);
         }
 
         .meta-field-wide {
@@ -5444,9 +5444,9 @@ export function ProjectsBoard() {
           flex: 1;
           padding: 8px 12px;
           border-radius: 10px;
-          border: 1px solid #2a3240;
-          background: #151c26;
-          color: #8b96a5;
+          border: 1px solid var(--mix-col-border);
+          background: var(--mix-modal-bg);
+          color: var(--text-secondary);
           font-size: 12px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
@@ -5455,9 +5455,9 @@ export function ProjectsBoard() {
         }
 
         .detail-tabs button.active {
-          background: #1c2634;
+          background: var(--mix-hover-bg);
           border-color: #3b82f6;
-          color: #e0e6ef;
+          color: var(--text-primary);
         }
 
         .detail-doc-body {
@@ -5470,12 +5470,12 @@ export function ProjectsBoard() {
 
         .detail-thread {
           flex: none;
-          border-top: 1px solid #223042;
+          border-top: 1px solid var(--mix-modal-border);
           padding-top: 12px;
           display: flex;
           flex-direction: column;
           gap: 10px;
-          background: #0d1117;
+          background: var(--bg-base);
           margin: 12px -16px -16px -16px;
           padding: 12px 16px 16px 16px;
           border-radius: 0 0 12px 12px;
@@ -5485,7 +5485,7 @@ export function ProjectsBoard() {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #7f8a9a;
+          color: var(--text-tertiary);
         }
 
         .thread-list {
@@ -5495,8 +5495,8 @@ export function ProjectsBoard() {
         }
 
         .thread-item {
-          background: #141b26;
-          border: 1px solid #263142;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 12px;
           padding: 10px 12px;
         }
@@ -5507,7 +5507,7 @@ export function ProjectsBoard() {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          color: #8b96a5;
+          color: var(--text-secondary);
           margin-bottom: 6px;
           align-items: center;
           gap: 8px;
@@ -5517,7 +5517,7 @@ export function ProjectsBoard() {
           opacity: 0;
           background: none;
           border: none;
-          color: #8b96a5;
+          color: var(--text-secondary);
           cursor: pointer;
           padding: 2px;
           display: flex;
@@ -5537,7 +5537,7 @@ export function ProjectsBoard() {
 
         .thread-body {
           white-space: pre-wrap;
-          color: #d4dbe5;
+          color: var(--text-primary);
           font-size: 13px;
           line-height: 1.2;
           cursor: pointer;
@@ -5567,8 +5567,8 @@ export function ProjectsBoard() {
 
         .detail-body pre,
         .thread-body pre {
-          background: #0a1120;
-          border: 1px solid #1f2835;
+          background: var(--bg-inset);
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 10px;
           overflow-x: auto;
@@ -5601,15 +5601,15 @@ export function ProjectsBoard() {
         .detail-body td,
         .thread-body th,
         .thread-body td {
-          border: 1px solid #2a2a2a;
+          border: 1px solid var(--border-default);
           padding: 8px 12px;
           text-align: left;
         }
 
         .detail-body th,
         .thread-body th {
-          background: #1a1a1a;
-          color: #fff;
+          background: var(--bg-surface);
+          color: var(--text-primary);
           font-weight: 600;
         }
 
@@ -5622,10 +5622,10 @@ export function ProjectsBoard() {
         .thread-add-textarea {
           width: 100%;
           min-height: 100px;
-          background: #151c26;
-          border: 1px solid #3b4859;
+          background: var(--mix-modal-bg);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 8px;
-          color: #d4dbe5;
+          color: var(--text-primary);
           padding: 8px 10px;
           font-size: 13px;
           font-family: inherit;
@@ -5669,7 +5669,7 @@ export function ProjectsBoard() {
         }
 
         .thread-empty {
-          color: #7f8a9a;
+          color: var(--text-tertiary);
           font-size: 12px;
         }
 
@@ -5679,7 +5679,7 @@ export function ProjectsBoard() {
           background: transparent;
           border: none;
           padding: 0;
-          color: #d4dbe5;
+          color: var(--text-primary);
           font-size: 14px;
           line-height: 1.5;
           cursor: text;
@@ -5706,7 +5706,7 @@ export function ProjectsBoard() {
           padding: 4px;
           border-radius: 4px;
           border: none;
-          color: #8b96a5;
+          color: var(--text-secondary);
           background: rgba(255, 255, 255, 0.06);
           display: inline-flex;
           align-items: center;
@@ -5720,12 +5720,12 @@ export function ProjectsBoard() {
 
         .doc-edit-icon:hover {
           opacity: 1;
-          color: #d4dbe5;
+          color: var(--text-primary);
         }
 
         .detail-body.empty-doc::after {
           content: "Double-click to edit";
-          color: #7f8a9a;
+          color: var(--text-tertiary);
           font-size: 13px;
           font-style: italic;
         }
@@ -5734,8 +5734,8 @@ export function ProjectsBoard() {
           flex: 1;
           width: 100%;
           min-height: 420px;
-          background: #151c26;
-          color: #d4dbe5;
+          background: var(--mix-modal-bg);
+          color: var(--text-primary);
           border: 1px solid #3b6ecc;
           border-radius: 8px;
           padding: 12px;
@@ -5747,7 +5747,7 @@ export function ProjectsBoard() {
         }
 
         .content-textarea::placeholder {
-          color: #7f8a9a;
+          color: var(--text-tertiary);
         }
 
         .detail.drag-over {
@@ -5786,7 +5786,7 @@ export function ProjectsBoard() {
 
         .detail-pending-label {
           font-size: 12px;
-          color: #7d8796;
+          color: var(--text-tertiary);
         }
 
         .detail-body :is(h1, h2, h3) {
@@ -5799,7 +5799,7 @@ export function ProjectsBoard() {
 
         .detail-body hr {
           border: none;
-          border-top: 1px solid #2a3240;
+          border-top: 1px solid var(--mix-col-border);
           margin: 1.2em 0;
         }
 
@@ -5826,10 +5826,10 @@ export function ProjectsBoard() {
           display: flex;
           flex-direction: column;
           gap: 12px;
-          border: 1px solid #233041;
+          border: 1px solid var(--mix-modal-border);
           border-radius: 14px;
           padding: 12px;
-          background: #0f1520;
+          background: var(--bg-inset);
           flex: 1;
           min-height: 0;
         }
@@ -5857,10 +5857,10 @@ export function ProjectsBoard() {
         .main-toggle-rail {
           width: 58px;
           padding: 8px 6px;
-          border: 1px solid #233041;
+          border: 1px solid var(--mix-modal-border);
           border-radius: 14px;
-          background: #0f1520;
-          color: #98a3b2;
+          background: var(--bg-inset);
+          color: var(--text-secondary);
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
@@ -5887,9 +5887,9 @@ export function ProjectsBoard() {
         }
 
         .collapse-btn {
-          background: #141b26;
-          border: 1px solid #2a3240;
-          color: #98a3b2;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-secondary);
           border-radius: 999px;
           padding: 6px 10px;
           font-size: 10px;
@@ -5910,7 +5910,7 @@ export function ProjectsBoard() {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #8b96a5;
+          color: var(--text-secondary);
         }
 
         .start-custom-toggle input {
@@ -5924,7 +5924,7 @@ export function ProjectsBoard() {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #9aa3b2;
+          color: var(--text-secondary);
         }
 
         .status-dot {
@@ -5955,9 +5955,9 @@ export function ProjectsBoard() {
 
         .start-btn,
         .stop-btn {
-          background: #1b2431;
-          border: 1px solid #2b3648;
-          color: #e0e6ef;
+          background: var(--bg-overlay);
+          border: 1px solid var(--mix-modal-border);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 8px 14px;
           font-size: 12px;
@@ -5985,9 +5985,9 @@ export function ProjectsBoard() {
         .stop-btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
-          background: #1b2431;
-          border-color: #2b3648;
-          color: #8b96a5;
+          background: var(--bg-overlay);
+          border-color: var(--mix-modal-border);
+          color: var(--text-secondary);
         }
 
         .monitoring-tabs {
@@ -5996,9 +5996,9 @@ export function ProjectsBoard() {
         }
 
         .tab-btn {
-          background: #141b26;
-          border: 1px solid #2a3240;
-          color: #98a3b2;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--mix-col-border);
+          color: var(--text-secondary);
           border-radius: 999px;
           padding: 6px 12px;
           font-size: 11px;
@@ -6008,13 +6008,13 @@ export function ProjectsBoard() {
         }
 
         .tab-btn.active {
-          background: #2b3648;
-          color: #e0e6ef;
+          background: var(--mix-modal-border);
+          color: var(--text-primary);
         }
 
         .log-pane {
-          background: #0d121a;
-          border: 1px solid #1f2631;
+          background: var(--bg-inset);
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           padding: 10px;
           overflow: auto;
@@ -6023,7 +6023,7 @@ export function ProjectsBoard() {
           gap: 8px;
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 12px;
-          color: #cfd6e2;
+          color: var(--text-primary);
           flex: 1;
           min-height: 0;
         }
@@ -6087,7 +6087,7 @@ export function ProjectsBoard() {
         }
 
         .log-line.muted {
-          color: #8b96a5;
+          color: var(--text-secondary);
           background: rgba(20, 25, 34, 0.6);
         }
 
@@ -6115,7 +6115,7 @@ export function ProjectsBoard() {
         }
 
         .log-empty {
-          color: #7f8a9a;
+          color: var(--text-tertiary);
           font-size: 12px;
         }
 
@@ -6128,29 +6128,29 @@ export function ProjectsBoard() {
 
         .monitoring-textarea {
           flex: 1;
-          background: #111722;
-          border: 1px solid #273042;
+          background: var(--mix-modal-header-bg);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 10px;
           padding: 8px 10px;
-          color: #e0e6ef;
+          color: var(--text-primary);
           font-size: 12px;
           resize: none;
         }
 
         .custom-start-textarea {
-          background: #111722;
-          border: 1px solid #273042;
+          background: var(--mix-modal-header-bg);
+          border: 1px solid var(--mix-modal-border);
           border-radius: 10px;
           padding: 8px 10px;
-          color: #e0e6ef;
+          color: var(--text-primary);
           font-size: 12px;
           resize: vertical;
         }
 
         .monitoring-send {
-          background: #1b2431;
-          border: 1px solid #2b3648;
-          color: #e0e6ef;
+          background: var(--bg-overlay);
+          border: 1px solid var(--mix-modal-border);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 8px 12px;
           font-size: 12px;
@@ -6164,7 +6164,7 @@ export function ProjectsBoard() {
 
         .monitoring-empty p {
           margin: 0;
-          color: #8d97a6;
+          color: var(--text-secondary);
           font-size: 12px;
         }
 
@@ -6205,9 +6205,9 @@ export function ProjectsBoard() {
         }
 
         .runs-archive-toggle {
-          border: 1px solid #2b3442;
-          background: #101621;
-          color: #9aa6b4;
+          border: 1px solid var(--mix-modal-border);
+          background: var(--bg-inset);
+          color: var(--text-secondary);
           font-size: 11px;
           padding: 4px 8px;
           border-radius: 999px;
@@ -6215,8 +6215,8 @@ export function ProjectsBoard() {
         }
 
         .runs-archive-toggle:hover {
-          color: #d2d9e3;
-          border-color: #3b485c;
+          color: var(--text-primary);
+          border-color: var(--mix-modal-border);
         }
 
         .custom-start-textarea {
@@ -6224,11 +6224,11 @@ export function ProjectsBoard() {
           min-height: 50px;
           max-height: 100px;
           resize: vertical;
-          background: #141b26;
-          border: 1px solid #1f2631;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--border-subtle);
           border-radius: 6px;
           padding: 8px;
-          color: #b8c4d0;
+          color: var(--text-primary);
           font-size: 12px;
           font-family: inherit;
           margin-bottom: 8px;
@@ -6244,7 +6244,7 @@ export function ProjectsBoard() {
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          color: #e7edf5;
+          color: var(--text-primary);
           margin: 0;
         }
 
@@ -6257,8 +6257,8 @@ export function ProjectsBoard() {
         }
 
         .run-row {
-          background: #141b26;
-          border: 1px solid #1f2631;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
           padding: 10px 12px;
           text-align: left;
@@ -6271,7 +6271,7 @@ export function ProjectsBoard() {
 
         .run-row.active {
           border-color: #3b6ecc;
-          background: #1a2230;
+          background: var(--mix-hover-bg);
         }
 
         .run-row.archived {
@@ -6315,7 +6315,7 @@ export function ProjectsBoard() {
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          color: #8b96a5;
+          color: var(--text-secondary);
         }
 
         .run-row .kill-btn {
@@ -6323,7 +6323,7 @@ export function ProjectsBoard() {
           border: none;
           padding: 4px;
           cursor: pointer;
-          color: #666;
+          color: var(--text-muted);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -6334,7 +6334,7 @@ export function ProjectsBoard() {
           border: none;
           padding: 4px;
           cursor: pointer;
-          color: #6b7280;
+          color: var(--text-muted);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -6369,7 +6369,7 @@ export function ProjectsBoard() {
         .repo-status {
           font-size: 11px;
           margin-top: 4px;
-          color: #9aa6b4;
+          color: var(--text-secondary);
         }
 
         .repo-status.ok {
@@ -6384,10 +6384,10 @@ export function ProjectsBoard() {
           display: flex;
           flex-direction: column;
           gap: 10px;
-          border: 1px solid #233041;
+          border: 1px solid var(--mix-modal-border);
           border-radius: 14px;
           padding: 12px;
-          background: #0f1520;
+          background: var(--bg-inset);
           min-height: 0;
         }
 
@@ -6407,9 +6407,9 @@ export function ProjectsBoard() {
 
         .subagents-toggle {
           width: 100%;
-          background: #141b26;
-          border: 1px solid #1f2631;
-          color: #98a3b2;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--border-subtle);
+          color: var(--text-secondary);
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 11px;
@@ -6430,7 +6430,7 @@ export function ProjectsBoard() {
         }
 
         .subagents-count {
-          background: #1b2431;
+          background: var(--bg-overlay);
           border-radius: 999px;
           padding: 2px 6px;
           font-size: 10px;
@@ -6453,8 +6453,8 @@ export function ProjectsBoard() {
         }
 
         .subagent-row {
-          background: #141b26;
-          border: 1px solid #1f2631;
+          background: var(--mix-input-bg);
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
           padding: 8px 10px;
           text-align: left;
@@ -6467,7 +6467,7 @@ export function ProjectsBoard() {
 
         .subagent-row.active {
           border-color: #3b6ecc;
-          background: #1a2230;
+          background: var(--mix-hover-bg);
         }
 
         .subagent-title {
@@ -6481,7 +6481,7 @@ export function ProjectsBoard() {
           font-size: 10px;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: #8b96a5;
+          color: var(--text-secondary);
         }
 
         .subagent-status.running {
@@ -6545,9 +6545,9 @@ export function ProjectsBoard() {
             flex: 1;
             padding: 10px 16px;
             border-radius: 8px;
-            border: 1px solid #2a3240;
+            border: 1px solid var(--mix-col-border);
             background: transparent;
-            color: #8b96a5;
+            color: var(--text-secondary);
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
@@ -6555,9 +6555,9 @@ export function ProjectsBoard() {
           }
 
           .mobile-detail-tabs button.active {
-            background: #1a2330;
+            background: var(--mix-hover-bg);
             border-color: #3b82f6;
-            color: #e0e6ef;
+            color: var(--text-primary);
           }
 
           .mobile-detail-tabs button:focus-visible {
@@ -6608,7 +6608,7 @@ export function ProjectsBoard() {
           position: fixed;
           inset: 0;
           z-index: 900;
-          background: #0c0e12;
+          background: var(--bg-inset);
           display: flex;
           flex-direction: column;
         }
@@ -6617,7 +6617,7 @@ export function ProjectsBoard() {
           flex: 1;
           display: flex;
           flex-direction: column;
-          background: #0f141c;
+          background: var(--bg-inset);
           animation: overlay-in 0.2s ease;
           min-height: 0;
         }
@@ -6645,9 +6645,9 @@ export function ProjectsBoard() {
             width: 32px;
             height: 32px;
             border-radius: 8px;
-            border: 1px solid #2a2a2a;
-            background: #1a1a1a;
-            color: #e6e6e6;
+            border: 1px solid var(--border-default);
+            background: var(--bg-surface);
+            color: var(--text-primary);
             cursor: pointer;
             display: flex;
             align-items: center;

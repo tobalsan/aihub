@@ -448,13 +448,13 @@ export function SpawnForm(props: SpawnFormProps) {
           gap: 14px;
           align-items: stretch;
           background: transparent;
-          color: #e4e4e7;
+          color: var(--text-primary);
           overflow: hidden;
         }
 
         .spawn-form-header {
           padding-bottom: 10px;
-          border-bottom: 1px solid #1c2430;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .spawn-form-header h3 {
@@ -467,7 +467,7 @@ export function SpawnForm(props: SpawnFormProps) {
         .spawn-form-header p {
           margin: 4px 0 0;
           font-size: 12px;
-          color: #94a3b8;
+          color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.04em;
         }
@@ -475,10 +475,10 @@ export function SpawnForm(props: SpawnFormProps) {
         .add-agent-form {
           display: grid;
           gap: 12px;
-          border: 1px solid #1c2430;
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           padding: 14px;
-          background: #111722;
+          background: var(--bg-overlay);
           width: 100%;
           box-sizing: border-box;
         }
@@ -492,7 +492,7 @@ export function SpawnForm(props: SpawnFormProps) {
         .add-agent-label {
           display: grid;
           gap: 4px;
-          color: #94a3b8;
+          color: var(--text-secondary);
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.05em;
@@ -505,10 +505,10 @@ export function SpawnForm(props: SpawnFormProps) {
         .add-agent-select,
         .add-agent-input,
         .add-agent-prompt {
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 6px;
-          background: #0b1220;
-          color: #e4e4e7;
+          background: var(--bg-inset);
+          color: var(--text-primary);
           font: inherit;
           font-size: 12px;
           padding: 6px 8px;
@@ -524,23 +524,23 @@ export function SpawnForm(props: SpawnFormProps) {
           flex-wrap: wrap;
           gap: 10px 16px;
           padding: 8px 10px;
-          border: 1px solid #243042;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #0e1625;
+          background: var(--bg-input);
         }
 
         .add-agent-check {
           display: flex;
           gap: 6px;
           align-items: center;
-          color: #cbd5e1;
+          color: var(--text-primary);
           font-size: 12px;
         }
 
         .add-agent-preview {
-          border: 1px solid #243042;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #0b1220;
+          background: var(--bg-inset);
           padding: 8px 10px;
         }
 
@@ -565,10 +565,10 @@ export function SpawnForm(props: SpawnFormProps) {
         }
 
         .add-agent-cli-preview {
-          border: 1px solid #243042;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #0b1220;
-          color: #cbd5e1;
+          background: var(--bg-inset);
+          color: var(--text-primary);
           font-size: 11px;
           line-height: 1.4;
           padding: 8px 10px;
@@ -583,10 +583,10 @@ export function SpawnForm(props: SpawnFormProps) {
 
         .add-agent-cancel,
         .add-agent-submit {
-          border: 1px solid #334155;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
-          background: #0f1724;
-          color: #e4e4e7;
+          background: var(--bg-input);
+          color: var(--text-primary);
           font-size: 12px;
           padding: 6px 12px;
           cursor: pointer;
@@ -600,7 +600,7 @@ export function SpawnForm(props: SpawnFormProps) {
 
         .add-agent-cancel:hover:not(:disabled) {
           border-color: #475569;
-          background: #162033;
+          background: var(--bg-input);
         }
 
         .add-agent-submit:hover:not(:disabled) {

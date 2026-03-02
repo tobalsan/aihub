@@ -68,7 +68,7 @@ export function AgentList() {
           align-items: center;
           justify-content: space-between;
           padding: 16px;
-          border-bottom: 1px solid #222;
+          border-bottom: 1px solid var(--border-default);
         }
 
         .header h1 {
@@ -79,21 +79,21 @@ export function AgentList() {
         .home-link {
           font-size: 24px;
           font-weight: 600;
-          color: #fff;
+          color: var(--text-primary);
           text-decoration: none;
         }
 
         .home-link:hover {
-          color: #e5e7eb;
+          color: var(--text-primary);
         }
 
         .taskboard-btn {
           width: 40px;
           height: 40px;
           border-radius: 8px;
-          background: #1a1a1a;
-          border: 1px solid #333;
-          color: #888;
+          background: var(--bg-surface);
+          border: 1px solid var(--scrollbar-thumb);
+          color: var(--text-tertiary);
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -102,14 +102,14 @@ export function AgentList() {
         }
 
         .taskboard-btn:hover {
-          background: #252525;
-          color: #fff;
+          background: var(--bg-raised);
+          color: var(--text-primary);
         }
 
         .loading, .error {
           padding: 24px;
           text-align: center;
-          color: #888;
+          color: var(--text-tertiary);
         }
 
         .error {
@@ -127,8 +127,8 @@ export function AgentList() {
           width: 100%;
           padding: 16px;
           margin-bottom: 8px;
-          background: #1a1a1a;
-          border: 1px solid #333;
+          background: var(--bg-surface);
+          border: 1px solid var(--scrollbar-thumb);
           border-radius: 12px;
           text-align: left;
           cursor: pointer;
@@ -137,17 +137,17 @@ export function AgentList() {
         }
 
         .agent-card:hover {
-          background: #252525;
+          background: var(--bg-raised);
         }
 
         .agent-card:active {
-          background: #333;
+          background: var(--scrollbar-thumb);
         }
 
         .agent-name {
           font-size: 18px;
           font-weight: 500;
-          color: #fff;
+          color: var(--text-primary);
           margin-bottom: 4px;
         }
 
@@ -159,12 +159,12 @@ export function AgentList() {
 
         .agent-model {
           font-size: 13px;
-          color: #888;
+          color: var(--text-tertiary);
         }
 
         .agent-workspace {
           font-size: 12px;
-          color: #666;
+          color: var(--text-muted);
           font-family: monospace;
         }
       `}</style>

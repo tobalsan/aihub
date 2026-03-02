@@ -174,8 +174,8 @@ export function ConversationsPage() {
           height: 100%;
           display: flex;
           flex-direction: column;
-          color: #d7dce3;
-          background: #0d1117;
+          color: var(--text-primary);
+          background: var(--bg-base);
         }
 
         .conversations-header {
@@ -184,7 +184,7 @@ export function ConversationsPage() {
           justify-content: space-between;
           gap: 12px;
           padding: 16px;
-          border-bottom: 1px solid #1f2835;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .conversations-header h1 {
@@ -215,16 +215,16 @@ export function ConversationsPage() {
         }
 
         .back-link {
-          border: 1px solid #2b3340;
+          border: 1px solid var(--border-subtle);
           border-radius: 999px;
-          color: #aeb8c7;
+          color: var(--text-secondary);
           padding: 6px 12px;
           text-decoration: none;
           font-size: 12px;
         }
 
         .back-link:hover {
-          color: #d7dce3;
+          color: var(--text-primary);
           border-color: #3b4657;
         }
 
@@ -243,13 +243,13 @@ export function ConversationsPage() {
           grid-template-columns: 1fr;
           gap: 8px;
           padding: 12px 16px;
-          border-bottom: 1px solid #1f2835;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .conversation-filters input {
-          border: 1px solid #273244;
-          background: #111827;
-          color: #d7dce3;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-surface);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 13px;
@@ -273,7 +273,7 @@ export function ConversationsPage() {
         }
 
         .conversations-list-pane {
-          border-bottom: 1px solid #1f2835;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .conversations-detail-pane {
@@ -295,7 +295,7 @@ export function ConversationsPage() {
           display: flex;
           gap: 10px;
           margin-top: 6px;
-          color: #9ba8bb;
+          color: var(--text-secondary);
           font-size: 12px;
         }
 
@@ -303,7 +303,7 @@ export function ConversationsPage() {
           display: flex;
           gap: 8px;
           margin-top: 6px;
-          color: #b3bfce;
+          color: var(--text-primary);
           font-size: 13px;
         }
 
@@ -317,7 +317,7 @@ export function ConversationsPage() {
 
         .thread-reply {
           margin-top: 14px;
-          border-top: 1px solid #1f2835;
+          border-top: 1px solid var(--border-subtle);
           padding-top: 14px;
           display: flex;
           flex-direction: column;
@@ -339,9 +339,9 @@ export function ConversationsPage() {
         }
 
         .thread-reply-textarea {
-          border: 1px solid #273244;
-          background: #111827;
-          color: #d7dce3;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-surface);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 13px;
@@ -428,17 +428,17 @@ export function ConversationsPage() {
         }
 
         .thread-message {
-          border: 1px solid #1f2835;
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 16px 14px;
         }
 
         .thread-message:nth-child(odd) {
-          background: #0d1117;
+          background: var(--bg-base);
         }
 
         .thread-message:nth-child(even) {
-          background: #111927;
+          background: var(--bg-surface);
         }
 
         .thread-message-meta {
@@ -446,23 +446,23 @@ export function ConversationsPage() {
           align-items: baseline;
           gap: 10px;
           font-size: 12px;
-          color: #9ba8bb;
+          color: var(--text-secondary);
           margin-bottom: 8px;
         }
 
         .thread-message-body {
-          color: #d7dce3;
+          color: var(--text-primary);
         }
 
         .thread-raw {
           margin: 0;
           white-space: pre-wrap;
           word-break: break-word;
-          border: 1px solid #273244;
-          background: #0f1725;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-inset);
           border-radius: 10px;
           padding: 10px;
-          color: #d7dce3;
+          color: var(--text-primary);
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
           font-size: 12px;
         }
@@ -470,7 +470,7 @@ export function ConversationsPage() {
         .attachment-list {
           margin: 0;
           padding-left: 20px;
-          color: #d7dce3;
+          color: var(--text-primary);
         }
 
         .attachment-list a {
@@ -534,8 +534,8 @@ export function ConversationsPage() {
         }
 
         .markdown-content pre {
-          background: #0a1120;
-          border: 1px solid #1f2835;
+          background: var(--bg-inset);
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 10px;
           overflow-x: auto;
@@ -553,7 +553,7 @@ export function ConversationsPage() {
           border-left: 3px solid #2d4264;
           margin: 0.4em 0;
           padding-left: 0.75em;
-          color: #9ba8bb;
+          color: var(--text-secondary);
         }
 
         .markdown-content h1,
@@ -564,7 +564,7 @@ export function ConversationsPage() {
         }
 
         .markdown-content strong {
-          color: #e8ecf2;
+          color: var(--text-primary);
         }
 
         .conversations-list {
@@ -575,18 +575,18 @@ export function ConversationsPage() {
         }
 
         .conversation-card {
-          border: 1px solid #1f2835;
+          border: 1px solid var(--border-subtle);
           border-radius: 10px;
-          background: #101722;
+          background: var(--bg-overlay);
           text-align: left;
           padding: 10px;
-          color: #d7dce3;
+          color: var(--text-primary);
           cursor: pointer;
         }
 
         .conversation-card.is-selected {
           border-color: #4166aa;
-          background: #121f32;
+          background: var(--bg-input);
         }
 
         .conversation-card-top {
@@ -602,7 +602,7 @@ export function ConversationsPage() {
         }
 
         .conversation-date {
-          color: #8b98aa;
+          color: var(--text-secondary);
           font-size: 12px;
           white-space: nowrap;
         }
@@ -612,7 +612,7 @@ export function ConversationsPage() {
           flex-wrap: wrap;
           gap: 10px;
           margin-top: 6px;
-          color: #9ba8bb;
+          color: var(--text-secondary);
           font-size: 12px;
         }
 
@@ -639,7 +639,7 @@ export function ConversationsPage() {
 
         .conversation-preview {
           margin: 8px 0 0;
-          color: #a8b4c6;
+          color: var(--text-secondary);
           font-size: 13px;
           line-height: 1.35;
         }
@@ -648,10 +648,10 @@ export function ConversationsPage() {
           display: flex;
           flex-direction: column;
           gap: 10px;
-          border: 1px solid #1f2835;
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           padding: 14px;
-          background: #101722;
+          background: var(--bg-overlay);
         }
 
         .conversation-detail h2 {
@@ -664,7 +664,7 @@ export function ConversationsPage() {
           display: flex;
           flex-wrap: wrap;
           gap: 10px;
-          color: #8c99ab;
+          color: var(--text-secondary);
           font-size: 12px;
         }
 
@@ -672,16 +672,16 @@ export function ConversationsPage() {
           display: flex;
           gap: 8px;
           font-size: 13px;
-          color: #bcc6d5;
+          color: var(--text-primary);
         }
 
         .detail-row strong {
-          color: #d7dce3;
+          color: var(--text-primary);
         }
 
         .empty {
           padding: 20px;
-          color: #8c99ab;
+          color: var(--text-secondary);
           font-size: 13px;
         }
 
@@ -707,14 +707,14 @@ export function ConversationsPage() {
         .overlay-backdrop {
           position: absolute;
           inset: 0;
-          background: rgba(2, 8, 16, 0.72);
+          background: var(--shadow-md);
         }
 
         .conversation-create-modal {
           position: relative;
           width: min(420px, calc(100vw - 32px));
-          background: #111925;
-          border: 1px solid #22324a;
+          background: var(--bg-overlay);
+          border: 1px solid var(--border-subtle);
           border-radius: 14px;
           padding: 14px;
           display: flex;
@@ -732,13 +732,13 @@ export function ConversationsPage() {
           flex-direction: column;
           gap: 6px;
           font-size: 12px;
-          color: #95a3b8;
+          color: var(--text-secondary);
         }
 
         .conversation-create-modal input {
-          border: 1px solid #273244;
-          background: #0d1622;
-          color: #d7dce3;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-inset);
+          color: var(--text-primary);
           border-radius: 10px;
           padding: 8px 10px;
           font-size: 13px;
@@ -747,7 +747,7 @@ export function ConversationsPage() {
 
         .modal-hint {
           font-size: 12px;
-          color: #95a3b8;
+          color: var(--text-secondary);
         }
 
         .modal-error {
@@ -770,9 +770,9 @@ export function ConversationsPage() {
           padding: 7px 10px;
           font-size: 12px;
           cursor: pointer;
-          border: 1px solid #2e3b4f;
-          background: #142033;
-          color: #ced7e5;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-input);
+          color: var(--text-primary);
         }
 
         .modal-actions .primary {
@@ -797,7 +797,7 @@ export function ConversationsPage() {
 
           .conversations-list-pane {
             width: 380px;
-            border-right: 1px solid #1f2835;
+            border-right: 1px solid var(--border-subtle);
             border-bottom: none;
           }
 

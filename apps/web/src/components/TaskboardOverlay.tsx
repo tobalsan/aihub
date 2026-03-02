@@ -302,7 +302,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             left: 0;
             right: 0;
             bottom: 0;
-            background: var(--surface-0, #09090b);
+            background: var(--bg-base);
             z-index: 1000;
             display: flex;
             flex-direction: column;
@@ -329,7 +329,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             align-items: center;
             padding: 16px 20px;
             gap: 16px;
-            border-bottom: 1px solid var(--surface-2, #27272a);
+            border-bottom: 1px solid var(--border-default);
             flex-shrink: 0;
           }
 
@@ -337,7 +337,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             flex: 1;
             font-size: 18px;
             font-weight: 600;
-            color: var(--text-primary, #fafafa);
+            color: var(--text-primary);
             margin: 0;
           }
 
@@ -346,9 +346,9 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             width: 40px;
             height: 40px;
             border-radius: 8px;
-            background: var(--surface-1, #18181b);
-            border: 1px solid var(--surface-2, #27272a);
-            color: var(--text-secondary, #a1a1aa);
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -358,8 +358,8 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
           .back-btn:hover,
           .close-btn:hover {
-            background: var(--surface-2, #27272a);
-            color: var(--text-primary, #fafafa);
+            background: var(--border-default);
+            color: var(--text-primary);
           }
 
           .taskboard-content {
@@ -370,7 +370,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
           .loading {
             text-align: center;
-            color: var(--text-muted, #52525b);
+            color: var(--text-muted);
             padding: 40px;
           }
 
@@ -390,7 +390,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           .section-header {
             font-size: 12px;
             font-weight: 600;
-            color: var(--text-muted, #52525b);
+            color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin: 0 0 12px 0;
@@ -399,12 +399,12 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           .status-header {
             font-size: 11px;
             font-weight: 500;
-            color: var(--text-muted, #52525b);
+            color: var(--text-muted);
             margin: 16px 0 8px 0;
           }
 
           .no-items {
-            color: var(--text-muted, #52525b);
+            color: var(--text-muted);
             font-size: 14px;
             padding: 12px 0;
           }
@@ -420,8 +420,8 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             align-items: center;
             gap: 12px;
             padding: 12px 16px;
-            background: var(--surface-1, #18181b);
-            border: 1px solid var(--surface-2, #27272a);
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -430,12 +430,12 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           }
 
           .task-item:hover {
-            background: var(--surface-2, #27272a);
-            border-color: var(--surface-3, #3f3f46);
+            background: var(--border-default);
+            border-color: var(--bg-raised);
           }
 
           .task-item.selected {
-            background: var(--surface-2, #27272a);
+            background: var(--border-default);
             border-color: var(--accent, #6366f1);
             outline: none;
           }
@@ -445,8 +445,8 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             font-weight: 500;
             padding: 3px 0;
             border-radius: 4px;
-            background: var(--surface-2, #27272a);
-            color: var(--text-muted, #52525b);
+            background: var(--border-default);
+            color: var(--text-muted);
             font-family: 'SF Mono', 'Consolas', monospace;
             flex-shrink: 0;
             width: 58px;
@@ -456,12 +456,12 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           .task-title {
             flex: 1;
             font-size: 14px;
-            color: var(--text-primary, #fafafa);
+            color: var(--text-primary);
           }
 
           .task-date {
             font-size: 11px;
-            color: var(--text-muted, #52525b);
+            color: var(--text-muted);
             flex-shrink: 0;
           }
 
@@ -475,12 +475,12 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
           .task-badge.doing {
             background: var(--accent, #6366f1);
-            color: #fff;
+            color: var(--text-primary);
           }
 
           .task-badge.todo {
-            background: var(--surface-2, #27272a);
-            color: var(--text-secondary, #a1a1aa);
+            background: var(--border-default);
+            color: var(--text-secondary);
           }
 
           /* Tab bar */
@@ -489,7 +489,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             gap: 4px;
             margin-bottom: 20px;
             padding: 4px;
-            background: var(--surface-1, #18181b);
+            background: var(--bg-surface);
             border-radius: 8px;
           }
 
@@ -497,7 +497,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
             padding: 8px 16px;
             border: none;
             background: transparent;
-            color: var(--text-muted, #52525b);
+            color: var(--text-muted);
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
@@ -507,18 +507,18 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
           .tab-btn.active {
             background: var(--accent, #6366f1);
-            color: #fff;
+            color: var(--text-primary);
           }
 
           .tab-btn:hover:not(.active) {
-            color: var(--text-primary, #fafafa);
-            background: var(--surface-2, #27272a);
+            color: var(--text-primary);
+            background: var(--border-default);
           }
 
           /* Detail content */
           .detail-content {
             line-height: 1.6;
-            color: var(--text-primary, #fafafa);
+            color: var(--text-primary);
           }
 
           .detail-content > *:first-child {
@@ -545,7 +545,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           }
 
           .detail-content code {
-            background: var(--surface-2, #27272a);
+            background: var(--border-default);
             padding: 0.15em 0.4em;
             border-radius: 4px;
             font-family: 'SF Mono', 'Consolas', monospace;
@@ -553,8 +553,8 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           }
 
           .detail-content pre {
-            background: var(--surface-1, #18181b);
-            border: 1px solid var(--surface-2, #27272a);
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
             border-radius: 8px;
             padding: 12px 16px;
             overflow-x: auto;
@@ -588,10 +588,10 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           }
 
           .detail-content blockquote {
-            border-left: 3px solid var(--surface-3, #3f3f46);
+            border-left: 3px solid var(--bg-raised);
             margin: 1em 0;
             padding-left: 1em;
-            color: var(--text-secondary, #a1a1aa);
+            color: var(--text-secondary);
           }
 
           .detail-content table {
@@ -608,13 +608,13 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
           .detail-content td {
             padding: 8px 12px;
             text-align: left;
-            border: 1px solid #2a2a2a;
+            border: 1px solid var(--border-default);
           }
 
           .detail-content th {
-            background: #1a1a1a;
+            background: var(--bg-surface);
             font-weight: 600;
-            color: #fff;
+            color: var(--text-primary);
           }
 
           .detail-content tbody tr:nth-child(even) {
@@ -623,7 +623,7 @@ export function TaskboardOverlay(props: { isOpen: boolean; onClose: () => void }
 
           .detail-content hr {
             border: none;
-            border-top: 1px solid var(--surface-2, #27272a);
+            border-top: 1px solid var(--border-default);
             margin: 2em 0;
           }
         `}</style>

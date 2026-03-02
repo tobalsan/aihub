@@ -490,8 +490,8 @@ export function ProjectDetailPage() {
       <style>{`
         .project-detail-page {
           height: 100%;
-          background: #0a0a0f;
-          color: #e4e4e7;
+          background: var(--bg-base);
+          color: var(--text-primary);
         }
 
         .project-detail-breadcrumb {
@@ -499,15 +499,15 @@ export function ProjectDetailPage() {
           align-items: center;
           gap: 8px;
           padding: 10px 16px;
-          border-bottom: 1px solid #1c2430;
-          color: #a1a1aa;
+          border-bottom: 1px solid var(--border-subtle);
+          color: var(--text-secondary);
           font-size: 13px;
         }
 
         .project-detail-back {
           border: 0;
           background: transparent;
-          color: #cbd5e1;
+          color: var(--text-primary);
           cursor: pointer;
           padding: 0;
           font-size: 13px;
@@ -525,20 +525,20 @@ export function ProjectDetailPage() {
 
         .project-detail-title-input {
           min-width: 220px;
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 6px;
-          background: #111722;
-          color: #e4e4e7;
+          background: var(--bg-overlay);
+          color: var(--text-primary);
           padding: 4px 8px;
           font-size: 13px;
         }
 
         .project-detail-title-save,
         .project-detail-title-cancel {
-          border: 1px solid #2a3240;
+          border: 1px solid var(--border-subtle);
           border-radius: 6px;
-          background: #111722;
-          color: #e4e4e7;
+          background: var(--bg-overlay);
+          color: var(--text-primary);
           font-size: 12px;
           padding: 4px 8px;
           cursor: pointer;
@@ -553,7 +553,7 @@ export function ProjectDetailPage() {
         .project-detail__left {
           width: 480px;
           flex-shrink: 0;
-          border-right: 1px solid #1c2430;
+          border-right: 1px solid var(--border-subtle);
           overflow-y: auto;
         }
 
@@ -567,7 +567,7 @@ export function ProjectDetailPage() {
           width: 33vw;
           min-width: 420px;
           flex-shrink: 0;
-          border-left: 1px solid #1c2430;
+          border-left: 1px solid var(--border-subtle);
           overflow-y: auto;
         }
 
@@ -576,21 +576,21 @@ export function ProjectDetailPage() {
           min-width: 0;
           display: grid;
           grid-template-rows: auto 1fr;
-          background: #0a0a0f;
+          background: var(--bg-base);
         }
 
         .project-detail-merged-tabs {
           display: flex;
           gap: 8px;
           padding: 16px 18px;
-          border-bottom: 1px solid #1c2430;
-          background: #0a0a0f;
+          border-bottom: 1px solid var(--border-subtle);
+          background: var(--bg-base);
         }
 
         .project-detail-merged-tabs button {
-          border: 1px solid #2a3240;
-          background: #111722;
-          color: #a1a1aa;
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-overlay);
+          color: var(--text-secondary);
           border-radius: 999px;
           padding: 6px 12px;
           font-size: 12px;
@@ -598,7 +598,7 @@ export function ProjectDetailPage() {
         }
 
         .project-detail-merged-tabs button.active {
-          color: #e4e4e7;
+          color: var(--text-primary);
           border-color: #3b82f6;
           background: #172554;
         }
@@ -641,8 +641,8 @@ export function ProjectDetailPage() {
           min-height: 100vh;
           display: grid;
           place-items: center;
-          background: #0a0a0f;
-          color: #a1a1aa;
+          background: var(--bg-base);
+          color: var(--text-secondary);
         }
       `}</style>
     </>
