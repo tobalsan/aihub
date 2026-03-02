@@ -14,6 +14,7 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   getSessionKey,
+  interruptSubagent,
   killSubagent,
   spawnSubagent,
   streamMessage,
@@ -636,6 +637,13 @@ export function AgentChat(props: AgentChatProps) {
       (props.agentType === "lead" && Boolean(props.agentId)) ||
       (props.agentType === "subagent" && Boolean(props.subagentInfo?.cli))
   );
+  const isRunning = createMemo(() => {
+    if (props.agentType === "lead") return aihubStreaming();
+    if (props.agentType === "subagent") {
+      return subagentSending() || props.subagentInfo?.status === "running";
+    }
+    return false;
+  });
 
   onMount(() => {
     resizeTextarea("");
@@ -948,9 +956,10 @@ export function AgentChat(props: AgentChatProps) {
     scrollToBottom();
   });
 
-  const handleSend = async () => {
-    const text = input().trim();
+  const handleSend = async (overrideText?: string) => {
+    const text = (overrideText ?? input()).trim();
     if (!text) return;
+    const isAbort = text === "/abort";
 
     if (props.agentType === "subagent") {
       if (!props.subagentInfo || !props.subagentInfo.cli || subagentSending())
@@ -1008,12 +1017,12 @@ export function AgentChat(props: AgentChatProps) {
       return;
     }
 
-    if (!props.agentId || aihubStreaming()) return;
+    if (!props.agentId || (aihubStreaming() && !isAbort)) return;
 
     // Upload files first, then send message with paths
     const currentPendingFiles = pendingFiles();
     let fileAttachments: FileAttachment[] = [];
-    if (currentPendingFiles.length > 0) {
+    if (currentPendingFiles.length > 0 && !isAbort) {
       try {
         fileAttachments = await uploadFiles(
           currentPendingFiles.map((p) => p.file)
@@ -1031,10 +1040,12 @@ export function AgentChat(props: AgentChatProps) {
       logBody = text ? `${text}\n\n${fileList}` : fileList;
     }
 
-    setPendingAihubUserMessages((prev) => [...prev, text]);
-    setAihubLogs((prev) => [...prev, { tone: "user", body: logBody }]);
-    setInput("");
-    setPendingFiles([]);
+    if (!isAbort) {
+      setPendingAihubUserMessages((prev) => [...prev, text]);
+      setAihubLogs((prev) => [...prev, { tone: "user", body: logBody }]);
+      setInput("");
+      setPendingFiles([]);
+    }
     setError("");
     setAihubLive("");
     setAihubStreaming(true);
@@ -1099,6 +1110,20 @@ export function AgentChat(props: AgentChatProps) {
       },
       { attachments: fileAttachments.length > 0 ? fileAttachments : undefined }
     );
+  };
+
+  const handleStop = async () => {
+    if (props.agentType === "lead") {
+      await handleSend("/abort");
+      return;
+    }
+    if (props.agentType === "subagent" && props.subagentInfo) {
+      const { projectId, slug } = props.subagentInfo;
+      const res = await interruptSubagent(projectId, slug);
+      if (!res.ok) {
+        setError(res.error);
+      }
+    }
   };
 
   const aihubLogItems = createMemo(() => aihubLogs());
@@ -1352,14 +1377,27 @@ export function AgentChat(props: AgentChatProps) {
               }
             }}
           />
-          <button
-            type="button"
-            class="send-btn"
-            disabled={!canSendLead() && !canSendSubagent()}
-            onClick={() => void handleSend()}
+          <Show
+            when={isRunning()}
+            fallback={
+              <button
+                type="button"
+                class="send-btn"
+                disabled={!canSendLead() && !canSendSubagent()}
+                onClick={() => void handleSend()}
+              >
+                Send
+              </button>
+            }
           >
-            Send
-          </button>
+            <button
+              type="button"
+              class="stop-btn"
+              onClick={() => void handleStop()}
+            >
+              Stop
+            </button>
+          </Show>
         </div>
       </div>
 
@@ -1922,6 +1960,19 @@ export function AgentChat(props: AgentChatProps) {
           opacity: 0.4;
           cursor: not-allowed;
         }
+
+        .chat-input .stop-btn {
+          background: #e53935;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          padding: 10px 16px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+        }
+
+        .chat-input .stop-btn:hover { background: #c62828; }
 
         /* ── Attachments ── */
 

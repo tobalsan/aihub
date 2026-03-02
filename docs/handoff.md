@@ -15,6 +15,25 @@ Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
 
+### Follow-up Delta (2026-03-02, PRO-156 stop button in project detail chat)
+
+- Implemented Stop/Send swap in `apps/web/src/components/AgentChat.tsx`:
+  - Shows `Send` when idle.
+  - Shows `Stop` when running (`aihubStreaming()` for lead, `subagentSending()` or `subagentInfo.status === "running"` for subagent).
+- Wired stop actions:
+  - Lead agent: sends `/abort`.
+  - Subagent: calls `interruptSubagent(projectId, slug)` (gateway interrupt endpoint; works for codex/claude/pi supervisors).
+- Added focused component tests in `apps/web/src/components/AgentChat.test.tsx`:
+  - Running-state Stop visibility for lead/subagent.
+  - Subagent send-in-flight Stop visibility.
+  - Stop action routes to `interruptSubagent` (subagent) and `/abort` stream (lead).
+  - Send button returns after run stops.
+- Docs updated:
+  - `README.md`
+  - `docs/llms.md`
+- Verification:
+  - `pnpm test -- apps/web/src/components/AgentChat.test.tsx` (passes; suite currently runs full Vitest set in this repo).
+
 ### Follow-up Delta (2026-03-02, coordinator repo context + runner area repo fallback)
 
 - Fixed coordinator run prompt context in `apps/gateway/src/server/api.ts`:

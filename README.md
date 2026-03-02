@@ -72,6 +72,7 @@ packages/
 - Legacy direct-chat agent list remains at `/agents`
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
+- Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)
 
 ## CLI
 
