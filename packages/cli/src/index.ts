@@ -126,6 +126,123 @@ function mapSubagentStatus(
   return "idle";
 }
 
+type StartTemplate = "coordinator" | "worker" | "reviewer" | "custom";
+type StartPromptRole = "coordinator" | "worker" | "reviewer" | "legacy";
+
+type StartCommandOpts = {
+  agent?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
+  mode?: string;
+  branch?: string;
+  slug?: string;
+  customPrompt?: string;
+  template?: string;
+  promptRole?: string;
+  includeDefaultPrompt?: boolean;
+  excludeDefaultPrompt?: boolean;
+  includeRoleInstructions?: boolean;
+  excludeRoleInstructions?: boolean;
+  includePostRun?: boolean;
+  excludePostRun?: boolean;
+};
+
+function toStartTemplate(value: string | undefined): StartTemplate | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "coordinator") return "coordinator";
+  if (normalized === "worker") return "worker";
+  if (normalized === "reviewer") return "reviewer";
+  if (normalized === "custom") return "custom";
+  return undefined;
+}
+
+function toStartPromptRole(
+  value: string | undefined
+): StartPromptRole | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "coordinator") return "coordinator";
+  if (normalized === "worker") return "worker";
+  if (normalized === "reviewer") return "reviewer";
+  if (normalized === "legacy") return "legacy";
+  return undefined;
+}
+
+export function buildStartRequestBody(opts: StartCommandOpts): {
+  body: Record<string, unknown>;
+  errors: string[];
+} {
+  const body: Record<string, unknown> = {};
+  const errors: string[] = [];
+
+  if (typeof opts.agent === "string" && opts.agent.trim()) {
+    const agentValue = opts.agent.trim();
+    body.runAgent = agentValue.includes(":")
+      ? agentValue
+      : `cli:${agentValue}`;
+  }
+  if (typeof opts.name === "string" && opts.name.trim()) {
+    body.name = opts.name.trim();
+  }
+  if (typeof opts.model === "string" && opts.model.trim()) {
+    body.model = opts.model.trim();
+  }
+  if (
+    typeof opts.reasoningEffort === "string" &&
+    opts.reasoningEffort.trim()
+  ) {
+    body.reasoningEffort = opts.reasoningEffort.trim();
+  }
+  if (typeof opts.thinking === "string" && opts.thinking.trim()) {
+    body.thinking = opts.thinking.trim();
+  }
+  if (typeof opts.mode === "string" && opts.mode.trim()) {
+    body.runMode = opts.mode.trim();
+  }
+  if (typeof opts.branch === "string" && opts.branch.trim()) {
+    body.baseBranch = opts.branch.trim();
+  }
+  if (typeof opts.slug === "string" && opts.slug.trim()) {
+    body.slug = opts.slug.trim();
+  }
+
+  if (typeof opts.template === "string" && opts.template.trim()) {
+    const template = toStartTemplate(opts.template);
+    if (!template) {
+      errors.push(
+        "Invalid --template value. Use coordinator|worker|reviewer|custom."
+      );
+    } else {
+      body.template = template;
+    }
+  }
+
+  if (typeof opts.promptRole === "string" && opts.promptRole.trim()) {
+    const promptRole = toStartPromptRole(opts.promptRole);
+    if (!promptRole) {
+      errors.push(
+        "Invalid --prompt-role value. Use coordinator|worker|reviewer|legacy."
+      );
+    } else {
+      body.promptRole = promptRole;
+    }
+  }
+
+  if (opts.excludeDefaultPrompt) body.includeDefaultPrompt = false;
+  else if (opts.includeDefaultPrompt) body.includeDefaultPrompt = true;
+
+  if (opts.excludeRoleInstructions) body.includeRoleInstructions = false;
+  else if (opts.includeRoleInstructions) body.includeRoleInstructions = true;
+
+  if (opts.excludePostRun) body.includePostRun = false;
+  else if (opts.includePostRun) body.includePostRun = true;
+
+  return { body, errors };
+}
+
 function getClient() {
   return new ApiClient();
 }
@@ -609,7 +726,7 @@ program
     "--prompt-file <path>",
     "Prompt file path (optional; otherwise generated from ralph template)"
   )
-  .option("--mode <mode>", "Run mode (main-run|clone|worktree)")
+  .option("--mode <mode>", "Run mode (main-run|clone|worktree|none)")
   .option("--branch <branch>", "Base branch for clone/worktree")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
@@ -654,44 +771,44 @@ program
     "Reasoning effort (codex|claude)"
   )
   .option("--thinking <level>", "Thinking level (pi)")
-  .option("--mode <mode>", "Run mode (main-run|clone|worktree)")
+  .option("--mode <mode>", "Run mode (main-run|clone|worktree|none)")
   .option("--branch <branch>", "Base branch for clone/worktree")
   .option("--slug <slug>", "Slug override (clone/worktree)")
+  .option(
+    "--template <template>",
+    "Prompt template (coordinator|worker|reviewer|custom)"
+  )
+  .option(
+    "--prompt-role <role>",
+    "Prompt role override (coordinator|worker|reviewer|legacy)"
+  )
+  .option(
+    "--include-default-prompt",
+    "Force include default project prompt context"
+  )
+  .option(
+    "--exclude-default-prompt",
+    "Force exclude default project prompt context"
+  )
+  .option(
+    "--include-role-instructions",
+    "Force include role instructions in generated prompt"
+  )
+  .option(
+    "--exclude-role-instructions",
+    "Force exclude role instructions in generated prompt"
+  )
+  .option("--include-post-run", "Force include post-run instruction block")
+  .option("--exclude-post-run", "Force exclude post-run instruction block")
   .option("--custom-prompt <prompt>", "Custom prompt (use '-' for stdin)")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     try {
       const normalizedId = normalizeProjectId(id);
-      const body: Record<string, unknown> = {};
-      if (typeof opts.agent === "string" && opts.agent.trim()) {
-        const agentValue = opts.agent.trim();
-        body.runAgent = agentValue.includes(":")
-          ? agentValue
-          : `cli:${agentValue}`;
-      }
-      if (typeof opts.name === "string" && opts.name.trim()) {
-        body.name = opts.name.trim();
-      }
-      if (typeof opts.model === "string" && opts.model.trim()) {
-        body.model = opts.model.trim();
-      }
-      if (
-        typeof opts.reasoningEffort === "string" &&
-        opts.reasoningEffort.trim()
-      ) {
-        body.reasoningEffort = opts.reasoningEffort.trim();
-      }
-      if (typeof opts.thinking === "string" && opts.thinking.trim()) {
-        body.thinking = opts.thinking.trim();
-      }
-      if (typeof opts.mode === "string" && opts.mode.trim()) {
-        body.runMode = opts.mode.trim();
-      }
-      if (typeof opts.branch === "string" && opts.branch.trim()) {
-        body.baseBranch = opts.branch.trim();
-      }
-      if (typeof opts.slug === "string" && opts.slug.trim()) {
-        body.slug = opts.slug.trim();
+      const { body, errors } = buildStartRequestBody(opts as StartCommandOpts);
+      if (errors.length > 0) {
+        console.error(errors.join("\n"));
+        process.exit(1);
       }
       if (opts.customPrompt !== undefined) {
         body.customPrompt =

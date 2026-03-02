@@ -54,7 +54,7 @@ Features:
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
-- Coordinator template default prompt includes a concise `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
+- Coordinator template default prompt includes concise `apm start --template <worker|reviewer>` delegation examples and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
@@ -404,6 +404,11 @@ Behavior:
   - `--model <id>`
   - `--reasoning-effort <level>`
   - `--thinking <level>`
+  - `--template <coordinator|worker|reviewer|custom>`
+  - `--prompt-role <coordinator|worker|reviewer|legacy>`
+  - `--include-default-prompt|--exclude-default-prompt`
+  - `--include-role-instructions|--exclude-role-instructions`
+  - `--include-post-run|--exclude-post-run`
 
 ## Single-Agent Mode
 

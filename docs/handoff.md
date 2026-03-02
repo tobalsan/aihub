@@ -22,6 +22,31 @@ Latest commit on this branch/workspace:
 - Verification:
   - `pnpm exec vitest run apps/gateway/src/projects/space.test.ts` (passes: 5/5).
 
+### Follow-up Delta (2026-03-02, coordinator apm delegation guidance)
+
+- Updated coordinator role prompt in `packages/shared/src/projectPrompt.ts` to include concise `apm subagent spawn` examples for:
+  - worker runs (`worker-<task>` slug pattern)
+  - verifier runs (`verifier-<scope>` slug pattern)
+- Kept existing parse-safe `SPECS.md` checklist guidance intact.
+- Tests updated:
+  - `packages/shared/src/projectPrompt.test.ts`
+
+### Follow-up Delta (2026-03-02, apm start template flags for CLI parity with UI Add Agent)
+
+- Extended `apm start` in `packages/cli/src/index.ts` to pass existing start-run template controls exposed by gateway:
+  - `--template <coordinator|worker|reviewer|custom>`
+  - `--prompt-role <coordinator|worker|reviewer|legacy>`
+  - `--include-default-prompt|--exclude-default-prompt`
+  - `--include-role-instructions|--exclude-role-instructions`
+  - `--include-post-run|--exclude-post-run`
+- Added input validation for `--template` and `--prompt-role`.
+- Added focused mapping tests in `packages/cli/src/index.start.test.ts`.
+- Updated coordinator role prompt examples to use `apm start --template worker|reviewer` (matches current CLI surface).
+- Updated docs:
+  - `README.md`
+  - `docs/cli-apm.md`
+  - `docs/llms.md`
+
 ### Follow-up Delta (2026-03-02, coordinator prompt formatting reliability)
 
 - Refined coordinator role instructions in `packages/shared/src/projectPrompt.ts` so SPECS checklist guidance is emitted as explicit multi-line bullets instead of one long wrapped sentence.

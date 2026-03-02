@@ -115,9 +115,17 @@ Start a project run.
 Options:
 
 - `--agent <agent>`: cli name (e.g. `codex`) or `aihub:<id>`. Defaults to `codex`.
-- `--mode <mode>`: `main-run` or `worktree`. Defaults to `worktree`.
+- `--mode <mode>`: `main-run|clone|worktree|none`. Defaults to `clone`.
 - `--branch <branch>`: base branch for worktree. Defaults to `main`.
 - `--slug <slug>`: slug override for worktree. Defaults to auto-slug.
+- `--template <template>`: prompt template (`coordinator|worker|reviewer|custom`).
+- `--prompt-role <role>`: prompt role override (`coordinator|worker|reviewer|legacy`).
+- `--include-default-prompt`: force-enable default project prompt context.
+- `--exclude-default-prompt`: force-disable default project prompt context.
+- `--include-role-instructions`: force-enable role instruction block.
+- `--exclude-role-instructions`: force-disable role instruction block.
+- `--include-post-run`: force-enable post-run block.
+- `--exclude-post-run`: force-disable post-run block.
 - `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
 - `-j, --json`: JSON output.
 
@@ -250,6 +258,12 @@ apm start PRO-19 --custom-prompt "Focus on the rollout plan."
 
 # Start a run with per-run config
 apm start PRO-19 --agent codex --mode worktree --branch main --slug my-run
+
+# Start a worker template run (CLI equivalent of UI Add Agent template)
+apm start PRO-19 --agent codex --template worker --mode worktree --branch main --slug worker-task-a
+
+# Start a reviewer/verifier template run
+apm start PRO-19 --agent claude --template reviewer --mode worktree --branch main --slug verifier-task-a
 
 # Resume with a follow-up message
 apm resume PRO-19 --message "Continue from where you left off."

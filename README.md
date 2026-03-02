@@ -86,7 +86,7 @@ pnpm apm create --title "My Project" [description] [--specs <text>|-] [--domain 
 pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm apm move <id> <status>
-pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--custom-prompt <text>|-]
+pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 
 # Override API URL (highest precedence)
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list

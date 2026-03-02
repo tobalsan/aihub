@@ -79,6 +79,9 @@ describe("role-based project prompts", () => {
     expect(out).not.toContain("apm move PRO-151 review");
     expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
     expect(out).toContain("other relevant project markdown files");
+    expect(out).toContain("Use `apm start` with templates for delegation:");
+    expect(out).toContain("--template worker");
+    expect(out).toContain("--template reviewer");
     expect(out).toContain("When writing SPECS.md, keep checklist sections parseable");
     expect(out).toContain("Optional `###` subsections are supported in both sections.");
   });
