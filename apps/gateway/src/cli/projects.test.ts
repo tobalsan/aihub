@@ -70,6 +70,35 @@ describe("projects CLI", () => {
     expect(body).toEqual({ title: "Title" });
   });
 
+  it("create command sends --specs", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "PRO-3", frontmatter: {} }), {
+        status: 200,
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    program.exitOverride();
+
+    await program.parseAsync([
+      "node",
+      "projects",
+      "create",
+      "-t",
+      "Title Name",
+      "--specs",
+      "## Tasks",
+      "--json",
+    ]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects");
+    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
+    expect(body).toEqual({ title: "Title Name", specs: "## Tasks" });
+  });
+
   it("move command passes agent", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {

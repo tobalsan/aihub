@@ -434,6 +434,7 @@ Kanban UI should mirror Fizzy design choices but basic v1. Route `/projects`. Si
 - Update supports title + frontmatter + README content. If title changes, folder renamed.
 - `created` frontmatter uses full ISO timestamp (not date-only).
 - API create fields optional except `title` (frontmatter omits missing fields).
+- API create supports optional `specs` content (writes `SPECS.md`).
 - Unset metadata by sending empty string; server deletes frontmatter field.
 - CLI should use HTTP API (default), not direct FS; base URL from config + env override.
 - CLI output: Markdown tables by default; `--json/-j` for JSON.

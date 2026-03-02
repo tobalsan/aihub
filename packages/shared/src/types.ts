@@ -333,6 +333,7 @@ export type Task = z.infer<typeof TaskSchema>;
 export const CreateProjectRequestSchema = z.object({
   title: z.string(),
   description: z.string().optional(),
+  specs: z.string().optional(),
   domain: ProjectDomainSchema.optional(),
   owner: z.string().optional(),
   executionMode: ProjectExecutionModeSchema.optional(),

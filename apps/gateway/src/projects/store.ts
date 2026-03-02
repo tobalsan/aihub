@@ -538,11 +538,19 @@ export async function createProject(
     : `# ${trimmedTitle}\n`;
   const readmeContent = formatMarkdown(frontmatter, readmeBody);
   await fs.writeFile(path.join(dirPath, "README.md"), readmeContent, "utf8");
+  if (input.specs !== undefined) {
+    await fs.writeFile(path.join(dirPath, "SPECS.md"), input.specs, "utf8");
+  }
   await fs.writeFile(
     path.join(dirPath, THREAD_FILE),
     formatThreadFrontmatter(id),
     "utf8"
   );
+
+  const docs: Record<string, string> = { README: readmeBody };
+  if (input.specs !== undefined) {
+    docs.SPECS = input.specs;
+  }
 
   return {
     ok: true,
@@ -552,7 +560,7 @@ export async function createProject(
       path: dirName,
       absolutePath: dirPath,
       frontmatter,
-      docs: { README: readmeBody },
+      docs,
       thread: [],
     },
   };

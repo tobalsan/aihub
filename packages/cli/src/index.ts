@@ -203,6 +203,7 @@ program
   .command("create")
   .argument("[description]", "Project description for README")
   .requiredOption("-t, --title <title>", "Project title")
+  .option("--specs <content>", "SPECS content string or '-' for stdin")
   .option("--domain <domain>", "Domain (life|admin|coding)")
   .option("--owner <owner>", "Owner")
   .option("--execution-mode <mode>", "Execution mode (subagent|ralph_loop)")
@@ -213,6 +214,9 @@ program
     try {
       const body: Record<string, unknown> = { title: opts.title };
       if (description) body.description = description;
+      if (opts.specs !== undefined) {
+        body.specs = opts.specs === "-" ? await readStdin() : opts.specs;
+      }
       if (opts.domain) body.domain = opts.domain;
       if (opts.owner) body.owner = opts.owner;
       if (opts.executionMode) body.executionMode = opts.executionMode;

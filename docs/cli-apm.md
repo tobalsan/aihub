@@ -54,6 +54,7 @@ Arguments:
 Options:
 
 - `-t, --title <title>`: required. Must contain at least two words.
+- `--specs <content>`: optional raw markdown for `SPECS.md`. Use `-` to read from stdin.
 - `--domain <domain>`: optional domain (`life|admin|coding`).
 - `--owner <owner>`: optional owner string.
 - `--execution-mode <mode>`: `subagent|ralph_loop`.
@@ -228,6 +229,9 @@ apm list --domain coding
 
 # Create with description
 apm create -t "Add kill tool" --domain coding "Implement a kill command for subagents"
+
+# Create with SPECS content
+apm create -t "Add kill tool" --specs "## Tasks\n- [ ] Implement"
 
 # Update run metadata
 apm update PRO-19 --run-agent cli:codex --repo ~/code/aihub --run-mode worktree

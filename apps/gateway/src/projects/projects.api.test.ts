@@ -161,6 +161,7 @@ describe("projects API", () => {
         body: JSON.stringify({
           title: "Metadata Project",
           description: "Track the new form fields.",
+          specs: "## Tasks\n- [ ] Add field",
           domain: "admin",
           owner: "ops",
           executionMode: "ralph_loop",
@@ -179,9 +180,12 @@ describe("projects API", () => {
     expect(created.frontmatter.status).toBe("todo");
 
     const readmePath = path.join(projectsRoot, created.path, "README.md");
+    const specsPath = path.join(projectsRoot, created.path, "SPECS.md");
     const readme = await fs.readFile(readmePath, "utf8");
+    const specs = await fs.readFile(specsPath, "utf8");
     expect(readme).toContain("# Metadata Project");
     expect(readme).toContain("Track the new form fields.");
+    expect(specs).toContain("## Tasks");
     expect(readme).toContain('domain: "admin"');
     expect(readme).toContain('owner: "ops"');
     expect(readme).toContain('executionMode: "ralph_loop"');
