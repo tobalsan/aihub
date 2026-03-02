@@ -15,6 +15,17 @@ Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
 
+### Follow-up Delta (2026-03-02, coordinator template/model guard + worker commit instruction)
+
+- Updated role prompt text in `packages/shared/src/projectPrompt.ts`:
+  - Coordinator delegation instructions now explicitly state: when using `--template`, do **not** add `--model`.
+  - Worker role instructions now explicitly require committing implementation when checks are green.
+  - Worker post-run checklist now includes an explicit commit step before reporting completion.
+- Updated prompt coverage tests in `packages/shared/src/projectPrompt.test.ts`.
+- Updated docs:
+  - `README.md`
+  - `docs/llms.md`
+
 ### Follow-up Delta (2026-03-02, PRO-156 stop button in project detail chat)
 
 - Implemented Stop/Send swap in `apps/web/src/components/AgentChat.tsx`:

@@ -82,6 +82,9 @@ describe("role-based project prompts", () => {
     expect(out).toContain("Use `apm start` with templates for delegation:");
     expect(out).toContain("--template worker");
     expect(out).toContain("--template reviewer");
+    expect(out).toContain(
+      "When using `--template`, do NOT add `--model`; template defaults must stay in control."
+    );
     expect(out).toContain("When writing SPECS.md, keep checklist sections parseable");
     expect(out).toContain("Optional `###` subsections are supported in both sections.");
   });
@@ -92,8 +95,14 @@ describe("role-based project prompts", () => {
       role: "worker",
     });
     expect(out).toContain("## Your Role: Worker");
+    expect(out).toContain(
+      "Commit your implementation once done and checks are green."
+    );
     expect(out).toContain("## Implementation Repository");
     expect(out).toContain("Run relevant tests after changes.");
+    expect(out).toContain(
+      "Once checks pass, commit the implementation before reporting completion."
+    );
     expect(out).not.toContain("apm move PRO-151 review");
     expect(out).toContain(
       "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."

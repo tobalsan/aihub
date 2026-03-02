@@ -206,6 +206,7 @@ function postRunCommitBlock(): string {
     "- Run relevant tests after changes.",
     "- Run linter/formatter (if any).",
     "- Fix failures before finishing.",
+    "- Once checks pass, commit the implementation before reporting completion.",
   ].join("\n");
 }
 
@@ -308,6 +309,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "Use `apm start` with templates for delegation:",
           "- Worker: `apm start <project_id> --template worker --mode worktree --branch main --slug worker-<task> --custom-prompt \"Implement <task>; update SPECS.md status.\"`",
           "- Reviewer: `apm start <project_id> --template reviewer --mode worktree --branch main --slug reviewer-<scope> --custom-prompt \"Verify worker output; run tests; report pass/fail against acceptance criteria.\"`",
+          "- When using `--template`, do NOT add `--model`; template defaults must stay in control.",
           "When writing SPECS.md, keep checklist sections parseable:",
           "- Use `## Tasks` and `## Acceptance Criteria` headings.",
           "- In `## Tasks`, each checkbox line should include a bold title and a status token (`status:todo`, `status:in_progress`, or `status:done`).",
@@ -343,6 +345,7 @@ export function buildWorkerPrompt(input: RolePromptInput): string {
       ? [
           "## Your Role: Worker",
           "Implement the assigned tasks in the repository workspace.",
+          "Commit your implementation once done and checks are green.",
         ].join("\n")
       : "",
     postRun,

@@ -147,7 +147,9 @@ The Coordinator spawn template prompt also reminds agents to use this parse-safe
 Coordinator prompts now include:
 - Canonical main repository path (not worker clone/worktree paths).
 - Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
+- `apm start --template` delegation examples that explicitly avoid adding `--model`.
 Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
+Worker template prompts explicitly require committing implementation once checks pass.
 
 Repo resolution for subagent/ralph runner modes (`clone`/`worktree`/`main-run`) now falls back to the project area's `repo` when project `frontmatter.repo` is unset.
 
