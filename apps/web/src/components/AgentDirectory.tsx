@@ -233,7 +233,7 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           width: 28px;
           height: 28px;
           border-radius: 6px;
-          background: #3a3a3a;
+          background: var(--bg-raised);
           flex: 0 0 auto;
           display: flex;
           align-items: center;
