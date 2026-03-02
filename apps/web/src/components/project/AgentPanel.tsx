@@ -1367,7 +1367,7 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .template-title {
           font-size: 12px;
-          color: #dbeafe;
+          color: #3b82f6;
         }
 
         .template-description {

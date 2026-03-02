@@ -547,7 +547,7 @@ export function SpawnForm(props: SpawnFormProps) {
         .add-agent-preview summary {
           cursor: pointer;
           font-size: 11px;
-          color: #93c5fd;
+          color: #3b82f6;
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
@@ -558,7 +558,7 @@ export function SpawnForm(props: SpawnFormProps) {
           overflow-wrap: anywhere;
           font-size: 11px;
           line-height: 1.45;
-          color: #dbeafe;
+          color: var(--text-secondary);
           max-height: min(34vh, 300px);
           overflow-y: auto;
           padding-right: 4px;
