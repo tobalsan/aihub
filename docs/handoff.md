@@ -15,6 +15,13 @@ Latest commit on this branch/workspace:
 
 - `f1ca892 feat(web): add project detail spec editor`
 
+### Follow-up Delta (2026-03-02, project Space test timeout hardening)
+
+- Stabilized `apps/gateway/src/projects/space.test.ts` by adding a shared explicit timeout (`30_000ms`) for all Space integration tests.
+- This addresses flakiness from git-heavy test setup/integration paths exceeding Vitest's default `5000ms` limit under heavier suite load.
+- Verification:
+  - `pnpm exec vitest run apps/gateway/src/projects/space.test.ts` (passes: 5/5).
+
 ### Follow-up Delta (2026-03-02, SPECS parsing guideline for agents)
 
 - Added `docs/specs-task-format.md`:

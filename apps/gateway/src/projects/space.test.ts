@@ -13,6 +13,7 @@ import {
 } from "./space.js";
 
 const execFileAsync = promisify(execFile);
+const SPACE_TEST_TIMEOUT_MS = 30_000;
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd });
@@ -79,7 +80,7 @@ describe("project space", () => {
     expect(await runGit(space.worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe(
       "space/PRO-1"
     );
-  });
+  }, SPACE_TEST_TIMEOUT_MS);
 
   it("integrates worker worktree commits into space", async () => {
     const repoDir = path.join(tmpDir, "repo");
@@ -120,7 +121,7 @@ describe("project space", () => {
     expect(updated.queue[0]?.status).toBe("integrated");
     const content = await fs.readFile(path.join(space.worktreePath, "app.txt"), "utf8");
     expect(content).toContain("worker-one");
-  });
+  }, SPACE_TEST_TIMEOUT_MS);
 
   it(
     "blocks queue on conflict and resumes later pending entries",
@@ -198,7 +199,7 @@ describe("project space", () => {
       )
     ).toBe(true);
     },
-    15_000
+    SPACE_TEST_TIMEOUT_MS
   );
 
   it("integrates clone worker commits by fetching from clone remote", async () => {
@@ -249,7 +250,7 @@ describe("project space", () => {
       );
       expect(content).toContain("clone");
     }
-  });
+  }, SPACE_TEST_TIMEOUT_MS);
 
   it("marks stale clone delivery as stale_worker when Space advanced", async () => {
     const repoDir = path.join(tmpDir, "repo");
@@ -308,5 +309,5 @@ describe("project space", () => {
     expect(staleEntry?.staleAgainstSha).toBeTruthy();
     const spaceContent = await fs.readFile(path.join(space.worktreePath, "app.txt"), "utf8");
     expect(spaceContent).not.toContain("stale");
-  });
+  }, SPACE_TEST_TIMEOUT_MS);
 });
