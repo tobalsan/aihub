@@ -263,6 +263,33 @@ export function ProjectDetailPage() {
   });
 
   createEffect(() => {
+    const selected = selectedAgent();
+    if (!selected || selected.type !== "subagent" || !selected.slug) return;
+    const item = subagents().find((entry) => entry.slug === selected.slug);
+    if (!item) return;
+    const runMode =
+      item.runMode === "main-run" ||
+      item.runMode === "worktree" ||
+      item.runMode === "clone" ||
+      item.runMode === "none"
+        ? item.runMode
+        : undefined;
+    if (
+      selected.cli === item.cli &&
+      selected.status === item.status &&
+      selected.runMode === runMode
+    ) {
+      return;
+    }
+    setSelectedAgent({
+      ...selected,
+      cli: item.cli,
+      status: item.status,
+      runMode,
+    });
+  });
+
+  createEffect(() => {
     const current = project();
     if (!current) return;
     document.title = `${current.title} · ${getBaseAppTitle()}`;
@@ -370,6 +397,13 @@ export function ProjectDetailPage() {
                       projectId: info.projectId,
                       slug: info.slug,
                       cli: info.cli,
+                      runMode:
+                        info.runMode === "main-run" ||
+                        info.runMode === "worktree" ||
+                        info.runMode === "clone" ||
+                        info.runMode === "none"
+                          ? info.runMode
+                          : undefined,
                       status: info.status,
                     });
                   }}
@@ -391,6 +425,7 @@ export function ProjectDetailPage() {
                         projectId: detail().id,
                         slug,
                         cli: undefined,
+                        runMode: undefined,
                         status: "running",
                       });
                     }}
@@ -475,6 +510,7 @@ export function ProjectDetailPage() {
                             projectId: detail().id,
                             slug,
                             cli: undefined,
+                            runMode: undefined,
                             status: "running",
                           });
                         }}

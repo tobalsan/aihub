@@ -73,6 +73,7 @@ type AgentPanelProps = {
     agentId?: string;
     slug?: string;
     cli?: string;
+    runMode?: string;
     status?: string;
     projectId: string;
   }) => void;
@@ -842,6 +843,7 @@ export function AgentPanel(props: AgentPanelProps) {
                         type: "subagent",
                         slug: item.slug,
                         cli: item.cli,
+                        runMode: item.runMode,
                         status: item.status,
                         projectId: props.project.id,
                       })
@@ -853,6 +855,7 @@ export function AgentPanel(props: AgentPanelProps) {
                         type: "subagent",
                         slug: item.slug,
                         cli: item.cli,
+                        runMode: item.runMode,
                         status: item.status,
                         projectId: props.project.id,
                       });

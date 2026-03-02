@@ -480,7 +480,24 @@ export async function spawnSubagent(
     typeof frontmatter.repo === "string" ? expandPath(frontmatter.repo) : "";
   const repo = repoValue && (await dirExists(repoValue)) ? repoValue : "";
 
-  const mode: SubagentMode = input.mode ?? "clone";
+  let mode: SubagentMode = input.mode ?? "clone";
+  if (input.resume) {
+    const existingStatePath = path.join(sessionDir, "state.json");
+    try {
+      const raw = await fs.readFile(existingStatePath, "utf8");
+      const state = JSON.parse(raw) as { run_mode?: string };
+      if (
+        state.run_mode === "main-run" ||
+        state.run_mode === "worktree" ||
+        state.run_mode === "clone" ||
+        state.run_mode === "none"
+      ) {
+        mode = state.run_mode;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   if (mode !== "none" && !repo) {
     return { ok: false, error: "Project repo not set in frontmatter" };

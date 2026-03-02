@@ -49,6 +49,24 @@ Latest commit on this branch/workspace:
   - `README.md`
   - `docs/llms.md`
 
+### Follow-up Delta (2026-03-02, Claude CLI follow-up session fix in project detail chat)
+
+- Fixed project detail center-panel subagent follow-up mode propagation:
+  - Preserved selected subagent `runMode` from Agent list selection (`AgentPanel` → `ProjectDetailPage` → `CenterPanel` → `AgentChat`).
+  - Added selected subagent metadata sync in `ProjectDetailPage` so `cli/status/runMode` stay current after spawn list refresh.
+  - `AgentChat` now accepts `runMode: "none"` and sends follow-ups with the correct mode instead of defaulting to `clone`/`main-run`.
+- Added backend resume-mode guard:
+  - In `spawnSubagent`, when `resume: true`, runner now reuses persisted `state.json.run_mode` to keep follow-ups in the original run workspace.
+- Why this fixes Claude follow-ups:
+  - Claude resume (`-r <session_id>`) is cwd/project-scoped; changing run mode between initial turn and follow-up changed cwd and caused `No conversation found with session ID ...`.
+  - Follow-ups now reuse the original run mode/cwd path.
+- Files touched:
+  - `apps/web/src/components/project/AgentPanel.tsx`
+  - `apps/web/src/components/project/ProjectDetailPage.tsx`
+  - `apps/web/src/components/project/CenterPanel.tsx`
+  - `apps/web/src/components/AgentChat.tsx`
+  - `apps/gateway/src/subagents/runner.ts`
+
 ### Follow-up Delta (2026-03-01, PRO-152 Space-first foundation)
 
 - Added project Space core (`apps/gateway/src/projects/space.ts`):

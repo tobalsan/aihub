@@ -37,7 +37,7 @@ type AgentChatProps = {
     projectId: string;
     slug: string;
     cli?: string;
-    runMode?: "main-run" | "worktree" | "clone";
+    runMode?: "main-run" | "worktree" | "clone" | "none";
     status?: SubagentStatus;
   };
   onBack: () => void;
@@ -981,6 +981,8 @@ export function AgentChat(props: AgentChatProps) {
             ? "worktree"
             : props.subagentInfo.runMode === "clone"
               ? "clone"
+              : props.subagentInfo.runMode === "none"
+                ? "none"
               : props.subagentInfo.slug === "main"
                 ? "main-run"
                 : "clone";

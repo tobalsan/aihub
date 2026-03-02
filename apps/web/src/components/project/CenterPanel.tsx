@@ -23,6 +23,7 @@ export type SelectedProjectAgent = {
   agentName?: string;
   slug?: string;
   cli?: string;
+  runMode?: "main-run" | "worktree" | "clone" | "none";
   status?: string;
   projectId: string;
 };
@@ -252,6 +253,7 @@ export function CenterPanel(props: CenterPanelProps) {
                             projectId: selected().projectId,
                             slug: selected().slug!,
                             cli: selected().cli,
+                            runMode: selected().runMode,
                             status: selected().status as
                               | "running"
                               | "replied"
