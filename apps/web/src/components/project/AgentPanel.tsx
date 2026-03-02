@@ -163,6 +163,18 @@ function normalizeExcerpt(text: string): string {
   return compact.length > 96 ? `${compact.slice(0, 95)}…` : compact;
 }
 
+function trimOptional(value?: string): string {
+  const next = value?.trim();
+  return next && next.length > 0 ? next : "";
+}
+
+function formatAgentMeta(cli?: string, model?: string): string {
+  const cliValue = trimOptional(cli);
+  const modelValue = trimOptional(model);
+  if (cliValue && modelValue) return `${cliValue} · ${modelValue}`;
+  return cliValue || modelValue || "";
+}
+
 function pickPreviewFromEvents(events: SubagentLogEvent[]): {
   text: string;
   at?: string;
@@ -816,13 +828,15 @@ export function AgentPanel(props: AgentPanelProps) {
                 >
                   <span class="agent-status running">●</span>
                   <span class="agent-list-main">
-                    <span class="agent-list-head">
-                      <span class="agent-name">{leadId()}</span>
-                      <span class="agent-elapsed">
-                        {elapsedLabel(leadPreview().at)}
+                      <span class="agent-list-head">
+                        <span class="agent-title">
+                          <span class="agent-name">{leadId()}</span>
+                        </span>
+                        <span class="agent-elapsed">
+                          {elapsedLabel(leadPreview().at)}
+                        </span>
                       </span>
-                    </span>
-                    <span class="agent-task">{leadPreview().text}</span>
+                      <span class="agent-task">{leadPreview().text}</span>
                   </span>
                 </button>
               )}
@@ -830,6 +844,7 @@ export function AgentPanel(props: AgentPanelProps) {
             <For each={props.subagents}>
               {(item) => {
                 const indicator = statusIndicator(item.status);
+                const agentMeta = formatAgentMeta(item.cli, item.model);
                 return (
                   <div
                     class="agent-list-item subagent"
@@ -866,8 +881,13 @@ export function AgentPanel(props: AgentPanelProps) {
                     </span>
                     <span class="agent-list-main">
                       <span class="agent-list-head">
-                        <span class="agent-name">
-                          {item.name ?? item.cli ?? item.slug}
+                        <span class="agent-title">
+                          <span class="agent-name">
+                            {item.name ?? item.cli ?? item.slug}
+                          </span>
+                          <Show when={agentMeta}>
+                            <span class="agent-meta">{agentMeta}</span>
+                          </Show>
                         </span>
                         <span class="agent-elapsed">
                           {elapsedLabel(previewAt(item))}
@@ -1286,6 +1306,15 @@ export function AgentPanel(props: AgentPanelProps) {
           min-width: 0;
         }
 
+        .agent-title {
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+          min-width: 0;
+          flex: 1;
+          overflow: hidden;
+        }
+
         .agent-elapsed {
           margin-left: auto;
           font-size: 11px;
@@ -1304,6 +1333,18 @@ export function AgentPanel(props: AgentPanelProps) {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          flex: 0 1 auto;
+        }
+
+        .agent-meta {
+          font-size: 11px;
+          color: var(--text-tertiary);
+          line-height: 1.2;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          flex: 0 1 auto;
+          max-width: 55%;
         }
 
         .agent-task {

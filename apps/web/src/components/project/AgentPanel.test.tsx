@@ -84,6 +84,7 @@ describe("AgentPanel", () => {
           {
             slug: "alpha",
             cli: "codex",
+            model: "gpt-5.3-codex",
             status: "running",
           },
         ],
@@ -100,6 +101,7 @@ describe("AgentPanel", () => {
       (item) => item.textContent?.includes("codex")
     ) as HTMLButtonElement | undefined;
     expect(row).toBeDefined();
+    expect(row?.textContent).toContain("codex · gpt-5.3-codex");
 
     row!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSelectAgent).toHaveBeenCalledWith({

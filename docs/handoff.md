@@ -29,6 +29,14 @@ Latest commit on this branch/workspace:
 - Verification:
   - `pnpm exec vitest run packages/shared/src/projectPrompt.test.ts` (passes: 12/12).
 
+### Follow-up Delta (2026-03-02, agent card cli/model metadata)
+
+- Updated project detail left-panel agent cards to render a muted `cli · model` suffix immediately after subagent name when available.
+- Added truncation-safe title layout so name, metadata, and elapsed time remain readable on narrow widths.
+- Uses existing theme tokens (`--text-tertiary`) so appearance is consistent in both dark and light mode.
+- Verification:
+  - `pnpm exec vitest run apps/web/src/components/project/AgentPanel.test.tsx` (passes: 4/4).
+
 ### Follow-up Delta (2026-03-02, SPECS parsing guideline for agents)
 
 - Added `docs/specs-task-format.md`:
