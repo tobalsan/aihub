@@ -22,6 +22,13 @@ Latest commit on this branch/workspace:
 - Verification:
   - `pnpm exec vitest run apps/gateway/src/projects/space.test.ts` (passes: 5/5).
 
+### Follow-up Delta (2026-03-02, coordinator prompt formatting reliability)
+
+- Refined coordinator role instructions in `packages/shared/src/projectPrompt.ts` so SPECS checklist guidance is emitted as explicit multi-line bullets instead of one long wrapped sentence.
+- This improves readability in SpawnForm prompt preview and reduces ambiguity for downstream LLM parsing of formatting rules.
+- Verification:
+  - `pnpm exec vitest run packages/shared/src/projectPrompt.test.ts` (passes: 12/12).
+
 ### Follow-up Delta (2026-03-02, SPECS parsing guideline for agents)
 
 - Added `docs/specs-task-format.md`:
