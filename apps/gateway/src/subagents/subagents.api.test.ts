@@ -1479,6 +1479,7 @@ describe("subagents API", () => {
       worktreePath: string;
       branch: string;
       baseBranch: string;
+      integrationBlocked: boolean;
       queue: Array<Record<string, unknown>>;
     };
     rawSpace.integrationBlocked = true;
