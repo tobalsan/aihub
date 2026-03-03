@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-01-27 (updated 2026-02-28, later; 2026-03-01; 2026-03-02)
+Date: 2026-01-27 (updated 2026-02-28, later; 2026-03-01; 2026-03-02; 2026-03-03)
 Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-editor`
 
 ---
@@ -58,6 +58,28 @@ Latest commit on this branch/workspace:
   - `apps/gateway/src/subagents/subagents.api.test.ts`
   - `apps/gateway/src/projects/space.test.ts`
   - `apps/web/src/components/project/SpawnForm.test.tsx`
+
+### Follow-up Delta (2026-03-03, fix cli/shared workspace build ordering)
+
+- Fixed workspace dependency wiring in `packages/cli/package.json`:
+  - added `@aihub/shared` as a direct dependency (`workspace:*`).
+- Why:
+  - `packages/cli/src/index.ts` imports `@aihub/shared`, but the package was not declared.
+  - This could cause `tsc` resolution failures (`TS2307`) and allowed `pnpm` to schedule `@aihub/cli` build before `@aihub/shared`.
+- Outcome:
+  - workspace linking and build graph now correctly model CLI -> shared dependency.
+
+### Follow-up Delta (2026-03-03, PRO-157 chat tab activation regression fix)
+
+- Root cause:
+  - `ProjectDetailPage` updated `centerTab` to `"chat"` when selecting an agent template, but desktop `CenterPanel` was mounted with `defaultTab` (uncontrolled).
+  - After mount, `defaultTab` changes are ignored, so the panel could stay on `Activity`/`Changes` and hide the spawn form.
+- Fix:
+  - switched desktop `CenterPanel` usage to controlled mode with `tab={centerTab()}`.
+- Added regression coverage in `apps/web/src/components/project/ProjectDetailPage.test.tsx`:
+  - seeds localStorage with `tab: "activity"`,
+  - selects Worker template from Add Agent,
+  - asserts active center tab switches to `Chat` and spawn form is shown.
 
 ### Follow-up Delta (2026-03-02, PRO-156 stop button in project detail chat)
 

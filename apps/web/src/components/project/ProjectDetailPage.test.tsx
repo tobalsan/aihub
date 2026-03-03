@@ -126,12 +126,22 @@ describe("ProjectDetailPage", () => {
   });
 
   it("opens spawn form in center panel after selecting a template", async () => {
+    localStorage.setItem(
+      "aihub:project:PRO-1:center-view",
+      JSON.stringify({ tab: "activity" })
+    );
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ProjectDetailPage />, container);
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const tabsBefore = Array.from(container.querySelectorAll(".center-tab"));
+    const activeBefore = tabsBefore.find((item) =>
+      item.classList.contains("active")
+    );
+    expect(activeBefore?.textContent?.trim()).toBe("Activity");
 
     const addButton = container.querySelector(
       ".add-agent-btn"
@@ -145,8 +155,14 @@ describe("ProjectDetailPage", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    const tabsAfter = Array.from(container.querySelectorAll(".center-tab"));
+    const activeAfter = tabsAfter.find((item) =>
+      item.classList.contains("active")
+    );
+    expect(activeAfter?.textContent?.trim()).toBe("Chat");
     expect(container.textContent).toContain("Spawn Agent");
 
     dispose();
+    localStorage.removeItem("aihub:project:PRO-1:center-view");
   });
 });

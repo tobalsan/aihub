@@ -529,7 +529,7 @@ export function ProjectDetailPage() {
                 <div class="project-detail__center">
                   <CenterPanel
                     project={detail()}
-                    defaultTab={centerTab()}
+                    tab={centerTab()}
                     onTabChange={setCenterTab}
                     onAddComment={handleAddComment}
                     selectedAgent={selectedAgent()}
