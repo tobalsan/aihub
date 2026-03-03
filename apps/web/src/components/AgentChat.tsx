@@ -763,6 +763,7 @@ export function AgentChat(props: AgentChatProps) {
   const [subagentAwaitingResponse, setSubagentAwaitingResponse] =
     createSignal(false);
   const [subagentSending, setSubagentSending] = createSignal(false);
+  const [stopping, setStopping] = createSignal(false);
   const [isAtBottom, setIsAtBottom] = createSignal(true);
   const streamingToolCalls = new Map<
     string,
@@ -1168,6 +1169,10 @@ export function AgentChat(props: AgentChatProps) {
     scrollToBottom();
   });
 
+  createEffect(() => {
+    if (!isRunning()) setStopping(false);
+  });
+
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText ?? input()).trim();
     if (!text) return;
@@ -1325,17 +1330,29 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   const handleStop = async () => {
+    if (stopping()) return;
+    setStopping(true);
     if (props.agentType === "lead") {
-      await handleSend("/abort");
+      try {
+        await handleSend("/abort");
+      } finally {
+        setStopping(false);
+      }
       return;
     }
     if (props.agentType === "subagent" && props.subagentInfo) {
       const { projectId, slug } = props.subagentInfo;
-      const res = await interruptSubagent(projectId, slug);
-      if (!res.ok) {
-        setError(res.error);
+      try {
+        const res = await interruptSubagent(projectId, slug);
+        if (!res.ok) {
+          setError(res.error);
+        }
+      } finally {
+        setStopping(false);
       }
+      return;
     }
+    setStopping(false);
   };
 
   const aihubLogItems = createMemo(() => aihubLogs());
@@ -1638,9 +1655,11 @@ export function AgentChat(props: AgentChatProps) {
             <button
               type="button"
               class="stop-btn"
+              classList={{ stopping: stopping() }}
+              disabled={stopping()}
               onClick={() => void handleStop()}
             >
-              Stop
+              {stopping() ? "Stopping..." : "Stop"}
             </button>
           </Show>
         </div>
@@ -2246,9 +2265,31 @@ export function AgentChat(props: AgentChatProps) {
           font-size: 13px;
           font-weight: 500;
           flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .chat-input .stop-btn:hover { background: #c62828; }
+
+        .chat-input .stop-btn.stopping {
+          opacity: 0.75;
+          cursor: wait;
+        }
+
+        .chat-input .stop-btn.stopping::before {
+          content: "";
+          width: 12px;
+          height: 12px;
+          border: 2px solid rgba(255, 255, 255, 0.8);
+          border-top-color: transparent;
+          border-radius: 999px;
+          animation: stop-btn-spin 0.8s linear infinite;
+        }
+
+        @keyframes stop-btn-spin {
+          to { transform: rotate(360deg); }
+        }
 
         /* ── Attachments ── */
 

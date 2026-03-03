@@ -5,6 +5,20 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ---
 
+### Follow-up Delta (2026-03-03, stop-feedback + realtime subagent status refresh on interrupt)
+
+- Restored PRO-159 stop-button UX in `apps/web/src/components/AgentChat.tsx`:
+  - `Stop` now switches to disabled `Stopping...` while interrupt is in-flight.
+  - Added spinner styling and guard against double-click interrupt requests.
+- Fixed realtime refresh trigger path for subagent stop in `apps/gateway/src/subagents/runner.ts`:
+  - `interruptSubagent` now writes `interrupt_requested_at` into `state.json` immediately after sending `SIGTERM`.
+  - This intentionally triggers the existing project watcher `state.json` change path, causing websocket `agent_changed` broadcast and UI refetch.
+- Added regression coverage:
+  - `apps/web/src/components/AgentChat.test.tsx`: verifies stopping-state button behavior.
+  - `apps/gateway/src/subagents/subagents.api.test.ts`: verifies interrupt writes `interrupt_requested_at` to `state.json`.
+- Verification:
+  - `pnpm test -- apps/web/src/components/AgentChat.test.tsx` (passes; current Vitest config runs full suite, all passing).
+
 ## Executive Summary: UI v3 Iteration
 
 **Status**: 🔄 In progress (iterating on project detail/spec editor UI).

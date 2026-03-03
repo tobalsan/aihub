@@ -180,6 +180,24 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("shows stopping state while subagent interrupt is in flight", async () => {
+    interruptSubagentMock.mockImplementation(
+      () => new Promise(() => undefined) as Promise<never>
+    );
+    const { container, dispose } = renderSubagent("running");
+    await tick();
+
+    const stopBtn = container.querySelector(".stop-btn") as HTMLButtonElement;
+    stopBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    const stoppingBtn = container.querySelector(".stop-btn") as HTMLButtonElement;
+    expect(stoppingBtn.disabled).toBe(true);
+    expect(stoppingBtn.textContent).toContain("Stopping...");
+
+    dispose();
+  });
+
   it("sends /abort when lead Stop is clicked", async () => {
     const { container, dispose } = renderLead();
     await tick();

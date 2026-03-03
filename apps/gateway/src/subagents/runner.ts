@@ -1241,9 +1241,15 @@ export async function interruptSubagent(
 
   try {
     const raw = await fs.readFile(statePath, "utf8");
-    const state = JSON.parse(raw) as { supervisor_pid?: number };
+    const state = JSON.parse(raw) as Record<string, unknown> & {
+      supervisor_pid?: number;
+    };
     if (state.supervisor_pid) {
       process.kill(state.supervisor_pid, "SIGTERM");
+      await writeJson(statePath, {
+        ...state,
+        interrupt_requested_at: new Date().toISOString(),
+      });
       await appendHistory(historyPath, {
         ts: new Date().toISOString(),
         type: "worker.interrupt",

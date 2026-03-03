@@ -1969,6 +1969,11 @@ describe("subagents API", () => {
     }
     const history = await fs.readFile(historyPath, "utf8");
     expect(history).toContain('"worker.interrupt"');
+    const state = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "state.json"), "utf8")
+    ) as { interrupt_requested_at?: string };
+    expect(typeof state.interrupt_requested_at).toBe("string");
+    expect((state.interrupt_requested_at ?? "").length).toBeGreaterThan(0);
 
     process.env.PATH = prevPath;
   });
