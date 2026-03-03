@@ -19,6 +19,12 @@ export type MainBranchCommit = {
   subject: string;
 };
 
+export type DirtyState = {
+  files: FileChange[];
+  diff: string;
+  stats: { filesChanged: number; insertions: number; deletions: number };
+};
+
 export type ProjectChanges = {
   branch: string;
   baseBranch: string;
@@ -28,6 +34,7 @@ export type ProjectChanges = {
   stats: { filesChanged: number; insertions: number; deletions: number };
   branchDiffStats: { filesChanged: number; insertions: number; deletions: number };
   mainAheadCommits: MainBranchCommit[];
+  mainRepoDirty?: DirtyState;
 };
 
 export type CommitResult =
@@ -80,7 +87,7 @@ async function isGitRepo(cwd: string): Promise<boolean> {
 async function resolveRepoPath(
   config: GatewayConfig,
   projectId: string
-): Promise<{ repoPath: string; baseBranch: string; source: ProjectChanges["source"] }> {
+): Promise<{ repoPath: string; baseBranch: string; source: ProjectChanges["source"]; mainRepoPath?: string }> {
   const project = await getProject(config, projectId);
   if (!project.ok) throw new Error(project.error);
 
@@ -100,6 +107,7 @@ async function resolveRepoPath(
         type: "space",
         path: space.data.worktreePath,
       },
+      mainRepoPath: repo,
     };
   }
 
@@ -235,6 +243,39 @@ export async function getProjectChanges(
     // baseBranch may not exist
   }
 
+  // Dirty state of main repo (only when source is space worktree)
+  let mainRepoDirty: DirtyState | undefined;
+  if (resolved.mainRepoPath && (await isGitRepo(resolved.mainRepoPath))) {
+    try {
+      const [mrStatus, mrUnstagedDiff, mrStagedDiff, mrUnstagedStat, mrStagedStat] =
+        await Promise.all([
+          runGit(resolved.mainRepoPath, ["status", "--porcelain"]),
+          runGit(resolved.mainRepoPath, ["diff"]),
+          runGit(resolved.mainRepoPath, ["diff", "--cached"]),
+          runGit(resolved.mainRepoPath, ["diff", "--numstat"]),
+          runGit(resolved.mainRepoPath, ["diff", "--cached", "--numstat"]),
+        ]);
+      const mrFiles = parseStatusPorcelain(mrStatus);
+      if (mrFiles.length > 0) {
+        const mrDiff = [mrUnstagedDiff, mrStagedDiff].filter(Boolean).join("\n").trim();
+        const mrU = parseNumStat(mrUnstagedStat);
+        const mrS = parseNumStat(mrStagedStat);
+        const mrFileSet = new Set([...mrU.files, ...mrS.files]);
+        mainRepoDirty = {
+          files: mrFiles,
+          diff: mrDiff,
+          stats: {
+            filesChanged: mrFileSet.size,
+            insertions: mrU.insertions + mrS.insertions,
+            deletions: mrU.deletions + mrS.deletions,
+          },
+        };
+      }
+    } catch {
+      // main repo may not be accessible
+    }
+  }
+
   return {
     branch: branch.trim() || "HEAD",
     baseBranch: resolved.baseBranch,
@@ -248,6 +289,7 @@ export async function getProjectChanges(
     },
     branchDiffStats,
     mainAheadCommits,
+    mainRepoDirty,
   };
 }
 

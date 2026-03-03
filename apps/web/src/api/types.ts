@@ -430,6 +430,12 @@ export type MainBranchCommit = {
   subject: string;
 };
 
+export type DirtyState = {
+  files: FileChange[];
+  diff: string;
+  stats: { filesChanged: number; insertions: number; deletions: number };
+};
+
 export type ProjectChanges = {
   branch: string;
   baseBranch: string;
@@ -439,6 +445,7 @@ export type ProjectChanges = {
   stats: { filesChanged: number; insertions: number; deletions: number };
   branchDiffStats?: { filesChanged: number; insertions: number; deletions: number };
   mainAheadCommits?: MainBranchCommit[];
+  mainRepoDirty?: DirtyState;
 };
 
 export type SpaceIntegrationEntry = {

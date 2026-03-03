@@ -11,7 +11,6 @@ import {
 } from "../../api/client";
 import type {
   FileChange,
-  MainBranchCommit,
   ProjectChanges,
   ProjectPullRequestTarget,
   ProjectSpaceState,
@@ -489,7 +488,17 @@ export function ChangesView(props: ChangesViewProps) {
                                           </div>
                                         </Show>
                                         <Show when={detail().diff.trim().length > 0}>
-                                          <pre class="entry-diff">{detail().diff}</pre>
+                                          <pre class="entry-diff">
+                                            <For each={parseDiff(detail().diff).flatMap((f) => f.lines)}>
+                                              {(line) => (
+                                                <div class={`diff-line line-${line.kind}`}>
+                                                  <span class="line-num">{line.oldLine ?? ""}</span>
+                                                  <span class="line-num">{line.newLine ?? ""}</span>
+                                                  <span class="line-text">{line.text || " "}</span>
+                                                </div>
+                                              )}
+                                            </For>
+                                          </pre>
                                         </Show>
                                       </>
                                     )}
@@ -522,18 +531,46 @@ export function ChangesView(props: ChangesViewProps) {
             </section>
           </Show>
 
-          <Show when={(changes()?.mainAheadCommits?.length ?? 0) > 0}>
-            <section class="main-ahead-section">
-              <h4>Commits on {changes()?.baseBranch ?? "main"} (not yet in space)</h4>
-              <For each={changes()?.mainAheadCommits ?? []}>
-                {(commit) => (
-                  <div class="main-ahead-row">
-                    <code>{commit.sha.slice(0, 7)}</code>
-                    <span>{commit.subject}</span>
+
+          <Show when={changes()?.mainRepoDirty}>
+            {(dirty) => (
+              <section class="main-dirty-section">
+                <div class="main-dirty-header">
+                  <h4>Uncommitted changes on {changes()?.baseBranch ?? "main"}</h4>
+                  <div class="changes-stats">
+                    <span>{dirty().stats.filesChanged} files</span>
+                    <span class="ins">+{dirty().stats.insertions}</span>
+                    <span class="del">-{dirty().stats.deletions}</span>
                   </div>
-                )}
-              </For>
-            </section>
+                </div>
+                <div class="main-dirty-files">
+                  <For each={dirty().files}>
+                    {(file) => (
+                      <span class={`dirty-file status-${file.status}`}>
+                        <span class="file-glyph">{statusGlyph(file)}</span>
+                        {file.path}
+                      </span>
+                    )}
+                  </For>
+                </div>
+                <Show when={dirty().diff.trim().length > 0}>
+                  <details class="main-dirty-diff-wrap">
+                    <summary>Show diff</summary>
+                    <pre class="entry-diff">
+                      <For each={parseDiff(dirty().diff).flatMap((f) => f.lines)}>
+                        {(line) => (
+                          <div class={`diff-line line-${line.kind}`}>
+                            <span class="line-num">{line.oldLine ?? ""}</span>
+                            <span class="line-num">{line.newLine ?? ""}</span>
+                            <span class="line-text">{line.text || " "}</span>
+                          </div>
+                        )}
+                      </For>
+                    </pre>
+                  </details>
+                </Show>
+              </section>
+            )}
           </Show>
 
           <Show
@@ -639,9 +676,9 @@ export function ChangesView(props: ChangesViewProps) {
 
       <style>{`
         .changes-view {
-          min-height: 100%;
-          display: grid;
-          grid-template-rows: 1fr;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
         }
 
         .changes-loading,
@@ -920,14 +957,13 @@ export function ChangesView(props: ChangesViewProps) {
           margin: 0;
           border: 1px solid var(--border-subtle);
           border-radius: 8px;
-          padding: 8px;
           background: var(--bg-inset);
-          max-height: 280px;
+          max-height: 400px;
           overflow: auto;
-          font-size: 11px;
-          line-height: 1.4;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
             "Liberation Mono", "Courier New", monospace;
+          font-size: 11px;
+          line-height: 1.45;
         }
 
         .space-commit-log {
@@ -962,30 +998,48 @@ export function ChangesView(props: ChangesViewProps) {
           font-size: 11px;
         }
 
-        .main-ahead-section {
+        .main-dirty-section {
           border: 1px solid var(--border-subtle);
           border-radius: 10px;
           background: var(--bg-inset);
           padding: 10px;
           margin-bottom: 10px;
           display: grid;
-          gap: 6px;
+          gap: 8px;
         }
 
-        .main-ahead-section h4 {
-          margin: 0 0 4px;
+        .main-dirty-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .main-dirty-header h4 {
+          margin: 0;
           font-size: 12px;
           letter-spacing: 0.04em;
           text-transform: uppercase;
           color: var(--text-secondary);
         }
 
-        .main-ahead-row {
-          display: grid;
-          grid-template-columns: 60px 1fr;
-          gap: 8px;
+        .main-dirty-files {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px 10px;
           font-size: 12px;
+        }
+
+        .dirty-file {
+          display: flex;
+          align-items: center;
+          gap: 4px;
           color: var(--text-primary);
+        }
+
+        .main-dirty-diff-wrap > summary {
+          cursor: pointer;
+          font-size: 11px;
+          color: var(--text-secondary);
         }
 
         .changes-main {
