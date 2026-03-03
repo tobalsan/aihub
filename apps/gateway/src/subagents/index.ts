@@ -49,6 +49,23 @@ export type ProjectBranchesResult =
   | { ok: true; data: { branches: string[] } }
   | { ok: false; error: string };
 
+export type SubagentRunConfig = {
+  type?: "subagent" | "ralph_loop";
+  cli?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
+  runMode?: string;
+  baseBranch?: string;
+  archived?: boolean;
+  iterations?: number;
+};
+
+export type GetSubagentConfigResult =
+  | { ok: true; data: SubagentRunConfig }
+  | { ok: false; error: string };
+
 type RalphLinkable = {
   projectId?: string;
   slug: string;
@@ -682,6 +699,34 @@ export async function unarchiveSubagent(
   slug: string
 ): Promise<ArchiveSubagentResult> {
   return updateSubagentArchive(config, projectId, slug, false);
+}
+
+export async function getSubagentConfig(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string
+): Promise<GetSubagentConfigResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const projectDir = path.join(root, dirName);
+  await migrateLegacySessions(root, projectId, projectDir);
+  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
+  if (!(await dirExists(sessionDir))) {
+    return { ok: false, error: `Subagent not found: ${slug}` };
+  }
+
+  const configData = await readJson<SubagentRunConfig>(
+    path.join(sessionDir, "config.json")
+  );
+  if (!configData) {
+    return { ok: false, error: `Subagent config missing: ${slug}` };
+  }
+
+  return { ok: true, data: configData };
 }
 
 async function updateSubagentArchive(

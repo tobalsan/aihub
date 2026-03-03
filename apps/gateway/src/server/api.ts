@@ -101,6 +101,7 @@ import {
   listProjectBranches,
   archiveSubagent,
   unarchiveSubagent,
+  getSubagentConfig,
 } from "../subagents/index.js";
 import {
   spawnSubagent,
@@ -1965,17 +1966,23 @@ api.post("/projects/:id/subagents", async (c) => {
   if (!isSupportedSubagentCli(cli)) {
     return c.json({ error: getUnsupportedSubagentCliError(cli) }, 400);
   }
+  const config = getConfig();
+  let resolvedModel = model;
+  if (resume === true && !resolvedModel) {
+    const runConfig = await getSubagentConfig(config, id, slug);
+    if (runConfig.ok && hasText(runConfig.data.model)) {
+      resolvedModel = runConfig.data.model;
+    }
+  }
   const resolvedCliOptions = resolveCliSpawnOptions(
     cli,
-    model,
+    resolvedModel,
     reasoningEffort,
     thinking
   );
   if (!resolvedCliOptions.ok) {
     return c.json({ error: resolvedCliOptions.error }, 400);
   }
-
-  const config = getConfig();
   const resolvedName = resolveTemplateRunName(template, slug, name);
   const result = await spawnSubagent(config, {
     projectId: id,

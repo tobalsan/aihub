@@ -2312,6 +2312,120 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("reuses saved claude model on resume when model is omitted", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Claude Resume Model" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-claude-resume");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-claude-resume");
+    await fs.mkdir(binDir, { recursive: true });
+    const claudePath = path.join(binDir, "claude");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"system","session_id":"claude-s1"}\'',
+      'echo "$@"',
+    ].join("\n");
+    await fs.writeFile(claudePath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "delta",
+          cli: "claude",
+          prompt: "hi",
+          mode: "main-run",
+          model: "opus",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(201);
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "delta"
+    );
+    const statePath = path.join(sessionDir, "state.json");
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 5000) {
+      try {
+        const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+        if (state.session_id === "claude-s1") break;
+      } catch {
+        // wait
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const resumeState = JSON.parse(await fs.readFile(statePath, "utf8"));
+    expect(resumeState.session_id).toBe("claude-s1");
+
+    const logsPath = path.join(sessionDir, "logs.jsonl");
+    const resumeOffset = (await fs.stat(logsPath)).size;
+    const resumeRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "delta",
+          cli: "claude",
+          prompt: "follow up",
+          mode: "main-run",
+          resume: true,
+        }),
+      })
+    );
+    expect(resumeRes.status).toBe(201);
+
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      const logs = await fs.readFile(logsPath, "utf8");
+      if (logs.slice(resumeOffset).includes("-r claude-s1")) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    const resumeLogs = (await fs.readFile(logsPath, "utf8")).slice(
+      resumeOffset
+    );
+    expect(resumeLogs).toContain("-r claude-s1");
+    expect(resumeLogs).toContain("--model opus");
+    expect(resumeLogs).not.toContain("--model sonnet");
+
+    process.env.PATH = prevPath;
+  });
+
   it("creates worktree when mode is worktree", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
