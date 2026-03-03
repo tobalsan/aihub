@@ -59,8 +59,18 @@ function writeRecentProjectViews(items: RecentProjectView[]): void {
   }
 }
 
+const basePath = import.meta.env.BASE_URL?.replace(/\/+$/, "") ?? "";
+
+/** Strip the Vite base prefix from a router pathname. */
+function stripBase(pathname: string): string {
+  if (basePath && pathname.startsWith(basePath)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
 function readProjectIdFromPathname(pathname: string): string | null {
-  const match = /^\/projects\/([^/?#]+)/.exec(pathname);
+  const match = /^\/projects\/([^/?#]+)/.exec(stripBase(pathname));
   if (!match) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -123,7 +133,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <A
             href="/projects"
             class="nav-link"
-            classList={{ active: location.pathname.startsWith("/projects") }}
+            classList={{ active: stripBase(location.pathname).startsWith("/projects") }}
           >
             Projects
           </A>
@@ -131,7 +141,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             href="/conversations"
             class="nav-link"
             classList={{
-              active: location.pathname.startsWith("/conversations"),
+              active: stripBase(location.pathname).startsWith("/conversations"),
             }}
           >
             Conversations
@@ -141,8 +151,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
             class="nav-link"
             classList={{
               active:
-                location.pathname.startsWith("/agents") ||
-                location.pathname.startsWith("/chat"),
+                stripBase(location.pathname).startsWith("/agents") ||
+                stripBase(location.pathname).startsWith("/chat"),
             }}
           >
             Chats
@@ -157,7 +167,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
               <A
                 href={`/projects/${p.id}`}
                 class="recent-project-link"
-                classList={{ active: location.pathname === `/projects/${p.id}` }}
+                classList={{ active: stripBase(location.pathname) === `/projects/${p.id}` }}
               >
                 <span class="recent-project-title">{p.id}: {p.title}</span>
                 <span class="recent-project-time">
