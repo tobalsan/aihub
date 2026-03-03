@@ -485,6 +485,7 @@ export function ProjectDetailPage() {
                   onOpenSpawn={(input) => {
                     setSpawnMode(input);
                     setMergedTab("chat");
+                    setCenterTab("chat");
                   }}
                   onTitleChange={handleTitleChange}
                   onStatusChange={handleStatusChange}
@@ -496,6 +497,8 @@ export function ProjectDetailPage() {
                       : (selectedAgent()?.slug ?? null)
                   }
                   onSelectAgent={(info) => {
+                    setMergedTab("chat");
+                    setCenterTab("chat");
                     if (info.type === "lead") {
                       setSelectedAgent({
                         type: "lead",
