@@ -18,6 +18,13 @@ function getProjectsRoot(config: GatewayConfig): string {
   return expandPath(root);
 }
 
+export function inferProjectIdFromDirName(dirName: string): string {
+  const match = /^(PRO-\d+)/.exec(dirName);
+  if (match) return match[1];
+  const base = dirName.split("_")[0];
+  return base || dirName;
+}
+
 function parseProjectPath(
   projectsRoot: string,
   targetPath: string
@@ -25,7 +32,7 @@ function parseProjectPath(
   const relativePath = path.relative(projectsRoot, targetPath);
   if (!relativePath || relativePath.startsWith("..")) return null;
   const parts = relativePath.split(path.sep).filter(Boolean);
-  const projectId = parts[0];
+  const projectId = inferProjectIdFromDirName(parts[0] ?? "");
   if (!projectId || projectId.startsWith(".")) return null;
   return {
     projectId,

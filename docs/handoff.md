@@ -19,6 +19,19 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 - Verification:
   - `pnpm test -- apps/web/src/components/AgentChat.test.tsx` (passes; current Vitest config runs full suite, all passing).
 
+### Follow-up Delta (2026-03-03, project detail realtime agent refresh id mismatch fix)
+
+- Fixed gateway project watcher event payload ID shape in `apps/gateway/src/projects/watcher.ts`:
+  - watcher previously emitted folder names (`PRO-159_slug`) as `projectId`.
+  - UI listeners compare against canonical IDs (`PRO-159`), so `agent_changed`/`file_changed` were ignored in detail views.
+  - watcher now infers canonical project ID (`PRO-<n>`) from folder names before broadcasting.
+- Added regression tests in `apps/gateway/src/projects/watcher.test.ts` for project id inference behavior.
+- Impact:
+  - project detail agent list now updates in realtime on spawn/finish without manual refresh.
+  - selected subagent status in chat now transitions off `running` when run completes, so Stop->Send/input state recovers.
+- Verification:
+  - `pnpm test -- apps/gateway/src/projects/watcher.test.ts apps/web/src/components/project/AgentPanel.test.tsx apps/web/src/components/project/CenterPanel.test.tsx apps/web/src/components/project/ProjectDetailPage.test.tsx` (passes; suite runs full Vitest set in this repo and all tests passed).
+
 ## Executive Summary: UI v3 Iteration
 
 **Status**: 🔄 In progress (iterating on project detail/spec editor UI).
