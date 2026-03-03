@@ -325,10 +325,12 @@ export function ChangesView(props: ChangesViewProps) {
       rows.push(item);
       groups.set(key, rows);
     }
-    return Array.from(groups.entries()).map(([worker, entries]) => ({
-      worker,
-      entries,
-    }));
+    return Array.from(groups.entries()).map(([worker, entries]) => {
+      const withCommits = entries.filter((e) => e.shas.length > 0);
+      const skippedCount = entries.length - withCommits.length;
+      const totalCommits = entries.reduce((s, e) => s + e.shas.length, 0);
+      return { worker, entries: withCommits, skippedCount, totalCommits };
+    });
   });
 
   const canIntegrate = () => {
@@ -403,7 +405,13 @@ export function ChangesView(props: ChangesViewProps) {
                     {(group) => (
                       <details class="worker-group" open>
                         <summary>
-                          {group.worker} <span>{group.entries.length} entries</span>
+                          {group.worker}
+                          <span>
+                            {group.totalCommits} commit{group.totalCommits !== 1 ? "s" : ""}
+                            <Show when={group.skippedCount > 0}>
+                              {" · "}{group.skippedCount} skipped
+                            </Show>
+                          </span>
                         </summary>
                         <For each={group.entries}>
                           {(entry) => (
@@ -418,7 +426,7 @@ export function ChangesView(props: ChangesViewProps) {
                                   >
                                     {queueStatusLabel(entry.status)}
                                   </span>
-                                  <span>{entry.shas.length} commits</span>
+                                  <span>{entry.shas.length} commit{entry.shas.length !== 1 ? "s" : ""}</span>
                                   <span>{formatWhen(entry.createdAt)}</span>
                                   <Show when={entry.status === "integrated" && entry.integratedAt}>
                                     <span>Integrated: {formatWhen(entry.integratedAt)}</span>
@@ -436,19 +444,6 @@ export function ChangesView(props: ChangesViewProps) {
                                   >
                                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 1.5l3 3M1 11.5L11.5 1.5l3 3L4.5 15H1v-3.5z"/></svg>
                                     {fixingEntryId() === entry.id ? "Spawning…" : "Fix conflict"}
-                                  </button>
-                                </Show>
-                                <Show when={entry.shas.length > 0 && entry.status !== "conflict"}>
-                                  <button
-                                    type="button"
-                                    class="entry-action-link"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void handleToggleEntry(entry);
-                                    }}
-                                  >
-                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8h14M8 1v14"/><circle cx="8" cy="4" r="1.5"/><circle cx="8" cy="12" r="1.5"/></svg>
-                                    Diff
                                   </button>
                                 </Show>
                               </div>
