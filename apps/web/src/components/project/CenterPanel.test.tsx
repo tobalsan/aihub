@@ -22,6 +22,7 @@ vi.mock("../../api/client", () => ({
     ok: true,
     data: { cursor: 0, events: [] },
   })),
+  subscribeToFileChanges: vi.fn(() => () => {}),
 }));
 
 const project: ProjectDetail = {

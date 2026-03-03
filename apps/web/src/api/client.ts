@@ -357,6 +357,96 @@ export type StatusCallbacks = {
   onError?: (error: string) => void;
 };
 
+export type FileChangeCallbacks = {
+  onFileChanged?: (projectId: string, file: string) => void;
+  onAgentChanged?: (projectId: string) => void;
+  onError?: (error: string) => void;
+};
+
+const fileChangeSubscribers = new Set<FileChangeCallbacks>();
+let fileChangeSocket: WebSocket | null = null;
+let fileChangeReconnectTimer: number | undefined;
+
+function clearFileChangeReconnectTimer(): void {
+  if (fileChangeReconnectTimer !== undefined) {
+    window.clearTimeout(fileChangeReconnectTimer);
+    fileChangeReconnectTimer = undefined;
+  }
+}
+
+function scheduleFileChangeReconnect(): void {
+  if (fileChangeSubscribers.size === 0) return;
+  if (fileChangeReconnectTimer !== undefined) return;
+  fileChangeReconnectTimer = window.setTimeout(() => {
+    fileChangeReconnectTimer = undefined;
+    if (fileChangeSubscribers.size > 0) {
+      connectFileChangeSocket();
+    }
+  }, 1000);
+}
+
+function disconnectFileChangeSocket(): void {
+  clearFileChangeReconnectTimer();
+  const socket = fileChangeSocket;
+  fileChangeSocket = null;
+  if (!socket) return;
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "unsubscribeFileChanges" }));
+  }
+  socket.close();
+}
+
+function connectFileChangeSocket(): void {
+  if (fileChangeSubscribers.size === 0) return;
+  if (
+    fileChangeSocket &&
+    (fileChangeSocket.readyState === WebSocket.OPEN ||
+      fileChangeSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+  const ws = new WebSocket(getWsUrl());
+  fileChangeSocket = ws;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "subscribeFileChanges" }));
+  };
+
+  ws.onmessage = (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload.type === "file_changed") {
+      for (const subscriber of fileChangeSubscribers) {
+        subscriber.onFileChanged?.(payload.projectId, payload.file);
+      }
+      return;
+    }
+    if (payload.type === "agent_changed") {
+      for (const subscriber of fileChangeSubscribers) {
+        subscriber.onAgentChanged?.(payload.projectId);
+      }
+      return;
+    }
+    if (payload.type === "error") {
+      for (const subscriber of fileChangeSubscribers) {
+        subscriber.onError?.(payload.message);
+      }
+    }
+  };
+
+  ws.onerror = () => {
+    for (const subscriber of fileChangeSubscribers) {
+      subscriber.onError?.("File change subscription connection error");
+    }
+  };
+
+  ws.onclose = () => {
+    if (fileChangeSocket === ws) {
+      fileChangeSocket = null;
+    }
+    scheduleFileChangeReconnect();
+  };
+}
+
 /**
  * Subscribe to global agent status updates.
  * Receives real-time status changes for all agents.
@@ -386,6 +476,20 @@ export function subscribeToStatus(callbacks: StatusCallbacks): () => void {
       ws.send(JSON.stringify({ type: "unsubscribeStatus" }));
     }
     ws.close();
+  };
+}
+
+export function subscribeToFileChanges(
+  callbacks: FileChangeCallbacks
+): () => void {
+  fileChangeSubscribers.add(callbacks);
+  connectFileChangeSocket();
+
+  return () => {
+    fileChangeSubscribers.delete(callbacks);
+    if (fileChangeSubscribers.size === 0) {
+      disconnectFileChangeSocket();
+    }
   };
 }
 

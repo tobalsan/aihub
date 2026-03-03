@@ -17,6 +17,7 @@ vi.mock("../../api/client", () => ({
     data: { cursor: 0, events: [] },
   })),
   fetchSimpleHistory: vi.fn(async () => ({ messages: [] })),
+  subscribeToFileChanges: vi.fn(() => () => {}),
   archiveSubagent: vi.fn(async () => ({
     ok: true,
     data: { slug: "codex-abc", archived: true },

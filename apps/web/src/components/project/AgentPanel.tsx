@@ -13,6 +13,7 @@ import {
   fetchSubagentLogs,
   fetchSubagents,
   killSubagent,
+  subscribeToFileChanges,
 } from "../../api/client";
 import type {
   Area,
@@ -298,6 +299,12 @@ export function AgentPanel(props: AgentPanelProps) {
       }
     };
     void loadSubagents();
+    const unsubscribeFileChanges = subscribeToFileChanges({
+      onAgentChanged: (projectId) => {
+        if (projectId !== props.project.id) return;
+        void loadSubagents();
+      },
+    });
     const timer = window.setInterval(() => {
       void loadSubagents();
     }, 10000);
@@ -309,6 +316,7 @@ export function AgentPanel(props: AgentPanelProps) {
       active = false;
       window.clearInterval(timer);
       window.clearInterval(tickTimer);
+      unsubscribeFileChanges();
       document.removeEventListener("click", onDocumentClick);
       if (copiedTimer) window.clearTimeout(copiedTimer);
     });

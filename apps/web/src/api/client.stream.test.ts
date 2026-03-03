@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { streamMessage } from "./client";
+import { streamMessage, subscribeToFileChanges } from "./client";
 
 type MessageEventLike = { data: string };
 
@@ -127,5 +127,65 @@ describe("streamMessage", () => {
     ws.triggerError();
 
     expect(onError).toHaveBeenCalledWith("Connection error");
+  });
+});
+
+describe("subscribeToFileChanges", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost:5173" },
+      setTimeout,
+      clearTimeout,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("delivers file and agent events and cleans up shared socket", () => {
+    const onFileChanged = vi.fn();
+    const onAgentChanged = vi.fn();
+
+    const cleanup = subscribeToFileChanges({ onFileChanged, onAgentChanged });
+    const ws = MockWebSocket.instances[0];
+
+    expect(ws).toBeTruthy();
+    ws.open();
+    expect(JSON.parse(ws.sent[0] ?? "{}")).toEqual({
+      type: "subscribeFileChanges",
+    });
+
+    ws.receive({
+      type: "file_changed",
+      projectId: "PRO-1",
+      file: "README.md",
+    });
+    ws.receive({ type: "agent_changed", projectId: "PRO-1" });
+
+    expect(onFileChanged).toHaveBeenCalledWith("PRO-1", "README.md");
+    expect(onAgentChanged).toHaveBeenCalledWith("PRO-1");
+
+    cleanup();
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+    expect(JSON.parse(ws.sent[1] ?? "{}")).toEqual({
+      type: "unsubscribeFileChanges",
+    });
+  });
+
+  it("shares one socket across subscribers", () => {
+    const first = subscribeToFileChanges({ onAgentChanged: vi.fn() });
+    const second = subscribeToFileChanges({ onFileChanged: vi.fn() });
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    first();
+    expect(ws.readyState).not.toBe(MockWebSocket.CLOSED);
+    second();
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
   });
 });

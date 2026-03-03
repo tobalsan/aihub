@@ -16,6 +16,7 @@ import {
   fetchSpec,
   fetchTasks,
   saveSpec,
+  subscribeToFileChanges,
   updateProject,
   updateTask,
 } from "../../api/client";
@@ -50,14 +51,18 @@ function readCenterView(id: string): PersistedCenterView | null {
     ) {
       return parsed as PersistedCenterView;
     }
-  } catch {}
+  } catch {
+    return null;
+  }
   return null;
 }
 
 function saveCenterView(id: string, view: PersistedCenterView): void {
   try {
     localStorage.setItem(centerViewKey(id), JSON.stringify(view));
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 type MergedTab = "chat" | "activity" | "changes" | "spec";
@@ -98,6 +103,12 @@ function buildTaskProgress(tasks: Task[]): { done: number; total: number } {
   };
 }
 
+function getFilename(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const name = normalized.split("/").pop() ?? normalized;
+  return name.toUpperCase();
+}
+
 export function ProjectDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -125,6 +136,47 @@ export function ProjectDetailPage() {
   const [tasks, { mutate: mutateTasks, refetch: refetchTasks }] =
     createResource(projectId, fetchTasks);
   const [spec, { refetch: refetchSpec }] = createResource(projectId, fetchSpec);
+
+  createEffect(() => {
+    const id = projectId();
+    if (!id) return;
+    let refreshTimer: number | undefined;
+    let shouldRefreshProject = false;
+    let shouldRefreshSpec = false;
+    let shouldRefreshTasks = false;
+
+    const flush = () => {
+      if (shouldRefreshProject) void refetchProject();
+      if (shouldRefreshSpec) void refetchSpec();
+      if (shouldRefreshTasks) void refetchTasks();
+      shouldRefreshProject = false;
+      shouldRefreshSpec = false;
+      shouldRefreshTasks = false;
+      refreshTimer = undefined;
+    };
+
+    const unsubscribe = subscribeToFileChanges({
+      onFileChanged: (projectId, file) => {
+        if (projectId !== id) return;
+        const filename = getFilename(file);
+        if (filename === "SPECS.MD") {
+          shouldRefreshSpec = true;
+          shouldRefreshTasks = true;
+        } else if (filename === "README.MD" || filename === "THREAD.MD") {
+          shouldRefreshProject = true;
+        } else {
+          shouldRefreshProject = true;
+        }
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(flush, 300);
+      },
+    });
+
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
+  });
 
   onMount(() => {
     if (typeof window.matchMedia !== "function") return;

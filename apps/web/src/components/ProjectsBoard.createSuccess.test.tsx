@@ -44,6 +44,7 @@ vi.mock("../api/client", () => ({
     ok: true,
     data: { branches: [] },
   })),
+  subscribeToFileChanges: vi.fn(() => () => {}),
   uploadAttachments: vi.fn(async () => ({ ok: true, data: [] })),
 }));
 

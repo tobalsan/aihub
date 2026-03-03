@@ -6,7 +6,11 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import { fetchSubagentLogs, fetchSubagents } from "../../api/client";
+import {
+  fetchSubagentLogs,
+  fetchSubagents,
+  subscribeToFileChanges,
+} from "../../api/client";
 import { AgentChat } from "../AgentChat";
 import type {
   ProjectDetail,
@@ -193,11 +197,18 @@ export function CenterPanel(props: CenterPanelProps) {
     };
 
     void poll();
+    const unsubscribeFileChanges = subscribeToFileChanges({
+      onAgentChanged: (changedProjectId) => {
+        if (changedProjectId !== projectId) return;
+        void poll();
+      },
+    });
     const timer = window.setInterval(() => {
       void poll();
     }, 10000);
     onCleanup(() => {
       active = false;
+      unsubscribeFileChanges();
       window.clearInterval(timer);
     });
   });

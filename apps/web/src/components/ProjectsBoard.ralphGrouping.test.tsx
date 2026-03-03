@@ -78,6 +78,7 @@ vi.mock("../api/client", () => ({
   deleteProjectComment: vi.fn(async () => ({})),
   startProjectRun: vi.fn(async () => ({ ok: true })),
   spawnRalphLoop: vi.fn(async () => ({ ok: true })),
+  subscribeToFileChanges: vi.fn(() => () => {}),
 }));
 
 vi.mock("./AgentSidebar", () => ({ AgentSidebar: () => null }));

@@ -47,6 +47,25 @@ Latest commit on this branch/workspace:
 - Added regression coverage in `apps/web/src/components/project/SpawnForm.test.tsx`:
   - verifies worker clone prompt contains workspace path and does not contain main repo path.
 
+### Follow-up Delta (2026-03-03, PRO-153 realtime UI refresh wiring in web)
+
+- Added shared websocket file/agent change subscription in `apps/web/src/api/client.ts`:
+  - new `subscribeToFileChanges({ onFileChanged, onAgentChanged, onError })`
+  - shared `/ws` connection across subscribers with reconnect and cleanup when last subscriber unsubscribes
+- Updated `apps/web/src/components/ProjectsBoard.tsx`:
+  - subscribes to `file_changed`
+  - debounced `fetchProjects` refetch (500ms) when changed file basename is `README.md`
+- Updated `apps/web/src/components/project/ProjectDetailPage.tsx`:
+  - subscribes to `file_changed` for active `projectId`
+  - targeted debounced refresh (300ms): `SPECS.md` => `refetchSpec + refetchTasks`; `README.md`/`THREAD.md` => `refetchProject`
+- Updated `apps/web/src/components/project/AgentPanel.tsx` and `CenterPanel.tsx`:
+  - subscribe to `agent_changed` for the active project and immediately refetch subagents
+  - retain existing 10s polling as fallback
+- Updated test mocks and added API-client websocket tests:
+  - `apps/web/src/api/client.stream.test.ts`
+  - `apps/web/src/components/ProjectsBoard.*.test.tsx`
+  - `apps/web/src/components/project/{ProjectDetailPage,AgentPanel,CenterPanel}.test.tsx`
+
 ### Follow-up Delta (2026-03-03, project activity timeline separates comments vs agent events)
 
 - Updated `apps/web/src/components/project/CenterPanel.tsx` Activity rendering:

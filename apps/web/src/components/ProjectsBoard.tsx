@@ -9,7 +9,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { A, useNavigate, useSearchParams } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { marked, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -37,6 +37,7 @@ import {
   deleteProjectComment,
   startProjectRun,
   spawnRalphLoop,
+  subscribeToFileChanges,
 } from "../api/client";
 import type {
   ProjectListItem,
@@ -1009,6 +1010,12 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
   return aTime - bTime;
 }
 
+function getFilename(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const name = normalized.split("/").pop() ?? normalized;
+  return name.toUpperCase();
+}
+
 export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   const showSidebar = () => props.withSidebar !== false;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1175,6 +1182,24 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
       media.addListener(handler);
       onCleanup(() => media.removeListener(handler));
     }
+  });
+
+  onMount(() => {
+    let refreshTimer: number | undefined;
+    const unsubscribe = subscribeToFileChanges({
+      onFileChanged: (_projectId, file) => {
+        if (getFilename(file) !== "README.MD") return;
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refetch();
+          refreshTimer = undefined;
+        }, 500);
+      },
+    });
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
   });
 
   createEffect(() => {
