@@ -12,12 +12,12 @@ type AgentSidebarProps = {
 function relativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs}h`;
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return `${days}d`;
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
@@ -93,7 +93,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 class="recent-project-link"
                 classList={{ active: location.pathname === `/projects/${p.id}` }}
               >
-                <span class="recent-project-title">{p.title}</span>
+                <span class="recent-project-title">{p.id}: {p.title}</span>
                 <span class="recent-project-time">
                   {p.frontmatter.created ? relativeTime(p.frontmatter.created as string) : ""}
                 </span>
