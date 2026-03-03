@@ -82,7 +82,7 @@ describe("project space", () => {
     );
   }, SPACE_TEST_TIMEOUT_MS);
 
-  it("integrates worker worktree commits into space", async () => {
+  it("queues worker worktree commits and integrates on explicit request", async () => {
     const repoDir = path.join(tmpDir, "repo");
     await createRepo(repoDir);
 
@@ -118,8 +118,19 @@ describe("project space", () => {
     });
 
     expect(updated.integrationBlocked).toBe(false);
-    expect(updated.queue[0]?.status).toBe("integrated");
-    const content = await fs.readFile(path.join(space.worktreePath, "app.txt"), "utf8");
+    expect(updated.queue[0]?.status).toBe("pending");
+    const beforeIntegrate = await fs.readFile(
+      path.join(space.worktreePath, "app.txt"),
+      "utf8"
+    );
+    expect(beforeIntegrate).not.toContain("worker-one");
+
+    const integrated = await integrateProjectSpaceQueue(config, "PRO-1");
+    expect(integrated.queue[0]?.status).toBe("integrated");
+    const content = await fs.readFile(
+      path.join(space.worktreePath, "app.txt"),
+      "utf8"
+    );
     expect(content).toContain("worker-one");
   }, SPACE_TEST_TIMEOUT_MS);
 
@@ -144,7 +155,7 @@ describe("project space", () => {
     await runGit(alphaPath, ["add", "app.txt"]);
     await runGit(alphaPath, ["commit", "-m", "alpha"]);
     const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
-    await recordWorkerDelivery(config, {
+    const alphaQueued = await recordWorkerDelivery(config, {
       projectId: "PRO-1",
       workerSlug: "alpha",
       runMode: "worktree",
@@ -152,6 +163,11 @@ describe("project space", () => {
       startSha: alphaStart,
       endSha: alphaEnd,
     });
+    expect(
+      alphaQueued.queue.some(
+        (item) => item.workerSlug === "alpha" && item.status === "pending"
+      )
+    ).toBe(true);
 
     const betaPath = path.join(workspacesRoot, "beta");
     await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/beta", betaPath, "main"]);
@@ -160,7 +176,7 @@ describe("project space", () => {
     await runGit(betaPath, ["add", "app.txt"]);
     await runGit(betaPath, ["commit", "-m", "beta"]);
     const betaEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
-    const blocked = await recordWorkerDelivery(config, {
+    const betaQueued = await recordWorkerDelivery(config, {
       projectId: "PRO-1",
       workerSlug: "beta",
       runMode: "worktree",
@@ -168,6 +184,14 @@ describe("project space", () => {
       startSha: betaStart,
       endSha: betaEnd,
     });
+    expect(betaQueued.integrationBlocked).toBe(false);
+    expect(
+      betaQueued.queue.some(
+        (item) => item.workerSlug === "beta" && item.status === "pending"
+      )
+    ).toBe(true);
+
+    const blocked = await integrateProjectSpaceQueue(config, "PRO-1");
     expect(blocked.integrationBlocked).toBe(true);
     expect(blocked.queue.some((item) => item.status === "conflict")).toBe(true);
 
@@ -202,7 +226,7 @@ describe("project space", () => {
     SPACE_TEST_TIMEOUT_MS
   );
 
-  it("integrates clone worker commits by fetching from clone remote", async () => {
+  it("queues clone worker commits and integrates on explicit request", async () => {
     const repoDir = path.join(tmpDir, "repo");
     await createRepo(repoDir);
 
@@ -237,6 +261,13 @@ describe("project space", () => {
     expect(updated.integrationBlocked).toBe(false);
     expect(
       updated.queue.some(
+        (item) => item.workerSlug === "clone-a" && item.status === "pending"
+      )
+    ).toBe(true);
+
+    const integrated = await integrateProjectSpaceQueue(config, "PRO-1");
+    expect(
+      integrated.queue.some(
         (item) => item.workerSlug === "clone-a" && item.status === "integrated"
       )
     ).toBe(true);
@@ -285,6 +316,7 @@ describe("project space", () => {
       startSha: alphaStart,
       endSha: alphaEnd,
     });
+    await integrateProjectSpaceQueue(config, "PRO-1");
 
     const clonePath = path.join(projectsRoot, ".workspaces", "PRO-1", "clone-a");
     await runGit(repoDir, ["clone", repoDir, clonePath]);

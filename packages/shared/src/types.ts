@@ -389,18 +389,99 @@ export type UpdateProjectCommentRequest = z.infer<
   typeof UpdateProjectCommentRequestSchema
 >;
 
+export const StartTemplateSchema = z.enum([
+  "coordinator",
+  "worker",
+  "reviewer",
+  "custom",
+]);
+export type StartTemplate = z.infer<typeof StartTemplateSchema>;
+
+export const StartPromptRoleSchema = z.enum([
+  "coordinator",
+  "worker",
+  "reviewer",
+  "legacy",
+]);
+export type StartPromptRole = z.infer<typeof StartPromptRoleSchema>;
+
+export const CliRunModeSchema = z.enum([
+  "main-run",
+  "worktree",
+  "clone",
+  "none",
+]);
+export type CliRunMode = z.infer<typeof CliRunModeSchema>;
+
+export type StartTemplateProfile = {
+  promptRole: StartPromptRole;
+  runAgent: string;
+  model: string;
+  reasoningEffort: string;
+  runMode: CliRunMode;
+  baseBranch: string;
+  includeDefaultPrompt: boolean;
+  includeRoleInstructions: boolean;
+  includePostRun: boolean;
+};
+
+export const START_TEMPLATE_PROFILES: Record<StartTemplate, StartTemplateProfile> =
+  {
+    coordinator: {
+      promptRole: "coordinator",
+      runAgent: "cli:claude",
+      model: "opus",
+      reasoningEffort: "medium",
+      runMode: "none",
+      baseBranch: "main",
+      includeDefaultPrompt: true,
+      includeRoleInstructions: true,
+      includePostRun: false,
+    },
+    worker: {
+      promptRole: "worker",
+      runAgent: "cli:codex",
+      model: "gpt-5.3-codex",
+      reasoningEffort: "medium",
+      runMode: "worktree",
+      baseBranch: "main",
+      includeDefaultPrompt: true,
+      includeRoleInstructions: true,
+      includePostRun: true,
+    },
+    reviewer: {
+      promptRole: "reviewer",
+      runAgent: "cli:codex",
+      model: "gpt-5.3-codex",
+      reasoningEffort: "medium",
+      runMode: "none",
+      baseBranch: "main",
+      includeDefaultPrompt: true,
+      includeRoleInstructions: true,
+      includePostRun: false,
+    },
+    custom: {
+      promptRole: "legacy",
+      runAgent: "cli:codex",
+      model: "gpt-5.3-codex",
+      reasoningEffort: "xhigh",
+      runMode: "clone",
+      baseBranch: "main",
+      includeDefaultPrompt: true,
+      includeRoleInstructions: true,
+      includePostRun: true,
+    },
+  };
+
 export const StartProjectRunRequestSchema = z.object({
   customPrompt: z.string().optional(),
   runAgent: z.string().optional(),
-  template: z
-    .enum(["coordinator", "worker", "reviewer", "custom"])
-    .optional(),
-  promptRole: z
-    .enum(["coordinator", "worker", "reviewer", "legacy"])
-    .optional(),
+  template: StartTemplateSchema.optional(),
+  promptRole: StartPromptRoleSchema.optional(),
   includeDefaultPrompt: z.boolean().optional(),
   includeRoleInstructions: z.boolean().optional(),
   includePostRun: z.boolean().optional(),
+  allowTemplateOverrides: z.boolean().optional(),
   runMode: z.string().optional(),
   baseBranch: z.string().optional(),
   slug: z.string().optional(),

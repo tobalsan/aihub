@@ -833,14 +833,8 @@ export async function recordWorkerDelivery(
     };
   });
 
-  if (space.integrationBlocked || shas.length === 0 || staleAgainstSha) {
-    const refreshed = await getProjectSpace(config, input.projectId);
-    if (!refreshed.ok) throw new Error(refreshed.error);
-    await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
-    return refreshed.data;
-  }
-
-  const integrated = await integrateProjectSpaceQueue(config, input.projectId);
+  const refreshed = await getProjectSpace(config, input.projectId);
+  if (!refreshed.ok) throw new Error(refreshed.error);
   await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
-  return integrated;
+  return refreshed.data;
 }

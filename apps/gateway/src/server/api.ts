@@ -20,7 +20,9 @@ import type { UpdateProjectRequest } from "@aihub/shared";
 import {
   buildRolePrompt,
   normalizeProjectStatus,
+  START_TEMPLATE_PROFILES,
   type PromptRole,
+  type StartTemplate,
 } from "@aihub/shared";
 import { z } from "zod";
 import {
@@ -124,8 +126,6 @@ const api = new Hono();
 
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
-type SpawnTemplate = "coordinator" | "worker" | "reviewer" | "custom";
-
 const CODEX_MODELS = ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
 const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
 const PI_MODELS = [
@@ -156,6 +156,10 @@ function normalizeCliRunMode(value: string): CliRunMode {
   return "clone";
 }
 
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function expandHomePath(value: string): string {
   if (value.startsWith("~/")) {
     return path.join(os.homedir(), value.slice(2));
@@ -164,7 +168,7 @@ function expandHomePath(value: string): string {
 }
 
 function mapTemplateToPromptRole(
-  template?: SpawnTemplate,
+  template?: StartTemplate,
   explicitRole?: PromptRole
 ): PromptRole {
   if (explicitRole) return explicitRole;
@@ -727,6 +731,52 @@ api.post("/projects/:id/start", async (c) => {
   if (!parsed.success) {
     return c.json({ error: parsed.error.message }, 400);
   }
+  const startInput = { ...parsed.data };
+  const template = startInput.template;
+  const allowTemplateOverrides = startInput.allowTemplateOverrides === true;
+  if (template && !allowTemplateOverrides) {
+    const hasLockedOverrides =
+      hasText(startInput.runAgent) ||
+      hasText(startInput.model) ||
+      hasText(startInput.reasoningEffort) ||
+      hasText(startInput.thinking) ||
+      hasText(startInput.runMode) ||
+      hasText(startInput.baseBranch) ||
+      hasText(startInput.promptRole);
+    if (hasLockedOverrides) {
+      return c.json(
+        {
+          error:
+            "Template profile locked. Use --allow-template-overrides to override.",
+        },
+        400
+      );
+    }
+  }
+  if (template) {
+    const profile = START_TEMPLATE_PROFILES[template];
+    if (!hasText(startInput.runAgent)) startInput.runAgent = profile.runAgent;
+    if (!hasText(startInput.model)) startInput.model = profile.model;
+    if (!hasText(startInput.reasoningEffort)) {
+      startInput.reasoningEffort = profile.reasoningEffort;
+    }
+    if (!hasText(startInput.runMode)) startInput.runMode = profile.runMode;
+    if (!hasText(startInput.baseBranch)) {
+      startInput.baseBranch = profile.baseBranch;
+    }
+    if (!hasText(startInput.promptRole)) {
+      startInput.promptRole = profile.promptRole;
+    }
+    if (typeof startInput.includeDefaultPrompt !== "boolean") {
+      startInput.includeDefaultPrompt = profile.includeDefaultPrompt;
+    }
+    if (typeof startInput.includeRoleInstructions !== "boolean") {
+      startInput.includeRoleInstructions = profile.includeRoleInstructions;
+    }
+    if (typeof startInput.includePostRun !== "boolean") {
+      startInput.includePostRun = profile.includePostRun;
+    }
+  }
 
   const config = getConfig();
   const projectResult = await getProject(config, id);
@@ -741,7 +791,7 @@ api.post("/projects/:id/start", async (c) => {
   const normalizedStatus = normalizeProjectStatus(status);
 
   const requestedRunAgentValue =
-    typeof parsed.data.runAgent === "string" ? parsed.data.runAgent.trim() : "";
+    hasText(startInput.runAgent) ? startInput.runAgent.trim() : "";
   const frontmatterRunAgentValue =
     typeof frontmatter.runAgent === "string" ? frontmatter.runAgent.trim() : "";
   const resolvedRunAgentValue =
@@ -768,37 +818,35 @@ api.post("/projects/:id/start", async (c) => {
   let slug: string | undefined;
   let baseBranch: string | undefined;
   const requestedName =
-    typeof parsed.data.name === "string" && parsed.data.name.trim()
-      ? parsed.data.name.trim()
+    hasText(startInput.name)
+      ? startInput.name.trim()
       : undefined;
   const requestedModel =
-    typeof parsed.data.model === "string" && parsed.data.model.trim()
-      ? parsed.data.model.trim()
+    hasText(startInput.model)
+      ? startInput.model.trim()
       : undefined;
   const requestedReasoningEffort =
-    typeof parsed.data.reasoningEffort === "string" &&
-    parsed.data.reasoningEffort.trim()
-      ? parsed.data.reasoningEffort.trim()
+    hasText(startInput.reasoningEffort)
+      ? startInput.reasoningEffort.trim()
       : undefined;
   const requestedThinking =
-    typeof parsed.data.thinking === "string" && parsed.data.thinking.trim()
-      ? parsed.data.thinking.trim()
+    hasText(startInput.thinking)
+      ? startInput.thinking.trim()
       : undefined;
   const requestedRunModeValue =
-    typeof parsed.data.runMode === "string" ? parsed.data.runMode.trim() : "";
+    hasText(startInput.runMode) ? startInput.runMode.trim() : "";
   const resolvedRunMode = normalizeCliRunMode(requestedRunModeValue || "clone");
   if (runAgentSelection.type === "cli") {
     runMode = resolvedRunMode;
     const requestedSlugValue =
-      typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
+      hasText(startInput.slug) ? startInput.slug.trim() : "";
     slug =
       runMode === "main-run"
         ? "main"
         : requestedSlugValue || slugifyTitle(project.title);
     baseBranch =
-      typeof parsed.data.baseBranch === "string" &&
-      parsed.data.baseBranch.trim()
-        ? parsed.data.baseBranch.trim()
+      hasText(startInput.baseBranch)
+        ? startInput.baseBranch.trim()
         : "main";
   }
 
@@ -884,20 +932,8 @@ api.post("/projects/:id/start", async (c) => {
     }
   }
 
-  const template =
-    parsed.data.template === "coordinator" ||
-    parsed.data.template === "worker" ||
-    parsed.data.template === "reviewer" ||
-    parsed.data.template === "custom"
-      ? parsed.data.template
-      : undefined;
   const explicitRole =
-    parsed.data.promptRole === "coordinator" ||
-    parsed.data.promptRole === "worker" ||
-    parsed.data.promptRole === "reviewer" ||
-    parsed.data.promptRole === "legacy"
-      ? parsed.data.promptRole
-      : undefined;
+    startInput.promptRole;
   const promptRole = mapTemplateToPromptRole(template, explicitRole);
   const specsPath = promptRole === "legacy" ? readmePath : specsPathForRole;
   const coordinatorWorkspaceContext =
@@ -921,11 +957,36 @@ api.post("/projects/:id/start", async (c) => {
       : "";
   const mergedCustomPrompt = [
     coordinatorWorkspaceContext,
-    typeof parsed.data.customPrompt === "string" ? parsed.data.customPrompt : "",
+    typeof startInput.customPrompt === "string" ? startInput.customPrompt : "",
   ]
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
     .join("\n\n");
+  let reviewerWorkspaces:
+    | Array<{ name: string; cli?: string; path: string }>
+    | undefined;
+  if (promptRole === "reviewer") {
+    const subagentsResult = await listSubagents(config, project.id);
+    if (subagentsResult.ok) {
+      reviewerWorkspaces = subagentsResult.data.items
+        .filter(
+          (item) =>
+            item.archived !== true &&
+            (item.runMode === "clone" || item.runMode === "worktree")
+        )
+        .map((item) => {
+          const workspacePath =
+            hasText(item.worktreePath)
+              ? item.worktreePath.trim()
+              : path.join(resolvedRoot, ".workspaces", project.id, item.slug);
+          return {
+            name: item.name?.trim() || item.slug,
+            cli: item.cli,
+            path: workspacePath,
+          };
+        });
+    }
+  }
   const prompt = buildRolePrompt({
     role: promptRole,
     title: project.title,
@@ -938,11 +999,12 @@ api.post("/projects/:id/start", async (c) => {
     repo: promptRole === "coordinator" ? mainRepoPath : implementationRepo,
     customPrompt: mergedCustomPrompt || undefined,
     runAgentLabel,
+    workerWorkspaces: reviewerWorkspaces,
     owner:
       typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,
-    includeDefaultPrompt: parsed.data.includeDefaultPrompt,
-    includeRoleInstructions: parsed.data.includeRoleInstructions,
-    includePostRun: parsed.data.includePostRun,
+    includeDefaultPrompt: startInput.includeDefaultPrompt,
+    includeRoleInstructions: startInput.includeRoleInstructions,
+    includePostRun: startInput.includePostRun,
   });
 
   const updates: Partial<UpdateProjectRequest> = {};
@@ -1021,9 +1083,8 @@ api.post("/projects/:id/start", async (c) => {
         : 20;
     const ralphMode = resolvedRunMode;
     const ralphBaseBranch =
-      typeof parsed.data.baseBranch === "string" &&
-      parsed.data.baseBranch.trim()
-        ? parsed.data.baseBranch.trim()
+      hasText(startInput.baseBranch)
+        ? startInput.baseBranch.trim()
         : "main";
     const ralphSlug = generateRalphLoopSlug();
 

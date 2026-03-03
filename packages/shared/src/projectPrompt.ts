@@ -308,8 +308,9 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- Verify acceptance criteria before signaling completion",
           "Use `apm start` with templates for delegation:",
           "- Worker: `apm start <project_id> --template worker --mode worktree --branch main --slug worker-<task> --custom-prompt \"Implement <task>; update SPECS.md status.\"`",
-          "- Reviewer: `apm start <project_id> --template reviewer --mode worktree --branch main --slug reviewer-<scope> --custom-prompt \"Verify worker output; run tests; report pass/fail against acceptance criteria.\"`",
+          "- Reviewer: `apm start <project_id> --template reviewer --mode none --slug reviewer-<scope> --custom-prompt \"Review worker workspaces; run tests; report pass/fail against acceptance criteria.\"`",
           "- When using `--template`, do NOT add `--model`; template defaults must stay in control.",
+          "- Do not merge/cherry-pick directly from coordinator/reviewer runs. Integration must go through Space queue and explicit Integrate Now.",
           "When writing SPECS.md, keep checklist sections parseable:",
           "- Use `## Tasks` and `## Acceptance Criteria` headings.",
           "- In `## Tasks`, each checkbox line should include a bold title and a status token (`status:todo`, `status:in_progress`, or `status:done`).",
@@ -374,7 +375,7 @@ export function buildReviewerPrompt(input: RolePromptInput): string {
       ? [
           "## Your Role: Reviewer",
           "Review implementation done by worker agents.",
-          "- Read code changes in each worker workspace",
+          "- Read code changes directly from each worker workspace path listed below",
           "- Run tests and verify spec alignment",
           "- Report findings and remaining issues clearly",
         ].join("\n")

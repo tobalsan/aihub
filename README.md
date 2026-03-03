@@ -87,10 +87,11 @@ pnpm apm create --title "My Project" [description] [--specs <text>|-] [--domain 
 pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm apm move <id> <status>
-pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
+pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-template-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 
-# `--template` applies UI prep defaults for runAgent/model/reasoning (or thinking)/prompt includes.
-# Explicit flags still override (for example `--agent` or `--model`).
+# `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role.
+# Override locked fields only with `--allow-template-overrides`.
+# Template defaults: coordinator mode=none, worker mode=worktree (base=main), reviewer mode=none.
 
 # Override API URL (highest precedence)
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
@@ -128,7 +129,8 @@ Project Space model:
 
 - `main-run` executes in project Space (`space/<projectId>` branch, `.../.workspaces/<projectId>/_space` worktree).
 - `worktree` and `clone` remain isolated worker sandboxes.
-- Worker commits are queued and cherry-picked into Space; conflicts block queue until resumed.
+- Worker commits are queued as `pending`; they are cherry-picked only on explicit `POST /api/projects/:id/space/integrate` (UI: Integrate Now).
+- Conflicts block queue until resumed.
 - Queue statuses: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
 - Stale handling: clone deliveries can be marked `stale_worker`; worktree runs can auto-rebase with `AIHUB_SPACE_AUTO_REBASE=true`.
 - Optional write lease (`AIHUB_SPACE_WRITE_LEASE=true`) enforces exclusive `main-run` writer access via project `space-lease.json`.

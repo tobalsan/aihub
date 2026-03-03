@@ -35,6 +35,30 @@ Latest commit on this branch/workspace:
 - Added regression coverage in `apps/web/src/components/project/SpawnForm.test.tsx`:
   - verifies worker clone prompt contains workspace path and does not contain main repo path.
 
+### Follow-up Delta (2026-03-03, template strict-lock + reviewer none mode + manual Space integrate)
+
+- Enforced template profile lock for `apm start` + `/api/projects/:id/start`:
+  - locked fields (`runAgent`, `model`, `reasoningEffort`, `thinking`, `runMode`, `baseBranch`, `promptRole`) now reject when `template` is set.
+  - escape hatch added: `--allow-template-overrides` / `allowTemplateOverrides: true`.
+- Added shared template profile constants in `packages/shared/src/types.ts` and reused in CLI + gateway.
+- Updated template defaults:
+  - coordinator: `mode=none`
+  - worker: `mode=worktree`, `baseBranch=main`
+  - reviewer: `mode=none`
+- Gateway `/projects/:id/start` now applies template defaults server-side (covers non-CLI callers).
+- Reviewer start prompt now gets workspace paths from server-side `listSubagents(projectId)` filtering clone/worktree workers (non-archived, any status).
+- `recordWorkerDelivery` no longer auto-integrates into Space; entries remain pending until explicit `/api/projects/:id/space/integrate`.
+- Coordinator/reviewer prompt guidance updated to:
+  - reviewer spawn example uses `--mode none`
+  - explicitly forbid direct merge/cherry-pick outside Space integration flow
+  - reviewer role text clarifies direct review from worker workspace paths
+- Updated tests:
+  - `packages/cli/src/index.start.test.ts`
+  - `packages/shared/src/projectPrompt.test.ts`
+  - `apps/gateway/src/subagents/subagents.api.test.ts`
+  - `apps/gateway/src/projects/space.test.ts`
+  - `apps/web/src/components/project/SpawnForm.test.tsx`
+
 ### Follow-up Delta (2026-03-02, PRO-156 stop button in project detail chat)
 
 - Implemented Stop/Send swap in `apps/web/src/components/AgentChat.tsx`:

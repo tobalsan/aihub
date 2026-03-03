@@ -88,10 +88,7 @@ export function buildReviewerWorkspaceList(
   subagents: SubagentListItem[]
 ): string {
   const workers = subagents.filter(
-    (item) =>
-      item.runMode !== "none" &&
-      item.runMode !== "main-run" &&
-      (item.status === "running" || item.status === "replied")
+    (item) => item.runMode === "clone" || item.runMode === "worktree"
   );
   if (workers.length === 0) return "No active worker workspaces found.";
   return workers

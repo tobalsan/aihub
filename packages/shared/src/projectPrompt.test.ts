@@ -82,8 +82,12 @@ describe("role-based project prompts", () => {
     expect(out).toContain("Use `apm start` with templates for delegation:");
     expect(out).toContain("--template worker");
     expect(out).toContain("--template reviewer");
+    expect(out).toContain("--mode none");
     expect(out).toContain(
       "When using `--template`, do NOT add `--model`; template defaults must stay in control."
+    );
+    expect(out).toContain(
+      "Do not merge/cherry-pick directly from coordinator/reviewer runs."
     );
     expect(out).toContain("When writing SPECS.md, keep checklist sections parseable");
     expect(out).toContain("Optional `###` subsections are supported in both sections.");
@@ -122,6 +126,9 @@ describe("role-based project prompts", () => {
       ],
     });
     expect(out).toContain("## Your Role: Reviewer");
+    expect(out).toContain(
+      "Read code changes directly from each worker workspace path listed below"
+    );
     expect(out).toContain("## Active Worker Workspaces");
     expect(out).toContain("~/projects/.workspaces/PRO-151/worker-alpha/");
     expect(out).not.toContain("Run relevant tests after changes.");

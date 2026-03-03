@@ -1070,7 +1070,8 @@ describe("subagents API", () => {
         body: JSON.stringify({
           runAgent: "cli:codex",
           template: "coordinator",
-          runMode: "worktree",
+          allowTemplateOverrides: true,
+          model: "gpt-5.3-codex",
           slug: "coord-check",
         }),
       })
@@ -1255,6 +1256,188 @@ describe("subagents API", () => {
     await expect(
       fs.stat(path.join(projectsRoot, created.path, "space.json"))
     ).resolves.toBeDefined();
+
+    process.env.PATH = prevPath;
+  });
+
+  it("rejects locked template overrides on /projects/:id/start", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Template Lock Reject" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template: "reviewer",
+          runMode: "worktree",
+        }),
+      })
+    );
+    expect(startRes.status).toBe(400);
+    const payload = await startRes.json();
+    expect(payload.error).toContain("Template profile locked");
+    expect(payload.error).toContain("--allow-template-overrides");
+  });
+
+  it("allows template overrides on /projects/:id/start with escape hatch", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Template Lock Allow" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-template-lock-allow");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-template-lock-allow"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const startRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template: "reviewer",
+          allowTemplateOverrides: true,
+          promptRole: "legacy",
+          slug: "reviewer-legacy",
+        }),
+      })
+    );
+    expect(startRes.status).toBe(200);
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "reviewer-legacy"
+    );
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    );
+    expect(config.runMode).toBe("none");
+
+    process.env.PATH = prevPath;
+  });
+
+  it("applies reviewer template mode none and injects worker workspace paths", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Reviewer Prompt Workspaces" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-reviewer-workspaces");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-reviewer-workspaces");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-reviewer-workspaces"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const workerSpawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "worker-alpha",
+          cli: "codex",
+          prompt: "worker",
+          mode: "worktree",
+        }),
+      })
+    );
+    expect(workerSpawnRes.status).toBe(201);
+
+    const workerState = JSON.parse(
+      await fs.readFile(
+        path.join(
+          projectsRoot,
+          created.path,
+          "sessions",
+          "worker-alpha",
+          "state.json"
+        ),
+        "utf8"
+      )
+    );
+    expect(typeof workerState.worktree_path).toBe("string");
+
+    const reviewerStartRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template: "reviewer",
+          slug: "reviewer-check",
+        }),
+      })
+    );
+    expect(reviewerStartRes.status).toBe(200);
+
+    const reviewerDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "reviewer-check"
+    );
+    const reviewerConfig = JSON.parse(
+      await fs.readFile(path.join(reviewerDir, "config.json"), "utf8")
+    );
+    expect(reviewerConfig.runMode).toBe("none");
+
+    const logs = await fs.readFile(path.join(reviewerDir, "logs.jsonl"), "utf8");
+    expect(logs).toContain("## Active Worker Workspaces");
+    expect(logs).toContain(workerState.worktree_path);
+    expect(logs).not.toContain("No active worker workspaces found.");
 
     process.env.PATH = prevPath;
   });

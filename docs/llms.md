@@ -381,7 +381,8 @@ Behavior:
 - `main-run` subagents execute in the Space worktree.
 - `worktree` and `clone` subagents remain isolated sandboxes.
 - Worker commit ranges are derived from `start_head_sha..end_head_sha` and queued.
-- Gateway cherry-picks pending worker SHAs into Space (`git cherry-pick -x`).
+- Worker deliveries remain `pending` until explicit integration (`POST /api/projects/:id/space/integrate`).
+- Gateway cherry-picks queued SHAs into Space (`git cherry-pick -x`) only during explicit integrate flow.
 - On conflict, Space queue is blocked (`integrationBlocked=true`) until resumed by `/api/projects/:id/space/integrate`.
 - Queue statuses include: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
 - Stale worker handling:
@@ -413,16 +414,17 @@ Behavior:
   - `--thinking <level>`
   - `--template <coordinator|worker|reviewer|custom>`
   - `--prompt-role <coordinator|worker|reviewer|legacy>`
+  - `--allow-template-overrides`
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
-- `apm start --template` mirrors UI prep defaults for run agent/model/reasoning (or thinking)/prompt includes:
-  - `coordinator`: `cli:claude`, `opus`, effort `medium`, includes `true/true/false`
-  - `worker`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, includes `true/true/true`
-  - `reviewer`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, includes `true/true/false`
-  - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, includes `true/true/true`
-  - If harness is overridden to PI (`--agent pi`), template effort is translated to `thinking` and normalized for PI.
-- Explicit flags (`--agent`, `--model`, `--include-*`, `--exclude-*`) override template defaults.
+- `apm start --template` uses locked template profiles for run agent/model/reasoning(or thinking)/runMode/baseBranch/prompt includes:
+  - `coordinator`: `cli:claude`, `opus`, effort `medium`, `mode=none`, includes `true/true/false`
+  - `worker`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, `mode=worktree`, `baseBranch=main`, includes `true/true/true`
+  - `reviewer`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, `mode=none`, includes `true/true/false`
+  - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, `mode=clone`, `baseBranch=main`, includes `true/true/true`
+  - If harness is overridden to PI (`--agent pi`), effort defaults are translated to `thinking` and normalized for PI.
+- Locked fields can be overridden only with `--allow-template-overrides`.
 
 ## Single-Agent Mode
 

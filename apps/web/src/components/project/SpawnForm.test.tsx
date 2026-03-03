@@ -97,6 +97,13 @@ describe("SpawnForm", () => {
         runMode: "main-run",
       },
       {
+        slug: "worker-beta",
+        name: "Worker Beta",
+        cli: "claude",
+        status: "idle",
+        runMode: "worktree",
+      },
+      {
         slug: "observer",
         name: "Observer",
         cli: "claude",
@@ -142,6 +149,9 @@ describe("SpawnForm", () => {
     expect(payload?.prompt).toContain("## Active Worker Workspaces");
     expect(payload?.prompt).toContain(
       "~/projects/.workspaces/PRO-149/worker-alpha/"
+    );
+    expect(payload?.prompt).toContain(
+      "~/projects/.workspaces/PRO-149/worker-beta/"
     );
     expect(payload?.prompt).not.toContain("worker-main");
 
@@ -348,5 +358,19 @@ describe("buildReviewerWorkspaceList", () => {
         { slug: "x", status: "running", runMode: "none" },
       ])
     ).toBe("No active worker workspaces found.");
+  });
+
+  it("includes clone/worktree workers regardless status", () => {
+    const result = buildReviewerWorkspaceList("PRO-149", [
+      { slug: "worker-a", status: "idle", runMode: "clone" },
+      { slug: "worker-b", status: "error", runMode: "worktree" },
+      { slug: "reviewer", status: "running", runMode: "none" },
+      { slug: "space-run", status: "running", runMode: "main-run" },
+    ]);
+
+    expect(result).toContain("worker-a");
+    expect(result).toContain("worker-b");
+    expect(result).not.toContain("reviewer");
+    expect(result).not.toContain("space-run");
   });
 });

@@ -13,27 +13,50 @@ describe("apm start request body mapping", () => {
       runAgent: "cli:codex",
       model: "gpt-5.3-codex",
       reasoningEffort: "medium",
+      runMode: "worktree",
+      baseBranch: "main",
+      promptRole: "worker",
       includeDefaultPrompt: true,
       includeRoleInstructions: true,
       includePostRun: true,
     });
   });
 
-  it("lets explicit options override template defaults", () => {
+  it("rejects locked template overrides without escape hatch", () => {
     const { body, errors } = buildStartRequestBody({
       template: "coordinator",
       agent: "codex",
+    });
+
+    expect(body).toMatchObject({
+      template: "coordinator",
+      runAgent: "cli:claude",
+      runMode: "none",
+    });
+    expect(errors).toEqual([
+      "Template profile locked. Use --allow-template-overrides to override.",
+    ]);
+  });
+
+  it("lets explicit options override template defaults with escape hatch", () => {
+    const { body, errors } = buildStartRequestBody({
+      template: "coordinator",
+      allowTemplateOverrides: true,
+      agent: "codex",
       model: "gpt-5.2",
       promptRole: "reviewer",
+      mode: "worktree",
       includePostRun: true,
     });
 
     expect(errors).toEqual([]);
     expect(body).toMatchObject({
       template: "coordinator",
+      allowTemplateOverrides: true,
       runAgent: "cli:codex",
       model: "gpt-5.2",
       promptRole: "reviewer",
+      runMode: "worktree",
       includePostRun: true,
     });
   });
@@ -41,6 +64,7 @@ describe("apm start request body mapping", () => {
   it("maps template reasoning default to thinking when agent is pi", () => {
     const { body, errors } = buildStartRequestBody({
       template: "coordinator",
+      allowTemplateOverrides: true,
       agent: "pi",
     });
 
@@ -48,6 +72,7 @@ describe("apm start request body mapping", () => {
     expect(body).toMatchObject({
       template: "coordinator",
       runAgent: "cli:pi",
+      runMode: "none",
       model: "qwen3.5-plus",
       thinking: "medium",
     });
@@ -57,12 +82,14 @@ describe("apm start request body mapping", () => {
   it("normalizes model and effort when agent override changes harness", () => {
     const { body, errors } = buildStartRequestBody({
       template: "custom",
+      allowTemplateOverrides: true,
       agent: "claude",
     });
 
     expect(errors).toEqual([]);
     expect(body).toMatchObject({
       template: "custom",
+      runMode: "clone",
       runAgent: "cli:claude",
       model: "opus",
       reasoningEffort: "high",

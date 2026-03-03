@@ -2,6 +2,11 @@
 import { Command } from "commander";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  START_TEMPLATE_PROFILES,
+  type StartTemplate,
+  type StartPromptRole as SharedStartPromptRole,
+} from "@aihub/shared";
 import { ApiClient } from "./client.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -126,53 +131,8 @@ function mapSubagentStatus(
   return "idle";
 }
 
-type StartTemplate = "coordinator" | "worker" | "reviewer" | "custom";
-type StartPromptRole = "coordinator" | "worker" | "reviewer" | "legacy";
+type StartPromptRole = SharedStartPromptRole;
 type StartHarness = "codex" | "claude" | "pi";
-
-type StartTemplateDefaults = {
-  runAgent: string;
-  model: string;
-  reasoningEffort: string;
-  includeDefaultPrompt: boolean;
-  includeRoleInstructions: boolean;
-  includePostRun: boolean;
-};
-
-const START_TEMPLATE_DEFAULTS: Record<StartTemplate, StartTemplateDefaults> = {
-  coordinator: {
-    runAgent: "cli:claude",
-    model: "opus",
-    reasoningEffort: "medium",
-    includeDefaultPrompt: true,
-    includeRoleInstructions: true,
-    includePostRun: false,
-  },
-  worker: {
-    runAgent: "cli:codex",
-    model: "gpt-5.3-codex",
-    reasoningEffort: "medium",
-    includeDefaultPrompt: true,
-    includeRoleInstructions: true,
-    includePostRun: true,
-  },
-  reviewer: {
-    runAgent: "cli:codex",
-    model: "gpt-5.3-codex",
-    reasoningEffort: "medium",
-    includeDefaultPrompt: true,
-    includeRoleInstructions: true,
-    includePostRun: false,
-  },
-  custom: {
-    runAgent: "cli:codex",
-    model: "gpt-5.3-codex",
-    reasoningEffort: "xhigh",
-    includeDefaultPrompt: true,
-    includeRoleInstructions: true,
-    includePostRun: true,
-  },
-};
 
 const START_HARNESS_MODELS: Record<StartHarness, readonly string[]> = {
   codex: ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
@@ -204,6 +164,7 @@ type StartCommandOpts = {
   customPrompt?: string;
   template?: string;
   promptRole?: string;
+  allowTemplateOverrides?: boolean;
   includeDefaultPrompt?: boolean;
   excludeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;
@@ -250,6 +211,7 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
   const body: Record<string, unknown> = {};
   const errors: string[] = [];
   let selectedTemplate: StartTemplate | undefined;
+  const allowTemplateOverrides = opts.allowTemplateOverrides === true;
 
   if (typeof opts.template === "string" && opts.template.trim()) {
     const template = toStartTemplate(opts.template);
@@ -260,13 +222,37 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
     } else {
       selectedTemplate = template;
       body.template = template;
-      const defaults = START_TEMPLATE_DEFAULTS[template];
+      const defaults = START_TEMPLATE_PROFILES[template];
+      body.promptRole = defaults.promptRole;
       body.runAgent = defaults.runAgent;
       body.model = defaults.model;
       body.reasoningEffort = defaults.reasoningEffort;
+      body.runMode = defaults.runMode;
+      body.baseBranch = defaults.baseBranch;
       body.includeDefaultPrompt = defaults.includeDefaultPrompt;
       body.includeRoleInstructions = defaults.includeRoleInstructions;
       body.includePostRun = defaults.includePostRun;
+      if (allowTemplateOverrides) {
+        body.allowTemplateOverrides = true;
+      }
+    }
+  }
+
+  if (selectedTemplate && !allowTemplateOverrides) {
+    const hasLockedOverrides =
+      (typeof opts.agent === "string" && opts.agent.trim().length > 0) ||
+      (typeof opts.model === "string" && opts.model.trim().length > 0) ||
+      (typeof opts.reasoningEffort === "string" &&
+        opts.reasoningEffort.trim().length > 0) ||
+      (typeof opts.thinking === "string" && opts.thinking.trim().length > 0) ||
+      (typeof opts.mode === "string" && opts.mode.trim().length > 0) ||
+      (typeof opts.branch === "string" && opts.branch.trim().length > 0) ||
+      (typeof opts.promptRole === "string" && opts.promptRole.trim().length > 0);
+    if (hasLockedOverrides) {
+      errors.push(
+        "Template profile locked. Use --allow-template-overrides to override."
+      );
+      return { body, errors };
     }
   }
 
@@ -299,6 +285,10 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
   }
   if (typeof opts.slug === "string" && opts.slug.trim()) {
     body.slug = opts.slug.trim();
+  }
+
+  if (allowTemplateOverrides && selectedTemplate) {
+    body.allowTemplateOverrides = true;
   }
 
   if (selectedTemplate && typeof body.runAgent === "string") {
@@ -912,6 +902,10 @@ program
   .option(
     "--prompt-role <role>",
     "Prompt role override (coordinator|worker|reviewer|legacy)"
+  )
+  .option(
+    "--allow-template-overrides",
+    "Allow overriding locked template profile fields"
   )
   .option(
     "--include-default-prompt",
