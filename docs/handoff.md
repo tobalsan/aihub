@@ -47,6 +47,20 @@ Latest commit on this branch/workspace:
 - Added regression coverage in `apps/web/src/components/project/SpawnForm.test.tsx`:
   - verifies worker clone prompt contains workspace path and does not contain main repo path.
 
+### Follow-up Delta (2026-03-03, project activity timeline separates comments vs agent events)
+
+- Updated `apps/web/src/components/project/CenterPanel.tsx` Activity rendering:
+  - keeps real project thread comments in card containers.
+  - renders synthesized subagent lifecycle entries as plain timeline rows (no comment card container).
+  - removes verbose start prompt text from start entries.
+  - keeps completion/error outcome snippets from recent subagent logs.
+- Activity entry wording now uses concise actor-first text:
+  - `<cli> started.`
+  - `<cli> completed. <snippet>` / `<cli> errored. <snippet>`
+- Updated test expectations in `apps/web/src/components/project/CenterPanel.test.tsx`.
+- Verification:
+  - `pnpm test -- apps/web/src/components/project/CenterPanel.test.tsx` (passes).
+
 ### Follow-up Delta (2026-03-03, projects sidebar duplication regression fix)
 
 - Fixed route shell composition in `apps/web/src/App.tsx` for `/projects/:id?`:

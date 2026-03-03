@@ -44,6 +44,7 @@ type CenterPanelProps = {
 
 type TimelineItem = {
   key: string;
+  kind: "comment" | "activity";
   ts: number;
   dateLabel: string;
   author: string;
@@ -58,12 +59,6 @@ function parseTimestamp(raw: string | undefined): number {
 
 function formatDateLabel(raw: string | undefined): string {
   return raw && raw.trim() ? raw : "Unknown time";
-}
-
-function firstPromptSnippet(events: SubagentLogEvent[]): string {
-  const prompt = events.find((event) => event.type === "user" && event.text);
-  if (!prompt?.text) return "";
-  return prompt.text.slice(0, 140);
 }
 
 function outcomeSnippet(events: SubagentLogEvent[]): string {
@@ -98,6 +93,7 @@ export function CenterPanel(props: CenterPanelProps) {
     const threadItems: TimelineItem[] = props.project.thread.map(
       (entry, index) => ({
         key: `thread:${index}`,
+        kind: "comment",
         ts: parseTimestamp(entry.date),
         dateLabel: formatDateLabel(entry.date),
         author: entry.author,
@@ -109,27 +105,28 @@ export function CenterPanel(props: CenterPanelProps) {
       const cli = item.cli ?? item.slug;
       const events = logBySlug()[item.slug] ?? [];
       const startedAt = events.find((event) => event.ts)?.ts ?? item.lastActive;
-      const startSnippet = firstPromptSnippet(events);
       if (startedAt) {
         subagentItems.push({
           key: `subagent:start:${item.slug}`,
+          kind: "activity",
           ts: parseTimestamp(startedAt),
           dateLabel: formatDateLabel(startedAt),
           author: cli,
-          body: startSnippet
-            ? `Agent started. Prompt: ${startSnippet}`
-            : "Agent started.",
+          body: `${cli} started.`,
         });
       }
       if (item.status === "replied" || item.status === "error") {
         const outcome =
-          item.status === "error" ? "Agent errored." : "Agent completed.";
+          item.status === "error"
+            ? `${cli} errored.`
+            : `${cli} completed.`;
         const details = outcomeSnippet(events);
         const stamp =
           (events.length > 0 ? events[events.length - 1].ts : undefined) ??
           item.lastActive;
         subagentItems.push({
           key: `subagent:end:${item.slug}`,
+          kind: "activity",
           ts: parseTimestamp(stamp),
           dateLabel: formatDateLabel(stamp),
           author: cli,
@@ -286,12 +283,30 @@ export function CenterPanel(props: CenterPanelProps) {
                 <ul class="activity-list">
                   <For each={timelineItems()}>
                     {(entry) => (
-                      <li class="activity-item">
-                        <div class="activity-meta">
-                          <span class="activity-author">{entry.author}</span>
-                          <span class="activity-date">{entry.dateLabel}</span>
-                        </div>
-                        <p>{entry.body}</p>
+                      <li
+                        class="activity-entry"
+                        classList={{
+                          "activity-entry--comment": entry.kind === "comment",
+                          "activity-entry--event": entry.kind === "activity",
+                        }}
+                      >
+                        <Show
+                          when={entry.kind === "comment"}
+                          fallback={
+                            <p class="activity-event-line">
+                              <span class="activity-date">{entry.dateLabel}</span>
+                              <span>{entry.body}</span>
+                            </p>
+                          }
+                        >
+                          <div class="activity-item">
+                            <div class="activity-meta">
+                              <span class="activity-author">{entry.author}</span>
+                              <span class="activity-date">{entry.dateLabel}</span>
+                            </div>
+                            <p>{entry.body}</p>
+                          </div>
+                        </Show>
                       </li>
                     )}
                   </For>
@@ -417,6 +432,10 @@ export function CenterPanel(props: CenterPanelProps) {
           gap: 10px;
         }
 
+        .activity-entry--event {
+          padding: 4px 2px;
+        }
+
         .activity-item {
           border: 1px solid var(--border-subtle);
           border-radius: 10px;
@@ -445,6 +464,16 @@ export function CenterPanel(props: CenterPanelProps) {
           color: var(--text-muted);
           line-height: 1.2;
           font-size: 12px;
+        }
+
+        .activity-event-line {
+          margin: 0;
+          display: inline-flex;
+          align-items: baseline;
+          gap: 8px;
+          color: var(--text-secondary);
+          font-size: 13px;
+          line-height: 1.4;
         }
 
         .thread-add {

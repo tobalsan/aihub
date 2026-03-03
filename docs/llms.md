@@ -54,6 +54,7 @@ Features:
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail center-panel subagent chat follow-ups reuse the selected subagent `runMode` to preserve CLI session cwd continuity (important for Claude CLI resume by `session_id`)
 - Project detail center-panel chat input swaps `Send` to `Stop` while a run is active; lead agents stop via `/abort`, subagents stop via `POST /api/projects/:id/subagents/:slug/interrupt` (codex/claude/pi)
+- Project detail center-panel Activity tab intersperses two entry types in one timeline: thread comments (card-style) and synthesized subagent lifecycle events (plain rows). Start rows are concise (`<cli> started.`); completion/error rows can include short outcome snippets from recent subagent logs.
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
 - Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).

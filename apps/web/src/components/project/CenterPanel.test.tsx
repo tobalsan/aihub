@@ -248,8 +248,9 @@ describe("CenterPanel", () => {
 
     const text = container.textContent ?? "";
     expect(text).toContain("Status changed to in_progress");
-    expect(text).toContain("Agent started. Prompt: Implement task A");
-    expect(text).toContain("Agent completed. Done with task A");
+    expect(text).toContain("codex started.");
+    expect(text).toContain("codex completed. Done with task A");
+    expect(text).not.toContain("Prompt: Implement task A");
 
     dispose();
   });
