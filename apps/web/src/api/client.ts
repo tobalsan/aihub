@@ -390,9 +390,7 @@ function disconnectFileChangeSocket(): void {
   const socket = fileChangeSocket;
   fileChangeSocket = null;
   if (!socket) return;
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "unsubscribeFileChanges" }));
-  }
+  // No unsubscribe message needed — server broadcasts to all clients.
   socket.close();
 }
 
@@ -409,7 +407,8 @@ function connectFileChangeSocket(): void {
   fileChangeSocket = ws;
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "subscribeFileChanges" }));
+    // Server broadcasts file_changed/agent_changed to all connected clients,
+    // no subscribe message needed — just keep the connection open.
   };
 
   ws.onmessage = (event) => {

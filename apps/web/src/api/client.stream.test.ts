@@ -131,6 +131,8 @@ describe("streamMessage", () => {
 });
 
 describe("subscribeToFileChanges", () => {
+  const cleanups: Array<() => void> = [];
+
   beforeEach(() => {
     MockWebSocket.instances = [];
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
@@ -142,6 +144,10 @@ describe("subscribeToFileChanges", () => {
   });
 
   afterEach(() => {
+    while (cleanups.length > 0) {
+      const cleanup = cleanups.pop();
+      cleanup?.();
+    }
     vi.unstubAllGlobals();
   });
 
@@ -150,13 +156,12 @@ describe("subscribeToFileChanges", () => {
     const onAgentChanged = vi.fn();
 
     const cleanup = subscribeToFileChanges({ onFileChanged, onAgentChanged });
+    cleanups.push(cleanup);
     const ws = MockWebSocket.instances[0];
 
     expect(ws).toBeTruthy();
     ws.open();
-    expect(JSON.parse(ws.sent[0] ?? "{}")).toEqual({
-      type: "subscribeFileChanges",
-    });
+    expect(ws.sent).toEqual([]);
 
     ws.receive({
       type: "file_changed",
@@ -170,14 +175,12 @@ describe("subscribeToFileChanges", () => {
 
     cleanup();
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
-    expect(JSON.parse(ws.sent[1] ?? "{}")).toEqual({
-      type: "unsubscribeFileChanges",
-    });
   });
 
   it("shares one socket across subscribers", () => {
     const first = subscribeToFileChanges({ onAgentChanged: vi.fn() });
     const second = subscribeToFileChanges({ onFileChanged: vi.fn() });
+    cleanups.push(second, first);
 
     expect(MockWebSocket.instances.length).toBe(1);
     const ws = MockWebSocket.instances[0];

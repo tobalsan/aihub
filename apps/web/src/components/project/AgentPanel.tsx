@@ -305,16 +305,12 @@ export function AgentPanel(props: AgentPanelProps) {
         void loadSubagents();
       },
     });
-    const timer = window.setInterval(() => {
-      void loadSubagents();
-    }, 10000);
     const tickTimer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 60000);
 
     onCleanup(() => {
       active = false;
-      window.clearInterval(timer);
       window.clearInterval(tickTimer);
       unsubscribeFileChanges();
       document.removeEventListener("click", onDocumentClick);

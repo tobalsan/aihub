@@ -203,13 +203,9 @@ export function CenterPanel(props: CenterPanelProps) {
         void poll();
       },
     });
-    const timer = window.setInterval(() => {
-      void poll();
-    }, 10000);
     onCleanup(() => {
       active = false;
       unsubscribeFileChanges();
-      window.clearInterval(timer);
     });
   });
 
