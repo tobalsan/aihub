@@ -61,6 +61,18 @@ function formatDateLabel(raw: string | undefined): string {
   return raw && raw.trim() ? raw : "Unknown time";
 }
 
+function formatRelativeActivityTime(ts: number): string {
+  if (!ts) return "";
+  const diffMs = Date.now() - ts;
+  if (diffMs < 60_000) return "now";
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function outcomeSnippet(events: SubagentLogEvent[]): string {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i];
@@ -294,8 +306,10 @@ export function CenterPanel(props: CenterPanelProps) {
                           when={entry.kind === "comment"}
                           fallback={
                             <p class="activity-event-line">
-                              <span class="activity-date">{entry.dateLabel}</span>
                               <span>{entry.body}</span>
+                              <span class="activity-event-time">
+                                {formatRelativeActivityTime(entry.ts)}
+                              </span>
                             </p>
                           }
                         >
@@ -474,6 +488,12 @@ export function CenterPanel(props: CenterPanelProps) {
           color: var(--text-secondary);
           font-size: 13px;
           line-height: 1.4;
+        }
+
+        .activity-event-time {
+          color: var(--text-muted);
+          font-size: 12px;
+          white-space: nowrap;
         }
 
         .thread-add {

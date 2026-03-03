@@ -54,6 +54,7 @@ Latest commit on this branch/workspace:
   - renders synthesized subagent lifecycle entries as plain timeline rows (no comment card container).
   - removes verbose start prompt text from start entries.
   - keeps completion/error outcome snippets from recent subagent logs.
+  - shows compact relative time (`now|Xm|Xh|Xd ago`) for activity rows only, rendered at the end of each event line.
 - Activity entry wording now uses concise actor-first text:
   - `<cli> started.`
   - `<cli> completed. <snippet>` / `<cli> errored. <snippet>`
