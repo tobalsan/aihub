@@ -102,6 +102,7 @@ import {
   archiveSubagent,
   unarchiveSubagent,
   getSubagentConfig,
+  renameSubagent,
 } from "../subagents/index.js";
 import {
   spawnSubagent,
@@ -2042,6 +2043,29 @@ api.post("/projects/:id/ralph-loop", async (c) => {
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data, 201);
+});
+
+// PATCH /api/projects/:id/subagents/:slug - rename subagent run
+api.patch("/projects/:id/subagents/:slug", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const body = await c.req.json().catch(() => ({}));
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) {
+    return c.json({ error: "name is required" }, 400);
+  }
+
+  const config = getConfig();
+  const result = await renameSubagent(config, id, slug, name);
+  if (!result.ok) {
+    const status =
+      result.error.startsWith("Project not found") ||
+      result.error.startsWith("Subagent not found")
+        ? 404
+        : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
 });
 
 // POST /api/projects/:id/subagents/:slug/interrupt - interrupt subagent

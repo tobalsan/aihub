@@ -803,6 +803,36 @@ program
   });
 
 program
+  .command("rename")
+  .argument("<id>", "Project ID")
+  .requiredOption("--slug <slug>", "Subagent slug")
+  .requiredOption("--name <name>", "New subagent name")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    try {
+      const normalizedId = normalizeProjectId(id);
+      const slug =
+        typeof opts.slug === "string" ? opts.slug.trim() : String(opts.slug);
+      const name =
+        typeof opts.name === "string" ? opts.name.trim() : String(opts.name);
+      if (!slug || !name) {
+        console.error("Both --slug and --name are required.");
+        process.exit(1);
+      }
+      const data = await getClient().renameProjectSubagent(normalizedId, slug, {
+        name,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+      console.log(`Renamed subagent ${slug} to "${name}"`);
+    } catch (err) {
+      fail(err);
+    }
+  });
+
+program
   .command("archive")
   .argument("<id>", "Project ID")
   .option("-j, --json", "JSON output")

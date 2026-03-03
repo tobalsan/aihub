@@ -368,6 +368,95 @@ describe("subagents API", () => {
     expect(list2.items[0].archived).toBe(false);
   });
 
+  it("renames a subagent and persists name in config + listings", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Rename" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "alpha"
+    );
+    await fs.mkdir(sessionDir, { recursive: true });
+    const now = new Date().toISOString();
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify(
+        {
+          cli: "codex",
+          name: "Worker Alpha",
+          runMode: "worktree",
+          baseBranch: "main",
+          created: now,
+        },
+        null,
+        2
+      )
+    );
+
+    const renameRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/alpha`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Worker Renamed" }),
+      })
+    );
+    expect(renameRes.status).toBe(200);
+    const renamed = await renameRes.json();
+    expect(renamed.slug).toBe("alpha");
+    expect(renamed.name).toBe("Worker Renamed");
+
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    );
+    expect(config.name).toBe("Worker Renamed");
+
+    const listRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`)
+    );
+    expect(listRes.status).toBe(200);
+    const list = await listRes.json();
+    expect(list.items[0].name).toBe("Worker Renamed");
+
+    const listRes2 = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`)
+    );
+    expect(listRes2.status).toBe(200);
+    const list2 = await listRes2.json();
+    expect(list2.items[0].name).toBe("Worker Renamed");
+  });
+
+  it("returns 404 when renaming missing subagent slug", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Rename Missing" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const renameRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/missing`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Worker Missing" }),
+      })
+    );
+    expect(renameRes.status).toBe(404);
+    const body = await renameRes.json();
+    expect(body.error).toContain("Subagent not found");
+  });
+
   it("lists all subagents across projects", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

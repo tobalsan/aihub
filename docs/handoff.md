@@ -11,6 +11,20 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-03: Subagent rename capability (API + CLI + UI)
+
+- `apps/gateway/src/server/api.ts`
+  - Added `PATCH /api/projects/:id/subagents/:slug` accepting `{ name }` for run rename.
+- `apps/gateway/src/subagents/index.ts`
+  - Added `renameSubagent(...)` helper to persist `name` in session `config.json` and return updated run metadata.
+- `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
+  - Added `apm rename <project_id> --slug <slug> --name "New Name"` command.
+- `apps/web/src/api/client.ts`, `apps/web/src/components/project/AgentPanel.tsx`
+  - Added web rename client + inline click-to-edit subagent name UX (save on Enter/blur) with optimistic update.
+- Tests:
+  - `apps/gateway/src/subagents/subagents.api.test.ts`: added rename API coverage (persist + 404).
+  - `apps/web/src/components/project/AgentPanel.test.tsx`: added inline rename interaction coverage.
+
 ### 2026-03-03: Subagent chat remount + stale poll race hardening
 
 - `apps/web/src/components/project/CenterPanel.tsx`

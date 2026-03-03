@@ -21,6 +21,7 @@ import type {
   ActivityResponse,
   AgentStatusResponse,
   SubagentGlobalListResponse,
+  SubagentListItem,
   SubagentListResponse,
   SubagentLogsResponse,
   ProjectBranchesResponse,
@@ -834,6 +835,33 @@ export async function fetchSubagents(
     return { ok: false, error: data.error ?? "Failed to fetch subagents" };
   }
   const data = (await res.json()) as SubagentListResponse;
+  return { ok: true, data };
+}
+
+export type RenameSubagentResult =
+  | { ok: true; data: SubagentListItem }
+  | { ok: false; error: string };
+
+export async function renameSubagent(
+  projectId: string,
+  slug: string,
+  name: string
+): Promise<RenameSubagentResult> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${encodeURIComponent(slug)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to rename subagent" }));
+    return { ok: false, error: data.error ?? "Failed to rename subagent" };
+  }
+  const data = (await res.json()) as SubagentListItem;
   return { ok: true, data };
 }
 

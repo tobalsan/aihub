@@ -13,6 +13,7 @@ import {
   fetchSubagentLogs,
   fetchSubagents,
   killSubagent,
+  renameSubagent,
   subscribeToFileChanges,
 } from "../../api/client";
 import type {
@@ -176,6 +177,10 @@ function formatAgentMeta(cli?: string, model?: string): string {
   return cliValue || modelValue || "";
 }
 
+function agentDisplayName(item: SubagentListItem): string {
+  return trimOptional(item.name) || trimOptional(item.cli) || item.slug;
+}
+
 function pickPreviewFromEvents(events: SubagentLogEvent[]): {
   text: string;
   at?: string;
@@ -213,6 +218,11 @@ export function AgentPanel(props: AgentPanelProps) {
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
+  const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
+    null
+  );
+  const [nameDraft, setNameDraft] = createSignal("");
+  const [savingNameSlug, setSavingNameSlug] = createSignal<string | null>(null);
   const [nowTick, setNowTick] = createSignal(Date.now());
   const [leadPreview, setLeadPreview] = createSignal<{
     text: string;
@@ -537,6 +547,43 @@ export function AgentPanel(props: AgentPanelProps) {
     }
     await refreshSubagents();
     selectLeadIfNeeded(item.slug);
+  };
+
+  const beginRenameSubagent = (item: SubagentListItem) => {
+    if (savingNameSlug()) return;
+    setAgentError(null);
+    setEditingNameSlug(item.slug);
+    setNameDraft(agentDisplayName(item));
+  };
+
+  const saveRenamedSubagent = async (item: SubagentListItem) => {
+    if (savingNameSlug()) return;
+    const nextName = nameDraft().trim();
+    const currentName = agentDisplayName(item);
+    setEditingNameSlug(null);
+    setNameDraft("");
+    if (!nextName || nextName === currentName) return;
+
+    props.onSubagentsChange?.(
+      props.subagents.map((entry) =>
+        entry.slug === item.slug ? { ...entry, name: nextName } : entry
+      )
+    );
+
+    setSavingNameSlug(item.slug);
+    setAgentError(null);
+    const result = await renameSubagent(props.project.id, item.slug, nextName);
+    setSavingNameSlug(null);
+    if (!result.ok) {
+      setAgentError(result.error);
+      await refreshSubagents();
+      return;
+    }
+    props.onSubagentsChange?.(
+      props.subagents.map((entry) =>
+        entry.slug === item.slug ? { ...entry, ...result.data } : entry
+      )
+    );
   };
 
   return (
@@ -894,9 +941,53 @@ export function AgentPanel(props: AgentPanelProps) {
                     <span class="agent-list-main">
                       <span class="agent-list-head">
                         <span class="agent-title">
-                          <span class="agent-name">
-                            {item.name ?? item.cli ?? item.slug}
-                          </span>
+                          <Show
+                            when={editingNameSlug() !== item.slug}
+                            fallback={
+                              <input
+                                class="agent-name-input"
+                                type="text"
+                                value={nameDraft()}
+                                disabled={savingNameSlug() === item.slug}
+                                onClick={(event) => event.stopPropagation()}
+                                onInput={(event) =>
+                                  setNameDraft(event.currentTarget.value)
+                                }
+                                onBlur={() => void saveRenamedSubagent(item)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setEditingNameSlug(null);
+                                    setNameDraft("");
+                                    return;
+                                  }
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    void saveRenamedSubagent(item);
+                                  }
+                                }}
+                                autofocus
+                              />
+                            }
+                          >
+                            <button
+                              type="button"
+                              class="agent-name-btn"
+                              disabled={savingNameSlug() === item.slug}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                beginRenameSubagent(item);
+                              }}
+                              title="Rename agent"
+                              aria-label={`Rename ${agentDisplayName(item)}`}
+                            >
+                              <span class="agent-name">
+                                {agentDisplayName(item)}
+                              </span>
+                            </button>
+                          </Show>
                           <Show when={agentMeta}>
                             <span class="agent-meta">{agentMeta}</span>
                           </Show>
@@ -913,7 +1004,7 @@ export function AgentPanel(props: AgentPanelProps) {
                         class="agent-row-action archive"
                         title={`Archive ${item.name ?? item.cli ?? item.slug}`}
                         aria-label={`Archive ${item.name ?? item.cli ?? item.slug}`}
-                        disabled={Boolean(busyActionSlug())}
+                        disabled={Boolean(busyActionSlug() || savingNameSlug())}
                         onClick={(event) => {
                           event.stopPropagation();
                           void handleArchiveSubagent(item);
@@ -935,7 +1026,7 @@ export function AgentPanel(props: AgentPanelProps) {
                         class="agent-row-action kill"
                         title={`Kill ${item.name ?? item.cli ?? item.slug}`}
                         aria-label={`Kill ${item.name ?? item.cli ?? item.slug}`}
-                        disabled={Boolean(busyActionSlug())}
+                        disabled={Boolean(busyActionSlug() || savingNameSlug())}
                         onClick={(event) => {
                           event.stopPropagation();
                           void handleKillSubagent(item);
@@ -1327,6 +1418,22 @@ export function AgentPanel(props: AgentPanelProps) {
           overflow: hidden;
         }
 
+        .agent-name-btn {
+          border: none;
+          background: transparent;
+          color: inherit;
+          padding: 0;
+          margin: 0;
+          min-width: 0;
+          max-width: 100%;
+          cursor: text;
+          text-align: left;
+        }
+
+        .agent-name-btn:disabled {
+          cursor: wait;
+        }
+
         .agent-elapsed {
           margin-left: auto;
           font-size: 11px;
@@ -1346,6 +1453,20 @@ export function AgentPanel(props: AgentPanelProps) {
           text-overflow: ellipsis;
           white-space: nowrap;
           flex: 0 1 auto;
+        }
+
+        .agent-name-input {
+          width: 150px;
+          max-width: 100%;
+          border: 1px solid var(--border-subtle);
+          border-radius: 6px;
+          background: var(--bg-input);
+          color: var(--text-primary);
+          font-size: 13px;
+          font-weight: 600;
+          line-height: 1.3;
+          padding: 2px 6px;
+          min-width: 0;
         }
 
         .agent-meta {

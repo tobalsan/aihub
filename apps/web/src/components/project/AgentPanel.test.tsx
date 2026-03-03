@@ -6,6 +6,7 @@ import type { ProjectDetail, SubagentListItem } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import {
   fetchSimpleHistory,
+  renameSubagent,
   fetchSubagentLogs,
   fetchSubagents,
 } from "../../api/client";
@@ -23,6 +24,15 @@ vi.mock("../../api/client", () => ({
     data: { slug: "codex-abc", archived: true },
   })),
   killSubagent: vi.fn(async () => ({ ok: true, data: { slug: "codex-abc" } })),
+  renameSubagent: vi.fn(async () => ({
+    ok: true,
+    data: {
+      slug: "alpha",
+      cli: "codex",
+      name: "Worker Renamed",
+      status: "idle",
+    },
+  })),
 }));
 
 const project: ProjectDetail = {
@@ -260,5 +270,57 @@ describe("AgentPanel", () => {
 
     dispose();
     vi.useRealTimers();
+  });
+
+  it("supports inline subagent rename", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            name: "Worker Alpha",
+            status: "idle",
+          },
+        ],
+      },
+    });
+    vi.mocked(renameSubagent).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        slug: "alpha",
+        cli: "codex",
+        name: "Worker Renamed",
+        status: "idle",
+      },
+    });
+
+    const { container, dispose } = setup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const renameButton = container.querySelector(
+      ".agent-name-btn"
+    ) as HTMLButtonElement;
+    renameButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const input = container.querySelector(".agent-name-input") as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.value = "Worker Renamed";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(renameSubagent).toHaveBeenCalledWith(
+      "PRO-1",
+      "alpha",
+      "Worker Renamed"
+    );
+    expect(container.textContent).toContain("Worker Renamed");
+
+    dispose();
   });
 });

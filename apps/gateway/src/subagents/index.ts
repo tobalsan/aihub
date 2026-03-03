@@ -685,6 +685,10 @@ export type ArchiveSubagentResult =
   | { ok: true; data: { slug: string; archived: boolean } }
   | { ok: false; error: string };
 
+export type RenameSubagentResult =
+  | { ok: true; data: SubagentListItem }
+  | { ok: false; error: string };
+
 export async function archiveSubagent(
   config: GatewayConfig,
   projectId: string,
@@ -727,6 +731,48 @@ export async function getSubagentConfig(
   }
 
   return { ok: true, data: configData };
+}
+
+export async function renameSubagent(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string,
+  name: string
+): Promise<RenameSubagentResult> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const projectDir = path.join(root, dirName);
+  await migrateLegacySessions(root, projectId, projectDir);
+  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
+  if (!(await dirExists(sessionDir))) {
+    return { ok: false, error: `Subagent not found: ${slug}` };
+  }
+
+  const configPath = path.join(sessionDir, "config.json");
+  const configData = await readJson<Record<string, unknown>>(configPath);
+  if (!configData) {
+    return { ok: false, error: `Subagent config missing: ${slug}` };
+  }
+
+  await fs.writeFile(
+    configPath,
+    JSON.stringify({ ...configData, name }, null, 2)
+  );
+
+  const listed = await listSubagents(config, projectId, true);
+  if (!listed.ok) {
+    return listed;
+  }
+  const item = listed.data.items.find((entry) => entry.slug === slug);
+  if (!item) {
+    return { ok: false, error: `Subagent not found: ${slug}` };
+  }
+
+  return { ok: true, data: item };
 }
 
 async function updateSubagentArchive(

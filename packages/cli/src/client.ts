@@ -95,6 +95,13 @@ export class ApiClient {
     return this.request(`/projects/${id}/subagents`, { method: "POST", body });
   }
 
+  renameProjectSubagent(id: string, slug: string, body: { name: string }) {
+    return this.request(`/projects/${id}/subagents/${slug}`, {
+      method: "PATCH",
+      body,
+    });
+  }
+
   getAgentStatus(id: string) {
     return this.request(`/agents/${id}/status`);
   }
