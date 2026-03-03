@@ -1,5 +1,6 @@
 import {
   Show,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -76,6 +77,30 @@ type PendingFile = {
   file: File;
   name: string;
 };
+
+type SubagentTransientUiState = {
+  awaiting: boolean;
+  pending: string[];
+};
+const subagentTransientState = new Map<string, SubagentTransientUiState>();
+const activeSubagentPollIntervals = new Map<string, number>();
+
+export function __resetAgentChatStateForTests(): void {
+  subagentTransientState.clear();
+  if (typeof window !== "undefined") {
+    for (const timer of activeSubagentPollIntervals.values()) {
+      window.clearInterval(timer);
+    }
+  }
+  activeSubagentPollIntervals.clear();
+}
+
+function subagentStateKey(
+  info: { projectId: string; slug: string } | undefined
+): string | null {
+  if (!info?.projectId || !info?.slug) return null;
+  return `${info.projectId}:${info.slug}`;
+}
 
 const supportedImageTypes = new Set([
   "image/jpeg",
@@ -385,6 +410,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   for (const event of events) {
     if (event.parentToolUseId) continue;
     if (event.type === "skip") continue;
+    if (event.type === "session" || event.type === "message") continue;
     if (event.type === "user") {
       if (event.text) {
         const last = entries[entries.length - 1];
@@ -504,6 +530,18 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   }
 
   return entries;
+}
+
+function isUiNoopSubagentEvent(event: SubagentLogEvent): boolean {
+  return event.type === "skip" || event.type === "session" || event.type === "message";
+}
+
+function hasTextContent(event: SubagentLogEvent): boolean {
+  return typeof event.text === "string" && event.text.trim().length > 0;
+}
+
+function isMeaningfulSubagentResponseEvent(event: SubagentLogEvent): boolean {
+  return event.type === "assistant" && hasTextContent(event);
 }
 
 function renderSubagentRunCard(item: LogItem, showNested: boolean) {
@@ -774,9 +812,38 @@ export function AgentChat(props: AgentChatProps) {
   let streamCleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
   let pollInterval: number | null = null;
+  let pollStateKey: string | null = null;
+  let subagentSetupToken = 0;
+  let activeChatIdentity: string | null = null;
   let logPaneRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+
+  const clearSubagentPollInterval = () => {
+    if (pollInterval !== null) {
+      window.clearInterval(pollInterval);
+      if (pollStateKey) {
+        const active = activeSubagentPollIntervals.get(pollStateKey);
+        if (active === pollInterval) {
+          activeSubagentPollIntervals.delete(pollStateKey);
+        }
+      }
+    }
+    pollInterval = null;
+    pollStateKey = null;
+  };
+  const teardownChatRuntime = () => {
+    if (streamCleanup) {
+      streamCleanup();
+      streamCleanup = null;
+    }
+    if (subscriptionCleanup) {
+      subscriptionCleanup();
+      subscriptionCleanup = null;
+    }
+    clearSubagentPollInterval();
+    subagentSetupToken += 1;
+  };
 
   const sessionKey = createMemo(() =>
     props.agentId ? getSessionKey(props.agentId) : "main"
@@ -791,6 +858,7 @@ export function AgentChat(props: AgentChatProps) {
       props.subagentInfo &&
       props.subagentInfo.cli &&
       props.subagentInfo.status !== "running" &&
+      !subagentAwaitingResponse() &&
       !subagentSending()
   );
   const canAttach = createMemo(
@@ -801,7 +869,11 @@ export function AgentChat(props: AgentChatProps) {
   const isRunning = createMemo(() => {
     if (props.agentType === "lead") return aihubStreaming();
     if (props.agentType === "subagent") {
-      return subagentSending() || props.subagentInfo?.status === "running";
+      return (
+        subagentSending() ||
+        subagentAwaitingResponse() ||
+        props.subagentInfo?.status === "running"
+      );
     }
     return false;
   });
@@ -1048,13 +1120,14 @@ export function AgentChat(props: AgentChatProps) {
     });
   };
 
-  const setupSubagent = () => {
+  const setupSubagent = (setupToken: number) => {
     const subagentInfo = props.subagentInfo;
     if (!subagentInfo) return;
     let activeSlug = subagentInfo.slug;
     const resolveSlug = async () => {
       if (!cliTokens.has(activeSlug)) return;
       const res = await fetchSubagents(subagentInfo.projectId);
+      if (setupToken !== subagentSetupToken) return;
       if (!res.ok) return;
       const token = activeSlug;
       const match = res.data.items.find(
@@ -1067,25 +1140,30 @@ export function AgentChat(props: AgentChatProps) {
       }
     };
     const loadLogs = async () => {
+      if (setupToken !== subagentSetupToken) return;
+      const currentCursor = cliCursor();
       const res = await fetchSubagentLogs(
         subagentInfo.projectId,
         activeSlug,
-        cliCursor()
+        currentCursor
       );
+      if (setupToken !== subagentSetupToken) return;
       if (!res.ok) return;
-      if (res.data.events.length > 0) {
-        const next = [...cliLogs(), ...res.data.events];
-        setCliLogs(next);
-        if (res.data.events.some((event) => event.type !== "user")) {
-          setSubagentAwaitingResponse(false);
-        } else if (next.every((event) => event.type === "user")) {
-          setSubagentAwaitingResponse(true);
-        }
-        if (pendingCliUserMessages().length > 0) {
+      const stateKey = `${subagentInfo.projectId}:${activeSlug}`;
+      const fetchedEvents = res.data.events;
+      if (fetchedEvents.length > 0) {
+        const keptEvents = fetchedEvents.filter((event) => !isUiNoopSubagentEvent(event));
+        const next = keptEvents.length > 0 ? [...cliLogs(), ...keptEvents] : cliLogs();
+        const pending = pendingCliUserMessages();
+        const sawResponse = keptEvents.some(isMeaningfulSubagentResponseEvent);
+        let remaining = pending;
+        let nextAwaiting = subagentAwaitingResponse();
+
+        if (pending.length > 0) {
           const historyUsers = extractCliUserTexts(next);
           let cursor = 0;
-          const remaining: string[] = [];
-          for (const text of pendingCliUserMessages()) {
+          remaining = [];
+          for (const text of pending) {
             const idx = historyUsers.indexOf(text, cursor);
             if (idx === -1) {
               remaining.push(text);
@@ -1093,22 +1171,58 @@ export function AgentChat(props: AgentChatProps) {
               cursor = idx + 1;
             }
           }
-          setPendingCliUserMessages(remaining);
         }
+
+        batch(() => {
+          if (keptEvents.length > 0) {
+            setCliLogs(next);
+          }
+          if (sawResponse) {
+            nextAwaiting = false;
+            setSubagentAwaitingResponse(false);
+            setPendingCliUserMessages([]);
+            subagentTransientState.delete(stateKey);
+          } else if (next.every((event) => event.type === "user")) {
+            nextAwaiting = true;
+            setSubagentAwaitingResponse(true);
+          }
+          if (pending.length > 0 && !sawResponse) {
+            setPendingCliUserMessages(remaining);
+            subagentTransientState.set(stateKey, {
+              awaiting: nextAwaiting,
+              pending: remaining,
+            });
+          }
+        });
       }
       setCliCursor(res.data.cursor);
     };
     void resolveSlug().then(() => {
+      if (setupToken !== subagentSetupToken) return;
+      pollStateKey = `${subagentInfo.projectId}:${activeSlug}`;
+      const existing = activeSubagentPollIntervals.get(pollStateKey);
+      if (existing !== undefined) {
+        window.clearInterval(existing);
+      }
       void loadLogs();
-      pollInterval = window.setInterval(loadLogs, 2000);
+      pollInterval = window.setInterval(() => {
+        void loadLogs();
+      }, 2000);
+      if (pollInterval !== null) {
+        activeSubagentPollIntervals.set(pollStateKey, pollInterval);
+      }
     });
   };
 
   createEffect(() => {
-    void props.agentId;
-    void props.agentType;
-    void props.subagentInfo?.projectId;
-    void props.subagentInfo?.slug;
+    const nextIdentity =
+      props.agentType === "lead"
+        ? `lead:${props.agentId ?? ""}`
+        : `subagent:${props.subagentInfo?.projectId ?? ""}:${props.subagentInfo?.slug ?? ""}`;
+    if (nextIdentity === activeChatIdentity) return;
+    activeChatIdentity = nextIdentity;
+
+    teardownChatRuntime();
 
     setError("");
     setInput("");
@@ -1121,25 +1235,21 @@ export function AgentChat(props: AgentChatProps) {
     streamingToolCalls.clear();
     setCliLogs([]);
     setCliCursor(0);
-    setPendingCliUserMessages([]);
-    setSubagentAwaitingResponse(false);
+    const persistedState =
+      props.agentType === "subagent" && props.subagentInfo
+        ? subagentTransientState.get(
+            subagentStateKey({
+              projectId: props.subagentInfo.projectId,
+              slug: props.subagentInfo.slug,
+            }) ?? ""
+          )
+        : undefined;
+    setPendingCliUserMessages(persistedState?.pending ?? []);
+    setSubagentAwaitingResponse(persistedState?.awaiting ?? false);
     setSubagentSending(false);
     setIsAtBottom(true);
     if (textareaRef) {
       resizeTextarea("");
-    }
-
-    if (streamCleanup) {
-      streamCleanup();
-      streamCleanup = null;
-    }
-    if (subscriptionCleanup) {
-      subscriptionCleanup();
-      subscriptionCleanup = null;
-    }
-    if (pollInterval) {
-      window.clearInterval(pollInterval);
-      pollInterval = null;
     }
 
     if (props.agentType === "lead" && props.agentId) {
@@ -1147,17 +1257,13 @@ export function AgentChat(props: AgentChatProps) {
     }
 
     if (props.agentType === "subagent" && props.subagentInfo) {
-      setupSubagent();
+      setupSubagent(subagentSetupToken);
     }
+  });
 
-    onCleanup(() => {
-      if (streamCleanup) streamCleanup();
-      if (subscriptionCleanup) subscriptionCleanup();
-      if (pollInterval) window.clearInterval(pollInterval);
-      streamCleanup = null;
-      subscriptionCleanup = null;
-      pollInterval = null;
-    });
+  onCleanup(() => {
+    teardownChatRuntime();
+    activeChatIdentity = null;
   });
 
   createEffect(() => {
@@ -1173,6 +1279,24 @@ export function AgentChat(props: AgentChatProps) {
     if (!isRunning()) setStopping(false);
   });
 
+  createEffect(() => {
+    if (props.agentType !== "subagent" || !props.subagentInfo) return;
+    const key = subagentStateKey({
+      projectId: props.subagentInfo.projectId,
+      slug: props.subagentInfo.slug,
+    });
+    if (!key) return;
+    if (
+      (props.subagentInfo.status === "replied" ||
+        props.subagentInfo.status === "error" ||
+        props.subagentInfo.status === "idle") &&
+      !subagentSending() &&
+      pendingCliUserMessages().length === 0
+    ) {
+      subagentTransientState.delete(key);
+    }
+  });
+
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText ?? input()).trim();
     if (!text) return;
@@ -1181,9 +1305,19 @@ export function AgentChat(props: AgentChatProps) {
     if (props.agentType === "subagent") {
       if (!props.subagentInfo || !props.subagentInfo.cli || subagentSending())
         return;
+      const key = subagentStateKey({
+        projectId: props.subagentInfo.projectId,
+        slug: props.subagentInfo.slug,
+      });
       setSubagentSending(true);
       setError("");
-      setPendingCliUserMessages((prev) => [...prev, text]);
+      setPendingCliUserMessages((prev) => {
+        const next = [...prev, text];
+        if (key) {
+          subagentTransientState.set(key, { awaiting: true, pending: next });
+        }
+        return next;
+      });
       setSubagentAwaitingResponse(true);
       const currentPending = pendingFiles();
       setInput("");
@@ -1225,7 +1359,14 @@ export function AgentChat(props: AgentChatProps) {
           setPendingCliUserMessages((prev) => {
             const idx = prev.indexOf(text);
             if (idx === -1) return prev;
-            return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+            const next = [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+            if (key) {
+              subagentTransientState.set(key, {
+                awaiting: false,
+                pending: next,
+              });
+            }
+            return next;
           });
           setSubagentAwaitingResponse(false);
         }
@@ -1342,10 +1483,15 @@ export function AgentChat(props: AgentChatProps) {
     }
     if (props.agentType === "subagent" && props.subagentInfo) {
       const { projectId, slug } = props.subagentInfo;
+      const key = subagentStateKey({ projectId, slug });
       try {
         const res = await interruptSubagent(projectId, slug);
         if (!res.ok) {
           setError(res.error);
+        } else {
+          setSubagentAwaitingResponse(false);
+          setPendingCliUserMessages([]);
+          if (key) subagentTransientState.delete(key);
         }
       } finally {
         setStopping(false);

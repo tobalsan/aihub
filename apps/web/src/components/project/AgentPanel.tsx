@@ -288,7 +288,10 @@ export function AgentPanel(props: AgentPanelProps) {
 
     document.addEventListener("click", onDocumentClick);
     let active = true;
+    let loadingSubagents = false;
     const loadSubagents = async () => {
+      if (loadingSubagents) return;
+      loadingSubagents = true;
       const result = await fetchSubagents(props.project.id, true);
       if (!active) return;
       if (result.ok) {
@@ -297,6 +300,7 @@ export function AgentPanel(props: AgentPanelProps) {
       } else {
         setAgentError(result.error);
       }
+      loadingSubagents = false;
     };
     void loadSubagents();
     const unsubscribeFileChanges = subscribeToFileChanges({
@@ -305,12 +309,16 @@ export function AgentPanel(props: AgentPanelProps) {
         void loadSubagents();
       },
     });
+    const subagentPollTimer = window.setInterval(() => {
+      void loadSubagents();
+    }, 2000);
     const tickTimer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 60000);
 
     onCleanup(() => {
       active = false;
+      window.clearInterval(subagentPollTimer);
       window.clearInterval(tickTimer);
       unsubscribeFileChanges();
       document.removeEventListener("click", onDocumentClick);

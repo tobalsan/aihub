@@ -11,6 +11,57 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-03: Subagent chat remount + stale poll race hardening
+
+- `apps/web/src/components/project/CenterPanel.tsx`
+  - Chat agent selection now flows through a memoized signal (`chatSelectedAgent`) instead of recreating the chat branch with an inline IIFE.
+  - Prevents unnecessary `AgentChat` remounts when selected subagent metadata updates (e.g. status/cli sync ticks).
+- `apps/web/src/components/AgentChat.tsx`
+  - Added setup-token guards around async subagent slug resolution + polling so stale/in-flight callbacks cannot attach orphan pollers after cleanup.
+  - Chat runtime reset/setup is now keyed by stable chat identity (`lead:<id>` or `subagent:<projectId>:<slug>`) so status-only prop churn no longer tears down/recreates polling.
+  - Centralized poll interval teardown (`clearSubagentPollInterval`) to avoid duplicate poll loops and cursor resets.
+  - Reset effect no longer tracks `subagentInfo.status`, preventing unintended full chat resets on running/replied transitions.
+  - Removed temporary in-UI debug panel/logging after root cause confirmation.
+  - Kept test-only reset hook for module-global transient state to keep unit tests isolated.
+- Tests:
+  - `apps/web/src/components/AgentChat.test.tsx`
+  - `pnpm test -- apps/web/src/components/AgentChat.test.tsx` (passes; repo currently executes broad suite under this command).
+
+### 2026-03-03: Subagent chat loading flicker fix
+
+- `apps/web/src/components/AgentChat.tsx`
+  - Subagent awaiting state no longer clears on `session`/`message`/empty assistant log noise.
+  - Awaiting state now clears only on first non-empty assistant message, or explicit run-end status transition.
+  - Pending user echoes are cleared on first assistant response/run-end to avoid stale spinner state.
+  - Loading spinner now persists until meaningful subagent output arrives.
+  - Non-UI log noise is filtered from rendered chat events to prevent flashing.
+  - Batched log/pending state updates to avoid transient chat history flicker.
+- Tests:
+  - `apps/web/src/components/AgentChat.test.tsx`
+    - Added regressions for `session`/`message` events and empty assistant event handling.
+
+### 2026-03-03: Project detail stale accessor + selection override fix
+
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+  - Removed stale `<Show>` accessor usage in async `onSpawned` callbacks (`detail().id` -> `projectId()`).
+  - Saved-subagent restore no longer overrides an already-selected agent after delayed subagent list refresh.
+- `apps/web/src/components/project/CenterPanel.tsx`
+  - Chat branch no longer uses function-child `<Show>` accessors for selected/spawn mode rendering.
+  - Reduces stale accessor runtime risk and tab-state desync when opening spawn templates.
+
+### 2026-03-03: Project detail subagent realtime fallback + chat run-state fix
+
+- `apps/web/src/components/AgentChat.tsx`
+  - Subagent chat now treats `awaiting response` as running state.
+  - Prevents input/Send from re-enabling right after spawn before status refresh arrives.
+  - On successful subagent interrupt, clears local awaiting state immediately.
+- `apps/web/src/components/project/AgentPanel.tsx`
+  - Added 2s subagent list polling fallback (in addition to websocket `agent_changed` refresh).
+  - Keeps project detail agent list/status synchronized even when a ws event is missed.
+- Tests:
+  - `apps/web/src/components/AgentChat.test.tsx`
+  - `apps/web/src/components/project/AgentPanel.test.tsx`
+
 ### 2026-03-03: Stop/interrupt UX + realtime status refresh
 
 - `apps/web/src/components/AgentChat.tsx`

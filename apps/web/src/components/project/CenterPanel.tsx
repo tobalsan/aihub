@@ -103,6 +103,9 @@ export function CenterPanel(props: CenterPanelProps) {
     Record<string, SubagentLogEvent[]>
   >({});
   const tab = () => props.tab ?? internalTab();
+  const chatSelectedAgent = createMemo(() =>
+    props.spawnMode ? null : props.selectedAgent
+  );
   const canSubmitComment = () =>
     Boolean(props.onAddComment) && newComment().trim().length > 0;
   const timelineItems = createMemo<TimelineItem[]>(() => {
@@ -234,62 +237,55 @@ export function CenterPanel(props: CenterPanelProps) {
         <div class="center-panel-body">
           <Show when={tab() === "chat"}>
             <div class="center-chat-shell">
-              <Show
-                when={!props.spawnMode && props.selectedAgent}
-                fallback={
-                  <Show
-                    when={props.spawnMode}
-                    fallback={
-                      <p class="center-placeholder">Select an agent to chat</p>
-                    }
-                  >
-                    {(spawnMode) => (
-                      <SpawnForm
-                        projectId={props.project.id}
-                        project={props.project}
-                        prefill={spawnMode().prefill}
-                        template={spawnMode().template}
-                        subagents={props.subagents ?? []}
-                        onSpawned={(slug) => props.onSpawned?.(slug)}
-                        onCancel={() => props.onCancelSpawn?.()}
-                      />
-                    )}
-                  </Show>
-                }
-              >
-                {(selected) => (
-                  <AgentChat
-                    agentType={selected().type}
-                    agentId={
-                      selected().type === "lead"
-                        ? (selected().agentId ?? null)
-                        : null
-                    }
-                    agentName={
-                      selected().type === "lead"
-                        ? (selected().agentName ?? selected().agentId ?? null)
-                        : `${selected().projectId}/${selected().cli ?? selected().slug ?? "agent"}`
-                    }
-                    subagentInfo={
-                      selected().type === "subagent" && selected().slug
-                        ? {
-                            projectId: selected().projectId,
-                            slug: selected().slug!,
-                            cli: selected().cli,
-                            runMode: selected().runMode,
-                            status: selected().status as
-                              | "running"
-                              | "replied"
-                              | "error"
-                              | "idle"
-                              | undefined,
-                          }
-                        : undefined
-                    }
-                    onBack={() => {}}
-                    showHeader={false}
-                  />
-                )}
+              <Show when={props.spawnMode}>
+                <SpawnForm
+                  projectId={props.project.id}
+                  project={props.project}
+                  prefill={props.spawnMode!.prefill}
+                  template={props.spawnMode!.template}
+                  subagents={props.subagents ?? []}
+                  onSpawned={(slug) => props.onSpawned?.(slug)}
+                  onCancel={() => props.onCancelSpawn?.()}
+                />
+              </Show>
+              <Show when={chatSelectedAgent()}>
+                <AgentChat
+                  agentType={chatSelectedAgent()!.type}
+                  agentId={
+                    chatSelectedAgent()!.type === "lead"
+                      ? (chatSelectedAgent()!.agentId ?? null)
+                      : null
+                  }
+                  agentName={
+                    chatSelectedAgent()!.type === "lead"
+                      ? (chatSelectedAgent()!.agentName ??
+                        chatSelectedAgent()!.agentId ??
+                        null)
+                      : `${chatSelectedAgent()!.projectId}/${chatSelectedAgent()!.cli ?? chatSelectedAgent()!.slug ?? "agent"}`
+                  }
+                  subagentInfo={
+                    chatSelectedAgent()!.type === "subagent" &&
+                    chatSelectedAgent()!.slug
+                      ? {
+                          projectId: chatSelectedAgent()!.projectId,
+                          slug: chatSelectedAgent()!.slug!,
+                          cli: chatSelectedAgent()!.cli,
+                          runMode: chatSelectedAgent()!.runMode,
+                          status: chatSelectedAgent()!.status as
+                            | "running"
+                            | "replied"
+                            | "error"
+                            | "idle"
+                            | undefined,
+                        }
+                      : undefined
+                  }
+                  onBack={() => {}}
+                  showHeader={false}
+                />
+              </Show>
+              <Show when={!props.spawnMode && !props.selectedAgent}>
+                <p class="center-placeholder">Select an agent to chat</p>
               </Show>
             </div>
           </Show>

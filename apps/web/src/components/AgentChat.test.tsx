@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { delegateEvents, render } from "solid-js/web";
-import { AgentChat } from "./AgentChat";
+import { AgentChat, __resetAgentChatStateForTests } from "./AgentChat";
 
 const {
   fetchFullHistoryMock,
@@ -88,6 +88,7 @@ function renderSubagent(status: "running" | "idle" = "idle") {
 
 describe("AgentChat stop/send behavior", () => {
   beforeEach(() => {
+    __resetAgentChatStateForTests();
     delegateEvents(["click", "input", "keydown"]);
     fetchFullHistoryMock.mockResolvedValue({ messages: [] });
     fetchSubagentsMock.mockResolvedValue({ ok: true, data: { items: [] } });
@@ -118,6 +119,8 @@ describe("AgentChat stop/send behavior", () => {
   });
 
   afterEach(() => {
+    __resetAgentChatStateForTests();
+    vi.useRealTimers();
     document.body.innerHTML = "";
     vi.clearAllMocks();
   });
@@ -147,6 +150,221 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
+
+    dispose();
+  });
+
+  it("keeps Stop visible after spawn resolves while awaiting response", async () => {
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".stop-btn")).not.toBeNull();
+    expect(container.querySelector(".send-btn")).toBeNull();
+    expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(true);
+
+    dispose();
+  });
+
+  it("keeps loading spinner through session events until real response arrives", async () => {
+    vi.useFakeTimers();
+    fetchSubagentLogsMock
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { cursor: 0, events: [] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 1,
+          events: [
+            { type: "session", text: "session started" },
+            { type: "user", text: "hello" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 2,
+          events: [{ type: "assistant", text: "on it" }],
+        },
+      });
+
+    const { container, dispose } = renderSubagent("idle");
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).toBeNull();
+
+    dispose();
+    vi.useRealTimers();
+  });
+
+  it("keeps loading spinner through message events until real response arrives", async () => {
+    vi.useFakeTimers();
+    fetchSubagentLogsMock
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { cursor: 0, events: [] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 1,
+          events: [
+            { type: "message", text: "internal event" },
+            { type: "user", text: "hello" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 2,
+          events: [{ type: "assistant", text: "on it" }],
+        },
+      });
+
+    const { container, dispose } = renderSubagent("idle");
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).toBeNull();
+
+    dispose();
+    vi.useRealTimers();
+  });
+
+  it("keeps loading spinner when assistant events are empty", async () => {
+    vi.useFakeTimers();
+    fetchSubagentLogsMock
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { cursor: 0, events: [] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 1,
+          events: [
+            { type: "user", text: "hello" },
+            { type: "assistant", text: "" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 2,
+          events: [{ type: "assistant", text: "done" }],
+        },
+      });
+
+    const { container, dispose } = renderSubagent("idle");
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).toBeNull();
+
+    dispose();
+  });
+
+  it("keeps loading spinner through tool output until assistant text arrives", async () => {
+    vi.useFakeTimers();
+    fetchSubagentLogsMock
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { cursor: 0, events: [] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 1,
+          events: [{ type: "tool_output", text: "tool ran" }],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          cursor: 2,
+          events: [{ type: "assistant", text: "final reply" }],
+        },
+      });
+
+    const { container, dispose } = renderSubagent("idle");
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2100);
+    await Promise.resolve();
+    expect(container.querySelector(".log-line.pending")).toBeNull();
 
     dispose();
   });

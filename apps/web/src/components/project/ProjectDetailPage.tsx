@@ -393,6 +393,11 @@ export function ProjectDetailPage() {
     const items = subagents();
     const current = project();
     if (subagentRestored || !current || items.length === 0) return;
+    const selected = selectedAgent();
+    if (selected && selected.projectId === current.id) {
+      subagentRestored = true;
+      return;
+    }
     if (savedView?.agent?.type !== "subagent" || !savedView.agent.slug) return;
     subagentRestored = true;
     const match = items.find((entry) => entry.slug === savedView.agent!.slug);
@@ -592,7 +597,7 @@ export function ProjectDetailPage() {
                       setSpawnMode(null);
                       setSelectedAgent({
                         type: "subagent",
-                        projectId: detail().id,
+                        projectId: projectId(),
                         slug,
                         cli: undefined,
                         runMode: undefined,
@@ -677,7 +682,7 @@ export function ProjectDetailPage() {
                           setSpawnMode(null);
                           setSelectedAgent({
                             type: "subagent",
-                            projectId: detail().id,
+                            projectId: projectId(),
                             slug,
                             cli: undefined,
                             runMode: undefined,

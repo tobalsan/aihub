@@ -239,4 +239,26 @@ describe("AgentPanel", () => {
 
     dispose();
   });
+
+  it("polls subagent list as realtime fallback", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetchSubagents).mockResolvedValue({
+      ok: true,
+      data: { items: [] },
+    });
+
+    const { dispose } = setup();
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstCalls = vi.mocked(fetchSubagents).mock.calls.length;
+
+    await vi.advanceTimersByTimeAsync(2100);
+    const nextCalls = vi.mocked(fetchSubagents).mock.calls.length;
+
+    expect(firstCalls).toBeGreaterThan(0);
+    expect(nextCalls).toBeGreaterThan(firstCalls);
+
+    dispose();
+    vi.useRealTimers();
+  });
 });
