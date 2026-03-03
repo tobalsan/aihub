@@ -1,16 +1,23 @@
-import { Accessor, createResource, For, Show } from "solid-js";
+import { Accessor, createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
 import { fetchProjects } from "../api/client";
-import type { ProjectListItem } from "../api/types";
 
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
   onToggleCollapse: () => void;
 };
 
-function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
+type RecentProjectView = {
+  id: string;
+  viewedAt: number;
+};
+
+const RECENT_PROJECTS_STORAGE_KEY = "aihub:recent-project-views";
+const RECENT_PROJECTS_MAX = 5;
+
+function relativeTime(timestampMs: number): string {
+  const ms = Date.now() - timestampMs;
   const mins = Math.floor(ms / 60000);
   if (mins < 1) return "now";
   if (mins < 60) return `${mins}m`;
@@ -20,20 +27,79 @@ function relativeTime(iso: string): string {
   return `${days}d`;
 }
 
+function readRecentProjectViews(): RecentProjectView[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is RecentProjectView =>
+          !!item &&
+          typeof item === "object" &&
+          typeof item.id === "string" &&
+          item.id.length > 0 &&
+          typeof item.viewedAt === "number" &&
+          Number.isFinite(item.viewedAt)
+      )
+      .slice(0, RECENT_PROJECTS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProjectViews(items: RecentProjectView[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function readProjectIdFromPathname(pathname: string): string | null {
+  const match = /^\/projects\/([^/?#]+)/.exec(pathname);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 export function AgentSidebar(props: AgentSidebarProps) {
   const location = useLocation();
   const [projects] = createResource(fetchProjects);
+  const [recentViews, setRecentViews] = createSignal<RecentProjectView[]>(
+    readRecentProjectViews()
+  );
 
-  const recentProjects = (): ProjectListItem[] => {
-    const all = projects() ?? [];
-    return [...all]
-      .sort((a, b) => {
-        const at = new Date(a.frontmatter.created as string || 0).getTime();
-        const bt = new Date(b.frontmatter.created as string || 0).getTime();
-        return bt - at;
-      })
-      .slice(0, 5);
-  };
+  createEffect(() => {
+    const projectId = readProjectIdFromPathname(location.pathname);
+    if (!projectId) return;
+    setRecentViews((current) => {
+      const next = [
+        { id: projectId, viewedAt: Date.now() },
+        ...current.filter((item) => item.id !== projectId),
+      ].slice(0, RECENT_PROJECTS_MAX);
+      writeRecentProjectViews(next);
+      return next;
+    });
+  });
+
+  const recentProjects = createMemo(() => {
+    const byId = new Map((projects() ?? []).map((item) => [item.id, item]));
+    return recentViews().map((item) => {
+      const project = byId.get(item.id);
+      return {
+        id: item.id,
+        title: project?.title ?? item.id,
+        viewedAt: item.viewedAt,
+      };
+    });
+  });
 
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
@@ -95,7 +161,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
               >
                 <span class="recent-project-title">{p.id}: {p.title}</span>
                 <span class="recent-project-time">
-                  {p.frontmatter.created ? relativeTime(p.frontmatter.created as string) : ""}
+                  {relativeTime(p.viewedAt)}
                 </span>
               </A>
             )}

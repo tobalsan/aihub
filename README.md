@@ -73,6 +73,7 @@ packages/
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
 - Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
+- Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
 - Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)
 
 ## CLI

@@ -45,6 +45,15 @@ Latest commit on this branch/workspace:
 - Root cause:
   - commit `7cee4719b5c2` wrapped the projects route in `LeftNavShell` while `ProjectsBoard` also embeds the same sidebar.
 
+### Follow-up Delta (2026-03-03, sidebar recents use view history)
+
+- Updated `apps/web/src/components/AgentSidebar.tsx` recent-project behavior:
+  - recents now come from `localStorage` key `aihub:recent-project-views` (max 5, most-recent-first).
+  - project views are recorded when route matches `/projects/:id`.
+  - display order now reflects most recently viewed projects, not project creation/activity fields.
+  - project titles are hydrated from `fetchProjects()` when available; fallback is the project id.
+- Added test coverage in `apps/web/src/components/AgentSidebar.test.tsx` for recents ordering from localStorage history.
+
 ### Follow-up Delta (2026-03-03, template strict-lock + reviewer none mode + manual Space integrate)
 
 - Enforced template profile lock for `apm start` + `/api/projects/:id/start`:
