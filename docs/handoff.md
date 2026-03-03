@@ -26,6 +26,15 @@ Latest commit on this branch/workspace:
   - `README.md`
   - `docs/llms.md`
 
+### Follow-up Delta (2026-03-03, worker template prompt preview uses workspace path)
+
+- Fixed `apps/web/src/components/project/SpawnForm.tsx` so worker template prompt prep is mode-aware:
+  - For `clone`/`worktree`, `## Implementation Repository` now uses `~/projects/.workspaces/<projectId>/<slug>`.
+  - The same precomputed slug is used for both preview prompt and actual spawn payload to keep them consistent.
+  - Behavior is scoped to worker template only; custom/coordinator/reviewer preview behavior is unchanged.
+- Added regression coverage in `apps/web/src/components/project/SpawnForm.test.tsx`:
+  - verifies worker clone prompt contains workspace path and does not contain main repo path.
+
 ### Follow-up Delta (2026-03-02, PRO-156 stop button in project detail chat)
 
 - Implemented Stop/Send swap in `apps/web/src/components/AgentChat.tsx`:

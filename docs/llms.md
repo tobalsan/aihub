@@ -54,6 +54,7 @@ Features:
 - Project detail center-panel chat input swaps `Send` to `Stop` while a run is active; lead agents stop via `/abort`, subagents stop via `POST /api/projects/:id/subagents/:slug/interrupt` (codex/claude/pi)
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
 - Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
+- SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
 - Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions

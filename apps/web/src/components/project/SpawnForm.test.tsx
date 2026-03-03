@@ -148,6 +148,53 @@ describe("SpawnForm", () => {
     dispose();
   });
 
+  it("uses clone/worktree workspace path in worker implementation repo prompt", async () => {
+    vi.mocked(spawnSubagent).mockClear();
+    const projectWithRepo: ProjectDetail = {
+      ...project,
+      frontmatter: {
+        repo: "~/code/aihub",
+      },
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpawnForm
+          projectId={projectWithRepo.id}
+          project={projectWithRepo}
+          template="worker"
+          prefill={{
+            cli: "codex",
+            model: "gpt-5.3-codex",
+            reasoning: "medium",
+            runMode: "clone",
+          }}
+          subagents={[]}
+          onSpawned={() => {}}
+          onCancel={() => {}}
+        />
+      ),
+      container
+    );
+
+    const submit = container.querySelector(
+      ".add-agent-submit"
+    ) as HTMLButtonElement;
+    submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const payload = vi.mocked(spawnSubagent).mock.calls[0]?.[1];
+    expect(payload?.mode).toBe("clone");
+    expect(payload?.prompt).toContain(
+      `Path: ~/projects/.workspaces/${projectWithRepo.id}/`
+    );
+    expect(payload?.prompt).not.toContain("Path: ~/code/aihub");
+
+    dispose();
+  });
+
   it("hides custom instructions by default and excludes when unchecked", async () => {
     vi.mocked(spawnSubagent).mockClear();
 

@@ -106,6 +106,7 @@ export function SpawnForm(props: SpawnFormProps) {
   const [addAgentCli, setAddAgentCli] = createSignal<"codex" | "claude" | "pi">(
     "codex"
   );
+  const [addAgentSlug, setAddAgentSlug] = createSignal(createSlug("codex"));
   const [addAgentName, setAddAgentName] = createSignal("");
   const [addAgentModel, setAddAgentModel] = createSignal("gpt-5.3-codex");
   const [addAgentReasoning, setAddAgentReasoning] = createSignal("high");
@@ -127,6 +128,7 @@ export function SpawnForm(props: SpawnFormProps) {
     const prefill = props.prefill;
     const nextCli = prefill.cli ?? "codex";
     setAddAgentCli(nextCli);
+    setAddAgentSlug(createSlug(nextCli));
     setAddAgentName(prefill.name ?? "");
     setAddAgentModel(prefill.model ?? HARNESS_MODELS[nextCli][0]);
     setAddAgentReasoning(prefill.reasoning ?? HARNESS_REASONING[nextCli][0]);
@@ -165,11 +167,31 @@ export function SpawnForm(props: SpawnFormProps) {
     return Array.from(files);
   });
 
+  const modeForPrompt = () =>
+    addAgentRunMode() === "main"
+      ? "main-run"
+      : addAgentRunMode() === "worktree"
+        ? "worktree"
+        : addAgentRunMode() === "none"
+          ? "none"
+          : "clone";
+
+  const effectiveRepoPath = createMemo(() => {
+    const repoPath = getFrontmatterString(props.project.frontmatter, "repo").trim();
+    if (props.template !== "worker") {
+      return repoPath;
+    }
+    const mode = modeForPrompt();
+    if (mode !== "clone" && mode !== "worktree") {
+      return repoPath;
+    }
+    return `~/projects/.workspaces/${props.projectId}/${addAgentSlug()}`;
+  });
+
   const preparedPrompt = createMemo(() => {
     const status =
       getFrontmatterString(props.project.frontmatter, "status") || "unknown";
     const owner = getFrontmatterString(props.project.frontmatter, "owner");
-    const repoPath = getFrontmatterString(props.project.frontmatter, "repo").trim();
     const cli = addAgentCli();
     const author =
       addAgentName().trim() ||
@@ -181,7 +203,7 @@ export function SpawnForm(props: SpawnFormProps) {
       status,
       path: effectiveProjectPath(),
       projectId: props.projectId,
-      repo: repoPath,
+      repo: effectiveRepoPath(),
       runAgentLabel: author,
       owner,
       customPrompt: includeCustomInstructions()
@@ -228,10 +250,11 @@ export function SpawnForm(props: SpawnFormProps) {
     setAddingAgent(true);
     setAgentError(null);
 
+    const slug = addAgentSlug();
     const prompt = preparedPrompt();
     const promptRole = mapTemplateToPromptRole(props.template);
     const result = await spawnSubagent(props.projectId, {
-      slug: createSlug(addAgentCli()),
+      slug,
       cli: addAgentCli(),
       name: addAgentName().trim() || undefined,
       prompt,
@@ -252,6 +275,7 @@ export function SpawnForm(props: SpawnFormProps) {
       return;
     }
 
+    setAddAgentSlug(createSlug(addAgentCli()));
     props.onSpawned(result.data.slug);
   };
 
@@ -286,11 +310,14 @@ export function SpawnForm(props: SpawnFormProps) {
             <select
               class="add-agent-select"
               value={addAgentCli()}
-              onChange={(event) =>
-                setAddAgentCli(
-                  event.currentTarget.value as "codex" | "claude" | "pi"
-                )
-              }
+              onChange={(event) => {
+                const cli = event.currentTarget.value as
+                  | "codex"
+                  | "claude"
+                  | "pi";
+                setAddAgentCli(cli);
+                setAddAgentSlug(createSlug(cli));
+              }}
             >
               <option value="codex">codex</option>
               <option value="claude">claude</option>
