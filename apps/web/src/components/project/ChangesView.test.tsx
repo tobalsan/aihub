@@ -180,12 +180,10 @@ describe("ChangesView", () => {
 
     await flush();
 
-    const detailsBtn = Array.from(container.querySelectorAll("button")).find(
-      (btn) => btn.textContent?.trim() === "Details"
-    ) as HTMLButtonElement | undefined;
-    expect(detailsBtn).toBeDefined();
+    const entryRow = container.querySelector(".entry-row") as HTMLElement | null;
+    expect(entryRow).toBeDefined();
 
-    detailsBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    entryRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
     expect(mocks.fetchProjectSpaceContribution).toHaveBeenCalledWith(

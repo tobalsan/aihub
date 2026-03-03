@@ -737,7 +737,6 @@ export async function integrateProjectSpaceQueue(
       if (item.status !== "pending") continue;
       if (item.shas.length === 0) {
         item.status = "skipped";
-        item.integratedAt = new Date().toISOString();
         continue;
       }
       if (item.runMode === "clone") {
@@ -824,7 +823,7 @@ export async function recordWorkerDelivery(
           ? "pending"
           : "skipped",
       createdAt: now,
-      integratedAt: shas.length > 0 ? undefined : now,
+      integratedAt: undefined,
       staleAgainstSha,
       error: staleError,
     };

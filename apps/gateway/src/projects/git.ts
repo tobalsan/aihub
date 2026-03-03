@@ -14,6 +14,11 @@ export type FileChange = {
   staged: boolean;
 };
 
+export type MainBranchCommit = {
+  sha: string;
+  subject: string;
+};
+
 export type ProjectChanges = {
   branch: string;
   baseBranch: string;
@@ -21,6 +26,8 @@ export type ProjectChanges = {
   files: FileChange[];
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
+  branchDiffStats: { filesChanged: number; insertions: number; deletions: number };
+  mainAheadCommits: MainBranchCommit[];
 };
 
 export type CommitResult =
@@ -184,6 +191,50 @@ export async function getProjectChanges(
   const staged = parseNumStat(stagedStat);
   const fileSet = new Set<string>([...unstaged.files, ...staged.files]);
 
+  // Branch diff stats: compare current branch vs base branch
+  let branchDiffStats = { filesChanged: 0, insertions: 0, deletions: 0 };
+  try {
+    const branchNumStat = await runGit(repo, [
+      "diff",
+      `${resolved.baseBranch}...HEAD`,
+      "--numstat",
+    ]);
+    const parsed = parseNumStat(branchNumStat);
+    branchDiffStats = {
+      filesChanged: parsed.files.size,
+      insertions: parsed.insertions,
+      deletions: parsed.deletions,
+    };
+  } catch {
+    // baseBranch may not exist locally
+  }
+
+  // Commits on main that are ahead of current branch
+  let mainAheadCommits: MainBranchCommit[] = [];
+  try {
+    const logOutput = await runGit(repo, [
+      "log",
+      `HEAD..${resolved.baseBranch}`,
+      "--oneline",
+      "--no-decorate",
+      "-20",
+    ]);
+    if (logOutput.trim()) {
+      mainAheadCommits = logOutput
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const spaceIdx = line.indexOf(" ");
+          return {
+            sha: spaceIdx > 0 ? line.slice(0, spaceIdx) : line,
+            subject: spaceIdx > 0 ? line.slice(spaceIdx + 1) : "",
+          };
+        });
+    }
+  } catch {
+    // baseBranch may not exist
+  }
+
   return {
     branch: branch.trim() || "HEAD",
     baseBranch: resolved.baseBranch,
@@ -195,6 +246,8 @@ export async function getProjectChanges(
       insertions: unstaged.insertions + staged.insertions,
       deletions: unstaged.deletions + staged.deletions,
     },
+    branchDiffStats,
+    mainAheadCommits,
   };
 }
 

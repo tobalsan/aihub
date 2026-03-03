@@ -11,6 +11,7 @@ import {
 } from "../../api/client";
 import type {
   FileChange,
+  MainBranchCommit,
   ProjectChanges,
   ProjectPullRequestTarget,
   ProjectSpaceState,
@@ -348,15 +349,15 @@ export function ChangesView(props: ChangesViewProps) {
           <header class="changes-header">
             <div class="changes-branch">
               <span>Branch: {changes()?.branch ?? "-"}</span>
-              <span class="changes-base">← {changes()?.baseBranch ?? "main"}</span>
+              <span class="changes-base">→ {changes()?.baseBranch ?? "main"}</span>
               <span class={`changes-source source-${sourceLabel().toLowerCase()}`}>
                 {sourceLabel()}
               </span>
             </div>
             <div class="changes-stats">
-              <span>{changes()?.stats.filesChanged ?? 0} files</span>
-              <span class="ins">+{changes()?.stats.insertions ?? 0}</span>
-              <span class="del">-{changes()?.stats.deletions ?? 0}</span>
+              <span>{changes()?.branchDiffStats?.filesChanged ?? 0} files</span>
+              <span class="ins">+{changes()?.branchDiffStats?.insertions ?? 0}</span>
+              <span class="del">-{changes()?.branchDiffStats?.deletions ?? 0}</span>
             </div>
           </header>
 
@@ -407,17 +408,48 @@ export function ChangesView(props: ChangesViewProps) {
                         <For each={group.entries}>
                           {(entry) => (
                             <div class="entry-card">
-                              <div class="entry-row">
-                                <span
-                                  class={`entry-status status-${entry.status.replace("_", "-")}`}
+                              <div class="entry-row-wrap">
+                                <div
+                                  class="entry-row"
+                                  onClick={() => void handleToggleEntry(entry)}
                                 >
-                                  {queueStatusLabel(entry.status)}
-                                </span>
-                                <span>{entry.runMode}</span>
-                                <span>{entry.shas.length} commits</span>
-                                <span>Created: {formatWhen(entry.createdAt)}</span>
-                                <Show when={entry.integratedAt}>
-                                  <span>Integrated: {formatWhen(entry.integratedAt)}</span>
+                                  <span
+                                    class={`entry-status status-${entry.status.replace("_", "-")}`}
+                                  >
+                                    {queueStatusLabel(entry.status)}
+                                  </span>
+                                  <span>{entry.shas.length} commits</span>
+                                  <span>{formatWhen(entry.createdAt)}</span>
+                                  <Show when={entry.status === "integrated" && entry.integratedAt}>
+                                    <span>Integrated: {formatWhen(entry.integratedAt)}</span>
+                                  </Show>
+                                </div>
+                                <Show when={entry.status === "conflict"}>
+                                  <button
+                                    type="button"
+                                    class="entry-action-link"
+                                    disabled={fixingEntryId() === entry.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleSpawnFixer(entry.id);
+                                    }}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 1.5l3 3M1 11.5L11.5 1.5l3 3L4.5 15H1v-3.5z"/></svg>
+                                    {fixingEntryId() === entry.id ? "Spawning…" : "Fix conflict"}
+                                  </button>
+                                </Show>
+                                <Show when={entry.shas.length > 0 && entry.status !== "conflict"}>
+                                  <button
+                                    type="button"
+                                    class="entry-action-link"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleToggleEntry(entry);
+                                    }}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8h14M8 1v14"/><circle cx="8" cy="4" r="1.5"/><circle cx="8" cy="12" r="1.5"/></svg>
+                                    Diff
+                                  </button>
                                 </Show>
                               </div>
                               <Show when={entry.staleAgainstSha}>
@@ -428,27 +460,6 @@ export function ChangesView(props: ChangesViewProps) {
                               <Show when={entry.error}>
                                 <div class="entry-note">{entry.error}</div>
                               </Show>
-                              <div class="entry-actions">
-                                <button
-                                  type="button"
-                                  class="entry-btn"
-                                  onClick={() => void handleToggleEntry(entry)}
-                                >
-                                  {expandedEntries()[entry.id] ? "Hide" : "Details"}
-                                </button>
-                                <Show when={entry.status === "conflict"}>
-                                  <button
-                                    type="button"
-                                    class="entry-btn"
-                                    disabled={fixingEntryId() === entry.id}
-                                    onClick={() => void handleSpawnFixer(entry.id)}
-                                  >
-                                    {fixingEntryId() === entry.id
-                                      ? "Spawning…"
-                                      : "Spawn Conflict Fixer"}
-                                  </button>
-                                </Show>
-                              </div>
                               <Show when={expandedEntries()[entry.id]}>
                                 <div class="entry-details">
                                   <Show when={loadingEntryId() === entry.id}>
@@ -516,9 +527,23 @@ export function ChangesView(props: ChangesViewProps) {
             </section>
           </Show>
 
+          <Show when={(changes()?.mainAheadCommits?.length ?? 0) > 0}>
+            <section class="main-ahead-section">
+              <h4>Commits on {changes()?.baseBranch ?? "main"} (not yet in space)</h4>
+              <For each={changes()?.mainAheadCommits ?? []}>
+                {(commit) => (
+                  <div class="main-ahead-row">
+                    <code>{commit.sha.slice(0, 7)}</code>
+                    <span>{commit.subject}</span>
+                  </div>
+                )}
+              </For>
+            </section>
+          </Show>
+
           <Show
             when={(changes()?.files.length ?? 0) > 0}
-            fallback={<div class="changes-empty">No uncommitted changes</div>}
+            fallback={null}
           >
             <div class="changes-main">
               <aside class="changes-files">
@@ -726,8 +751,7 @@ export function ChangesView(props: ChangesViewProps) {
           color: #fbbf24;
         }
 
-        .integrate-btn,
-        .entry-btn {
+        .integrate-btn {
           border: 1px solid #2563eb;
           background: #1d4ed8;
           color: #fff;
@@ -737,8 +761,7 @@ export function ChangesView(props: ChangesViewProps) {
           cursor: pointer;
         }
 
-        .integrate-btn:disabled,
-        .entry-btn:disabled {
+        .integrate-btn:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }
@@ -779,12 +802,52 @@ export function ChangesView(props: ChangesViewProps) {
           gap: 6px;
         }
 
+        .entry-row-wrap {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
         .entry-row {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
           font-size: 11px;
           color: var(--text-primary);
+          flex: 1;
+          cursor: pointer;
+          border-radius: 6px;
+          padding: 4px 6px;
+          margin: -4px -6px;
+        }
+
+        .entry-row:hover {
+          background: var(--bg-input);
+        }
+
+        .entry-action-link {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          background: none;
+          border: none;
+          color: var(--text-secondary);
+          font-size: 11px;
+          cursor: pointer;
+          padding: 4px 6px;
+          border-radius: 6px;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+
+        .entry-action-link:hover {
+          color: var(--text-primary);
+          background: var(--bg-input);
+        }
+
+        .entry-action-link:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
         }
 
         .entry-status {
@@ -823,11 +886,6 @@ export function ChangesView(props: ChangesViewProps) {
           font-size: 11px;
           color: #fca5a5;
           white-space: pre-wrap;
-        }
-
-        .entry-actions {
-          display: flex;
-          gap: 8px;
         }
 
         .entry-details {
@@ -907,6 +965,32 @@ export function ChangesView(props: ChangesViewProps) {
         .space-commit-meta {
           color: var(--text-secondary);
           font-size: 11px;
+        }
+
+        .main-ahead-section {
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          background: var(--bg-inset);
+          padding: 10px;
+          margin-bottom: 10px;
+          display: grid;
+          gap: 6px;
+        }
+
+        .main-ahead-section h4 {
+          margin: 0 0 4px;
+          font-size: 12px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: var(--text-secondary);
+        }
+
+        .main-ahead-row {
+          display: grid;
+          grid-template-columns: 60px 1fr;
+          gap: 8px;
+          font-size: 12px;
+          color: var(--text-primary);
         }
 
         .changes-main {

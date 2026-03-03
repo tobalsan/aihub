@@ -425,6 +425,11 @@ export type FileChange = {
   staged: boolean;
 };
 
+export type MainBranchCommit = {
+  sha: string;
+  subject: string;
+};
+
 export type ProjectChanges = {
   branch: string;
   baseBranch: string;
@@ -432,6 +437,8 @@ export type ProjectChanges = {
   files: FileChange[];
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
+  branchDiffStats?: { filesChanged: number; insertions: number; deletions: number };
+  mainAheadCommits?: MainBranchCommit[];
 };
 
 export type SpaceIntegrationEntry = {
