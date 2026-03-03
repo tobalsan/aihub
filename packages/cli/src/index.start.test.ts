@@ -2,23 +2,29 @@ import { describe, expect, it } from "vitest";
 import { buildStartRequestBody } from "./index.js";
 
 describe("apm start request body mapping", () => {
-  it("maps template defaults from UI presets", () => {
+  it("sends template-only profile by default (server applies defaults)", () => {
     const { body, errors } = buildStartRequestBody({
       template: "worker",
     });
 
     expect(errors).toEqual([]);
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       template: "worker",
-      runAgent: "cli:codex",
-      model: "gpt-5.3-codex",
-      reasoningEffort: "medium",
-      runMode: "worktree",
-      baseBranch: "main",
-      promptRole: "worker",
-      includeDefaultPrompt: true,
-      includeRoleInstructions: true,
-      includePostRun: true,
+    });
+  });
+
+  it("allows non-locked fields with template (slug/name/custom prompt flow)", () => {
+    const { body, errors } = buildStartRequestBody({
+      template: "worker",
+      slug: "worker-sidebar-recent",
+      name: "Worker Sidebar Recent",
+    });
+
+    expect(errors).toEqual([]);
+    expect(body).toEqual({
+      template: "worker",
+      slug: "worker-sidebar-recent",
+      name: "Worker Sidebar Recent",
     });
   });
 
@@ -28,10 +34,8 @@ describe("apm start request body mapping", () => {
       agent: "codex",
     });
 
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       template: "coordinator",
-      runAgent: "cli:claude",
-      runMode: "none",
     });
     expect(errors).toEqual([
       "Template profile locked. Use --allow-template-overrides to override.",

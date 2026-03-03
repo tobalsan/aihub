@@ -89,7 +89,7 @@ pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [
 pnpm apm move <id> <status>
 pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-template-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 
-# `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role.
+# `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role (resolved server-side by default).
 # Override locked fields only with `--allow-template-overrides`.
 # Template defaults: coordinator mode=none, worker mode=worktree (base=main), reviewer mode=none.
 

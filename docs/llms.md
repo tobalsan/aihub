@@ -419,7 +419,8 @@ Behavior:
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
-- `apm start --template` uses locked template profiles for run agent/model/reasoning(or thinking)/runMode/baseBranch/prompt includes:
+- `apm start --template` sends template-only by default; server applies locked template profile defaults for run agent/model/reasoning(or thinking)/runMode/baseBranch/prompt includes.
+- If `--allow-template-overrides` is set, CLI also sends profile defaults client-side and allows explicit override flags.
   - `coordinator`: `cli:claude`, `opus`, effort `medium`, `mode=none`, includes `true/true/false`
   - `worker`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, `mode=worktree`, `baseBranch=main`, includes `true/true/true`
   - `reviewer`: `cli:codex`, `gpt-5.3-codex`, effort `medium`, `mode=none`, includes `true/true/false`

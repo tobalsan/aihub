@@ -222,17 +222,17 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
     } else {
       selectedTemplate = template;
       body.template = template;
-      const defaults = START_TEMPLATE_PROFILES[template];
-      body.promptRole = defaults.promptRole;
-      body.runAgent = defaults.runAgent;
-      body.model = defaults.model;
-      body.reasoningEffort = defaults.reasoningEffort;
-      body.runMode = defaults.runMode;
-      body.baseBranch = defaults.baseBranch;
-      body.includeDefaultPrompt = defaults.includeDefaultPrompt;
-      body.includeRoleInstructions = defaults.includeRoleInstructions;
-      body.includePostRun = defaults.includePostRun;
       if (allowTemplateOverrides) {
+        const defaults = START_TEMPLATE_PROFILES[template];
+        body.promptRole = defaults.promptRole;
+        body.runAgent = defaults.runAgent;
+        body.model = defaults.model;
+        body.reasoningEffort = defaults.reasoningEffort;
+        body.runMode = defaults.runMode;
+        body.baseBranch = defaults.baseBranch;
+        body.includeDefaultPrompt = defaults.includeDefaultPrompt;
+        body.includeRoleInstructions = defaults.includeRoleInstructions;
+        body.includePostRun = defaults.includePostRun;
         body.allowTemplateOverrides = true;
       }
     }

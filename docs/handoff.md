@@ -81,6 +81,15 @@ Latest commit on this branch/workspace:
   - selects Worker template from Add Agent,
   - asserts active center tab switches to `Chat` and spawn form is shown.
 
+### Follow-up Delta (2026-03-03, apm template lock request-shape fix)
+
+- Fixed `buildStartRequestBody()` in `packages/cli/src/index.ts` to avoid false template-lock rejections:
+  - For `apm start --template ...` (without `--allow-template-overrides`), CLI now sends only `template` plus non-locked fields (`slug`, `name`, prompt include toggles).
+  - CLI no longer sends locked profile fields (`runAgent`, `model`, `reasoningEffort`, `runMode`, `baseBranch`, `promptRole`) by default.
+  - Server remains source of truth for applying template profile defaults.
+  - With `--allow-template-overrides`, CLI preserves prior behavior and sends profile defaults/override fields.
+- Updated tests in `packages/cli/src/index.start.test.ts` to cover template-only payload and slug/name usage under locked templates.
+
 ### Follow-up Delta (2026-03-03, center chat wrapping + input controls visibility)
 
 - Fixed center panel chat overflow that could crop assistant text and push Send/Stop out of view when long lines were rendered.
