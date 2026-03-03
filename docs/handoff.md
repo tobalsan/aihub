@@ -35,6 +35,16 @@ Latest commit on this branch/workspace:
 - Added regression coverage in `apps/web/src/components/project/SpawnForm.test.tsx`:
   - verifies worker clone prompt contains workspace path and does not contain main repo path.
 
+### Follow-up Delta (2026-03-03, projects sidebar duplication regression fix)
+
+- Fixed route shell composition in `apps/web/src/App.tsx` for `/projects/:id?`:
+  - keeps `LeftNavShell` as the single shared sidebar shell for `/projects` and `/projects/:id`.
+  - renders `ProjectsBoard` in shell mode via `withSidebar={false}` to avoid nested sidebars.
+- Updated `apps/web/src/components/ProjectsBoard.tsx`:
+  - added optional `withSidebar` prop (default `true`) so embedded routes can disable the board-local sidebar/toggle.
+- Root cause:
+  - commit `7cee4719b5c2` wrapped the projects route in `LeftNavShell` while `ProjectsBoard` also embeds the same sidebar.
+
 ### Follow-up Delta (2026-03-03, template strict-lock + reviewer none mode + manual Space integrate)
 
 - Enforced template profile lock for `apm start` + `/api/projects/:id/start`:

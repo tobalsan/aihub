@@ -47,7 +47,7 @@ function ProjectsRouteShell() {
   return (
     <LeftNavShell>
       <div class="projects-route-shell">
-        <ProjectsBoard />
+        <ProjectsBoard withSidebar={false} />
         <Show when={showDetail()}>
           <div class="projects-route-detail-layer">
             <ProjectDetailPage />

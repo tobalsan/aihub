@@ -47,6 +47,7 @@ Features:
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
   - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
+- `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
 - Left sidebar shows last 5 recent projects (by creation date) above the theme toggle, with truncated titles and relative timestamps
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)

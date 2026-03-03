@@ -1009,7 +1009,8 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
   return aTime - bTime;
 }
 
-export function ProjectsBoard() {
+export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
+  const showSidebar = () => props.withSidebar !== false;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const activeProjectId = createMemo(() => {
@@ -1187,7 +1188,7 @@ export function ProjectsBoard() {
 
   createEffect(() => {
     if (isMobile()) {
-      setSidebarCollapsed(true);
+      if (showSidebar()) setSidebarCollapsed(true);
       setRightPanelCollapsed(true);
       return;
     }
@@ -2495,8 +2496,9 @@ export function ProjectsBoard() {
   return (
     <div
       class="app-layout"
-      classList={{ "left-collapsed": sidebarCollapsed() }}
+      classList={{ "left-collapsed": showSidebar() && sidebarCollapsed() }}
       onClick={(e) => {
+        if (!showSidebar()) return;
         if (!isMobile() || sidebarCollapsed()) return;
         const target = e.target as HTMLElement;
         if (
@@ -2629,11 +2631,13 @@ export function ProjectsBoard() {
           </div>
         </div>
       </Show>
-      <AgentSidebar
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
-      />
-      <Show when={isMobile()}>
+      <Show when={showSidebar()}>
+        <AgentSidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        />
+      </Show>
+      <Show when={showSidebar() && isMobile()}>
         <button
           class="mobile-sidebar-toggle"
           type="button"
