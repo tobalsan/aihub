@@ -384,10 +384,12 @@ export function CenterPanel(props: CenterPanelProps) {
           min-height: 0;
           flex: 1;
           display: flex;
+          min-width: 0;
         }
 
         .center-chat-shell .agent-chat {
           flex: 1;
+          min-width: 0;
           min-height: 0;
         }
 

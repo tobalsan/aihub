@@ -1651,6 +1651,7 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           flex-direction: column;
           height: 100%;
+          min-width: 0;
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 14px;
           line-height: 1.6;
@@ -1739,6 +1740,7 @@ export function AgentChat(props: AgentChatProps) {
           overflow-y: auto;
           padding: 0;
           display: flex;
+          min-width: 0;
           scroll-behavior: smooth;
         }
 
@@ -1798,6 +1800,8 @@ export function AgentChat(props: AgentChatProps) {
           gap: 2px;
           flex: 1;
           min-height: 0;
+          min-width: 0;
+          max-width: 100%;
         }
 
         /* ── Log lines — flat, full-width ── */
@@ -1809,6 +1813,8 @@ export function AgentChat(props: AgentChatProps) {
           padding: 10px 12px;
           border-radius: 6px;
           background: transparent;
+          min-width: 0;
+          max-width: 100%;
         }
 
         .log-line + .log-line {
@@ -1887,6 +1893,13 @@ export function AgentChat(props: AgentChatProps) {
           color: var(--text-tertiary);
           border-radius: 6px;
           transition: background 0.1s;
+          min-width: 0;
+        }
+
+        .log-summary span {
+          min-width: 0;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .log-summary:hover {
@@ -1914,6 +1927,8 @@ export function AgentChat(props: AgentChatProps) {
           color: var(--text-tertiary);
           max-height: 300px;
           overflow: auto;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         /* ── Content layout ── */
@@ -1945,8 +1960,10 @@ export function AgentChat(props: AgentChatProps) {
         pre.log-text {
           margin: 0;
           white-space: pre-wrap;
+          overflow-wrap: anywhere;
           word-break: break-word;
           line-height: 1.6;
+          max-width: 100%;
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
         }
 
@@ -1960,6 +1977,8 @@ export function AgentChat(props: AgentChatProps) {
 
         .log-markdown {
           white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .log-markdown p {
@@ -1982,6 +2001,9 @@ export function AgentChat(props: AgentChatProps) {
           font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
           font-size: 0.9em;
           color: var(--text-secondary);
+          white-space: break-spaces;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .log-markdown pre {
@@ -2001,6 +2023,9 @@ export function AgentChat(props: AgentChatProps) {
           background: transparent;
           padding: 0;
           color: inherit;
+          white-space: pre;
+          overflow-wrap: normal;
+          word-break: normal;
         }
 
         .log-markdown ul,
@@ -2127,12 +2152,15 @@ export function AgentChat(props: AgentChatProps) {
           position: sticky;
           bottom: 0;
           z-index: 2;
+          min-width: 0;
         }
 
         .chat-controls {
           display: flex;
           gap: 8px;
           align-items: flex-end;
+          width: 100%;
+          min-width: 0;
         }
 
         .chat-file-input {
@@ -2166,6 +2194,7 @@ export function AgentChat(props: AgentChatProps) {
 
         .chat-input textarea {
           flex: 1;
+          min-width: 0;
           background: rgba(255, 255, 255, 0.03);
           border: 1px solid var(--border-default);
           border-radius: 8px;
@@ -2197,6 +2226,7 @@ export function AgentChat(props: AgentChatProps) {
           font-size: 13px;
           font-weight: 500;
           cursor: pointer;
+          flex: 0 0 auto;
         }
 
         .chat-input .send-btn:hover { background: #2563eb; }
@@ -2215,6 +2245,7 @@ export function AgentChat(props: AgentChatProps) {
           cursor: pointer;
           font-size: 13px;
           font-weight: 500;
+          flex: 0 0 auto;
         }
 
         .chat-input .stop-btn:hover { background: #c62828; }

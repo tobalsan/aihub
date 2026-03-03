@@ -81,6 +81,20 @@ Latest commit on this branch/workspace:
   - selects Worker template from Add Agent,
   - asserts active center tab switches to `Chat` and spawn form is shown.
 
+### Follow-up Delta (2026-03-03, center chat wrapping + input controls visibility)
+
+- Fixed center panel chat overflow that could crop assistant text and push Send/Stop out of view when long lines were rendered.
+- Changes in `apps/web/src/components/AgentChat.tsx`:
+  - Added `min-width: 0` and `max-width: 100%` constraints on chat/log containers and rows.
+  - Strengthened wrapping for markdown/content (`overflow-wrap: anywhere`, `word-break: break-word`).
+  - Allowed inline markdown code to wrap in chat messages while keeping fenced code blocks as scrollable preformatted code.
+  - Added compose-row width guards (`chat-controls` + `textarea` min-width constraints) and prevented action buttons from shrinking.
+- Added layout constraint in `apps/web/src/components/project/CenterPanel.tsx`:
+  - `center-chat-shell` and nested `.agent-chat` now set `min-width: 0` to avoid flex overflow expansion.
+- Verification:
+  - `pnpm exec vitest run apps/web/src/components/AgentChat.test.tsx apps/web/src/components/project/ProjectDetailPage.test.tsx`
+  - `pnpm --filter @aihub/web build`
+
 ### Follow-up Delta (2026-03-02, PRO-156 stop button in project detail chat)
 
 - Implemented Stop/Send swap in `apps/web/src/components/AgentChat.tsx`:
