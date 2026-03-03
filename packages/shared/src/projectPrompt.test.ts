@@ -82,9 +82,8 @@ describe("role-based project prompts", () => {
     expect(out).toContain("Use `apm start` with templates for delegation:");
     expect(out).toContain("--template worker");
     expect(out).toContain("--template reviewer");
-    expect(out).toContain("--mode none");
     expect(out).toContain(
-      "When using `--template`, do NOT add `--model`; template defaults must stay in control."
+      "When using `--template`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`."
     );
     expect(out).toContain(
       "Do not merge/cherry-pick directly from coordinator/reviewer runs."

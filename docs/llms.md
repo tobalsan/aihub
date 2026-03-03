@@ -62,7 +62,7 @@ Features:
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
 - Coordinator template default prompt includes concise `apm start --template <worker|reviewer>` delegation examples and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
-- Coordinator delegation guidance explicitly forbids combining `--template` with `--model` in those spawn commands
+- Coordinator delegation guidance forbids adding template-locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-template-overrides` is explicitly set
 - Worker template prompt explicitly requires committing implementation after checks are green
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.

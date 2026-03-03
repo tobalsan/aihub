@@ -26,6 +26,18 @@ Latest commit on this branch/workspace:
   - `README.md`
   - `docs/llms.md`
 
+### Follow-up Delta (2026-03-03, coordinator template guidance removes locked flag overrides)
+
+- Updated coordinator delegation examples in `packages/shared/src/projectPrompt.ts`:
+  - worker example no longer adds `--mode worktree --branch main`
+  - reviewer example no longer adds `--mode none`
+- Updated coordinator warning text:
+  - now explicitly forbids template-locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-template-overrides` is set.
+- Updated test assertion in `packages/shared/src/projectPrompt.test.ts`.
+- Updated docs wording:
+  - `README.md`
+  - `docs/llms.md`
+
 ### Follow-up Delta (2026-03-03, worker template prompt preview uses workspace path)
 
 - Fixed `apps/web/src/components/project/SpawnForm.tsx` so worker template prompt prep is mode-aware:
