@@ -20,6 +20,7 @@
     "@mariozechner/pi-agent-core": "^0.55.3",
     "@mariozechner/pi-ai": "^0.55.3",
     "@mariozechner/pi-coding-agent": "^0.55.3",
+    "chokidar": "^4.0.3",
     "commander": "^12.1.0",
     "discord-api-types": "^0.37.120",
     "hono": "^4.11.4",

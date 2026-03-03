@@ -1,7 +1,13 @@
 import { EventEmitter } from "node:events";
 import type { StreamEvent } from "@aihub/shared";
 
-export type RunSource = "web" | "discord" | "amsg" | "scheduler" | "cli" | "heartbeat";
+export type RunSource =
+  | "web"
+  | "discord"
+  | "amsg"
+  | "scheduler"
+  | "cli"
+  | "heartbeat";
 
 export type AgentStreamEvent = StreamEvent & {
   agentId: string;
@@ -13,6 +19,17 @@ export type AgentStreamEvent = StreamEvent & {
 export type AgentStatusChangeEvent = {
   agentId: string;
   status: "streaming" | "idle";
+};
+
+export type ProjectFileChangedEvent = {
+  type: "file_changed";
+  projectId: string;
+  file: string;
+};
+
+export type ProjectAgentChangedEvent = {
+  type: "agent_changed";
+  projectId: string;
 };
 
 class AgentEventBus extends EventEmitter {
@@ -32,6 +49,24 @@ class AgentEventBus extends EventEmitter {
   onStatusChange(handler: (event: AgentStatusChangeEvent) => void) {
     this.on("statusChange", handler);
     return () => this.off("statusChange", handler);
+  }
+
+  emitFileChanged(event: ProjectFileChangedEvent) {
+    this.emit("fileChanged", event);
+  }
+
+  onFileChanged(handler: (event: ProjectFileChangedEvent) => void) {
+    this.on("fileChanged", handler);
+    return () => this.off("fileChanged", handler);
+  }
+
+  emitAgentChanged(event: ProjectAgentChangedEvent) {
+    this.emit("agentChanged", event);
+  }
+
+  onAgentChanged(handler: (event: ProjectAgentChangedEvent) => void) {
+    this.on("agentChanged", handler);
+    return () => this.off("agentChanged", handler);
   }
 }
 

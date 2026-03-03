@@ -425,53 +425,55 @@ export type StartTemplateProfile = {
   includePostRun: boolean;
 };
 
-export const START_TEMPLATE_PROFILES: Record<StartTemplate, StartTemplateProfile> =
-  {
-    coordinator: {
-      promptRole: "coordinator",
-      runAgent: "cli:claude",
-      model: "opus",
-      reasoningEffort: "medium",
-      runMode: "none",
-      baseBranch: "main",
-      includeDefaultPrompt: true,
-      includeRoleInstructions: true,
-      includePostRun: false,
-    },
-    worker: {
-      promptRole: "worker",
-      runAgent: "cli:codex",
-      model: "gpt-5.3-codex",
-      reasoningEffort: "medium",
-      runMode: "worktree",
-      baseBranch: "main",
-      includeDefaultPrompt: true,
-      includeRoleInstructions: true,
-      includePostRun: true,
-    },
-    reviewer: {
-      promptRole: "reviewer",
-      runAgent: "cli:codex",
-      model: "gpt-5.3-codex",
-      reasoningEffort: "medium",
-      runMode: "none",
-      baseBranch: "main",
-      includeDefaultPrompt: true,
-      includeRoleInstructions: true,
-      includePostRun: false,
-    },
-    custom: {
-      promptRole: "legacy",
-      runAgent: "cli:codex",
-      model: "gpt-5.3-codex",
-      reasoningEffort: "xhigh",
-      runMode: "clone",
-      baseBranch: "main",
-      includeDefaultPrompt: true,
-      includeRoleInstructions: true,
-      includePostRun: true,
-    },
-  };
+export const START_TEMPLATE_PROFILES: Record<
+  StartTemplate,
+  StartTemplateProfile
+> = {
+  coordinator: {
+    promptRole: "coordinator",
+    runAgent: "cli:claude",
+    model: "opus",
+    reasoningEffort: "medium",
+    runMode: "none",
+    baseBranch: "main",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: false,
+  },
+  worker: {
+    promptRole: "worker",
+    runAgent: "cli:codex",
+    model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
+    runMode: "worktree",
+    baseBranch: "main",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: true,
+  },
+  reviewer: {
+    promptRole: "reviewer",
+    runAgent: "cli:codex",
+    model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
+    runMode: "none",
+    baseBranch: "main",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: false,
+  },
+  custom: {
+    promptRole: "legacy",
+    runAgent: "cli:codex",
+    model: "gpt-5.3-codex",
+    reasoningEffort: "xhigh",
+    runMode: "clone",
+    baseBranch: "main",
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: true,
+  },
+};
 
 export const StartProjectRunRequestSchema = z.object({
   customPrompt: z.string().optional(),
@@ -632,11 +634,24 @@ export type WsStatusEvent = {
   status: "streaming" | "idle";
 };
 
+export type WsFileChangedEvent = {
+  type: "file_changed";
+  projectId: string;
+  file: string;
+};
+
+export type WsAgentChangedEvent = {
+  type: "agent_changed";
+  projectId: string;
+};
+
 export type WsServerMessage =
   | StreamEvent
   | WsHistoryUpdatedEvent
   | WsSessionResetEvent
-  | WsStatusEvent;
+  | WsStatusEvent
+  | WsFileChangedEvent
+  | WsAgentChangedEvent;
 
 // History types
 

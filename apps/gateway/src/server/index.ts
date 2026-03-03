@@ -6,11 +6,20 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { WsClientMessage, WsServerMessage, GatewayBindMode } from "@aihub/shared";
+import type {
+  WsClientMessage,
+  WsServerMessage,
+  GatewayBindMode,
+} from "@aihub/shared";
 import { api } from "./api.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import { resolveSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
+import {
+  resolveSessionId,
+  getSessionEntry,
+  isAbortTrigger,
+} from "../sessions/index.js";
+import { startProjectWatcher } from "../projects/watcher.js";
 
 const app = new Hono();
 
@@ -24,11 +33,14 @@ app.get("/health", (c) => c.json({ ok: true }));
 // Subscription store: Map<ws, { agentId, sessionKey }>
 type Subscription = { agentId: string; sessionKey: string };
 const subscriptions = new Map<WebSocket, Subscription>();
+const connectedClients = new Set<WebSocket>();
 
 // Global status subscribers (for sidebar real-time updates)
 const statusSubscribers = new Set<WebSocket>();
 
 function handleWsConnection(ws: WebSocket) {
+  connectedClients.add(ws);
+
   ws.on("message", async (raw) => {
     let msg: WsClientMessage;
     try {
@@ -44,7 +56,10 @@ function handleWsConnection(ws: WebSocket) {
         sendWs(ws, { type: "error", message: "Agent not found" });
         return;
       }
-      subscriptions.set(ws, { agentId: msg.agentId, sessionKey: msg.sessionKey });
+      subscriptions.set(ws, {
+        agentId: msg.agentId,
+        sessionKey: msg.sessionKey,
+      });
       return;
     }
 
@@ -101,8 +116,12 @@ function handleWsConnection(ws: WebSocket) {
 
         // Handle session reset with empty message (e.g., /new command)
         if (isNewSession && !message.trim()) {
-          const introMessage = agent.introMessage ?? "New conversation started.";
-          sendWs(ws, { type: "session_reset", sessionId: sessionId ?? "default" });
+          const introMessage =
+            agent.introMessage ?? "New conversation started.";
+          sendWs(ws, {
+            type: "session_reset",
+            sessionId: sessionId ?? "default",
+          });
           sendWs(ws, { type: "text", data: introMessage });
           sendWs(ws, { type: "done", meta: { durationMs: 0 } });
           return;
@@ -132,6 +151,7 @@ function handleWsConnection(ws: WebSocket) {
   ws.on("close", () => {
     subscriptions.delete(ws);
     statusSubscribers.delete(ws);
+    connectedClients.delete(ws);
   });
 }
 
@@ -164,9 +184,25 @@ function setupEventBroadcast() {
 
   // Broadcast status changes to all status subscribers
   agentEventBus.onStatusChange((event) => {
-    const statusMessage = { type: "status" as const, agentId: event.agentId, status: event.status };
+    const statusMessage = {
+      type: "status" as const,
+      agentId: event.agentId,
+      status: event.status,
+    };
     for (const ws of statusSubscribers) {
       sendWs(ws, statusMessage);
+    }
+  });
+
+  agentEventBus.onFileChanged((event) => {
+    for (const ws of connectedClients) {
+      sendWs(ws, event);
+    }
+  });
+
+  agentEventBus.onAgentChanged((event) => {
+    for (const ws of connectedClients) {
+      sendWs(ws, event);
     }
   });
 }
@@ -194,7 +230,10 @@ function pickTailnetIPv4(): string | null {
  */
 function getTailscaleIP(): string | null {
   try {
-    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const output = execSync("tailscale status --json", {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
     const status = JSON.parse(output);
     const ips = status?.Self?.TailscaleIPs as string[] | undefined;
     return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
@@ -209,7 +248,9 @@ function resolveBindHost(bind?: GatewayBindMode): string {
   if (bind === "tailnet") {
     const ip = pickTailnetIPv4() ?? getTailscaleIP();
     if (ip) return ip;
-    console.warn("[gateway] tailnet bind: no tailnet IP found, falling back to 127.0.0.1");
+    console.warn(
+      "[gateway] tailnet bind: no tailnet IP found, falling back to 127.0.0.1"
+    );
     return "127.0.0.1";
   }
   return "127.0.0.1";
@@ -219,7 +260,8 @@ export function startServer(port?: number, host?: string) {
   const config = loadConfig();
   const resolvedPort = port ?? config.gateway?.port ?? 4000;
   // host arg > config.gateway.host > resolve from bind > default loopback
-  const resolvedHost = host ?? config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
+  const resolvedHost =
+    host ?? config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
   const nodeBin = path.dirname(process.execPath);
   if (nodeBin && !process.env.PATH?.split(path.delimiter).includes(nodeBin)) {
     process.env.PATH = `${nodeBin}${path.delimiter}${process.env.PATH ?? ""}`;
@@ -234,11 +276,36 @@ export function startServer(port?: number, host?: string) {
   });
 
   // Attach WebSocket server to the HTTP server
-  const wss = new WebSocketServer({ server: server as import("http").Server, path: "/ws" });
+  const wss = new WebSocketServer({
+    server: server as import("http").Server,
+    path: "/ws",
+  });
   wss.on("connection", handleWsConnection);
 
   // Start broadcasting events to subscribers
   setupEventBroadcast();
+
+  const projectWatcher = startProjectWatcher(config);
+  let watcherClosed = false;
+  const closeProjectWatcher = () => {
+    if (watcherClosed) return;
+    watcherClosed = true;
+    void projectWatcher.close();
+  };
+
+  const onSigInt = () => closeProjectWatcher();
+  const onSigTerm = () => closeProjectWatcher();
+  const onExit = () => closeProjectWatcher();
+  process.once("SIGINT", onSigInt);
+  process.once("SIGTERM", onSigTerm);
+  process.once("exit", onExit);
+
+  server.on("close", () => {
+    closeProjectWatcher();
+    process.off("SIGINT", onSigInt);
+    process.off("SIGTERM", onSigTerm);
+    process.off("exit", onExit);
+  });
 
   return server;
 }
