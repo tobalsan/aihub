@@ -71,7 +71,10 @@ function ProjectsRouteShell() {
 }
 
 function LeftNavShell(props: { children?: JSX.Element }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const SIDEBAR_KEY = "aihub:sidebar-collapsed";
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(
+    localStorage.getItem(SIDEBAR_KEY) === "true"
+  );
   const [isMobile, setIsMobile] = createSignal(false);
 
   onMount(() => {
@@ -96,7 +99,11 @@ function LeftNavShell(props: { children?: JSX.Element }) {
     <div class="left-nav-shell">
       <AgentSidebar
         collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        onToggleCollapse={() => setSidebarCollapsed((prev) => {
+          const next = !prev;
+          localStorage.setItem(SIDEBAR_KEY, String(next));
+          return next;
+        })}
       />
       <Show when={isMobile()}>
         <button

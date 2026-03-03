@@ -115,7 +115,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
       <div class="sidebar-header">
         <A class="sidebar-logo" href="/projects">
-          AIHub
+          <span class="logo-full">AIHub</span>
+          <span class="logo-short">AI</span>
         </A>
         <Show when={import.meta.env.VITE_AIHUB_DEV === "true"}>
           <span class="dev-badge">DEV</span>
@@ -135,7 +136,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
             class="nav-link"
             classList={{ active: stripBase(location.pathname).startsWith("/projects") }}
           >
-            Projects
+            <span class="nav-full">Projects</span>
+            <span class="nav-short">Pr</span>
           </A>
           <A
             href="/conversations"
@@ -144,7 +146,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
               active: stripBase(location.pathname).startsWith("/conversations"),
             }}
           >
-            Conversations
+            <span class="nav-full">Conversations</span>
+            <span class="nav-short">Co</span>
           </A>
           <A
             href="/agents"
@@ -155,10 +158,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 stripBase(location.pathname).startsWith("/chat"),
             }}
           >
-            Chats
+            <span class="nav-full">Chats</span>
+            <span class="nav-short">Ch</span>
           </A>
         </nav>
       </div>
+      <div class="sidebar-spacer" />
       <Show when={recentProjects().length > 0}>
         <div class="sidebar-recent">
           <div class="sidebar-recent-label">Recent</div>
@@ -261,8 +266,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
           gap: 16px;
         }
 
+        .sidebar-spacer {
+          flex: 1;
+        }
+
         .sidebar-recent {
-          margin-top: auto;
           padding: 8px 10px 8px;
           border-top: 1px solid var(--border-default);
         }
@@ -393,28 +401,61 @@ export function AgentSidebar(props: AgentSidebarProps) {
           color: var(--text-primary);
         }
 
+        /* Collapsed/expanded toggle for dual-content elements */
+        .logo-short,
+        .nav-short {
+          display: none;
+        }
+
+        .agent-sidebar.collapsed .logo-full,
+        .agent-sidebar.collapsed .nav-full,
         .agent-sidebar.collapsed .dev-badge,
-        .agent-sidebar.collapsed .sidebar-logo,
-        .agent-sidebar.collapsed .nav-link,
+        .agent-sidebar.collapsed .collapse-btn,
         .agent-sidebar.collapsed .theme-label,
-        .agent-sidebar.collapsed .sidebar-footer,
         .agent-sidebar.collapsed .sidebar-recent {
-          opacity: 0;
-          pointer-events: none;
+          display: none;
         }
 
-        .agent-sidebar.collapsed .sidebar-logo {
-          transform: scale(0.98);
+        .agent-sidebar.collapsed .logo-short,
+        .agent-sidebar.collapsed .nav-short {
+          display: inline;
         }
 
+        .agent-sidebar.collapsed .nav-link {
+          text-align: center;
+          padding: 8px 4px;
+          font-weight: 600;
+          font-size: 13px;
+        }
+
+        .agent-sidebar.collapsed .theme-toggle {
+          justify-content: center;
+        }
+
+        /* Hover to expand: restore full content */
+        .agent-sidebar.collapsed:hover .logo-full,
+        .agent-sidebar.collapsed:hover .nav-full,
         .agent-sidebar.collapsed:hover .dev-badge,
-        .agent-sidebar.collapsed:hover .sidebar-logo,
-        .agent-sidebar.collapsed:hover .nav-link,
+        .agent-sidebar.collapsed:hover .collapse-btn,
         .agent-sidebar.collapsed:hover .theme-label,
-        .agent-sidebar.collapsed:hover .sidebar-footer,
         .agent-sidebar.collapsed:hover .sidebar-recent {
-          opacity: 1;
-          pointer-events: auto;
+          display: revert;
+        }
+
+        .agent-sidebar.collapsed:hover .logo-short,
+        .agent-sidebar.collapsed:hover .nav-short {
+          display: none;
+        }
+
+        .agent-sidebar.collapsed:hover .nav-link {
+          text-align: unset;
+          padding: 8px 10px;
+          font-weight: unset;
+          font-size: 14px;
+        }
+
+        .agent-sidebar.collapsed:hover .theme-toggle {
+          justify-content: unset;
         }
 
         @media (max-width: 768px) {
