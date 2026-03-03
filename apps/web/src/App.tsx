@@ -45,26 +45,28 @@ function ProjectsRouteShell() {
     () => typeof params.id === "string" && params.id.length > 0
   );
   return (
-    <div class="projects-route-shell">
-      <ProjectsBoard />
-      <Show when={showDetail()}>
-        <div class="projects-route-detail-layer">
-          <ProjectDetailPage />
-        </div>
-      </Show>
-      <style>{`
-        .projects-route-shell {
-          height: 100%;
-          position: relative;
-        }
+    <LeftNavShell>
+      <div class="projects-route-shell">
+        <ProjectsBoard />
+        <Show when={showDetail()}>
+          <div class="projects-route-detail-layer">
+            <ProjectDetailPage />
+          </div>
+        </Show>
+        <style>{`
+          .projects-route-shell {
+            height: 100%;
+            position: relative;
+          }
 
-        .projects-route-detail-layer {
-          position: absolute;
-          inset: 0;
-          z-index: 20;
-        }
-      `}</style>
-    </div>
+          .projects-route-detail-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+          }
+        `}</style>
+      </div>
+    </LeftNavShell>
   );
 }
 
