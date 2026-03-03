@@ -444,6 +444,7 @@ export type ProjectChanges = {
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
   branchDiffStats?: { filesChanged: number; insertions: number; deletions: number };
+  branchDiffFiles?: { path: string; insertions: number; deletions: number }[];
   mainAheadCommits?: MainBranchCommit[];
   mainRepoDirty?: DirtyState;
 };

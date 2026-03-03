@@ -62,6 +62,18 @@ Latest commit on this branch/workspace:
 - Verification:
   - `pnpm test -- apps/web/src/components/project/CenterPanel.test.tsx` (passes).
 
+### Follow-up Delta (2026-03-03, clickable branch diff header + relative space commit age)
+
+- Updated branch diff computation in `apps/gateway/src/projects/git.ts`:
+  - `getProjectChanges` now aggregates per-file insertions/deletions across unmerged SHAs from `git cherry` + `git diff --numstat`.
+  - Added `branchDiffFiles: { path, insertions, deletions }[]` to `ProjectChanges`.
+- Updated shared web API typing in `apps/web/src/api/types.ts`:
+  - Added optional `branchDiffFiles` to `ProjectChanges`.
+- Updated `apps/web/src/components/project/ChangesView.tsx`:
+  - Changes header is now clickable only when `branchDiffFiles` has items.
+  - Added chevron affordance + expandable compact file list with per-file +/- counts.
+  - Added relative elapsed commit time (`now`/`m`/`h`/`d`) in Space Commit Log rows.
+
 ### Follow-up Delta (2026-03-03, projects sidebar duplication regression fix)
 
 - Fixed route shell composition in `apps/web/src/App.tsx` for `/projects/:id?`:

@@ -75,6 +75,8 @@ packages/
 - Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
 - Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
 - Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)
+- Changes tab branch header is expandable: click branch aggregate stats to view per-file pending +/- counts (when available)
+- Space Commit Log rows show relative commit age (`now`, `1m`, `2h`, `3d`) beside author metadata
 
 ## CLI
 

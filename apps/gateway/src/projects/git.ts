@@ -33,6 +33,7 @@ export type ProjectChanges = {
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
   branchDiffStats: { filesChanged: number; insertions: number; deletions: number };
+  branchDiffFiles: { path: string; insertions: number; deletions: number }[];
   mainAheadCommits: MainBranchCommit[];
   mainRepoDirty?: DirtyState;
 };
@@ -145,10 +146,12 @@ function parseNumStat(text: string): {
   files: Set<string>;
   insertions: number;
   deletions: number;
+  byFile: Map<string, { insertions: number; deletions: number }>;
 } {
   const files = new Set<string>();
   let insertions = 0;
   let deletions = 0;
+  const byFile = new Map<string, { insertions: number; deletions: number }>();
 
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -161,9 +164,13 @@ function parseNumStat(text: string): {
     const del = Number(delRaw);
     if (Number.isFinite(ins)) insertions += ins;
     if (Number.isFinite(del)) deletions += del;
+    byFile.set(filePath, {
+      insertions: Number.isFinite(ins) ? ins : 0,
+      deletions: Number.isFinite(del) ? del : 0,
+    });
   }
 
-  return { files, insertions, deletions };
+  return { files, insertions, deletions, byFile };
 }
 
 export async function getProjectChanges(
@@ -202,6 +209,7 @@ export async function getProjectChanges(
   // Branch diff stats: only count commits whose content isn't already on main.
   // git cherry marks already-picked commits with "-", unmerged with "+".
   let branchDiffStats = { filesChanged: 0, insertions: 0, deletions: 0 };
+  let branchDiffFiles: { path: string; insertions: number; deletions: number }[] = [];
   try {
     const cherryOutput = await runGit(repo, [
       "cherry",
@@ -217,10 +225,17 @@ export async function getProjectChanges(
       let totalIns = 0;
       let totalDel = 0;
       const allFiles = new Set<string>();
+      const perFile = new Map<string, { insertions: number; deletions: number }>();
       for (const sha of unmergedShas) {
         const stat = await runGit(repo, ["diff", `${sha}~1`, sha, "--numstat"]);
         const parsed = parseNumStat(stat);
         for (const f of parsed.files) allFiles.add(f);
+        for (const [filePath, fileStat] of parsed.byFile.entries()) {
+          const current = perFile.get(filePath) ?? { insertions: 0, deletions: 0 };
+          current.insertions += fileStat.insertions;
+          current.deletions += fileStat.deletions;
+          perFile.set(filePath, current);
+        }
         totalIns += parsed.insertions;
         totalDel += parsed.deletions;
       }
@@ -229,6 +244,11 @@ export async function getProjectChanges(
         insertions: totalIns,
         deletions: totalDel,
       };
+      branchDiffFiles = Array.from(perFile.entries()).map(([path, stat]) => ({
+        path,
+        insertions: stat.insertions,
+        deletions: stat.deletions,
+      }));
     }
   } catch {
     // baseBranch may not exist locally
@@ -305,6 +325,7 @@ export async function getProjectChanges(
       deletions: unstaged.deletions + staged.deletions,
     },
     branchDiffStats,
+    branchDiffFiles,
     mainAheadCommits,
     mainRepoDirty,
   };

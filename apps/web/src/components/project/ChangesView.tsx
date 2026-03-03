@@ -148,6 +148,19 @@ function formatWhen(value?: string): string {
   return date.toLocaleString();
 }
 
+function formatRelativeTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 30_000) return "now";
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
 export function ChangesView(props: ChangesViewProps) {
   const [changes, setChanges] = createSignal<ProjectChanges | null>(null);
   const [space, setSpace] = createSignal<ProjectSpaceState | null>(null);
@@ -178,6 +191,7 @@ export function ChangesView(props: ChangesViewProps) {
   const [fixingEntryId, setFixingEntryId] = createSignal<string | null>(null);
   const [fixMessage, setFixMessage] = createSignal<string | null>(null);
   const [fixError, setFixError] = createSignal<string | null>(null);
+  const [branchDiffExpanded, setBranchDiffExpanded] = createSignal(false);
 
   const fileRefs = new Map<string, HTMLElement>();
 
@@ -300,6 +314,8 @@ export function ChangesView(props: ChangesViewProps) {
   const diffFiles = () => parseDiff(changes()?.diff ?? "");
   const sourceLabel = () =>
     changes()?.source?.type === "space" ? "Space" : "Repo";
+  const branchDiffFiles = () => changes()?.branchDiffFiles ?? [];
+  const branchDiffToggleable = () => branchDiffFiles().length > 0;
 
   const queueCounts = createMemo(() => {
     const items = space()?.queue ?? [];
@@ -347,13 +363,24 @@ export function ChangesView(props: ChangesViewProps) {
           when={!loadError()}
           fallback={<p class="changes-error">{loadError()}</p>}
         >
-          <header class="changes-header">
+          <header
+            class={`changes-header ${branchDiffToggleable() ? "is-toggleable" : ""}`}
+            onClick={() => {
+              if (!branchDiffToggleable()) return;
+              setBranchDiffExpanded((prev) => !prev);
+            }}
+          >
             <div class="changes-branch">
               <span>Branch: {changes()?.branch ?? "-"}</span>
               <span class="changes-base">→ {changes()?.baseBranch ?? "main"}</span>
               <span class={`changes-source source-${sourceLabel().toLowerCase()}`}>
                 {sourceLabel()}
               </span>
+              <Show when={branchDiffToggleable()}>
+                <span class="changes-chevron">
+                  {branchDiffExpanded() ? "▾" : "▸"}
+                </span>
+              </Show>
             </div>
             <div class="changes-stats">
               <span>{changes()?.branchDiffStats?.filesChanged ?? 0} files</span>
@@ -361,6 +388,23 @@ export function ChangesView(props: ChangesViewProps) {
               <span class="del">-{changes()?.branchDiffStats?.deletions ?? 0}</span>
             </div>
           </header>
+          <Show when={branchDiffToggleable() && branchDiffExpanded()}>
+            <section class="changes-branch-files">
+              <ul>
+                <For each={branchDiffFiles()}>
+                  {(file) => (
+                    <li class="changes-branch-file">
+                      <span class="file-path">{file.path}</span>
+                      <span class="changes-stats">
+                        <span class="ins">+{file.insertions}</span>
+                        <span class="del">-{file.deletions}</span>
+                      </span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
 
           <Show when={space()}>
             <section class="space-dashboard">
@@ -524,6 +568,7 @@ export function ChangesView(props: ChangesViewProps) {
                   <div class="space-commit-row">
                     <code>{commit.sha.slice(0, 7)}</code>
                     <span>{commit.subject}</span>
+                    <span class="space-commit-meta">{formatRelativeTime(commit.date)}</span>
                     <span class="space-commit-meta">{commit.author}</span>
                   </div>
                 )}
@@ -712,6 +757,14 @@ export function ChangesView(props: ChangesViewProps) {
           margin-bottom: 12px;
         }
 
+        .changes-header.is-toggleable {
+          cursor: pointer;
+        }
+
+        .changes-header.is-toggleable:hover {
+          background: var(--bg-inset);
+        }
+
         .changes-branch,
         .changes-stats {
           display: flex;
@@ -722,6 +775,11 @@ export function ChangesView(props: ChangesViewProps) {
 
         .changes-base {
           color: var(--text-secondary);
+        }
+
+        .changes-chevron {
+          color: var(--text-secondary);
+          font-size: 11px;
         }
 
         .changes-source {
@@ -748,6 +806,31 @@ export function ChangesView(props: ChangesViewProps) {
 
         .changes-stats .del {
           color: #fb7185;
+        }
+
+        .changes-branch-files {
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          background: var(--bg-inset);
+          margin: -4px 0 12px;
+          padding: 8px 10px;
+        }
+
+        .changes-branch-files ul {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: grid;
+          gap: 6px;
+        }
+
+        .changes-branch-file {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          font-size: 12px;
+          color: var(--text-primary);
         }
 
         .space-dashboard {
@@ -986,7 +1069,7 @@ export function ChangesView(props: ChangesViewProps) {
 
         .space-commit-row {
           display: grid;
-          grid-template-columns: 60px 1fr auto;
+          grid-template-columns: 60px 1fr auto auto;
           gap: 8px;
           font-size: 12px;
           color: var(--text-primary);
