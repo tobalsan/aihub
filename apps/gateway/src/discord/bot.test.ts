@@ -67,12 +67,16 @@ vi.mock("./utils/threads.js", () => ({
 }));
 
 // Mock global fetch for Discord API (application ID lookup)
-global.fetch = vi.fn(() =>
-  Promise.resolve({
-    ok: true,
-    json: () => Promise.resolve({ id: "app-123" }),
-  } as Response)
+const mockFetch = Object.assign(
+  vi.fn(() =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ id: "app-123" }),
+    } as Response)
+  ),
+  { preconnect: vi.fn() }
 );
+global.fetch = mockFetch as unknown as typeof fetch;
 
 // Mock the Carbon client creation
 vi.mock("./client.js", () => {

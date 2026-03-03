@@ -1545,13 +1545,12 @@ api.post("/projects/:id/attachments", async (c) => {
   const files: Array<{ name: string; data: Buffer }> = [];
 
   for (const [, value] of formData.entries()) {
-    if (value instanceof File) {
-      const arrayBuffer = await value.arrayBuffer();
-      files.push({
-        name: value.name,
-        data: Buffer.from(arrayBuffer),
-      });
-    }
+    if (!isUploadedFile(value)) continue;
+    const arrayBuffer = await value.arrayBuffer();
+    files.push({
+      name: value.name,
+      data: Buffer.from(arrayBuffer),
+    });
   }
 
   if (files.length === 0) {
@@ -1578,6 +1577,19 @@ function attachmentContentType(name: string): string {
   return "application/octet-stream";
 }
 
+function isUploadedFile(
+  value: unknown
+): value is { name: string; arrayBuffer: () => Promise<ArrayBuffer> } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "arrayBuffer" in value &&
+    typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function" &&
+    "name" in value &&
+    typeof (value as { name?: unknown }).name === "string"
+  );
+}
+
 // GET /api/projects/:id/attachments/:name - fetch attachment
 api.get("/projects/:id/attachments/:name", async (c) => {
   const id = c.req.param("id");
@@ -1592,7 +1604,7 @@ api.get("/projects/:id/attachments/:name", async (c) => {
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
   return c.body(
-    Readable.toWeb(createReadStream(result.data.path)) as ReadableStream
+    Readable.toWeb(createReadStream(result.data.path)) as unknown as ReadableStream
   );
 });
 
@@ -1765,7 +1777,7 @@ api.get("/conversations/:id/attachments/:name", async (c) => {
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
   return c.body(
-    Readable.toWeb(createReadStream(result.data.path)) as ReadableStream
+    Readable.toWeb(createReadStream(result.data.path)) as unknown as ReadableStream
   );
 });
 
