@@ -199,20 +199,37 @@ export async function getProjectChanges(
   const staged = parseNumStat(stagedStat);
   const fileSet = new Set<string>([...unstaged.files, ...staged.files]);
 
-  // Branch diff stats: compare current branch vs base branch
+  // Branch diff stats: only count commits whose content isn't already on main.
+  // git cherry marks already-picked commits with "-", unmerged with "+".
   let branchDiffStats = { filesChanged: 0, insertions: 0, deletions: 0 };
   try {
-    const branchNumStat = await runGit(repo, [
-      "diff",
-      `${resolved.baseBranch}...HEAD`,
-      "--numstat",
+    const cherryOutput = await runGit(repo, [
+      "cherry",
+      resolved.baseBranch,
+      "HEAD",
     ]);
-    const parsed = parseNumStat(branchNumStat);
-    branchDiffStats = {
-      filesChanged: parsed.files.size,
-      insertions: parsed.insertions,
-      deletions: parsed.deletions,
-    };
+    const unmergedShas = cherryOutput
+      .split("\n")
+      .filter((l) => l.startsWith("+ "))
+      .map((l) => l.slice(2).trim());
+    if (unmergedShas.length > 0) {
+      // Sum stats across each unmerged commit
+      let totalIns = 0;
+      let totalDel = 0;
+      const allFiles = new Set<string>();
+      for (const sha of unmergedShas) {
+        const stat = await runGit(repo, ["diff", `${sha}~1`, sha, "--numstat"]);
+        const parsed = parseNumStat(stat);
+        for (const f of parsed.files) allFiles.add(f);
+        totalIns += parsed.insertions;
+        totalDel += parsed.deletions;
+      }
+      branchDiffStats = {
+        filesChanged: allFiles.size,
+        insertions: totalIns,
+        deletions: totalDel,
+      };
+    }
   } catch {
     // baseBranch may not exist locally
   }
