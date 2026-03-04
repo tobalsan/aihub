@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   fetchProjectSpaceContribution:
     vi.fn<(projectId: string, entryId: string) => Promise<SpaceContribution>>(),
   integrateProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
-  spawnSpaceConflictFixer:
+  fixSpaceConflict:
     vi.fn<(projectId: string, entryId: string) => Promise<{ entryId: string; slug: string }>>(),
   commitProjectChanges:
     vi.fn<
@@ -37,7 +37,7 @@ vi.mock("../../api/client", () => ({
   fetchProjectPullRequestTarget: mocks.fetchProjectPullRequestTarget,
   fetchProjectSpaceContribution: mocks.fetchProjectSpaceContribution,
   integrateProjectSpace: mocks.integrateProjectSpace,
-  spawnSpaceConflictFixer: mocks.spawnSpaceConflictFixer,
+  fixSpaceConflict: mocks.fixSpaceConflict,
   commitProjectChanges: mocks.commitProjectChanges,
 }));
 
@@ -93,7 +93,7 @@ describe("ChangesView", () => {
     mocks.fetchProjectPullRequestTarget.mockReset();
     mocks.fetchProjectSpaceContribution.mockReset();
     mocks.integrateProjectSpace.mockReset();
-    mocks.spawnSpaceConflictFixer.mockReset();
+    mocks.fixSpaceConflict.mockReset();
     mocks.commitProjectChanges.mockReset();
 
     mocks.fetchProjectChanges.mockResolvedValue(baseChanges);
@@ -125,7 +125,7 @@ describe("ChangesView", () => {
       conflictFiles: [],
     });
     mocks.integrateProjectSpace.mockResolvedValue(baseSpace);
-    mocks.spawnSpaceConflictFixer.mockResolvedValue({
+    mocks.fixSpaceConflict.mockResolvedValue({
       entryId: "alpha:1",
       slug: "fix-alpha",
     });

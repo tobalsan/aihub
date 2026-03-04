@@ -356,7 +356,14 @@ export function SpecEditor(props: SpecEditorProps) {
     }));
     setUpdatingOrder(task.order);
     try {
-      const { section: _section, ...baseTask } = task;
+      const baseTask: Task = {
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        checked: task.checked,
+        agentId: task.agentId,
+        order: task.order,
+      };
       await props.onToggleTask(baseTask);
     } catch (error) {
       setOptimisticCheckedByOrder((prev) => {

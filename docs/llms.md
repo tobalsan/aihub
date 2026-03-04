@@ -368,7 +368,7 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | POST   | `/api/projects/:id/space/integrate` | Resume Space integration queue                     |
 | GET    | `/api/projects/:id/space/commits` | Get Space commit log                                  |
 | GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log      |
-| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Spawn conflict fixer worker             |
+| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Resume original conflicted worker       |
 | GET    | `/api/projects/:id/space/lease` | Get Space write lease (feature-flagged)                |
 | POST   | `/api/projects/:id/space/lease` | Acquire Space write lease (feature-flagged)            |
 | DELETE | `/api/projects/:id/space/lease` | Release Space write lease (feature-flagged)            |
@@ -395,7 +395,9 @@ Behavior:
 - Worker commit ranges are derived from `start_head_sha..end_head_sha` and queued.
 - Worker deliveries remain `pending` until explicit integration (`POST /api/projects/:id/space/integrate`).
 - Gateway cherry-picks queued SHAs into Space (`git cherry-pick -x`) only during explicit integrate flow.
-- On conflict, Space queue is blocked (`integrationBlocked=true`) until resumed by `/api/projects/:id/space/integrate`.
+- On conflict, Space queue is blocked (`integrationBlocked=true`) until the worker resolves and re-delivers.
+- `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original worker with a rebase prompt against current Space HEAD.
+- When that worker re-delivers, gateway updates the same conflict entry in place (new SHAs, status reset, `integrationBlocked=false`) instead of appending a new queue row.
 - Queue statuses include: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
 - Stale worker handling:
   - Clone workers are marked `stale_worker` when their base diverges from Space HEAD.

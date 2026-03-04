@@ -1,8 +1,10 @@
 import { Hono } from "hono";
+import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import * as path from "node:path";
 import os from "node:os";
+import { promisify } from "node:util";
 import {
   SendMessageRequestSchema,
   CreateScheduleRequestSchema,
@@ -74,6 +76,7 @@ import {
   getProjectSpaceCommitLog,
   getProjectSpaceContribution,
   getProjectSpaceConflictContext,
+  getGitHead,
   integrateProjectSpaceQueue,
   isSpaceWriteLeaseEnabled,
   getProjectSpaceWriteLease,
@@ -125,6 +128,7 @@ import {
 import { parseMarkdownFile } from "../taskboard/parser.js";
 
 const api = new Hono();
+const execFileAsync = promisify(execFile);
 
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
@@ -451,13 +455,6 @@ function generateRalphLoopSlug(): string {
   return `ralph-${now}-${rand}`;
 }
 
-function generateConflictFixerSlug(workerSlug: string): string {
-  const now = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 6);
-  const base = slugifyTitle(workerSlug) || "worker";
-  return `fix-${base}-${now}-${rand}`;
-}
-
 const UpdateTaskRequestSchema = z.object({
   checked: z.boolean().optional(),
   status: z.enum(["todo", "in_progress", "done"]).optional(),
@@ -485,14 +482,6 @@ const ReleaseSpaceLeaseRequestSchema = z.object({
   holder: z.string().optional(),
   force: z.boolean().optional(),
 });
-const SpawnConflictFixerRequestSchema = z.object({
-  slug: z.string().optional(),
-  cli: z.enum(["codex", "claude", "pi"]).optional(),
-  model: z.string().optional(),
-  reasoningEffort: z.string().optional(),
-  thinking: z.string().optional(),
-});
-
 const UpdateSubagentRequestSchema = z.object({
   name: z.string().optional(),
   model: z.string().optional(),
@@ -2326,71 +2315,84 @@ api.post("/projects/:id/space/integrate", async (c) => {
   }
 });
 
-// POST /api/projects/:id/space/conflicts/:entryId/fix - spawn conflict fixer worker
+// POST /api/projects/:id/space/conflicts/:entryId/fix - resume conflicted worker
 api.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
   const id = c.req.param("id");
   const entryId = c.req.param("entryId");
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = SpawnConflictFixerRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.message }, 400);
-  }
-
-  const cli = parsed.data.cli ?? "codex";
-  const resolvedCliOptions = resolveCliSpawnOptions(
-    cli,
-    parsed.data.model,
-    parsed.data.reasoningEffort,
-    parsed.data.thinking
-  );
-  if (!resolvedCliOptions.ok) {
-    return c.json({ error: resolvedCliOptions.error }, 400);
-  }
-
   const config = getConfig();
   try {
     const context = await getProjectSpaceConflictContext(config, id, entryId);
+    await execFileAsync("git", ["cherry-pick", "--abort"], {
+      cwd: context.space.worktreePath,
+    }).catch(() => {});
+    const spaceHead = await getGitHead(context.space.worktreePath);
+    if (!spaceHead) {
+      return c.json({ error: "Failed to resolve Space HEAD SHA" }, 400);
+    }
+    const persisted = await readSubagentConfig(
+      config,
+      id,
+      context.entry.workerSlug
+    );
+    if (!persisted.ok) {
+      const status =
+        persisted.error.startsWith("Project not found") ||
+        persisted.error.startsWith("Subagent not found")
+          ? 404
+          : 400;
+      return c.json({ error: persisted.error }, status);
+    }
+    const cliRaw =
+      typeof persisted.data.cli === "string" ? persisted.data.cli.trim() : "";
+    if (!isSupportedSubagentCli(cliRaw)) {
+      return c.json({ error: "Original worker CLI is missing or unsupported" }, 400);
+    }
+    const model =
+      typeof persisted.data.model === "string"
+        ? persisted.data.model.trim() || undefined
+        : undefined;
+    const reasoningEffort =
+      typeof persisted.data.reasoningEffort === "string"
+        ? persisted.data.reasoningEffort.trim() || undefined
+        : undefined;
+    const thinking =
+      typeof persisted.data.thinking === "string"
+        ? persisted.data.thinking.trim() || undefined
+        : undefined;
     const prompt = [
-      "Resolve Space integration conflict in this project.",
+      "Your previous delivery caused a conflict when Space tried to cherry-pick it.",
       "",
-      `Project: ${id}`,
-      `Space branch: ${context.space.branch}`,
-      `Base branch: ${context.space.baseBranch}`,
-      `Failed worker: ${context.entry.workerSlug}`,
-      `Failed delivery id: ${context.entry.id}`,
-      `Failed SHAs: ${context.entry.shas.join(", ") || "(none)"}`,
+      "Rebase your branch onto the current Space HEAD to resolve conflicts:",
       "",
+      "  git fetch origin",
+      `  git rebase --onto ${spaceHead} ${context.entry.startSha ?? "<start-sha-missing>"} HEAD`,
+      "",
+      "If rebase conflicts occur, resolve them manually, then git rebase --continue.",
+      "After rebase is complete, verify your changes still work, then deliver.",
+      "",
+      `Space HEAD: ${spaceHead}`,
+      `Your original start SHA: ${context.entry.startSha ?? "(missing)"}`,
+      `Your original end SHA: ${context.entry.endSha ?? "(missing)"}`,
       "Conflicted files:",
       ...(context.conflictFiles.length > 0
         ? context.conflictFiles.map((file) => `- ${file}`)
         : ["- (no unmerged files reported)"]),
-      "",
-      "Checklist:",
-      "1. Inspect and resolve conflicts in the listed files.",
-      "2. Run targeted tests for touched files.",
-      "3. Commit the conflict resolution with a clear message.",
-      "4. Comment the resolution and next steps in project thread.",
     ].join("\n");
-
-    const slug = parsed.data.slug?.trim()
-      ? parsed.data.slug.trim()
-      : generateConflictFixerSlug(context.entry.workerSlug);
     const spawned = await spawnSubagent(config, {
       projectId: id,
-      slug,
-      cli,
+      slug: context.entry.workerSlug,
+      cli: cliRaw,
       prompt,
-      model: resolvedCliOptions.data.model,
-      reasoningEffort: resolvedCliOptions.data.reasoningEffort,
-      thinking: resolvedCliOptions.data.thinking,
-      mode: "worktree",
-      baseBranch: context.space.branch,
+      model,
+      reasoningEffort,
+      thinking,
+      resume: true,
     });
     if (!spawned.ok) {
       const status = spawned.error.startsWith("Project not found") ? 404 : 400;
       return c.json({ error: spawned.error }, status);
     }
-    return c.json({ entryId, ...spawned.data }, 201);
+    return c.json({ entryId, slug: context.entry.workerSlug }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const status =

@@ -6,8 +6,8 @@ import {
   fetchProjectSpace,
   fetchProjectSpaceCommits,
   fetchProjectSpaceContribution,
+  fixSpaceConflict,
   integrateProjectSpace,
-  spawnSpaceConflictFixer,
 } from "../../api/client";
 import type {
   FileChange,
@@ -280,17 +280,17 @@ export function ChangesView(props: ChangesViewProps) {
     }
   };
 
-  const handleSpawnFixer = async (entryId: string) => {
+  const handleFixConflict = async (entryId: string) => {
     if (fixingEntryId()) return;
     setFixMessage(null);
     setFixError(null);
     setFixingEntryId(entryId);
     try {
-      const result = await spawnSpaceConflictFixer(props.projectId, entryId);
-      setFixMessage(`Spawned fixer: ${result.slug}`);
+      const result = await fixSpaceConflict(props.projectId, entryId);
+      setFixMessage(`Resumed worker: ${result.slug}`);
     } catch (error) {
       setFixError(
-        error instanceof Error ? error.message : "Failed to spawn conflict fixer"
+        error instanceof Error ? error.message : "Failed to resume conflicted worker"
       );
     } finally {
       setFixingEntryId(null);
@@ -428,8 +428,8 @@ export function ChangesView(props: ChangesViewProps) {
               </div>
               <Show when={space()?.integrationBlocked}>
                 <p class="changes-error">
-                  Space integration is blocked by a conflict. Resolve conflicts or spawn
-                  a fixer worker.
+                  Space integration is blocked by a conflict. Resolve conflicts or resume
+                  the original worker.
                 </p>
               </Show>
               <Show when={integrateError()}>
@@ -482,11 +482,11 @@ export function ChangesView(props: ChangesViewProps) {
                                     disabled={fixingEntryId() === entry.id}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      void handleSpawnFixer(entry.id);
+                                      void handleFixConflict(entry.id);
                                     }}
                                   >
                                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 1.5l3 3M1 11.5L11.5 1.5l3 3L4.5 15H1v-3.5z"/></svg>
-                                    {fixingEntryId() === entry.id ? "Spawning…" : "Fix conflict"}
+                                    {fixingEntryId() === entry.id ? "Resuming…" : "Fix conflict"}
                                   </button>
                                 </Show>
                               </div>

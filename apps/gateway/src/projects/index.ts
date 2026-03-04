@@ -37,6 +37,7 @@ export {
   getProjectSpaceCommitLog,
   getProjectSpaceContribution,
   getProjectSpaceConflictContext,
+  getGitHead,
   integrateProjectSpaceQueue,
   recordWorkerDelivery,
   pruneProjectRepoWorktrees,

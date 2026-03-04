@@ -2172,7 +2172,7 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
-  it("spawns conflict fixer subagent from conflicted Space entry", async () => {
+  it("resumes conflicted worker from Space entry", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -2231,6 +2231,19 @@ describe("subagents API", () => {
       })
     );
     expect(seedSpaceRes.status).toBe(201);
+    const seedWorkerRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "alpha",
+          cli: "codex",
+          prompt: "seed worker",
+          mode: "worktree",
+        }),
+      })
+    );
+    expect(seedWorkerRes.status).toBe(201);
 
     const projectDir = path.join(projectsRoot, created.path);
     const spacePath = path.join(projectDir, "space.json");
@@ -2260,22 +2273,25 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}/space/conflicts/conflict-1/fix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: "fix-alpha" }),
+        body: JSON.stringify({}),
       })
     );
     expect(fixRes.status).toBe(201);
     const fixBody = await fixRes.json();
-    expect(fixBody.slug).toBe("fix-alpha");
+    expect(fixBody.slug).toBe("alpha");
     expect(fixBody.entryId).toBe("conflict-1");
 
-    const fixerConfig = JSON.parse(
+    const workerConfig = JSON.parse(
       await fs.readFile(
-        path.join(projectDir, "sessions", "fix-alpha", "config.json"),
+        path.join(projectDir, "sessions", "alpha", "config.json"),
         "utf8"
       )
     ) as { runMode?: string; baseBranch?: string };
-    expect(fixerConfig.runMode).toBe("worktree");
-    expect(fixerConfig.baseBranch).toBe(`space/${created.id}`);
+    expect(workerConfig.runMode).toBe("worktree");
+    expect(workerConfig.baseBranch).toBe("main");
+    await expect(
+      fs.stat(path.join(projectDir, "sessions", "fix-alpha"))
+    ).rejects.toThrow();
 
     process.env.PATH = prevPath;
   });

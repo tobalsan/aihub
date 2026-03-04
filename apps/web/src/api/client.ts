@@ -979,30 +979,23 @@ export async function fetchProjectSpaceContribution(
   return (await res.json()) as SpaceContribution;
 }
 
-export async function spawnSpaceConflictFixer(
+export async function fixSpaceConflict(
   projectId: string,
-  entryId: string,
-  input?: {
-    slug?: string;
-    cli?: "codex" | "claude" | "pi";
-    model?: string;
-    reasoningEffort?: string;
-    thinking?: string;
-  }
+  entryId: string
 ): Promise<{ entryId: string; slug: string }> {
   const res = await fetch(
     `${API_BASE}/projects/${projectId}/space/conflicts/${encodeURIComponent(entryId)}/fix`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input ?? {}),
+      body: JSON.stringify({}),
     }
   );
   if (!res.ok) {
     const data = await res
       .json()
-      .catch(() => ({ error: "Failed to spawn conflict fixer" }));
-    throw new Error(data.error ?? "Failed to spawn conflict fixer");
+      .catch(() => ({ error: "Failed to fix space conflict" }));
+    throw new Error(data.error ?? "Failed to fix space conflict");
   }
   return (await res.json()) as { entryId: string; slug: string };
 }

@@ -11,6 +11,22 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-04: Space conflict-fix resumes original worker (PRO-166)
+
+- `apps/gateway/src/server/api.ts`
+  - Changed `POST /api/projects/:id/space/conflicts/:entryId/fix` from spawning a new fixer run to resuming the original worker slug.
+  - Handler now aborts any lingering Space cherry-pick state, resolves current Space HEAD SHA, and sends rebase/deliver instructions to the worker.
+- `apps/gateway/src/projects/space.ts`
+  - `recordWorkerDelivery` now detects existing `conflict` entry for the same worker and updates that entry in place (`startSha/endSha/shas/status/error/staleAgainstSha`) instead of appending.
+  - Clears `integrationBlocked` when conflict re-delivery lands.
+- `apps/web/src/api/client.ts`, `apps/web/src/components/project/ChangesView.tsx`
+  - Renamed client call to `fixSpaceConflict`.
+  - Changes tab now uses resume wording (`Resuming…`, `Resumed worker: <slug>`) and no longer implies spawning a new fixer.
+- Tests:
+  - Added in-place conflict re-delivery coverage in `apps/gateway/src/projects/space.test.ts`.
+  - Updated conflict-fix API expectations in `apps/gateway/src/subagents/subagents.api.test.ts` for resume flow.
+  - Updated ChangesView client mock naming and preserved suite coverage.
+
 ### 2026-03-04: Subagent post-creation model/config updates (PRO-163 Fix 4)
 
 - `apps/gateway/src/server/api.ts`, `apps/gateway/src/subagents/index.ts`

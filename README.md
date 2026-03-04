@@ -135,7 +135,9 @@ Project Space model:
 - `main-run` executes in project Space (`space/<projectId>` branch, `.../.workspaces/<projectId>/_space` worktree).
 - `worktree` and `clone` remain isolated worker sandboxes.
 - Worker commits are queued as `pending`; they are cherry-picked only on explicit `POST /api/projects/:id/space/integrate` (UI: Integrate Now).
-- Conflicts block queue until resumed.
+- Conflicts block queue until resolved by the original worker.
+- `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original conflicting worker with rebase instructions (no new worker/worktree).
+- On re-delivery after a conflict, gateway updates the original conflict entry in-place and clears `integrationBlocked`.
 - Queue statuses: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
 - Stale handling: clone deliveries can be marked `stale_worker`; worktree runs can auto-rebase with `AIHUB_SPACE_AUTO_REBASE=true`.
 - Optional write lease (`AIHUB_SPACE_WRITE_LEASE=true`) enforces exclusive `main-run` writer access via project `space-lease.json`.
@@ -270,7 +272,7 @@ openclaw sessions list
 | `/api/projects/:id/space/integrate` | POST | Resume/pick pending Space queue                     |
 | `/api/projects/:id/space/commits` | GET  | Get Space commit log                                 |
 | `/api/projects/:id/space/contributions/:entryId` | GET | Get per-entry contribution details     |
-| `/api/projects/:id/space/conflicts/:entryId/fix` | POST | Spawn conflict-fixer worker           |
+| `/api/projects/:id/space/conflicts/:entryId/fix` | POST | Resume original conflicted worker     |
 | `/api/projects/:id/space/lease` | GET/POST/DELETE | Read/acquire/release Space write lease (flagged) |
 | `/api/projects/:id/changes` | GET         | Get project changes (Space-first source)             |
 | `/api/projects/:id/commit` | POST         | Commit project changes in resolved source            |

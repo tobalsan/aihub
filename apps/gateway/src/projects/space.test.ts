@@ -226,6 +226,89 @@ describe("project space", () => {
     SPACE_TEST_TIMEOUT_MS
   );
 
+  it(
+    "updates conflicting entry in place when same worker re-delivers",
+    async () => {
+      const repoDir = path.join(tmpDir, "repo");
+      await createRepo(repoDir);
+
+      const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+      await fs.mkdir(projectDir, { recursive: true });
+      await writeProjectReadme(projectDir, repoDir);
+
+      const workspacesRoot = path.join(projectsRoot, ".workspaces", "PRO-1");
+      await fs.mkdir(workspacesRoot, { recursive: true });
+      const space = await ensureProjectSpace(config, "PRO-1", "main");
+
+      const alphaPath = path.join(workspacesRoot, "alpha");
+      await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/alpha", alphaPath, "main"]);
+      const alphaStart = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+      await fs.writeFile(path.join(alphaPath, "app.txt"), "worker-one\n", "utf8");
+      await runGit(alphaPath, ["add", "app.txt"]);
+      await runGit(alphaPath, ["commit", "-m", "alpha"]);
+      const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+      await recordWorkerDelivery(config, {
+        projectId: "PRO-1",
+        workerSlug: "alpha",
+        runMode: "worktree",
+        worktreePath: alphaPath,
+        startSha: alphaStart,
+        endSha: alphaEnd,
+      });
+
+      const betaPath = path.join(workspacesRoot, "beta");
+      await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/beta", betaPath, "main"]);
+      const betaStart = await runGit(betaPath, ["rev-parse", "HEAD"]);
+      await fs.writeFile(path.join(betaPath, "app.txt"), "worker-two\n", "utf8");
+      await runGit(betaPath, ["add", "app.txt"]);
+      await runGit(betaPath, ["commit", "-m", "beta"]);
+      const betaEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+      await recordWorkerDelivery(config, {
+        projectId: "PRO-1",
+        workerSlug: "beta",
+        runMode: "worktree",
+        worktreePath: betaPath,
+        startSha: betaStart,
+        endSha: betaEnd,
+      });
+
+      const blocked = await integrateProjectSpaceQueue(config, "PRO-1");
+      expect(blocked.integrationBlocked).toBe(true);
+      const conflictEntry = blocked.queue.find(
+        (item) => item.workerSlug === "beta" && item.status === "conflict"
+      );
+      expect(conflictEntry).toBeDefined();
+      const queueLengthBefore = blocked.queue.length;
+
+      const spaceHead = await runGit(space.worktreePath, ["rev-parse", "HEAD"]);
+      await runGit(betaPath, ["reset", "--hard", spaceHead]);
+      await fs.writeFile(path.join(betaPath, "note.txt"), "rebased\n", "utf8");
+      await runGit(betaPath, ["add", "note.txt"]);
+      await runGit(betaPath, ["commit", "-m", "beta rebased"]);
+      const rebasedEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+
+      const updated = await recordWorkerDelivery(config, {
+        projectId: "PRO-1",
+        workerSlug: "beta",
+        runMode: "worktree",
+        worktreePath: betaPath,
+        startSha: spaceHead,
+        endSha: rebasedEnd,
+      });
+
+      expect(updated.integrationBlocked).toBe(false);
+      expect(updated.queue).toHaveLength(queueLengthBefore);
+      const updatedEntry = updated.queue.find((item) => item.id === conflictEntry?.id);
+      expect(updatedEntry?.status).toBe("pending");
+      expect(updatedEntry?.startSha).toBe(spaceHead);
+      expect(updatedEntry?.endSha).toBe(rebasedEnd);
+      expect(updatedEntry?.shas).toContain(rebasedEnd);
+      expect(updatedEntry?.error).toBeUndefined();
+      expect(updatedEntry?.staleAgainstSha).toBeUndefined();
+    },
+    SPACE_TEST_TIMEOUT_MS
+  );
+
   it("queues clone worker commits and integrates on explicit request", async () => {
     const repoDir = path.join(tmpDir, "repo");
     await createRepo(repoDir);

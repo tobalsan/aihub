@@ -317,7 +317,7 @@ async function collectCommitShas(
   }
 }
 
-async function getGitHead(cwd: string): Promise<string | null> {
+export async function getGitHead(cwd: string): Promise<string | null> {
   try {
     const out = await runGit(cwd, ["rev-parse", "HEAD"]);
     const value = out.trim();
@@ -809,6 +809,31 @@ export async function recordWorkerDelivery(
 
   const now = new Date().toISOString();
   await persistProjectSpace(config, input.projectId, (current) => {
+    const conflictIndex = current.queue.findIndex(
+      (item) => item.workerSlug === input.workerSlug && item.status === "conflict"
+    );
+    if (conflictIndex >= 0) {
+      const queue = [...current.queue];
+      const existing = queue[conflictIndex]!;
+      queue[conflictIndex] = {
+        ...existing,
+        runMode: input.runMode,
+        worktreePath: input.worktreePath,
+        startSha,
+        endSha,
+        shas,
+        status: shas.length > 0 ? "pending" : "skipped",
+        integratedAt: undefined,
+        staleAgainstSha: undefined,
+        error: undefined,
+      };
+      return {
+        ...current,
+        integrationBlocked: false,
+        queue,
+      };
+    }
+
     const entry: IntegrationEntry = {
       id: `${input.workerSlug}:${Date.now()}`,
       workerSlug: input.workerSlug,
