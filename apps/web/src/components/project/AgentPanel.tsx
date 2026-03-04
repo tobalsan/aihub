@@ -231,6 +231,7 @@ export function AgentPanel(props: AgentPanelProps) {
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [busyModelSlug, setBusyModelSlug] = createSignal<string | null>(null);
+  const [modelPopupSlug, setModelPopupSlug] = createSignal<string | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
   const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
     null
@@ -1045,7 +1046,71 @@ export function AgentPanel(props: AgentPanelProps) {
                             </button>
                           </Show>
                           <Show when={agentMeta}>
-                            <span class="agent-meta">{agentMeta}</span>
+                            <span
+                              class="agent-meta"
+                              classList={{ editable: canEditModel }}
+                              onClick={(event) => {
+                                if (!canEditModel) return;
+                                event.stopPropagation();
+                                setModelPopupSlug(
+                                  modelPopupSlug() === item.slug
+                                    ? null
+                                    : item.slug
+                                );
+                              }}
+                            >
+                              {agentMeta}
+                            </span>
+                            <Show when={modelPopupSlug() === item.slug}>
+                              {(() => {
+                                let ref: HTMLDivElement | undefined;
+                                const close = (e: MouseEvent) => {
+                                  if (ref && !ref.contains(e.target as Node))
+                                    setModelPopupSlug(null);
+                                };
+                                onMount(() =>
+                                  document.addEventListener("click", close, true)
+                                );
+                                onCleanup(() =>
+                                  document.removeEventListener(
+                                    "click",
+                                    close,
+                                    true
+                                  )
+                                );
+                                return (
+                                  <div
+                                    ref={ref}
+                                    class="model-popup"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <For each={modelOptions}>
+                                      {(value) => (
+                                        <button
+                                          type="button"
+                                          class="model-popup-item"
+                                          classList={{
+                                            selected: value === selectedModel,
+                                          }}
+                                          disabled={
+                                            busyModelSlug() === item.slug
+                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setModelPopupSlug(null);
+                                            if (value !== selectedModel) {
+                                              void handleModelUpdate(item, value);
+                                            }
+                                          }}
+                                        >
+                                          {value}
+                                        </button>
+                                      )}
+                                    </For>
+                                  </div>
+                                );
+                              })()}
+                            </Show>
                           </Show>
                         </span>
                         <span class="agent-elapsed">
@@ -1053,31 +1118,6 @@ export function AgentPanel(props: AgentPanelProps) {
                         </span>
                       </span>
                       <span class="agent-task">{previewText(item)}</span>
-                      <Show when={canEditModel}>
-                        <label
-                          class="agent-model-row"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <span class="agent-model-label">Model</span>
-                          <select
-                            class="agent-model-select"
-                            value={selectedModel}
-                            disabled={busyModelSlug() === item.slug}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => {
-                              event.stopPropagation();
-                              void handleModelUpdate(
-                                item,
-                                event.currentTarget.value
-                              );
-                            }}
-                          >
-                            <For each={modelOptions}>
-                              {(value) => <option value={value}>{value}</option>}
-                            </For>
-                          </select>
-                        </label>
-                      </Show>
                     </span>
                     <div class="agent-row-actions">
                       <button
@@ -1483,29 +1523,52 @@ export function AgentPanel(props: AgentPanelProps) {
           width: 100%;
         }
 
-        .agent-model-row {
-          margin-top: 2px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
+        .agent-meta.editable {
+          cursor: pointer;
         }
 
-        .agent-model-label {
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          color: var(--text-muted);
+        .agent-meta.editable:hover {
+          color: var(--text-secondary);
         }
 
-        .agent-model-select {
+        .model-popup {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          z-index: 20;
+          margin-top: 4px;
+          background: var(--bg-input);
           border: 1px solid var(--border-subtle);
           border-radius: 6px;
-          background: var(--bg-input);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          padding: 4px 0;
+          min-width: 120px;
+        }
+
+        .model-popup-item {
+          display: block;
+          width: 100%;
+          border: none;
+          background: transparent;
           color: var(--text-primary);
           font-size: 11px;
-          height: 24px;
-          padding: 0 6px;
-          min-width: 120px;
+          padding: 5px 12px;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .model-popup-item:hover {
+          background: var(--bg-hover);
+        }
+
+        .model-popup-item.selected {
+          font-weight: 600;
+          color: var(--text-accent, var(--text-primary));
+        }
+
+        .model-popup-item:disabled {
+          opacity: 0.5;
+          cursor: wait;
         }
 
         .agent-list-head {
@@ -1521,7 +1584,8 @@ export function AgentPanel(props: AgentPanelProps) {
           gap: 6px;
           min-width: 0;
           flex: 1;
-          overflow: hidden;
+          overflow: visible;
+          position: relative;
         }
 
         .agent-name-btn {

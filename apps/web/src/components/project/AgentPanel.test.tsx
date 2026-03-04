@@ -135,7 +135,7 @@ describe("AgentPanel", () => {
     dispose();
   });
 
-  it("shows model selector for idle run and patches model on change", async () => {
+  it("shows model popup on meta click for idle run and patches model", async () => {
     vi.mocked(fetchSubagents).mockResolvedValueOnce({
       ok: true,
       data: {
@@ -159,13 +159,22 @@ describe("AgentPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const select = container.querySelector(
-      ".agent-model-select"
-    ) as HTMLSelectElement;
-    expect(select).toBeTruthy();
+    const meta = container.querySelector(".agent-meta.editable") as HTMLElement;
+    expect(meta).toBeTruthy();
+    expect(container.querySelector(".model-popup")).toBeNull();
 
-    select.value = "gpt-5.2";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    meta.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const popup = container.querySelector(".model-popup");
+    expect(popup).toBeTruthy();
+
+    const items = popup!.querySelectorAll(".model-popup-item");
+    const gpt52 = Array.from(items).find(
+      (btn) => btn.textContent === "gpt-5.2"
+    ) as HTMLButtonElement;
+    expect(gpt52).toBeTruthy();
+    gpt52.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(updateSubagent).toHaveBeenCalledWith("PRO-1", "alpha", {
@@ -175,7 +184,7 @@ describe("AgentPanel", () => {
     dispose();
   });
 
-  it("hides model selector for running run", async () => {
+  it("meta text is not clickable for running run", async () => {
     vi.mocked(fetchSubagents).mockResolvedValueOnce({
       ok: true,
       data: {
@@ -193,7 +202,8 @@ describe("AgentPanel", () => {
     const { container, dispose } = setup();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.querySelector(".agent-model-select")).toBeNull();
+    expect(container.querySelector(".agent-meta.editable")).toBeNull();
+    expect(container.querySelector(".model-popup")).toBeNull();
     dispose();
   });
 
