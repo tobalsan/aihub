@@ -488,6 +488,56 @@ describe("project space", () => {
     }
   }, SPACE_TEST_TIMEOUT_MS);
 
+  it("clears queue after merge when cleanup is disabled", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    const workerPath = path.join(projectsRoot, ".workspaces", "PRO-1", "alpha");
+    await fs.mkdir(path.dirname(workerPath), { recursive: true });
+    await runGit(repoDir, [
+      "worktree",
+      "add",
+      "-b",
+      "PRO-1/alpha",
+      workerPath,
+      "main",
+    ]);
+
+    const start = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(workerPath, "app.txt"), "worker-one\n", "utf8");
+    await runGit(workerPath, ["add", "app.txt"]);
+    await runGit(workerPath, ["commit", "-m", "worker one"]);
+    const end = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: workerPath,
+      startSha: start,
+      endSha: end,
+    });
+    await integrateProjectSpaceQueue(config, "PRO-1");
+
+    const merged = await mergeSpaceIntoBase(config, "PRO-1", { cleanup: false });
+    expect(merged.mergeMethod).toBe("ff");
+    expect(merged.cleanup).toBeUndefined();
+
+    const refreshed = await getProjectSpace(config, "PRO-1");
+    expect(refreshed.ok).toBe(true);
+    if (refreshed.ok) {
+      expect(refreshed.data.queue).toHaveLength(0);
+      expect(refreshed.data.integrationBlocked).toBe(false);
+    }
+
+    await expect(fs.stat(workerPath)).resolves.toBeDefined();
+    await expect(fs.stat(space.worktreePath)).resolves.toBeDefined();
+  }, SPACE_TEST_TIMEOUT_MS);
+
   it("rejects merge when space queue has unresolved entries", async () => {
     const repoDir = path.join(tmpDir, "repo");
     await createRepo(repoDir);

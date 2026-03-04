@@ -210,5 +210,12 @@ describe("space merge API", () => {
 
     const mainContent = await runGit(repoDir, ["show", "main:app.txt"]);
     expect(mainContent).toContain("worker-one");
+
+    const spaceRes = await Promise.resolve(api.request(`/projects/${created.id}/space`));
+    expect(spaceRes.status).toBe(200);
+    const spaceState = await spaceRes.json();
+    expect(Array.isArray(spaceState.queue)).toBe(true);
+    expect(spaceState.queue).toHaveLength(0);
+    expect(spaceState.integrationBlocked).toBe(false);
   }, SPACE_API_TEST_TIMEOUT_MS);
 });

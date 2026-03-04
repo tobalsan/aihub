@@ -940,6 +940,12 @@ export async function mergeSpaceIntoBase(
     let cleanupResult: SpaceCleanupSummary | undefined;
     if (options?.cleanup ?? true) {
       cleanupResult = await cleanupSpaceWorktrees(config, projectId);
+    } else {
+      await persistProjectSpace(config, projectId, (current) => ({
+        ...current,
+        queue: [],
+        integrationBlocked: false,
+      }));
     }
 
     return {
