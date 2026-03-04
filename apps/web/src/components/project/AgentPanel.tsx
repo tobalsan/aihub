@@ -231,7 +231,11 @@ export function AgentPanel(props: AgentPanelProps) {
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [busyModelSlug, setBusyModelSlug] = createSignal<string | null>(null);
-  const [modelPopupSlug, setModelPopupSlug] = createSignal<string | null>(null);
+  const [modelMenuSlug, setModelMenuSlug] = createSignal<string | null>(null);
+  const [modelMenuPosition, setModelMenuPosition] = createSignal<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
   const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
     null
@@ -300,6 +304,7 @@ export function AgentPanel(props: AgentPanelProps) {
   onMount(() => {
     const onDocumentClick = (event: MouseEvent) => {
       const target = event.target as Node | null;
+      const targetElement = target instanceof Element ? target : null;
       if (statusMenuOpen() && !statusMenuRef?.contains(target ?? null)) {
         setStatusMenuOpen(false);
       }
@@ -308,6 +313,13 @@ export function AgentPanel(props: AgentPanelProps) {
       }
       if (templateMenuOpen() && !templateMenuRef?.contains(target ?? null)) {
         setTemplateMenuOpen(false);
+      }
+      if (
+        modelMenuSlug() &&
+        !targetElement?.closest(".agent-meta-wrap")
+      ) {
+        setModelMenuSlug(null);
+        setModelMenuPosition(null);
       }
     };
 
@@ -502,6 +514,27 @@ export function AgentPanel(props: AgentPanelProps) {
     nowTick();
     return formatElapsed(raw);
   };
+
+  createEffect(() => {
+    const openSlug = modelMenuSlug();
+    if (!openSlug) return;
+    const item = props.subagents.find((entry) => entry.slug === openSlug);
+    if (!item) {
+      setModelMenuSlug(null);
+      setModelMenuPosition(null);
+      return;
+    }
+    const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
+    const currentModel = trimOptional(item.model);
+    const modelOptions =
+      currentModel && !options.includes(currentModel)
+        ? [currentModel, ...options]
+        : options;
+    if (item.status === "running" || modelOptions.length === 0) {
+      setModelMenuSlug(null);
+      setModelMenuPosition(null);
+    }
+  });
 
   const refreshSubagents = async () => {
     const refresh = await fetchSubagents(props.project.id, true);
@@ -1046,71 +1079,87 @@ export function AgentPanel(props: AgentPanelProps) {
                             </button>
                           </Show>
                           <Show when={agentMeta}>
-                            <span
-                              class="agent-meta"
-                              classList={{ editable: canEditModel }}
-                              onClick={(event) => {
-                                if (!canEditModel) return;
-                                event.stopPropagation();
-                                setModelPopupSlug(
-                                  modelPopupSlug() === item.slug
-                                    ? null
-                                    : item.slug
-                                );
-                              }}
-                            >
-                              {agentMeta}
+                            <span class="agent-meta-wrap">
+                              <span
+                                class="agent-meta"
+                                classList={{ editable: canEditModel }}
+                                role={canEditModel ? "button" : undefined}
+                                tabIndex={canEditModel ? 0 : undefined}
+                                title={canEditModel ? "Change model" : undefined}
+                                onClick={(event) => {
+                                  if (!canEditModel) return;
+                                  event.stopPropagation();
+                                  const target = event.currentTarget;
+                                  const rect = target.getBoundingClientRect();
+                                  setModelMenuSlug((current) => {
+                                    const isClosing = current === item.slug;
+                                    setModelMenuPosition(
+                                      isClosing
+                                        ? null
+                                        : { left: rect.left, top: rect.bottom + 4 }
+                                    );
+                                    return isClosing ? null : item.slug;
+                                  });
+                                }}
+                                onKeyDown={(event) => {
+                                  if (!canEditModel) return;
+                                  if (event.key !== "Enter" && event.key !== " ")
+                                    return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  const target = event.currentTarget;
+                                  const rect = target.getBoundingClientRect();
+                                  setModelMenuSlug((current) => {
+                                    const isClosing = current === item.slug;
+                                    setModelMenuPosition(
+                                      isClosing
+                                        ? null
+                                        : { left: rect.left, top: rect.bottom + 4 }
+                                    );
+                                    return isClosing ? null : item.slug;
+                                  });
+                                }}
+                              >
+                                {agentMeta}
+                              </span>
+                              <Show
+                                when={
+                                  canEditModel && modelMenuSlug() === item.slug
+                                }
+                              >
+                                <div
+                                  class="agent-model-popup"
+                                  style={
+                                    modelMenuPosition()
+                                      ? {
+                                          left: `${modelMenuPosition()!.left}px`,
+                                          top: `${modelMenuPosition()!.top}px`,
+                                        }
+                                      : undefined
+                                  }
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <For each={modelOptions}>
+                                    {(value) => (
+                                      <button
+                                        type="button"
+                                        class="agent-model-option"
+                                        classList={{ selected: value === selectedModel }}
+                                        disabled={busyModelSlug() === item.slug}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setModelMenuSlug(null);
+                                          setModelMenuPosition(null);
+                                          void handleModelUpdate(item, value);
+                                        }}
+                                      >
+                                        {value}
+                                      </button>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
                             </span>
-                            <Show when={modelPopupSlug() === item.slug}>
-                              {(() => {
-                                let ref: HTMLDivElement | undefined;
-                                const close = (e: MouseEvent) => {
-                                  if (ref && !ref.contains(e.target as Node))
-                                    setModelPopupSlug(null);
-                                };
-                                onMount(() =>
-                                  document.addEventListener("click", close, true)
-                                );
-                                onCleanup(() =>
-                                  document.removeEventListener(
-                                    "click",
-                                    close,
-                                    true
-                                  )
-                                );
-                                return (
-                                  <div
-                                    ref={ref}
-                                    class="model-popup"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <For each={modelOptions}>
-                                      {(value) => (
-                                        <button
-                                          type="button"
-                                          class="model-popup-item"
-                                          classList={{
-                                            selected: value === selectedModel,
-                                          }}
-                                          disabled={
-                                            busyModelSlug() === item.slug
-                                          }
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setModelPopupSlug(null);
-                                            if (value !== selectedModel) {
-                                              void handleModelUpdate(item, value);
-                                            }
-                                          }}
-                                        >
-                                          {value}
-                                        </button>
-                                      )}
-                                    </For>
-                                  </div>
-                                );
-                              })()}
-                            </Show>
                           </Show>
                         </span>
                         <span class="agent-elapsed">
@@ -1523,54 +1572,6 @@ export function AgentPanel(props: AgentPanelProps) {
           width: 100%;
         }
 
-        .agent-meta.editable {
-          cursor: pointer;
-        }
-
-        .agent-meta.editable:hover {
-          color: var(--text-secondary);
-        }
-
-        .model-popup {
-          position: absolute;
-          top: 100%;
-          left: 0;
-          z-index: 20;
-          margin-top: 4px;
-          background: var(--bg-input);
-          border: 1px solid var(--border-subtle);
-          border-radius: 6px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-          padding: 4px 0;
-          min-width: 120px;
-        }
-
-        .model-popup-item {
-          display: block;
-          width: 100%;
-          border: none;
-          background: transparent;
-          color: var(--text-primary);
-          font-size: 11px;
-          padding: 5px 12px;
-          text-align: left;
-          cursor: pointer;
-        }
-
-        .model-popup-item:hover {
-          background: var(--bg-hover);
-        }
-
-        .model-popup-item.selected {
-          font-weight: 600;
-          color: var(--text-accent, var(--text-primary));
-        }
-
-        .model-popup-item:disabled {
-          opacity: 0.5;
-          cursor: wait;
-        }
-
         .agent-list-head {
           display: flex;
           align-items: center;
@@ -1646,8 +1647,72 @@ export function AgentPanel(props: AgentPanelProps) {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          display: block;
+          max-width: 100%;
+        }
+
+        .agent-meta-wrap {
+          position: relative;
           flex: 0 1 auto;
           max-width: 55%;
+        }
+
+        .agent-meta.editable {
+          cursor: pointer;
+          padding: 0 2px;
+          margin: 0 -2px;
+          border-radius: 4px;
+          transition:
+            background-color 0.12s ease,
+            color 0.12s ease;
+        }
+
+        .agent-meta.editable:hover,
+        .agent-meta.editable:focus-visible {
+          color: var(--text-secondary);
+          background: color-mix(in srgb, var(--bg-input) 70%, transparent);
+          outline: none;
+        }
+
+        .agent-model-popup {
+          position: fixed;
+          min-width: 160px;
+          z-index: 4;
+          display: grid;
+          gap: 2px;
+          border: 1px solid var(--border-subtle);
+          border-radius: 8px;
+          background: var(--bg-overlay);
+          padding: 4px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+        }
+
+        .agent-model-option {
+          border: 1px solid transparent;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--text-secondary);
+          font-size: 11px;
+          line-height: 1.3;
+          text-align: left;
+          padding: 5px 7px;
+          cursor: pointer;
+        }
+
+        .agent-model-option:hover:not(:disabled) {
+          color: var(--text-primary);
+          background: color-mix(in srgb, var(--bg-input) 70%, transparent);
+        }
+
+        .agent-model-option.selected {
+          color: var(--text-primary);
+          border-color: var(--border-subtle);
+          background: color-mix(in srgb, var(--bg-input) 75%, transparent);
+        }
+
+        .agent-model-option:disabled {
+          opacity: 0.55;
+          cursor: wait;
         }
 
         .agent-task {
