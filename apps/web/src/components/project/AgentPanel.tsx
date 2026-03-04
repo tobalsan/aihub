@@ -1645,16 +1645,11 @@ export function AgentPanel(props: AgentPanelProps) {
           color: var(--text-tertiary);
           line-height: 1.2;
           white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          display: block;
-          max-width: 100%;
         }
 
         .agent-meta-wrap {
           position: relative;
-          flex: 0 1 auto;
-          max-width: 55%;
+          flex: 0 0 auto;
         }
 
         .agent-meta.editable {
