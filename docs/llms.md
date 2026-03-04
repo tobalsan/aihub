@@ -63,7 +63,7 @@ Features:
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
 - Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
-- Project detail left panel subagent rows support inline rename (click name, save on Enter/blur)
+- Project detail left panel subagent rows support inline rename (click name, save on Enter/blur; Space is treated as input while editing and does not trigger row selection)
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions
 - Changes tab branch diff header (`Branch: ... → ...` with aggregate +/- stats) is clickable when pending branch diff files exist, and toggles a compact per-file +/- breakdown list
 - Space Commit Log rows include relative elapsed commit time (`now`, `1m`, `2h`, `3d`) next to author metadata

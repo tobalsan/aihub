@@ -484,4 +484,39 @@ describe("AgentPanel", () => {
 
     dispose();
   });
+
+  it("does not select subagent when pressing Space during rename", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            name: "Worker Alpha",
+            status: "idle",
+          },
+        ],
+      },
+    });
+    const onSelectAgent = vi.fn();
+
+    const { container, dispose } = setup({ onSelectAgent });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const renameButton = container.querySelector(
+      ".agent-name-btn"
+    ) as HTMLButtonElement;
+    renameButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const input = container.querySelector(".agent-name-input") as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+
+    expect(onSelectAgent).not.toHaveBeenCalled();
+    expect(container.querySelector(".agent-name-input")).toBeTruthy();
+
+    dispose();
+  });
 });

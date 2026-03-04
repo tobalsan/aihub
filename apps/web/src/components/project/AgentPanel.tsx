@@ -589,6 +589,10 @@ export function AgentPanel(props: AgentPanelProps) {
                     onInput={(event) => setNameDraft(event.currentTarget.value)}
                     onBlur={() => void saveRenamedSubagent(item)}
                     onKeyDown={(event) => {
+                      if (event.key === " " || event.key === "Spacebar") {
+                        event.stopPropagation();
+                        return;
+                      }
                       if (event.key === "Escape") {
                         event.preventDefault();
                         event.stopPropagation();

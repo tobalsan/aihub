@@ -11,6 +11,15 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-04: Inline rename Space key fix in project agent list
+
+- `apps/web/src/components/project/AgentPanel.tsx`
+  - Fixed subagent inline rename keyboard handling: pressing `Space` in the rename input now stops propagation so the parent row does not trigger subagent selection/load.
+- `apps/web/src/components/project/AgentPanel.test.tsx`
+  - Added regression test: `Space` during rename does not call `onSelectAgent` and keeps rename input active.
+- `docs/llms.md`
+  - Updated project-detail inline-rename behavior note to include Space-key handling while editing.
+
 ### 2026-03-04: Coordinator prompt enforces reviewer dispatch for code review
 
 - `packages/shared/src/projectPrompt.ts`
