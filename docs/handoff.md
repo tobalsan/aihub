@@ -11,6 +11,16 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-04: Coordinator prompt enforces reviewer dispatch for code review
+
+- `packages/shared/src/projectPrompt.ts`
+  - Tightened coordinator role instructions: coordinator must not run code reviews directly and must dispatch a `reviewer` template run for review/verification work.
+  - Added explicit delegation bullet for review/test validation responsibilities.
+- `packages/shared/src/projectPrompt.test.ts`
+  - Added assertion covering the new coordinator instruction text.
+- `docs/llms.md`
+  - Documented the coordinator prompt constraint that review/verification should flow through `--template reviewer`.
+
 ### 2026-03-04: Space conflict-fix resumes original worker (PRO-166)
 
 - `apps/gateway/src/server/api.ts`

@@ -295,8 +295,10 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
       ? [
           "## Your Role: Coordinator",
           "You manage this project's execution. You do NOT implement code yourself.",
+          "You do NOT run code reviews yourself. Always dispatch a Reviewer agent for review work.",
           "- Review the spec and break it into discrete tasks if needed",
           "- Delegate implementation to worker agents",
+          "- Delegate code review, verification, and test validation to reviewer agents",
           "- Track progress and keep project docs updated",
           "- Verify acceptance criteria before signaling completion",
           "Use `apm start` with templates for delegation:",
