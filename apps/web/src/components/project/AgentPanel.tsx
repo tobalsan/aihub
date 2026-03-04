@@ -314,10 +314,7 @@ export function AgentPanel(props: AgentPanelProps) {
       if (templateMenuOpen() && !templateMenuRef?.contains(target ?? null)) {
         setTemplateMenuOpen(false);
       }
-      if (
-        modelMenuSlug() &&
-        !targetElement?.closest(".agent-meta-wrap")
-      ) {
+      if (modelMenuSlug() && !targetElement?.closest(".agent-meta-wrap")) {
         setModelMenuSlug(null);
         setModelMenuPosition(null);
       }
@@ -514,6 +511,237 @@ export function AgentPanel(props: AgentPanelProps) {
     nowTick();
     return formatElapsed(raw);
   };
+  const groupedSubagents = createMemo(() => {
+    const activeAgents: SubagentListItem[] = [];
+    const idleAgents: SubagentListItem[] = [];
+    for (const item of props.subagents) {
+      if (item.status === "running") {
+        activeAgents.push(item);
+      } else {
+        idleAgents.push(item);
+      }
+    }
+    return { activeAgents, idleAgents };
+  });
+  const renderSubagentCard = (item: SubagentListItem) => {
+    const indicator = statusIndicator(item.status);
+    const agentMeta = formatAgentMeta(item.cli, item.model);
+    const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
+    const currentModel = trimOptional(item.model);
+    const modelOptions =
+      currentModel && !options.includes(currentModel)
+        ? [currentModel, ...options]
+        : [...options];
+    const selectedModel = currentModel || modelOptions[0] || "";
+    const canEditModel = item.status !== "running" && modelOptions.length > 0;
+    return (
+      <div
+        class="agent-list-item subagent"
+        classList={{
+          selected: props.selectedAgentSlug === item.slug,
+        }}
+        role="button"
+        tabIndex={0}
+        onClick={() =>
+          props.onSelectAgent({
+            type: "subagent",
+            slug: item.slug,
+            cli: item.cli,
+            runMode: item.runMode,
+            status: item.status,
+            projectId: props.project.id,
+          })
+        }
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          props.onSelectAgent({
+            type: "subagent",
+            slug: item.slug,
+            cli: item.cli,
+            runMode: item.runMode,
+            status: item.status,
+            projectId: props.project.id,
+          });
+        }}
+      >
+        <span class={`agent-status ${indicator.tone}`}>{indicator.symbol}</span>
+        <span class="agent-list-main">
+          <span class="agent-list-head">
+            <span class="agent-title">
+              <Show
+                when={editingNameSlug() !== item.slug}
+                fallback={
+                  <input
+                    class="agent-name-input"
+                    type="text"
+                    value={nameDraft()}
+                    disabled={savingNameSlug() === item.slug}
+                    onClick={(event) => event.stopPropagation()}
+                    onInput={(event) => setNameDraft(event.currentTarget.value)}
+                    onBlur={() => void saveRenamedSubagent(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setEditingNameSlug(null);
+                        setNameDraft("");
+                        return;
+                      }
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void saveRenamedSubagent(item);
+                      }
+                    }}
+                    autofocus
+                  />
+                }
+              >
+                <button
+                  type="button"
+                  class="agent-name-btn"
+                  disabled={savingNameSlug() === item.slug}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    beginRenameSubagent(item);
+                  }}
+                  title="Rename agent"
+                  aria-label={`Rename ${agentDisplayName(item)}`}
+                >
+                  <span class="agent-name">{agentDisplayName(item)}</span>
+                </button>
+              </Show>
+              <Show when={agentMeta}>
+                <span class="agent-meta-wrap">
+                  <span
+                    class="agent-meta"
+                    classList={{ editable: canEditModel }}
+                    role={canEditModel ? "button" : undefined}
+                    tabIndex={canEditModel ? 0 : undefined}
+                    title={canEditModel ? "Change model" : undefined}
+                    onClick={(event) => {
+                      if (!canEditModel) return;
+                      event.stopPropagation();
+                      const target = event.currentTarget;
+                      const rect = target.getBoundingClientRect();
+                      setModelMenuSlug((current) => {
+                        const isClosing = current === item.slug;
+                        setModelMenuPosition(
+                          isClosing
+                            ? null
+                            : { left: rect.left, top: rect.bottom + 4 }
+                        );
+                        return isClosing ? null : item.slug;
+                      });
+                    }}
+                    onKeyDown={(event) => {
+                      if (!canEditModel) return;
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const target = event.currentTarget;
+                      const rect = target.getBoundingClientRect();
+                      setModelMenuSlug((current) => {
+                        const isClosing = current === item.slug;
+                        setModelMenuPosition(
+                          isClosing
+                            ? null
+                            : { left: rect.left, top: rect.bottom + 4 }
+                        );
+                        return isClosing ? null : item.slug;
+                      });
+                    }}
+                  >
+                    {agentMeta}
+                  </span>
+                  <Show when={canEditModel && modelMenuSlug() === item.slug}>
+                    <div
+                      class="agent-model-popup"
+                      style={
+                        modelMenuPosition()
+                          ? {
+                              left: `${modelMenuPosition()!.left}px`,
+                              top: `${modelMenuPosition()!.top}px`,
+                            }
+                          : undefined
+                      }
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <For each={modelOptions}>
+                        {(value) => (
+                          <button
+                            type="button"
+                            class="agent-model-option"
+                            classList={{ selected: value === selectedModel }}
+                            disabled={busyModelSlug() === item.slug}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setModelMenuSlug(null);
+                              setModelMenuPosition(null);
+                              void handleModelUpdate(item, value);
+                            }}
+                          >
+                            {value}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </span>
+              </Show>
+            </span>
+            <span class="agent-elapsed">{elapsedLabel(previewAt(item))}</span>
+          </span>
+          <span class="agent-task">{previewText(item)}</span>
+        </span>
+        <div class="agent-row-actions">
+          <button
+            type="button"
+            class="agent-row-action archive"
+            title={`Archive ${item.name ?? item.cli ?? item.slug}`}
+            aria-label={`Archive ${item.name ?? item.cli ?? item.slug}`}
+            disabled={Boolean(busyActionSlug() || savingNameSlug())}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleArchiveSubagent(item);
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M3 7h18v13H3z" />
+              <path d="M7 7V4h10v3" />
+              <path d="M7 12h10" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="agent-row-action kill"
+            title={`Kill ${item.name ?? item.cli ?? item.slug}`}
+            aria-label={`Kill ${item.name ?? item.cli ?? item.slug}`}
+            disabled={Boolean(busyActionSlug() || savingNameSlug())}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleKillSubagent(item);
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   createEffect(() => {
     const openSlug = modelMenuSlug();
@@ -645,7 +873,10 @@ export function AgentPanel(props: AgentPanelProps) {
     );
   };
 
-  const handleModelUpdate = async (item: SubagentListItem, nextModel: string) => {
+  const handleModelUpdate = async (
+    item: SubagentListItem,
+    nextModel: string
+  ) => {
     const model = nextModel.trim();
     const previousModel = trimOptional(item.model);
     if (!model || model === previousModel || busyModelSlug()) return;
@@ -968,253 +1199,32 @@ export function AgentPanel(props: AgentPanelProps) {
                 >
                   <span class="agent-status running">●</span>
                   <span class="agent-list-main">
-                      <span class="agent-list-head">
-                        <span class="agent-title">
-                          <span class="agent-name">{leadId()}</span>
-                        </span>
-                        <span class="agent-elapsed">
-                          {elapsedLabel(leadPreview().at)}
-                        </span>
+                    <span class="agent-list-head">
+                      <span class="agent-title">
+                        <span class="agent-name">{leadId()}</span>
                       </span>
-                      <span class="agent-task">{leadPreview().text}</span>
+                      <span class="agent-elapsed">
+                        {elapsedLabel(leadPreview().at)}
+                      </span>
+                    </span>
+                    <span class="agent-task">{leadPreview().text}</span>
                   </span>
                 </button>
               )}
             </Show>
-            <For each={props.subagents}>
-              {(item) => {
-                const indicator = statusIndicator(item.status);
-                const agentMeta = formatAgentMeta(item.cli, item.model);
-                const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
-                const currentModel = trimOptional(item.model);
-                const modelOptions =
-                  currentModel && !options.includes(currentModel)
-                    ? [currentModel, ...options]
-                    : [...options];
-                const selectedModel = currentModel || modelOptions[0] || "";
-                const canEditModel =
-                  item.status !== "running" && modelOptions.length > 0;
-                return (
-                  <div
-                    class="agent-list-item subagent"
-                    classList={{
-                      selected: props.selectedAgentSlug === item.slug,
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() =>
-                      props.onSelectAgent({
-                        type: "subagent",
-                        slug: item.slug,
-                        cli: item.cli,
-                        runMode: item.runMode,
-                        status: item.status,
-                        projectId: props.project.id,
-                      })
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      props.onSelectAgent({
-                        type: "subagent",
-                        slug: item.slug,
-                        cli: item.cli,
-                        runMode: item.runMode,
-                        status: item.status,
-                        projectId: props.project.id,
-                      });
-                    }}
-                  >
-                    <span class={`agent-status ${indicator.tone}`}>
-                      {indicator.symbol}
-                    </span>
-                    <span class="agent-list-main">
-                      <span class="agent-list-head">
-                        <span class="agent-title">
-                          <Show
-                            when={editingNameSlug() !== item.slug}
-                            fallback={
-                              <input
-                                class="agent-name-input"
-                                type="text"
-                                value={nameDraft()}
-                                disabled={savingNameSlug() === item.slug}
-                                onClick={(event) => event.stopPropagation()}
-                                onInput={(event) =>
-                                  setNameDraft(event.currentTarget.value)
-                                }
-                                onBlur={() => void saveRenamedSubagent(item)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Escape") {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    setEditingNameSlug(null);
-                                    setNameDraft("");
-                                    return;
-                                  }
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    void saveRenamedSubagent(item);
-                                  }
-                                }}
-                                autofocus
-                              />
-                            }
-                          >
-                            <button
-                              type="button"
-                              class="agent-name-btn"
-                              disabled={savingNameSlug() === item.slug}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                beginRenameSubagent(item);
-                              }}
-                              title="Rename agent"
-                              aria-label={`Rename ${agentDisplayName(item)}`}
-                            >
-                              <span class="agent-name">
-                                {agentDisplayName(item)}
-                              </span>
-                            </button>
-                          </Show>
-                          <Show when={agentMeta}>
-                            <span class="agent-meta-wrap">
-                              <span
-                                class="agent-meta"
-                                classList={{ editable: canEditModel }}
-                                role={canEditModel ? "button" : undefined}
-                                tabIndex={canEditModel ? 0 : undefined}
-                                title={canEditModel ? "Change model" : undefined}
-                                onClick={(event) => {
-                                  if (!canEditModel) return;
-                                  event.stopPropagation();
-                                  const target = event.currentTarget;
-                                  const rect = target.getBoundingClientRect();
-                                  setModelMenuSlug((current) => {
-                                    const isClosing = current === item.slug;
-                                    setModelMenuPosition(
-                                      isClosing
-                                        ? null
-                                        : { left: rect.left, top: rect.bottom + 4 }
-                                    );
-                                    return isClosing ? null : item.slug;
-                                  });
-                                }}
-                                onKeyDown={(event) => {
-                                  if (!canEditModel) return;
-                                  if (event.key !== "Enter" && event.key !== " ")
-                                    return;
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  const target = event.currentTarget;
-                                  const rect = target.getBoundingClientRect();
-                                  setModelMenuSlug((current) => {
-                                    const isClosing = current === item.slug;
-                                    setModelMenuPosition(
-                                      isClosing
-                                        ? null
-                                        : { left: rect.left, top: rect.bottom + 4 }
-                                    );
-                                    return isClosing ? null : item.slug;
-                                  });
-                                }}
-                              >
-                                {agentMeta}
-                              </span>
-                              <Show
-                                when={
-                                  canEditModel && modelMenuSlug() === item.slug
-                                }
-                              >
-                                <div
-                                  class="agent-model-popup"
-                                  style={
-                                    modelMenuPosition()
-                                      ? {
-                                          left: `${modelMenuPosition()!.left}px`,
-                                          top: `${modelMenuPosition()!.top}px`,
-                                        }
-                                      : undefined
-                                  }
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <For each={modelOptions}>
-                                    {(value) => (
-                                      <button
-                                        type="button"
-                                        class="agent-model-option"
-                                        classList={{ selected: value === selectedModel }}
-                                        disabled={busyModelSlug() === item.slug}
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setModelMenuSlug(null);
-                                          setModelMenuPosition(null);
-                                          void handleModelUpdate(item, value);
-                                        }}
-                                      >
-                                        {value}
-                                      </button>
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                            </span>
-                          </Show>
-                        </span>
-                        <span class="agent-elapsed">
-                          {elapsedLabel(previewAt(item))}
-                        </span>
-                      </span>
-                      <span class="agent-task">{previewText(item)}</span>
-                    </span>
-                    <div class="agent-row-actions">
-                      <button
-                        type="button"
-                        class="agent-row-action archive"
-                        title={`Archive ${item.name ?? item.cli ?? item.slug}`}
-                        aria-label={`Archive ${item.name ?? item.cli ?? item.slug}`}
-                        disabled={Boolean(busyActionSlug() || savingNameSlug())}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleArchiveSubagent(item);
-                        }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path d="M3 7h18v13H3z" />
-                          <path d="M7 7V4h10v3" />
-                          <path d="M7 12h10" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        class="agent-row-action kill"
-                        title={`Kill ${item.name ?? item.cli ?? item.slug}`}
-                        aria-label={`Kill ${item.name ?? item.cli ?? item.slug}`}
-                        disabled={Boolean(busyActionSlug() || savingNameSlug())}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleKillSubagent(item);
-                        }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                );
-              }}
+            <For each={groupedSubagents().activeAgents}>
+              {(item) => renderSubagentCard(item)}
+            </For>
+            <Show
+              when={
+                groupedSubagents().activeAgents.length > 0 &&
+                groupedSubagents().idleAgents.length > 0
+              }
+            >
+              <div class="agent-group-gap" />
+            </Show>
+            <For each={groupedSubagents().idleAgents}>
+              {(item) => renderSubagentCard(item)}
             </For>
           </div>
           <Show when={agentError()}>
@@ -1451,6 +1461,10 @@ export function AgentPanel(props: AgentPanelProps) {
         .agent-list {
           display: grid;
           gap: 8px;
+        }
+
+        .agent-group-gap {
+          height: 12px;
         }
 
         .agent-list-item {
