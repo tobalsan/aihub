@@ -232,6 +232,10 @@ export function AgentPanel(props: AgentPanelProps) {
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [busyModelSlug, setBusyModelSlug] = createSignal<string | null>(null);
   const [modelMenuSlug, setModelMenuSlug] = createSignal<string | null>(null);
+  const [modelMenuPosition, setModelMenuPosition] = createSignal<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
   const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
     null
@@ -315,6 +319,7 @@ export function AgentPanel(props: AgentPanelProps) {
         !targetElement?.closest(".agent-meta-wrap")
       ) {
         setModelMenuSlug(null);
+        setModelMenuPosition(null);
       }
     };
 
@@ -516,6 +521,7 @@ export function AgentPanel(props: AgentPanelProps) {
     const item = props.subagents.find((entry) => entry.slug === openSlug);
     if (!item) {
       setModelMenuSlug(null);
+      setModelMenuPosition(null);
       return;
     }
     const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
@@ -526,6 +532,7 @@ export function AgentPanel(props: AgentPanelProps) {
         : options;
     if (item.status === "running" || modelOptions.length === 0) {
       setModelMenuSlug(null);
+      setModelMenuPosition(null);
     }
   });
 
@@ -1082,9 +1089,17 @@ export function AgentPanel(props: AgentPanelProps) {
                                 onClick={(event) => {
                                   if (!canEditModel) return;
                                   event.stopPropagation();
-                                  setModelMenuSlug((current) =>
-                                    current === item.slug ? null : item.slug
-                                  );
+                                  const target = event.currentTarget;
+                                  const rect = target.getBoundingClientRect();
+                                  setModelMenuSlug((current) => {
+                                    const isClosing = current === item.slug;
+                                    setModelMenuPosition(
+                                      isClosing
+                                        ? null
+                                        : { left: rect.left, top: rect.bottom + 4 }
+                                    );
+                                    return isClosing ? null : item.slug;
+                                  });
                                 }}
                                 onKeyDown={(event) => {
                                   if (!canEditModel) return;
@@ -1092,9 +1107,17 @@ export function AgentPanel(props: AgentPanelProps) {
                                     return;
                                   event.preventDefault();
                                   event.stopPropagation();
-                                  setModelMenuSlug((current) =>
-                                    current === item.slug ? null : item.slug
-                                  );
+                                  const target = event.currentTarget;
+                                  const rect = target.getBoundingClientRect();
+                                  setModelMenuSlug((current) => {
+                                    const isClosing = current === item.slug;
+                                    setModelMenuPosition(
+                                      isClosing
+                                        ? null
+                                        : { left: rect.left, top: rect.bottom + 4 }
+                                    );
+                                    return isClosing ? null : item.slug;
+                                  });
                                 }}
                               >
                                 {agentMeta}
@@ -1106,6 +1129,14 @@ export function AgentPanel(props: AgentPanelProps) {
                               >
                                 <div
                                   class="agent-model-popup"
+                                  style={
+                                    modelMenuPosition()
+                                      ? {
+                                          left: `${modelMenuPosition()!.left}px`,
+                                          top: `${modelMenuPosition()!.top}px`,
+                                        }
+                                      : undefined
+                                  }
                                   onClick={(event) => event.stopPropagation()}
                                 >
                                   <For each={modelOptions}>
@@ -1118,6 +1149,7 @@ export function AgentPanel(props: AgentPanelProps) {
                                         onClick={(event) => {
                                           event.stopPropagation();
                                           setModelMenuSlug(null);
+                                          setModelMenuPosition(null);
                                           void handleModelUpdate(item, value);
                                         }}
                                       >
@@ -1642,9 +1674,7 @@ export function AgentPanel(props: AgentPanelProps) {
         }
 
         .agent-model-popup {
-          position: absolute;
-          top: calc(100% + 4px);
-          left: 0;
+          position: fixed;
           min-width: 160px;
           z-index: 4;
           display: grid;
