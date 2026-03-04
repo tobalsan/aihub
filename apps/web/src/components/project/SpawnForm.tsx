@@ -17,12 +17,22 @@ export type SpawnPrefill = {
   includePostRun?: boolean;
 };
 
+export type SpawnFormDraft = {
+  includeDefaultPrompt: boolean;
+  includeRoleInstructions: boolean;
+  includePostRun: boolean;
+  includeCustomInstructions: boolean;
+  customInstructions: string;
+};
+
 export type SpawnFormProps = {
   projectId: string;
   project: ProjectDetail;
   prefill: SpawnPrefill;
   template: SpawnTemplate;
   subagents: SubagentListItem[];
+  draft?: SpawnFormDraft;
+  onDraftChange?: (draft: SpawnFormDraft) => void;
   onSpawned: (slug: string) => void;
   onCancel: () => void;
 };
@@ -130,12 +140,29 @@ export function SpawnForm(props: SpawnFormProps) {
     setAddAgentModel(prefill.model ?? HARNESS_MODELS[nextCli][0]);
     setAddAgentReasoning(prefill.reasoning ?? HARNESS_REASONING[nextCli][0]);
     setAddAgentRunMode(prefill.runMode ?? "clone");
-    setIncludeDefaultPrompt(prefill.includeDefaultPrompt ?? true);
-    setIncludeRoleInstructions(prefill.includeRoleInstructions ?? true);
-    setIncludePostRun(prefill.includePostRun ?? true);
-    setIncludeCustomInstructions(false);
-    setAddAgentCustomInstructions(prefill.customInstructions ?? "");
+    const draft = props.draft;
+    setIncludeDefaultPrompt(
+      draft?.includeDefaultPrompt ?? prefill.includeDefaultPrompt ?? true
+    );
+    setIncludeRoleInstructions(
+      draft?.includeRoleInstructions ?? prefill.includeRoleInstructions ?? true
+    );
+    setIncludePostRun(draft?.includePostRun ?? prefill.includePostRun ?? true);
+    setIncludeCustomInstructions(draft?.includeCustomInstructions ?? false);
+    setAddAgentCustomInstructions(
+      draft?.customInstructions ?? prefill.customInstructions ?? ""
+    );
     setAgentError(null);
+  });
+
+  createEffect(() => {
+    props.onDraftChange?.({
+      includeDefaultPrompt: includeDefaultPrompt(),
+      includeRoleInstructions: includeRoleInstructions(),
+      includePostRun: includePostRun(),
+      includeCustomInstructions: includeCustomInstructions(),
+      customInstructions: addAgentCustomInstructions(),
+    });
   });
 
   createEffect(() => {

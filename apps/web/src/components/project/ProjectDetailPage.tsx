@@ -28,7 +28,11 @@ import {
   type SelectedProjectAgent,
 } from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
-import type { SpawnPrefill, SpawnTemplate } from "./SpawnForm";
+import type {
+  SpawnFormDraft,
+  SpawnPrefill,
+  SpawnTemplate,
+} from "./SpawnForm";
 
 type PersistedCenterView = {
   tab: CenterTab;
@@ -126,6 +130,14 @@ export function ProjectDetailPage() {
     template: SpawnTemplate;
     prefill: SpawnPrefill;
   } | null>(null);
+  const [chatInputDraft, setChatInputDraft] = createSignal("");
+  const [spawnFormDraft, setSpawnFormDraft] = createSignal<SpawnFormDraft>({
+    includeDefaultPrompt: true,
+    includeRoleInstructions: true,
+    includePostRun: true,
+    includeCustomInstructions: false,
+    customInstructions: "",
+  });
   const [isEditingTitle, setIsEditingTitle] = createSignal(false);
   const [titleDraft, setTitleDraft] = createSignal("");
   let titleInputRef: HTMLInputElement | undefined;
@@ -541,6 +553,15 @@ export function ProjectDetailPage() {
                   onSubagentsChange={(items) => setSubagents(items)}
                   onOpenSpawn={(input) => {
                     setSpawnMode(input);
+                    setSpawnFormDraft({
+                      includeDefaultPrompt:
+                        input.prefill.includeDefaultPrompt ?? true,
+                      includeRoleInstructions:
+                        input.prefill.includeRoleInstructions ?? true,
+                      includePostRun: input.prefill.includePostRun ?? true,
+                      includeCustomInstructions: false,
+                      customInstructions: input.prefill.customInstructions ?? "",
+                    });
                     setMergedTab("chat");
                     setCenterTab("chat");
                   }}
@@ -591,6 +612,10 @@ export function ProjectDetailPage() {
                     onAddComment={handleAddComment}
                     selectedAgent={selectedAgent()}
                     spawnMode={spawnMode()}
+                    chatInputDraft={chatInputDraft()}
+                    onChatInputDraftChange={setChatInputDraft}
+                    spawnFormDraft={spawnFormDraft()}
+                    onSpawnFormDraftChange={setSpawnFormDraft}
                     subagents={subagents()}
                     onCancelSpawn={() => setSpawnMode(null)}
                     onSpawned={(slug) => {
@@ -676,6 +701,10 @@ export function ProjectDetailPage() {
                         tab={mergedTab() as "chat" | "activity" | "changes"}
                         selectedAgent={selectedAgent()}
                         spawnMode={spawnMode()}
+                        chatInputDraft={chatInputDraft()}
+                        onChatInputDraftChange={setChatInputDraft}
+                        spawnFormDraft={spawnFormDraft()}
+                        onSpawnFormDraftChange={setSpawnFormDraft}
                         subagents={subagents()}
                         onCancelSpawn={() => setSpawnMode(null)}
                         onSpawned={(slug) => {

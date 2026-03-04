@@ -46,6 +46,8 @@ type AgentChatProps = {
   onOpenProject?: (id: string) => void;
   fullscreen?: boolean;
   showHeader?: boolean;
+  inputDraft?: string;
+  onInputDraftChange?: (value: string) => void;
 };
 
 type SubagentRunInfo = {
@@ -111,6 +113,10 @@ const supportedImageTypes = new Set([
   "image/jpg",
 ]);
 const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
+const DEFAULT_MODEL_CONTEXT_LIMIT = 200_000;
+const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  default: DEFAULT_MODEL_CONTEXT_LIMIT,
+};
 
 function formatJson(args: unknown): string {
   try {
@@ -925,13 +931,16 @@ function mergePendingAihubMessages(
 }
 
 export function AgentChat(props: AgentChatProps) {
-  const [input, setInput] = createSignal("");
+  const [localInput, setLocalInput] = createSignal("");
   const [error, setError] = createSignal("");
   const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
   const [aihubPending, setAihubPending] = createSignal(false);
+  const [aihubHistoryMessages, setAihubHistoryMessages] = createSignal<
+    FullHistoryMessage[]
+  >([]);
   const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<
     string[]
   >([]);
@@ -945,6 +954,14 @@ export function AgentChat(props: AgentChatProps) {
   const [subagentSending, setSubagentSending] = createSignal(false);
   const [stopping, setStopping] = createSignal(false);
   const [isAtBottom, setIsAtBottom] = createSignal(true);
+  const input = createMemo(() => props.inputDraft ?? localInput());
+  const setInput = (value: string) => {
+    if (props.onInputDraftChange) {
+      props.onInputDraftChange(value);
+      return;
+    }
+    setLocalInput(value);
+  };
   const streamingToolCalls = new Map<
     string,
     { index: number; name: string; args: Record<string, unknown> }
@@ -1036,7 +1053,7 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   onMount(() => {
-    resizeTextarea("");
+    resizeTextarea(input());
   });
 
   const isSupportedImage = (file: File) => {
@@ -1255,6 +1272,7 @@ export function AgentChat(props: AgentChatProps) {
   const loadAihubHistory = async () => {
     if (!props.agentId) return;
     const res = await fetchFullHistory(props.agentId, sessionKey());
+    setAihubHistoryMessages(res.messages ?? []);
     const pending = pendingAihubUserMessages();
     const { merged, remaining } = mergePendingAihubMessages(
       res.messages ?? [],
@@ -1389,6 +1407,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubLive("");
     setAihubStreaming(false);
     setAihubPending(false);
+    setAihubHistoryMessages([]);
     setPendingFiles([]);
     setPendingAihubUserMessages([]);
     streamingToolCalls.clear();
@@ -1432,6 +1451,10 @@ export function AgentChat(props: AgentChatProps) {
     pendingCliUserMessages();
     aihubPending();
     scrollToBottom();
+  });
+
+  createEffect(() => {
+    resizeTextarea(input());
   });
 
   createEffect(() => {
@@ -1661,6 +1684,27 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   const aihubLogItems = createMemo(() => aihubLogs());
+  const estimatedContextUsagePct = createMemo(() => {
+    let used = 0;
+    let modelName: string | undefined;
+    for (const message of aihubHistoryMessages()) {
+      if (message.role !== "assistant") continue;
+      const meta = message.meta;
+      if (meta?.model) modelName = meta.model;
+      const usage = meta?.usage;
+      if (!usage) continue;
+      if (typeof usage.totalTokens === "number" && usage.totalTokens > 0) {
+        used += usage.totalTokens;
+        continue;
+      }
+      used += (usage.input ?? 0) + (usage.output ?? 0);
+    }
+    const maxTokens =
+      (modelName ? MODEL_CONTEXT_LIMITS[modelName] : undefined) ??
+      MODEL_CONTEXT_LIMITS.default;
+    if (maxTokens <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((used / maxTokens) * 100)));
+  });
   const cliDisplayEvents = createMemo(() => {
     const pending = pendingCliUserMessages();
     if (pending.length === 0) return cliLogs();
@@ -1989,6 +2033,7 @@ export function AgentChat(props: AgentChatProps) {
             </button>
           </Show>
         </div>
+        <div class="context-usage">~{estimatedContextUsagePct()}% context used</div>
       </div>
 
       <style>{`
@@ -2541,6 +2586,12 @@ export function AgentChat(props: AgentChatProps) {
           align-items: flex-end;
           width: 100%;
           min-width: 0;
+        }
+
+        .context-usage {
+          align-self: flex-end;
+          color: var(--text-muted);
+          font-size: 11px;
         }
 
         .chat-file-input {

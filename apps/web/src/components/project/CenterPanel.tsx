@@ -18,7 +18,12 @@ import type {
   SubagentLogEvent,
 } from "../../api/types";
 import { ChangesView } from "./ChangesView";
-import { SpawnForm, type SpawnPrefill, type SpawnTemplate } from "./SpawnForm";
+import {
+  SpawnForm,
+  type SpawnFormDraft,
+  type SpawnPrefill,
+  type SpawnTemplate,
+} from "./SpawnForm";
 
 export type CenterTab = "chat" | "activity" | "changes";
 export type SelectedProjectAgent = {
@@ -40,6 +45,10 @@ type CenterPanelProps = {
   onAddComment?: (body: string) => Promise<void>;
   selectedAgent: SelectedProjectAgent | null;
   spawnMode?: { template: SpawnTemplate; prefill: SpawnPrefill } | null;
+  chatInputDraft?: string;
+  onChatInputDraftChange?: (value: string) => void;
+  spawnFormDraft?: SpawnFormDraft;
+  onSpawnFormDraftChange?: (draft: SpawnFormDraft) => void;
   subagents?: SubagentListItem[];
   onSpawned?: (slug: string) => void;
   onCancelSpawn?: () => void;
@@ -244,6 +253,8 @@ export function CenterPanel(props: CenterPanelProps) {
                   prefill={props.spawnMode!.prefill}
                   template={props.spawnMode!.template}
                   subagents={props.subagents ?? []}
+                  draft={props.spawnFormDraft}
+                  onDraftChange={props.onSpawnFormDraftChange}
                   onSpawned={(slug) => props.onSpawned?.(slug)}
                   onCancel={() => props.onCancelSpawn?.()}
                 />
@@ -281,6 +292,8 @@ export function CenterPanel(props: CenterPanelProps) {
                       : undefined
                   }
                   onBack={() => {}}
+                  inputDraft={props.chatInputDraft ?? ""}
+                  onInputDraftChange={props.onChatInputDraftChange}
                   showHeader={false}
                 />
               </Show>
