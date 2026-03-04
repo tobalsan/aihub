@@ -137,6 +137,7 @@ Project Space model:
 - Worker commits are queued as `pending`; they are cherry-picked only on explicit `POST /api/projects/:id/space/integrate` (UI: Integrate Now).
 - Conflicts block queue until resolved by the original worker.
 - `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original conflicting worker with rebase instructions (no new worker/worktree).
+- `POST /api/projects/:id/space/merge` merges `space/<projectId>` into base branch, pushes base when a remote exists, optionally cleans worker+Space worktrees/branches, clears queue, and marks project `status: done`.
 - On re-delivery after a conflict, gateway updates the original conflict entry in-place and clears `integrationBlocked`.
 - Queue statuses: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
 - Stale handling: clone deliveries can be marked `stale_worker`; worktree runs can auto-rebase with `AIHUB_SPACE_AUTO_REBASE=true`.
@@ -270,6 +271,7 @@ openclaw sessions list
 | `/api/projects/:id`        | GET/PATCH    | Get/update project                                   |
 | `/api/projects/:id/space`  | GET          | Get project Space state                              |
 | `/api/projects/:id/space/integrate` | POST | Resume/pick pending Space queue                     |
+| `/api/projects/:id/space/merge` | POST | Merge Space into base branch (`cleanup` default true) |
 | `/api/projects/:id/space/commits` | GET  | Get Space commit log                                 |
 | `/api/projects/:id/space/contributions/:entryId` | GET | Get per-entry contribution details     |
 | `/api/projects/:id/space/conflicts/:entryId/fix` | POST | Resume original conflicted worker     |

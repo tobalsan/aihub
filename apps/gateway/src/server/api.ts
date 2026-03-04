@@ -79,6 +79,7 @@ import {
   getProjectSpaceConflictContext,
   getGitHead,
   integrateProjectSpaceQueue,
+  mergeSpaceIntoBase,
   isSpaceWriteLeaseEnabled,
   getProjectSpaceWriteLease,
   acquireProjectSpaceWriteLease,
@@ -517,6 +518,9 @@ const AcquireSpaceLeaseRequestSchema = z.object({
 const ReleaseSpaceLeaseRequestSchema = z.object({
   holder: z.string().optional(),
   force: z.boolean().optional(),
+});
+const MergeSpaceRequestSchema = z.object({
+  cleanup: z.boolean().optional(),
 });
 const UpdateSubagentRequestSchema = z.object({
   name: z.string().optional(),
@@ -2342,6 +2346,43 @@ api.post("/projects/:id/space/integrate", async (c) => {
             message === "Not a git repository"
           ? 400
           : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// POST /api/projects/:id/space/merge - merge Space branch into base branch
+api.post("/projects/:id/space/merge", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = MergeSpaceRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  try {
+    const merge = await mergeSpaceIntoBase(config, id, {
+      cleanup: parsed.data.cleanup ?? true,
+    });
+    const updated = await updateProject(config, id, { status: "done" });
+    if (!updated.ok) {
+      throw new Error(updated.error);
+    }
+    await recordProjectStatusActivity({ projectId: id, status: "done" });
+    emitProjectFileChanged(id, updated.data.path, "README.md");
+    return c.json({ merge, project: updated.data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message.startsWith("Space queue has unresolved entries") ||
+            message.startsWith("Space merge failed")
+          ? 409
+          : message === "Project repo not set" ||
+              message === "Not a git repository"
+            ? 400
+            : 500;
     return c.json({ error: message }, status);
   }
 });

@@ -9,6 +9,7 @@ import {
   ensureProjectSpace,
   getProjectSpace,
   integrateProjectSpaceQueue,
+  mergeSpaceIntoBase,
   recordWorkerDelivery,
 } from "./space.js";
 
@@ -424,5 +425,105 @@ describe("project space", () => {
     expect(staleEntry?.staleAgainstSha).toBeTruthy();
     const spaceContent = await fs.readFile(path.join(space.worktreePath, "app.txt"), "utf8");
     expect(spaceContent).not.toContain("stale");
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("merges space into base and cleans up worktrees/branches", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    const workerPath = path.join(projectsRoot, ".workspaces", "PRO-1", "alpha");
+    await fs.mkdir(path.dirname(workerPath), { recursive: true });
+    await runGit(repoDir, [
+      "worktree",
+      "add",
+      "-b",
+      "PRO-1/alpha",
+      workerPath,
+      "main",
+    ]);
+
+    const start = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(workerPath, "app.txt"), "worker-one\n", "utf8");
+    await runGit(workerPath, ["add", "app.txt"]);
+    await runGit(workerPath, ["commit", "-m", "worker one"]);
+    const end = await runGit(workerPath, ["rev-parse", "HEAD"]);
+
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: workerPath,
+      startSha: start,
+      endSha: end,
+    });
+    await integrateProjectSpaceQueue(config, "PRO-1");
+
+    const merged = await mergeSpaceIntoBase(config, "PRO-1", { cleanup: true });
+    expect(merged.baseBranch).toBe("main");
+    expect(merged.mergeMethod).toBe("ff");
+    expect(merged.afterSha).toBeTruthy();
+    expect(merged.cleanup?.workerWorktreesRemoved).toBe(1);
+    expect(merged.cleanup?.spaceWorktreeRemoved).toBe(true);
+    expect(merged.cleanup?.spaceBranchDeleted).toBe(true);
+
+    const mainContent = await runGit(repoDir, ["show", "main:app.txt"]);
+    expect(mainContent).toContain("worker-one");
+
+    await expect(fs.stat(workerPath)).rejects.toBeDefined();
+    await expect(fs.stat(space.worktreePath)).rejects.toBeDefined();
+
+    expect(await runGit(repoDir, ["branch", "--list", "PRO-1/alpha"])).toBe("");
+    expect(await runGit(repoDir, ["branch", "--list", "space/PRO-1"])).toBe("");
+
+    const refreshed = await getProjectSpace(config, "PRO-1");
+    expect(refreshed.ok).toBe(true);
+    if (refreshed.ok) {
+      expect(refreshed.data.queue).toHaveLength(0);
+      expect(refreshed.data.integrationBlocked).toBe(false);
+    }
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("rejects merge when space queue has unresolved entries", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    await ensureProjectSpace(config, "PRO-1", "main");
+    const workerPath = path.join(projectsRoot, ".workspaces", "PRO-1", "alpha");
+    await fs.mkdir(path.dirname(workerPath), { recursive: true });
+    await runGit(repoDir, [
+      "worktree",
+      "add",
+      "-b",
+      "PRO-1/alpha",
+      workerPath,
+      "main",
+    ]);
+
+    const start = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(workerPath, "app.txt"), "worker-one\n", "utf8");
+    await runGit(workerPath, ["add", "app.txt"]);
+    await runGit(workerPath, ["commit", "-m", "worker one"]);
+    const end = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: workerPath,
+      startSha: start,
+      endSha: end,
+    });
+
+    await expect(
+      mergeSpaceIntoBase(config, "PRO-1", { cleanup: true })
+    ).rejects.toThrow("Space queue has unresolved entries");
   }, SPACE_TEST_TIMEOUT_MS);
 });
