@@ -676,6 +676,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       continue;
     }
     if (event.text) {
+      const parsed = parseJsonRecord(event.text);
+      if (parsed && isSystemEventPayload(parsed)) {
+        entries.push(toSystemCalloutItem(event.text));
+        continue;
+      }
       entries.push(toLogItem(event));
     }
   }
@@ -1419,12 +1424,13 @@ export function AgentChat(props: AgentChatProps) {
         ? `lead:${props.agentId ?? ""}`
         : `subagent:${props.subagentInfo?.projectId ?? ""}:${props.subagentInfo?.slug ?? ""}`;
     if (nextIdentity === activeChatIdentity) return;
+    const isAgentSwitch = activeChatIdentity !== null;
     activeChatIdentity = nextIdentity;
 
     teardownChatRuntime();
 
     setError("");
-    setInput("");
+    if (isAgentSwitch) setInput("");
     setAihubLogs([]);
     setAihubLive("");
     setAihubStreaming(false);

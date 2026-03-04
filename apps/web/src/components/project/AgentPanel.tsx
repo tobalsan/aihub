@@ -325,6 +325,7 @@ export function AgentPanel(props: AgentPanelProps) {
     let loadingSubagents = false;
     const loadSubagents = async () => {
       if (loadingSubagents) return;
+      if (editingNameSlug()) return;
       loadingSubagents = true;
       const result = await fetchSubagents(props.project.id, true);
       if (!active) return;
@@ -521,6 +522,13 @@ export function AgentPanel(props: AgentPanelProps) {
         idleAgents.push(item);
       }
     }
+    const byMostRecent = (a: SubagentListItem, b: SubagentListItem) => {
+      const aAt = previewAt(a) ?? "";
+      const bAt = previewAt(b) ?? "";
+      return bAt.localeCompare(aAt);
+    };
+    activeAgents.sort(byMostRecent);
+    idleAgents.sort(byMostRecent);
     return { activeAgents, idleAgents };
   });
   const renderSubagentCard = (item: SubagentListItem) => {
