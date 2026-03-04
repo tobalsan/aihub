@@ -11,6 +11,28 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-04: PRO-170 resume semantics + prompt guardrails (codex/claude/pi)
+
+- `apps/gateway/src/subagents/runner.ts`
+  - Resume prompt assembly is now delta-only (`input.prompt` + optional current-turn attachment marker).
+  - Resume path no longer loads project markdown corpus or prepends project summary/workspace suffixes.
+  - Added prompt-size preflight before CLI spawn:
+    - Resume limit default: `32768` bytes (`AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES`).
+    - Start/spawn limit default: `262144` bytes (`AIHUB_SUBAGENT_MAX_PROMPT_BYTES`).
+  - Oversized prompt returns `ok:false` with explicit byte/limit error.
+- `apps/gateway/src/subagents/subagents.api.test.ts`
+  - Resume assertions now verify no `Let's tackle the following project:` reinjection for codex/claude.
+  - Added Pi resume coverage validating session-file reuse and no summary reinjection.
+  - Added conflict-fix resume coverage asserting conflict instruction payload and no summary reinjection.
+  - Added guardrail tests for both resume and start/spawn oversized prompt 400s.
+- Docs updated:
+  - `docs/cli-apm.md`
+  - `docs/agent_interfacing_decisions.md`
+  - `docs/agent_interfacing_specs.md`
+  - `docs/llms.md`
+- Verification:
+  - `pnpm test -- apps/gateway/src/subagents/subagents.api.test.ts` (passes; repository config runs full vitest suite under this invocation).
+
 ### 2026-03-04: Inline rename Space key fix in project agent list
 
 - `apps/web/src/components/project/AgentPanel.tsx`

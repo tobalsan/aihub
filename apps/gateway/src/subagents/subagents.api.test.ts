@@ -2210,9 +2210,11 @@ describe("subagents API", () => {
     const codexPath = path.join(binDir, "codex");
     await fs.writeFile(
       codexPath,
-      ["#!/bin/sh", 'echo \'{"type":"thread.started","thread_id":"s1"}\''].join(
-        "\n"
-      ),
+      [
+        "#!/bin/sh",
+        'echo \'{"type":"thread.started","thread_id":"s1"}\'',
+        'echo "$@"',
+      ].join("\n"),
       { mode: 0o755 }
     );
     const prevPath = process.env.PATH;
@@ -2246,6 +2248,24 @@ describe("subagents API", () => {
     expect(seedWorkerRes.status).toBe(201);
 
     const projectDir = path.join(projectsRoot, created.path);
+    const workerStatePath = path.join(
+      projectDir,
+      "sessions",
+      "alpha",
+      "state.json"
+    );
+    const workerStateWaitStart = Date.now();
+    while (Date.now() - workerStateWaitStart < 5000) {
+      try {
+        const state = JSON.parse(
+          await fs.readFile(workerStatePath, "utf8")
+        ) as { session_id?: string };
+        if (state.session_id === "s1") break;
+      } catch {
+        // wait
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const spacePath = path.join(projectDir, "space.json");
     const rawSpace = JSON.parse(await fs.readFile(spacePath, "utf8")) as {
       worktreePath: string;
@@ -2269,6 +2289,8 @@ describe("subagents API", () => {
     });
     await fs.writeFile(spacePath, JSON.stringify(rawSpace, null, 2), "utf8");
 
+    const logsPath = path.join(projectDir, "sessions", "alpha", "logs.jsonl");
+    const resumeOffset = (await fs.stat(logsPath)).size;
     const fixRes = await Promise.resolve(
       api.request(`/projects/${created.id}/space/conflicts/conflict-1/fix`, {
         method: "POST",
@@ -2280,6 +2302,27 @@ describe("subagents API", () => {
     const fixBody = await fixRes.json();
     expect(fixBody.slug).toBe("alpha");
     expect(fixBody.entryId).toBe("conflict-1");
+    const logWaitStart = Date.now();
+    while (Date.now() - logWaitStart < 2000) {
+      const logs = await fs.readFile(logsPath, "utf8");
+      if (
+        logs
+          .slice(resumeOffset)
+          .includes(
+            "Your previous delivery caused a conflict when Space tried to cherry-pick it."
+          )
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const resumeLogs = (await fs.readFile(logsPath, "utf8")).slice(
+      resumeOffset
+    );
+    expect(resumeLogs).toContain(
+      "Your previous delivery caused a conflict when Space tried to cherry-pick it."
+    );
+    expect(resumeLogs).not.toContain("Let's tackle the following project:");
 
     const workerConfig = JSON.parse(
       await fs.readFile(
@@ -2294,7 +2337,7 @@ describe("subagents API", () => {
     ).rejects.toThrow();
 
     process.env.PATH = prevPath;
-  });
+  }, 15000);
 
   it("rejects legacy CLI values on subagent spawn", async () => {
     const createRes = await Promise.resolve(
@@ -2552,6 +2595,7 @@ describe("subagents API", () => {
       "sessions",
       "gamma"
     );
+    const logsPath = path.join(sessionDir, "logs.jsonl");
     const statePath = path.join(sessionDir, "state.json");
     const waitStart = Date.now();
     while (Date.now() - waitStart < 5000) {
@@ -2566,6 +2610,7 @@ describe("subagents API", () => {
     const resumeState = JSON.parse(await fs.readFile(statePath, "utf8"));
     expect(resumeState.session_id).toBe("s1");
 
+    const resumeOffset = (await fs.stat(logsPath)).size;
     const spawnRes2 = await Promise.resolve(
       api.request(`/projects/${created.id}/subagents`, {
         method: "POST",
@@ -2581,15 +2626,17 @@ describe("subagents API", () => {
     );
     expect(spawnRes2.status).toBe(201);
 
-    const logsPath = path.join(sessionDir, "logs.jsonl");
     const start = Date.now();
     while (Date.now() - start < 2000) {
       const logs = await fs.readFile(logsPath, "utf8");
-      if (logs.includes("resume s1")) break;
+      if (logs.slice(resumeOffset).includes("resume s1")) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    const logs = await fs.readFile(logsPath, "utf8");
-    expect(logs).toContain("resume s1");
+    const resumeLogs = (await fs.readFile(logsPath, "utf8")).slice(
+      resumeOffset
+    );
+    expect(resumeLogs).toContain("resume s1");
+    expect(resumeLogs).not.toContain("Let's tackle the following project:");
 
     process.env.PATH = prevPath;
   });
@@ -2704,8 +2751,257 @@ describe("subagents API", () => {
     expect(resumeLogs).toContain("-r claude-s1");
     expect(resumeLogs).toContain("--model opus");
     expect(resumeLogs).not.toContain("--model sonnet");
+    expect(resumeLogs).not.toContain("Let's tackle the following project:");
 
     process.env.PATH = prevPath;
+  });
+
+  it("reuses saved pi session file on resume", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Pi Resume Session" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-pi-resume");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-pi-resume");
+    await fs.mkdir(binDir, { recursive: true });
+    const piPath = path.join(binDir, "pi");
+    const script = [
+      "#!/bin/sh",
+      'echo "$@"',
+      `echo '{"type":"session","id":"pi-resume-s1","timestamp":"2026-02-01T00:00:00.000Z","cwd":"$PWD"}'`,
+      `echo '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}'`,
+    ].join("\n");
+    await fs.writeFile(piPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const spawnRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "pi-resume",
+          cli: "pi",
+          prompt: "seed",
+          mode: "main-run",
+        }),
+      })
+    );
+    expect(spawnRes.status).toBe(201);
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "pi-resume"
+    );
+    const statePath = path.join(sessionDir, "state.json");
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 5000) {
+      try {
+        const state = JSON.parse(await fs.readFile(statePath, "utf8")) as {
+          session_id?: string;
+        };
+        if (state.session_id === "pi-resume-s1") break;
+      } catch {
+        // wait
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const state = JSON.parse(await fs.readFile(statePath, "utf8")) as {
+      session_id?: string;
+      session_file?: string;
+    };
+    expect(state.session_id).toBe("pi-resume-s1");
+    expect(typeof state.session_file).toBe("string");
+    expect(state.session_file?.endsWith("pi-session.jsonl")).toBe(true);
+
+    const logsPath = path.join(sessionDir, "logs.jsonl");
+    const resumeOffset = (await fs.stat(logsPath)).size;
+    const resumeRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "pi-resume",
+          cli: "pi",
+          prompt: "follow up",
+          mode: "main-run",
+          resume: true,
+        }),
+      })
+    );
+    expect(resumeRes.status).toBe(201);
+
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      const logs = await fs.readFile(logsPath, "utf8");
+      const slice = logs.slice(resumeOffset);
+      if (slice.includes("--session") && slice.includes("pi-session.jsonl")) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const resumeLogs = (await fs.readFile(logsPath, "utf8")).slice(
+      resumeOffset
+    );
+    expect(resumeLogs).toContain("--session");
+    expect(resumeLogs).toContain("pi-session.jsonl");
+    expect(resumeLogs).not.toContain("Let's tackle the following project:");
+
+    process.env.PATH = prevPath;
+  });
+
+  it("returns 400 when resume prompt exceeds configured byte limit", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Resume Limit" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-resume-limit");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const prevResumeLimit = process.env.AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES;
+    process.env.AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES = "64";
+    let resumeRes: Response;
+    try {
+      resumeRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/subagents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug: "resume-limit",
+            cli: "codex",
+            prompt: "x".repeat(200),
+            mode: "main-run",
+            resume: true,
+          }),
+        })
+      );
+    } finally {
+      if (prevResumeLimit === undefined) {
+        delete process.env.AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES;
+      } else {
+        process.env.AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES = prevResumeLimit;
+      }
+    }
+    expect(resumeRes.status).toBe(400);
+    const payload = await resumeRes.json();
+    expect(payload.error).toContain("Prompt too large for resume:");
+    expect(payload.error).toContain("> 64 bytes");
+  });
+
+  it("returns 400 when spawn prompt exceeds configured byte limit", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Spawn Limit" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-spawn-limit");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const prevLimit = process.env.AIHUB_SUBAGENT_MAX_PROMPT_BYTES;
+    process.env.AIHUB_SUBAGENT_MAX_PROMPT_BYTES = "64";
+    let spawnRes: Response;
+    try {
+      spawnRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/subagents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug: "spawn-limit",
+            cli: "codex",
+            prompt: "x".repeat(200),
+            mode: "main-run",
+          }),
+        })
+      );
+    } finally {
+      if (prevLimit === undefined) {
+        delete process.env.AIHUB_SUBAGENT_MAX_PROMPT_BYTES;
+      } else {
+        process.env.AIHUB_SUBAGENT_MAX_PROMPT_BYTES = prevLimit;
+      }
+    }
+    expect(spawnRes.status).toBe(400);
+    const payload = await spawnRes.json();
+    expect(payload.error).toContain("Prompt too large for start/spawn:");
+    expect(payload.error).toContain("> 64 bytes");
   });
 
   it("creates worktree when mode is worktree", async () => {

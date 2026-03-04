@@ -98,6 +98,14 @@ function buildProjectSummary(
   return lines.join("\n").trimEnd();
 }
 
+function parsePromptLimitEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
 async function dirExists(dirPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(dirPath);
@@ -494,16 +502,58 @@ export async function spawnSubagent(
   const projectDir = path.join(root, dirName);
   const sessionsRoot = path.join(projectDir, "sessions");
   const sessionDir = path.join(sessionsRoot, input.slug);
-  const readmePath = path.join(projectDir, "README.md");
-  const { frontmatter, title, content } = await parseMarkdownFile(readmePath);
-  let threadContent = "";
-  try {
-    const parsedThread = await parseMarkdownFile(
-      path.join(projectDir, "THREAD.md")
-    );
-    threadContent = parsedThread.content.trim();
-  } catch {
-    // ignore missing thread
+  let frontmatter: Record<string, unknown> = {};
+  let summary = "";
+  if (!input.resume) {
+    const readmePath = path.join(projectDir, "README.md");
+    const { frontmatter: parsedFrontmatter, title, content } =
+      await parseMarkdownFile(readmePath);
+    frontmatter = parsedFrontmatter;
+    let threadContent = "";
+    try {
+      const parsedThread = await parseMarkdownFile(
+        path.join(projectDir, "THREAD.md")
+      );
+      threadContent = parsedThread.content.trim();
+    } catch {
+      // ignore missing thread
+    }
+
+    // Gather content from all markdown files
+    const entries = await fs.readdir(projectDir, { withFileTypes: true });
+    const mdFiles = entries
+      .filter(
+        (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "THREAD.md"
+      )
+      .map((e) => e.name)
+      .sort((a, b) => {
+        if (a.toUpperCase() === "README.MD") return -1;
+        if (b.toUpperCase() === "README.MD") return 1;
+        return a.localeCompare(b);
+      });
+
+    let fullContent = content ?? "";
+    if (threadContent) {
+      fullContent += `\n\n## THREAD\n\n${threadContent}`;
+    }
+    for (const file of mdFiles) {
+      if (file.toUpperCase() === "README.MD") continue;
+      try {
+        const parsed = await parseMarkdownFile(path.join(projectDir, file));
+        if (parsed.content) {
+          const label = file.replace(/\.md$/i, "");
+          fullContent += `\n\n## ${label}\n\n${parsed.content}`;
+        }
+      } catch {
+        // Skip files that can't be parsed
+      }
+    }
+
+    const resolvedTitle =
+      typeof frontmatter.title === "string" ? frontmatter.title : (title ?? "");
+    const status =
+      typeof frontmatter.status === "string" ? frontmatter.status : "";
+    summary = buildProjectSummary(resolvedTitle, status, projectDir, fullContent);
   }
   const repo = await resolveProjectRepo(config, input.projectId, frontmatter);
 
@@ -529,47 +579,6 @@ export async function spawnSubagent(
   if (mode !== "none" && !repo) {
     return { ok: false, error: "Project repo not set in frontmatter" };
   }
-
-  // Gather content from all markdown files
-  const entries = await fs.readdir(projectDir, { withFileTypes: true });
-  const mdFiles = entries
-    .filter(
-      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "THREAD.md"
-    )
-    .map((e) => e.name)
-    .sort((a, b) => {
-      if (a.toUpperCase() === "README.MD") return -1;
-      if (b.toUpperCase() === "README.MD") return 1;
-      return a.localeCompare(b);
-    });
-
-  let fullContent = content ?? "";
-  if (threadContent) {
-    fullContent += `\n\n## THREAD\n\n${threadContent}`;
-  }
-  for (const file of mdFiles) {
-    if (file.toUpperCase() === "README.MD") continue;
-    try {
-      const parsed = await parseMarkdownFile(path.join(projectDir, file));
-      if (parsed.content) {
-        const label = file.replace(/\.md$/i, "");
-        fullContent += `\n\n## ${label}\n\n${parsed.content}`;
-      }
-    } catch {
-      // Skip files that can't be parsed
-    }
-  }
-
-  const resolvedTitle =
-    typeof frontmatter.title === "string" ? frontmatter.title : (title ?? "");
-  const status =
-    typeof frontmatter.status === "string" ? frontmatter.status : "";
-  const summary = buildProjectSummary(
-    resolvedTitle,
-    status,
-    projectDir,
-    fullContent
-  );
 
   const repoHasGit = repo
     ? await fs
@@ -659,27 +668,47 @@ export async function spawnSubagent(
     }
   }
 
-  let prompt = summary ? `${summary}\n\n${input.prompt}` : input.prompt;
-  if (mode === "worktree" || mode === "clone") {
-    const worktreeLine =
-      mode === "worktree"
-        ? `Worktree path: ${worktreePath}`
-        : `Clone path: ${worktreePath}`;
-    if (prompt.includes("Repo path:")) {
-      prompt = prompt.replace(
-        /\n\nRepo path:[^\n]*(\n|$)/,
-        `\n\n${worktreeLine}\n`
-      );
-    } else {
-      prompt = `${prompt}\n\n${worktreeLine}`;
+  let prompt = input.prompt;
+  if (!input.resume) {
+    prompt = summary ? `${summary}\n\n${input.prompt}` : input.prompt;
+    if (mode === "worktree" || mode === "clone") {
+      const worktreeLine =
+        mode === "worktree"
+          ? `Worktree path: ${worktreePath}`
+          : `Clone path: ${worktreePath}`;
+      if (prompt.includes("Repo path:")) {
+        prompt = prompt.replace(
+          /\n\nRepo path:[^\n]*(\n|$)/,
+          `\n\n${worktreeLine}\n`
+        );
+      } else {
+        prompt = `${prompt}\n\n${worktreeLine}`;
+      }
+      prompt = prompt.trimEnd();
+    } else if (mode === "main-run") {
+      prompt = `${prompt}\n\nSpace path: ${worktreePath}`.trimEnd();
     }
-    prompt = prompt.trimEnd();
-  } else if (mode === "main-run") {
-    prompt = `${prompt}\n\nSpace path: ${worktreePath}`.trimEnd();
   }
   if (input.attachments && input.attachments.length > 0) {
     const paths = input.attachments.map((a) => a.path).join(", ");
     prompt = `${prompt}\n\n[Attached images: ${paths}]`;
+  }
+  const resumeLimit = parsePromptLimitEnv(
+    "AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES",
+    32768
+  );
+  const startLimit = parsePromptLimitEnv(
+    "AIHUB_SUBAGENT_MAX_PROMPT_BYTES",
+    262144
+  );
+  const promptLimit = input.resume ? resumeLimit : startLimit;
+  const promptBytes = Buffer.byteLength(prompt, "utf8");
+  if (promptBytes > promptLimit) {
+    const modeLabel = input.resume ? "resume" : "start/spawn";
+    return {
+      ok: false,
+      error: `Prompt too large for ${modeLabel}: ${promptBytes} > ${promptLimit} bytes`,
+    };
   }
   const piSessionFile =
     cli === "pi" ? (existingSessionFile ?? piSessionFilePath) : undefined;

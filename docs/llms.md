@@ -53,6 +53,7 @@ Features:
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail center-panel subagent chat follow-ups reuse the selected subagent `runMode` to preserve CLI session cwd continuity (important for Claude CLI resume by `session_id`)
+- Subagent resume/follow-up turns are delta-only: only the new user message (+ current-turn attachment marker), without re-prepending project summary context
 - Project detail center-panel chat input swaps `Send` to `Stop` while a run is active; lead agents stop via `/abort`, subagents stop via `POST /api/projects/:id/subagents/:slug/interrupt` (codex/claude/pi)
 - Subagent config updates are supported post-creation via `PATCH /api/projects/:id/subagents/:slug` (`name`, `model`, `reasoningEffort`, `thinking`); `apm rename` maps to this endpoint and AgentPanel exposes a per-harness model selector when the run is not active.
 - Subagent chat polling guards prevent stale interval races on fast panel re-renders/remounts, preserving run-state UI (spinner/Stop/input-disabled) until meaningful assistant output arrives.

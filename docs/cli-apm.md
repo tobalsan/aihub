@@ -154,6 +154,7 @@ Options:
 ### `apm resume <id>`
 
 Resume an existing run (same as sending a message in the monitoring panel).
+Resume sends only the follow-up message delta to the harness (no project summary re-prepend).
 
 Options:
 

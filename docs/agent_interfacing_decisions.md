@@ -87,6 +87,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
   - README body
   - plus tool usage doc for subagent CLI/tools (short bullet list).
 - Subagent spawn auto‑prepends same project summary before prompt.
+- Resume/follow-up runs send delta-only user input (no project summary or repo/workspace suffix re-injection).
 
 ## Open Items
 - Exact CLI resume flags for claude/codex/pi to codify.

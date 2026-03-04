@@ -138,7 +138,7 @@ You can spawn subagents:
 
 ### Follow‑up
 - Only user message (no re‑summary).
-- Subagent spawn auto‑prepends same project summary to prompt.
+- Resume/follow-up subagent runs are delta-only and do not append project summary or workspace-path suffixes.
 
 ---
 
