@@ -68,6 +68,7 @@ type LogItem = {
     | "error"
     | "subagent";
   title?: string;
+  summaryPreview?: string;
   body: string;
   collapsible?: boolean;
   systemCallout?: boolean;
@@ -220,9 +221,34 @@ function toImageAttachmentItem(text: string): LogItem {
   };
 }
 
+function summarizeInitialPrompt(text: string): string {
+  const firstLines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 3)
+    .join(" ");
+  const compact = firstLines || text.replace(/\s+/g, " ").trim();
+  if (!compact) return "Details";
+  return compact.length > 200 ? `${compact.slice(0, 200)}...` : compact;
+}
+
+function looksLikeSkillBody(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.length < 120) return false;
+  if (/<\/?skill[\w-]*\b/i.test(trimmed)) return true;
+  if (/^---[\s\S]+---/m.test(trimmed)) return true;
+  if (/^#\s+.*\n[\s\S]*\bskill\b/i.test(trimmed)) return true;
+  if (/(^|\n)name:\s*.+\n(?:[\s\S]{0,400})?(^|\n)description:\s*.+/im.test(trimmed))
+    return true;
+  return false;
+}
+
 function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   const entries: LogItem[] = [];
   let initialPromptAdded = false;
+  let skipNextUserIfSkill = false;
   const toolResults = new Map<string, FullToolResultMessage>();
   for (const msg of messages) {
     if (msg.role === "toolResult") {
@@ -235,6 +261,11 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
     if (msg.role === "user") {
       const text = getTextBlocks(msg.content);
       if (!text) continue;
+      if (skipNextUserIfSkill && looksLikeSkillBody(text)) {
+        skipNextUserIfSkill = false;
+        continue;
+      }
+      skipNextUserIfSkill = false;
       const parsed = parseJsonRecord(text);
       if (parsed && isSystemEventPayload(parsed)) {
         entries.push(toSystemCalloutItem(text));
@@ -247,7 +278,7 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
       if (!initialPromptAdded) {
         entries.push({
           tone: "user",
-          title: "Initial prompt",
+          summaryPreview: summarizeInitialPrompt(text),
           body: text,
           collapsible: true,
         });
@@ -342,6 +373,7 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
               collapsible: true,
             });
             if (output) skipResults.add(block.id);
+            skipNextUserIfSkill = true;
             continue;
           }
           if (toolKey === "agent") {
@@ -513,6 +545,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   // Phase 2: build log items, filtering out nested events
   const entries: LogItem[] = [];
   let initialPromptAdded = false;
+  let skipNextUserIfSkill = false;
   const toolOutputs = new Map<string, SubagentLogEvent>();
   for (const event of events) {
     if (
@@ -531,6 +564,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
     if (event.type === "session" || event.type === "message") continue;
     if (event.type === "user") {
       if (event.text) {
+        if (skipNextUserIfSkill && looksLikeSkillBody(event.text)) {
+          skipNextUserIfSkill = false;
+          continue;
+        }
+        skipNextUserIfSkill = false;
         const parsed = parseJsonRecord(event.text);
         if (parsed && isSystemEventPayload(parsed)) {
           entries.push(toSystemCalloutItem(event.text));
@@ -543,7 +581,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         if (!initialPromptAdded) {
           entries.push({
             tone: "user",
-            title: "Initial prompt",
+            summaryPreview: summarizeInitialPrompt(event.text),
             body: event.text,
             collapsible: true,
           });
@@ -648,6 +686,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
           collapsible: true,
         });
         if (toolId) skipOutputs.add(toolId);
+        skipNextUserIfSkill = true;
         continue;
       }
       entries.push({
@@ -743,10 +782,71 @@ function SubagentRunCard(props: {
   );
 }
 
-function renderLogItem(item: LogItem) {
+function CollapsibleLogLine(props: {
+  item: LogItem;
+  summaryText: string;
+  expanded: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  let detailsRef: HTMLDetailsElement | undefined;
+  const toggleHandler = () => {
+    if (!detailsRef) return;
+    props.onToggle(detailsRef.open);
+  };
+
+  onMount(() => {
+    if (!detailsRef) return;
+    detailsRef.addEventListener("toggle", toggleHandler);
+  });
+  onCleanup(() => {
+    if (!detailsRef) return;
+    detailsRef.removeEventListener("toggle", toggleHandler);
+  });
+
+  return (
+    <details
+      class={`log-line ${props.item.tone} collapsible${props.item.systemCallout ? " system-callout" : ""}`}
+      open={props.expanded}
+      ref={detailsRef}
+    >
+      <summary class="log-summary">
+        {logIcon(props.item.icon)}
+        <span>{props.summaryText}</span>
+      </summary>
+      {props.item.tone === "assistant" || props.item.tone === "user" ? (
+        <div
+          class="log-text log-markdown"
+          innerHTML={renderMarkdown(props.item.body.length > 0 ? props.item.body : "Empty content")}
+        />
+      ) : (
+        <pre class="log-text">
+          {props.item.body.length > 0 ? props.item.body : "Empty content"}
+        </pre>
+      )}
+    </details>
+  );
+}
+
+function renderLogItem(
+  item: LogItem,
+  collapsibleKey?: string,
+  expanded?: boolean,
+  onToggle?: (next: boolean) => void
+) {
   const useMarkdown = item.tone === "assistant" || item.tone === "user";
   if (item.collapsible) {
-    const summaryText = item.title ?? item.body.split("\n")[0] ?? "Details";
+    const summaryText =
+      item.summaryPreview ?? item.title ?? item.body.split("\n")[0] ?? "Details";
+    if (collapsibleKey && typeof expanded === "boolean" && onToggle) {
+      return (
+        <CollapsibleLogLine
+          item={item}
+          summaryText={summaryText}
+          expanded={expanded}
+          onToggle={onToggle}
+        />
+      );
+    }
     return (
       <details
         class={`log-line ${item.tone} collapsible${item.systemCallout ? " system-callout" : ""}`}
@@ -1067,6 +1167,9 @@ export function AgentChat(props: AgentChatProps) {
   const [expandedSubagentCards, setExpandedSubagentCards] = createSignal<
     Set<string>
   >(new Set());
+  const [expandedCollapsibles, setExpandedCollapsibles] = createSignal<
+    Set<string>
+  >(new Set());
   const toggleSubagentCard = (toolUseId: string) => {
     setExpandedSubagentCards((prev) => {
       const next = new Set(prev);
@@ -1074,6 +1177,17 @@ export function AgentChat(props: AgentChatProps) {
         next.delete(toolUseId);
       } else {
         next.add(toolUseId);
+      }
+      return next;
+    });
+  };
+  const setCollapsibleOpen = (key: string, expanded: boolean) => {
+    setExpandedCollapsibles((prev) => {
+      const next = new Set(prev);
+      if (expanded) {
+        next.add(key);
+      } else {
+        next.delete(key);
       }
       return next;
     });
@@ -1441,6 +1555,8 @@ export function AgentChat(props: AgentChatProps) {
     streamingToolCalls.clear();
     setCliLogs([]);
     setCliCursor(0);
+    setExpandedCollapsibles(new Set());
+    setExpandedSubagentCards(new Set());
     const persistedState =
       props.agentType === "subagent" && props.subagentInfo
         ? subagentTransientState.get(
@@ -1713,22 +1829,34 @@ export function AgentChat(props: AgentChatProps) {
 
   const aihubLogItems = createMemo(() => aihubLogs());
   const estimatedContextUsagePct = createMemo(() => {
-    let lastInputTokens = 0;
+    let highestInputTokens = 0;
     let modelName: string | undefined;
     for (const message of aihubHistoryMessages()) {
       if (message.role !== "assistant") continue;
       const meta = message.meta;
       if (meta?.model) modelName = meta.model;
-      const usage = meta?.usage;
-      if (!usage) continue;
-      const input = usage.input ?? 0;
-      if (input > 0) lastInputTokens = input;
+      const rawUsage = meta?.usage as
+        | (typeof meta.usage & {
+            input_tokens?: number;
+            total_tokens?: number;
+          })
+        | undefined;
+      if (!rawUsage) continue;
+      const inputTokens =
+        typeof rawUsage.input === "number"
+          ? rawUsage.input
+          : typeof rawUsage.input_tokens === "number"
+            ? rawUsage.input_tokens
+            : 0;
+      if (inputTokens > highestInputTokens) highestInputTokens = inputTokens;
     }
     const maxTokens =
       (modelName ? MODEL_CONTEXT_LIMITS[modelName] : undefined) ??
       MODEL_CONTEXT_LIMITS.default;
-    if (maxTokens <= 0 || lastInputTokens <= 0) return 0;
-    return Math.max(0, Math.min(100, Math.round((lastInputTokens / maxTokens) * 100)));
+    if (maxTokens <= 0 || highestInputTokens <= 0) return 0;
+    const rawPct = (highestInputTokens / maxTokens) * 100;
+    if (rawPct > 0 && rawPct < 1) return 1;
+    return Math.max(0, Math.min(100, Math.round(rawPct)));
   });
   const cliDisplayEvents = createMemo(() => {
     const pending = pendingCliUserMessages();
@@ -1877,6 +2005,9 @@ export function AgentChat(props: AgentChatProps) {
               fallback={<div class="log-empty">No messages yet.</div>}
             >
               {aihubLogItems().map((item) => {
+                const key = item.subagentRun
+                  ? `subagent:${item.subagentRun.toolUseId}`
+                  : `lead-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
                 if (item.subagentRun) {
                   const id = item.subagentRun.toolUseId;
                   return (
@@ -1888,7 +2019,12 @@ export function AgentChat(props: AgentChatProps) {
                     />
                   );
                 }
-                return renderLogItem(item);
+                return renderLogItem(
+                  item,
+                  key,
+                  expandedCollapsibles().has(key),
+                  (next) => setCollapsibleOpen(key, next)
+                );
               })}
             </Show>
             <Show when={aihubLive()}>
@@ -1929,6 +2065,9 @@ export function AgentChat(props: AgentChatProps) {
               fallback={<div class="log-empty">No logs yet.</div>}
             >
               {cliLogItems().map((item) => {
+                const key = item.subagentRun
+                  ? `subagent:${item.subagentRun.toolUseId}`
+                  : `cli-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
                 if (item.subagentRun) {
                   const id = item.subagentRun.toolUseId;
                   return (
@@ -1940,7 +2079,12 @@ export function AgentChat(props: AgentChatProps) {
                     />
                   );
                 }
-                return renderLogItem(item);
+                return renderLogItem(
+                  item,
+                  key,
+                  expandedCollapsibles().has(key),
+                  (next) => setCollapsibleOpen(key, next)
+                );
               })}
             </Show>
             <Show
