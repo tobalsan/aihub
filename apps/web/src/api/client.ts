@@ -960,6 +960,35 @@ export type MergeSpaceIntoMainResult = {
   };
 };
 
+type MergeSpaceApiResponse = {
+  merge?: {
+    afterSha?: string;
+    cleanup?: MergeSpaceCleanupPayload;
+  };
+} & MergeSpaceIntoMainResult;
+
+type MergeSpaceCleanupPayload = {
+  workerWorktreesRemoved?: number;
+  workerBranchesDeleted?: number;
+  spaceWorktreeRemoved?: boolean;
+  spaceBranchDeleted?: boolean;
+  errors?: string[];
+};
+
+function buildCleanupSummary(cleanup?: MergeSpaceCleanupPayload): string | undefined {
+  if (!cleanup) return undefined;
+  const parts: string[] = [];
+  if (typeof cleanup.workerWorktreesRemoved === "number") {
+    parts.push(`worktrees removed: ${cleanup.workerWorktreesRemoved}`);
+  }
+  if (typeof cleanup.workerBranchesDeleted === "number") {
+    parts.push(`branches deleted: ${cleanup.workerBranchesDeleted}`);
+  }
+  if (cleanup.spaceWorktreeRemoved) parts.push("space worktree removed");
+  if (cleanup.spaceBranchDeleted) parts.push("space branch deleted");
+  return parts.length > 0 ? parts.join(", ") : undefined;
+}
+
 export async function mergeSpaceIntoMain(
   projectId: string,
   input: { cleanup?: boolean } = {}
@@ -976,7 +1005,21 @@ export async function mergeSpaceIntoMain(
       .catch(() => ({ error: "Failed to merge space into main" }));
     throw new Error(data.error ?? "Failed to merge space into main");
   }
-  return (await res.json()) as MergeSpaceIntoMainResult;
+  const data = (await res.json()) as MergeSpaceApiResponse;
+  const mergedCommitSha =
+    data.mergedCommitSha ?? data.commitSha ?? data.sha ?? data.merge?.afterSha;
+  return {
+    ...data,
+    mergedCommitSha,
+    cleanupSummary: data.cleanupSummary ?? buildCleanupSummary(data.merge?.cleanup),
+    cleanup:
+      data.cleanup ??
+      (data.merge?.cleanup
+        ? {
+            errors: data.merge.cleanup.errors,
+          }
+        : undefined),
+  };
 }
 
 export async function fetchProjectSpaceCommits(

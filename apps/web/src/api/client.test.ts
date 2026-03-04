@@ -200,8 +200,15 @@ describe("api client (projects/subagents)", () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
-        mergedCommitSha: "abc1234",
-        cleanupSummary: "Removed 3 worktrees, 3 branches",
+        merge: {
+          afterSha: "abc1234",
+          cleanup: {
+            workerWorktreesRemoved: 3,
+            workerBranchesDeleted: 3,
+            spaceWorktreeRemoved: true,
+            spaceBranchDeleted: true,
+          },
+        },
       }),
     });
 
@@ -213,23 +220,27 @@ describe("api client (projects/subagents)", () => {
       body: JSON.stringify({ cleanup: true }),
     });
     expect(res.mergedCommitSha).toBe("abc1234");
+    expect(res.cleanupSummary).toContain("worktrees removed: 3");
   });
 
   it("posts merge space into main with cleanup disabled", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
-        sha: "def5678",
+        merge: {
+          afterSha: "def5678",
+        },
       }),
     });
 
-    await mergeSpaceIntoMain("PRO-9", { cleanup: false });
+    const result = await mergeSpaceIntoMain("PRO-9", { cleanup: false });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/merge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cleanup: false }),
     });
+    expect(result.mergedCommitSha).toBe("def5678");
   });
 
   it("commits project changes", async () => {
