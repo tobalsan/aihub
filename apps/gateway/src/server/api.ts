@@ -178,6 +178,46 @@ function mapTemplateToPromptRole(
   return "legacy";
 }
 
+function templateRoleLabel(
+  template: StartTemplate
+): "Coordinator" | "Worker" | "Reviewer" | "Custom" {
+  if (template === "coordinator") return "Coordinator";
+  if (template === "worker") return "Worker";
+  if (template === "reviewer") return "Reviewer";
+  return "Custom";
+}
+
+function slugToName(slug: string): string {
+  return slug
+    .split("-")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .slice(0, 3)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function resolveTemplateRunName(
+  template: StartTemplate | undefined,
+  slug: string | undefined,
+  explicitName: string | undefined
+): string | undefined {
+  const requestedName = hasText(explicitName) ? explicitName.trim() : undefined;
+  if (!template || requestedName) return requestedName;
+
+  const roleLabel = templateRoleLabel(template);
+  if (!hasText(slug)) return roleLabel;
+
+  const words = slugToName(slug)
+    .split(" ")
+    .filter((part) => part.length > 0);
+  if (words.length === 0) return roleLabel;
+  if (words[0].toLowerCase() === roleLabel.toLowerCase()) {
+    words.shift();
+  }
+  return words.length > 0 ? `${roleLabel} ${words.join(" ")}` : roleLabel;
+}
+
 function resolveCliSpawnOptions(
   cli: CliHarness,
   model?: string,
@@ -790,8 +830,9 @@ api.post("/projects/:id/start", async (c) => {
     typeof frontmatter.status === "string" ? frontmatter.status : "";
   const normalizedStatus = normalizeProjectStatus(status);
 
-  const requestedRunAgentValue =
-    hasText(startInput.runAgent) ? startInput.runAgent.trim() : "";
+  const requestedRunAgentValue = hasText(startInput.runAgent)
+    ? startInput.runAgent.trim()
+    : "";
   const frontmatterRunAgentValue =
     typeof frontmatter.runAgent === "string" ? frontmatter.runAgent.trim() : "";
   const resolvedRunAgentValue =
@@ -817,37 +858,34 @@ api.post("/projects/:id/start", async (c) => {
   let runMode: CliRunMode | undefined;
   let slug: string | undefined;
   let baseBranch: string | undefined;
-  const requestedName =
-    hasText(startInput.name)
-      ? startInput.name.trim()
-      : undefined;
-  const requestedModel =
-    hasText(startInput.model)
-      ? startInput.model.trim()
-      : undefined;
-  const requestedReasoningEffort =
-    hasText(startInput.reasoningEffort)
-      ? startInput.reasoningEffort.trim()
-      : undefined;
-  const requestedThinking =
-    hasText(startInput.thinking)
-      ? startInput.thinking.trim()
-      : undefined;
-  const requestedRunModeValue =
-    hasText(startInput.runMode) ? startInput.runMode.trim() : "";
+  const requestedName = hasText(startInput.name)
+    ? startInput.name.trim()
+    : undefined;
+  const requestedModel = hasText(startInput.model)
+    ? startInput.model.trim()
+    : undefined;
+  const requestedReasoningEffort = hasText(startInput.reasoningEffort)
+    ? startInput.reasoningEffort.trim()
+    : undefined;
+  const requestedThinking = hasText(startInput.thinking)
+    ? startInput.thinking.trim()
+    : undefined;
+  const requestedRunModeValue = hasText(startInput.runMode)
+    ? startInput.runMode.trim()
+    : "";
   const resolvedRunMode = normalizeCliRunMode(requestedRunModeValue || "clone");
   if (runAgentSelection.type === "cli") {
     runMode = resolvedRunMode;
-    const requestedSlugValue =
-      hasText(startInput.slug) ? startInput.slug.trim() : "";
+    const requestedSlugValue = hasText(startInput.slug)
+      ? startInput.slug.trim()
+      : "";
     slug =
       runMode === "main-run"
         ? "main"
         : requestedSlugValue || slugifyTitle(project.title);
-    baseBranch =
-      hasText(startInput.baseBranch)
-        ? startInput.baseBranch.trim()
-        : "main";
+    baseBranch = hasText(startInput.baseBranch)
+      ? startInput.baseBranch.trim()
+      : "main";
   }
 
   let runAgentLabel: string | undefined;
@@ -932,8 +970,7 @@ api.post("/projects/:id/start", async (c) => {
     }
   }
 
-  const explicitRole =
-    startInput.promptRole;
+  const explicitRole = startInput.promptRole;
   const promptRole = mapTemplateToPromptRole(template, explicitRole);
   const specsPath = promptRole === "legacy" ? readmePath : specsPathForRole;
   const coordinatorWorkspaceContext =
@@ -975,10 +1012,9 @@ api.post("/projects/:id/start", async (c) => {
             (item.runMode === "clone" || item.runMode === "worktree")
         )
         .map((item) => {
-          const workspacePath =
-            hasText(item.worktreePath)
-              ? item.worktreePath.trim()
-              : path.join(resolvedRoot, ".workspaces", project.id, item.slug);
+          const workspacePath = hasText(item.worktreePath)
+            ? item.worktreePath.trim()
+            : path.join(resolvedRoot, ".workspaces", project.id, item.slug);
           return {
             name: item.name?.trim() || item.slug,
             cli: item.cli,
@@ -1082,10 +1118,9 @@ api.post("/projects/:id/start", async (c) => {
         ? ralphIterationsRaw
         : 20;
     const ralphMode = resolvedRunMode;
-    const ralphBaseBranch =
-      hasText(startInput.baseBranch)
-        ? startInput.baseBranch.trim()
-        : "main";
+    const ralphBaseBranch = hasText(startInput.baseBranch)
+      ? startInput.baseBranch.trim()
+      : "main";
     const ralphSlug = generateRalphLoopSlug();
 
     const result = await spawnRalphLoop(config, {
@@ -1116,12 +1151,17 @@ api.post("/projects/:id/start", async (c) => {
     return c.json({ error: "Slug required" }, 400);
   }
   const baseBranchValue = baseBranch ?? "main";
+  const resolvedName = resolveTemplateRunName(
+    template,
+    slugValue,
+    requestedName
+  );
 
   const result = await spawnSubagent(config, {
     projectId: project.id,
     slug: slugValue,
     cli: runCli,
-    name: requestedName,
+    name: resolvedName,
     prompt,
     model: resolvedCliOptions.data.model,
     reasoningEffort: resolvedCliOptions.data.reasoningEffort,
@@ -1604,7 +1644,9 @@ api.get("/projects/:id/attachments/:name", async (c) => {
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
   return c.body(
-    Readable.toWeb(createReadStream(result.data.path)) as unknown as ReadableStream
+    Readable.toWeb(
+      createReadStream(result.data.path)
+    ) as unknown as ReadableStream
   );
 });
 
@@ -1777,7 +1819,9 @@ api.get("/conversations/:id/attachments/:name", async (c) => {
   const type = attachmentContentType(result.data.name);
   c.header("Content-Type", type);
   return c.body(
-    Readable.toWeb(createReadStream(result.data.path)) as unknown as ReadableStream
+    Readable.toWeb(
+      createReadStream(result.data.path)
+    ) as unknown as ReadableStream
   );
 });
 
@@ -1895,6 +1939,13 @@ api.post("/projects/:id/subagents", async (c) => {
   const baseBranch =
     typeof body.baseBranch === "string" ? body.baseBranch : undefined;
   const resume = typeof body.resume === "boolean" ? body.resume : undefined;
+  const template =
+    body.template === "coordinator" ||
+    body.template === "worker" ||
+    body.template === "reviewer" ||
+    body.template === "custom"
+      ? (body.template as StartTemplate)
+      : undefined;
   const attachments = Array.isArray(body.attachments)
     ? (
         body.attachments as Array<{
@@ -1925,11 +1976,12 @@ api.post("/projects/:id/subagents", async (c) => {
   }
 
   const config = getConfig();
+  const resolvedName = resolveTemplateRunName(template, slug, name);
   const result = await spawnSubagent(config, {
     projectId: id,
     slug,
     cli,
-    name,
+    name: resolvedName,
     prompt,
     model: resolvedCliOptions.data.model,
     reasoningEffort: resolvedCliOptions.data.reasoningEffort,
@@ -2155,7 +2207,8 @@ api.post("/projects/:id/space/integrate", async (c) => {
       message.startsWith("Project not found") ||
       message === "Project space not found"
         ? 404
-        : message === "Project repo not set" || message === "Not a git repository"
+        : message === "Project repo not set" ||
+            message === "Not a git repository"
           ? 400
           : 500;
     return c.json({ error: message }, status);
@@ -2270,12 +2323,11 @@ api.post("/projects/:id/space/lease", async (c) => {
   const config = getConfig();
   const lease = await acquireProjectSpaceWriteLease(config, id, parsed.data);
   if (!lease.ok) {
-    const status =
-      lease.error.startsWith("Project not found")
-        ? 404
-        : lease.error.includes("held by")
-          ? 409
-          : 400;
+    const status = lease.error.startsWith("Project not found")
+      ? 404
+      : lease.error.includes("held by")
+        ? 409
+        : 400;
     return c.json({ error: lease.error }, status);
   }
   return c.json({ enabled: true, lease: lease.data });
@@ -2295,12 +2347,11 @@ api.delete("/projects/:id/space/lease", async (c) => {
   const config = getConfig();
   const released = await releaseProjectSpaceWriteLease(config, id, parsed.data);
   if (!released.ok) {
-    const status =
-      released.error.startsWith("Project not found")
-        ? 404
-        : released.error.includes("held by")
-          ? 409
-          : 400;
+    const status = released.error.startsWith("Project not found")
+      ? 404
+      : released.error.includes("held by")
+        ? 409
+        : 400;
     return c.json({ error: released.error }, status);
   }
   return c.json({ enabled: true, lease: null });

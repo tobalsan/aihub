@@ -80,16 +80,22 @@ describe("role-based project prompts", () => {
     expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
     expect(out).toContain("other relevant project markdown files");
     expect(out).toContain("Use `apm start` with templates for delegation:");
-    expect(out).toContain("--template worker");
-    expect(out).toContain("--template reviewer");
+    expect(out).toContain("--template worker --slug worker-<task> --name");
+    expect(out).toContain("--template reviewer --slug reviewer-<scope> --name");
+    expect(out).toContain("Agent names are auto-generated");
+    expect(out).toContain('Use `--name "..."` to override.');
     expect(out).toContain(
       "When using `--template`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`."
     );
     expect(out).toContain(
       "Do not merge/cherry-pick directly from coordinator/reviewer runs."
     );
-    expect(out).toContain("When writing SPECS.md, keep checklist sections parseable");
-    expect(out).toContain("Optional `###` subsections are supported in both sections.");
+    expect(out).toContain(
+      "When writing SPECS.md, keep checklist sections parseable"
+    );
+    expect(out).toContain(
+      "Optional `###` subsections are supported in both sections."
+    );
   });
 
   it("builds worker prompt with implementation repo and no move-to-review", () => {

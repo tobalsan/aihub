@@ -1078,7 +1078,12 @@ describe("subagents API", () => {
     );
     expect(startRes.status).toBe(200);
 
-    const sessionDir = path.join(projectsRoot, created.path, "sessions", "coord-check");
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "coord-check"
+    );
     const logsPath = path.join(sessionDir, "logs.jsonl");
     const start = Date.now();
     while (Date.now() - start < 3000) {
@@ -1260,6 +1265,226 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("auto-generates template name on /projects/:id/start when omitted", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Template Name Auto" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-template-name-auto");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-template-name-auto"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const startRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "reviewer",
+            slug: "reviewer-foo-bar",
+          }),
+        })
+      );
+      expect(startRes.status).toBe(200);
+
+      const config = JSON.parse(
+        await fs.readFile(
+          path.join(
+            projectsRoot,
+            created.path,
+            "sessions",
+            "reviewer-foo-bar",
+            "config.json"
+          ),
+          "utf8"
+        )
+      );
+      expect(config.name).toBe("Reviewer Foo Bar");
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
+  it("auto-generates worker name from slug on /projects/:id/subagents", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Template Name Worker" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-template-name-worker");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-template-name-worker"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const spawnRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/subagents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "worker",
+            slug: "worker-model-resume",
+            cli: "codex",
+            prompt: "implement",
+            mode: "none",
+          }),
+        })
+      );
+      expect(spawnRes.status).toBe(201);
+
+      const config = JSON.parse(
+        await fs.readFile(
+          path.join(
+            projectsRoot,
+            created.path,
+            "sessions",
+            "worker-model-resume",
+            "config.json"
+          ),
+          "utf8"
+        )
+      );
+      expect(config.name).toBe("Worker Model Resume");
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
+  it("derives template name from slug words and caps at three words", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Template Name Slug Words" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-template-name-slug-words");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-template-name-slug-words"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const startRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "reviewer",
+            slug: "reviewer-api-scope-extra",
+          }),
+        })
+      );
+      expect(startRes.status).toBe(200);
+
+      const config = JSON.parse(
+        await fs.readFile(
+          path.join(
+            projectsRoot,
+            created.path,
+            "sessions",
+            "reviewer-api-scope-extra",
+            "config.json"
+          ),
+          "utf8"
+        )
+      );
+      expect(config.name).toBe("Reviewer Api Scope");
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
+  it("keeps explicit template name instead of auto-generating", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Template Name Explicit" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-template-name-explicit");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-template-name-explicit"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const startRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "reviewer",
+            slug: "reviewer-manual",
+            name: "Reviewer Manual",
+          }),
+        })
+      );
+      expect(startRes.status).toBe(200);
+
+      const config = JSON.parse(
+        await fs.readFile(
+          path.join(
+            projectsRoot,
+            created.path,
+            "sessions",
+            "reviewer-manual",
+            "config.json"
+          ),
+          "utf8"
+        )
+      );
+      expect(config.name).toBe("Reviewer Manual");
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
   it("rejects locked template overrides on /projects/:id/start", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
@@ -1434,7 +1659,10 @@ describe("subagents API", () => {
     );
     expect(reviewerConfig.runMode).toBe("none");
 
-    const logs = await fs.readFile(path.join(reviewerDir, "logs.jsonl"), "utf8");
+    const logs = await fs.readFile(
+      path.join(reviewerDir, "logs.jsonl"),
+      "utf8"
+    );
     expect(logs).toContain("## Active Worker Workspaces");
     expect(logs).toContain(workerState.worktree_path);
     expect(logs).not.toContain("No active worker workspaces found.");
@@ -1716,10 +1944,9 @@ describe("subagents API", () => {
     const codexPath = path.join(binDir, "codex");
     await fs.writeFile(
       codexPath,
-      [
-        "#!/bin/sh",
-        'echo "{\"type\":\"thread.started\",\"thread_id\":\"s1\"}"',
-      ].join("\n"),
+      ["#!/bin/sh", 'echo \'{"type":"thread.started","thread_id":"s1"}\''].join(
+        "\n"
+      ),
       { mode: 0o755 }
     );
     const prevPath = process.env.PATH;
@@ -2218,7 +2445,11 @@ describe("subagents API", () => {
     );
     expect(patchRes.status).toBe(200);
 
-    const projectReadmePath = path.join(projectsRoot, created.path, "README.md");
+    const projectReadmePath = path.join(
+      projectsRoot,
+      created.path,
+      "README.md"
+    );
     const readme = await fs.readFile(projectReadmePath, "utf8");
     expect(readme).not.toContain("repo:");
 
@@ -2248,7 +2479,12 @@ describe("subagents API", () => {
     );
     expect(spawnRes.status).toBe(201);
 
-    const workDir = path.join(projectsRoot, ".workspaces", created.id, "area-worker");
+    const workDir = path.join(
+      projectsRoot,
+      ".workspaces",
+      created.id,
+      "area-worker"
+    );
     await expect(fs.stat(path.join(workDir, ".git"))).resolves.toBeDefined();
 
     process.env.PATH = prevPath;

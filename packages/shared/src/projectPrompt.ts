@@ -115,12 +115,7 @@ export function buildProjectStartPrompt(input: {
     prompt = custom || `/drill-specs ${input.specsPath}`;
   } else if (includeDefault) {
     prompt = buildStartPrompt(
-      buildProjectSummary(
-        input.title,
-        input.status,
-        input.path,
-        input.content
-      )
+      buildProjectSummary(input.title, input.status, input.path, input.content)
     );
   }
   if (normalized !== "shaping" && custom) {
@@ -166,7 +161,9 @@ function sortProjectFiles(files: readonly string[]): string[] {
 function listProjectFileLinks(path: string, files: readonly string[]): string {
   const basePath = path.replace(/\/$/, "");
   const normalized = sortProjectFiles(files).map(normalizeDocFilename);
-  return normalized.map((file) => `- [${file}](${basePath}/${file})`).join("\n");
+  return normalized
+    .map((file) => `- [${file}](${basePath}/${file})`)
+    .join("\n");
 }
 
 function buildProjectFilesBlock(input: {
@@ -212,10 +209,6 @@ function postRunCommitBlock(): string {
 
 function postRunApmCommentBlock(projectId: string, agentLabel: string): string {
   return `- Add a project comment: \`apm comment ${projectId} --message "<your summary>" --author "${agentLabel}"\``;
-}
-
-function postRunMoveReviewBlock(projectId: string, agentLabel: string): string {
-  return `- Move project to review: \`apm move ${projectId} review --agent ${agentLabel}\``;
 }
 
 function postRunNotifyCloudBlock(): string {
@@ -307,8 +300,9 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- Track progress and keep project docs updated",
           "- Verify acceptance criteria before signaling completion",
           "Use `apm start` with templates for delegation:",
-          "- Worker: `apm start <project_id> --template worker --slug worker-<task> --custom-prompt \"Implement <task>; update SPECS.md status.\"`",
-          "- Reviewer: `apm start <project_id> --template reviewer --slug reviewer-<scope> --custom-prompt \"Review worker workspaces; run tests; report pass/fail against acceptance criteria.\"`",
+          '- Worker: `apm start <project_id> --template worker --slug worker-<task> --name "Worker <Name>" --custom-prompt "Implement <task>; update SPECS.md status."`',
+          '- Reviewer: `apm start <project_id> --template reviewer --slug reviewer-<scope> --name "Reviewer <Name>" --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
+          '- Agent names are auto-generated (e.g. "Worker Sage") when using templates. Use `--name "..."` to override.',
           "- When using `--template`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`.",
           "- Do not merge/cherry-pick directly from coordinator/reviewer runs. Integration must go through Space queue and explicit Integrate Now.",
           "When writing SPECS.md, keep checklist sections parseable:",
