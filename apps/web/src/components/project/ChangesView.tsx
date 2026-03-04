@@ -8,7 +8,9 @@ import {
   fetchProjectSpaceContribution,
   fixSpaceConflict,
   integrateProjectSpace,
+  mergeSpaceIntoMain,
 } from "../../api/client";
+import type { MergeSpaceIntoMainResult } from "../../api/client";
 import type {
   FileChange,
   ProjectChanges,
@@ -192,6 +194,11 @@ export function ChangesView(props: ChangesViewProps) {
   const [fixMessage, setFixMessage] = createSignal<string | null>(null);
   const [fixError, setFixError] = createSignal<string | null>(null);
   const [branchDiffExpanded, setBranchDiffExpanded] = createSignal(false);
+  const [mergeWithCleanup, setMergeWithCleanup] = createSignal(true);
+  const [mergingMain, setMergingMain] = createSignal(false);
+  const [mergeMainError, setMergeMainError] = createSignal<string | null>(null);
+  const [mergeMainResult, setMergeMainResult] =
+    createSignal<MergeSpaceIntoMainResult | null>(null);
 
   const fileRefs = new Map<string, HTMLElement>();
 
@@ -303,6 +310,28 @@ export function ChangesView(props: ChangesViewProps) {
     window.open(url, "_blank", "noopener");
   };
 
+  const handleMergeMain = async () => {
+    if (mergingMain()) return;
+    setMergingMain(true);
+    setMergeMainError(null);
+    setMergeMainResult(null);
+    try {
+      const result = await mergeSpaceIntoMain(props.projectId, {
+        cleanup: mergeWithCleanup(),
+      });
+      setMergeMainResult(result);
+      await refresh(false);
+    } catch (error) {
+      setMergeMainError(
+        error instanceof Error
+          ? error.message
+          : "Failed to merge space into main"
+      );
+    } finally {
+      setMergingMain(false);
+    }
+  };
+
   onMount(() => {
     void refresh(true);
     const timer = window.setInterval(() => {
@@ -352,6 +381,25 @@ export function ChangesView(props: ChangesViewProps) {
     const counts = queueCounts();
     return counts.pending > 0 || Boolean(space()?.integrationBlocked);
   };
+
+  const canMergeMain = () => {
+    if (!space()) return false;
+    const counts = queueCounts();
+    return (
+      counts.pending === 0 &&
+      counts.conflict === 0 &&
+      counts.stale === 0 &&
+      !space()?.integrationBlocked
+    );
+  };
+
+  const mergeResultSha = () =>
+    mergeMainResult()?.mergedCommitSha ??
+    mergeMainResult()?.commitSha ??
+    mergeMainResult()?.sha;
+
+  const mergeCleanupSummary = () =>
+    mergeMainResult()?.cleanupSummary ?? mergeMainResult()?.cleanup?.summary;
 
   return (
     <section class="changes-view">
@@ -434,6 +482,27 @@ export function ChangesView(props: ChangesViewProps) {
               </Show>
               <Show when={integrateError()}>
                 <p class="changes-error">{integrateError()}</p>
+              </Show>
+              <Show when={canMergeMain()}>
+                <div class="merge-main-controls">
+                  <label class="merge-main-toggle">
+                    <input
+                      type="checkbox"
+                      checked={mergeWithCleanup()}
+                      onInput={(e) => setMergeWithCleanup(e.currentTarget.checked)}
+                      disabled={mergingMain()}
+                    />
+                    Clean up worktrees & branches
+                  </label>
+                  <button
+                    type="button"
+                    class="merge-main-btn"
+                    disabled={mergingMain()}
+                    onClick={() => void handleMergeMain()}
+                  >
+                    {mergingMain() ? "Merging…" : "Merge space into main"}
+                  </button>
+                </div>
               </Show>
               <Show when={fixMessage()}>
                 <p class="changes-info">{fixMessage()}</p>
@@ -558,6 +627,23 @@ export function ChangesView(props: ChangesViewProps) {
                 </div>
               </Show>
             </section>
+          </Show>
+
+          <Show when={mergeMainResult()}>
+            <p class="changes-info">
+              Space merged into main
+              <Show when={mergeResultSha()}>
+                {" · sha "}
+                <code>{mergeResultSha()}</code>
+              </Show>
+              <Show when={mergeCleanupSummary()}>
+                {" · "}
+                {mergeCleanupSummary()}
+              </Show>
+            </p>
+          </Show>
+          <Show when={mergeMainError()}>
+            <p class="changes-error">{mergeMainError()}</p>
           </Show>
 
           <Show when={spaceCommits().length > 0}>
@@ -877,6 +963,39 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .integrate-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .merge-main-controls {
+          border-top: 1px solid var(--border-subtle);
+          padding-top: 8px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+        }
+
+        .merge-main-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: var(--text-primary);
+        }
+
+        .merge-main-btn {
+          border: 1px solid #16a34a;
+          background: #15803d;
+          color: #fff;
+          border-radius: 8px;
+          padding: 6px 10px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .merge-main-btn:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }

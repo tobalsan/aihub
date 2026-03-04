@@ -946,6 +946,39 @@ export async function integrateProjectSpace(
   return (await res.json()) as ProjectSpaceState;
 }
 
+export type MergeSpaceIntoMainResult = {
+  sha?: string;
+  commitSha?: string;
+  mergedCommitSha?: string;
+  cleanupSummary?: string;
+  message?: string;
+  cleanup?: {
+    summary?: string;
+    errors?: string[];
+    removedWorktrees?: string[];
+    removedBranches?: string[];
+  };
+};
+
+export async function mergeSpaceIntoMain(
+  projectId: string,
+  input: { cleanup?: boolean } = {}
+): Promise<MergeSpaceIntoMainResult> {
+  const cleanup = input.cleanup ?? true;
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cleanup }),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to merge space into main" }));
+    throw new Error(data.error ?? "Failed to merge space into main");
+  }
+  return (await res.json()) as MergeSpaceIntoMainResult;
+}
+
 export async function fetchProjectSpaceCommits(
   projectId: string,
   limit = 20

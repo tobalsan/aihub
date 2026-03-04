@@ -19,6 +19,13 @@ const mocks = vi.hoisted(() => ({
   fetchProjectSpaceContribution:
     vi.fn<(projectId: string, entryId: string) => Promise<SpaceContribution>>(),
   integrateProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
+  mergeSpaceIntoMain:
+    vi.fn<
+      (
+        projectId: string,
+        input?: { cleanup?: boolean }
+      ) => Promise<{ mergedCommitSha?: string; cleanupSummary?: string; sha?: string }>
+    >(),
   fixSpaceConflict:
     vi.fn<(projectId: string, entryId: string) => Promise<{ entryId: string; slug: string }>>(),
   commitProjectChanges:
@@ -37,6 +44,7 @@ vi.mock("../../api/client", () => ({
   fetchProjectPullRequestTarget: mocks.fetchProjectPullRequestTarget,
   fetchProjectSpaceContribution: mocks.fetchProjectSpaceContribution,
   integrateProjectSpace: mocks.integrateProjectSpace,
+  mergeSpaceIntoMain: mocks.mergeSpaceIntoMain,
   fixSpaceConflict: mocks.fixSpaceConflict,
   commitProjectChanges: mocks.commitProjectChanges,
 }));
@@ -93,6 +101,7 @@ describe("ChangesView", () => {
     mocks.fetchProjectPullRequestTarget.mockReset();
     mocks.fetchProjectSpaceContribution.mockReset();
     mocks.integrateProjectSpace.mockReset();
+    mocks.mergeSpaceIntoMain.mockReset();
     mocks.fixSpaceConflict.mockReset();
     mocks.commitProjectChanges.mockReset();
 
@@ -125,6 +134,10 @@ describe("ChangesView", () => {
       conflictFiles: [],
     });
     mocks.integrateProjectSpace.mockResolvedValue(baseSpace);
+    mocks.mergeSpaceIntoMain.mockResolvedValue({
+      mergedCommitSha: "abc1234",
+      cleanupSummary: "Removed 2 worktrees and 2 branches",
+    });
     mocks.fixSpaceConflict.mockResolvedValue({
       entryId: "alpha:1",
       slug: "fix-alpha",
@@ -191,6 +204,79 @@ describe("ChangesView", () => {
       "alpha:1"
     );
     expect(container.textContent).toContain("worker commit");
+
+    dispose();
+  });
+
+  it("shows merge-to-main controls only when queue is terminal", async () => {
+    const pendingContainer = document.createElement("div");
+    document.body.appendChild(pendingContainer);
+    const pendingDispose = render(
+      () => <ChangesView projectId="PRO-1" />,
+      pendingContainer
+    );
+    await flush();
+    expect(pendingContainer.textContent).not.toContain("Merge space into main");
+    pendingDispose();
+
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      queue: [
+        { ...baseSpace.queue[0]!, status: "integrated" },
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:2",
+          status: "skipped",
+          shas: [],
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    expect(container.textContent).toContain("Merge space into main");
+    expect(container.textContent).toContain("Clean up worktrees & branches");
+
+    dispose();
+  });
+
+  it("merges space into main with cleanup toggle", async () => {
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      queue: [{ ...baseSpace.queue[0]!, status: "integrated" }],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const cleanupToggle = Array.from(container.querySelectorAll("input")).find(
+      (input) =>
+        input instanceof HTMLInputElement &&
+        input.type === "checkbox" &&
+        input.parentElement?.textContent?.includes("Clean up worktrees & branches")
+    ) as HTMLInputElement | undefined;
+    expect(cleanupToggle).toBeDefined();
+    cleanupToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const mergeBtn = Array.from(container.querySelectorAll("button")).find((btn) =>
+      btn.textContent?.includes("Merge space into main")
+    ) as HTMLButtonElement | undefined;
+    expect(mergeBtn).toBeDefined();
+
+    mergeBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.mergeSpaceIntoMain).toHaveBeenCalledWith("PRO-1", {
+      cleanup: false,
+    });
+    expect(container.textContent).toContain("Space merged into main");
+    expect(container.textContent).toContain("abc1234");
 
     dispose();
   });
