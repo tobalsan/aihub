@@ -56,6 +56,7 @@ const project: ProjectDetail = {
 
 describe("AgentPanel", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(fetchSimpleHistory).mockResolvedValue({ messages: [] });
     vi.mocked(fetchSubagentLogs).mockResolvedValue({
       ok: true,
@@ -135,7 +136,7 @@ describe("AgentPanel", () => {
     dispose();
   });
 
-  it("shows model selector for idle run and patches model on change", async () => {
+  it("shows model popup for idle run and patches model on selection", async () => {
     vi.mocked(fetchSubagents).mockResolvedValueOnce({
       ok: true,
       data: {
@@ -159,23 +160,27 @@ describe("AgentPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const select = container.querySelector(
-      ".agent-model-select"
-    ) as HTMLSelectElement;
-    expect(select).toBeTruthy();
+    const meta = container.querySelector(".agent-meta.editable") as HTMLElement;
+    expect(meta).toBeTruthy();
+    meta.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    select.value = "gpt-5.2";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const option = Array.from(container.querySelectorAll(".agent-model-option")).find(
+      (item) => item.textContent?.includes("gpt-5.2")
+    ) as HTMLButtonElement | undefined;
+    expect(option).toBeTruthy();
+    option?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(updateSubagent).toHaveBeenCalledWith("PRO-1", "alpha", {
       model: "gpt-5.2",
     });
+    expect(container.querySelector(".agent-model-popup")).toBeNull();
 
     dispose();
   });
 
-  it("hides model selector for running run", async () => {
+  it("keeps model popup disabled for running run", async () => {
     vi.mocked(fetchSubagents).mockResolvedValueOnce({
       ok: true,
       data: {
@@ -193,7 +198,43 @@ describe("AgentPanel", () => {
     const { container, dispose } = setup();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.querySelector(".agent-model-select")).toBeNull();
+    const meta = container.querySelector(".agent-meta") as HTMLElement;
+    expect(meta).toBeTruthy();
+    expect(meta.classList.contains("editable")).toBe(false);
+    meta.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".agent-model-popup")).toBeNull();
+    dispose();
+  });
+
+  it("closes model popup on outside click", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            model: "gpt-5.3-codex",
+            status: "idle",
+          },
+        ],
+      },
+    });
+
+    const { container, dispose } = setup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const meta = container.querySelector(".agent-meta.editable") as HTMLElement;
+    meta.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".agent-model-popup")).toBeTruthy();
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".agent-model-popup")).toBeNull();
+
     dispose();
   });
 
@@ -371,6 +412,7 @@ describe("AgentPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    vi.mocked(renameSubagent).mockClear();
     const renameButton = container.querySelector(
       ".agent-name-btn"
     ) as HTMLButtonElement;
@@ -383,6 +425,7 @@ describe("AgentPanel", () => {
     input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
     );
+    input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(renameSubagent).toHaveBeenCalledWith(
@@ -390,7 +433,54 @@ describe("AgentPanel", () => {
       "alpha",
       "Worker Renamed"
     );
+    expect(renameSubagent).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Worker Renamed");
+
+    dispose();
+  });
+
+  it("saves inline rename on blur", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            name: "Worker Alpha",
+            status: "idle",
+          },
+        ],
+      },
+    });
+    vi.mocked(renameSubagent).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        slug: "alpha",
+        cli: "codex",
+        name: "Worker Blur",
+        status: "idle",
+      },
+    });
+
+    const { container, dispose } = setup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const renameButton = container.querySelector(
+      ".agent-name-btn"
+    ) as HTMLButtonElement;
+    renameButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const input = container.querySelector(".agent-name-input") as HTMLInputElement;
+    input.value = "Worker Blur";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(renameSubagent).toHaveBeenCalledWith("PRO-1", "alpha", "Worker Blur");
+    expect(renameSubagent).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Worker Blur");
 
     dispose();
   });
