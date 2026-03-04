@@ -1129,6 +1129,52 @@ export async function spawnSubagent(
   return { ok: true, data };
 }
 
+export type UpdateSubagentInput = {
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
+};
+
+export type UpdateSubagentResult =
+  | {
+      ok: true;
+      data: {
+        slug: string;
+        name?: string;
+        model?: string;
+        reasoningEffort?: string;
+        thinking?: string;
+      };
+    }
+  | { ok: false; error: string };
+
+export async function updateSubagent(
+  projectId: string,
+  slug: string,
+  input: UpdateSubagentInput
+): Promise<UpdateSubagentResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to update subagent" }));
+    return { ok: false, error: data.error ?? "Failed to update subagent" };
+  }
+  const data = (await res.json()) as {
+    slug: string;
+    name?: string;
+    model?: string;
+    reasoningEffort?: string;
+    thinking?: string;
+  };
+  return { ok: true, data };
+}
+
 export type SpawnRalphLoopInput = {
   cli: "codex" | "claude";
   iterations: number;

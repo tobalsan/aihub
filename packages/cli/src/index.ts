@@ -695,6 +695,65 @@ program
   });
 
 program
+  .command("rename")
+  .argument("<id>", "Project ID")
+  .requiredOption("--slug <slug>", "Subagent slug")
+  .option("--name <name>", "New run name")
+  .option("--model <id>", "Model id")
+  .option("--reasoning-effort <level>", "Reasoning effort")
+  .option("--thinking <level>", "Thinking level")
+  .option("-j, --json", "JSON output")
+  .action(async (id, opts) => {
+    try {
+      const normalizedId = normalizeProjectId(id);
+      const slug =
+        typeof opts.slug === "string" && opts.slug.trim()
+          ? opts.slug.trim()
+          : "";
+      if (!slug) {
+        console.error("Slug required.");
+        process.exit(1);
+      }
+
+      const body: Record<string, unknown> = {};
+      if (typeof opts.name === "string" && opts.name.trim()) {
+        body.name = opts.name.trim();
+      }
+      if (typeof opts.model === "string" && opts.model.trim()) {
+        body.model = opts.model.trim();
+      }
+      if (
+        typeof opts.reasoningEffort === "string" &&
+        opts.reasoningEffort.trim()
+      ) {
+        body.reasoningEffort = opts.reasoningEffort.trim();
+      }
+      if (typeof opts.thinking === "string" && opts.thinking.trim()) {
+        body.thinking = opts.thinking.trim();
+      }
+      if (Object.keys(body).length === 0) {
+        console.error(
+          "At least one of --name/--model/--reasoning-effort/--thinking is required."
+        );
+        process.exit(1);
+      }
+
+      const data = await getClient().updateProjectSubagent(
+        normalizedId,
+        slug,
+        body
+      );
+      if (opts.json) {
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+      console.log(`Updated subagent ${slug}`);
+    } catch (err) {
+      fail(err);
+    }
+  });
+
+program
   .command("status")
   .argument("<id>", "Project ID")
   .option("--limit <n>", "Number of messages to return", "10")
@@ -797,36 +856,6 @@ program
       }
       console.log(`Status: ${payload.status}`);
       console.log(formatMessages(recent));
-    } catch (err) {
-      fail(err);
-    }
-  });
-
-program
-  .command("rename")
-  .argument("<id>", "Project ID")
-  .requiredOption("--slug <slug>", "Subagent slug")
-  .requiredOption("--name <name>", "New subagent name")
-  .option("-j, --json", "JSON output")
-  .action(async (id, opts) => {
-    try {
-      const normalizedId = normalizeProjectId(id);
-      const slug =
-        typeof opts.slug === "string" ? opts.slug.trim() : String(opts.slug);
-      const name =
-        typeof opts.name === "string" ? opts.name.trim() : String(opts.name);
-      if (!slug || !name) {
-        console.error("Both --slug and --name are required.");
-        process.exit(1);
-      }
-      const data = await getClient().renameProjectSubagent(normalizedId, slug, {
-        name,
-      });
-      if (opts.json) {
-        console.log(JSON.stringify(data, null, 2));
-        return;
-      }
-      console.log(`Renamed subagent ${slug} to "${name}"`);
     } catch (err) {
       fail(err);
     }

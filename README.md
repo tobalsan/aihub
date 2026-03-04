@@ -75,7 +75,6 @@ packages/
 - Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
 - Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
 - Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)
-- Project detail agent panel supports inline subagent rename (click name, Enter/blur to save)
 - Changes tab branch header is expandable: click branch aggregate stats to view per-file pending +/- counts (when available)
 - Space Commit Log rows show relative commit age (`now`, `1m`, `2h`, `3d`) beside author metadata
 
@@ -93,7 +92,7 @@ pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm apm move <id> <status>
 pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-template-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
-pnpm apm rename <id> --slug <slug> --name "New Name"
+pnpm apm rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
 
 # `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role (resolved server-side by default).
 # Override locked fields only with `--allow-template-overrides`.
@@ -267,7 +266,6 @@ openclaw sessions list
 | `/api/schedules/:id`       | PATCH/DELETE | Update/delete schedule                               |
 | `/api/projects`            | GET/POST     | List/create projects                                 |
 | `/api/projects/:id`        | GET/PATCH    | Get/update project                                   |
-| `/api/projects/:id/subagents/:slug` | PATCH | Rename subagent run                                  |
 | `/api/projects/:id/space`  | GET          | Get project Space state                              |
 | `/api/projects/:id/space/integrate` | POST | Resume/pick pending Space queue                     |
 | `/api/projects/:id/space/commits` | GET  | Get Space commit log                                 |

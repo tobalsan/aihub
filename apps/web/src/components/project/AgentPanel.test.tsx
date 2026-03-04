@@ -9,6 +9,7 @@ import {
   renameSubagent,
   fetchSubagentLogs,
   fetchSubagents,
+  updateSubagent,
 } from "../../api/client";
 
 vi.mock("../../api/client", () => ({
@@ -33,6 +34,10 @@ vi.mock("../../api/client", () => ({
       status: "idle",
     },
   })),
+  updateSubagent: vi.fn(async () => ({
+    ok: true,
+    data: { slug: "codex-abc", model: "gpt-5.3-codex" },
+  })),
 }));
 
 const project: ProjectDetail = {
@@ -55,6 +60,10 @@ describe("AgentPanel", () => {
     vi.mocked(fetchSubagentLogs).mockResolvedValue({
       ok: true,
       data: { cursor: 0, events: [] },
+    });
+    vi.mocked(updateSubagent).mockResolvedValue({
+      ok: true,
+      data: { slug: "codex-abc", model: "gpt-5.3-codex" },
     });
   });
 
@@ -123,6 +132,68 @@ describe("AgentPanel", () => {
       projectId: "PRO-1",
     });
 
+    dispose();
+  });
+
+  it("shows model selector for idle run and patches model on change", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            model: "gpt-5.3-codex",
+            status: "idle",
+          },
+        ],
+      },
+    });
+    vi.mocked(updateSubagent).mockResolvedValueOnce({
+      ok: true,
+      data: { slug: "alpha", model: "gpt-5.2" },
+    });
+
+    const { container, dispose } = setup();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const select = container.querySelector(
+      ".agent-model-select"
+    ) as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    select.value = "gpt-5.2";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(updateSubagent).toHaveBeenCalledWith("PRO-1", "alpha", {
+      model: "gpt-5.2",
+    });
+
+    dispose();
+  });
+
+  it("hides model selector for running run", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            model: "gpt-5.3-codex",
+            status: "running",
+          },
+        ],
+      },
+    });
+
+    const { container, dispose } = setup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".agent-model-select")).toBeNull();
     dispose();
   });
 

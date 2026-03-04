@@ -1572,6 +1572,181 @@ describe("subagents API", () => {
     } finally {
       process.env.PATH = prevPath;
     }
+  it("updates subagent model via PATCH", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Patch Subagent Model" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "patch-model"
+    );
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ cli: "claude", model: "sonnet" }, null, 2)
+    );
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/patch-model`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "opus" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+    const payload = await patchRes.json();
+    expect(payload.slug).toBe("patch-model");
+    expect(payload.model).toBe("opus");
+
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    ) as { model?: string };
+    expect(config.model).toBe("opus");
+  });
+
+  it("updates subagent name and model via PATCH", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Patch Subagent Name Model" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "patch-name-model"
+    );
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify(
+        { cli: "codex", name: "Worker A", model: "gpt-5.3-codex" },
+        null,
+        2
+      )
+    );
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/patch-name-model`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Worker B", model: "gpt-5.2" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+    const payload = await patchRes.json();
+    expect(payload.name).toBe("Worker B");
+    expect(payload.model).toBe("gpt-5.2");
+
+    const config = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+    ) as { name?: string; model?: string };
+    expect(config.name).toBe("Worker B");
+    expect(config.model).toBe("gpt-5.2");
+  });
+
+  it("uses patched model on resume when model is omitted", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Resume Patched Model" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const sessionDir = path.join(
+      projectsRoot,
+      created.path,
+      "sessions",
+      "resume-model"
+    );
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify(
+        { cli: "claude", model: "sonnet", runMode: "none" },
+        null,
+        2
+      )
+    );
+    await fs.writeFile(
+      path.join(sessionDir, "state.json"),
+      JSON.stringify(
+        {
+          session_id: "s-existing",
+          run_mode: "none",
+          worktree_path: path.join(projectsRoot, created.path),
+        },
+        null,
+        2
+      )
+    );
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents/resume-model`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "opus" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-resume-model-patch");
+    await fs.mkdir(binDir, { recursive: true });
+    const claudePath = path.join(binDir, "claude");
+    await fs.writeFile(
+      claudePath,
+      ['#!/bin/sh', 'echo "$@"', 'echo \'{"type":"system","session_id":"s2"}\''].join(
+        "\n"
+      ),
+      { mode: 0o755 }
+    );
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    const resumeRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: "resume-model",
+          cli: "claude",
+          prompt: "follow up",
+          mode: "none",
+          resume: true,
+        }),
+      })
+    );
+    expect(resumeRes.status).toBe(201);
+
+    const logsPath = path.join(sessionDir, "logs.jsonl");
+    const start = Date.now();
+    while (Date.now() - start < 2000) {
+      const logs = await fs.readFile(logsPath, "utf8");
+      if (logs.includes("--model opus")) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const logs = await fs.readFile(logsPath, "utf8");
+    expect(logs).toContain("--model opus");
+    expect(logs).toContain("-r s-existing");
+
+    process.env.PATH = prevPath;
   });
 
   it("rejects locked template overrides on /projects/:id/start", async () => {

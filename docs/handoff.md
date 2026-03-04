@@ -11,19 +11,18 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
-### 2026-03-03: Subagent rename capability (API + CLI + UI)
+### 2026-03-04: Subagent post-creation model/config updates (PRO-163 Fix 4)
 
-- `apps/gateway/src/server/api.ts`
-  - Added `PATCH /api/projects/:id/subagents/:slug` accepting `{ name }` for run rename.
-- `apps/gateway/src/subagents/index.ts`
-  - Added `renameSubagent(...)` helper to persist `name` in session `config.json` and return updated run metadata.
+- `apps/gateway/src/server/api.ts`, `apps/gateway/src/subagents/index.ts`
+  - Added `PATCH /api/projects/:id/subagents/:slug` for partial config updates (`name`, `model`, `reasoningEffort`, `thinking`).
+  - Resume path now reuses saved config values when these fields are omitted from follow-up spawn requests.
 - `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
-  - Added `apm rename <project_id> --slug <slug> --name "New Name"` command.
-- `apps/web/src/api/client.ts`, `apps/web/src/components/project/AgentPanel.tsx`
-  - Added web rename client + inline click-to-edit subagent name UX (save on Enter/blur) with optimistic update.
+  - Added `apm rename <id> --slug <slug> [--name|--model|--reasoning-effort|--thinking]`.
+- `apps/web/src/components/project/AgentPanel.tsx`, `apps/web/src/api/client.ts`
+  - Added per-harness model selector in subagent cards (hidden while status is `running`) and PATCH persistence.
 - Tests:
-  - `apps/gateway/src/subagents/subagents.api.test.ts`: added rename API coverage (persist + 404).
-  - `apps/web/src/components/project/AgentPanel.test.tsx`: added inline rename interaction coverage.
+  - `apps/gateway/src/subagents/subagents.api.test.ts` (added PATCH model + PATCH name/model + resume-uses-updated-model coverage)
+  - `apps/web/src/components/project/AgentPanel.test.tsx` (added model selector visibility/update coverage)
 
 ### 2026-03-03: Subagent chat remount + stale poll race hardening
 

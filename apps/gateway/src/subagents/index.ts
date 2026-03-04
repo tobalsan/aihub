@@ -49,23 +49,6 @@ export type ProjectBranchesResult =
   | { ok: true; data: { branches: string[] } }
   | { ok: false; error: string };
 
-export type SubagentRunConfig = {
-  type?: "subagent" | "ralph_loop";
-  cli?: string;
-  name?: string;
-  model?: string;
-  reasoningEffort?: string;
-  thinking?: string;
-  runMode?: string;
-  baseBranch?: string;
-  archived?: boolean;
-  iterations?: number;
-};
-
-export type GetSubagentConfigResult =
-  | { ok: true; data: SubagentRunConfig }
-  | { ok: false; error: string };
-
 type RalphLinkable = {
   projectId?: string;
   slug: string;
@@ -685,9 +668,118 @@ export type ArchiveSubagentResult =
   | { ok: true; data: { slug: string; archived: boolean } }
   | { ok: false; error: string };
 
-export type RenameSubagentResult =
-  | { ok: true; data: SubagentListItem }
+type SubagentStoredConfig = {
+  type?: "subagent" | "ralph_loop";
+  cli?: string;
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
+  runMode?: string;
+  baseBranch?: string;
+  created?: string;
+  archived?: boolean;
+  iterations?: number;
+} & Record<string, unknown>;
+
+export type ReadSubagentConfigResult =
+  | { ok: true; data: SubagentStoredConfig }
   | { ok: false; error: string };
+
+export type UpdateSubagentConfigInput = {
+  name?: string;
+  model?: string;
+  reasoningEffort?: string;
+  thinking?: string;
+};
+
+export type UpdateSubagentConfigResult =
+  | {
+      ok: true;
+      data: {
+        slug: string;
+        name?: string;
+        model?: string;
+        reasoningEffort?: string;
+        thinking?: string;
+      };
+    }
+  | { ok: false; error: string };
+
+async function resolveSubagentConfigPath(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string
+): Promise<{ ok: true; data: { configPath: string } } | { ok: false; error: string }> {
+  const root = getProjectsRoot(config);
+  const dirName = await findProjectDir(root, projectId);
+  if (!dirName) {
+    return { ok: false, error: `Project not found: ${projectId}` };
+  }
+
+  const projectDir = path.join(root, dirName);
+  await migrateLegacySessions(root, projectId, projectDir);
+  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
+  if (!(await dirExists(sessionDir))) {
+    return { ok: false, error: `Subagent not found: ${slug}` };
+  }
+
+  const configPath = path.join(sessionDir, "config.json");
+  if (!(await pathExists(configPath))) {
+    return { ok: false, error: `Subagent config missing: ${slug}` };
+  }
+
+  return { ok: true, data: { configPath } };
+}
+
+export async function readSubagentConfig(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string
+): Promise<ReadSubagentConfigResult> {
+  const resolved = await resolveSubagentConfigPath(config, projectId, slug);
+  if (!resolved.ok) return resolved;
+  const configData = await readJson<SubagentStoredConfig>(resolved.data.configPath);
+  if (!configData) {
+    return { ok: false, error: `Subagent config missing: ${slug}` };
+  }
+  return { ok: true, data: configData };
+}
+
+export async function updateSubagentConfig(
+  config: GatewayConfig,
+  projectId: string,
+  slug: string,
+  patch: UpdateSubagentConfigInput
+): Promise<UpdateSubagentConfigResult> {
+  const resolved = await resolveSubagentConfigPath(config, projectId, slug);
+  if (!resolved.ok) return resolved;
+  const current = await readJson<SubagentStoredConfig>(resolved.data.configPath);
+  if (!current) {
+    return { ok: false, error: `Subagent config missing: ${slug}` };
+  }
+
+  const next: SubagentStoredConfig = { ...current };
+  if (patch.name !== undefined) next.name = patch.name;
+  if (patch.model !== undefined) next.model = patch.model;
+  if (patch.reasoningEffort !== undefined) {
+    next.reasoningEffort = patch.reasoningEffort;
+  }
+  if (patch.thinking !== undefined) next.thinking = patch.thinking;
+
+  await fs.writeFile(resolved.data.configPath, JSON.stringify(next, null, 2));
+
+  return {
+    ok: true,
+    data: {
+      slug,
+      name: next.name,
+      model: next.model,
+      reasoningEffort: next.reasoningEffort,
+      thinking: next.thinking,
+    },
+  };
+}
 
 export async function archiveSubagent(
   config: GatewayConfig,
@@ -705,103 +797,24 @@ export async function unarchiveSubagent(
   return updateSubagentArchive(config, projectId, slug, false);
 }
 
-export async function getSubagentConfig(
-  config: GatewayConfig,
-  projectId: string,
-  slug: string
-): Promise<GetSubagentConfigResult> {
-  const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
-    return { ok: false, error: `Project not found: ${projectId}` };
-  }
-
-  const projectDir = path.join(root, dirName);
-  await migrateLegacySessions(root, projectId, projectDir);
-  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
-  if (!(await dirExists(sessionDir))) {
-    return { ok: false, error: `Subagent not found: ${slug}` };
-  }
-
-  const configData = await readJson<SubagentRunConfig>(
-    path.join(sessionDir, "config.json")
-  );
-  if (!configData) {
-    return { ok: false, error: `Subagent config missing: ${slug}` };
-  }
-
-  return { ok: true, data: configData };
-}
-
-export async function renameSubagent(
-  config: GatewayConfig,
-  projectId: string,
-  slug: string,
-  name: string
-): Promise<RenameSubagentResult> {
-  const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
-    return { ok: false, error: `Project not found: ${projectId}` };
-  }
-
-  const projectDir = path.join(root, dirName);
-  await migrateLegacySessions(root, projectId, projectDir);
-  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
-  if (!(await dirExists(sessionDir))) {
-    return { ok: false, error: `Subagent not found: ${slug}` };
-  }
-
-  const configPath = path.join(sessionDir, "config.json");
-  const configData = await readJson<Record<string, unknown>>(configPath);
-  if (!configData) {
-    return { ok: false, error: `Subagent config missing: ${slug}` };
-  }
-
-  await fs.writeFile(
-    configPath,
-    JSON.stringify({ ...configData, name }, null, 2)
-  );
-
-  const listed = await listSubagents(config, projectId, true);
-  if (!listed.ok) {
-    return listed;
-  }
-  const item = listed.data.items.find((entry) => entry.slug === slug);
-  if (!item) {
-    return { ok: false, error: `Subagent not found: ${slug}` };
-  }
-
-  return { ok: true, data: item };
-}
-
 async function updateSubagentArchive(
   config: GatewayConfig,
   projectId: string,
   slug: string,
   archived: boolean
 ): Promise<ArchiveSubagentResult> {
-  const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
-    return { ok: false, error: `Project not found: ${projectId}` };
-  }
+  const resolved = await resolveSubagentConfigPath(config, projectId, slug);
+  if (!resolved.ok) return resolved;
 
-  const projectDir = path.join(root, dirName);
-  await migrateLegacySessions(root, projectId, projectDir);
-  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
-  if (!(await dirExists(sessionDir))) {
-    return { ok: false, error: `Subagent not found: ${slug}` };
-  }
-
-  const configPath = path.join(sessionDir, "config.json");
-  const configData = await readJson<Record<string, unknown>>(configPath);
+  const configData = await readJson<Record<string, unknown>>(
+    resolved.data.configPath
+  );
   if (!configData) {
     return { ok: false, error: `Subagent config missing: ${slug}` };
   }
 
   await fs.writeFile(
-    configPath,
+    resolved.data.configPath,
     JSON.stringify({ ...configData, archived }, null, 2)
   );
 

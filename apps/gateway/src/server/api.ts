@@ -101,8 +101,8 @@ import {
   listProjectBranches,
   archiveSubagent,
   unarchiveSubagent,
-  getSubagentConfig,
-  renameSubagent,
+  readSubagentConfig,
+  updateSubagentConfig,
 } from "../subagents/index.js";
 import {
   spawnSubagent,
@@ -488,6 +488,13 @@ const ReleaseSpaceLeaseRequestSchema = z.object({
 const SpawnConflictFixerRequestSchema = z.object({
   slug: z.string().optional(),
   cli: z.enum(["codex", "claude", "pi"]).optional(),
+  model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+  thinking: z.string().optional(),
+});
+
+const UpdateSubagentRequestSchema = z.object({
+  name: z.string().optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().optional(),
   thinking: z.string().optional(),
@@ -1926,15 +1933,15 @@ api.post("/projects/:id/subagents", async (c) => {
     typeof body.name === "string" && body.name.trim()
       ? body.name.trim()
       : undefined;
-  const model =
+  let model =
     typeof body.model === "string" && body.model.trim()
       ? body.model.trim()
       : undefined;
-  const reasoningEffort =
+  let reasoningEffort =
     typeof body.reasoningEffort === "string" && body.reasoningEffort.trim()
       ? body.reasoningEffort.trim()
       : undefined;
-  const thinking =
+  let thinking =
     typeof body.thinking === "string" && body.thinking.trim()
       ? body.thinking.trim()
       : undefined;
@@ -1968,16 +1975,29 @@ api.post("/projects/:id/subagents", async (c) => {
     return c.json({ error: getUnsupportedSubagentCliError(cli) }, 400);
   }
   const config = getConfig();
-  let resolvedModel = model;
-  if (resume === true && !resolvedModel) {
-    const runConfig = await getSubagentConfig(config, id, slug);
-    if (runConfig.ok && hasText(runConfig.data.model)) {
-      resolvedModel = runConfig.data.model;
+  if (resume && (!model || !reasoningEffort || !thinking)) {
+    const persisted = await readSubagentConfig(config, id, slug);
+    if (persisted.ok) {
+      if (!model && typeof persisted.data.model === "string") {
+        const saved = persisted.data.model.trim();
+        if (saved) model = saved;
+      }
+      if (
+        !reasoningEffort &&
+        typeof persisted.data.reasoningEffort === "string"
+      ) {
+        const saved = persisted.data.reasoningEffort.trim();
+        if (saved) reasoningEffort = saved;
+      }
+      if (!thinking && typeof persisted.data.thinking === "string") {
+        const saved = persisted.data.thinking.trim();
+        if (saved) thinking = saved;
+      }
     }
   }
   const resolvedCliOptions = resolveCliSpawnOptions(
     cli,
-    resolvedModel,
+    model,
     reasoningEffort,
     thinking
   );
@@ -2004,6 +2024,59 @@ api.post("/projects/:id/subagents", async (c) => {
     return c.json({ error: result.error }, status);
   }
   return c.json(result.data, 201);
+});
+
+// PATCH /api/projects/:id/subagents/:slug - update subagent config
+api.patch("/projects/:id/subagents/:slug", async (c) => {
+  const id = c.req.param("id");
+  const slug = c.req.param("slug");
+  const body = await c.req.json();
+  const parsed = UpdateSubagentRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+
+  const name =
+    typeof parsed.data.name === "string" && parsed.data.name.trim()
+      ? parsed.data.name.trim()
+      : undefined;
+  const model =
+    typeof parsed.data.model === "string" && parsed.data.model.trim()
+      ? parsed.data.model.trim()
+      : undefined;
+  const reasoningEffort =
+    typeof parsed.data.reasoningEffort === "string" &&
+    parsed.data.reasoningEffort.trim()
+      ? parsed.data.reasoningEffort.trim()
+      : undefined;
+  const thinking =
+    typeof parsed.data.thinking === "string" && parsed.data.thinking.trim()
+      ? parsed.data.thinking.trim()
+      : undefined;
+
+  if (!name && !model && !reasoningEffort && !thinking) {
+    return c.json(
+      { error: "At least one of name/model/reasoningEffort/thinking is required" },
+      400
+    );
+  }
+
+  const config = getConfig();
+  const result = await updateSubagentConfig(config, id, slug, {
+    name,
+    model,
+    reasoningEffort,
+    thinking,
+  });
+  if (!result.ok) {
+    const status =
+      result.error.startsWith("Project not found") ||
+      result.error.startsWith("Subagent not found")
+        ? 404
+        : 400;
+    return c.json({ error: result.error }, status);
+  }
+  return c.json(result.data);
 });
 
 // POST /api/projects/:id/ralph-loop - spawn ralph loop run

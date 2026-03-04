@@ -15,6 +15,7 @@ import {
   killSubagent,
   renameSubagent,
   subscribeToFileChanges,
+  updateSubagent,
 } from "../../api/client";
 import type {
   Area,
@@ -58,6 +59,18 @@ const AGENT_NAMES = [
   "Sage",
   "Terra",
 ] as const;
+
+const MODEL_OPTIONS: Record<string, readonly string[]> = {
+  claude: ["opus", "sonnet", "haiku"],
+  codex: ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
+  pi: [
+    "qwen3.5-plus",
+    "qwen3-max-2026-01-23",
+    "MiniMax-M2.5",
+    "glm-5",
+    "kimi-k2.5",
+  ],
+};
 
 type AgentPanelProps = {
   project: ProjectDetail;
@@ -217,6 +230,7 @@ export function AgentPanel(props: AgentPanelProps) {
   const [savingRepo, setSavingRepo] = createSignal(false);
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
+  const [busyModelSlug, setBusyModelSlug] = createSignal<string | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
   const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
     null
@@ -586,6 +600,39 @@ export function AgentPanel(props: AgentPanelProps) {
     );
   };
 
+  const setLocalSubagentPatch = (
+    slug: string,
+    patch: Partial<SubagentListItem>
+  ) => {
+    props.onSubagentsChange?.(
+      props.subagents.map((entry) =>
+        entry.slug === slug ? { ...entry, ...patch } : entry
+      )
+    );
+  };
+
+  const handleModelUpdate = async (item: SubagentListItem, nextModel: string) => {
+    const model = nextModel.trim();
+    const previousModel = trimOptional(item.model);
+    if (!model || model === previousModel || busyModelSlug()) return;
+    setBusyModelSlug(item.slug);
+    setAgentError(null);
+    setLocalSubagentPatch(item.slug, { model });
+    const result = await updateSubagent(props.project.id, item.slug, { model });
+    setBusyModelSlug(null);
+    if (!result.ok) {
+      setLocalSubagentPatch(item.slug, { model: previousModel || undefined });
+      setAgentError(result.error);
+      return;
+    }
+    setLocalSubagentPatch(item.slug, {
+      name: result.data.name,
+      model: result.data.model,
+      reasoningEffort: result.data.reasoningEffort,
+      thinking: result.data.thinking,
+    });
+  };
+
   return (
     <>
       <aside class="agent-panel">
@@ -904,6 +951,15 @@ export function AgentPanel(props: AgentPanelProps) {
               {(item) => {
                 const indicator = statusIndicator(item.status);
                 const agentMeta = formatAgentMeta(item.cli, item.model);
+                const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
+                const currentModel = trimOptional(item.model);
+                const modelOptions =
+                  currentModel && !options.includes(currentModel)
+                    ? [currentModel, ...options]
+                    : [...options];
+                const selectedModel = currentModel || modelOptions[0] || "";
+                const canEditModel =
+                  item.status !== "running" && modelOptions.length > 0;
                 return (
                   <div
                     class="agent-list-item subagent"
@@ -997,6 +1053,31 @@ export function AgentPanel(props: AgentPanelProps) {
                         </span>
                       </span>
                       <span class="agent-task">{previewText(item)}</span>
+                      <Show when={canEditModel}>
+                        <label
+                          class="agent-model-row"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <span class="agent-model-label">Model</span>
+                          <select
+                            class="agent-model-select"
+                            value={selectedModel}
+                            disabled={busyModelSlug() === item.slug}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              void handleModelUpdate(
+                                item,
+                                event.currentTarget.value
+                              );
+                            }}
+                          >
+                            <For each={modelOptions}>
+                              {(value) => <option value={value}>{value}</option>}
+                            </For>
+                          </select>
+                        </label>
+                      </Show>
                     </span>
                     <div class="agent-row-actions">
                       <button
@@ -1400,6 +1481,31 @@ export function AgentPanel(props: AgentPanelProps) {
           display: grid;
           gap: 4px;
           width: 100%;
+        }
+
+        .agent-model-row {
+          margin-top: 2px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .agent-model-label {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--text-muted);
+        }
+
+        .agent-model-select {
+          border: 1px solid var(--border-subtle);
+          border-radius: 6px;
+          background: var(--bg-input);
+          color: var(--text-primary);
+          font-size: 11px;
+          height: 24px;
+          padding: 0 6px;
+          min-width: 120px;
         }
 
         .agent-list-head {
