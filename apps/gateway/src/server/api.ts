@@ -41,6 +41,7 @@ import {
   getSessionHistory,
   getFullSessionHistory,
 } from "../agents/index.js";
+import { agentEventBus } from "../agents/events.js";
 import { runHeartbeat } from "../heartbeat/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import { getScheduler } from "../scheduler/index.js";
@@ -171,6 +172,41 @@ function expandHomePath(value: string): string {
     return path.join(os.homedir(), value.slice(2));
   }
   return value;
+}
+
+function projectDirNameFromPath(projectPath: string): string {
+  return path.basename(projectPath.replace(/\\/g, "/"));
+}
+
+function emitProjectFileChanged(
+  projectId: string,
+  projectDirName: string,
+  fileName: string
+): void {
+  agentEventBus.emitFileChanged({
+    type: "file_changed",
+    projectId,
+    file: `${projectDirName}/${fileName}`,
+  });
+}
+
+function emitUpdatedProjectFiles(
+  projectId: string,
+  projectDirName: string,
+  input: UpdateProjectRequest
+): void {
+  const updatedFiles = new Set<string>(["README.md"]);
+  if (input.specs !== undefined) updatedFiles.add("SPECS.md");
+  if (input.readme !== undefined) updatedFiles.add("README.md");
+  if (input.docs) {
+    for (const key of Object.keys(input.docs)) {
+      const normalized = key.replace(/\.md$/i, "");
+      updatedFiles.add(`${normalized}.md`);
+    }
+  }
+  for (const fileName of updatedFiles) {
+    emitProjectFileChanged(projectId, projectDirName, fileName);
+  }
 }
 
 function mapTemplateToPromptRole(
@@ -1354,6 +1390,11 @@ api.patch("/projects/:id/tasks/:order", async (c) => {
   };
   const nextSpecs = serializeTasks(tasks, specs);
   await writeSpec(config, id, nextSpecs);
+  emitProjectFileChanged(
+    id,
+    projectDirNameFromPath(project.data.path),
+    "SPECS.md"
+  );
   return c.json({ task: tasks[order] });
 });
 
@@ -1417,6 +1458,11 @@ api.patch("/projects/:id", async (c) => {
           : 404;
         return c.json({ error: updated.error }, status);
       }
+      emitUpdatedProjectFiles(
+        id,
+        projectDirNameFromPath(updated.data.path),
+        rest
+      );
     }
     const archived = await archiveProject(config, id);
     if (!archived.ok) {
@@ -1445,6 +1491,11 @@ api.patch("/projects/:id", async (c) => {
       : 404;
     return c.json({ error: result.error }, status);
   }
+  emitUpdatedProjectFiles(
+    id,
+    projectDirNameFromPath(result.data.path),
+    parsed.data
+  );
   if (parsed.data.status) {
     const nextStatus = normalizeProjectStatus(
       String(result.data.frontmatter?.status ?? "")
@@ -2052,7 +2103,10 @@ api.patch("/projects/:id/subagents/:slug", async (c) => {
 
   if (!name && !model && !reasoningEffort && !thinking) {
     return c.json(
-      { error: "At least one of name/model/reasoningEffort/thinking is required" },
+      {
+        error:
+          "At least one of name/model/reasoningEffort/thinking is required",
+      },
       400
     );
   }
@@ -2345,7 +2399,10 @@ api.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
     const cliRaw =
       typeof persisted.data.cli === "string" ? persisted.data.cli.trim() : "";
     if (!isSupportedSubagentCli(cliRaw)) {
-      return c.json({ error: "Original worker CLI is missing or unsupported" }, 400);
+      return c.json(
+        { error: "Original worker CLI is missing or unsupported" },
+        400
+      );
     }
     const model =
       typeof persisted.data.model === "string"

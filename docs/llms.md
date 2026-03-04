@@ -57,7 +57,7 @@ Features:
 - Subagent config updates are supported post-creation via `PATCH /api/projects/:id/subagents/:slug` (`name`, `model`, `reasoningEffort`, `thinking`); `apm rename` maps to this endpoint and AgentPanel exposes a per-harness model selector when the run is not active.
 - Subagent chat polling guards prevent stale interval races on fast panel re-renders/remounts, preserving run-state UI (spinner/Stop/input-disabled) until meaningful assistant output arrives.
 - Project detail center-panel Activity tab intersperses two entry types in one timeline: thread comments (card-style) and synthesized subagent lifecycle events (plain rows). Start rows are concise (`<cli> started.`); completion/error rows can include short outcome snippets from recent subagent logs. Activity rows show compact relative time (`now|Xm|Xh|Xd ago`) appended after the event text.
-- Project UI live refresh is event-driven via `/ws` file/agent change broadcasts: kanban refetches on `README.md` change, project detail refetches on project file changes (`README.md`/`SPECS.md`/`THREAD.md`), and project subagent panels refetch immediately on `agent_changed` with a 2s polling fallback to recover from missed websocket events.
+- Project UI live refresh is event-driven via `/ws` file/agent change broadcasts: kanban refetches on any project `file_changed` event, project detail refetches on project file changes (`README.md`/`SPECS.md`/`THREAD.md`), and project subagent panels refetch immediately on `agent_changed` with a 2s polling fallback to recover from missed websocket events.
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
 - Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
@@ -346,35 +346,35 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 
 ## API Endpoints
 
-| Method | Path                       | Description                                                |
-| ------ | -------------------------- | ---------------------------------------------------------- |
-| GET    | `/api/agents`              | List active agents                                         |
-| GET    | `/api/agents/:id/status`   | Agent status                                               |
-| POST   | `/api/agents/:id/messages` | Send message (returns result)                              |
-| GET    | `/api/agents/:id/history`  | Get session history (query: sessionKey, view=simple\|full) |
-| WS     | `/ws`                      | WebSocket streaming (JSON protocol)                        |
-| GET    | `/api/schedules`           | List schedules                                             |
-| POST   | `/api/schedules`           | Create schedule                                            |
-| PATCH  | `/api/schedules/:id`       | Update schedule                                            |
-| DELETE | `/api/schedules/:id`       | Delete schedule                                            |
-| GET    | `/api/projects`            | List projects                                              |
-| POST   | `/api/projects`            | Create project                                             |
-| GET    | `/api/projects/:id`        | Get project                                                |
-| PATCH  | `/api/projects/:id`        | Update project                                             |
-| GET    | `/api/projects/:id/subagents` | List project subagents                                  |
-| POST   | `/api/projects/:id/subagents` | Spawn project subagent                                  |
-| PATCH  | `/api/projects/:id/subagents/:slug` | Rename project subagent run                       |
-| GET    | `/api/projects/:id/space`  | Get project Space state                                    |
-| POST   | `/api/projects/:id/space/integrate` | Resume Space integration queue                     |
-| GET    | `/api/projects/:id/space/commits` | Get Space commit log                                  |
-| GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log      |
-| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Resume original conflicted worker       |
-| GET    | `/api/projects/:id/space/lease` | Get Space write lease (feature-flagged)                |
-| POST   | `/api/projects/:id/space/lease` | Acquire Space write lease (feature-flagged)            |
-| DELETE | `/api/projects/:id/space/lease` | Release Space write lease (feature-flagged)            |
-| GET    | `/api/projects/:id/changes` | Get project changes (Space-first source resolution)       |
-| POST   | `/api/projects/:id/commit` | Commit project changes in resolved source                  |
-| GET    | `/api/projects/:id/pr-target` | Get PR compare target for current resolved branch         |
+| Method | Path                                             | Description                                                |
+| ------ | ------------------------------------------------ | ---------------------------------------------------------- |
+| GET    | `/api/agents`                                    | List active agents                                         |
+| GET    | `/api/agents/:id/status`                         | Agent status                                               |
+| POST   | `/api/agents/:id/messages`                       | Send message (returns result)                              |
+| GET    | `/api/agents/:id/history`                        | Get session history (query: sessionKey, view=simple\|full) |
+| WS     | `/ws`                                            | WebSocket streaming (JSON protocol)                        |
+| GET    | `/api/schedules`                                 | List schedules                                             |
+| POST   | `/api/schedules`                                 | Create schedule                                            |
+| PATCH  | `/api/schedules/:id`                             | Update schedule                                            |
+| DELETE | `/api/schedules/:id`                             | Delete schedule                                            |
+| GET    | `/api/projects`                                  | List projects                                              |
+| POST   | `/api/projects`                                  | Create project                                             |
+| GET    | `/api/projects/:id`                              | Get project                                                |
+| PATCH  | `/api/projects/:id`                              | Update project                                             |
+| GET    | `/api/projects/:id/subagents`                    | List project subagents                                     |
+| POST   | `/api/projects/:id/subagents`                    | Spawn project subagent                                     |
+| PATCH  | `/api/projects/:id/subagents/:slug`              | Rename project subagent run                                |
+| GET    | `/api/projects/:id/space`                        | Get project Space state                                    |
+| POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                             |
+| GET    | `/api/projects/:id/space/commits`                | Get Space commit log                                       |
+| GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log                        |
+| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Resume original conflicted worker                          |
+| GET    | `/api/projects/:id/space/lease`                  | Get Space write lease (feature-flagged)                    |
+| POST   | `/api/projects/:id/space/lease`                  | Acquire Space write lease (feature-flagged)                |
+| DELETE | `/api/projects/:id/space/lease`                  | Release Space write lease (feature-flagged)                |
+| GET    | `/api/projects/:id/changes`                      | Get project changes (Space-first source resolution)        |
+| POST   | `/api/projects/:id/commit`                       | Commit project changes in resolved source                  |
+| GET    | `/api/projects/:id/pr-target`                    | Get PR compare target for current resolved branch          |
 
 ## Projects Execution Modes
 

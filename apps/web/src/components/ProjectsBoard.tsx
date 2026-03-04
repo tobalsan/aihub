@@ -1010,12 +1010,6 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
   return aTime - bTime;
 }
 
-function getFilename(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  const name = normalized.split("/").pop() ?? normalized;
-  return name.toUpperCase();
-}
-
 export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   const showSidebar = () => props.withSidebar !== false;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1187,8 +1181,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   onMount(() => {
     let refreshTimer: number | undefined;
     const unsubscribe = subscribeToFileChanges({
-      onFileChanged: (_projectId, file) => {
-        if (getFilename(file) !== "README.MD") return;
+      onFileChanged: () => {
         if (refreshTimer) window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(() => {
           void refetch();
@@ -1233,8 +1226,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
         return;
       }
       const exists = items.some(
-        (item) =>
-          item.slug === token || item.cli === token
+        (item) => item.slug === token || item.cli === token
       );
       if (!exists) setSelectedAgent(null);
       return;

@@ -63,23 +63,27 @@ export type ProjectWatcher = {
 export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
   const projectsRoot = getProjectsRoot(config);
   const fileTimers = new Map<string, NodeJS.Timeout>();
-  const filePayloads = new Map<string, string>();
+  const filePayloads = new Map<string, Set<string>>();
   const agentTimers = new Map<string, NodeJS.Timeout>();
 
   const queueFileChanged = (projectId: string, file: string) => {
-    filePayloads.set(projectId, file);
+    const existingFiles = filePayloads.get(projectId) ?? new Set<string>();
+    existingFiles.add(file);
+    filePayloads.set(projectId, existingFiles);
     const existing = fileTimers.get(projectId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       fileTimers.delete(projectId);
-      const nextFile = filePayloads.get(projectId);
-      if (!nextFile) return;
+      const nextFiles = filePayloads.get(projectId);
+      if (!nextFiles || nextFiles.size === 0) return;
       filePayloads.delete(projectId);
-      agentEventBus.emitFileChanged({
-        type: "file_changed",
-        projectId,
-        file: nextFile,
-      });
+      for (const nextFile of nextFiles) {
+        agentEventBus.emitFileChanged({
+          type: "file_changed",
+          projectId,
+          file: nextFile,
+        });
+      }
     }, DEBOUNCE_MS);
     fileTimers.set(projectId, timer);
   };
