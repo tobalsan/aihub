@@ -116,6 +116,12 @@ const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
 const DEFAULT_MODEL_CONTEXT_LIMIT = 200_000;
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   default: DEFAULT_MODEL_CONTEXT_LIMIT,
+  opus: 200_000,
+  sonnet: 200_000,
+  haiku: 200_000,
+  "gpt-5.3-codex": 200_000,
+  "gpt-5.3-codex-spark": 200_000,
+  "gpt-5.2": 128_000,
 };
 
 function formatJson(args: unknown): string {
@@ -163,12 +169,26 @@ function parseJsonRecord(text: string): Record<string, unknown> | null {
   }
 }
 
+const KNOWN_SYSTEM_EVENT_TYPES = new Set([
+  "rate_limit_event",
+  "system",
+  "init",
+  "config",
+  "ping",
+  "pong",
+]);
+
 function isSystemEventPayload(payload: Record<string, unknown>): boolean {
-  return (
-    typeof payload.type === "string" ||
-    typeof payload.session_id === "string" ||
-    typeof payload.rate_limit_info === "object"
-  );
+  if (
+    typeof payload.type === "string" &&
+    KNOWN_SYSTEM_EVENT_TYPES.has(payload.type)
+  )
+    return true;
+  if (typeof payload.session_id === "string" && typeof payload.uuid === "string")
+    return true;
+  if (payload.rate_limit_info && typeof payload.rate_limit_info === "object")
+    return true;
+  return false;
 }
 
 function toSystemCalloutItem(text: string): LogItem {
@@ -186,9 +206,7 @@ function toSystemCalloutItem(text: string): LogItem {
 }
 
 function isBase64ImageText(text: string): boolean {
-  const trimmed = text.trim();
-  if (/data:image\/[^;]+;base64,/i.test(trimmed)) return true;
-  return trimmed.length > 500 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed);
+  return /data:image\/[^;]+;base64,/i.test(text.trim());
 }
 
 function toImageAttachmentItem(text: string): LogItem {
@@ -516,6 +534,10 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         const parsed = parseJsonRecord(event.text);
         if (parsed && isSystemEventPayload(parsed)) {
           entries.push(toSystemCalloutItem(event.text));
+          continue;
+        }
+        if (isBase64ImageText(event.text)) {
+          entries.push(toImageAttachmentItem(event.text));
           continue;
         }
         if (!initialPromptAdded) {
@@ -1685,7 +1707,7 @@ export function AgentChat(props: AgentChatProps) {
 
   const aihubLogItems = createMemo(() => aihubLogs());
   const estimatedContextUsagePct = createMemo(() => {
-    let used = 0;
+    let lastInputTokens = 0;
     let modelName: string | undefined;
     for (const message of aihubHistoryMessages()) {
       if (message.role !== "assistant") continue;
@@ -1693,17 +1715,14 @@ export function AgentChat(props: AgentChatProps) {
       if (meta?.model) modelName = meta.model;
       const usage = meta?.usage;
       if (!usage) continue;
-      if (typeof usage.totalTokens === "number" && usage.totalTokens > 0) {
-        used += usage.totalTokens;
-        continue;
-      }
-      used += (usage.input ?? 0) + (usage.output ?? 0);
+      const input = usage.input ?? 0;
+      if (input > 0) lastInputTokens = input;
     }
     const maxTokens =
       (modelName ? MODEL_CONTEXT_LIMITS[modelName] : undefined) ??
       MODEL_CONTEXT_LIMITS.default;
-    if (maxTokens <= 0) return 0;
-    return Math.max(0, Math.min(100, Math.round((used / maxTokens) * 100)));
+    if (maxTokens <= 0 || lastInputTokens <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((lastInputTokens / maxTokens) * 100)));
   });
   const cliDisplayEvents = createMemo(() => {
     const pending = pendingCliUserMessages();

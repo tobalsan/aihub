@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { buildRolePrompt, type PromptRole } from "@aihub/shared";
 import { spawnSubagent } from "../../api/client";
 import type { ProjectDetail, SubagentListItem } from "../../api/types";
@@ -140,7 +140,7 @@ export function SpawnForm(props: SpawnFormProps) {
     setAddAgentModel(prefill.model ?? HARNESS_MODELS[nextCli][0]);
     setAddAgentReasoning(prefill.reasoning ?? HARNESS_REASONING[nextCli][0]);
     setAddAgentRunMode(prefill.runMode ?? "clone");
-    const draft = props.draft;
+    const draft = untrack(() => props.draft);
     setIncludeDefaultPrompt(
       draft?.includeDefaultPrompt ?? prefill.includeDefaultPrompt ?? true
     );
