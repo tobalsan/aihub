@@ -1975,9 +1975,14 @@ api.post("/projects/:id/subagents", async (c) => {
     return c.json({ error: getUnsupportedSubagentCliError(cli) }, 400);
   }
   const config = getConfig();
-  if (resume && (!model || !reasoningEffort || !thinking)) {
+  let resolvedName = name;
+  if (resume) {
     const persisted = await readSubagentConfig(config, id, slug);
     if (persisted.ok) {
+      if (!resolvedName && typeof persisted.data.name === "string") {
+        const saved = persisted.data.name.trim();
+        if (saved) resolvedName = saved;
+      }
       if (!model && typeof persisted.data.model === "string") {
         const saved = persisted.data.model.trim();
         if (saved) model = saved;
@@ -2004,7 +2009,9 @@ api.post("/projects/:id/subagents", async (c) => {
   if (!resolvedCliOptions.ok) {
     return c.json({ error: resolvedCliOptions.error }, 400);
   }
-  const resolvedName = resolveTemplateRunName(template, slug, name);
+  if (!resolvedName) {
+    resolvedName = resolveTemplateRunName(template, slug, name);
+  }
   const result = await spawnSubagent(config, {
     projectId: id,
     slug,
