@@ -68,6 +68,7 @@ type LogItem = {
   title?: string;
   body: string;
   collapsible?: boolean;
+  systemCallout?: boolean;
   subagentRun?: SubagentRunInfo;
 };
 
@@ -145,8 +146,59 @@ function getTextBlocks(blocks: ContentBlock[]): string {
     .join("\n");
 }
 
+function parseJsonRecord(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSystemEventPayload(payload: Record<string, unknown>): boolean {
+  return (
+    typeof payload.type === "string" ||
+    typeof payload.session_id === "string" ||
+    typeof payload.rate_limit_info === "object"
+  );
+}
+
+function toSystemCalloutItem(text: string): LogItem {
+  const payload = parseJsonRecord(text);
+  const eventType =
+    payload && typeof payload.type === "string" ? payload.type : "";
+  return {
+    tone: "muted",
+    icon: "system",
+    title: eventType ? `System: ${eventType}` : "System event",
+    body: text,
+    collapsible: true,
+    systemCallout: true,
+  };
+}
+
+function isBase64ImageText(text: string): boolean {
+  const trimmed = text.trim();
+  if (/data:image\/[^;]+;base64,/i.test(trimmed)) return true;
+  return trimmed.length > 500 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed);
+}
+
+function toImageAttachmentItem(text: string): LogItem {
+  const preview = `${text.slice(0, 80)}...`;
+  return {
+    tone: "muted",
+    icon: "system",
+    title: "Image attachment",
+    body: preview,
+    collapsible: true,
+  };
+}
+
 function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   const entries: LogItem[] = [];
+  let initialPromptAdded = false;
   const toolResults = new Map<string, FullToolResultMessage>();
   for (const msg of messages) {
     if (msg.role === "toolResult") {
@@ -158,13 +210,40 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   for (const msg of messages) {
     if (msg.role === "user") {
       const text = getTextBlocks(msg.content);
-      if (text) entries.push({ tone: "user", body: text });
+      if (!text) continue;
+      const parsed = parseJsonRecord(text);
+      if (parsed && isSystemEventPayload(parsed)) {
+        entries.push(toSystemCalloutItem(text));
+        continue;
+      }
+      if (isBase64ImageText(text)) {
+        entries.push(toImageAttachmentItem(text));
+        continue;
+      }
+      if (!initialPromptAdded) {
+        entries.push({
+          tone: "user",
+          title: "Initial prompt",
+          body: text,
+          collapsible: true,
+        });
+        initialPromptAdded = true;
+        continue;
+      }
+      entries.push({ tone: "user", body: text });
       continue;
     }
     if (msg.role === "assistant") {
       for (const block of msg.content) {
         if (block.type === "text" && block.text) {
-          entries.push({ tone: "assistant", body: block.text });
+          const text = extractBlockText(block.text);
+          if (!text) continue;
+          const parsed = parseJsonRecord(text);
+          if (parsed && isSystemEventPayload(parsed)) {
+            entries.push(toSystemCalloutItem(text));
+          } else {
+            entries.push({ tone: "assistant", body: text });
+          }
         } else if (block.type === "toolCall") {
           const toolName = block.name ?? "";
           const toolKey = toolName.toLowerCase();
@@ -226,6 +305,19 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
               collapsible: true,
             });
             skipResults.add(block.id);
+            continue;
+          }
+          if (toolKey === "skill") {
+            const output = toolResults.get(block.id);
+            const body = output ? getTextBlocks(output.content) : "";
+            entries.push({
+              tone: "muted",
+              icon: "tool",
+              title: "Skill",
+              body: body || formatJson(block.arguments),
+              collapsible: true,
+            });
+            if (output) skipResults.add(block.id);
             continue;
           }
           if (toolKey === "agent") {
@@ -396,6 +488,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
 
   // Phase 2: build log items, filtering out nested events
   const entries: LogItem[] = [];
+  let initialPromptAdded = false;
   const toolOutputs = new Map<string, SubagentLogEvent>();
   for (const event of events) {
     if (
@@ -414,6 +507,21 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
     if (event.type === "session" || event.type === "message") continue;
     if (event.type === "user") {
       if (event.text) {
+        const parsed = parseJsonRecord(event.text);
+        if (parsed && isSystemEventPayload(parsed)) {
+          entries.push(toSystemCalloutItem(event.text));
+          continue;
+        }
+        if (!initialPromptAdded) {
+          entries.push({
+            tone: "user",
+            title: "Initial prompt",
+            body: event.text,
+            collapsible: true,
+          });
+          initialPromptAdded = true;
+          continue;
+        }
         const last = entries[entries.length - 1];
         if (!last || last.tone !== "user" || last.body !== event.text) {
           entries.push({ tone: "user", body: event.text });
@@ -423,6 +531,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
     }
     if (event.type === "assistant") {
       if (event.text) {
+        const parsed = parseJsonRecord(event.text);
+        if (parsed && isSystemEventPayload(parsed)) {
+          entries.push(toSystemCalloutItem(event.text));
+          continue;
+        }
         const last = entries[entries.length - 1];
         if (!last || last.tone !== "assistant" || last.body !== event.text) {
           entries.push({ tone: "assistant", body: event.text });
@@ -498,6 +611,17 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         if (toolId) skipOutputs.add(toolId);
         continue;
       }
+      if (toolKey === "skill") {
+        entries.push({
+          tone: "muted",
+          icon: "tool",
+          title: "Skill",
+          body: output?.text ?? event.text ?? "",
+          collapsible: true,
+        });
+        if (toolId) skipOutputs.add(toolId);
+        continue;
+      }
       entries.push({
         tone: "muted",
         icon: "tool",
@@ -532,7 +656,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
 }
 
 function isUiNoopSubagentEvent(event: SubagentLogEvent): boolean {
-  return event.type === "skip" || event.type === "session" || event.type === "message";
+  return (
+    event.type === "skip" ||
+    event.type === "session" ||
+    event.type === "message"
+  );
 }
 
 function hasTextContent(event: SubagentLogEvent): boolean {
@@ -587,7 +715,10 @@ function renderLogItem(item: LogItem) {
   if (item.collapsible) {
     const summaryText = item.title ?? item.body.split("\n")[0] ?? "Details";
     return (
-      <details class={`log-line ${item.tone} collapsible`} open={false}>
+      <details
+        class={`log-line ${item.tone} collapsible${item.systemCallout ? " system-callout" : ""}`}
+        open={false}
+      >
         <summary class="log-summary">
           {logIcon(item.icon)}
           <span>{summaryText}</span>
@@ -599,7 +730,9 @@ function renderLogItem(item: LogItem) {
     );
   }
   return (
-    <div class={`log-line ${item.tone}`}>
+    <div
+      class={`log-line ${item.tone}${item.systemCallout ? " system-callout" : ""}`}
+    >
       {logIcon(item.icon)}
       <div class="log-stack">
         {item.title && <div class="log-title">{item.title}</div>}
@@ -1175,8 +1308,11 @@ export function AgentChat(props: AgentChatProps) {
       const stateKey = `${subagentInfo.projectId}:${activeSlug}`;
       const fetchedEvents = res.data.events;
       if (fetchedEvents.length > 0) {
-        const keptEvents = fetchedEvents.filter((event) => !isUiNoopSubagentEvent(event));
-        const next = keptEvents.length > 0 ? [...cliLogs(), ...keptEvents] : cliLogs();
+        const keptEvents = fetchedEvents.filter(
+          (event) => !isUiNoopSubagentEvent(event)
+        );
+        const next =
+          keptEvents.length > 0 ? [...cliLogs(), ...keptEvents] : cliLogs();
         const pending = pendingCliUserMessages();
         const sawResponse = keptEvents.some(isMeaningfulSubagentResponseEvent);
         let remaining = pending;
@@ -2077,6 +2213,15 @@ export function AgentChat(props: AgentChatProps) {
           padding-left: 14px;
         }
 
+        .log-line.system-callout {
+          background: rgba(59, 130, 246, 0.08);
+          border-left: 3px solid #3b82f6;
+          font-size: 11px;
+          padding: 8px 12px;
+          border-radius: 6px;
+          color: var(--text-secondary);
+        }
+
         /* ── Collapsible tool calls ── */
 
         .log-line.collapsible {
@@ -2138,6 +2283,32 @@ export function AgentChat(props: AgentChatProps) {
           overflow: auto;
           overflow-wrap: anywhere;
           word-break: break-word;
+        }
+
+        .log-line.collapsible.system-callout {
+          padding: 0;
+        }
+
+        .log-line.collapsible.system-callout .log-summary {
+          background: rgba(59, 130, 246, 0.08);
+          border-left: 3px solid #3b82f6;
+          border-radius: 6px 6px 0 0;
+          padding: 8px 12px;
+          font-size: 11px;
+        }
+
+        .log-line.collapsible.system-callout .log-summary:hover {
+          background: rgba(59, 130, 246, 0.12);
+        }
+
+        .log-line.collapsible.system-callout .log-text {
+          background: rgba(59, 130, 246, 0.08);
+          border-top: 1px solid rgba(59, 130, 246, 0.35);
+          border-left: 3px solid #3b82f6;
+          border-radius: 0 0 6px 6px;
+          padding: 8px 12px 8px 36px;
+          font-size: 11px;
+          color: var(--text-secondary);
         }
 
         /* ── Content layout ── */
