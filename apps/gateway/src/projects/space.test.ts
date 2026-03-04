@@ -309,6 +309,103 @@ describe("project space", () => {
     SPACE_TEST_TIMEOUT_MS
   );
 
+  it(
+    "recovers conflict re-delivery when runner captures startSha == endSha",
+    async () => {
+      const repoDir = path.join(tmpDir, "repo");
+      await createRepo(repoDir);
+
+      const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+      await fs.mkdir(projectDir, { recursive: true });
+      await writeProjectReadme(projectDir, repoDir);
+
+      const workspacesRoot = path.join(projectsRoot, ".workspaces", "PRO-1");
+      await fs.mkdir(workspacesRoot, { recursive: true });
+      const space = await ensureProjectSpace(config, "PRO-1", "main");
+
+      // Worktree workers — deliver both before integrating so neither is stale
+      const alphaPath = path.join(workspacesRoot, "alpha");
+      await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/alpha", alphaPath, "main"]);
+      const alphaStart = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+      await fs.writeFile(path.join(alphaPath, "app.txt"), "worker-alpha\n", "utf8");
+      await runGit(alphaPath, ["add", "app.txt"]);
+      await runGit(alphaPath, ["commit", "-m", "alpha"]);
+      const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+      await recordWorkerDelivery(config, {
+        projectId: "PRO-1",
+        workerSlug: "alpha",
+        runMode: "worktree",
+        worktreePath: alphaPath,
+        startSha: alphaStart,
+        endSha: alphaEnd,
+      });
+
+      // beta: initial delivery — will conflict with alpha (both modify app.txt from same base)
+      const betaPath = path.join(workspacesRoot, "beta");
+      await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/beta", betaPath, "main"]);
+      const betaStart = await runGit(betaPath, ["rev-parse", "HEAD"]);
+      await fs.writeFile(path.join(betaPath, "app.txt"), "worker-beta\n", "utf8");
+      await runGit(betaPath, ["add", "app.txt"]);
+      await runGit(betaPath, ["commit", "-m", "beta"]);
+      const betaEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+      await recordWorkerDelivery(config, {
+        projectId: "PRO-1",
+        workerSlug: "beta",
+        runMode: "worktree",
+        worktreePath: betaPath,
+        startSha: betaStart,
+        endSha: betaEnd,
+      });
+
+      const blocked = await integrateProjectSpaceQueue(config, "PRO-1");
+      expect(blocked.integrationBlocked).toBe(true);
+      const conflictEntry = blocked.queue.find(
+        (item) => item.workerSlug === "beta" && item.status === "conflict"
+      );
+      expect(conflictEntry).toBeDefined();
+
+      // Simulate fix-conflicts rebase: worker resets to Space HEAD and adds new commit
+      const spaceHead = await runGit(space.worktreePath, ["rev-parse", "HEAD"]);
+      await runGit(betaPath, ["reset", "--hard", spaceHead]);
+      await fs.writeFile(path.join(betaPath, "note.txt"), "resolved\n", "utf8");
+      await runGit(betaPath, ["add", "note.txt"]);
+      await runGit(betaPath, ["commit", "-m", "beta fixed"]);
+      const fixedEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+
+      // Bug scenario: runner session starts AFTER the rebase commit exists,
+      // so it captures startSha == endSha == fixedEnd (empty range → would be skipped).
+      // With AIHUB_SPACE_AUTO_REBASE disabled, the fallback in recordWorkerDelivery must recover.
+      const prevAutoRebase = process.env.AIHUB_SPACE_AUTO_REBASE;
+      process.env.AIHUB_SPACE_AUTO_REBASE = "false";
+      let updated: Awaited<ReturnType<typeof recordWorkerDelivery>>;
+      try {
+        updated = await recordWorkerDelivery(config, {
+          projectId: "PRO-1",
+          workerSlug: "beta",
+          runMode: "worktree",
+          worktreePath: betaPath,
+          startSha: fixedEnd, // runner captured wrong startSha == endSha
+          endSha: fixedEnd,
+        });
+      } finally {
+        if (prevAutoRebase === undefined) {
+          delete process.env.AIHUB_SPACE_AUTO_REBASE;
+        } else {
+          process.env.AIHUB_SPACE_AUTO_REBASE = prevAutoRebase;
+        }
+      }
+
+      // Should recover: non-empty shas and status=pending
+      expect(updated.integrationBlocked).toBe(false);
+      const updatedEntry = updated.queue.find((item) => item.id === conflictEntry?.id);
+      expect(updatedEntry?.status).toBe("pending");
+      expect(updatedEntry?.shas.length).toBeGreaterThan(0);
+      // The recovered shas must include commits that lead to fixedEnd
+      expect(updatedEntry?.endSha).toBe(fixedEnd);
+    },
+    SPACE_TEST_TIMEOUT_MS
+  );
+
   it("queues clone worker commits and integrates on explicit request", async () => {
     const repoDir = path.join(tmpDir, "repo");
     await createRepo(repoDir);

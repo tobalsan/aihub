@@ -807,6 +807,40 @@ export async function recordWorkerDelivery(
 
   const shas = await collectCommitShas(input.worktreePath, startSha, endSha);
 
+  // For conflict re-deliveries: if the runner captured startSha == endSha (empty
+  // range, which happens when the resume session started after commits were already
+  // present), fall back to the existing queue entry's startSha, then the Space HEAD.
+  // Both are better anchors after a rebase than the stale runner-captured startSha.
+  const existingConflictEntry = space.queue.find(
+    (item) => item.workerSlug === input.workerSlug && item.status === "conflict"
+  );
+  let resolvedShas = shas;
+  let resolvedStartSha = startSha;
+  if (existingConflictEntry && resolvedShas.length === 0 && endSha) {
+    if (existingConflictEntry.startSha && existingConflictEntry.startSha !== endSha) {
+      const fallback = await collectCommitShas(
+        input.worktreePath,
+        existingConflictEntry.startSha,
+        endSha
+      ).catch(() => []);
+      if (fallback.length > 0) {
+        resolvedShas = fallback;
+        resolvedStartSha = existingConflictEntry.startSha;
+      }
+    }
+    if (resolvedShas.length === 0 && spaceHead && spaceHead !== endSha) {
+      const fallback = await collectCommitShas(
+        input.worktreePath,
+        spaceHead,
+        endSha
+      ).catch(() => []);
+      if (fallback.length > 0) {
+        resolvedShas = fallback;
+        resolvedStartSha = spaceHead;
+      }
+    }
+  }
+
   const now = new Date().toISOString();
   await persistProjectSpace(config, input.projectId, (current) => {
     const conflictIndex = current.queue.findIndex(
@@ -819,10 +853,10 @@ export async function recordWorkerDelivery(
         ...existing,
         runMode: input.runMode,
         worktreePath: input.worktreePath,
-        startSha,
+        startSha: resolvedStartSha,
         endSha,
-        shas,
-        status: shas.length > 0 ? "pending" : "skipped",
+        shas: resolvedShas,
+        status: resolvedShas.length > 0 ? "pending" : "skipped",
         integratedAt: undefined,
         staleAgainstSha: undefined,
         error: undefined,
