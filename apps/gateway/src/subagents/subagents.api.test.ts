@@ -1572,6 +1572,8 @@ describe("subagents API", () => {
     } finally {
       process.env.PATH = prevPath;
     }
+  });
+
   it("updates subagent model via PATCH", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
