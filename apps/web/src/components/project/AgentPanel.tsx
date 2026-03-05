@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 import {
   archiveSubagent,
+  unarchiveSubagent,
   fetchSimpleHistory,
   fetchSubagentLogs,
   fetchSubagents,
@@ -242,6 +243,7 @@ export function AgentPanel(props: AgentPanelProps) {
   );
   const [nameDraft, setNameDraft] = createSignal("");
   const [savingNameSlug, setSavingNameSlug] = createSignal<string | null>(null);
+  const [showArchived, setShowArchived] = createSignal(false);
   const [nowTick, setNowTick] = createSignal(Date.now());
   const [leadPreview, setLeadPreview] = createSignal<{
     text: string;
@@ -515,8 +517,11 @@ export function AgentPanel(props: AgentPanelProps) {
   const groupedSubagents = createMemo(() => {
     const activeAgents: SubagentListItem[] = [];
     const idleAgents: SubagentListItem[] = [];
+    const archivedAgents: SubagentListItem[] = [];
     for (const item of props.subagents) {
-      if (item.status === "running") {
+      if (item.archived) {
+        archivedAgents.push(item);
+      } else if (item.status === "running") {
         activeAgents.push(item);
       } else {
         idleAgents.push(item);
@@ -529,7 +534,8 @@ export function AgentPanel(props: AgentPanelProps) {
     };
     activeAgents.sort(byMostRecent);
     idleAgents.sort(byMostRecent);
-    return { activeAgents, idleAgents };
+    archivedAgents.sort(byMostRecent);
+    return { activeAgents, idleAgents, archivedAgents };
   });
   const renderSubagentCard = (item: SubagentListItem) => {
     const indicator = statusIndicator(item.status);
@@ -711,8 +717,8 @@ export function AgentPanel(props: AgentPanelProps) {
           <button
             type="button"
             class="agent-row-action archive"
-            title={`Archive ${item.name ?? item.cli ?? item.slug}`}
-            aria-label={`Archive ${item.name ?? item.cli ?? item.slug}`}
+            title={`${item.archived ? "Unarchive" : "Archive"} ${item.name ?? item.cli ?? item.slug}`}
+            aria-label={`${item.archived ? "Unarchive" : "Archive"} ${item.name ?? item.cli ?? item.slug}`}
             disabled={Boolean(busyActionSlug() || savingNameSlug())}
             onClick={(event) => {
               event.stopPropagation();
@@ -804,17 +810,21 @@ export function AgentPanel(props: AgentPanelProps) {
 
   const handleArchiveSubagent = async (item: SubagentListItem) => {
     if (busyActionSlug()) return;
-    if (!window.confirm(`Archive run ${item.slug}?`)) return;
+    const isArchived = item.archived;
+    const action = isArchived ? "Unarchive" : "Archive";
+    if (!window.confirm(`${action} run ${item.slug}?`)) return;
     setBusyActionSlug(item.slug);
     setAgentError(null);
-    const result = await archiveSubagent(props.project.id, item.slug);
+    const result = isArchived
+      ? await unarchiveSubagent(props.project.id, item.slug)
+      : await archiveSubagent(props.project.id, item.slug);
     setBusyActionSlug(null);
     if (!result.ok) {
       setAgentError(result.error);
       return;
     }
     await refreshSubagents();
-    selectLeadIfNeeded(item.slug);
+    if (!isArchived) selectLeadIfNeeded(item.slug);
   };
 
   const handleKillSubagent = async (item: SubagentListItem) => {
@@ -1238,6 +1248,21 @@ export function AgentPanel(props: AgentPanelProps) {
             <For each={groupedSubagents().idleAgents}>
               {(item) => renderSubagentCard(item)}
             </For>
+            <Show when={groupedSubagents().archivedAgents.length > 0}>
+              <button
+                type="button"
+                class="show-archived-toggle"
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                {showArchived() ? "Hide archived" : `Show archived (${groupedSubagents().archivedAgents.length})`}
+              </button>
+            </Show>
+            <Show when={showArchived() && groupedSubagents().archivedAgents.length > 0}>
+              <div class="agent-group-gap" />
+              <For each={groupedSubagents().archivedAgents}>
+                {(item) => renderSubagentCard(item)}
+              </For>
+            </Show>
           </div>
           <Show when={agentError()}>
             {(message) => <p class="agent-error">{message()}</p>}
@@ -1477,6 +1502,20 @@ export function AgentPanel(props: AgentPanelProps) {
 
         .agent-group-gap {
           height: 12px;
+        }
+
+        .show-archived-toggle {
+          background: none;
+          border: none;
+          color: var(--text-tertiary);
+          font-size: 11px;
+          cursor: pointer;
+          padding: 4px 6px;
+          width: 100%;
+          text-align: left;
+        }
+        .show-archived-toggle:hover {
+          color: var(--text-secondary);
         }
 
         .agent-list-item {
