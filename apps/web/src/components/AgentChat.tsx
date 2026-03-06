@@ -1,4 +1,5 @@
 import {
+  For,
   Show,
   batch,
   createEffect,
@@ -1997,28 +1998,30 @@ export function AgentChat(props: AgentChatProps) {
               when={aihubLogItems().length > 0}
               fallback={<div class="log-empty">No messages yet.</div>}
             >
-              {aihubLogItems().map((item) => {
-                const key = item.subagentRun
-                  ? `subagent:${item.subagentRun.toolUseId}`
-                  : `lead-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
-                if (item.subagentRun) {
-                  const id = item.subagentRun.toolUseId;
-                  return (
-                    <SubagentRunCard
-                      item={item}
-                      showNested={showSubagents()}
-                      expanded={expandedSubagentCards().has(id)}
-                      onToggle={() => toggleSubagentCard(id)}
-                    />
+              <For each={aihubLogItems()}>
+                {(item) => {
+                  const key = item.subagentRun
+                    ? `subagent:${item.subagentRun.toolUseId}`
+                    : `lead-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
+                  if (item.subagentRun) {
+                    const id = item.subagentRun.toolUseId;
+                    return (
+                      <SubagentRunCard
+                        item={item}
+                        showNested={showSubagents()}
+                        expanded={expandedSubagentCards().has(id)}
+                        onToggle={() => toggleSubagentCard(id)}
+                      />
+                    );
+                  }
+                  return renderLogItem(
+                    item,
+                    key,
+                    expandedCollapsibles().has(key),
+                    (next) => setCollapsibleOpen(key, next)
                   );
-                }
-                return renderLogItem(
-                  item,
-                  key,
-                  expandedCollapsibles().has(key),
-                  (next) => setCollapsibleOpen(key, next)
-                );
-              })}
+                }}
+              </For>
             </Show>
             <Show when={aihubLive()}>
               <div class="log-line assistant live">
@@ -2057,28 +2060,30 @@ export function AgentChat(props: AgentChatProps) {
               when={cliLogItems().length > 0}
               fallback={<div class="log-empty">No logs yet.</div>}
             >
-              {cliLogItems().map((item) => {
-                const key = item.subagentRun
-                  ? `subagent:${item.subagentRun.toolUseId}`
-                  : `cli-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
-                if (item.subagentRun) {
-                  const id = item.subagentRun.toolUseId;
-                  return (
-                    <SubagentRunCard
-                      item={item}
-                      showNested={showSubagents()}
-                      expanded={expandedSubagentCards().has(id)}
-                      onToggle={() => toggleSubagentCard(id)}
-                    />
+              <For each={cliLogItems()}>
+                {(item) => {
+                  const key = item.subagentRun
+                    ? `subagent:${item.subagentRun.toolUseId}`
+                    : `cli-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
+                  if (item.subagentRun) {
+                    const id = item.subagentRun.toolUseId;
+                    return (
+                      <SubagentRunCard
+                        item={item}
+                        showNested={showSubagents()}
+                        expanded={expandedSubagentCards().has(id)}
+                        onToggle={() => toggleSubagentCard(id)}
+                      />
+                    );
+                  }
+                  return renderLogItem(
+                    item,
+                    key,
+                    expandedCollapsibles().has(key),
+                    (next) => setCollapsibleOpen(key, next)
                   );
-                }
-                return renderLogItem(
-                  item,
-                  key,
-                  expandedCollapsibles().has(key),
-                  (next) => setCollapsibleOpen(key, next)
-                );
-              })}
+                }}
+              </For>
             </Show>
             <Show
               when={
