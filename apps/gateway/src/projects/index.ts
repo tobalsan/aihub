@@ -39,6 +39,8 @@ export {
   getProjectSpaceConflictContext,
   getGitHead,
   integrateProjectSpaceQueue,
+  mergeSpaceIntoBase,
+  cleanupSpaceWorktrees,
   recordWorkerDelivery,
   pruneProjectRepoWorktrees,
   isSpaceWriteLeaseEnabled,
@@ -54,6 +56,8 @@ export type {
   RecordWorkerDeliveryInput,
   SpaceCommitSummary,
   SpaceContribution,
+  SpaceMergeResult,
+  SpaceCleanupSummary,
   SpaceWriteLease,
   SpaceWriteLeaseResult,
 } from "./space.js";

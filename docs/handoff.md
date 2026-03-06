@@ -42,6 +42,24 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 - `docs/llms.md`
   - Updated project-detail inline-rename behavior note to include Space-key handling while editing.
 
+### 2026-03-04: Space merge-to-main backend endpoint + cleanup (PRO-167)
+
+- `apps/gateway/src/projects/space.ts`
+  - Added `mergeSpaceIntoBase(config, projectId, { cleanup? })`.
+  - Merge flow validates queue terminal state (no `pending/conflict/stale_worker`), checks out base branch, runs `git merge --ff-only` with fallback `git merge --no-edit`, and pushes base branch when a remote exists.
+  - Added `cleanupSpaceWorktrees(config, projectId)` with best-effort removal of worker worktrees/branches and Space worktree/branch, then clears `space.json` queue + `integrationBlocked`.
+  - Added result types: `SpaceMergeResult`, `SpaceCleanupSummary`.
+- `apps/gateway/src/server/api.ts`
+  - Added `POST /api/projects/:id/space/merge` with body `{ cleanup?: boolean }` (default `true`).
+  - Endpoint runs merge, updates project status to `done`, records status activity, and emits README file-changed event.
+- `apps/gateway/src/projects/index.ts`
+  - Exported new Space merge/cleanup functions and types.
+- Tests:
+  - Added merge/cleanup coverage in `apps/gateway/src/projects/space.test.ts`.
+  - Added API coverage in `apps/gateway/src/server/space-merge.api.test.ts` (queue validation + successful merge/status update).
+- Docs:
+  - Updated `README.md` and `docs/llms.md` Space API/model notes for `/space/merge`.
+
 ### 2026-03-04: Coordinator prompt enforces reviewer dispatch for code review
 
 - `packages/shared/src/projectPrompt.ts`

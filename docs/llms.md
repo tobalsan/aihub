@@ -368,6 +368,7 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | PATCH  | `/api/projects/:id/subagents/:slug`              | Rename project subagent run                                |
 | GET    | `/api/projects/:id/space`                        | Get project Space state                                    |
 | POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                             |
+| POST   | `/api/projects/:id/space/merge`                  | Merge Space branch into base + optional cleanup            |
 | GET    | `/api/projects/:id/space/commits`                | Get Space commit log                                       |
 | GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log                        |
 | POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Resume original conflicted worker                          |
@@ -397,6 +398,8 @@ Behavior:
 - Worker commit ranges are derived from `start_head_sha..end_head_sha` and queued.
 - Worker deliveries remain `pending` until explicit integration (`POST /api/projects/:id/space/integrate`).
 - Gateway cherry-picks queued SHAs into Space (`git cherry-pick -x`) only during explicit integrate flow.
+- When queue is fully terminal (`integrated`/`skipped` only), `POST /api/projects/:id/space/merge` merges Space into base (`--ff-only` first, fallback regular merge), pushes base when remote exists, and can clean up worker/Space worktrees+branches.
+- Merge flow updates project frontmatter status to `done`.
 - On conflict, Space queue is blocked (`integrationBlocked=true`) until the worker resolves and re-delivers.
 - `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original worker with a rebase prompt against current Space HEAD.
 - When that worker re-delivers, gateway updates the same conflict entry in place (new SHAs, status reset, `integrationBlocked=false`) instead of appending a new queue row.

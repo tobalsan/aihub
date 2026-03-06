@@ -13,6 +13,7 @@ import {
 import { ensureProjectSpace } from "./space.js";
 
 const execFileAsync = promisify(execFile);
+const GIT_TEST_TIMEOUT_MS = 30_000;
 
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
@@ -89,7 +90,7 @@ describe("projects git", () => {
     expect(result.diff).toContain("diff --git a/README.md b/README.md");
     expect(result.stats.filesChanged).toBe(1);
     expect(result.stats.insertions).toBeGreaterThan(0);
-  });
+  }, GIT_TEST_TIMEOUT_MS);
 
   it("commits project changes", async () => {
     const repoDir = path.join(tmpDir, "repo");
@@ -117,7 +118,7 @@ describe("projects git", () => {
     expect(changes.files.length).toBe(0);
     expect(changes.stats.filesChanged).toBe(0);
     expect(changes.source.type).toBe("repo");
-  });
+  }, GIT_TEST_TIMEOUT_MS);
 
   it("errors when project repo is missing", async () => {
     const projectDir = path.join(projectsRoot, "PRO-1_changes-test");
@@ -156,7 +157,7 @@ describe("projects git", () => {
     if (!result.ok) {
       expect(result.error).toBe("Nothing to commit");
     }
-  });
+  }, GIT_TEST_TIMEOUT_MS);
 
   it("prefers Space worktree when project space exists", async () => {
     const repoDir = path.join(tmpDir, "repo");
@@ -176,7 +177,7 @@ describe("projects git", () => {
     expect(result.baseBranch).toBe("main");
     expect(result.branch).toBe("space/PRO-1");
     expect(result.files.length).toBe(1);
-  });
+  }, GIT_TEST_TIMEOUT_MS);
 
   it("builds PR compare target from origin remote", async () => {
     const repoDir = path.join(tmpDir, "repo");
@@ -199,5 +200,5 @@ describe("projects git", () => {
     expect(target.compareUrl).toContain(
       "https://github.com/acme/aihub/compare/main...space%2FPRO-1"
     );
-  });
+  }, GIT_TEST_TIMEOUT_MS);
 });

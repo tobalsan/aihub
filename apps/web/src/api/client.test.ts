@@ -4,6 +4,7 @@ import {
   fetchProjectChanges,
   fetchProjectSpace,
   integrateProjectSpace,
+  mergeSpaceIntoMain,
   commitProjectChanges,
   fetchAllSubagents,
   fetchSubagents,
@@ -193,6 +194,53 @@ describe("api client (projects/subagents)", () => {
     await expect(integrateProjectSpace("PRO-9")).rejects.toThrow(
       "integration blocked"
     );
+  });
+
+  it("posts merge space into main with cleanup enabled by default", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        merge: {
+          afterSha: "abc1234",
+          cleanup: {
+            workerWorktreesRemoved: 3,
+            workerBranchesDeleted: 3,
+            spaceWorktreeRemoved: true,
+            spaceBranchDeleted: true,
+          },
+        },
+      }),
+    });
+
+    const res = await mergeSpaceIntoMain("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cleanup: true }),
+    });
+    expect(res.mergedCommitSha).toBe("abc1234");
+    expect(res.cleanupSummary).toContain("worktrees removed: 3");
+  });
+
+  it("posts merge space into main with cleanup disabled", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        merge: {
+          afterSha: "def5678",
+        },
+      }),
+    });
+
+    const result = await mergeSpaceIntoMain("PRO-9", { cleanup: false });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cleanup: false }),
+    });
+    expect(result.mergedCommitSha).toBe("def5678");
   });
 
   it("commits project changes", async () => {

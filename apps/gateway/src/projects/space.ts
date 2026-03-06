@@ -66,6 +66,29 @@ export type SpaceWriteLeaseResult =
   | { ok: true; data: SpaceWriteLease | null }
   | { ok: false; error: string };
 
+export type SpaceCleanupSummary = {
+  workerWorktreesRemoved: number;
+  workerWorktreesMissing: number;
+  workerBranchesDeleted: number;
+  workerBranchesMissing: number;
+  spaceWorktreeRemoved: boolean;
+  spaceWorktreeMissing: boolean;
+  spaceBranchDeleted: boolean;
+  spaceBranchMissing: boolean;
+  errors: string[];
+};
+
+export type SpaceMergeResult = {
+  baseBranch: string;
+  spaceBranch: string;
+  beforeSha: string | null;
+  afterSha: string;
+  mergeMethod: "ff" | "merge";
+  pushed: boolean;
+  pushedRemote?: string;
+  cleanup?: SpaceCleanupSummary;
+};
+
 export type ProjectSpaceResult =
   | { ok: true; data: ProjectSpace }
   | { ok: false; error: string };
@@ -710,6 +733,236 @@ async function persistProjectSpace(
   updated.updatedAt = new Date().toISOString();
   await writeSpaceFile(context.spaceFilePath, updated);
   return updated;
+}
+
+function hasUnresolvedEntries(space: ProjectSpace): boolean {
+  return space.queue.some(
+    (item) =>
+      item.status === "pending" ||
+      item.status === "conflict" ||
+      item.status === "stale_worker"
+  );
+}
+
+async function branchExists(repo: string, branchName: string): Promise<boolean> {
+  try {
+    await runGitInRepo(repo, ["show-ref", "--verify", `refs/heads/${branchName}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function deleteBranchIfPresent(
+  repo: string,
+  branchName: string
+): Promise<"deleted" | "missing" | "error"> {
+  const exists = await branchExists(repo, branchName);
+  if (!exists) return "missing";
+  try {
+    await runGitInRepo(repo, ["branch", "-D", branchName]);
+    return "deleted";
+  } catch {
+    return "error";
+  }
+}
+
+async function pushBaseBranch(
+  repo: string,
+  baseBranch: string
+): Promise<{ pushed: boolean; remote?: string }> {
+  const remotesRaw = await runGitInRepo(repo, ["remote"]).catch(() => "");
+  const remotes = remotesRaw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (remotes.length === 0) {
+    return { pushed: false };
+  }
+
+  let remote = remotes.includes("origin") ? "origin" : remotes[0];
+  const upstream = await runGitInRepo(repo, [
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    `${baseBranch}@{upstream}`,
+  ]).catch(() => "");
+  if (upstream.includes("/")) {
+    const [upstreamRemote] = upstream.split("/", 1);
+    if (upstreamRemote) remote = upstreamRemote;
+  }
+
+  await runGitInRepo(repo, ["push", remote, baseBranch]);
+  return { pushed: true, remote };
+}
+
+export async function cleanupSpaceWorktrees(
+  config: GatewayConfig,
+  projectId: string
+): Promise<SpaceCleanupSummary> {
+  const context = await resolveProjectContext(config, projectId);
+  if (!(await isGitRepo(context.repo))) {
+    throw new Error("Not a git repository");
+  }
+  const space = await readSpaceFile(context.spaceFilePath);
+  if (!space) throw new Error("Project space not found");
+
+  const summary: SpaceCleanupSummary = {
+    workerWorktreesRemoved: 0,
+    workerWorktreesMissing: 0,
+    workerBranchesDeleted: 0,
+    workerBranchesMissing: 0,
+    spaceWorktreeRemoved: false,
+    spaceWorktreeMissing: false,
+    spaceBranchDeleted: false,
+    spaceBranchMissing: false,
+    errors: [],
+  };
+
+  const seenWorktrees = new Set<string>();
+  const seenBranches = new Set<string>();
+
+  for (const item of space.queue) {
+    const workerWorktree = item.worktreePath.trim();
+    if (workerWorktree && !seenWorktrees.has(workerWorktree)) {
+      seenWorktrees.add(workerWorktree);
+      if (await dirExists(workerWorktree)) {
+        try {
+          await runGitInRepo(context.repo, [
+            "worktree",
+            "remove",
+            "--force",
+            workerWorktree,
+          ]);
+          summary.workerWorktreesRemoved += 1;
+        } catch (error) {
+          summary.errors.push(
+            `failed to remove worktree ${workerWorktree}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      } else {
+        summary.workerWorktreesMissing += 1;
+      }
+    }
+
+    const workerBranch = `${projectId}/${item.workerSlug}`;
+    if (seenBranches.has(workerBranch)) continue;
+    seenBranches.add(workerBranch);
+    const deleted = await deleteBranchIfPresent(context.repo, workerBranch);
+    if (deleted === "deleted") summary.workerBranchesDeleted += 1;
+    else if (deleted === "missing") summary.workerBranchesMissing += 1;
+    else summary.errors.push(`failed to delete branch ${workerBranch}`);
+  }
+
+  if (await dirExists(space.worktreePath)) {
+    try {
+      await runGitInRepo(context.repo, [
+        "worktree",
+        "remove",
+        "--force",
+        space.worktreePath,
+      ]);
+      summary.spaceWorktreeRemoved = true;
+    } catch (error) {
+      summary.errors.push(
+        `failed to remove space worktree ${space.worktreePath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  } else {
+    summary.spaceWorktreeMissing = true;
+  }
+
+  const deletedSpaceBranch = await deleteBranchIfPresent(context.repo, space.branch);
+  if (deletedSpaceBranch === "deleted") summary.spaceBranchDeleted = true;
+  else if (deletedSpaceBranch === "missing") summary.spaceBranchMissing = true;
+  else summary.errors.push(`failed to delete space branch ${space.branch}`);
+
+  await persistProjectSpace(config, projectId, (current) => ({
+    ...current,
+    queue: [],
+    integrationBlocked: false,
+  }));
+
+  await pruneProjectRepoWorktrees(config, projectId).catch(() => {});
+  return summary;
+}
+
+export async function mergeSpaceIntoBase(
+  config: GatewayConfig,
+  projectId: string,
+  options?: { cleanup?: boolean }
+): Promise<SpaceMergeResult> {
+  const context = await resolveProjectContext(config, projectId);
+  if (!(await isGitRepo(context.repo))) {
+    throw new Error("Not a git repository");
+  }
+  const space = await readSpaceFile(context.spaceFilePath);
+  if (!space) throw new Error("Project space not found");
+  if (hasUnresolvedEntries(space) || space.integrationBlocked) {
+    throw new Error(
+      "Space queue has unresolved entries (pending/conflict/stale_worker)"
+    );
+  }
+
+  const originalBranch = await runGitInRepo(context.repo, [
+    "rev-parse",
+    "--abbrev-ref",
+    "HEAD",
+  ]).catch(() => "");
+  let mergeMethod: "ff" | "merge" = "ff";
+  let afterSha: string | null = null;
+  const beforeSha = await getGitHead(context.repo);
+
+  try {
+    await runGitInRepo(context.repo, ["checkout", space.baseBranch]);
+    try {
+      await runGitInRepo(context.repo, ["merge", "--ff-only", space.branch]);
+      mergeMethod = "ff";
+    } catch {
+      mergeMethod = "merge";
+      try {
+        await runGitInRepo(context.repo, ["merge", "--no-edit", space.branch]);
+      } catch (error) {
+        await runGitInRepo(context.repo, ["merge", "--abort"]).catch(() => {});
+        throw new Error(
+          `Space merge failed: ${error instanceof Error ? error.message : "git merge failed"}`
+        );
+      }
+    }
+    afterSha = await getGitHead(context.repo);
+    if (!afterSha) throw new Error("Failed to resolve merged base HEAD");
+    const pushResult = await pushBaseBranch(context.repo, space.baseBranch);
+
+    let cleanupResult: SpaceCleanupSummary | undefined;
+    if (options?.cleanup ?? true) {
+      cleanupResult = await cleanupSpaceWorktrees(config, projectId);
+    } else {
+      await persistProjectSpace(config, projectId, (current) => ({
+        ...current,
+        queue: [],
+        integrationBlocked: false,
+      }));
+    }
+
+    return {
+      baseBranch: space.baseBranch,
+      spaceBranch: space.branch,
+      beforeSha,
+      afterSha,
+      mergeMethod,
+      pushed: pushResult.pushed,
+      pushedRemote: pushResult.remote,
+      cleanup: cleanupResult,
+    };
+  } finally {
+    if (originalBranch && originalBranch !== space.baseBranch) {
+      await runGitInRepo(context.repo, ["checkout", originalBranch]).catch(() => {});
+    }
+  }
 }
 
 export async function integrateProjectSpaceQueue(
