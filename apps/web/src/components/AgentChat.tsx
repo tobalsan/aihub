@@ -2498,7 +2498,8 @@ export function AgentChat(props: AgentChatProps) {
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
           font-size: 13px;
           color: var(--text-primary);
-          max-height: 60vh;
+          max-height: none;
+          overflow: visible;
         }
 
         .log-line.collapsible.system-callout {
