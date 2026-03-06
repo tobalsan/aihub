@@ -233,18 +233,6 @@ function summarizeInitialPrompt(text: string): string {
   return compact.length > 200 ? `${compact.slice(0, 200)}...` : compact;
 }
 
-function looksLikeSkillBody(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  if (trimmed.length < 120) return false;
-  if (/<\/?skill[\w-]*\b/i.test(trimmed)) return true;
-  if (/^---[\s\S]+---/m.test(trimmed)) return true;
-  if (/^#\s+.*\n[\s\S]*\bskill\b/i.test(trimmed)) return true;
-  if (/(^|\n)name:\s*.+\n(?:[\s\S]{0,400})?(^|\n)description:\s*.+/im.test(trimmed))
-    return true;
-  return false;
-}
-
 function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   const entries: LogItem[] = [];
   let initialPromptAdded = false;
@@ -261,7 +249,7 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
     if (msg.role === "user") {
       const text = getTextBlocks(msg.content);
       if (!text) continue;
-      if (skipNextUserIfSkill && looksLikeSkillBody(text)) {
+      if (skipNextUserIfSkill) {
         skipNextUserIfSkill = false;
         continue;
       }
@@ -564,7 +552,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
     if (event.type === "session" || event.type === "message") continue;
     if (event.type === "user") {
       if (event.text) {
-        if (skipNextUserIfSkill && looksLikeSkillBody(event.text)) {
+        if (skipNextUserIfSkill) {
           skipNextUserIfSkill = false;
           continue;
         }
@@ -1850,9 +1838,14 @@ export function AgentChat(props: AgentChatProps) {
             : 0;
       if (inputTokens > highestInputTokens) highestInputTokens = inputTokens;
     }
+    const normalizedModelName = modelName?.toLowerCase();
     const maxTokens =
-      (modelName ? MODEL_CONTEXT_LIMITS[modelName] : undefined) ??
-      MODEL_CONTEXT_LIMITS.default;
+      (normalizedModelName
+        ? Object.entries(MODEL_CONTEXT_LIMITS).find(
+            ([key]) =>
+              key !== "default" && normalizedModelName.includes(key.toLowerCase())
+          )?.[1]
+        : undefined) ?? MODEL_CONTEXT_LIMITS.default;
     if (maxTokens <= 0 || highestInputTokens <= 0) return 0;
     const rawPct = (highestInputTokens / maxTokens) * 100;
     if (rawPct > 0 && rawPct < 1) return 1;
@@ -2202,7 +2195,9 @@ export function AgentChat(props: AgentChatProps) {
             </button>
           </Show>
         </div>
-        <div class="context-usage">~{estimatedContextUsagePct()}% context used</div>
+        <Show when={estimatedContextUsagePct() > 0}>
+          <div class="context-usage">~{estimatedContextUsagePct()}% context used</div>
+        </Show>
       </div>
 
       <style>{`
@@ -2497,6 +2492,13 @@ export function AgentChat(props: AgentChatProps) {
           overflow: auto;
           overflow-wrap: anywhere;
           word-break: break-word;
+        }
+
+        .log-line.collapsible.user .log-text {
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          font-size: 13px;
+          color: var(--text-primary);
+          max-height: 60vh;
         }
 
         .log-line.collapsible.system-callout {
