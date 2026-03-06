@@ -22,7 +22,7 @@ vi.mock("../../api/client", () => ({
     thread: [],
   })),
   fetchAreas: vi.fn(async () => [
-    { id: "aihub", title: "AIHub", color: "#53b97c" },
+    { id: "aihub", title: "AIHub", color: "#53b97c", repo: "~/code/aihub" },
   ]),
   fetchTasks: vi.fn(async () => ({
     tasks: [

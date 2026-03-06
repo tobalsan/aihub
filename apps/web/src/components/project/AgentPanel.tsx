@@ -258,6 +258,7 @@ export function AgentPanel(props: AgentPanelProps) {
   const status = () =>
     getFrontmatterString(props.project.frontmatter, "status") || "unknown";
   const repo = () => getFrontmatterString(props.project.frontmatter, "repo");
+  const hasRepo = () => Boolean(repo() || props.area?.repo);
   const created = () =>
     getFrontmatterString(props.project.frontmatter, "created");
   const areaLabel = () => props.area?.title || "No area";
@@ -1121,7 +1122,10 @@ export function AgentPanel(props: AgentPanelProps) {
             <button
               type="button"
               class="add-agent-btn"
+              disabled={!hasRepo()}
+              title={!hasRepo() ? (props.area ? "No repo set" : "No area set") : undefined}
               onClick={(event) => {
+                if (!hasRepo()) return;
                 event.stopPropagation();
                 setTemplateMenuOpen((open) => !open);
               }}
@@ -1797,8 +1801,13 @@ export function AgentPanel(props: AgentPanelProps) {
           transition: color 0.12s ease;
         }
 
-        .add-agent-btn:hover {
+        .add-agent-btn:hover:not(:disabled) {
           color: var(--text-primary);
+        }
+
+        .add-agent-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
         }
 
         .add-agent-wrap {

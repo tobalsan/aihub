@@ -53,6 +53,8 @@ type CenterPanelProps = {
   onSpawned?: (slug: string) => void;
   onCancelSpawn?: () => void;
   onTabChange?: (tab: CenterTab) => void;
+  hasArea?: boolean;
+  hasRepo?: boolean;
 };
 
 type TimelineItem = {
@@ -298,7 +300,18 @@ export function CenterPanel(props: CenterPanelProps) {
                 />
               </Show>
               <Show when={!props.spawnMode && !props.selectedAgent}>
-                <p class="center-placeholder">Select an agent to chat</p>
+                <Show
+                  when={props.hasRepo !== false}
+                  fallback={
+                    <div class="center-placeholder-centered">
+                      <p class="center-error-msg">
+                        ⚠ {props.hasArea === false ? "No area set" : "No repo set"}
+                      </p>
+                    </div>
+                  }
+                >
+                  <p class="center-placeholder">Select an agent to chat</p>
+                </Show>
               </Show>
             </div>
           </Show>
@@ -452,6 +465,20 @@ export function CenterPanel(props: CenterPanelProps) {
 
         .center-placeholder {
           color: var(--text-muted);
+        }
+
+        .center-placeholder-centered {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .center-error-msg {
+          color: #ef4444;
+          font-weight: 700;
+          font-size: 18px;
+          margin: 0;
         }
 
         .activity-list {

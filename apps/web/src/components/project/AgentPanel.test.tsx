@@ -49,6 +49,7 @@ const project: ProjectDetail = {
     status: "todo",
     created: "2026-02-28T20:00:00.000Z",
     sessionKeys: { "lead-agent": "main" },
+    repo: "~/code/aihub",
   },
   docs: {},
   thread: [],

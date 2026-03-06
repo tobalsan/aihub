@@ -618,6 +618,8 @@ export function ProjectDetailPage() {
                     onSpawnFormDraftChange={setSpawnFormDraft}
                     subagents={subagents()}
                     onCancelSpawn={() => setSpawnMode(null)}
+                    hasArea={Boolean(area())}
+                    hasRepo={Boolean(getFrontmatterString(detail().frontmatter, "repo") || area()?.repo)}
                     onSpawned={(slug) => {
                       setSpawnMode(null);
                       setSelectedAgent({
@@ -707,6 +709,8 @@ export function ProjectDetailPage() {
                         onSpawnFormDraftChange={setSpawnFormDraft}
                         subagents={subagents()}
                         onCancelSpawn={() => setSpawnMode(null)}
+                        hasArea={Boolean(area())}
+                        hasRepo={Boolean(getFrontmatterString(detail().frontmatter, "repo") || area()?.repo)}
                         onSpawned={(slug) => {
                           setSpawnMode(null);
                           setSelectedAgent({
