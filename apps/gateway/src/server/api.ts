@@ -2419,7 +2419,7 @@ api.post("/projects/:id/space/rebase", async (c) => {
   const config = getConfig();
   try {
     const space = await rebaseSpaceOntoMain(config, id);
-    return c.json({ space });
+    return c.json(space);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const status =
