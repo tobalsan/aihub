@@ -946,6 +946,48 @@ export async function integrateProjectSpace(
   return (await res.json()) as ProjectSpaceState;
 }
 
+export async function skipSpaceEntries(
+  projectId: string,
+  entryIds: string[]
+): Promise<ProjectSpaceState> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/space/entries/skip`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryIds }),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to skip space entries" }));
+    throw new Error(data.error ?? "Failed to skip space entries");
+  }
+  return (await res.json()) as ProjectSpaceState;
+}
+
+export async function integrateSpaceEntries(
+  projectId: string,
+  entryIds: string[]
+): Promise<ProjectSpaceState> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/space/entries/integrate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryIds }),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to integrate space entries" }));
+    throw new Error(data.error ?? "Failed to integrate space entries");
+  }
+  return (await res.json()) as ProjectSpaceState;
+}
+
 export type MergeSpaceIntoMainResult = {
   sha?: string;
   commitSha?: string;
@@ -975,7 +1017,9 @@ type MergeSpaceCleanupPayload = {
   errors?: string[];
 };
 
-function buildCleanupSummary(cleanup?: MergeSpaceCleanupPayload): string | undefined {
+function buildCleanupSummary(
+  cleanup?: MergeSpaceCleanupPayload
+): string | undefined {
   if (!cleanup) return undefined;
   const parts: string[] = [];
   if (typeof cleanup.workerWorktreesRemoved === "number") {
@@ -1011,7 +1055,8 @@ export async function mergeSpaceIntoMain(
   return {
     ...data,
     mergedCommitSha,
-    cleanupSummary: data.cleanupSummary ?? buildCleanupSummary(data.merge?.cleanup),
+    cleanupSummary:
+      data.cleanupSummary ?? buildCleanupSummary(data.merge?.cleanup),
     cleanup:
       data.cleanup ??
       (data.merge?.cleanup
@@ -1223,11 +1268,14 @@ export async function updateSubagent(
   slug: string,
   input: UpdateSubagentInput
 ): Promise<UpdateSubagentResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/subagents/${slug}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/subagents/${slug}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  );
   if (!res.ok) {
     const data = await res
       .json()

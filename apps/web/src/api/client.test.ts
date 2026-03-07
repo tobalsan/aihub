@@ -3,8 +3,10 @@ import {
   fetchProjectBranches,
   fetchProjectChanges,
   fetchProjectSpace,
+  integrateSpaceEntries,
   integrateProjectSpace,
   mergeSpaceIntoMain,
+  skipSpaceEntries,
   commitProjectChanges,
   fetchAllSubagents,
   fetchSubagents,
@@ -194,6 +196,62 @@ describe("api client (projects/subagents)", () => {
     await expect(integrateProjectSpace("PRO-9")).rejects.toThrow(
       "integration blocked"
     );
+  });
+
+  it("skips selected project space entries", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: 1,
+        projectId: "PRO-9",
+        branch: "space/PRO-9",
+        worktreePath: "/tmp/space",
+        baseBranch: "main",
+        integrationBlocked: false,
+        queue: [],
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+    });
+
+    const res = await skipSpaceEntries("PRO-9", ["alpha:1", "alpha:2"]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-9/space/entries/skip",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryIds: ["alpha:1", "alpha:2"] }),
+      }
+    );
+    expect(res.projectId).toBe("PRO-9");
+  });
+
+  it("integrates selected project space entries", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: 1,
+        projectId: "PRO-9",
+        branch: "space/PRO-9",
+        worktreePath: "/tmp/space",
+        baseBranch: "main",
+        integrationBlocked: false,
+        queue: [],
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+    });
+
+    const res = await integrateSpaceEntries("PRO-9", ["alpha:1", "alpha:2"]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-9/space/entries/integrate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryIds: ["alpha:1", "alpha:2"] }),
+      }
+    );
+    expect(res.projectId).toBe("PRO-9");
   });
 
   it("posts merge space into main with cleanup enabled by default", async () => {

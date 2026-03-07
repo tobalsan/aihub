@@ -1,4 +1,11 @@
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import {
   commitProjectChanges,
   fetchProjectChanges,
@@ -7,8 +14,10 @@ import {
   fetchProjectSpaceCommits,
   fetchProjectSpaceContribution,
   fixSpaceConflict,
+  integrateSpaceEntries,
   integrateProjectSpace,
   mergeSpaceIntoMain,
+  skipSpaceEntries,
 } from "../../api/client";
 import type { MergeSpaceIntoMainResult } from "../../api/client";
 import type {
@@ -166,14 +175,18 @@ function formatRelativeTime(value: string): string {
 export function ChangesView(props: ChangesViewProps) {
   const [changes, setChanges] = createSignal<ProjectChanges | null>(null);
   const [space, setSpace] = createSignal<ProjectSpaceState | null>(null);
-  const [spaceCommits, setSpaceCommits] = createSignal<SpaceCommitSummary[]>([]);
+  const [spaceCommits, setSpaceCommits] = createSignal<SpaceCommitSummary[]>(
+    []
+  );
   const [prTarget, setPrTarget] = createSignal<ProjectPullRequestTarget | null>(
     null
   );
   const [contributions, setContributions] = createSignal<
     Record<string, SpaceContribution>
   >({});
-  const [entryErrors, setEntryErrors] = createSignal<Record<string, string>>({});
+  const [entryErrors, setEntryErrors] = createSignal<Record<string, string>>(
+    {}
+  );
   const [expandedEntries, setExpandedEntries] = createSignal<
     Record<string, boolean>
   >({});
@@ -183,6 +196,8 @@ export function ChangesView(props: ChangesViewProps) {
   const [loadingEntryId, setLoadingEntryId] = createSignal<string | null>(null);
 
   const [integrating, setIntegrating] = createSignal(false);
+  const [integratingEntries, setIntegratingEntries] = createSignal(false);
+  const [skippingEntries, setSkippingEntries] = createSignal(false);
   const [integrateError, setIntegrateError] = createSignal<string | null>(null);
 
   const [commitMessage, setCommitMessage] = createSignal("");
@@ -245,7 +260,7 @@ export function ChangesView(props: ChangesViewProps) {
   };
 
   const handleIntegrate = async () => {
-    if (integrating()) return;
+    if (integrating() || integratingEntries() || skippingEntries()) return;
     setIntegrating(true);
     setIntegrateError(null);
     try {
@@ -258,6 +273,54 @@ export function ChangesView(props: ChangesViewProps) {
       );
     } finally {
       setIntegrating(false);
+    }
+  };
+
+  const handleIntegrateEntries = async (entryIds: string[]) => {
+    if (
+      entryIds.length === 0 ||
+      integrating() ||
+      integratingEntries() ||
+      skippingEntries()
+    ) {
+      return;
+    }
+    setIntegratingEntries(true);
+    setIntegrateError(null);
+    try {
+      const updated = await integrateSpaceEntries(props.projectId, entryIds);
+      setSpace(updated);
+      await refresh(false);
+    } catch (error) {
+      setIntegrateError(
+        error instanceof Error ? error.message : "Failed to integrate entries"
+      );
+    } finally {
+      setIntegratingEntries(false);
+    }
+  };
+
+  const handleSkipEntries = async (entryIds: string[]) => {
+    if (
+      entryIds.length === 0 ||
+      integrating() ||
+      integratingEntries() ||
+      skippingEntries()
+    ) {
+      return;
+    }
+    setSkippingEntries(true);
+    setIntegrateError(null);
+    try {
+      const updated = await skipSpaceEntries(props.projectId, entryIds);
+      setSpace(updated);
+      await refresh(false);
+    } catch (error) {
+      setIntegrateError(
+        error instanceof Error ? error.message : "Failed to skip entries"
+      );
+    } finally {
+      setSkippingEntries(false);
     }
   };
 
@@ -297,7 +360,9 @@ export function ChangesView(props: ChangesViewProps) {
       setFixMessage(`Resumed worker: ${result.slug}`);
     } catch (error) {
       setFixError(
-        error instanceof Error ? error.message : "Failed to resume conflicted worker"
+        error instanceof Error
+          ? error.message
+          : "Failed to resume conflicted worker"
       );
     } finally {
       setFixingEntryId(null);
@@ -373,7 +438,16 @@ export function ChangesView(props: ChangesViewProps) {
       const withCommits = entries.filter((e) => e.shas.length > 0);
       const skippedCount = entries.length - withCommits.length;
       const totalCommits = entries.reduce((s, e) => s + e.shas.length, 0);
-      return { worker, entries: withCommits, skippedCount, totalCommits };
+      const pendingEntryIds = entries
+        .filter((entry) => entry.status === "pending")
+        .map((entry) => entry.id);
+      return {
+        worker,
+        entries: withCommits,
+        skippedCount,
+        totalCommits,
+        pendingEntryIds,
+      };
     });
   });
 
@@ -420,8 +494,12 @@ export function ChangesView(props: ChangesViewProps) {
           >
             <div class="changes-branch">
               <span>Branch: {changes()?.branch ?? "-"}</span>
-              <span class="changes-base">→ {changes()?.baseBranch ?? "main"}</span>
-              <span class={`changes-source source-${sourceLabel().toLowerCase()}`}>
+              <span class="changes-base">
+                → {changes()?.baseBranch ?? "main"}
+              </span>
+              <span
+                class={`changes-source source-${sourceLabel().toLowerCase()}`}
+              >
                 {sourceLabel()}
               </span>
               <Show when={branchDiffToggleable()}>
@@ -432,8 +510,12 @@ export function ChangesView(props: ChangesViewProps) {
             </div>
             <div class="changes-stats">
               <span>{changes()?.branchDiffStats?.filesChanged ?? 0} files</span>
-              <span class="ins">+{changes()?.branchDiffStats?.insertions ?? 0}</span>
-              <span class="del">-{changes()?.branchDiffStats?.deletions ?? 0}</span>
+              <span class="ins">
+                +{changes()?.branchDiffStats?.insertions ?? 0}
+              </span>
+              <span class="del">
+                -{changes()?.branchDiffStats?.deletions ?? 0}
+              </span>
             </div>
           </header>
           <Show when={branchDiffToggleable() && branchDiffExpanded()}>
@@ -462,13 +544,20 @@ export function ChangesView(props: ChangesViewProps) {
                   <span>Base: {space()?.baseBranch}</span>
                   <span>Pending: {queueCounts().pending}</span>
                   <span>Integrated: {queueCounts().integrated}</span>
-                  <span class="space-conflicts">Conflicts: {queueCounts().conflict}</span>
+                  <span class="space-conflicts">
+                    Conflicts: {queueCounts().conflict}
+                  </span>
                   <span class="space-stale">Stale: {queueCounts().stale}</span>
                 </div>
                 <button
                   type="button"
                   class="integrate-btn"
-                  disabled={!canIntegrate() || integrating()}
+                  disabled={
+                    !canIntegrate() ||
+                    integrating() ||
+                    integratingEntries() ||
+                    skippingEntries()
+                  }
                   onClick={() => void handleIntegrate()}
                 >
                   {integrating() ? "Integrating…" : "Integrate Now"}
@@ -476,8 +565,8 @@ export function ChangesView(props: ChangesViewProps) {
               </div>
               <Show when={space()?.integrationBlocked}>
                 <p class="changes-error">
-                  Space integration is blocked by a conflict. Resolve conflicts or resume
-                  the original worker.
+                  Space integration is blocked by a conflict. Resolve conflicts
+                  or resume the original worker.
                 </p>
               </Show>
               <Show when={integrateError()}>
@@ -489,7 +578,9 @@ export function ChangesView(props: ChangesViewProps) {
                     <input
                       type="checkbox"
                       checked={mergeWithCleanup()}
-                      onInput={(e) => setMergeWithCleanup(e.currentTarget.checked)}
+                      onInput={(e) =>
+                        setMergeWithCleanup(e.currentTarget.checked)
+                      }
                       disabled={mergingMain()}
                     />
                     Clean up worktrees & branches
@@ -517,13 +608,57 @@ export function ChangesView(props: ChangesViewProps) {
                     {(group) => (
                       <details class="worker-group" open>
                         <summary>
-                          {group.worker}
-                          <span>
-                            {group.totalCommits} commit{group.totalCommits !== 1 ? "s" : ""}
-                            <Show when={group.skippedCount > 0}>
-                              {" · "}{group.skippedCount} skipped
-                            </Show>
-                          </span>
+                          <div class="worker-group-meta">
+                            <span>{group.worker}</span>
+                            <span>
+                              {group.totalCommits} commit
+                              {group.totalCommits !== 1 ? "s" : ""}
+                              <Show when={group.skippedCount > 0}>
+                                {" · "}
+                                {group.skippedCount} skipped
+                              </Show>
+                            </span>
+                          </div>
+                          <div class="worker-group-actions">
+                            <button
+                              type="button"
+                              class="worker-group-btn"
+                              disabled={
+                                group.pendingEntryIds.length === 0 ||
+                                integrating() ||
+                                integratingEntries() ||
+                                skippingEntries()
+                              }
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void handleSkipEntries(group.pendingEntryIds);
+                              }}
+                            >
+                              {skippingEntries() ? "Skipping…" : "Skip"}
+                            </button>
+                            <button
+                              type="button"
+                              class="worker-group-btn worker-group-btn-primary"
+                              disabled={
+                                group.pendingEntryIds.length === 0 ||
+                                integrating() ||
+                                integratingEntries() ||
+                                skippingEntries()
+                              }
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void handleIntegrateEntries(
+                                  group.pendingEntryIds
+                                );
+                              }}
+                            >
+                              {integratingEntries()
+                                ? "Integrating…"
+                                : "Integrate"}
+                            </button>
+                          </div>
                         </summary>
                         <For each={group.entries}>
                           {(entry) => (
@@ -538,10 +673,21 @@ export function ChangesView(props: ChangesViewProps) {
                                   >
                                     {queueStatusLabel(entry.status)}
                                   </span>
-                                  <span>{entry.shas.length} commit{entry.shas.length !== 1 ? "s" : ""}</span>
+                                  <span>
+                                    {entry.shas.length} commit
+                                    {entry.shas.length !== 1 ? "s" : ""}
+                                  </span>
                                   <span>{formatWhen(entry.createdAt)}</span>
-                                  <Show when={entry.status === "integrated" && entry.integratedAt}>
-                                    <span>Integrated: {formatWhen(entry.integratedAt)}</span>
+                                  <Show
+                                    when={
+                                      entry.status === "integrated" &&
+                                      entry.integratedAt
+                                    }
+                                  >
+                                    <span>
+                                      Integrated:{" "}
+                                      {formatWhen(entry.integratedAt)}
+                                    </span>
                                   </Show>
                                 </div>
                                 <Show when={entry.status === "conflict"}>
@@ -554,8 +700,21 @@ export function ChangesView(props: ChangesViewProps) {
                                       void handleFixConflict(entry.id);
                                     }}
                                   >
-                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 1.5l3 3M1 11.5L11.5 1.5l3 3L4.5 15H1v-3.5z"/></svg>
-                                    {fixingEntryId() === entry.id ? "Resuming…" : "Fix conflict"}
+                                    <svg
+                                      width="12"
+                                      height="12"
+                                      viewBox="0 0 16 16"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      stroke-width="1.5"
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                    >
+                                      <path d="M11.5 1.5l3 3M1 11.5L11.5 1.5l3 3L4.5 15H1v-3.5z" />
+                                    </svg>
+                                    {fixingEntryId() === entry.id
+                                      ? "Resuming…"
+                                      : "Fix conflict"}
                                   </button>
                                 </Show>
                               </div>
@@ -570,44 +729,72 @@ export function ChangesView(props: ChangesViewProps) {
                               <Show when={expandedEntries()[entry.id]}>
                                 <div class="entry-details">
                                   <Show when={loadingEntryId() === entry.id}>
-                                    <p class="entry-loading">Loading entry details…</p>
+                                    <p class="entry-loading">
+                                      Loading entry details…
+                                    </p>
                                   </Show>
                                   <Show when={entryErrors()[entry.id]}>
-                                    <p class="changes-error">{entryErrors()[entry.id]}</p>
+                                    <p class="changes-error">
+                                      {entryErrors()[entry.id]}
+                                    </p>
                                   </Show>
                                   <Show when={contributions()[entry.id]}>
                                     {(detail) => (
                                       <>
-                                        <Show when={detail().conflictFiles.length > 0}>
+                                        <Show
+                                          when={
+                                            detail().conflictFiles.length > 0
+                                          }
+                                        >
                                           <div class="entry-conflict-files">
                                             <strong>Conflict files:</strong>
                                             <ul>
-                                              <For each={detail().conflictFiles}>
+                                              <For
+                                                each={detail().conflictFiles}
+                                              >
                                                 {(file) => <li>{file}</li>}
                                               </For>
                                             </ul>
                                           </div>
                                         </Show>
-                                        <Show when={detail().commits.length > 0}>
+                                        <Show
+                                          when={detail().commits.length > 0}
+                                        >
                                           <div class="entry-commits">
                                             <For each={detail().commits}>
                                               {(commit) => (
                                                 <div class="commit-row">
-                                                  <code>{commit.sha.slice(0, 7)}</code>
+                                                  <code>
+                                                    {commit.sha.slice(0, 7)}
+                                                  </code>
                                                   <span>{commit.subject}</span>
                                                 </div>
                                               )}
                                             </For>
                                           </div>
                                         </Show>
-                                        <Show when={detail().diff.trim().length > 0}>
+                                        <Show
+                                          when={detail().diff.trim().length > 0}
+                                        >
                                           <pre class="entry-diff">
-                                            <For each={parseDiff(detail().diff).flatMap((f) => f.lines)}>
+                                            <For
+                                              each={parseDiff(
+                                                detail().diff
+                                              ).flatMap((f) => f.lines)}
+                                            >
                                               {(line) => (
-                                                <div class={`diff-line line-${line.kind}`}>
-                                                  <span class="line-num">{line.oldLine ?? ""}</span>
-                                                  <span class="line-num">{line.newLine ?? ""}</span>
-                                                  <span class="line-text">{line.text || " "}</span>
+                                                <div
+                                                  class={`diff-line line-${line.kind}`}
+                                                >
+                                                  <span class="line-num">
+                                                    {line.oldLine ?? ""}
+                                                  </span>
+                                                  <span class="line-num">
+                                                    {line.newLine ?? ""}
+                                                  </span>
+                                                  <span class="line-text">
+                                                    {line.text || " "}
+                                                  </span>
                                                 </div>
                                               )}
                                             </For>
@@ -654,7 +841,9 @@ export function ChangesView(props: ChangesViewProps) {
                   <div class="space-commit-row">
                     <code>{commit.sha.slice(0, 7)}</code>
                     <span>{commit.subject}</span>
-                    <span class="space-commit-meta">{formatRelativeTime(commit.date)}</span>
+                    <span class="space-commit-meta">
+                      {formatRelativeTime(commit.date)}
+                    </span>
                     <span class="space-commit-meta">{commit.author}</span>
                   </div>
                 )}
@@ -662,12 +851,13 @@ export function ChangesView(props: ChangesViewProps) {
             </section>
           </Show>
 
-
           <Show when={changes()?.mainRepoDirty}>
             {(dirty) => (
               <section class="main-dirty-section">
                 <div class="main-dirty-header">
-                  <h4>Uncommitted changes on {changes()?.baseBranch ?? "main"}</h4>
+                  <h4>
+                    Uncommitted changes on {changes()?.baseBranch ?? "main"}
+                  </h4>
                   <div class="changes-stats">
                     <span>{dirty().stats.filesChanged} files</span>
                     <span class="ins">+{dirty().stats.insertions}</span>
@@ -688,7 +878,9 @@ export function ChangesView(props: ChangesViewProps) {
                   <details class="main-dirty-diff-wrap">
                     <summary>Show diff</summary>
                     <pre class="entry-diff">
-                      <For each={parseDiff(dirty().diff).flatMap((f) => f.lines)}>
+                      <For
+                        each={parseDiff(dirty().diff).flatMap((f) => f.lines)}
+                      >
                         {(line) => (
                           <div class={`diff-line line-${line.kind}`}>
                             <span class="line-num">{line.oldLine ?? ""}</span>
@@ -704,10 +896,7 @@ export function ChangesView(props: ChangesViewProps) {
             )}
           </Show>
 
-          <Show
-            when={(changes()?.files.length ?? 0) > 0}
-            fallback={null}
-          >
+          <Show when={(changes()?.files.length ?? 0) > 0} fallback={null}>
             <div class="changes-main">
               <aside class="changes-files">
                 <h4>Files</h4>
@@ -796,7 +985,8 @@ export function ChangesView(props: ChangesViewProps) {
               </button>
             </footer>
             <p class="changes-note">
-              Commits and PRs target Space branch {space()?.branch ?? changes()?.branch}.
+              Commits and PRs target Space branch{" "}
+              {space()?.branch ?? changes()?.branch}.
             </p>
             <Show when={commitError()}>
               <p class="changes-error">{commitError()}</p>
@@ -1017,13 +1207,55 @@ export function ChangesView(props: ChangesViewProps) {
           font-size: 12px;
           color: var(--text-primary);
           display: flex;
-          gap: 8px;
+          gap: 10px;
           align-items: center;
+          justify-content: space-between;
         }
 
-        .worker-group > summary span {
+        .worker-group-meta {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .worker-group-meta > span:first-child {
+          color: var(--text-primary);
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .worker-group-meta > span:last-child {
           color: var(--text-secondary);
           font-size: 11px;
+        }
+
+        .worker-group-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: auto;
+        }
+
+        .worker-group-btn {
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-panel);
+          color: var(--text-primary);
+          border-radius: 6px;
+          padding: 2px 8px;
+          font-size: 11px;
+          cursor: pointer;
+        }
+
+        .worker-group-btn-primary {
+          border-color: #2563eb;
+          background: #1d4ed8;
+          color: #fff;
+        }
+
+        .worker-group-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
         }
 
         .entry-card {
