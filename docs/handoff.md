@@ -11,6 +11,32 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-07: Space per-entry skip/integrate + delivery replaces (PRO-174)
+
+- `apps/gateway/src/projects/space.ts`
+  - Added `skipSpaceEntries(config, projectId, entryIds)` to mark selected `pending` queue rows as `skipped`.
+  - Added `integrateSpaceEntries(config, projectId, entryIds)` to cherry-pick only selected `pending` entries.
+  - `RecordWorkerDeliveryInput` now accepts `replaces?: string[]`.
+  - `recordWorkerDelivery` now auto-skips matching `pending` entries by `id` or `workerSlug` when `replaces` is provided.
+- `apps/gateway/src/server/api.ts`
+  - Added:
+    - `POST /api/projects/:id/space/entries/skip`
+    - `POST /api/projects/:id/space/entries/integrate`
+  - Conflict-fix resume path now passes `replaces: [entryId]` to resumed worker spawn metadata.
+- `apps/gateway/src/subagents/runner.ts`
+  - Subagent persisted config now supports `replaces`.
+  - Runner reads `replaces` from persisted config at delivery time and forwards it to `recordWorkerDelivery`.
+- Tests:
+  - `apps/gateway/src/projects/space.test.ts` adds coverage for skip selected entries, integrate selected entries, and delivery `replaces` auto-skip behavior.
+  - `apps/gateway/src/subagents/subagents.api.test.ts` asserts conflict-fix resume writes `replaces` metadata in worker config.
+  - Stabilized two Ralph loop API tests with explicit 15s test timeout.
+- Docs:
+  - Updated `README.md` and `docs/llms.md` Space API/model notes for per-entry actions + `replaces`.
+- Verification:
+  - `pnpm exec eslint apps/gateway/src/projects/space.ts apps/gateway/src/server/api.ts apps/gateway/src/subagents/runner.ts apps/gateway/src/projects/space.test.ts apps/gateway/src/subagents/subagents.api.test.ts apps/gateway/src/projects/index.ts`
+  - `pnpm typecheck`
+  - `pnpm test -- apps/gateway/src/projects/space.test.ts` (suite passes in this repo config; 537 tests green)
+
 ### 2026-03-04: PRO-170 resume semantics + prompt guardrails (codex/claude/pi)
 
 - `apps/gateway/src/subagents/runner.ts`

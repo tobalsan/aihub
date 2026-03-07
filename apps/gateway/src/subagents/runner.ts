@@ -36,6 +36,7 @@ export type SpawnSubagentInput = {
   mode?: SubagentMode;
   baseBranch?: string;
   resume?: boolean;
+  replaces?: string[];
   attachments?: Array<{ path: string; mimeType: string; filename?: string }>;
 };
 
@@ -242,6 +243,19 @@ async function resolveViaShell(
   if (!shell) return null;
   const shellArgs = ["-l", "-i", "-c", `${execName} "$@"`, "--", ...args];
   return { command: shell, args: shellArgs };
+}
+
+function normalizeReplaces(input: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of input) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function commonCandidatePaths(execName: string): string[] {
@@ -506,8 +520,11 @@ export async function spawnSubagent(
   let summary = "";
   if (!input.resume) {
     const readmePath = path.join(projectDir, "README.md");
-    const { frontmatter: parsedFrontmatter, title, content } =
-      await parseMarkdownFile(readmePath);
+    const {
+      frontmatter: parsedFrontmatter,
+      title,
+      content,
+    } = await parseMarkdownFile(readmePath);
     frontmatter = parsedFrontmatter;
     let threadContent = "";
     try {
@@ -553,7 +570,12 @@ export async function spawnSubagent(
       typeof frontmatter.title === "string" ? frontmatter.title : (title ?? "");
     const status =
       typeof frontmatter.status === "string" ? frontmatter.status : "";
-    summary = buildProjectSummary(resolvedTitle, status, projectDir, fullContent);
+    summary = buildProjectSummary(
+      resolvedTitle,
+      status,
+      projectDir,
+      fullContent
+    );
   }
   const repo = await resolveProjectRepo(config, input.projectId, frontmatter);
 
@@ -586,7 +608,10 @@ export async function spawnSubagent(
         .then(() => true)
         .catch(() => false)
     : false;
-  if ((mode === "clone" || mode === "worktree" || mode === "main-run") && !repoHasGit) {
+  if (
+    (mode === "clone" || mode === "worktree" || mode === "main-run") &&
+    !repoHasGit
+  ) {
     return { ok: false, error: "Project repo is not a git repo" };
   }
   if (await dirExists(sessionDir)) {
@@ -605,12 +630,20 @@ export async function spawnSubagent(
   const baseBranch = input.baseBranch ?? "main";
   if (mode === "main-run") {
     try {
-      const space = await ensureProjectSpace(config, input.projectId, baseBranch);
+      const space = await ensureProjectSpace(
+        config,
+        input.projectId,
+        baseBranch
+      );
       worktreePath = space.worktreePath;
       if (isSpaceWriteLeaseEnabled()) {
-        const lease = await acquireProjectSpaceWriteLease(config, input.projectId, {
-          holder: input.slug,
-        });
+        const lease = await acquireProjectSpaceWriteLease(
+          config,
+          input.projectId,
+          {
+            holder: input.slug,
+          }
+        );
         if (!lease.ok) {
           return { ok: false, error: lease.error };
         }
@@ -763,11 +796,13 @@ export async function spawnSubagent(
   const startedAt = new Date().toISOString();
   let createdAt = startedAt;
   let archived = false;
+  const persistedReplaces = normalizeReplaces(input.replaces);
   try {
     const raw = await fs.readFile(configPath, "utf8");
     const existing = JSON.parse(raw) as {
       created?: string;
       archived?: boolean;
+      replaces?: string[];
     };
     if (
       typeof existing.created === "string" &&
@@ -805,6 +840,7 @@ export async function spawnSubagent(
     thinking: input.thinking,
     runMode: mode,
     baseBranch,
+    replaces: persistedReplaces,
     created: createdAt,
     archived,
   });
@@ -964,6 +1000,14 @@ export async function spawnSubagent(
         // ignore
       }
       if (endHeadSha) {
+        let replacesFromConfig: string[] | undefined;
+        try {
+          const raw = await fs.readFile(configPath, "utf8");
+          const parsed = JSON.parse(raw) as { replaces?: string[] };
+          replacesFromConfig = normalizeReplaces(parsed.replaces);
+        } catch {
+          replacesFromConfig = undefined;
+        }
         await recordWorkerDelivery(config, {
           projectId: input.projectId,
           workerSlug: input.slug,
@@ -971,6 +1015,7 @@ export async function spawnSubagent(
           worktreePath,
           startSha: startHeadSha,
           endSha: endHeadSha,
+          replaces: replacesFromConfig,
         }).catch(() => {});
       }
     }

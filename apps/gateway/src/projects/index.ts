@@ -39,6 +39,8 @@ export {
   getProjectSpaceConflictContext,
   getGitHead,
   integrateProjectSpaceQueue,
+  integrateSpaceEntries,
+  skipSpaceEntries,
   mergeSpaceIntoBase,
   cleanupSpaceWorktrees,
   recordWorkerDelivery,

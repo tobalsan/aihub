@@ -8,9 +8,11 @@ import type { GatewayConfig } from "@aihub/shared";
 import {
   ensureProjectSpace,
   getProjectSpace,
+  integrateSpaceEntries,
   integrateProjectSpaceQueue,
   mergeSpaceIntoBase,
   recordWorkerDelivery,
+  skipSpaceEntries,
 } from "./space.js";
 
 const execFileAsync = promisify(execFile);
@@ -522,6 +524,208 @@ describe("project space", () => {
     expect(staleEntry?.staleAgainstSha).toBeTruthy();
     const spaceContent = await fs.readFile(path.join(space.worktreePath, "app.txt"), "utf8");
     expect(spaceContent).not.toContain("stale");
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("skips only selected pending entries", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    await ensureProjectSpace(config, "PRO-1", "main");
+    const workspacesRoot = path.join(projectsRoot, ".workspaces", "PRO-1");
+    await fs.mkdir(workspacesRoot, { recursive: true });
+
+    const alphaPath = path.join(workspacesRoot, "alpha");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/alpha", alphaPath, "main"]);
+    const alphaStart = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(alphaPath, "alpha.txt"), "alpha\n", "utf8");
+    await runGit(alphaPath, ["add", "alpha.txt"]);
+    await runGit(alphaPath, ["commit", "-m", "alpha"]);
+    const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    const alphaQueued = await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: alphaPath,
+      startSha: alphaStart,
+      endSha: alphaEnd,
+    });
+    const alphaEntry = alphaQueued.queue.find((item) => item.workerSlug === "alpha");
+    expect(alphaEntry?.status).toBe("pending");
+
+    await integrateSpaceEntries(config, "PRO-1", [alphaEntry?.id ?? ""]);
+    const integratedAlpha = await getProjectSpace(config, "PRO-1");
+    expect(integratedAlpha.ok).toBe(true);
+    if (!integratedAlpha.ok) return;
+    const integratedAlphaEntry = integratedAlpha.data.queue.find(
+      (item) => item.id === alphaEntry?.id
+    );
+    expect(integratedAlphaEntry?.status).toBe("integrated");
+
+    const betaPath = path.join(workspacesRoot, "beta");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/beta", betaPath, "main"]);
+    const betaStart = await runGit(betaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(betaPath, "beta.txt"), "beta\n", "utf8");
+    await runGit(betaPath, ["add", "beta.txt"]);
+    await runGit(betaPath, ["commit", "-m", "beta"]);
+    const betaEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+    const betaQueued = await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "beta",
+      runMode: "worktree",
+      worktreePath: betaPath,
+      startSha: betaStart,
+      endSha: betaEnd,
+    });
+    const betaEntry = betaQueued.queue.find((item) => item.workerSlug === "beta");
+    expect(betaEntry?.status).toBe("pending");
+
+    const skipped = await skipSpaceEntries(config, "PRO-1", [
+      alphaEntry?.id ?? "",
+      betaEntry?.id ?? "",
+    ]);
+    const skippedAlpha = skipped.queue.find((item) => item.id === alphaEntry?.id);
+    const skippedBeta = skipped.queue.find((item) => item.id === betaEntry?.id);
+    expect(skippedAlpha?.status).toBe("integrated");
+    expect(skippedBeta?.status).toBe("skipped");
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("integrates only selected entries", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    const workspacesRoot = path.join(projectsRoot, ".workspaces", "PRO-1");
+    await fs.mkdir(workspacesRoot, { recursive: true });
+
+    const alphaPath = path.join(workspacesRoot, "alpha");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/alpha", alphaPath, "main"]);
+    const alphaStart = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(alphaPath, "alpha.txt"), "alpha\n", "utf8");
+    await runGit(alphaPath, ["add", "alpha.txt"]);
+    await runGit(alphaPath, ["commit", "-m", "alpha"]);
+    const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: alphaPath,
+      startSha: alphaStart,
+      endSha: alphaEnd,
+    });
+
+    const betaPath = path.join(workspacesRoot, "beta");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/beta", betaPath, "main"]);
+    const betaStart = await runGit(betaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(betaPath, "beta.txt"), "beta\n", "utf8");
+    await runGit(betaPath, ["add", "beta.txt"]);
+    await runGit(betaPath, ["commit", "-m", "beta"]);
+    const betaEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+    const queued = await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "beta",
+      runMode: "worktree",
+      worktreePath: betaPath,
+      startSha: betaStart,
+      endSha: betaEnd,
+    });
+
+    const alphaEntry = queued.queue.find((item) => item.workerSlug === "alpha");
+    const betaEntry = queued.queue.find((item) => item.workerSlug === "beta");
+    expect(alphaEntry?.status).toBe("pending");
+    expect(betaEntry?.status).toBe("pending");
+
+    const integrated = await integrateSpaceEntries(config, "PRO-1", [alphaEntry?.id ?? ""]);
+    const integratedAlpha = integrated.queue.find((item) => item.id === alphaEntry?.id);
+    const pendingBeta = integrated.queue.find((item) => item.id === betaEntry?.id);
+    expect(integratedAlpha?.status).toBe("integrated");
+    expect(pendingBeta?.status).toBe("pending");
+
+    const alphaContent = await fs.readFile(path.join(space.worktreePath, "alpha.txt"), "utf8");
+    expect(alphaContent).toContain("alpha");
+    await expect(fs.readFile(path.join(space.worktreePath, "beta.txt"), "utf8")).rejects.toThrow();
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("auto-skips replaced pending entries on delivery", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    await ensureProjectSpace(config, "PRO-1", "main");
+    const workspacesRoot = path.join(projectsRoot, ".workspaces", "PRO-1");
+    await fs.mkdir(workspacesRoot, { recursive: true });
+
+    const alphaPath = path.join(workspacesRoot, "alpha");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/alpha", alphaPath, "main"]);
+    const alphaStart = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(alphaPath, "alpha.txt"), "alpha\n", "utf8");
+    await runGit(alphaPath, ["add", "alpha.txt"]);
+    await runGit(alphaPath, ["commit", "-m", "alpha"]);
+    const alphaEnd = await runGit(alphaPath, ["rev-parse", "HEAD"]);
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: alphaPath,
+      startSha: alphaStart,
+      endSha: alphaEnd,
+    });
+
+    const betaPath = path.join(workspacesRoot, "beta");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/beta", betaPath, "main"]);
+    const betaStart = await runGit(betaPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(betaPath, "beta.txt"), "beta\n", "utf8");
+    await runGit(betaPath, ["add", "beta.txt"]);
+    await runGit(betaPath, ["commit", "-m", "beta"]);
+    const betaEnd = await runGit(betaPath, ["rev-parse", "HEAD"]);
+    const queued = await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "beta",
+      runMode: "worktree",
+      worktreePath: betaPath,
+      startSha: betaStart,
+      endSha: betaEnd,
+    });
+
+    const alphaEntry = queued.queue.find((item) => item.workerSlug === "alpha");
+    const betaEntry = queued.queue.find((item) => item.workerSlug === "beta");
+    expect(alphaEntry?.status).toBe("pending");
+    expect(betaEntry?.status).toBe("pending");
+
+    const fixerPath = path.join(workspacesRoot, "fixer");
+    await runGit(repoDir, ["worktree", "add", "-b", "PRO-1/fixer", fixerPath, "main"]);
+    const fixerStart = await runGit(fixerPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(fixerPath, "fix.txt"), "fix\n", "utf8");
+    await runGit(fixerPath, ["add", "fix.txt"]);
+    await runGit(fixerPath, ["commit", "-m", "fix"]);
+    const fixerEnd = await runGit(fixerPath, ["rev-parse", "HEAD"]);
+
+    const delivered = await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "fixer",
+      runMode: "worktree",
+      worktreePath: fixerPath,
+      startSha: fixerStart,
+      endSha: fixerEnd,
+      replaces: [alphaEntry?.id ?? "", "beta"],
+    });
+
+    const skippedAlpha = delivered.queue.find((item) => item.id === alphaEntry?.id);
+    const skippedBeta = delivered.queue.find((item) => item.id === betaEntry?.id);
+    const fixerEntry = delivered.queue.find((item) => item.workerSlug === "fixer");
+    expect(skippedAlpha?.status).toBe("skipped");
+    expect(skippedBeta?.status).toBe("skipped");
+    expect(fixerEntry?.status).toBe("pending");
   }, SPACE_TEST_TIMEOUT_MS);
 
   it("merges space into base and cleans up worktrees/branches", async () => {

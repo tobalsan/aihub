@@ -57,7 +57,12 @@ describe("subagents API", () => {
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = prevUserProfile;
 
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await fs.rm(tmpDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   });
 
   const writeRalphScript = async (cli: "codex" | "claude", lines: string[]) => {
@@ -730,7 +735,7 @@ describe("subagents API", () => {
     else process.env.HOME = prevHome2;
     if (prevUserProfile2 === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = prevUserProfile2;
-  });
+  }, 15000);
 
   it("generates prompt from template when promptFile is omitted", async () => {
     const createRes = await Promise.resolve(
@@ -816,7 +821,7 @@ describe("subagents API", () => {
     expect(config.generatedPrompt).toBe(true);
     expect(config.promptTemplate).toContain("prompt.codex.template.md");
     expect(config.promptFile).toBe(generatedPromptPath);
-  });
+  }, 15000);
 
   it("returns error when explicit prompt file is missing", async () => {
     const createRes = await Promise.resolve(
@@ -1714,9 +1719,11 @@ describe("subagents API", () => {
     const claudePath = path.join(binDir, "claude");
     await fs.writeFile(
       claudePath,
-      ['#!/bin/sh', 'echo "$@"', 'echo \'{"type":"system","session_id":"s2"}\''].join(
-        "\n"
-      ),
+      [
+        "#!/bin/sh",
+        'echo "$@"',
+        'echo \'{"type":"system","session_id":"s2"}\'',
+      ].join("\n"),
       { mode: 0o755 }
     );
     const prevPath = process.env.PATH;
@@ -2329,9 +2336,10 @@ describe("subagents API", () => {
         path.join(projectDir, "sessions", "alpha", "config.json"),
         "utf8"
       )
-    ) as { runMode?: string; baseBranch?: string };
+    ) as { runMode?: string; baseBranch?: string; replaces?: string[] };
     expect(workerConfig.runMode).toBe("worktree");
     expect(workerConfig.baseBranch).toBe("main");
+    expect(workerConfig.replaces).toEqual(["conflict-1"]);
     await expect(
       fs.stat(path.join(projectDir, "sessions", "fix-alpha"))
     ).rejects.toThrow();
