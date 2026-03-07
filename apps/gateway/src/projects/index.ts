@@ -34,6 +34,7 @@ export type {
 export {
   ensureProjectSpace,
   getProjectSpace,
+  clearProjectSpaceRebaseConflict,
   getProjectSpaceCommitLog,
   getProjectSpaceContribution,
   getProjectSpaceConflictContext,
@@ -41,6 +42,7 @@ export {
   integrateProjectSpaceQueue,
   integrateSpaceEntries,
   skipSpaceEntries,
+  rebaseSpaceOntoMain,
   mergeSpaceIntoBase,
   cleanupSpaceWorktrees,
   recordWorkerDelivery,
@@ -52,6 +54,7 @@ export {
 } from "./space.js";
 export type {
   ProjectSpace,
+  SpaceRebaseConflict,
   ProjectSpaceResult,
   IntegrationEntry,
   IntegrationStatus,

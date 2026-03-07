@@ -370,6 +370,8 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                             |
 | POST   | `/api/projects/:id/space/entries/skip`           | Mark selected pending Space entries as skipped             |
 | POST   | `/api/projects/:id/space/entries/integrate`      | Integrate only selected pending Space entries              |
+| POST   | `/api/projects/:id/space/rebase`                 | Rebase Space branch onto base and refresh pending workers  |
+| POST   | `/api/projects/:id/space/rebase/fix`             | Spawn Space-level rebase fixer agent in main-run mode      |
 | POST   | `/api/projects/:id/space/merge`                  | Merge Space branch into base + optional cleanup            |
 | GET    | `/api/projects/:id/space/commits`                | Get Space commit log                                       |
 | GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log                        |
@@ -403,6 +405,8 @@ Behavior:
   - `POST /api/projects/:id/space/entries/skip` (pending -> skipped for selected IDs)
   - `POST /api/projects/:id/space/entries/integrate` (cherry-pick only selected pending IDs)
 - Gateway cherry-picks queued SHAs into Space (`git cherry-pick -x`) only during explicit integrate flow.
+- `POST /api/projects/:id/space/rebase` rebases Space onto latest base HEAD and rebases each `pending` worker commit range onto new Space HEAD (updates `startSha`/`shas`; worker rebase conflicts become `status=conflict`).
+- If Space rebase itself conflicts, Space stores `rebaseConflict` context and leaves rebase in progress for `POST /api/projects/:id/space/rebase/fix` to spawn `space-rebase-fixer` in `main-run`.
 - When queue is fully terminal (`integrated`/`skipped` only), `POST /api/projects/:id/space/merge` merges Space into base (`--ff-only` first, fallback regular merge), pushes base when remote exists, and can clean up worker/Space worktrees+branches.
 - Merge flow updates project frontmatter status to `done`.
 - On conflict, Space queue is blocked (`integrationBlocked=true`) until the worker resolves and re-delivers.

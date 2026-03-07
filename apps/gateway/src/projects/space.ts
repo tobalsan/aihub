@@ -37,9 +37,15 @@ export type ProjectSpace = {
   branch: string;
   worktreePath: string;
   baseBranch: string;
+  rebaseConflict?: SpaceRebaseConflict;
   integrationBlocked: boolean;
   queue: IntegrationEntry[];
   updatedAt: string;
+};
+
+export type SpaceRebaseConflict = {
+  baseSha: string;
+  error: string;
 };
 
 export type SpaceCommitSummary = {
@@ -264,6 +270,17 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
       typeof parsed.worktreePath === "string" ? parsed.worktreePath.trim() : "";
     const baseBranch =
       typeof parsed.baseBranch === "string" ? parsed.baseBranch.trim() : "main";
+    const rawRebaseConflict = parsed.rebaseConflict;
+    const rebaseConflict =
+      rawRebaseConflict &&
+      typeof rawRebaseConflict === "object" &&
+      typeof (rawRebaseConflict as Record<string, unknown>).baseSha === "string" &&
+      typeof (rawRebaseConflict as Record<string, unknown>).error === "string"
+        ? {
+            baseSha: (rawRebaseConflict as Record<string, string>).baseSha,
+            error: (rawRebaseConflict as Record<string, string>).error,
+          }
+        : undefined;
     if (!projectId || !branch || !worktreePath) return null;
     return {
       version: 1,
@@ -271,6 +288,7 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
       branch,
       worktreePath,
       baseBranch: baseBranch || "main",
+      rebaseConflict,
       integrationBlocked: parsed.integrationBlocked === true,
       queue: normalizeQueue(parsed.queue),
       updatedAt:
@@ -495,6 +513,7 @@ function buildSpaceDefaults(input: {
     branch,
     baseBranch,
     worktreePath,
+    rebaseConflict: input.existing?.rebaseConflict,
     integrationBlocked: input.existing?.integrationBlocked ?? false,
     queue: input.existing?.queue ?? [],
     updatedAt: new Date().toISOString(),
@@ -550,6 +569,16 @@ export async function getProjectSpace(
     return { ok: false, error: "Project space not found" };
   }
   return { ok: true, data: space };
+}
+
+export async function clearProjectSpaceRebaseConflict(
+  config: GatewayConfig,
+  projectId: string
+): Promise<ProjectSpace> {
+  return persistProjectSpace(config, projectId, (space) => ({
+    ...space,
+    rebaseConflict: undefined,
+  }));
 }
 
 export async function getProjectSpaceCommitLog(
@@ -1019,6 +1048,103 @@ export async function mergeSpaceIntoBase(
       );
     }
   }
+}
+
+export async function rebaseSpaceOntoMain(
+  config: GatewayConfig,
+  projectId: string
+): Promise<ProjectSpace> {
+  const context = await resolveProjectContext(config, projectId);
+  if (!(await isGitRepo(context.repo))) {
+    throw new Error("Not a git repository");
+  }
+
+  const space = await ensureProjectSpace(config, projectId);
+  let baseRef = space.baseBranch;
+  await runGit(space.worktreePath, ["fetch", "origin", space.baseBranch])
+    .then(() => {
+      baseRef = `origin/${space.baseBranch}`;
+    })
+    .catch(() => {});
+  const baseSha = await runGit(space.worktreePath, ["rev-parse", baseRef]).catch(
+    () => ""
+  );
+
+  try {
+    await runGit(space.worktreePath, ["rebase", baseRef]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "git rebase failed";
+    return persistProjectSpace(config, projectId, (current) => ({
+      ...current,
+      rebaseConflict: {
+        baseSha: baseSha.trim(),
+        error: message,
+      },
+    }));
+  }
+
+  const newSpaceHead = await getGitHead(space.worktreePath);
+  if (!newSpaceHead) {
+    throw new Error("Failed to resolve Space HEAD SHA after rebase");
+  }
+
+  return persistProjectSpace(config, projectId, async (current) => {
+    const next: ProjectSpace = {
+      ...current,
+      rebaseConflict: undefined,
+      queue: [...current.queue],
+    };
+
+    for (const item of next.queue) {
+      if (item.status !== "pending") continue;
+      const workerStartSha = item.startSha?.trim();
+      if (!workerStartSha) {
+        item.status = "conflict";
+        item.error = "worker start SHA is missing; cannot rebase";
+        next.integrationBlocked = true;
+        continue;
+      }
+
+      try {
+        await runGit(item.worktreePath, [
+          "rebase",
+          "--onto",
+          newSpaceHead,
+          workerStartSha,
+          "HEAD",
+        ]);
+      } catch (error) {
+        await runGit(item.worktreePath, ["rebase", "--abort"]).catch(() => {});
+        item.status = "conflict";
+        item.error =
+          error instanceof Error ? error.message : "git rebase failed";
+        next.integrationBlocked = true;
+        continue;
+      }
+
+      const workerEndSha = await getGitHead(item.worktreePath);
+      if (!workerEndSha) {
+        item.status = "conflict";
+        item.error = "Failed to resolve worker HEAD SHA after rebase";
+        next.integrationBlocked = true;
+        continue;
+      }
+
+      const rebasedShas = await collectCommitShas(
+        item.worktreePath,
+        newSpaceHead,
+        workerEndSha
+      );
+      item.startSha = newSpaceHead;
+      item.endSha = workerEndSha;
+      item.shas = rebasedShas;
+      item.error = undefined;
+      item.staleAgainstSha = undefined;
+      item.status = rebasedShas.length > 0 ? "pending" : "skipped";
+    }
+
+    return next;
+  });
 }
 
 export async function integrateProjectSpaceQueue(

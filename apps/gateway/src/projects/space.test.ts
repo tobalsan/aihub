@@ -11,6 +11,7 @@ import {
   integrateSpaceEntries,
   integrateProjectSpaceQueue,
   mergeSpaceIntoBase,
+  rebaseSpaceOntoMain,
   recordWorkerDelivery,
   skipSpaceEntries,
 } from "./space.js";
@@ -45,6 +46,14 @@ async function writeProjectReadme(projectDir: string, repo: string): Promise<voi
     "",
   ].join("\n");
   await fs.writeFile(path.join(projectDir, "README.md"), frontmatter, "utf8");
+}
+
+async function attachOriginRemote(repoDir: string, rootDir: string): Promise<string> {
+  const remoteDir = path.join(rootDir, `origin-${Date.now()}.git`);
+  await runGit(rootDir, ["init", "--bare", remoteDir]);
+  await runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+  await runGit(repoDir, ["push", "-u", "origin", "main"]);
+  return remoteDir;
 }
 
 describe("project space", () => {
@@ -726,6 +735,146 @@ describe("project space", () => {
     expect(skippedAlpha?.status).toBe("skipped");
     expect(skippedBeta?.status).toBe("skipped");
     expect(fixerEntry?.status).toBe("pending");
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("rebases Space onto main and rewrites pending worker SHAs", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+    await attachOriginRemote(repoDir, tmpDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    const workerPath = path.join(projectsRoot, ".workspaces", "PRO-1", "alpha");
+    await fs.mkdir(path.dirname(workerPath), { recursive: true });
+    await runGit(repoDir, [
+      "worktree",
+      "add",
+      "-b",
+      "PRO-1/alpha",
+      workerPath,
+      "main",
+    ]);
+    const workerStart = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(workerPath, "worker.txt"), "hello\n", "utf8");
+    await runGit(workerPath, ["add", "worker.txt"]);
+    await runGit(workerPath, ["commit", "-m", "worker commit"]);
+    const workerEnd = await runGit(workerPath, ["rev-parse", "HEAD"]);
+
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: workerPath,
+      startSha: workerStart,
+      endSha: workerEnd,
+    });
+
+    await fs.writeFile(path.join(repoDir, "main.txt"), "upstream\n", "utf8");
+    await runGit(repoDir, ["add", "main.txt"]);
+    await runGit(repoDir, ["commit", "-m", "main advance"]);
+    await runGit(repoDir, ["push", "origin", "main"]);
+    await runGit(space.worktreePath, ["fetch", "origin", "main"]);
+    const originMainHead = await runGit(space.worktreePath, [
+      "rev-parse",
+      "origin/main",
+    ]);
+
+    const rebased = await rebaseSpaceOntoMain(config, "PRO-1");
+    expect(rebased.rebaseConflict).toBeUndefined();
+
+    const spaceHead = await runGit(space.worktreePath, ["rev-parse", "HEAD"]);
+    expect(spaceHead).toBe(originMainHead);
+
+    const entry = rebased.queue.find((item) => item.workerSlug === "alpha");
+    expect(entry?.status).toBe("pending");
+    expect(entry?.startSha).toBe(spaceHead);
+    expect(entry?.endSha).toBeTruthy();
+    expect(entry?.endSha).not.toBe(workerEnd);
+    expect(entry?.shas).toEqual([entry?.endSha]);
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("stores rebaseConflict when Space rebase onto main conflicts", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+    await attachOriginRemote(repoDir, tmpDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    const space = await ensureProjectSpace(config, "PRO-1", "main");
+    await fs.writeFile(path.join(space.worktreePath, "app.txt"), "space-change\n", "utf8");
+    await runGit(space.worktreePath, ["add", "app.txt"]);
+    await runGit(space.worktreePath, ["commit", "-m", "space change"]);
+
+    await fs.writeFile(path.join(repoDir, "app.txt"), "main-change\n", "utf8");
+    await runGit(repoDir, ["add", "app.txt"]);
+    await runGit(repoDir, ["commit", "-m", "main change"]);
+    await runGit(repoDir, ["push", "origin", "main"]);
+
+    const rebased = await rebaseSpaceOntoMain(config, "PRO-1");
+    expect(rebased.rebaseConflict).toBeDefined();
+    expect(rebased.rebaseConflict?.baseSha).toBeTruthy();
+    expect(rebased.rebaseConflict?.error).toContain("Command failed");
+    await expect(
+      runGit(space.worktreePath, ["rev-parse", "--verify", "REBASE_HEAD"])
+    ).resolves.toBeTruthy();
+  }, SPACE_TEST_TIMEOUT_MS);
+
+  it("marks pending worker as conflict when worker rebase onto rebased Space fails", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await createRepo(repoDir);
+    await attachOriginRemote(repoDir, tmpDir);
+
+    const projectDir = path.join(projectsRoot, "PRO-1_space-test");
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeProjectReadme(projectDir, repoDir);
+
+    await ensureProjectSpace(config, "PRO-1", "main");
+    const workerPath = path.join(projectsRoot, ".workspaces", "PRO-1", "alpha");
+    await fs.mkdir(path.dirname(workerPath), { recursive: true });
+    await runGit(repoDir, [
+      "worktree",
+      "add",
+      "-b",
+      "PRO-1/alpha",
+      workerPath,
+      "main",
+    ]);
+    const workerStart = await runGit(workerPath, ["rev-parse", "HEAD"]);
+    await fs.writeFile(path.join(workerPath, "app.txt"), "worker-change\n", "utf8");
+    await runGit(workerPath, ["add", "app.txt"]);
+    await runGit(workerPath, ["commit", "-m", "worker change"]);
+    const workerEnd = await runGit(workerPath, ["rev-parse", "HEAD"]);
+
+    await recordWorkerDelivery(config, {
+      projectId: "PRO-1",
+      workerSlug: "alpha",
+      runMode: "worktree",
+      worktreePath: workerPath,
+      startSha: workerStart,
+      endSha: workerEnd,
+    });
+
+    await fs.writeFile(path.join(repoDir, "app.txt"), "main-change\n", "utf8");
+    await runGit(repoDir, ["add", "app.txt"]);
+    await runGit(repoDir, ["commit", "-m", "main change"]);
+    await runGit(repoDir, ["push", "origin", "main"]);
+
+    const rebased = await rebaseSpaceOntoMain(config, "PRO-1");
+    expect(rebased.rebaseConflict).toBeUndefined();
+    expect(rebased.integrationBlocked).toBe(true);
+
+    const entry = rebased.queue.find((item) => item.workerSlug === "alpha");
+    expect(entry?.status).toBe("conflict");
+    expect(entry?.error).toBeTruthy();
+    await expect(
+      runGit(workerPath, ["rev-parse", "--verify", "REBASE_HEAD"])
+    ).rejects.toBeDefined();
+>>>>>>> 5c44baf (feat(gateway): add space rebase endpoints)
   }, SPACE_TEST_TIMEOUT_MS);
 
   it("merges space into base and cleans up worktrees/branches", async () => {
