@@ -4,7 +4,9 @@ import {
   fetchProjectChanges,
   fetchProjectSpace,
   integrateSpaceEntries,
+  rebaseSpaceOntoMain,
   integrateProjectSpace,
+  fixSpaceRebaseConflict,
   mergeSpaceIntoMain,
   skipSpaceEntries,
   commitProjectChanges,
@@ -185,6 +187,48 @@ describe("api client (projects/subagents)", () => {
       }
     );
     expect(res.projectId).toBe("PRO-9");
+  });
+
+  it("posts project space rebase", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: 1,
+        projectId: "PRO-9",
+        branch: "space/PRO-9",
+        worktreePath: "/tmp/space",
+        baseBranch: "main",
+        integrationBlocked: false,
+        queue: [],
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+    });
+
+    const res = await rebaseSpaceOntoMain("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/rebase", {
+      method: "POST",
+    });
+    expect(res.projectId).toBe("PRO-9");
+  });
+
+  it("posts fix space rebase conflict", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ slug: "space-rebase-reviewer" }),
+    });
+
+    const res = await fixSpaceRebaseConflict("PRO-9");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/PRO-9/space/rebase/fix",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }
+    );
+    expect(res.slug).toBe("space-rebase-reviewer");
   });
 
   it("throws project space integrate error from API response", async () => {

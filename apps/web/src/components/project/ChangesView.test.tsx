@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => ({
     vi.fn<
       (projectId: string, entryIds: string[]) => Promise<ProjectSpaceState>
     >(),
+  rebaseSpaceOntoMain: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
+  fixSpaceRebaseConflict: vi.fn<(projectId: string) => Promise<{ slug: string }>>(),
   mergeSpaceIntoMain: vi.fn<
     (
       projectId: string,
@@ -69,6 +71,8 @@ vi.mock("../../api/client", () => ({
   integrateProjectSpace: mocks.integrateProjectSpace,
   integrateSpaceEntries: mocks.integrateSpaceEntries,
   skipSpaceEntries: mocks.skipSpaceEntries,
+  rebaseSpaceOntoMain: mocks.rebaseSpaceOntoMain,
+  fixSpaceRebaseConflict: mocks.fixSpaceRebaseConflict,
   mergeSpaceIntoMain: mocks.mergeSpaceIntoMain,
   fixSpaceConflict: mocks.fixSpaceConflict,
   commitProjectChanges: mocks.commitProjectChanges,
@@ -128,6 +132,8 @@ describe("ChangesView", () => {
     mocks.integrateProjectSpace.mockReset();
     mocks.integrateSpaceEntries.mockReset();
     mocks.skipSpaceEntries.mockReset();
+    mocks.rebaseSpaceOntoMain.mockReset();
+    mocks.fixSpaceRebaseConflict.mockReset();
     mocks.mergeSpaceIntoMain.mockReset();
     mocks.fixSpaceConflict.mockReset();
     mocks.commitProjectChanges.mockReset();
@@ -163,6 +169,10 @@ describe("ChangesView", () => {
     mocks.integrateProjectSpace.mockResolvedValue(baseSpace);
     mocks.integrateSpaceEntries.mockResolvedValue(baseSpace);
     mocks.skipSpaceEntries.mockResolvedValue(baseSpace);
+    mocks.rebaseSpaceOntoMain.mockResolvedValue(baseSpace);
+    mocks.fixSpaceRebaseConflict.mockResolvedValue({
+      slug: "space-rebase-reviewer",
+    });
     mocks.mergeSpaceIntoMain.mockResolvedValue({
       mergedCommitSha: "abc1234",
       cleanupSummary: "Removed 2 worktrees and 2 branches",
@@ -363,6 +373,26 @@ describe("ChangesView", () => {
     dispose();
   });
 
+  it("rebases space onto main", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const rebaseBtn = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Rebase on main")
+    ) as HTMLButtonElement | undefined;
+    expect(rebaseBtn).toBeDefined();
+
+    rebaseBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.rebaseSpaceOntoMain).toHaveBeenCalledWith("PRO-1");
+
+    dispose();
+  });
+
   it("loads contribution details for queue entry", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -383,6 +413,39 @@ describe("ChangesView", () => {
       "alpha:1"
     );
     expect(container.textContent).toContain("worker commit");
+
+    dispose();
+  });
+
+  it("shows rebase conflict UI and starts fixer", async () => {
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      rebaseConflict: {
+        baseSha: "deadbeef",
+        error: "Resolve content conflict in src/app.ts",
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    expect(container.textContent).toContain("Space rebase conflict (deadbeef)");
+
+    const fixBtn = Array.from(container.querySelectorAll("button")).find((btn) =>
+      btn.textContent?.includes("Fix rebase conflict")
+    ) as HTMLButtonElement | undefined;
+    expect(fixBtn).toBeDefined();
+
+    fixBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.fixSpaceRebaseConflict).toHaveBeenCalledWith("PRO-1");
+    expect(container.textContent).toContain(
+      "Fixer agent spawned (space-rebase-reviewer)"
+    );
 
     dispose();
   });

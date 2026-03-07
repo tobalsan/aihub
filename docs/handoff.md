@@ -37,6 +37,22 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
   - `pnpm typecheck`
   - `pnpm test -- apps/gateway/src/projects/space.test.ts` (suite passes in this repo config; 537 tests green)
 
+### 2026-03-07: PRO-174 frontend rebase-on-main controls (worker-rebase-frontend)
+
+- `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`
+  - Added client methods `rebaseSpaceOntoMain(projectId)` and `fixSpaceRebaseConflict(projectId)`.
+  - Extended `ProjectSpaceState` with optional `rebaseConflict?: { baseSha: string; error: string }`.
+- `apps/web/src/components/project/ChangesView.tsx`
+  - Added `Rebase on main` action in Space dashboard (queue-present only, disabled while blocked/in-progress).
+  - Added space-level rebase conflict banner + `Fix rebase conflict` action and spawned-agent message.
+- Tests:
+  - `apps/web/src/api/client.test.ts` coverage for `/space/rebase` and `/space/rebase/fix`.
+  - `apps/web/src/components/project/ChangesView.test.tsx` coverage for rebase button, conflict render, and fix action.
+- Verification:
+  - `pnpm test -- --testTimeout=20000 apps/web/src/components/project/ChangesView.test.tsx`
+  - `pnpm test -- --testTimeout=20000 apps/web/src/api/client.test.ts`
+  - `pnpm lint`
+
 ### 2026-03-04: PRO-170 resume semantics + prompt guardrails (codex/claude/pi)
 
 - `apps/gateway/src/subagents/runner.ts`

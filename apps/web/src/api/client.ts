@@ -988,6 +988,21 @@ export async function integrateSpaceEntries(
   return (await res.json()) as ProjectSpaceState;
 }
 
+export async function rebaseSpaceOntoMain(
+  projectId: string
+): Promise<ProjectSpaceState> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/rebase`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to rebase project space" }));
+    throw new Error(data.error ?? "Failed to rebase project space");
+  }
+  return (await res.json()) as ProjectSpaceState;
+}
+
 export type MergeSpaceIntoMainResult = {
   sha?: string;
   commitSha?: string;
@@ -1119,6 +1134,23 @@ export async function fixSpaceConflict(
     throw new Error(data.error ?? "Failed to fix space conflict");
   }
   return (await res.json()) as { entryId: string; slug: string };
+}
+
+export async function fixSpaceRebaseConflict(
+  projectId: string
+): Promise<{ slug: string }> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/space/rebase/fix`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to fix space rebase conflict" }));
+    throw new Error(data.error ?? "Failed to fix space rebase conflict");
+  }
+  return (await res.json()) as { slug: string };
 }
 
 export async function fetchProjectSpaceLease(

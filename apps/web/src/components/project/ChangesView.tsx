@@ -14,9 +14,11 @@ import {
   fetchProjectSpaceCommits,
   fetchProjectSpaceContribution,
   fixSpaceConflict,
+  fixSpaceRebaseConflict,
   integrateSpaceEntries,
   integrateProjectSpace,
   mergeSpaceIntoMain,
+  rebaseSpaceOntoMain,
   skipSpaceEntries,
 } from "../../api/client";
 import type { MergeSpaceIntoMainResult } from "../../api/client";
@@ -199,6 +201,11 @@ export function ChangesView(props: ChangesViewProps) {
   const [integratingEntries, setIntegratingEntries] = createSignal(false);
   const [skippingEntries, setSkippingEntries] = createSignal(false);
   const [integrateError, setIntegrateError] = createSignal<string | null>(null);
+  const [rebasing, setRebasing] = createSignal(false);
+  const [rebaseError, setRebaseError] = createSignal<string | null>(null);
+  const [fixingRebase, setFixingRebase] = createSignal(false);
+  const [rebaseFixMessage, setRebaseFixMessage] = createSignal<string | null>(null);
+  const [rebaseFixError, setRebaseFixError] = createSignal<string | null>(null);
 
   const [commitMessage, setCommitMessage] = createSignal("");
   const [commitError, setCommitError] = createSignal<string | null>(null);
@@ -350,6 +357,42 @@ export function ChangesView(props: ChangesViewProps) {
     }
   };
 
+  const handleRebaseMain = async () => {
+    if (rebasing()) return;
+    setRebasing(true);
+    setRebaseError(null);
+    try {
+      const updated = await rebaseSpaceOntoMain(props.projectId);
+      setSpace(updated);
+      await refresh(false);
+    } catch (error) {
+      setRebaseError(
+        error instanceof Error ? error.message : "Failed to rebase space onto main"
+      );
+    } finally {
+      setRebasing(false);
+    }
+  };
+
+  const handleFixRebaseConflict = async () => {
+    if (fixingRebase()) return;
+    setRebaseFixMessage(null);
+    setRebaseFixError(null);
+    setFixingRebase(true);
+    try {
+      const result = await fixSpaceRebaseConflict(props.projectId);
+      setRebaseFixMessage(`Fixer agent spawned (${result.slug})`);
+    } catch (error) {
+      setRebaseFixError(
+        error instanceof Error
+          ? error.message
+          : "Failed to spawn rebase conflict fixer"
+      );
+    } finally {
+      setFixingRebase(false);
+    }
+  };
+
   const handleFixConflict = async (entryId: string) => {
     if (fixingEntryId()) return;
     setFixMessage(null);
@@ -456,6 +499,9 @@ export function ChangesView(props: ChangesViewProps) {
     return counts.pending > 0 || Boolean(space()?.integrationBlocked);
   };
 
+  const hasQueueEntries = () => (space()?.queue.length ?? 0) > 0;
+  const canRebase = () => hasQueueEntries() && !space()?.integrationBlocked;
+
   const canMergeMain = () => {
     if (!space()) return false;
     const counts = queueCounts();
@@ -549,19 +595,31 @@ export function ChangesView(props: ChangesViewProps) {
                   </span>
                   <span class="space-stale">Stale: {queueCounts().stale}</span>
                 </div>
-                <button
-                  type="button"
-                  class="integrate-btn"
-                  disabled={
-                    !canIntegrate() ||
-                    integrating() ||
-                    integratingEntries() ||
-                    skippingEntries()
-                  }
-                  onClick={() => void handleIntegrate()}
-                >
-                  {integrating() ? "Integrating…" : "Integrate Now"}
-                </button>
+                <div class="space-actions">
+                  <button
+                    type="button"
+                    class="integrate-btn"
+                    disabled={
+                      !canIntegrate() ||
+                      integrating() ||
+                      integratingEntries() ||
+                      skippingEntries()
+                    }
+                    onClick={() => void handleIntegrate()}
+                  >
+                    {integrating() ? "Integrating…" : "Integrate Now"}
+                  </button>
+                  <Show when={hasQueueEntries()}>
+                    <button
+                      type="button"
+                      class="rebase-btn"
+                      disabled={!canRebase() || rebasing()}
+                      onClick={() => void handleRebaseMain()}
+                    >
+                      {rebasing() ? "Rebasing..." : "Rebase on main"}
+                    </button>
+                  </Show>
+                </div>
               </div>
               <Show when={space()?.integrationBlocked}>
                 <p class="changes-error">
@@ -571,6 +629,32 @@ export function ChangesView(props: ChangesViewProps) {
               </Show>
               <Show when={integrateError()}>
                 <p class="changes-error">{integrateError()}</p>
+              </Show>
+              <Show when={rebaseError()}>
+                <p class="changes-error">{rebaseError()}</p>
+              </Show>
+              <Show when={space()?.rebaseConflict}>
+                {(conflict) => (
+                  <div class="rebase-conflict">
+                    <p class="changes-error">
+                      Space rebase conflict ({conflict().baseSha}): {conflict().error}
+                    </p>
+                    <button
+                      type="button"
+                      class="rebase-fix-btn"
+                      disabled={fixingRebase()}
+                      onClick={() => void handleFixRebaseConflict()}
+                    >
+                      {fixingRebase() ? "Spawning fixer..." : "Fix rebase conflict"}
+                    </button>
+                  </div>
+                )}
+              </Show>
+              <Show when={rebaseFixMessage()}>
+                <p class="changes-info">{rebaseFixMessage()}</p>
+              </Show>
+              <Show when={rebaseFixError()}>
+                <p class="changes-error">{rebaseFixError()}</p>
               </Show>
               <Show when={canMergeMain()}>
                 <div class="merge-main-controls">
@@ -1126,6 +1210,12 @@ export function ChangesView(props: ChangesViewProps) {
           gap: 10px;
         }
 
+        .space-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
         .space-meta {
           display: flex;
           flex-wrap: wrap;
@@ -1153,6 +1243,52 @@ export function ChangesView(props: ChangesViewProps) {
         }
 
         .integrate-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .rebase-btn {
+          border: 1px solid #0f766e;
+          background: #0f766e;
+          color: #fff;
+          border-radius: 8px;
+          padding: 6px 10px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .rebase-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .rebase-conflict {
+          border: 1px solid #be123c;
+          background: rgba(190, 18, 60, 0.12);
+          border-radius: 8px;
+          padding: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .rebase-conflict .changes-error {
+          margin: 0;
+        }
+
+        .rebase-fix-btn {
+          border: 1px solid #be123c;
+          background: #9f1239;
+          color: #fff;
+          border-radius: 8px;
+          padding: 6px 10px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .rebase-fix-btn:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }

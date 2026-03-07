@@ -138,6 +138,7 @@ Project Space model:
 - Per-entry queue controls are available via:
   - `POST /api/projects/:id/space/entries/skip`
   - `POST /api/projects/:id/space/entries/integrate`
+- Changes tab also supports "Rebase on main" (`POST /api/projects/:id/space/rebase`) and space-level conflict fixing (`POST /api/projects/:id/space/rebase/fix`), surfaced through `ProjectSpaceState.rebaseConflict`.
 - Conflicts block queue until resolved by the original worker.
 - `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original conflicting worker with rebase instructions (no new worker/worktree).
 - Worker deliveries can include `replaces` metadata (entry IDs or worker slugs) so matching pending entries auto-transition to `skipped`.
