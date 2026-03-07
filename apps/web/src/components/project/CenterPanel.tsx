@@ -425,8 +425,8 @@ export function CenterPanel(props: CenterPanelProps) {
 
         .center-tab.active {
           color: #fff;
-          border-color: #3b82f6;
-          background: #3b82f6;
+          border-color: #2563eb;
+          background: #2563eb;
         }
 
         .center-panel-body {

@@ -842,9 +842,9 @@ export function ProjectDetailPage() {
         }
 
         .project-detail-merged-tabs button.active {
-          color: var(--text-primary);
-          border-color: #3b82f6;
-          background: #172554;
+          color: #fff;
+          border-color: #2563eb;
+          background: #2563eb;
         }
 
         .project-detail__merged-body {
