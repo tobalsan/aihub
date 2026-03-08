@@ -3,19 +3,58 @@ import {
   Show,
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   onCleanup,
   onMount,
   type JSX,
 } from "solid-js";
+import { fetchAgents, getSessionKey, subscribeToSession } from "./api/client";
+import type { Agent } from "./api/types";
 import { AgentList } from "./components/AgentList";
 import { AgentSidebar } from "./components/AgentSidebar";
 import { ChatView } from "./components/ChatView";
 import { ConversationsPage } from "./components/conversations/ConversationsPage";
 import { ProjectsBoard } from "./components/ProjectsBoard";
 import { ProjectDetailPage } from "./components/project/ProjectDetailPage";
+import { QuickChatFAB } from "./components/QuickChatFAB";
+import { QuickChatOverlay } from "./components/QuickChatOverlay";
+
+const QUICK_CHAT_LAST_AGENT_KEY = "aihub:quick-chat-last-agent";
+
+function readQuickChatAgentId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(QUICK_CHAT_LAST_AGENT_KEY);
+}
+
+function pickDefaultQuickAgentId(agents: Agent[]): string | null {
+  if (agents.length === 0) return null;
+  const lead =
+    agents.find(
+      (agent) =>
+        agent.id.toLowerCase().includes("lead") ||
+        agent.name.toLowerCase().includes("lead")
+    ) ?? agents[0];
+  return lead.id;
+}
 
 function Layout(props: { children?: JSX.Element }) {
+  const [quickChatOpen, setQuickChatOpen] = createSignal(false);
+  const [quickChatHasUnread, setQuickChatHasUnread] = createSignal(false);
+  const [quickChatMobile, setQuickChatMobile] = createSignal(false);
+  const [quickChatAgentId, setQuickChatAgentId] = createSignal<string | null>(
+    readQuickChatAgentId()
+  );
+  const [agents] = createResource(fetchAgents);
+  const quickChatAgents = createMemo(() => agents() ?? []);
+  const selectedQuickChatAgent = createMemo(
+    () =>
+      quickChatAgents().find((agent) => agent.id === quickChatAgentId()) ?? null
+  );
+  const quickChatFabLabel = createMemo(
+    () => selectedQuickChatAgent()?.name ?? "Lead agent"
+  );
+
   // Set document title based on dev mode
   onMount(() => {
     if (import.meta.env.VITE_AIHUB_DEV === "true") {
@@ -24,9 +63,94 @@ function Layout(props: { children?: JSX.Element }) {
     }
   });
 
+  onMount(() => {
+    const media = window.matchMedia("(max-width: 768px)");
+    const update = (matches: boolean) => setQuickChatMobile(matches);
+    update(media.matches);
+    const handler = (event: MediaQueryListEvent) => update(event.matches);
+    if (media.addEventListener) {
+      media.addEventListener("change", handler);
+      onCleanup(() => media.removeEventListener("change", handler));
+    } else {
+      media.addListener(handler);
+      onCleanup(() => media.removeListener(handler));
+    }
+  });
+
+  createEffect(() => {
+    const list = quickChatAgents();
+    if (list.length === 0) return;
+    const current = quickChatAgentId();
+    if (current && list.some((agent) => agent.id === current)) return;
+    const next = pickDefaultQuickAgentId(list);
+    setQuickChatAgentId(next);
+  });
+
+  createEffect(() => {
+    const agentId = quickChatAgentId();
+    if (typeof window === "undefined") return;
+    if (agentId) {
+      localStorage.setItem(QUICK_CHAT_LAST_AGENT_KEY, agentId);
+    } else {
+      localStorage.removeItem(QUICK_CHAT_LAST_AGENT_KEY);
+    }
+  });
+
+  createEffect(() => {
+    if (!quickChatOpen()) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setQuickChatOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
+    if (quickChatOpen()) setQuickChatHasUnread(false);
+  });
+
+  createEffect(() => {
+    const agentId = quickChatAgentId();
+    if (!agentId) return;
+    const cleanup = subscribeToSession(agentId, getSessionKey(agentId), {
+      onHistoryUpdated: () => {
+        if (!quickChatOpen()) {
+          setQuickChatHasUnread(true);
+        }
+      },
+    });
+    onCleanup(cleanup);
+  });
+
   return (
     <>
       <div class="app">{props.children}</div>
+      <QuickChatOverlay
+        open={quickChatOpen()}
+        mobile={quickChatMobile()}
+        agents={quickChatAgents()}
+        selectedAgentId={quickChatAgentId()}
+        onSelectAgent={(agentId) => {
+          setQuickChatAgentId(agentId);
+          setQuickChatHasUnread(false);
+        }}
+        onMinimize={() => setQuickChatOpen(false)}
+        onClose={() => setQuickChatOpen(false)}
+      />
+      <QuickChatFAB
+        open={quickChatOpen}
+        hasUnread={quickChatHasUnread}
+        agentLabel={quickChatFabLabel}
+        onToggle={() => {
+          setQuickChatOpen((prev) => {
+            const next = !prev;
+            if (next) setQuickChatHasUnread(false);
+            return next;
+          });
+        }}
+      />
       <style>{`
         .app {
           height: 100%;

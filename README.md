@@ -74,6 +74,7 @@ packages/
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
 - Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
 - Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
+- Intercom-style quick chat is available globally via a fixed bottom-right bubble; it opens a lead-agent overlay with agent picker, streaming chat, and image attachments
 - Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)
 - Changes tab branch header is expandable: click branch aggregate stats to view per-file pending +/- counts (when available)
 - Space Commit Log rows show relative commit age (`now`, `1m`, `2h`, `3d`) beside author metadata

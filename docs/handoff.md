@@ -11,6 +11,30 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-09: PRO-155 quick lead-agent access overlay
+
+- `apps/web/src/App.tsx`
+  - Added app-level quick chat state and mounting in `Layout` so it persists across route navigation.
+  - Wired `fetchAgents` default selection + localStorage persistence (`aihub:quick-chat-last-agent`).
+  - Added global Escape handling to close overlay.
+  - Added background `subscribeToSession` unread tracking for pulse indicator when overlay is closed.
+- `apps/web/src/components/QuickChatFAB.tsx`
+  - New bottom-right floating trigger (`48x48`, fixed, z-index `800`) with unread pulse/glow state.
+- `apps/web/src/components/QuickChatOverlay.tsx`
+  - New overlay panel (`~380x520` desktop, full-screen mobile at `<=768px`) with:
+    - Header avatar + lead-agent picker dropdown
+    - Minimize + close controls
+    - Embedded `AgentChat` (lead mode) reusing existing message rendering, SSE streaming, and file/image attachments.
+- Tests:
+  - Added `apps/web/src/components/QuickChatOverlay.test.tsx`
+  - Added `apps/web/src/components/QuickChatFAB.test.tsx`
+- Docs:
+  - Updated `README.md` and `docs/llms.md` navigation/features notes for the new quick chat overlay.
+- Verification:
+  - `pnpm lint`
+  - `pnpm typecheck`
+  - `pnpm test` (57 files, 552 tests passed)
+
 ### 2026-03-07: Space per-entry skip/integrate + delivery replaces (PRO-174)
 
 - `apps/gateway/src/projects/space.ts`
