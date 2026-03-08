@@ -2357,7 +2357,6 @@ api.post("/projects/:id/space/integrate", async (c) => {
   }
 });
 
-<<<<<<< HEAD
 // POST /api/projects/:id/space/entries/skip - mark selected pending entries as skipped
 api.post("/projects/:id/space/entries/skip", async (c) => {
   const id = c.req.param("id");

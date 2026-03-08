@@ -874,7 +874,6 @@ describe("project space", () => {
     await expect(
       runGit(workerPath, ["rev-parse", "--verify", "REBASE_HEAD"])
     ).rejects.toBeDefined();
->>>>>>> 5c44baf (feat(gateway): add space rebase endpoints)
   }, SPACE_TEST_TIMEOUT_MS);
 
   it("merges space into base and cleans up worktrees/branches", async () => {
