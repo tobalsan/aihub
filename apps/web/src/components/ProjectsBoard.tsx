@@ -14,6 +14,7 @@ import { marked, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 import {
   fetchProjects,
+  fetchAreas,
   fetchArchivedProjects,
   fetchProject,
   updateProject,
@@ -1020,6 +1021,19 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   });
   const [showArchived, setShowArchived] = createSignal(false);
   const [projects, { refetch }] = createResource(fetchProjects);
+  const [areas] = createResource(fetchAreas);
+  const areaFilterId = createMemo(() => {
+    const value = searchParams.area;
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  });
+  const areaFilterName = createMemo(() => {
+    const areaId = areaFilterId();
+    if (!areaId) return "All Projects";
+    const area = (areas() ?? []).find((item) => item.id === areaId);
+    return area?.title ?? areaId;
+  });
   const [archivedProjects] = createResource(showArchived, async (show) =>
     show ? fetchArchivedProjects() : []
   );
@@ -1462,9 +1476,14 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   const grouped = createMemo(() => {
     const items = projects() ?? [];
     const filter = filterText().toLowerCase().trim();
+    const areaId = areaFilterId();
     const byStatus = new Map<string, ProjectListItem[]>();
     for (const col of COLUMNS) byStatus.set(col.id, []);
     for (const item of items) {
+      if (areaId) {
+        const projectArea = getFrontmatterString(item.frontmatter, "area");
+        if (projectArea !== areaId) continue;
+      }
       // Filter by title OR domain OR project ID
       if (filter) {
         const id = (item.id ?? "").toLowerCase();
@@ -2674,6 +2693,19 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
       <main class="kanban-main">
         <div class="projects-page">
           <header class="projects-header">
+            <div class="projects-header-context">
+              <Show
+                when={areaFilterId()}
+                fallback={
+                  <span class="projects-scope-label">All Projects Kanban</span>
+                }
+              >
+                <a class="back-areas-link" href="/">
+                  Back to Areas
+                </a>
+                <span class="projects-scope-label">{areaFilterName()}</span>
+              </Show>
+            </div>
             <input
               class="filter-input"
               type="text"
@@ -4299,6 +4331,42 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
           top: 0;
           background: var(--bg-inset);
           z-index: 5;
+        }
+
+        .projects-header-context {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .projects-scope-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: min(38vw, 320px);
+        }
+
+        .back-areas-link {
+          display: inline-flex;
+          align-items: center;
+          border: 1px solid var(--border-subtle);
+          border-radius: 999px;
+          padding: 5px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          text-decoration: none;
+          transition: all 0.15s ease;
+        }
+
+        .back-areas-link:hover {
+          border-color: var(--mix-col-border);
+          color: var(--text-primary);
+          background: var(--mix-hover-bg);
         }
 
         .filter-input {
@@ -6656,6 +6724,14 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
           .projects-header {
             padding: 16px;
             padding-left: 56px;
+          }
+
+          .projects-header-context {
+            min-width: 0;
+          }
+
+          .projects-scope-label {
+            max-width: 32vw;
           }
 
           .mobile-sidebar-toggle {

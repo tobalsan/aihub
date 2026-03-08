@@ -5,6 +5,7 @@ import { ProjectsBoard } from "./ProjectsBoard";
 
 vi.mock("../api/client", () => ({
   fetchProjects: vi.fn(() => []),
+  fetchAreas: vi.fn(async () => []),
   fetchProject: vi.fn(async () => ({
     id: "PRO-0",
     title: "Mock",

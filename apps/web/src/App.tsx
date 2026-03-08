@@ -13,6 +13,7 @@ import { fetchAgents, getSessionKey, subscribeToSession } from "./api/client";
 import type { Agent } from "./api/types";
 import { AgentList } from "./components/AgentList";
 import { AgentSidebar } from "./components/AgentSidebar";
+import { AreasOverview } from "./components/AreasOverview";
 import { ChatView } from "./components/ChatView";
 import { ConversationsPage } from "./components/conversations/ConversationsPage";
 import { ProjectsBoard } from "./components/ProjectsBoard";
@@ -194,6 +195,14 @@ function ProjectsRouteShell() {
   );
 }
 
+function AreasOverviewRouteShell() {
+  return (
+    <LeftNavShell>
+      <AreasOverview />
+    </LeftNavShell>
+  );
+}
+
 function LeftNavShell(props: { children?: JSX.Element }) {
   const SIDEBAR_KEY = "aihub:sidebar-collapsed";
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(
@@ -223,11 +232,13 @@ function LeftNavShell(props: { children?: JSX.Element }) {
     <div class="left-nav-shell">
       <AgentSidebar
         collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((prev) => {
-          const next = !prev;
-          localStorage.setItem(SIDEBAR_KEY, String(next));
-          return next;
-        })}
+        onToggleCollapse={() =>
+          setSidebarCollapsed((prev) => {
+            const next = !prev;
+            localStorage.setItem(SIDEBAR_KEY, String(next));
+            return next;
+          })
+        }
       />
       <Show when={isMobile()}>
         <button
@@ -321,7 +332,7 @@ export default function App() {
   const base = import.meta.env.BASE_URL;
   return (
     <Router root={Layout} base={base}>
-      <Route path="/" component={ProjectsBoard} />
+      <Route path="/" component={AreasOverviewRouteShell} />
       <Route path="/agents" component={AgentsRouteShell} />
       <Route path="/chat/:agentId/:view?" component={ChatRouteShell} />
       <Route path="/conversations" component={ConversationsRouteShell} />

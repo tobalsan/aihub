@@ -216,9 +216,7 @@ function parseThreadEntry(section: string): ProjectThreadEntry | null {
   return { author, date, body };
 }
 
-async function readMarkdownIfExists(
-  filePath: string
-): Promise<{
+async function readMarkdownIfExists(filePath: string): Promise<{
   frontmatter: Record<string, unknown>;
   content: string;
   title: string;
@@ -277,7 +275,8 @@ function resolveProjectRepo(
 }
 
 export async function listProjects(
-  config: GatewayConfig
+  config: GatewayConfig,
+  options?: { area?: string }
 ): Promise<ProjectListResult> {
   const root = getProjectsRoot(config);
   if (!(await dirExists(root))) {
@@ -285,6 +284,7 @@ export async function listProjects(
   }
   await migrateTrashRoot(root);
   const areaRepoMap = await getAreaRepoMap(config);
+  const areaFilter = options?.area?.trim();
 
   const entries = await fs.readdir(root, { withFileTypes: true });
   const projects: ProjectListItem[] = [];
@@ -329,6 +329,10 @@ export async function listProjects(
       };
       if (resolvedRepo) {
         resolvedFrontmatter.repo = resolvedRepo;
+      }
+      if (areaFilter) {
+        const projectArea = toStringField(resolvedFrontmatter.area);
+        if (projectArea !== areaFilter) continue;
       }
       projects.push({
         id,

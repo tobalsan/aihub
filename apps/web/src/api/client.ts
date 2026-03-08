@@ -615,8 +615,14 @@ export async function createProjectFromConversation(
 }
 
 // Projects API functions
-export async function fetchProjects(): Promise<ProjectListItem[]> {
-  const res = await fetch(`${API_BASE}/projects`);
+export async function fetchProjects(area?: string): Promise<ProjectListItem[]> {
+  const params = new URLSearchParams();
+  if (area && area.trim().length > 0) {
+    params.set("area", area.trim());
+  }
+  const query = params.toString();
+  const url = query ? `${API_BASE}/projects?${query}` : `${API_BASE}/projects`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch projects");
   return res.json();
 }
@@ -630,6 +636,24 @@ export async function fetchArchivedProjects(): Promise<ProjectListItem[]> {
 export async function fetchAreas(): Promise<Area[]> {
   const res = await fetch(`${API_BASE}/areas`);
   if (!res.ok) throw new Error("Failed to fetch areas");
+  return res.json();
+}
+
+export async function updateArea(
+  id: string,
+  payload: Partial<Area>
+): Promise<Area> {
+  const res = await fetch(`${API_BASE}/areas/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to update area" }));
+    throw new Error(data.error ?? "Failed to update area");
+  }
   return res.json();
 }
 
@@ -1139,11 +1163,14 @@ export async function fixSpaceConflict(
 export async function fixSpaceRebaseConflict(
   projectId: string
 ): Promise<{ slug: string }> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/space/rebase/fix`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/space/rebase/fix`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }
+  );
   if (!res.ok) {
     const data = await res
       .json()

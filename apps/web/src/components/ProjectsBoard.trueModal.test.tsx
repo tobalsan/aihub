@@ -29,6 +29,7 @@ vi.mock("../api/client", () => ({
       frontmatter: { status: "maybe", domain: "coding" },
     },
   ]),
+  fetchAreas: vi.fn(async () => []),
   fetchArchivedProjects: vi.fn(async () => []),
   fetchProject: vi.fn(async () => ({
     id: "PRO-1",

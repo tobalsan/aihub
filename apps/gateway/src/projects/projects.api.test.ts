@@ -193,6 +193,79 @@ describe("projects API", () => {
     expect(readme).toContain('status: "todo"');
   });
 
+  it("filters projects by area query parameter", async () => {
+    await Promise.resolve(
+      api.request("/areas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "aihub",
+          title: "AIHub",
+          color: "#3b8ecc",
+          repo: "~/code/aihub",
+        }),
+      })
+    );
+
+    await Promise.resolve(
+      api.request("/areas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "cloudifai",
+          title: "Cloudifai",
+          color: "#8a3bcc",
+          repo: "~/code/cloudifai",
+        }),
+      })
+    );
+
+    const firstCreateRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Area Filter Alpha" }),
+      })
+    );
+    const secondCreateRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Area Filter Beta" }),
+      })
+    );
+    expect(firstCreateRes.status).toBe(201);
+    expect(secondCreateRes.status).toBe(201);
+    const firstProject = await firstCreateRes.json();
+    const secondProject = await secondCreateRes.json();
+
+    const firstPatch = await Promise.resolve(
+      api.request(`/projects/${firstProject.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ area: "aihub" }),
+      })
+    );
+    const secondPatch = await Promise.resolve(
+      api.request(`/projects/${secondProject.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ area: "cloudifai" }),
+      })
+    );
+    expect(firstPatch.status).toBe(200);
+    expect(secondPatch.status).toBe(200);
+
+    const filteredRes = await Promise.resolve(
+      api.request("/projects?area=aihub")
+    );
+    expect(filteredRes.status).toBe(200);
+    const filtered = await filteredRes.json();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe(firstProject.id);
+    expect(filtered[0].frontmatter.area).toBe("aihub");
+  });
+
   it("appends thread comments via API", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

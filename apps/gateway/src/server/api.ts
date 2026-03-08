@@ -1231,7 +1231,8 @@ api.post("/projects/:id/start", async (c) => {
 // GET /api/projects - list projects (frontmatter only)
 api.get("/projects", async (c) => {
   const config = getConfig();
-  const result = await listProjects(config);
+  const area = c.req.query("area");
+  const result = await listProjects(config, { area });
   if (!result.ok) {
     return c.json({ error: result.error }, 400);
   }

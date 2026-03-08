@@ -67,7 +67,8 @@ packages/
 ## Web UI Navigation
 
 - Left sidebar: AIHub logo + primary links (`Projects`, `Conversations`, `Chats`)
-- Main route: `/projects` for Kanban project management
+- Main route: `/` for Areas overview (new homepage)
+- Kanban routes: `/projects` for all projects, `/projects?area=<id>` for area-filtered kanban
 - Right sidebar tabs: `Agents`, `Chat`, `Feed`
 - Legacy direct-chat agent list remains at `/agents`
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section

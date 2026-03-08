@@ -11,6 +11,39 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-09: PRO-162 areas overview homepage + filtered kanban
+
+- `apps/web/src/components/AreasOverview.tsx` (new)
+  - Added new homepage grid at `/` with:
+    - one card per area
+    - aggregate "All Projects" card
+    - per-status project count chips (skip zero counts)
+    - empty/loading/error states
+- `apps/web/src/components/AreaCard.tsx` (new)
+  - Added area card UI with:
+    - title link to `/projects?area=<id>`
+    - repo path display
+    - inline edit toggle
+- `apps/web/src/components/AreaEditForm.tsx` (new)
+  - Added inline edit form for `title`, `color`, `order`, `repo`.
+- `apps/web/src/App.tsx`
+  - Root route now renders Areas overview shell (`/`).
+  - Legacy kanban remains at `/projects/:id?`.
+- `apps/web/src/components/ProjectsBoard.tsx`
+  - Added `?area=<id>` query filtering.
+  - Header now shows area context and `Back to Areas` link when filtered.
+- `apps/web/src/api/client.ts`
+  - Added `updateArea(id, patch)`.
+  - `fetchProjects(area?)` now supports optional area query.
+- `apps/gateway/src/server/api.ts`, `apps/gateway/src/projects/store.ts`
+  - Added backend support for `GET /api/projects?area=<id>` filtering.
+- Tests:
+  - `apps/web/src/api/client.test.ts` coverage for area patch + project area query.
+  - `apps/gateway/src/projects/projects.api.test.ts` coverage for `?area=` filtering.
+  - Updated ProjectsBoard test mocks to include `fetchAreas`.
+- Docs:
+  - Updated `README.md` + `docs/llms.md` route/navigation notes for Areas homepage and filtered kanban.
+
 ### 2026-03-09: PRO-155 quick lead-agent access overlay
 
 - `apps/web/src/App.tsx`

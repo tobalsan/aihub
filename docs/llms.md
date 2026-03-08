@@ -46,6 +46,9 @@ Features:
   - Left sidebar: AIHub logo + primary nav (`Projects`, `Conversations`, `Chats`)
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
   - Archived projects section is toggled from the projects header `Archived` button (top-right)
+- `/` is the Areas overview homepage (grid of area cards + aggregate "All Projects" card)
+- Area cards show per-status project counts and support inline area editing (`title`, `color`, `order`, `repo`)
+- Area title click routes to `/projects?area=<id>`; kanban header shows selected area + `Back to Areas` link
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
 - Left sidebar shows last 5 recently viewed projects (from `localStorage`) above the theme toggle, with truncated titles and relative viewed timestamps

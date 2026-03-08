@@ -1,4 +1,12 @@
-import { Accessor, createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
+import {
+  Accessor,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
 import { fetchProjects } from "../api/client";
@@ -114,7 +122,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
       <div class="sidebar-header">
-        <A class="sidebar-logo" href="/projects">
+        <A class="sidebar-logo" href="/">
           <span class="logo-full">AIHub</span>
           <span class="logo-short">AI</span>
         </A>
@@ -134,7 +142,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
           <A
             href="/projects"
             class="nav-link"
-            classList={{ active: stripBase(location.pathname).startsWith("/projects") }}
+            classList={{
+              active: stripBase(location.pathname).startsWith("/projects"),
+            }}
           >
             <span class="nav-full">Projects</span>
             <span class="nav-short">Pr</span>
@@ -172,9 +182,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
               <A
                 href={`/projects/${p.id}`}
                 class="recent-project-link"
-                classList={{ active: stripBase(location.pathname) === `/projects/${p.id}` }}
+                classList={{
+                  active: stripBase(location.pathname) === `/projects/${p.id}`,
+                }}
               >
-                <span class="recent-project-title">{p.id}: {p.title}</span>
+                <span class="recent-project-title">
+                  {p.id}: {p.title}
+                </span>
                 <span class="recent-project-time">
                   {relativeTime(p.viewedAt)}
                 </span>
@@ -199,10 +213,16 @@ export function AgentSidebar(props: AgentSidebarProps) {
             }
           >
             <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
+                clip-rule="evenodd"
+              />
             </svg>
           </Show>
-          <span class="theme-label">{theme() === "dark" ? "Light" : "Dark"}</span>
+          <span class="theme-label">
+            {theme() === "dark" ? "Light" : "Dark"}
+          </span>
         </button>
       </div>
 

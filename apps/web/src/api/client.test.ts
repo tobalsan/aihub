@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchProjects,
   fetchProjectBranches,
   fetchProjectChanges,
   fetchProjectSpace,
@@ -20,6 +21,7 @@ import {
   interruptSubagent,
   archiveSubagent,
   unarchiveSubagent,
+  updateArea,
 } from "./client";
 
 type FetchResponse = {
@@ -52,6 +54,49 @@ describe("api client (projects/subagents)", () => {
     if (res.ok) {
       expect(res.data.items[0]?.slug).toBe("main");
     }
+  });
+
+  it("fetches all projects without area filter", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: "PRO-1" }],
+    });
+
+    const res = await fetchProjects();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects");
+    expect(res.length).toBe(1);
+  });
+
+  it("fetches projects with area filter", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: "PRO-2" }],
+    });
+
+    const res = await fetchProjects("aihub");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects?area=aihub");
+    expect(res[0]?.id).toBe("PRO-2");
+  });
+
+  it("updates area with patch payload", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: "aihub", title: "AIHub Updated" }),
+    });
+
+    const res = await updateArea("aihub", {
+      title: "AIHub Updated",
+      color: "#123456",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/areas/aihub", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "AIHub Updated", color: "#123456" }),
+    });
+    expect(res.title).toBe("AIHub Updated");
   });
 
   it("fetches subagents list with archived", async () => {
