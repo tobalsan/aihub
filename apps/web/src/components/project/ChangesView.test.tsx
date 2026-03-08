@@ -13,21 +13,46 @@ const mocks = vi.hoisted(() => ({
   fetchProjectChanges: vi.fn<(projectId: string) => Promise<ProjectChanges>>(),
   fetchProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
   fetchProjectSpaceCommits:
-    vi.fn<(projectId: string) => Promise<Array<{ sha: string; subject: string; author: string; date: string }>>>(),
+    vi.fn<
+      (
+        projectId: string
+      ) => Promise<
+        Array<{ sha: string; subject: string; author: string; date: string }>
+      >
+    >(),
   fetchProjectPullRequestTarget:
     vi.fn<(projectId: string) => Promise<ProjectPullRequestTarget>>(),
   fetchProjectSpaceContribution:
     vi.fn<(projectId: string, entryId: string) => Promise<SpaceContribution>>(),
-  integrateProjectSpace: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
-  mergeSpaceIntoMain:
+  integrateProjectSpace:
+    vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
+  integrateSpaceEntries:
+    vi.fn<
+      (projectId: string, entryIds: string[]) => Promise<ProjectSpaceState>
+    >(),
+  skipSpaceEntries:
+    vi.fn<
+      (projectId: string, entryIds: string[]) => Promise<ProjectSpaceState>
+    >(),
+  rebaseSpaceOntoMain: vi.fn<(projectId: string) => Promise<ProjectSpaceState>>(),
+  fixSpaceRebaseConflict: vi.fn<(projectId: string) => Promise<{ slug: string }>>(),
+  mergeSpaceIntoMain: vi.fn<
+    (
+      projectId: string,
+      input?: { cleanup?: boolean }
+    ) => Promise<{
+      mergedCommitSha?: string;
+      cleanupSummary?: string;
+      sha?: string;
+    }>
+  >(),
+  fixSpaceConflict:
     vi.fn<
       (
         projectId: string,
-        input?: { cleanup?: boolean }
-      ) => Promise<{ mergedCommitSha?: string; cleanupSummary?: string; sha?: string }>
+        entryId: string
+      ) => Promise<{ entryId: string; slug: string }>
     >(),
-  fixSpaceConflict:
-    vi.fn<(projectId: string, entryId: string) => Promise<{ entryId: string; slug: string }>>(),
   commitProjectChanges:
     vi.fn<
       (
@@ -44,6 +69,10 @@ vi.mock("../../api/client", () => ({
   fetchProjectPullRequestTarget: mocks.fetchProjectPullRequestTarget,
   fetchProjectSpaceContribution: mocks.fetchProjectSpaceContribution,
   integrateProjectSpace: mocks.integrateProjectSpace,
+  integrateSpaceEntries: mocks.integrateSpaceEntries,
+  skipSpaceEntries: mocks.skipSpaceEntries,
+  rebaseSpaceOntoMain: mocks.rebaseSpaceOntoMain,
+  fixSpaceRebaseConflict: mocks.fixSpaceRebaseConflict,
   mergeSpaceIntoMain: mocks.mergeSpaceIntoMain,
   fixSpaceConflict: mocks.fixSpaceConflict,
   commitProjectChanges: mocks.commitProjectChanges,
@@ -101,6 +130,10 @@ describe("ChangesView", () => {
     mocks.fetchProjectPullRequestTarget.mockReset();
     mocks.fetchProjectSpaceContribution.mockReset();
     mocks.integrateProjectSpace.mockReset();
+    mocks.integrateSpaceEntries.mockReset();
+    mocks.skipSpaceEntries.mockReset();
+    mocks.rebaseSpaceOntoMain.mockReset();
+    mocks.fixSpaceRebaseConflict.mockReset();
     mocks.mergeSpaceIntoMain.mockReset();
     mocks.fixSpaceConflict.mockReset();
     mocks.commitProjectChanges.mockReset();
@@ -134,6 +167,12 @@ describe("ChangesView", () => {
       conflictFiles: [],
     });
     mocks.integrateProjectSpace.mockResolvedValue(baseSpace);
+    mocks.integrateSpaceEntries.mockResolvedValue(baseSpace);
+    mocks.skipSpaceEntries.mockResolvedValue(baseSpace);
+    mocks.rebaseSpaceOntoMain.mockResolvedValue(baseSpace);
+    mocks.fixSpaceRebaseConflict.mockResolvedValue({
+      slug: "space-rebase-reviewer",
+    });
     mocks.mergeSpaceIntoMain.mockResolvedValue({
       mergedCommitSha: "abc1234",
       cleanupSummary: "Removed 2 worktrees and 2 branches",
@@ -171,17 +210,185 @@ describe("ChangesView", () => {
 
     await flush();
 
-    const integrateBtn = Array.from(
-      container.querySelectorAll("button")
-    ).find((btn) => btn.textContent?.includes("Integrate Now")) as
-      | HTMLButtonElement
-      | undefined;
+    const integrateBtn = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Integrate Now")
+    ) as HTMLButtonElement | undefined;
     expect(integrateBtn).toBeDefined();
 
     integrateBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
     expect(mocks.integrateProjectSpace).toHaveBeenCalledWith("PRO-1");
+
+    dispose();
+  });
+
+  it("renders per-worker skip/integrate buttons", async () => {
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      queue: [
+        ...baseSpace.queue,
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:2",
+          status: "integrated",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "beta:1",
+          workerSlug: "beta",
+        },
+      ],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const groups = Array.from(container.querySelectorAll(".worker-group"));
+    expect(groups).toHaveLength(2);
+    for (const group of groups) {
+      expect(group.textContent).toContain("Skip");
+      expect(group.textContent).toContain("Integrate");
+    }
+
+    dispose();
+  });
+
+  it("calls per-worker skip API with pending entry ids", async () => {
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      queue: [
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:1",
+          workerSlug: "alpha",
+          status: "pending",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:2",
+          workerSlug: "alpha",
+          status: "pending",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:3",
+          workerSlug: "alpha",
+          status: "integrated",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "beta:1",
+          workerSlug: "beta",
+          status: "pending",
+        },
+      ],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const alphaGroup = Array.from(
+      container.querySelectorAll(".worker-group")
+    ).find((group) => group.textContent?.includes("alpha"));
+    expect(alphaGroup).toBeDefined();
+
+    const skipButton = Array.from(alphaGroup!.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Skip")
+    ) as HTMLButtonElement | undefined;
+
+    expect(skipButton).toBeDefined();
+    skipButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(mocks.skipSpaceEntries).toHaveBeenCalledWith("PRO-1", [
+      "alpha:1",
+      "alpha:2",
+    ]);
+
+    dispose();
+  });
+
+  it("calls per-worker integrate API with pending entry ids", async () => {
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      queue: [
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:1",
+          workerSlug: "alpha",
+          status: "pending",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:2",
+          workerSlug: "alpha",
+          status: "pending",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "alpha:3",
+          workerSlug: "alpha",
+          status: "integrated",
+        },
+        {
+          ...baseSpace.queue[0]!,
+          id: "beta:1",
+          workerSlug: "beta",
+          status: "pending",
+        },
+      ],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const alphaGroup = Array.from(
+      container.querySelectorAll(".worker-group")
+    ).find((group) => group.textContent?.includes("alpha"));
+    expect(alphaGroup).toBeDefined();
+
+    const integrateButton = Array.from(
+      alphaGroup!.querySelectorAll("button")
+    ).find((btn) => btn.textContent?.includes("Integrate")) as
+      | HTMLButtonElement
+      | undefined;
+    expect(integrateButton).toBeDefined();
+
+    integrateButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(mocks.integrateSpaceEntries).toHaveBeenCalledWith("PRO-1", [
+      "alpha:1",
+      "alpha:2",
+    ]);
+
+    dispose();
+  });
+
+  it("rebases space onto main", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    const rebaseBtn = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Rebase on main")
+    ) as HTMLButtonElement | undefined;
+    expect(rebaseBtn).toBeDefined();
+
+    rebaseBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.rebaseSpaceOntoMain).toHaveBeenCalledWith("PRO-1");
 
     dispose();
   });
@@ -193,7 +400,9 @@ describe("ChangesView", () => {
 
     await flush();
 
-    const entryRow = container.querySelector(".entry-row") as HTMLElement | null;
+    const entryRow = container.querySelector(
+      ".entry-row"
+    ) as HTMLElement | null;
     expect(entryRow).toBeDefined();
 
     entryRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -204,6 +413,39 @@ describe("ChangesView", () => {
       "alpha:1"
     );
     expect(container.textContent).toContain("worker commit");
+
+    dispose();
+  });
+
+  it("shows rebase conflict UI and starts fixer", async () => {
+    mocks.fetchProjectSpace.mockResolvedValue({
+      ...baseSpace,
+      rebaseConflict: {
+        baseSha: "deadbeef",
+        error: "Resolve content conflict in src/app.ts",
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ChangesView projectId="PRO-1" />, container);
+
+    await flush();
+
+    expect(container.textContent).toContain("Space rebase conflict (deadbeef)");
+
+    const fixBtn = Array.from(container.querySelectorAll("button")).find((btn) =>
+      btn.textContent?.includes("Fix rebase conflict")
+    ) as HTMLButtonElement | undefined;
+    expect(fixBtn).toBeDefined();
+
+    fixBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(mocks.fixSpaceRebaseConflict).toHaveBeenCalledWith("PRO-1");
+    expect(container.textContent).toContain(
+      "Fixer agent spawned (space-rebase-reviewer)"
+    );
 
     dispose();
   });
@@ -258,14 +500,16 @@ describe("ChangesView", () => {
       (input) =>
         input instanceof HTMLInputElement &&
         input.type === "checkbox" &&
-        input.parentElement?.textContent?.includes("Clean up worktrees & branches")
+        input.parentElement?.textContent?.includes(
+          "Clean up worktrees & branches"
+        )
     ) as HTMLInputElement | undefined;
     expect(cleanupToggle).toBeDefined();
     cleanupToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
-    const mergeBtn = Array.from(container.querySelectorAll("button")).find((btn) =>
-      btn.textContent?.includes("Merge space into main")
+    const mergeBtn = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Merge space into main")
     ) as HTMLButtonElement | undefined;
     expect(mergeBtn).toBeDefined();
 

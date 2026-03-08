@@ -485,6 +485,7 @@ export type ProjectSpaceState = {
   worktreePath: string;
   baseBranch: string;
   integrationBlocked: boolean;
+  rebaseConflict?: { baseSha: string; error: string };
   queue: SpaceIntegrationEntry[];
   updatedAt: string;
 };

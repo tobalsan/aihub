@@ -34,11 +34,15 @@ export type {
 export {
   ensureProjectSpace,
   getProjectSpace,
+  clearProjectSpaceRebaseConflict,
   getProjectSpaceCommitLog,
   getProjectSpaceContribution,
   getProjectSpaceConflictContext,
   getGitHead,
   integrateProjectSpaceQueue,
+  integrateSpaceEntries,
+  skipSpaceEntries,
+  rebaseSpaceOntoMain,
   mergeSpaceIntoBase,
   cleanupSpaceWorktrees,
   recordWorkerDelivery,
@@ -50,6 +54,7 @@ export {
 } from "./space.js";
 export type {
   ProjectSpace,
+  SpaceRebaseConflict,
   ProjectSpaceResult,
   IntegrationEntry,
   IntegrationStatus,

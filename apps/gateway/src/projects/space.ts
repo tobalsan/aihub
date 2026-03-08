@@ -37,9 +37,15 @@ export type ProjectSpace = {
   branch: string;
   worktreePath: string;
   baseBranch: string;
+  rebaseConflict?: SpaceRebaseConflict;
   integrationBlocked: boolean;
   queue: IntegrationEntry[];
   updatedAt: string;
+};
+
+export type SpaceRebaseConflict = {
+  baseSha: string;
+  error: string;
 };
 
 export type SpaceCommitSummary = {
@@ -100,6 +106,7 @@ export type RecordWorkerDeliveryInput = {
   worktreePath: string;
   startSha?: string;
   endSha?: string;
+  replaces?: string[];
 };
 
 function expandPath(p: string): string {
@@ -144,6 +151,19 @@ function cloneRemoteName(projectId: string): string {
   return `agent-${projectId}`.toLowerCase();
 }
 
+function normalizeStringList(input: string[] | undefined): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of input) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 export function isSpaceWriteLeaseEnabled(): boolean {
   const raw = (process.env.AIHUB_SPACE_WRITE_LEASE ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -169,7 +189,9 @@ function normalizeQueue(input: unknown): IntegrationEntry[] {
     const worktreePath =
       typeof row.worktreePath === "string" ? row.worktreePath.trim() : "";
     const createdAt =
-      typeof row.createdAt === "string" ? row.createdAt : new Date().toISOString();
+      typeof row.createdAt === "string"
+        ? row.createdAt
+        : new Date().toISOString();
     const status: IntegrationStatus =
       row.status === "integrated" ||
       row.status === "conflict" ||
@@ -206,7 +228,10 @@ function normalizeQueue(input: unknown): IntegrationEntry[] {
   return entries;
 }
 
-async function resolveProjectContext(config: GatewayConfig, projectId: string): Promise<{
+async function resolveProjectContext(
+  config: GatewayConfig,
+  projectId: string
+): Promise<{
   projectId: string;
   projectDir: string;
   repo: string;
@@ -239,11 +264,23 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const projectId =
       typeof parsed.projectId === "string" ? parsed.projectId.trim() : "";
-    const branch = typeof parsed.branch === "string" ? parsed.branch.trim() : "";
+    const branch =
+      typeof parsed.branch === "string" ? parsed.branch.trim() : "";
     const worktreePath =
       typeof parsed.worktreePath === "string" ? parsed.worktreePath.trim() : "";
     const baseBranch =
       typeof parsed.baseBranch === "string" ? parsed.baseBranch.trim() : "main";
+    const rawRebaseConflict = parsed.rebaseConflict;
+    const rebaseConflict =
+      rawRebaseConflict &&
+      typeof rawRebaseConflict === "object" &&
+      typeof (rawRebaseConflict as Record<string, unknown>).baseSha === "string" &&
+      typeof (rawRebaseConflict as Record<string, unknown>).error === "string"
+        ? {
+            baseSha: (rawRebaseConflict as Record<string, string>).baseSha,
+            error: (rawRebaseConflict as Record<string, string>).error,
+          }
+        : undefined;
     if (!projectId || !branch || !worktreePath) return null;
     return {
       version: 1,
@@ -251,6 +288,7 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
       branch,
       worktreePath,
       baseBranch: baseBranch || "main",
+      rebaseConflict,
       integrationBlocked: parsed.integrationBlocked === true,
       queue: normalizeQueue(parsed.queue),
       updatedAt:
@@ -263,15 +301,21 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
   }
 }
 
-async function writeSpaceFile(filePath: string, space: ProjectSpace): Promise<void> {
+async function writeSpaceFile(
+  filePath: string,
+  space: ProjectSpace
+): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(space, null, 2), "utf8");
 }
 
-async function readLeaseFile(filePath: string): Promise<SpaceWriteLease | null> {
+async function readLeaseFile(
+  filePath: string
+): Promise<SpaceWriteLease | null> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const holder = typeof parsed.holder === "string" ? parsed.holder.trim() : "";
+    const holder =
+      typeof parsed.holder === "string" ? parsed.holder.trim() : "";
     const acquiredAt =
       typeof parsed.acquiredAt === "string" ? parsed.acquiredAt : "";
     const expiresAt =
@@ -330,7 +374,11 @@ async function collectCommitShas(
   const end = (endSha ?? "").trim();
   if (!start || !end || start === end) return [];
   try {
-    const out = await runGit(worktreePath, ["rev-list", "--reverse", `${start}..${end}`]);
+    const out = await runGit(worktreePath, [
+      "rev-list",
+      "--reverse",
+      `${start}..${end}`,
+    ]);
     return out
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -393,7 +441,10 @@ async function parseCommitSummaries(
   return commits;
 }
 
-async function collectPatchForShas(cwd: string, shas: string[]): Promise<string> {
+async function collectPatchForShas(
+  cwd: string,
+  shas: string[]
+): Promise<string> {
   if (shas.length === 0) return "";
   try {
     return await runGit(cwd, ["show", "--no-color", "--patch", ...shas]);
@@ -450,13 +501,19 @@ function buildSpaceDefaults(input: {
     input.existing?.baseBranch || input.baseBranch?.trim() || "main";
   const worktreePath =
     input.existing?.worktreePath ||
-    path.join(getProjectsRoot(input.config), ".workspaces", input.projectId, "_space");
+    path.join(
+      getProjectsRoot(input.config),
+      ".workspaces",
+      input.projectId,
+      "_space"
+    );
   return {
     version: 1,
     projectId: input.projectId,
     branch,
     baseBranch,
     worktreePath,
+    rebaseConflict: input.existing?.rebaseConflict,
     integrationBlocked: input.existing?.integrationBlocked ?? false,
     queue: input.existing?.queue ?? [],
     updatedAt: new Date().toISOString(),
@@ -512,6 +569,16 @@ export async function getProjectSpace(
     return { ok: false, error: "Project space not found" };
   }
   return { ok: true, data: space };
+}
+
+export async function clearProjectSpaceRebaseConflict(
+  config: GatewayConfig,
+  projectId: string
+): Promise<ProjectSpace> {
+  return persistProjectSpace(config, projectId, (space) => ({
+    ...space,
+    rebaseConflict: undefined,
+  }));
 }
 
 export async function getProjectSpaceCommitLog(
@@ -578,7 +645,9 @@ export async function getProjectSpaceContribution(
   const commits = await parseCommitSummaries(cwd, entry.shas);
   const diff = await collectPatchForShas(cwd, entry.shas);
   const conflictFiles =
-    entry.status === "conflict" ? await listConflictFiles(space.worktreePath) : [];
+    entry.status === "conflict"
+      ? await listConflictFiles(space.worktreePath)
+      : [];
 
   return { entry, commits, diff, conflictFiles };
 }
@@ -587,7 +656,11 @@ export async function getProjectSpaceConflictContext(
   config: GatewayConfig,
   projectId: string,
   entryId: string
-): Promise<{ space: ProjectSpace; entry: IntegrationEntry; conflictFiles: string[] }> {
+): Promise<{
+  space: ProjectSpace;
+  entry: IntegrationEntry;
+  conflictFiles: string[];
+}> {
   const context = await resolveProjectContext(config, projectId);
   const space = await readSpaceFile(context.spaceFilePath);
   if (!space) throw new Error("Project space not found");
@@ -744,9 +817,16 @@ function hasUnresolvedEntries(space: ProjectSpace): boolean {
   );
 }
 
-async function branchExists(repo: string, branchName: string): Promise<boolean> {
+async function branchExists(
+  repo: string,
+  branchName: string
+): Promise<boolean> {
   try {
-    await runGitInRepo(repo, ["show-ref", "--verify", `refs/heads/${branchName}`]);
+    await runGitInRepo(repo, [
+      "show-ref",
+      "--verify",
+      `refs/heads/${branchName}`,
+    ]);
     return true;
   } catch {
     return false;
@@ -876,7 +956,10 @@ export async function cleanupSpaceWorktrees(
     summary.spaceWorktreeMissing = true;
   }
 
-  const deletedSpaceBranch = await deleteBranchIfPresent(context.repo, space.branch);
+  const deletedSpaceBranch = await deleteBranchIfPresent(
+    context.repo,
+    space.branch
+  );
   if (deletedSpaceBranch === "deleted") summary.spaceBranchDeleted = true;
   else if (deletedSpaceBranch === "missing") summary.spaceBranchMissing = true;
   else summary.errors.push(`failed to delete space branch ${space.branch}`);
@@ -960,9 +1043,108 @@ export async function mergeSpaceIntoBase(
     };
   } finally {
     if (originalBranch && originalBranch !== space.baseBranch) {
-      await runGitInRepo(context.repo, ["checkout", originalBranch]).catch(() => {});
+      await runGitInRepo(context.repo, ["checkout", originalBranch]).catch(
+        () => {}
+      );
     }
   }
+}
+
+export async function rebaseSpaceOntoMain(
+  config: GatewayConfig,
+  projectId: string
+): Promise<ProjectSpace> {
+  const context = await resolveProjectContext(config, projectId);
+  if (!(await isGitRepo(context.repo))) {
+    throw new Error("Not a git repository");
+  }
+
+  const space = await ensureProjectSpace(config, projectId);
+  let baseRef = space.baseBranch;
+  await runGit(space.worktreePath, ["fetch", "origin", space.baseBranch])
+    .then(() => {
+      baseRef = `origin/${space.baseBranch}`;
+    })
+    .catch(() => {});
+  const baseSha = await runGit(space.worktreePath, ["rev-parse", baseRef]).catch(
+    () => ""
+  );
+
+  try {
+    await runGit(space.worktreePath, ["rebase", baseRef]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "git rebase failed";
+    return persistProjectSpace(config, projectId, (current) => ({
+      ...current,
+      rebaseConflict: {
+        baseSha: baseSha.trim(),
+        error: message,
+      },
+    }));
+  }
+
+  const newSpaceHead = await getGitHead(space.worktreePath);
+  if (!newSpaceHead) {
+    throw new Error("Failed to resolve Space HEAD SHA after rebase");
+  }
+
+  return persistProjectSpace(config, projectId, async (current) => {
+    const next: ProjectSpace = {
+      ...current,
+      rebaseConflict: undefined,
+      queue: [...current.queue],
+    };
+
+    for (const item of next.queue) {
+      if (item.status !== "pending") continue;
+      const workerStartSha = item.startSha?.trim();
+      if (!workerStartSha) {
+        item.status = "conflict";
+        item.error = "worker start SHA is missing; cannot rebase";
+        next.integrationBlocked = true;
+        continue;
+      }
+
+      try {
+        await runGit(item.worktreePath, [
+          "rebase",
+          "--onto",
+          newSpaceHead,
+          workerStartSha,
+          "HEAD",
+        ]);
+      } catch (error) {
+        await runGit(item.worktreePath, ["rebase", "--abort"]).catch(() => {});
+        item.status = "conflict";
+        item.error =
+          error instanceof Error ? error.message : "git rebase failed";
+        next.integrationBlocked = true;
+        continue;
+      }
+
+      const workerEndSha = await getGitHead(item.worktreePath);
+      if (!workerEndSha) {
+        item.status = "conflict";
+        item.error = "Failed to resolve worker HEAD SHA after rebase";
+        next.integrationBlocked = true;
+        continue;
+      }
+
+      const rebasedShas = await collectCommitShas(
+        item.worktreePath,
+        newSpaceHead,
+        workerEndSha
+      );
+      item.startSha = newSpaceHead;
+      item.endSha = workerEndSha;
+      item.shas = rebasedShas;
+      item.error = undefined;
+      item.staleAgainstSha = undefined;
+      item.status = rebasedShas.length > 0 ? "pending" : "skipped";
+    }
+
+    return next;
+  });
 }
 
 export async function integrateProjectSpaceQueue(
@@ -970,10 +1152,35 @@ export async function integrateProjectSpaceQueue(
   projectId: string,
   options?: { resume?: boolean }
 ): Promise<ProjectSpace> {
+  return integrateProjectSpaceEntries(config, projectId, {
+    resume: options?.resume,
+  });
+}
+
+export async function integrateSpaceEntries(
+  config: GatewayConfig,
+  projectId: string,
+  entryIds: string[]
+): Promise<ProjectSpace> {
+  return integrateProjectSpaceEntries(config, projectId, {
+    resume: true,
+    entryIds,
+  });
+}
+
+async function integrateProjectSpaceEntries(
+  config: GatewayConfig,
+  projectId: string,
+  options?: { resume?: boolean; entryIds?: string[] }
+): Promise<ProjectSpace> {
   const context = await resolveProjectContext(config, projectId);
   if (!(await isGitRepo(context.repo))) {
     throw new Error("Not a git repository");
   }
+  const targetEntryIds =
+    options?.entryIds && options.entryIds.length > 0
+      ? new Set(normalizeStringList(options.entryIds))
+      : null;
 
   return persistProjectSpace(config, projectId, async (space) => {
     const next: ProjectSpace = {
@@ -988,6 +1195,7 @@ export async function integrateProjectSpaceQueue(
 
     for (const item of next.queue) {
       if (item.status !== "pending") continue;
+      if (targetEntryIds && !targetEntryIds.has(item.id)) continue;
       if (item.shas.length === 0) {
         item.status = "skipped";
         continue;
@@ -1022,6 +1230,25 @@ export async function integrateProjectSpaceQueue(
     }
 
     return next;
+  });
+}
+
+export async function skipSpaceEntries(
+  config: GatewayConfig,
+  projectId: string,
+  entryIds: string[]
+): Promise<ProjectSpace> {
+  const targetEntryIds = new Set(normalizeStringList(entryIds));
+  return persistProjectSpace(config, projectId, (space) => {
+    if (targetEntryIds.size === 0) return space;
+    return {
+      ...space,
+      queue: space.queue.map((item) => {
+        if (item.status !== "pending") return item;
+        if (!targetEntryIds.has(item.id)) return item;
+        return { ...item, status: "skipped" };
+      }),
+    };
   });
 }
 
@@ -1070,7 +1297,10 @@ export async function recordWorkerDelivery(
   let resolvedShas = shas;
   let resolvedStartSha = startSha;
   if (existingConflictEntry && resolvedShas.length === 0 && endSha) {
-    if (existingConflictEntry.startSha && existingConflictEntry.startSha !== endSha) {
+    if (
+      existingConflictEntry.startSha &&
+      existingConflictEntry.startSha !== endSha
+    ) {
       const fallback = await collectCommitShas(
         input.worktreePath,
         existingConflictEntry.startSha,
@@ -1095,13 +1325,18 @@ export async function recordWorkerDelivery(
   }
 
   const now = new Date().toISOString();
+  const replacementTargets = new Set(normalizeStringList(input.replaces));
   await persistProjectSpace(config, input.projectId, (current) => {
+    let queue = [...current.queue];
+    let integrationBlocked = current.integrationBlocked;
+    let deliveredEntryId = "";
     const conflictIndex = current.queue.findIndex(
-      (item) => item.workerSlug === input.workerSlug && item.status === "conflict"
+      (item) =>
+        item.workerSlug === input.workerSlug && item.status === "conflict"
     );
     if (conflictIndex >= 0) {
-      const queue = [...current.queue];
       const existing = queue[conflictIndex]!;
+      deliveredEntryId = existing.id;
       queue[conflictIndex] = {
         ...existing,
         runMode: input.runMode,
@@ -1114,34 +1349,48 @@ export async function recordWorkerDelivery(
         staleAgainstSha: undefined,
         error: undefined,
       };
-      return {
-        ...current,
-        integrationBlocked: false,
-        queue,
+      integrationBlocked = false;
+    } else {
+      const entry: IntegrationEntry = {
+        id: `${input.workerSlug}:${Date.now()}`,
+        workerSlug: input.workerSlug,
+        runMode: input.runMode,
+        worktreePath: input.worktreePath,
+        startSha,
+        endSha,
+        shas,
+        status: staleAgainstSha
+          ? "stale_worker"
+          : shas.length > 0
+            ? "pending"
+            : "skipped",
+        createdAt: now,
+        integratedAt: undefined,
+        staleAgainstSha,
+        error: staleError,
       };
+      deliveredEntryId = entry.id;
+      queue = [...queue, entry];
     }
 
-    const entry: IntegrationEntry = {
-      id: `${input.workerSlug}:${Date.now()}`,
-      workerSlug: input.workerSlug,
-      runMode: input.runMode,
-      worktreePath: input.worktreePath,
-      startSha,
-      endSha,
-      shas,
-      status: staleAgainstSha
-        ? "stale_worker"
-        : shas.length > 0
-          ? "pending"
-          : "skipped",
-      createdAt: now,
-      integratedAt: undefined,
-      staleAgainstSha,
-      error: staleError,
-    };
+    if (replacementTargets.size > 0) {
+      queue = queue.map((item) => {
+        if (item.id === deliveredEntryId) return item;
+        if (item.status !== "pending") return item;
+        if (
+          !replacementTargets.has(item.id) &&
+          !replacementTargets.has(item.workerSlug)
+        ) {
+          return item;
+        }
+        return { ...item, status: "skipped" };
+      });
+    }
+
     return {
       ...current,
-      queue: [...current.queue, entry],
+      integrationBlocked,
+      queue,
     };
   });
 

@@ -65,7 +65,8 @@ Features:
 - Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
 - Project detail left panel subagent rows support inline rename (click name, save on Enter/blur; Space is treated as input while editing and does not trigger row selection)
-- Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, and Space-targeted commit/PR actions
+- Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, Rebase on main, and Space-targeted commit/PR actions
+- Changes tab surfaces space-level rebase conflicts via `ProjectSpaceState.rebaseConflict`, with a dashboard-level "Fix rebase conflict" action (`POST /api/projects/:id/space/rebase/fix`) after a rebase attempt (`POST /api/projects/:id/space/rebase`)
 - Changes tab branch diff header (`Branch: ... → ...` with aggregate +/- stats) is clickable when pending branch diff files exist, and toggles a compact per-file +/- breakdown list
 - Space Commit Log rows include relative elapsed commit time (`now`, `1m`, `2h`, `3d`) next to author metadata
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
@@ -368,6 +369,10 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | PATCH  | `/api/projects/:id/subagents/:slug`              | Rename project subagent run                                |
 | GET    | `/api/projects/:id/space`                        | Get project Space state                                    |
 | POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                             |
+| POST   | `/api/projects/:id/space/entries/skip`           | Mark selected pending Space entries as skipped             |
+| POST   | `/api/projects/:id/space/entries/integrate`      | Integrate only selected pending Space entries              |
+| POST   | `/api/projects/:id/space/rebase`                 | Rebase Space branch onto base and refresh pending workers  |
+| POST   | `/api/projects/:id/space/rebase/fix`             | Spawn Space-level rebase fixer agent in main-run mode      |
 | POST   | `/api/projects/:id/space/merge`                  | Merge Space branch into base + optional cleanup            |
 | GET    | `/api/projects/:id/space/commits`                | Get Space commit log                                       |
 | GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log                        |
@@ -397,12 +402,18 @@ Behavior:
 - `worktree` and `clone` subagents remain isolated sandboxes.
 - Worker commit ranges are derived from `start_head_sha..end_head_sha` and queued.
 - Worker deliveries remain `pending` until explicit integration (`POST /api/projects/:id/space/integrate`).
+- Per-entry queue control is available via:
+  - `POST /api/projects/:id/space/entries/skip` (pending -> skipped for selected IDs)
+  - `POST /api/projects/:id/space/entries/integrate` (cherry-pick only selected pending IDs)
 - Gateway cherry-picks queued SHAs into Space (`git cherry-pick -x`) only during explicit integrate flow.
+- `POST /api/projects/:id/space/rebase` rebases Space onto latest base HEAD and rebases each `pending` worker commit range onto new Space HEAD (updates `startSha`/`shas`; worker rebase conflicts become `status=conflict`).
+- If Space rebase itself conflicts, Space stores `rebaseConflict` context and leaves rebase in progress for `POST /api/projects/:id/space/rebase/fix` to spawn `space-rebase-fixer` in `main-run`.
 - When queue is fully terminal (`integrated`/`skipped` only), `POST /api/projects/:id/space/merge` merges Space into base (`--ff-only` first, fallback regular merge), pushes base when remote exists, and can clean up worker/Space worktrees+branches.
 - Merge flow updates project frontmatter status to `done`.
 - On conflict, Space queue is blocked (`integrationBlocked=true`) until the worker resolves and re-delivers.
 - `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original worker with a rebase prompt against current Space HEAD.
 - When that worker re-delivers, gateway updates the same conflict entry in place (new SHAs, status reset, `integrationBlocked=false`) instead of appending a new queue row.
+- Worker deliveries can include `replaces: string[]` (entry IDs or worker slugs); matching `pending` entries are auto-marked `skipped`.
 - Queue statuses include: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
 - Stale worker handling:
   - Clone workers are marked `stale_worker` when their base diverges from Space HEAD.

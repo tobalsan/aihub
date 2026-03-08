@@ -74,12 +74,16 @@ import {
   readSpec,
   writeSpec,
   getProjectSpace,
+  clearProjectSpaceRebaseConflict,
   getProjectSpaceCommitLog,
   getProjectSpaceContribution,
   getProjectSpaceConflictContext,
   getGitHead,
   integrateProjectSpaceQueue,
+  integrateSpaceEntries,
+  rebaseSpaceOntoMain,
   mergeSpaceIntoBase,
+  skipSpaceEntries,
   isSpaceWriteLeaseEnabled,
   getProjectSpaceWriteLease,
   acquireProjectSpaceWriteLease,
@@ -521,6 +525,9 @@ const ReleaseSpaceLeaseRequestSchema = z.object({
 });
 const MergeSpaceRequestSchema = z.object({
   cleanup: z.boolean().optional(),
+});
+const SpaceEntriesRequestSchema = z.object({
+  entryIds: z.array(z.string()),
 });
 const UpdateSubagentRequestSchema = z.object({
   name: z.string().optional(),
@@ -2350,6 +2357,82 @@ api.post("/projects/:id/space/integrate", async (c) => {
   }
 });
 
+// POST /api/projects/:id/space/entries/skip - mark selected pending entries as skipped
+api.post("/projects/:id/space/entries/skip", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = SpaceEntriesRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  try {
+    const result = await skipSpaceEntries(config, id, parsed.data.entryIds);
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message === "Project repo not set"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// POST /api/projects/:id/space/entries/integrate - integrate selected pending entries
+api.post("/projects/:id/space/entries/integrate", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = SpaceEntriesRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.message }, 400);
+  }
+  const config = getConfig();
+  try {
+    const result = await integrateSpaceEntries(
+      config,
+      id,
+      parsed.data.entryIds
+    );
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message === "Project repo not set" ||
+            message === "Not a git repository"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// POST /api/projects/:id/space/rebase - rebase Space branch onto base branch
+api.post("/projects/:id/space/rebase", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  try {
+    const space = await rebaseSpaceOntoMain(config, id);
+    return c.json(space);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message === "Project repo not set" ||
+            message === "Not a git repository"
+          ? 400
+          : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
 // POST /api/projects/:id/space/merge - merge Space branch into base branch
 api.post("/projects/:id/space/merge", async (c) => {
   const id = c.req.param("id");
@@ -2381,6 +2464,102 @@ api.post("/projects/:id/space/merge", async (c) => {
           ? 409
           : message === "Project repo not set" ||
               message === "Not a git repository"
+            ? 400
+            : 500;
+    return c.json({ error: message }, status);
+  }
+});
+
+// POST /api/projects/:id/space/rebase/fix - fix Space-level rebase conflict
+api.post("/projects/:id/space/rebase/fix", async (c) => {
+  const id = c.req.param("id");
+  const config = getConfig();
+  try {
+    const spaceResult = await getProjectSpace(config, id);
+    if (!spaceResult.ok) {
+      const status =
+        spaceResult.error.startsWith("Project not found") ||
+        spaceResult.error === "Project space not found"
+          ? 404
+          : spaceResult.error === "Project repo not set"
+            ? 400
+            : 500;
+      return c.json({ error: spaceResult.error }, status);
+    }
+    const space = spaceResult.data;
+    if (!space.rebaseConflict) {
+      return c.json({ error: "Space rebase conflict not found" }, 409);
+    }
+
+    const reviewerProfile = START_TEMPLATE_PROFILES.reviewer;
+    const reviewerRunAgent = normalizeRunAgent(reviewerProfile.runAgent);
+    if (
+      !reviewerRunAgent ||
+      reviewerRunAgent.type !== "cli" ||
+      !isSupportedSubagentCli(reviewerRunAgent.id)
+    ) {
+      return c.json(
+        { error: "Reviewer template runAgent is missing or unsupported" },
+        400
+      );
+    }
+
+    const resolvedCliOptions = resolveCliSpawnOptions(
+      reviewerRunAgent.id,
+      reviewerProfile.model,
+      reviewerProfile.reasoningEffort,
+      undefined
+    );
+    if (!resolvedCliOptions.ok) {
+      return c.json({ error: resolvedCliOptions.error }, 400);
+    }
+
+    const slug = "space-rebase-fixer";
+    const prompt = [
+      "Space branch rebase onto base branch has conflicts.",
+      "Resolve all rebase conflicts in this workspace and continue the rebase.",
+      "",
+      `Base branch: ${space.baseBranch}`,
+      `Target base SHA: ${space.rebaseConflict.baseSha || "(unknown)"}`,
+      `Rebase error: ${space.rebaseConflict.error}`,
+      "",
+      "Required commands:",
+      "  git status",
+      "  # resolve conflicts",
+      "  git add <resolved-files>",
+      "  git rebase --continue",
+      "",
+      "Repeat until rebase finishes cleanly. Then summarize what changed.",
+    ].join("\n");
+    const spawned = await spawnSubagent(config, {
+      projectId: id,
+      slug,
+      cli: reviewerRunAgent.id,
+      name: resolveTemplateRunName("reviewer", slug, undefined),
+      prompt,
+      model: resolvedCliOptions.data.model,
+      reasoningEffort: resolvedCliOptions.data.reasoningEffort,
+      thinking: resolvedCliOptions.data.thinking,
+      mode: "main-run",
+      baseBranch: space.baseBranch,
+      resume: true,
+    });
+    if (!spawned.ok) {
+      const status = spawned.error.startsWith("Project not found") ? 404 : 400;
+      return c.json({ error: spawned.error }, status);
+    }
+
+    await clearProjectSpaceRebaseConflict(config, id);
+    return c.json({ slug }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.startsWith("Project not found") ||
+      message === "Project space not found"
+        ? 404
+        : message === "Space rebase conflict not found"
+          ? 409
+          : message === "Project repo not set"
             ? 400
             : 500;
     return c.json({ error: message }, status);
@@ -2462,6 +2641,7 @@ api.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
       reasoningEffort,
       thinking,
       resume: true,
+      replaces: [entryId],
     });
     if (!spawned.ok) {
       const status = spawned.error.startsWith("Project not found") ? 404 : 400;

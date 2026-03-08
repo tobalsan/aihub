@@ -135,8 +135,13 @@ Project Space model:
 - `main-run` executes in project Space (`space/<projectId>` branch, `.../.workspaces/<projectId>/_space` worktree).
 - `worktree` and `clone` remain isolated worker sandboxes.
 - Worker commits are queued as `pending`; they are cherry-picked only on explicit `POST /api/projects/:id/space/integrate` (UI: Integrate Now).
+- Per-entry queue controls are available via:
+  - `POST /api/projects/:id/space/entries/skip`
+  - `POST /api/projects/:id/space/entries/integrate`
+- Changes tab also supports "Rebase on main" (`POST /api/projects/:id/space/rebase`) and space-level conflict fixing (`POST /api/projects/:id/space/rebase/fix`), surfaced through `ProjectSpaceState.rebaseConflict`.
 - Conflicts block queue until resolved by the original worker.
 - `POST /api/projects/:id/space/conflicts/:entryId/fix` resumes the original conflicting worker with rebase instructions (no new worker/worktree).
+- Worker deliveries can include `replaces` metadata (entry IDs or worker slugs) so matching pending entries auto-transition to `skipped`.
 - `POST /api/projects/:id/space/merge` merges `space/<projectId>` into base branch, pushes base when a remote exists, optionally cleans worker+Space worktrees/branches, clears queue, and marks project `status: done`.
 - On re-delivery after a conflict, gateway updates the original conflict entry in-place and clears `integrationBlocked`.
 - Queue statuses: `pending`, `integrated`, `conflict`, `skipped`, `stale_worker`.
@@ -155,11 +160,12 @@ Project detail parses `SPECS.md` with a specific markdown shape for `## Tasks` a
 Both sections now support optional `###` subgroup headings for organization.
 The Coordinator spawn template prompt also reminds agents to use this parse-safe format when updating `SPECS.md`.
 Coordinator prompts now include:
+
 - Canonical main repository path (not worker clone/worktree paths).
 - Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
 - `apm start --template` delegation examples that avoid template-locked flags unless `--allow-template-overrides` is set.
-Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
-Worker template prompts explicitly require committing implementation once checks pass.
+  Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
+  Worker template prompts explicitly require committing implementation once checks pass.
 
 Repo resolution for subagent/ralph runner modes (`clone`/`worktree`/`main-run`) now falls back to the project area's `repo` when project `frontmatter.repo` is unset.
 
@@ -260,26 +266,28 @@ openclaw sessions list
 
 ## API
 
-| Endpoint                   | Method       | Description                                          |
-| -------------------------- | ------------ | ---------------------------------------------------- |
-| `/api/agents`              | GET          | List agents                                          |
-| `/api/agents/:id/messages` | POST         | Send message                                         |
-| `/api/agents/:id/history`  | GET          | Session history (?sessionKey=main&view=simple\|full) |
-| `/api/schedules`           | GET/POST     | List/create schedules                                |
-| `/api/schedules/:id`       | PATCH/DELETE | Update/delete schedule                               |
-| `/api/projects`            | GET/POST     | List/create projects                                 |
-| `/api/projects/:id`        | GET/PATCH    | Get/update project                                   |
-| `/api/projects/:id/space`  | GET          | Get project Space state                              |
-| `/api/projects/:id/space/integrate` | POST | Resume/pick pending Space queue                     |
-| `/api/projects/:id/space/merge` | POST | Merge Space into base branch (`cleanup` default true) |
-| `/api/projects/:id/space/commits` | GET  | Get Space commit log                                 |
-| `/api/projects/:id/space/contributions/:entryId` | GET | Get per-entry contribution details     |
-| `/api/projects/:id/space/conflicts/:entryId/fix` | POST | Resume original conflicted worker     |
-| `/api/projects/:id/space/lease` | GET/POST/DELETE | Read/acquire/release Space write lease (flagged) |
-| `/api/projects/:id/changes` | GET         | Get project changes (Space-first source)             |
-| `/api/projects/:id/commit` | POST         | Commit project changes in resolved source            |
-| `/api/projects/:id/pr-target` | GET       | Get compare URL for PR creation from current branch  |
-| `/ws`                      | WS           | WebSocket streaming (send + subscribe)               |
+| Endpoint                                         | Method          | Description                                           |
+| ------------------------------------------------ | --------------- | ----------------------------------------------------- |
+| `/api/agents`                                    | GET             | List agents                                           |
+| `/api/agents/:id/messages`                       | POST            | Send message                                          |
+| `/api/agents/:id/history`                        | GET             | Session history (?sessionKey=main&view=simple\|full)  |
+| `/api/schedules`                                 | GET/POST        | List/create schedules                                 |
+| `/api/schedules/:id`                             | PATCH/DELETE    | Update/delete schedule                                |
+| `/api/projects`                                  | GET/POST        | List/create projects                                  |
+| `/api/projects/:id`                              | GET/PATCH       | Get/update project                                    |
+| `/api/projects/:id/space`                        | GET             | Get project Space state                               |
+| `/api/projects/:id/space/integrate`              | POST            | Resume/pick pending Space queue                       |
+| `/api/projects/:id/space/entries/skip`           | POST            | Mark selected pending Space entries as skipped        |
+| `/api/projects/:id/space/entries/integrate`      | POST            | Integrate selected pending Space entries              |
+| `/api/projects/:id/space/merge`                  | POST            | Merge Space into base branch (`cleanup` default true) |
+| `/api/projects/:id/space/commits`                | GET             | Get Space commit log                                  |
+| `/api/projects/:id/space/contributions/:entryId` | GET             | Get per-entry contribution details                    |
+| `/api/projects/:id/space/conflicts/:entryId/fix` | POST            | Resume original conflicted worker                     |
+| `/api/projects/:id/space/lease`                  | GET/POST/DELETE | Read/acquire/release Space write lease (flagged)      |
+| `/api/projects/:id/changes`                      | GET             | Get project changes (Space-first source)              |
+| `/api/projects/:id/commit`                       | POST            | Commit project changes in resolved source             |
+| `/api/projects/:id/pr-target`                    | GET             | Get compare URL for PR creation from current branch   |
+| `/ws`                                            | WS              | WebSocket streaming (send + subscribe)                |
 
 Project API details: `docs/projects_api.md`
 
