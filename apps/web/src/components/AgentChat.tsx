@@ -57,12 +57,13 @@ type SubagentRunInfo = {
 };
 
 type LogItem = {
-  tone: "assistant" | "user" | "muted" | "error";
+  tone: "assistant" | "user" | "muted" | "warning" | "error";
   icon?:
     | "read"
     | "write"
     | "bash"
     | "tool"
+    | "warning"
     | "output"
     | "diff"
     | "system"
@@ -186,7 +187,10 @@ function isSystemEventPayload(payload: Record<string, unknown>): boolean {
     KNOWN_SYSTEM_EVENT_TYPES.has(payload.type)
   )
     return true;
-  if (typeof payload.session_id === "string" && typeof payload.uuid === "string")
+  if (
+    typeof payload.session_id === "string" &&
+    typeof payload.uuid === "string"
+  )
     return true;
   if (payload.rate_limit_info && typeof payload.rate_limit_info === "object")
     return true;
@@ -451,10 +455,13 @@ function parseToolArgs(raw: string): Record<string, unknown> | null {
   }
 }
 
-function logTone(type: string): "assistant" | "user" | "muted" | "error" {
+function logTone(
+  type: string
+): "assistant" | "user" | "muted" | "warning" | "error" {
   if (type === "user") return "user";
   if (type === "assistant") return "assistant";
   if (type === "error" || type === "stderr") return "error";
+  if (type === "warning") return "warning";
   if (
     type === "tool_call" ||
     type === "tool_output" ||
@@ -473,6 +480,7 @@ function logLabel(type: string, text: string): string {
     return name ? `Tool: ${name}` : "Tool call";
   }
   if (type === "tool_output") return "Tool output";
+  if (type === "warning") return "Warning";
   if (type === "diff") return "Diff";
   if (type === "stderr") return "Error";
   if (type === "session") return "Session";
@@ -487,15 +495,17 @@ function toLogItem(entry: SubagentLogEvent): LogItem {
   const icon =
     entry.type === "tool_call"
       ? "tool"
-      : entry.type === "tool_output"
-        ? "output"
-        : entry.type === "diff"
-          ? "diff"
-          : entry.type === "session" || entry.type === "message"
-            ? "system"
-            : entry.type === "error" || entry.type === "stderr"
-              ? "error"
-              : undefined;
+      : entry.type === "warning"
+        ? "warning"
+        : entry.type === "tool_output"
+          ? "output"
+          : entry.type === "diff"
+            ? "diff"
+            : entry.type === "session" || entry.type === "message"
+              ? "system"
+              : entry.type === "error" || entry.type === "stderr"
+                ? "error"
+                : undefined;
   return {
     tone,
     icon,
@@ -536,6 +546,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   let initialPromptAdded = false;
   let skipNextUserIfSkill = false;
   const toolOutputs = new Map<string, SubagentLogEvent>();
+  const toolWarnings = new Map<string, SubagentLogEvent>();
   for (const event of events) {
     if (
       event.type === "tool_output" &&
@@ -543,6 +554,9 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       !event.parentToolUseId
     ) {
       toolOutputs.set(event.tool.id, event);
+    }
+    if (event.type === "warning" && event.tool?.id && !event.parentToolUseId) {
+      toolWarnings.set(event.tool.id, event);
     }
   }
   const skipOutputs = new Set<string>();
@@ -645,6 +659,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       }
 
       const output = toolId ? toolOutputs.get(toolId) : undefined;
+      const warning = toolId ? toolWarnings.get(toolId) : undefined;
       if (toolKey === "exec_command" || toolKey === "bash") {
         const command =
           typeof args?.cmd === "string"
@@ -655,14 +670,27 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         const summary = ["Bash", command]
           .filter((part) => part.trim())
           .join(" ");
-        const body = output?.text ?? "";
-        entries.push({
-          tone: "muted",
-          icon: "bash",
-          title: summary || "Bash",
-          body: body || formatJson(args ?? {}),
-          collapsible: true,
-        });
+        const warningText = (warning?.text ?? "").trim();
+        const outputText = (output?.text ?? "").trim();
+        if (warningText || !outputText) {
+          const defaultWarning = ["No output captured.", command]
+            .filter((part) => part.trim())
+            .join("\nCommand: ");
+          entries.push({
+            tone: "warning",
+            icon: "warning",
+            title: summary || "Bash",
+            body: warningText || defaultWarning,
+          });
+        } else {
+          entries.push({
+            tone: "muted",
+            icon: "bash",
+            title: summary || "Bash",
+            body: output?.text ?? "",
+            collapsible: true,
+          });
+        }
         if (toolId) skipOutputs.add(toolId);
         continue;
       }
@@ -689,6 +717,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       continue;
     }
     if (event.type === "tool_output") {
+      if (event.tool?.id && skipOutputs.has(event.tool.id)) continue;
+      entries.push(toLogItem(event));
+      continue;
+    }
+    if (event.type === "warning") {
       if (event.tool?.id && skipOutputs.has(event.tool.id)) continue;
       entries.push(toLogItem(event));
       continue;
@@ -805,7 +838,9 @@ function CollapsibleLogLine(props: {
       {props.item.tone === "assistant" || props.item.tone === "user" ? (
         <div
           class="log-text log-markdown"
-          innerHTML={renderMarkdown(props.item.body.length > 0 ? props.item.body : "Empty content")}
+          innerHTML={renderMarkdown(
+            props.item.body.length > 0 ? props.item.body : "Empty content"
+          )}
         />
       ) : (
         <pre class="log-text">
@@ -825,7 +860,10 @@ function renderLogItem(
   const useMarkdown = item.tone === "assistant" || item.tone === "user";
   if (item.collapsible) {
     const summaryText =
-      item.summaryPreview ?? item.title ?? item.body.split("\n")[0] ?? "Details";
+      item.summaryPreview ??
+      item.title ??
+      item.body.split("\n")[0] ??
+      "Details";
     if (collapsibleKey && typeof expanded === "boolean" && onToggle) {
       return (
         <CollapsibleLogLine
@@ -925,6 +963,20 @@ function logIcon(icon?: LogItem["icon"]) {
         stroke-width="2"
       >
         <path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3z" />
+      </svg>
+    );
+  }
+  if (icon === "warning") {
+    return (
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M12 9v4M12 17h.01" />
+        <path d="M10.3 3.8L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0z" />
       </svg>
     );
   }
@@ -1844,7 +1896,8 @@ export function AgentChat(props: AgentChatProps) {
       (normalizedModelName
         ? Object.entries(MODEL_CONTEXT_LIMITS).find(
             ([key]) =>
-              key !== "default" && normalizedModelName.includes(key.toLowerCase())
+              key !== "default" &&
+              normalizedModelName.includes(key.toLowerCase())
           )?.[1]
         : undefined) ?? MODEL_CONTEXT_LIMITS.default;
     if (maxTokens <= 0 || highestInputTokens <= 0) return 0;
@@ -2201,7 +2254,9 @@ export function AgentChat(props: AgentChatProps) {
           </Show>
         </div>
         <Show when={estimatedContextUsagePct() > 0}>
-          <div class="context-usage">~{estimatedContextUsagePct()}% context used</div>
+          <div class="context-usage">
+            ~{estimatedContextUsagePct()}% context used
+          </div>
         </Show>
       </div>
 
@@ -2423,6 +2478,14 @@ export function AgentChat(props: AgentChatProps) {
           color: var(--tone-error);
           background: rgba(220, 50, 50, 0.06);
           border-left: 2px solid rgba(220, 50, 50, 0.4);
+          border-radius: 0 6px 6px 0;
+          padding-left: 14px;
+        }
+
+        .log-line.warning {
+          color: #f7d49a;
+          background: rgba(176, 122, 31, 0.12);
+          border-left: 2px solid rgba(224, 164, 61, 0.55);
           border-radius: 0 6px 6px 0;
           padding-left: 14px;
         }

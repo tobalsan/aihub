@@ -577,9 +577,13 @@ function parseToolArgs(raw: string): Record<string, unknown> | null {
 function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
   const entries: LogItem[] = [];
   const toolOutputs = new Map<string, SubagentLogEvent>();
+  const toolWarnings = new Map<string, SubagentLogEvent>();
   for (const event of events) {
     if (event.type === "tool_output" && event.tool?.id) {
       toolOutputs.set(event.tool.id, event);
+    }
+    if (event.type === "warning" && event.tool?.id) {
+      toolWarnings.set(event.tool.id, event);
     }
   }
   const skipOutputs = new Set<string>();
@@ -607,6 +611,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
     if (event.type === "tool_call") {
       const toolId = event.tool?.id ?? "";
       const output = toolId ? toolOutputs.get(toolId) : undefined;
+      const warning = toolId ? toolWarnings.get(toolId) : undefined;
       const toolName = (event.tool?.name ?? "").trim();
       const toolKey = toolName.toLowerCase();
       const args = parseToolArgs(event.text ?? "");
@@ -620,14 +625,27 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         const summary = ["Bash", command]
           .filter((part) => part.trim())
           .join(" ");
-        const body = output?.text ?? "";
-        entries.push({
-          tone: "muted",
-          icon: "bash",
-          title: summary || "Bash",
-          body: body || formatJson(args ?? {}),
-          collapsible: true,
-        });
+        const warningText = (warning?.text ?? "").trim();
+        const outputText = (output?.text ?? "").trim();
+        if (warningText || !outputText) {
+          const defaultWarning = ["No output captured.", command]
+            .filter((part) => part.trim())
+            .join("\nCommand: ");
+          entries.push({
+            tone: "warning",
+            icon: "warning",
+            title: summary || "Bash",
+            body: warningText || defaultWarning,
+          });
+        } else {
+          entries.push({
+            tone: "muted",
+            icon: "bash",
+            title: summary || "Bash",
+            body: output?.text ?? "",
+            collapsible: true,
+          });
+        }
         if (toolId) skipOutputs.add(toolId);
         continue;
       }
@@ -717,6 +735,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       }
       continue;
     }
+    if (event.type === "warning") {
+      if (event.tool?.id && skipOutputs.has(event.tool.id)) continue;
+      if (event.text) entries.push(toLogItem(event));
+      continue;
+    }
     if (event.type === "diff" && event.text) {
       entries.push({
         tone: "muted",
@@ -742,15 +765,17 @@ function toLogItem(entry: SubagentLogEvent): LogItem {
   const icon =
     entry.type === "tool_call"
       ? "tool"
-      : entry.type === "tool_output"
-        ? "output"
-        : entry.type === "diff"
-          ? "diff"
-          : entry.type === "session" || entry.type === "message"
-            ? "system"
-            : entry.type === "error" || entry.type === "stderr"
-              ? "error"
-              : undefined;
+      : entry.type === "warning"
+        ? "warning"
+        : entry.type === "tool_output"
+          ? "output"
+          : entry.type === "diff"
+            ? "diff"
+            : entry.type === "session" || entry.type === "message"
+              ? "system"
+              : entry.type === "error" || entry.type === "stderr"
+                ? "error"
+                : undefined;
   return {
     tone,
     icon,
@@ -785,12 +810,13 @@ function renderLogItem(item: LogItem) {
 }
 
 type LogItem = {
-  tone: "assistant" | "user" | "muted" | "error";
+  tone: "assistant" | "user" | "muted" | "warning" | "error";
   icon?:
     | "read"
     | "write"
     | "bash"
     | "tool"
+    | "warning"
     | "output"
     | "diff"
     | "system"
@@ -831,10 +857,13 @@ function runStatusRank(status: AgentRunItem["status"]): number {
   return 0;
 }
 
-function logTone(type: string): "assistant" | "user" | "muted" | "error" {
+function logTone(
+  type: string
+): "assistant" | "user" | "muted" | "warning" | "error" {
   if (type === "user") return "user";
   if (type === "assistant") return "assistant";
   if (type === "error" || type === "stderr") return "error";
+  if (type === "warning") return "warning";
   if (
     type === "tool_call" ||
     type === "tool_output" ||
@@ -904,6 +933,20 @@ function logIcon(icon?: LogItem["icon"]) {
       </svg>
     );
   }
+  if (icon === "warning") {
+    return (
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M12 9v4M12 17h.01" />
+        <path d="M10.3 3.8L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0z" />
+      </svg>
+    );
+  }
   if (icon === "output") {
     return (
       <svg
@@ -966,6 +1009,7 @@ function logLabel(type: string, text: string): string {
     return name ? `Tool: ${name}` : "Tool call";
   }
   if (type === "tool_output") return "Tool output";
+  if (type === "warning") return "Warning";
   if (type === "diff") return "Diff";
   if (type === "session") return "Session";
   if (type === "message") return "System";
@@ -6183,6 +6227,11 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
         .log-line.error {
           color: #f5b0b0;
           background: rgba(42, 27, 27, 0.6);
+        }
+
+        .log-line.warning {
+          color: #f7d49a;
+          background: rgba(176, 122, 31, 0.2);
         }
 
         .log-line.live {

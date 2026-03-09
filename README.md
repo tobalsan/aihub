@@ -165,7 +165,9 @@ Coordinator prompts now include:
 
 - Canonical main repository path (not worker clone/worktree paths).
 - Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
+- `apm` delegation preflight (`command -v apm && apm --version`) before `apm start --template ...`.
 - `apm start --template` delegation examples that avoid template-locked flags unless `--allow-template-overrides` is set.
+  Shell tool cards show a warning callout (`No output captured`) when exec/bash output is structurally empty.
   Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
   Worker template prompts explicitly require committing implementation once checks pass.
 

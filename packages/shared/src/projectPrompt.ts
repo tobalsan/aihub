@@ -302,6 +302,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- Track progress and keep project docs updated",
           "- Verify acceptance criteria before signaling completion",
           "Use `apm start` with templates for delegation:",
+          "- Preflight first: `command -v apm && apm --version`",
           '- Worker: `apm start <project_id> --template worker --slug worker-<task> --name "Worker <Name>" --custom-prompt "Implement <task>; update SPECS.md status."`',
           '- Reviewer: `apm start <project_id> --template reviewer --slug reviewer-<scope> --name "Reviewer <Name>" --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
           '- Agent names are auto-generated (e.g. "Worker Sage") when using templates. Use `--name "..."` to override.',

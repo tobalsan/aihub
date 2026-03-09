@@ -80,8 +80,11 @@ describe("role-based project prompts", () => {
     expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
     expect(out).toContain("other relevant project markdown files");
     expect(out).toContain("Use `apm start` with templates for delegation:");
+    expect(out).toContain("Preflight first: `command -v apm && apm --version`");
     expect(out).toContain("--template worker --slug worker-<task> --name");
     expect(out).toContain("--template reviewer --slug reviewer-<scope> --name");
+    expect(out).not.toContain("cd /");
+    expect(out).not.toContain("/Users/");
     expect(out).toContain(
       "You do NOT run code reviews yourself. Always dispatch a Reviewer agent for review work."
     );
