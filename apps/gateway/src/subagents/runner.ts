@@ -222,7 +222,7 @@ async function canFindViaShell(execName: string): Promise<boolean> {
   if (!shell) return false;
   const child = spawn(
     shell,
-    ["-l", "-i", "-c", `type ${execName} >/dev/null 2>&1`],
+    ["-l", "-c", `type ${execName} >/dev/null 2>&1`],
     {
       stdio: "ignore",
     }
@@ -241,7 +241,7 @@ async function resolveViaShell(
   if (!(await canFindViaShell(execName))) return null;
   const shell = await resolveShell();
   if (!shell) return null;
-  const shellArgs = ["-l", "-i", "-c", `${execName} "$@"`, "--", ...args];
+  const shellArgs = ["-l", "-c", `${execName} "$@"`, "--", ...args];
   return { command: shell, args: shellArgs };
 }
 
@@ -261,6 +261,10 @@ function normalizeReplaces(input: string[] | undefined): string[] | undefined {
 function commonCandidatePaths(execName: string): string[] {
   const home = homedir();
   const candidates: string[] = [];
+  const nodeDir = path.dirname(process.execPath);
+  if (nodeDir && nodeDir !== ".") {
+    candidates.push(path.join(nodeDir, execName));
+  }
 
   if (home) {
     switch (execName) {
@@ -775,7 +779,7 @@ export async function spawnSubagent(
       ? await getGitHead(worktreePath)
       : undefined;
 
-  child.on("error", async () => {
+  child.on("error", async (err) => {
     const finishedAt = new Date().toISOString();
     await appendHistory(historyPath, {
       ts: finishedAt,
@@ -783,7 +787,8 @@ export async function spawnSubagent(
       data: {
         run_id: `${Date.now()}`,
         outcome: "error",
-        error_message: "spawn failed",
+        error_message:
+          err instanceof Error ? `spawn failed: ${err.message}` : "spawn failed",
       },
     });
     if (acquiredSpaceLease) {
@@ -1183,7 +1188,7 @@ export async function spawnRalphLoop(
     }
   );
 
-  child.on("error", async () => {
+  child.on("error", async (err) => {
     const finishedAt = new Date().toISOString();
     await appendHistory(historyPath, {
       ts: finishedAt,
@@ -1191,7 +1196,8 @@ export async function spawnRalphLoop(
       data: {
         run_id: `${Date.now()}`,
         outcome: "error",
-        error_message: "spawn failed",
+        error_message:
+          err instanceof Error ? `spawn failed: ${err.message}` : "spawn failed",
       },
     });
   });
