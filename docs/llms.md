@@ -62,6 +62,7 @@ Features:
 - Subagent config updates are supported post-creation via `PATCH /api/projects/:id/subagents/:slug` (`name`, `model`, `reasoningEffort`, `thinking`); `apm rename` maps to this endpoint and AgentPanel exposes a per-harness model selector when the run is not active.
 - Subagent chat polling guards prevent stale interval races on fast panel re-renders/remounts, preserving run-state UI (spinner/Stop/input-disabled) until meaningful assistant output arrives.
 - Project detail center-panel Activity tab intersperses two entry types in one timeline: thread comments (card-style) and synthesized subagent lifecycle events (plain rows). Start rows are concise (`<cli> started.`); completion/error rows can include short outcome snippets from recent subagent logs. Activity rows show compact relative time (`now|Xm|Xh|Xd ago`) appended after the event text.
+- Subagent shell tool cards render a warning state when exec/bash output is empty (`No output captured`) instead of appearing as blank success.
 - Project UI live refresh is event-driven via `/ws` file/agent change broadcasts: kanban refetches on any project `file_changed` event, project detail refetches on project file changes (`README.md`/`SPECS.md`/`THREAD.md`), and project subagent panels refetch immediately on `agent_changed` with a 2s polling fallback to recover from missed websocket events.
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
 - Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
@@ -74,7 +75,7 @@ Features:
 - Changes tab branch diff header (`Branch: ... → ...` with aggregate +/- stats) is clickable when pending branch diff files exist, and toggles a compact per-file +/- breakdown list
 - Space Commit Log rows include relative elapsed commit time (`now`, `1m`, `2h`, `3d`) next to author metadata
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
-- Coordinator template default prompt includes concise `apm start --template <worker|reviewer>` delegation examples and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
+- Coordinator template default prompt includes a preflight (`command -v apm && apm --version`) plus concise `apm start --template <worker|reviewer>` delegation examples and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
 - Coordinator template prompt explicitly forbids self-performing code review; review/verification must be delegated via `--template reviewer`
 - Coordinator delegation guidance forbids adding template-locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-template-overrides` is explicitly set
 - Worker template prompt explicitly requires committing implementation after checks are green

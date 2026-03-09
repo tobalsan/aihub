@@ -160,6 +160,66 @@ function buildRalphGroupKey(item: RalphLinkable): string {
   return `${projectPart}${item.slug}`;
 }
 
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function isShellToolName(name?: string): boolean {
+  const normalized = (name ?? "").trim().toLowerCase();
+  return normalized === "exec_command" || normalized === "bash";
+}
+
+function extractShellCommand(
+  toolName: string | undefined,
+  rawArgs: string | undefined
+): string {
+  if (!isShellToolName(toolName)) return "";
+  const parsed = parseJsonObject(rawArgs ?? "");
+  if (!parsed) return "";
+  if (typeof parsed.cmd === "string" && parsed.cmd.trim()) {
+    return parsed.cmd.trim();
+  }
+  if (typeof parsed.command === "string" && parsed.command.trim()) {
+    return parsed.command.trim();
+  }
+  return "";
+}
+
+function parseShellExecutionResult(text: string): {
+  stdout: string;
+  stderr: string;
+  isError: boolean;
+} | null {
+  const parsed = parseJsonObject(text);
+  if (!parsed) return null;
+  const output =
+    parsed.output && typeof parsed.output === "object"
+      ? (parsed.output as Record<string, unknown>)
+      : parsed;
+  const stdout = output.stdout;
+  const stderr = output.stderr;
+  const isError = output.is_error ?? output.isError;
+  if (typeof stdout !== "string" || typeof stderr !== "string") return null;
+  if (typeof isError !== "boolean") return null;
+  return { stdout, stderr, isError };
+}
+
+function emptyShellOutputDiagnostic(command: string): string {
+  return [
+    `No output captured for shell command: ${command}`,
+    "Hint: run `command -v apm && apm --version` before delegation, then retry (`apm ...` or `pnpm apm ...`).",
+  ].join("\n");
+}
+
 function attachRalphMetadata<T extends RalphLinkable>(items: T[]): T[] {
   const next = items.map((item) => ({ ...item }));
   const supervisors = next.filter((item) => item.type === "ralph_loop");
@@ -253,9 +313,7 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
                     ? message.toolCallId
                     : "",
                 name:
-                  typeof message?.toolName === "string"
-                    ? message.toolName
-                    : "",
+                  typeof message?.toolName === "string" ? message.toolName : "",
               },
             });
           } else {
@@ -274,11 +332,7 @@ function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
             item.input ??
             (typeof item.args === "object" ? item.args : undefined);
           const text =
-            typeof args === "string"
-              ? args
-              : args
-                ? JSON.stringify(args)
-                : "";
+            typeof args === "string" ? args : args ? JSON.stringify(args) : "";
           events.push({ type: "tool_call", text, tool: { name, id } });
         }
       }
@@ -710,7 +764,9 @@ async function resolveSubagentConfigPath(
   config: GatewayConfig,
   projectId: string,
   slug: string
-): Promise<{ ok: true; data: { configPath: string } } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; data: { configPath: string } } | { ok: false; error: string }
+> {
   const root = getProjectsRoot(config);
   const dirName = await findProjectDir(root, projectId);
   if (!dirName) {
@@ -739,7 +795,9 @@ export async function readSubagentConfig(
 ): Promise<ReadSubagentConfigResult> {
   const resolved = await resolveSubagentConfigPath(config, projectId, slug);
   if (!resolved.ok) return resolved;
-  const configData = await readJson<SubagentStoredConfig>(resolved.data.configPath);
+  const configData = await readJson<SubagentStoredConfig>(
+    resolved.data.configPath
+  );
   if (!configData) {
     return { ok: false, error: `Subagent config missing: ${slug}` };
   }
@@ -754,7 +812,9 @@ export async function updateSubagentConfig(
 ): Promise<UpdateSubagentConfigResult> {
   const resolved = await resolveSubagentConfigPath(config, projectId, slug);
   if (!resolved.ok) return resolved;
-  const current = await readJson<SubagentStoredConfig>(resolved.data.configPath);
+  const current = await readJson<SubagentStoredConfig>(
+    resolved.data.configPath
+  );
   if (!current) {
     return { ok: false, error: `Subagent config missing: ${slug}` };
   }
@@ -942,6 +1002,7 @@ export async function getSubagentLogs(
   const text = slice.toString("utf8");
   const lines = text.split(/\r?\n/).filter((line) => line.length > 0);
   const events: SubagentLogEvent[] = [];
+  const shellCommandByToolId = new Map<string, string>();
   for (const line of lines) {
     const normalized = normalizeLogLine(line);
     let parentToolUseId: string | undefined;
@@ -955,12 +1016,39 @@ export async function getSubagentLogs(
     }
     const attach = (ev: SubagentLogEvent): SubagentLogEvent =>
       parentToolUseId ? { ...ev, parentToolUseId } : ev;
+    const appendEvent = (ev: SubagentLogEvent): void => {
+      const next = attach(ev);
+      events.push(next);
+      const toolId = next.tool?.id?.trim();
+      if (next.type === "tool_call" && toolId) {
+        const command = extractShellCommand(next.tool?.name, next.text);
+        if (command) shellCommandByToolId.set(toolId, command);
+      }
+      if (next.type !== "tool_output" || !toolId) return;
+      const command = shellCommandByToolId.get(toolId);
+      if (!command) return;
+      const shellResult = parseShellExecutionResult(next.text ?? "");
+      if (!shellResult) return;
+      if (
+        shellResult.stdout === "" &&
+        shellResult.stderr === "" &&
+        shellResult.isError === false
+      ) {
+        events.push(
+          attach({
+            type: "warning",
+            text: emptyShellOutputDiagnostic(command),
+            tool: { id: toolId, name: next.tool?.name },
+          })
+        );
+      }
+    };
     if (Array.isArray(normalized)) {
       for (const ev of normalized) {
-        events.push(attach(ev));
+        appendEvent(ev);
       }
     } else if (normalized.type !== "skip") {
-      events.push(attach(normalized));
+      appendEvent(normalized);
     }
   }
 

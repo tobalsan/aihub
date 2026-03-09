@@ -68,6 +68,32 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
   - `pnpm typecheck`
   - `pnpm test` (57 files, 552 tests passed)
 
+### 2026-03-09: Silent `apm exec` diagnostics surfaced for subagents (PRO-169)
+
+- `apps/gateway/src/subagents/index.ts`
+  - Added shell-result normalization for `exec_command`/`bash` runs.
+  - When a shell tool output payload is structurally empty (`stdout=""`, `stderr=""`, `is_error=false`) and command is known, gateway now emits a `warning` log event with:
+    - original command
+    - remediation hint (`command -v apm && apm --version`, then retry with `apm ...` or `pnpm apm ...`)
+- `packages/shared/src/projectPrompt.ts`
+  - Coordinator delegation instructions now include path-agnostic `apm` preflight guidance before template dispatch.
+- `apps/web/src/components/AgentChat.tsx`
+  - Added warning tone/icon handling for `warning` log events.
+  - Shell tool cards now show `No output captured` warning state instead of muted/blank success when output is empty.
+- `apps/web/src/components/ProjectsBoard.tsx`
+  - Applied same shell-card warning behavior + warning tone/icon mapping in project monitoring logs.
+- Tests:
+  - Added `apps/gateway/src/subagents/index.test.ts` for empty-shell diagnostic emission and non-empty guard case.
+  - Extended `apps/web/src/components/AgentChat.test.tsx` with UI assertion for empty shell output warning callout.
+  - Updated `packages/shared/src/projectPrompt.test.ts` to assert preflight instruction and no hardcoded absolute-path guidance in coordinator examples.
+- Docs:
+  - Updated `docs/llms.md` and `README.md` with preflight + shell warning behavior notes.
+- Verification:
+  - `pnpm exec prettier --write apps/gateway/src/subagents/index.ts apps/gateway/src/subagents/index.test.ts apps/web/src/components/AgentChat.tsx apps/web/src/components/AgentChat.test.tsx apps/web/src/components/ProjectsBoard.tsx`
+  - `pnpm typecheck`
+  - `pnpm lint` (passes with existing repository warnings only)
+  - `pnpm test` (56 files / 552 tests passing)
+
 ### 2026-03-07: Space per-entry skip/integrate + delivery replaces (PRO-174)
 
 - `apps/gateway/src/projects/space.ts`

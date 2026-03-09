@@ -97,7 +97,10 @@ describe("AgentChat stop/send behavior", () => {
       data: { cursor: 0, events: [] },
     });
     getSessionKeyMock.mockReturnValue("main");
-    spawnSubagentMock.mockResolvedValue({ ok: true, data: { slug: "worker-1" } });
+    spawnSubagentMock.mockResolvedValue({
+      ok: true,
+      data: { slug: "worker-1" },
+    });
     streamMessageMock.mockImplementation(
       (
         _agentId: string,
@@ -106,12 +109,19 @@ describe("AgentChat stop/send behavior", () => {
         _onText: (text: string) => void,
         _onDone: () => void,
         _onError: (error: string) => void
-      ) => () => {}
+      ) =>
+        () => {}
     );
     subscribeToSessionMock.mockImplementation(() => () => {});
     uploadFilesMock.mockResolvedValue([]);
-    interruptSubagentMock.mockResolvedValue({ ok: true, data: { slug: "worker-1" } });
-    killSubagentMock.mockResolvedValue({ ok: true, data: { slug: "worker-1" } });
+    interruptSubagentMock.mockResolvedValue({
+      ok: true,
+      data: { slug: "worker-1" },
+    });
+    killSubagentMock.mockResolvedValue({
+      ok: true,
+      data: { slug: "worker-1" },
+    });
     archiveSubagentMock.mockResolvedValue({
       ok: true,
       data: { slug: "worker-1", archived: true },
@@ -169,7 +179,9 @@ describe("AgentChat stop/send behavior", () => {
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
     expect(container.querySelector(".send-btn")).toBeNull();
-    expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(true);
+    expect(
+      (container.querySelector("textarea") as HTMLTextAreaElement).disabled
+    ).toBe(true);
 
     dispose();
   });
@@ -369,6 +381,38 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("renders warning callout for shell tool calls with empty output", async () => {
+    fetchSubagentLogsMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        cursor: 1,
+        events: [
+          {
+            type: "tool_call",
+            tool: { id: "t1", name: "exec_command" },
+            text: JSON.stringify({ cmd: "apm start PRO-1 --template worker" }),
+          },
+          {
+            type: "tool_output",
+            tool: { id: "t1", name: "exec_command" },
+            text: "",
+          },
+        ],
+      },
+    });
+
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+    await tick();
+
+    const warning = container.querySelector(".log-line.warning");
+    expect(warning).not.toBeNull();
+    expect(warning?.textContent).toContain("No output captured.");
+    expect(warning?.textContent).toContain("apm start PRO-1 --template worker");
+
+    dispose();
+  });
+
   it("shows Stop while lead agent is streaming", async () => {
     const { container, dispose } = renderLead();
     await tick();
@@ -409,7 +453,9 @@ describe("AgentChat stop/send behavior", () => {
     stopBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await tick();
 
-    const stoppingBtn = container.querySelector(".stop-btn") as HTMLButtonElement;
+    const stoppingBtn = container.querySelector(
+      ".stop-btn"
+    ) as HTMLButtonElement;
     expect(stoppingBtn.disabled).toBe(true);
     expect(stoppingBtn.textContent).toContain("Stopping...");
 
