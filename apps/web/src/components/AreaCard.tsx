@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createSignal } from "solid-js";
+import { A } from "@solidjs/router";
 import type { Area } from "../api/types";
 import { AreaEditForm, type AreaEditDraft } from "./AreaEditForm";
 
@@ -117,12 +118,12 @@ export function AreaCard(props: AreaCardProps) {
         }
       >
         <div class="area-card-top">
-          <a
+          <A
             class="area-title-link"
             href={`/projects?area=${encodeURIComponent(props.area.id)}`}
           >
             {props.area.title}
-          </a>
+          </A>
           <button
             class="area-edit-toggle"
             type="button"

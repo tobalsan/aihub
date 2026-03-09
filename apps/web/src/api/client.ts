@@ -617,7 +617,7 @@ export async function createProjectFromConversation(
 // Projects API functions
 export async function fetchProjects(area?: string): Promise<ProjectListItem[]> {
   const params = new URLSearchParams();
-  if (area && area.trim().length > 0) {
+  if (typeof area === "string" && area.trim().length > 0) {
     params.set("area", area.trim());
   }
   const query = params.toString();

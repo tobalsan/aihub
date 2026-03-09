@@ -315,6 +315,9 @@ export function AreasOverview() {
         }
 
         .area-edit-input {
+          box-sizing: border-box;
+          width: 100%;
+          min-width: 0;
           border: 1px solid var(--border-subtle);
           background: var(--bg-input);
           color: var(--text-primary);
