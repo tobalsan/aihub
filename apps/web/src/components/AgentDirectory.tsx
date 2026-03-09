@@ -8,7 +8,6 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import { A } from "@solidjs/router";
 import {
   fetchAgents,
   fetchAllSubagents,
@@ -16,7 +15,7 @@ import {
   fetchProjects,
   subscribeToStatus,
 } from "../api/client";
-import type { ProjectListItem, SubagentGlobalListItem } from "../api/types";
+import type { SubagentGlobalListItem } from "../api/types";
 
 type AgentDirectoryProps = {
   selectedAgent: Accessor<string | null>;
@@ -30,11 +29,6 @@ type ActiveProjectItem = {
   status: "running" | "idle" | "error";
   lastActiveMs: number;
 };
-
-function getFrontmatterStatus(project: ProjectListItem): string {
-  const value = project.frontmatter?.status;
-  return typeof value === "string" ? value : "";
-}
 
 function parseIsoTimestamp(input?: string): number {
   if (!input) return 0;
@@ -124,7 +118,6 @@ export function AgentDirectory(props: AgentDirectoryProps) {
     for (const [projectId, entries] of grouped.entries()) {
       const project = projectById.get(projectId);
       if (!project) continue;
-      if (getFrontmatterStatus(project) !== "in_progress") continue;
       if (!entries.some((entry) => entry.status === "running")) continue;
       const lastActiveMs = entries.reduce(
         (latest, entry) =>
@@ -141,8 +134,6 @@ export function AgentDirectory(props: AgentDirectoryProps) {
 
     return items.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
   });
-
-  const visibleActiveProjects = createMemo(() => activeProjects().slice(0, 5));
 
   const getAgentStatus = (agentId: string) =>
     statuses()[agentId] === "streaming" ? "running" : "idle";
@@ -183,17 +174,12 @@ export function AgentDirectory(props: AgentDirectoryProps) {
       </div>
 
       <div class="agent-section">
-        <div class="section-title-row">
-          <div class="section-title">ACTIVE PROJECTS</div>
-          <A class="section-link" href="/projects">
-            View all
-          </A>
-        </div>
+        <div class="section-title">ACTIVE PROJECTS</div>
         <Show
-          when={visibleActiveProjects().length > 0}
+          when={activeProjects().length > 0}
           fallback={<div class="section-empty">No active projects</div>}
         >
-          <For each={visibleActiveProjects()}>
+          <For each={activeProjects()}>
             {(item) => (
               <button
                 class="agent-item project-item"
@@ -252,23 +238,6 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           font-size: 11px;
           color: var(--text-muted);
           letter-spacing: 0.5px;
-        }
-
-        .section-title-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-        }
-
-        .section-link {
-          color: var(--text-secondary);
-          text-decoration: none;
-          font-size: 12px;
-        }
-
-        .section-link:hover {
-          color: var(--text-primary);
         }
 
         .section-empty {

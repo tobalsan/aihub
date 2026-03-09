@@ -44,6 +44,26 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 - Docs:
   - Updated `README.md` + `docs/llms.md` route/navigation notes for Areas homepage and filtered kanban.
 
+### 2026-03-09: PRO-168 active projects in right sidebar Agents tab
+
+- `apps/web/src/components/AgentDirectory.tsx`
+  - Kept `LEAD AGENTS` section unchanged.
+  - Replaced `SUBAGENTS` section with `ACTIVE PROJECTS`.
+  - Added `fetchProjects()` resource and combined it with global subagent status data.
+  - Active project criteria:
+    - at least one subagent has `status === "running"`
+  - Project rows are ordered by most recent `lastActive` timestamp.
+  - Each row now shows project id/title, status indicator (running/idle/error), and relative last-activity time.
+  - Clicking a project row calls `onOpenProject(projectId)` to navigate to project detail.
+- `apps/web/src/components/ContextPanel.tsx`
+  - Passed `onOpenProject` through to `AgentDirectory`.
+- `apps/web/src/components/AgentDirectory.test.tsx`
+  - Reworked tests to cover:
+    - lead-agent section/status still rendering
+    - active-project filtering (running only, regardless of project status)
+    - recency ordering
+    - project row click navigation callback
+
 ### 2026-03-09: PRO-155 quick lead-agent access overlay
 
 - `apps/web/src/App.tsx`
