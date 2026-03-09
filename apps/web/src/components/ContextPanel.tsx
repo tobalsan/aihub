@@ -178,6 +178,7 @@ export function ContextPanel(props: ContextPanelProps) {
           <AgentDirectory
             selectedAgent={props.selectedAgent}
             onSelectAgent={props.onSelectAgent}
+            onOpenProject={props.onOpenProject}
           />
         </Show>
         <Show when={mode() === "feed"}>

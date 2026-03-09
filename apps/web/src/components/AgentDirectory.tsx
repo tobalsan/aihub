@@ -3,82 +3,69 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   onCleanup,
 } from "solid-js";
+import { A } from "@solidjs/router";
 import {
   fetchAgents,
   fetchAllSubagents,
   fetchAgentStatuses,
+  fetchProjects,
   subscribeToStatus,
 } from "../api/client";
-import type { SubagentGlobalListItem } from "../api/types";
+import type { ProjectListItem, SubagentGlobalListItem } from "../api/types";
 
 type AgentDirectoryProps = {
   selectedAgent: Accessor<string | null>;
   onSelectAgent: (id: string) => void;
+  onOpenProject: (id: string) => void;
 };
 
-function toSubagentId(item: SubagentGlobalListItem): string {
-  return `${item.projectId}/${item.slug}`;
+type ActiveProjectItem = {
+  id: string;
+  title: string;
+  status: "running" | "idle" | "error";
+  lastActiveMs: number;
+};
+
+function getFrontmatterStatus(project: ProjectListItem): string {
+  const value = project.frontmatter?.status;
+  return typeof value === "string" ? value : "";
 }
 
-function toSubagentLabel(item: SubagentGlobalListItem): string {
-  return `${item.projectId}/${item.cli ?? item.slug}`;
+function parseIsoTimestamp(input?: string): number {
+  if (!input) return 0;
+  const parsed = Date.parse(input);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function statusRank(status: SubagentGlobalListItem["status"]): number {
-  if (status === "running") return 3;
-  if (status === "error") return 2;
-  if (status === "replied") return 1;
-  return 0;
+function relativeTime(timestampMs: number): string {
+  if (timestampMs <= 0) return "-";
+  const elapsed = Date.now() - timestampMs;
+  if (elapsed < 60_000) return "now";
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
 
-function dominantStatus(...statuses: Array<SubagentGlobalListItem["status"]>) {
-  return statuses.reduce((best, next) =>
-    statusRank(next) > statusRank(best) ? next : best
-  );
-}
-
-function mergeRalphRows(
+function projectRunStatus(
   items: SubagentGlobalListItem[]
-): SubagentGlobalListItem[] {
-  const grouped = new Map<
-    string,
-    { supervisor?: SubagentGlobalListItem; worker?: SubagentGlobalListItem }
-  >();
-  const passthrough: SubagentGlobalListItem[] = [];
+): ActiveProjectItem["status"] {
+  if (items.some((item) => item.status === "running")) return "running";
+  if (items.some((item) => item.status === "error")) return "error";
+  return "idle";
+}
 
-  for (const item of items) {
-    if (!item.groupKey) {
-      passthrough.push(item);
-      continue;
-    }
-    const current = grouped.get(item.groupKey) ?? {};
-    if (item.role === "supervisor") current.supervisor = item;
-    else if (item.role === "worker") current.worker = item;
-    else passthrough.push(item);
-    grouped.set(item.groupKey, current);
-  }
-
-  const merged: SubagentGlobalListItem[] = [];
-  for (const entry of grouped.values()) {
-    if (entry.supervisor) {
-      if (entry.worker) {
-        merged.push({
-          ...entry.supervisor,
-          status: dominantStatus(entry.supervisor.status, entry.worker.status),
-        });
-      } else {
-        merged.push(entry.supervisor);
-      }
-      continue;
-    }
-    if (entry.worker) merged.push(entry.worker);
-  }
-
-  return [...passthrough, ...merged];
+function statusLabel(status: ActiveProjectItem["status"]): string {
+  if (status === "running") return "RUNNING";
+  if (status === "error") return "ERROR";
+  return "IDLE";
 }
 
 function getInitials(name: string): string {
@@ -91,7 +78,10 @@ function getInitials(name: string): string {
 
 export function AgentDirectory(props: AgentDirectoryProps) {
   const [agents] = createResource(fetchAgents);
-  const [subagents, { refetch }] = createResource(fetchAllSubagents);
+  const [subagents, { refetch: refetchSubagents }] =
+    createResource(fetchAllSubagents);
+  const [projects, { refetch: refetchProjects }] =
+    createResource(fetchProjects);
   const [statuses, setStatuses] = createSignal<
     Record<string, "streaming" | "idle">
   >({});
@@ -113,10 +103,46 @@ export function AgentDirectory(props: AgentDirectoryProps) {
 
   createEffect(() => {
     const interval = setInterval(() => {
-      refetch();
+      void refetchSubagents();
+      void refetchProjects();
     }, 5000);
     onCleanup(() => clearInterval(interval));
   });
+
+  const activeProjects = createMemo<ActiveProjectItem[]>(() => {
+    const projectById = new Map(
+      (projects() ?? []).map((item) => [item.id, item])
+    );
+    const grouped = new Map<string, SubagentGlobalListItem[]>();
+    for (const item of subagents()?.items ?? []) {
+      const existing = grouped.get(item.projectId);
+      if (existing) existing.push(item);
+      else grouped.set(item.projectId, [item]);
+    }
+
+    const items: ActiveProjectItem[] = [];
+    for (const [projectId, entries] of grouped.entries()) {
+      const project = projectById.get(projectId);
+      if (!project) continue;
+      if (getFrontmatterStatus(project) !== "in_progress") continue;
+      if (!entries.some((entry) => entry.status === "running")) continue;
+      const lastActiveMs = entries.reduce(
+        (latest, entry) =>
+          Math.max(latest, parseIsoTimestamp(entry.lastActive)),
+        0
+      );
+      items.push({
+        id: projectId,
+        title: project.title,
+        status: projectRunStatus(entries),
+        lastActiveMs,
+      });
+    }
+
+    return items.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
+  });
+
+  const visibleActiveProjects = createMemo(() => activeProjects().slice(0, 5));
 
   const getAgentStatus = (agentId: string) =>
     statuses()[agentId] === "streaming" ? "running" : "idle";
@@ -136,7 +162,10 @@ export function AgentDirectory(props: AgentDirectoryProps) {
                   classList={{ selected: props.selectedAgent() === agent.id }}
                   onClick={() => props.onSelectAgent(agent.id)}
                 >
-                  <span class="agent-avatar" classList={{ running: isRunning() }}>
+                  <span
+                    class="agent-avatar"
+                    classList={{ running: isRunning() }}
+                  >
                     {getInitials(agent.name)}
                   </span>
                   <span class="agent-label">{agent.name}</span>
@@ -154,31 +183,51 @@ export function AgentDirectory(props: AgentDirectoryProps) {
       </div>
 
       <div class="agent-section">
-        <div class="section-title">SUBAGENTS</div>
-        <Show when={subagents()}>
-          <For each={mergeRalphRows(subagents()?.items ?? [])}>
-            {(item) => {
-              const id = toSubagentId(item);
-              const label = toSubagentLabel(item);
-              const initials = getInitials(item.cli ?? item.slug);
-              const isRunning = item.status === "running";
-              return (
-                <button
-                  class="agent-item"
-                  type="button"
-                  classList={{ selected: props.selectedAgent() === id }}
-                  onClick={() => props.onSelectAgent(id)}
+        <div class="section-title-row">
+          <div class="section-title">ACTIVE PROJECTS</div>
+          <A class="section-link" href="/projects">
+            View all
+          </A>
+        </div>
+        <Show
+          when={visibleActiveProjects().length > 0}
+          fallback={<div class="section-empty">No active projects</div>}
+        >
+          <For each={visibleActiveProjects()}>
+            {(item) => (
+              <button
+                class="agent-item project-item"
+                type="button"
+                onClick={() => props.onOpenProject(item.id)}
+                title={`${item.id}: ${item.title} (${item.status})`}
+              >
+                <span
+                  class="project-dot"
+                  classList={{
+                    running: item.status === "running",
+                    idle: item.status === "idle",
+                    error: item.status === "error",
+                  }}
+                  aria-hidden="true"
+                />
+                <span class="agent-label">
+                  {item.id}: {item.title}
+                </span>
+                <span class="project-time">
+                  {relativeTime(item.lastActiveMs)}
+                </span>
+                <span
+                  class="status-pill"
+                  classList={{
+                    working: item.status === "running",
+                    idle: item.status === "idle",
+                    error: item.status === "error",
+                  }}
                 >
-                  <span class={`agent-avatar ${isRunning ? "running" : ""}`}>
-                    {initials}
-                  </span>
-                  <span class="agent-label">{label}</span>
-                  <span class={`status-pill ${isRunning ? "working" : "idle"}`}>
-                    {isRunning ? "WORKING" : "IDLE"}
-                  </span>
-                </button>
-              );
-            }}
+                  {statusLabel(item.status)}
+                </span>
+              </button>
+            )}
           </For>
         </Show>
       </div>
@@ -203,6 +252,29 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           font-size: 11px;
           color: var(--text-muted);
           letter-spacing: 0.5px;
+        }
+
+        .section-title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .section-link {
+          color: var(--text-secondary);
+          text-decoration: none;
+          font-size: 12px;
+        }
+
+        .section-link:hover {
+          color: var(--text-primary);
+        }
+
+        .section-empty {
+          font-size: 12px;
+          color: var(--text-muted);
+          padding: 4px 8px;
         }
 
         .agent-item {
@@ -272,6 +344,43 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           background: #bbf7d0;
           color: #065f46;
           border-color: #86efac;
+        }
+
+        .status-pill.error {
+          background: #fee2e2;
+          color: #991b1b;
+          border-color: #fecaca;
+        }
+
+        .project-item {
+          gap: 8px;
+        }
+
+        .project-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          flex: 0 0 auto;
+          background: #9ca3af;
+        }
+
+        .project-dot.running {
+          background: #22c55e;
+        }
+
+        .project-dot.idle {
+          background: #94a3b8;
+        }
+
+        .project-dot.error {
+          background: #ef4444;
+        }
+
+        .project-time {
+          margin-left: auto;
+          color: var(--text-muted);
+          font-size: 11px;
+          flex: 0 0 auto;
         }
 
         .agent-label {

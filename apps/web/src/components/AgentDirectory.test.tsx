@@ -2,39 +2,41 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
+import type {
+  Agent,
+  ProjectListItem,
+  SubagentGlobalListItem,
+} from "../api/types";
 import { AgentDirectory } from "./AgentDirectory";
 
+const {
+  fetchAgentsMock,
+  fetchAllSubagentsMock,
+  fetchProjectsMock,
+  fetchAgentStatusesMock,
+  subscribeToStatusMock,
+} = vi.hoisted(() => ({
+  fetchAgentsMock: vi.fn<() => Promise<Agent[]>>(async () => []),
+  fetchAllSubagentsMock: vi.fn<
+    () => Promise<{ items: SubagentGlobalListItem[] }>
+  >(async () => ({ items: [] })),
+  fetchProjectsMock: vi.fn<() => Promise<ProjectListItem[]>>(async () => []),
+  fetchAgentStatusesMock: vi.fn<
+    () => Promise<{ statuses: Record<string, "streaming" | "idle"> }>
+  >(async () => ({ statuses: {} })),
+  subscribeToStatusMock: vi.fn(() => () => {}),
+}));
+
 vi.mock("../api/client", () => ({
-  fetchAgents: vi.fn(async () => []),
-  fetchAllSubagents: vi.fn(async () => ({
-    items: [
-      {
-        projectId: "PRO-1",
-        slug: "ralph-1",
-        cli: "codex",
-        status: "idle",
-        role: "supervisor",
-        groupKey: "PRO-1:ralph-1",
-      },
-      {
-        projectId: "PRO-1",
-        slug: "worker-1",
-        cli: "codex",
-        status: "running",
-        role: "worker",
-        parentSlug: "ralph-1",
-        groupKey: "PRO-1:ralph-1",
-      },
-      {
-        projectId: "PRO-2",
-        slug: "beta",
-        cli: "claude",
-        status: "idle",
-      },
-    ],
-  })),
-  fetchAgentStatuses: vi.fn(async () => ({ statuses: {} })),
-  subscribeToStatus: vi.fn(() => () => {}),
+  fetchAgents: fetchAgentsMock,
+  fetchAllSubagents: fetchAllSubagentsMock,
+  fetchProjects: fetchProjectsMock,
+  fetchAgentStatuses: fetchAgentStatusesMock,
+  subscribeToStatus: subscribeToStatusMock,
+}));
+
+vi.mock("@solidjs/router", () => ({
+  A: (props: Record<string, unknown>) => <a {...props} />,
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -42,10 +44,149 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("AgentDirectory", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    fetchAgentsMock.mockReset();
+    fetchAllSubagentsMock.mockReset();
+    fetchProjectsMock.mockReset();
+    fetchAgentStatusesMock.mockReset();
+    subscribeToStatusMock.mockReset();
+    fetchAgentsMock.mockResolvedValue([]);
+    fetchAllSubagentsMock.mockResolvedValue({ items: [] });
+    fetchProjectsMock.mockResolvedValue([]);
+    fetchAgentStatusesMock.mockResolvedValue({ statuses: {} });
+    subscribeToStatusMock.mockReturnValue(() => {});
     vi.clearAllMocks();
   });
 
-  it("merges ralph supervisor/worker rows and uses dominant status", async () => {
+  it("keeps lead agents and status pills", async () => {
+    fetchAgentsMock.mockResolvedValue([
+      {
+        id: "lead-1",
+        name: "Lead One",
+        model: { provider: "anthropic", model: "claude" },
+      },
+    ] as Agent[]);
+    fetchAgentStatusesMock.mockResolvedValue({
+      statuses: { "lead-1": "streaming" },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [selected] = createSignal<string | null>("lead-1");
+
+    const dispose = render(
+      () => (
+        <AgentDirectory
+          selectedAgent={selected}
+          onSelectAgent={() => {}}
+          onOpenProject={() => {}}
+        />
+      ),
+      container
+    );
+
+    await tick();
+    await tick();
+
+    expect(container.textContent).toContain("LEAD AGENTS");
+    expect(container.textContent).toContain("Lead One");
+    expect(container.textContent).toContain("WORKING");
+
+    dispose();
+  });
+
+  it("shows all projects with running agents, ordered by latest activity", async () => {
+    fetchAllSubagentsMock.mockResolvedValue({
+      items: [
+        {
+          projectId: "PRO-1",
+          slug: "alpha",
+          cli: "codex",
+          status: "running",
+          lastActive: "2026-03-09T09:00:00.000Z",
+        },
+        {
+          projectId: "PRO-2",
+          slug: "beta",
+          cli: "claude",
+          status: "running",
+          lastActive: "2026-03-09T10:00:00.000Z",
+        },
+        {
+          projectId: "PRO-3",
+          slug: "gamma",
+          cli: "codex",
+          status: "running",
+          lastActive: "2026-03-09T11:00:00.000Z",
+        },
+        {
+          projectId: "PRO-4",
+          slug: "delta",
+          cli: "codex",
+          status: "running",
+          lastActive: "2026-03-09T12:00:00.000Z",
+        },
+        {
+          projectId: "PRO-5",
+          slug: "eps",
+          cli: "codex",
+          status: "running",
+          lastActive: "2026-03-09T13:00:00.000Z",
+        },
+        {
+          projectId: "PRO-6",
+          slug: "zeta",
+          cli: "codex",
+          status: "running",
+          lastActive: "2026-03-09T14:00:00.000Z",
+        },
+      ],
+    });
+    fetchProjectsMock.mockResolvedValue([
+      {
+        id: "PRO-1",
+        title: "First active project",
+        path: "",
+        absolutePath: "",
+        frontmatter: { status: "in_progress" },
+      },
+      {
+        id: "PRO-2",
+        title: "Second active project",
+        path: "",
+        absolutePath: "",
+        frontmatter: { status: "todo" },
+      },
+      {
+        id: "PRO-3",
+        title: "Done but running",
+        path: "",
+        absolutePath: "",
+        frontmatter: { status: "done" },
+      },
+      {
+        id: "PRO-4",
+        title: "Fourth active project",
+        path: "",
+        absolutePath: "",
+        frontmatter: { status: "shaping" },
+      },
+      {
+        id: "PRO-5",
+        title: "Fifth active project",
+        path: "",
+        absolutePath: "",
+        frontmatter: { status: "todo" },
+      },
+      {
+        id: "PRO-6",
+        title: "Sixth active project",
+        path: "",
+        absolutePath: "",
+        frontmatter: { status: "maybe" },
+      },
+    ] as ProjectListItem[]);
+    const onOpenProject = vi.fn<(id: string) => void>();
+
     const container = document.createElement("div");
     document.body.appendChild(container);
     const [selected] = createSignal<string | null>(null);
@@ -55,6 +196,7 @@ describe("AgentDirectory", () => {
         <AgentDirectory
           selectedAgent={selected}
           onSelectAgent={() => {}}
+          onOpenProject={onOpenProject}
         />
       ),
       container
@@ -63,15 +205,32 @@ describe("AgentDirectory", () => {
     await tick();
     await tick();
 
-    expect(container.textContent).toContain("PRO-1/codex");
-    expect(container.textContent).toContain("PRO-2/claude");
-    expect(container.textContent).not.toContain("PRO-1/worker-1");
+    expect(container.textContent).toContain("ACTIVE PROJECTS");
+    expect(container.textContent).not.toContain("View all");
+    expect(container.textContent).toContain("PRO-6: Sixth active project");
+    expect(container.textContent).toContain("PRO-5: Fifth active project");
+    expect(container.textContent).toContain("PRO-4: Fourth active project");
+    expect(container.textContent).toContain("PRO-3: Done but running");
+    expect(container.textContent).toContain("PRO-2: Second active project");
+    expect(container.textContent).toContain("PRO-1: First active project");
 
-    const rows = Array.from(container.querySelectorAll(".agent-item"));
-    const mergedRow = rows.find((row) =>
-      row.textContent?.includes("PRO-1/codex")
-    );
-    expect(mergedRow?.textContent).toContain("WORKING");
+    const projectRows = Array.from(
+      container.querySelectorAll(".project-item .agent-label")
+    ).map((node) => node.textContent?.trim());
+    expect(projectRows).toEqual([
+      "PRO-6: Sixth active project",
+      "PRO-5: Fifth active project",
+      "PRO-4: Fourth active project",
+      "PRO-3: Done but running",
+      "PRO-2: Second active project",
+      "PRO-1: First active project",
+    ]);
+
+    const firstProjectRow = container.querySelector(
+      ".project-item"
+    ) as HTMLButtonElement;
+    firstProjectRow.click();
+    expect(onOpenProject).toHaveBeenCalledWith("PRO-6");
 
     dispose();
   });
