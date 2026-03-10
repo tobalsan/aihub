@@ -122,6 +122,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   opus: 200_000,
   sonnet: 200_000,
   haiku: 200_000,
+  "gpt-5.4": 200_000,
   "gpt-5.3-codex": 200_000,
   "gpt-5.3-codex-spark": 200_000,
   "gpt-5.2": 128_000,

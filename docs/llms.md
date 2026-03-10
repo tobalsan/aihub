@@ -438,7 +438,7 @@ Behavior:
   - Spawn: `pi --mode json --session <session_file> "<prompt>"`
   - Resume: reuses the same `--session <session_file>`.
 - Harness-specific model/reasoning flags:
-  - Codex: `-m <model>` and `-c reasoning_effort=<xhigh|high|medium|low>`
+  - Codex: `-m <model>` and `-c reasoning_effort=<xhigh|high|medium|low>` where `<model>` is one of `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`
   - Claude: `--model <model>` and `--effort <high|medium|low>`
   - Pi: `--model <id>` and `--thinking <off|low|medium|high|xhigh>`
 - Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/harness naming.

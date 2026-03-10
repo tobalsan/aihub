@@ -138,7 +138,7 @@ const execFileAsync = promisify(execFile);
 
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
-const CODEX_MODELS = ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
+const CODEX_MODELS = ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
 const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
 const PI_MODELS = [
   "qwen3.5-plus",

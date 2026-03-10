@@ -135,7 +135,7 @@ type StartPromptRole = SharedStartPromptRole;
 type StartHarness = "codex" | "claude" | "pi";
 
 const START_HARNESS_MODELS: Record<StartHarness, readonly string[]> = {
-  codex: ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
+  codex: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
   claude: ["opus", "sonnet", "haiku"],
   pi: [
     "qwen3.5-plus",

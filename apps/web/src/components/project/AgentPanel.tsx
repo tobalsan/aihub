@@ -63,7 +63,7 @@ const AGENT_NAMES = [
 
 const MODEL_OPTIONS: Record<string, readonly string[]> = {
   claude: ["opus", "sonnet", "haiku"],
-  codex: ["gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
+  codex: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
   pi: [
     "qwen3.5-plus",
     "qwen3-max-2026-01-23",

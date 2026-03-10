@@ -134,6 +134,7 @@ Template default mapping (`--template`) mirrors the UI preparation form:
 - `worker`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:true`
 - `reviewer`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:false`
 - `custom`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=xhigh`, includes = `default:true`, `role:true`, `postRun:true`
+- Codex model options for prepared runs: `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`
 - If `--agent pi` overrides the template harness, the template effort is translated to `thinking` (and model/level are normalized to valid PI defaults when needed).
 
 Any explicit flag (`--agent`, `--model`, `--include-*`, `--exclude-*`) overrides template defaults.

@@ -11,6 +11,23 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-10: Codex `gpt-5.4` added to run preparation + CLI model validation
+
+- `apps/web/src/components/project/SpawnForm.tsx`
+  - Added `gpt-5.4` to Codex model options in the run preparation form.
+- `apps/web/src/components/project/AgentPanel.tsx`
+  - Added `gpt-5.4` to the editable Codex model list for idle subagents.
+- `apps/web/src/components/AgentChat.tsx`
+  - Added a context window entry for `gpt-5.4`.
+- `packages/cli/src/index.ts`
+  - Added `gpt-5.4` to `apm start` Codex model validation/mapping.
+- `apps/gateway/src/server/api.ts`
+  - Added `gpt-5.4` to server-side Codex model validation for subagent/project runs.
+- `packages/cli/src/index.start.test.ts`
+  - Added CLI mapping coverage for `gpt-5.4`.
+- Docs:
+  - Updated `docs/llms.md` and `docs/cli-apm.md` Codex model lists.
+
 ### 2026-03-09: PRO-162 areas overview homepage + filtered kanban
 
 - `apps/web/src/components/AreasOverview.tsx` (new)

@@ -65,6 +65,19 @@ describe("apm start request body mapping", () => {
     });
   });
 
+  it("accepts gpt-5.4 for codex runs", () => {
+    const { body, errors } = buildStartRequestBody({
+      agent: "codex",
+      model: "gpt-5.4",
+    });
+
+    expect(errors).toEqual([]);
+    expect(body).toMatchObject({
+      runAgent: "cli:codex",
+      model: "gpt-5.4",
+    });
+  });
+
   it("maps template reasoning default to thinking when agent is pi", () => {
     const { body, errors } = buildStartRequestBody({
       template: "coordinator",
