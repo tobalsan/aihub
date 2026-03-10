@@ -1025,7 +1025,18 @@ program
     }
   });
 
-const isDirectRun = process.argv[1] === fileURLToPath(import.meta.url);
-if (isDirectRun) {
+import { realpathSync } from "node:fs";
+
+function isDirectRun(): boolean {
+  try {
+    const argv1 = realpathSync(process.argv[1]);
+    const self = realpathSync(fileURLToPath(import.meta.url));
+    return argv1 === self;
+  } catch {
+    return process.argv[1] === fileURLToPath(import.meta.url);
+  }
+}
+
+if (isDirectRun()) {
   program.parseAsync(process.argv);
 }
