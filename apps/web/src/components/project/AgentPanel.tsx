@@ -1162,7 +1162,7 @@ export function AgentPanel(props: AgentPanelProps) {
                     openTemplate("worker", {
                       name: pickUniqueAgentName("Worker", props.subagents),
                       cli: "codex",
-                      model: "gpt-5.3-codex",
+                      model: "gpt-5.4",
                       reasoning: "medium",
                       runMode: "clone",
                       includeDefaultPrompt: true,
@@ -1183,12 +1183,12 @@ export function AgentPanel(props: AgentPanelProps) {
                     openTemplate("reviewer", {
                       name: pickUniqueAgentName("Reviewer", props.subagents),
                       cli: "codex",
-                      model: "gpt-5.3-codex",
-                      reasoning: "medium",
+                      model: "gpt-5.4",
+                      reasoning: "high",
                       runMode: "none",
                       includeDefaultPrompt: true,
                       includeRoleInstructions: true,
-                      includePostRun: false,
+                      includePostRun: true,
                     })
                   }
                 >

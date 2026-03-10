@@ -443,7 +443,7 @@ export const START_TEMPLATE_PROFILES: Record<
   worker: {
     promptRole: "worker",
     runAgent: "cli:codex",
-    model: "gpt-5.3-codex",
+    model: "gpt-5.4",
     reasoningEffort: "medium",
     runMode: "worktree",
     baseBranch: "main",
@@ -454,13 +454,13 @@ export const START_TEMPLATE_PROFILES: Record<
   reviewer: {
     promptRole: "reviewer",
     runAgent: "cli:codex",
-    model: "gpt-5.3-codex",
-    reasoningEffort: "medium",
+    model: "gpt-5.4",
+    reasoningEffort: "high",
     runMode: "none",
     baseBranch: "main",
     includeDefaultPrompt: true,
     includeRoleInstructions: true,
-    includePostRun: false,
+    includePostRun: true,
   },
   custom: {
     promptRole: "legacy",

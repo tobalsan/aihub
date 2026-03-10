@@ -273,7 +273,7 @@ describe("AgentPanel", () => {
     expect(payload.template).toBe("worker");
     expect(payload.prefill).toMatchObject({
       cli: "codex",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       reasoning: "medium",
       runMode: "clone",
       includeDefaultPrompt: true,
