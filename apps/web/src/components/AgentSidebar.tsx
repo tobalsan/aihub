@@ -89,7 +89,7 @@ function readProjectIdFromPathname(pathname: string): string | null {
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const location = useLocation();
-  const [projects] = createResource(fetchProjects);
+  const [projects] = createResource(() => fetchProjects());
   const [recentViews, setRecentViews] = createSignal<RecentProjectView[]>(
     readRecentProjectViews()
   );

@@ -1064,7 +1064,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
     return typeof value === "string" && value.trim() ? value : undefined;
   });
   const [showArchived, setShowArchived] = createSignal(false);
-  const [projects, { refetch }] = createResource(fetchProjects);
+  const [projects, { refetch }] = createResource(() => fetchProjects());
   const [areas] = createResource(fetchAreas);
   const areaFilterId = createMemo(() => {
     const value = searchParams.area;

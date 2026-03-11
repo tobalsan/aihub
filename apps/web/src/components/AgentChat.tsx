@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { getMaxContextTokens, type ContextEstimate } from "@aihub/shared";
 import {
   archiveSubagent,
   fetchFullHistory,
@@ -116,17 +117,6 @@ const supportedImageTypes = new Set([
   "image/jpg",
 ]);
 const supportedImageExtensions = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
-const DEFAULT_MODEL_CONTEXT_LIMIT = 200_000;
-const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  default: DEFAULT_MODEL_CONTEXT_LIMIT,
-  opus: 200_000,
-  sonnet: 200_000,
-  haiku: 200_000,
-  "gpt-5.4": 200_000,
-  "gpt-5.3-codex": 200_000,
-  "gpt-5.3-codex-spark": 200_000,
-  "gpt-5.2": 128_000,
-};
 
 function formatJson(args: unknown): string {
   try {
@@ -1115,6 +1105,9 @@ export function AgentChat(props: AgentChatProps) {
   >([]);
   const [cliLogs, setCliLogs] = createSignal<SubagentLogEvent[]>([]);
   const [cliCursor, setCliCursor] = createSignal(0);
+  const [subagentContextEstimate, setSubagentContextEstimate] = createSignal<
+    ContextEstimate | undefined
+  >();
   const [pendingCliUserMessages, setPendingCliUserMessages] = createSignal<
     string[]
   >([]);
@@ -1506,6 +1499,7 @@ export function AgentChat(props: AgentChatProps) {
       );
       if (setupToken !== subagentSetupToken) return;
       if (!res.ok) return;
+      setSubagentContextEstimate(res.data.latestContextEstimate);
       const stateKey = `${subagentInfo.projectId}:${activeSlug}`;
       const fetchedEvents = res.data.events;
       if (fetchedEvents.length > 0) {
@@ -1597,8 +1591,9 @@ export function AgentChat(props: AgentChatProps) {
     streamingToolCalls.clear();
     setCliLogs([]);
     setCliCursor(0);
-    setExpandedCollapsibles(new Set());
-    setExpandedSubagentCards(new Set());
+    setSubagentContextEstimate(undefined);
+    setExpandedCollapsibles(new Set<string>());
+    setExpandedSubagentCards(new Set<string>());
     const persistedState =
       props.agentType === "subagent" && props.subagentInfo
         ? subagentTransientState.get(
@@ -1878,33 +1873,48 @@ export function AgentChat(props: AgentChatProps) {
       const meta = message.meta;
       if (meta?.model) modelName = meta.model;
       const rawUsage = meta?.usage as
-        | (typeof meta.usage & {
+        | (NonNullable<typeof meta>["usage"] & {
             input_tokens?: number;
             total_tokens?: number;
           })
         | undefined;
       if (!rawUsage) continue;
       const inputTokens =
-        typeof rawUsage.input === "number"
+        (typeof rawUsage.input === "number"
           ? rawUsage.input
           : typeof rawUsage.input_tokens === "number"
             ? rawUsage.input_tokens
-            : 0;
+            : 0) +
+        (typeof rawUsage.cacheRead === "number" ? rawUsage.cacheRead : 0) +
+        (typeof rawUsage.cacheWrite === "number" ? rawUsage.cacheWrite : 0);
       if (inputTokens > highestInputTokens) highestInputTokens = inputTokens;
     }
-    const normalizedModelName = modelName?.toLowerCase();
-    const maxTokens =
-      (normalizedModelName
-        ? Object.entries(MODEL_CONTEXT_LIMITS).find(
-            ([key]) =>
-              key !== "default" &&
-              normalizedModelName.includes(key.toLowerCase())
-          )?.[1]
-        : undefined) ?? MODEL_CONTEXT_LIMITS.default;
+    const maxTokens = getMaxContextTokens(modelName);
     if (maxTokens <= 0 || highestInputTokens <= 0) return 0;
     const rawPct = (highestInputTokens / maxTokens) * 100;
     if (rawPct > 0 && rawPct < 1) return 1;
     return Math.max(0, Math.min(100, Math.round(rawPct)));
+  });
+  const contextUsageDisplay = createMemo(() => {
+    if (props.agentType === "lead" && aihubHistoryMessages().length > 0) {
+      const pct = estimatedContextUsagePct();
+      return pct > 0
+        ? { text: `~${pct}% context used`, unavailable: false }
+        : null;
+    }
+    if (props.agentType !== "subagent" || !props.subagentInfo) return null;
+    const estimate = subagentContextEstimate();
+    if (!estimate) return null;
+    if (estimate.available && estimate.pct > 0) {
+      return {
+        text: `~${estimate.pct}% context used`,
+        unavailable: false,
+      };
+    }
+    if (estimate.available === false) {
+      return { text: "Context usage unavailable", unavailable: true };
+    }
+    return null;
   });
   const cliDisplayEvents = createMemo(() => {
     const pending = pendingCliUserMessages();
@@ -2254,10 +2264,15 @@ export function AgentChat(props: AgentChatProps) {
             </button>
           </Show>
         </div>
-        <Show when={estimatedContextUsagePct() > 0}>
-          <div class="context-usage">
-            ~{estimatedContextUsagePct()}% context used
-          </div>
+        <Show when={contextUsageDisplay()}>
+          {(display) => (
+            <div
+              class="context-usage"
+              classList={{ unavailable: display().unavailable }}
+            >
+              {display().text}
+            </div>
+          )}
         </Show>
       </div>
 
@@ -2833,6 +2848,10 @@ export function AgentChat(props: AgentChatProps) {
           align-self: flex-end;
           color: var(--text-muted);
           font-size: 11px;
+        }
+
+        .context-usage.unavailable {
+          opacity: 0.9;
         }
 
         .chat-file-input {

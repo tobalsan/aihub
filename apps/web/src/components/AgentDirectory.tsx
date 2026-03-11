@@ -74,8 +74,9 @@ export function AgentDirectory(props: AgentDirectoryProps) {
   const [agents] = createResource(fetchAgents);
   const [subagents, { refetch: refetchSubagents }] =
     createResource(fetchAllSubagents);
-  const [projects, { refetch: refetchProjects }] =
-    createResource(fetchProjects);
+  const [projects, { refetch: refetchProjects }] = createResource(() =>
+    fetchProjects()
+  );
   const [statuses, setStatuses] = createSignal<
     Record<string, "streaming" | "idle">
   >({});

@@ -48,7 +48,7 @@ function applyProjectToStats(stats: AreaStats, project: ProjectListItem): void {
 export function AreasOverview() {
   const navigate = useNavigate();
   const [areas, { mutate: mutateAreas }] = createResource(fetchAreas);
-  const [projects] = createResource(fetchProjects);
+  const [projects] = createResource(() => fetchProjects());
 
   const sortedAreas = createMemo(() =>
     [...(areas() ?? [])].sort((a, b) => {

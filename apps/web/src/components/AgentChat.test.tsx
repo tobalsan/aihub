@@ -145,6 +145,103 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("includes cache tokens in lead context usage estimate", async () => {
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          timestamp: Date.now(),
+          content: [{ type: "text", text: "done" }],
+          meta: {
+            model: "claude-3-5-sonnet",
+            usage: {
+              input: 1000,
+              output: 50,
+              cacheRead: 39000,
+              cacheWrite: 0,
+              totalTokens: 40050,
+            },
+          },
+        },
+      ],
+    });
+
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-usage")?.textContent).toContain(
+      "~20% context used"
+    );
+
+    dispose();
+  });
+
+  it("renders subagent context usage percent from latest estimate", async () => {
+    fetchSubagentLogsMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        cursor: 1,
+        events: [],
+        latestContextEstimate: {
+          usedTokens: 60000,
+          maxTokens: 200000,
+          pct: 30,
+          basis: "claude_prompt_tokens",
+          available: true,
+        },
+      },
+    });
+
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-usage")?.textContent).toContain(
+      "~30% context used"
+    );
+
+    dispose();
+  });
+
+  it("renders subagent context usage unavailable when estimate is unavailable", async () => {
+    fetchSubagentLogsMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        cursor: 1,
+        events: [],
+        latestContextEstimate: {
+          usedTokens: 0,
+          maxTokens: 200000,
+          pct: 0,
+          basis: "codex_cumulative",
+          available: false,
+          reason: "codex_cumulative_only",
+        },
+      },
+    });
+
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-usage")?.textContent).toContain(
+      "Context usage unavailable"
+    );
+
+    dispose();
+  });
+
+  it("hides context usage when no estimate is available yet", async () => {
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-usage")).toBeNull();
+
+    dispose();
+  });
+
   it("shows Stop while subagent message is sending", async () => {
     spawnSubagentMock.mockImplementation(
       () => new Promise(() => undefined) as Promise<never>

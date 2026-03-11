@@ -1,4 +1,8 @@
-import type { Area as SharedArea, Task as SharedTask } from "@aihub/shared";
+import type {
+  Area as SharedArea,
+  ContextEstimate,
+  Task as SharedTask,
+} from "@aihub/shared";
 export type SdkId = "pi" | "claude" | "openclaw";
 export type ThinkLevel =
   | "off"
@@ -413,6 +417,8 @@ export type SubagentListResponse = {
 export type SubagentLogsResponse = {
   cursor: number;
   events: SubagentLogEvent[];
+  latestUsage?: ModelUsage;
+  latestContextEstimate?: ContextEstimate;
 };
 
 export type ProjectBranchesResponse = {
@@ -443,7 +449,11 @@ export type ProjectChanges = {
   files: FileChange[];
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
-  branchDiffStats?: { filesChanged: number; insertions: number; deletions: number };
+  branchDiffStats?: {
+    filesChanged: number;
+    insertions: number;
+    deletions: number;
+  };
   branchDiffFiles?: { path: string; insertions: number; deletions: number }[];
   mainAheadCommits?: MainBranchCommit[];
   mainRepoDirty?: DirtyState;
