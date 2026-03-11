@@ -1,7 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { GatewayConfig, SubagentGlobalListItem } from "@aihub/shared";
+import {
+  getMaxContextTokens,
+  type ContextEstimate,
+  type GatewayConfig,
+  type ModelUsage,
+  type SubagentGlobalListItem,
+} from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { migrateLegacySessions } from "./migrate.js";
 
@@ -42,7 +48,15 @@ export type SubagentListResult =
   | { ok: false; error: string };
 
 export type SubagentLogsResult =
-  | { ok: true; data: { cursor: number; events: SubagentLogEvent[] } }
+  | {
+      ok: true;
+      data: {
+        cursor: number;
+        events: SubagentLogEvent[];
+        latestUsage?: ModelUsage;
+        latestContextEstimate?: ContextEstimate;
+      };
+    }
   | { ok: false; error: string };
 
 export type ProjectBranchesResult =
@@ -218,6 +232,115 @@ function emptyShellOutputDiagnostic(command: string): string {
     `No output captured for shell command: ${command}`,
     "Hint: run `command -v apm && apm --version` before delegation, then retry (`apm ...` or `pnpm apm ...`).",
   ].join("\n");
+}
+
+const PI_MODEL_NAMES = [
+  "qwen3.5-plus",
+  "qwen3-max-2026-01-23",
+  "minimax-m2.5",
+  "glm-5",
+  "kimi-k2.5",
+];
+
+function extractUsageFromRawEvent(
+  raw: Record<string, unknown>
+): { usage: ModelUsage; model?: string } | null {
+  const topType = typeof raw.type === "string" ? raw.type : "";
+
+  if (topType === "turn.completed") {
+    const usage = raw.usage as Record<string, unknown> | undefined;
+    if (!usage) return null;
+    const input =
+      typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+    const output =
+      typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+    const totalTokens =
+      typeof usage.total_tokens === "number"
+        ? usage.total_tokens
+        : input + output;
+    return {
+      usage: {
+        input,
+        output,
+        totalTokens,
+      },
+      model: typeof raw.model === "string" ? raw.model : undefined,
+    };
+  }
+
+  if (topType !== "assistant" && topType !== "message_end") {
+    return null;
+  }
+
+  const message = raw.message as Record<string, unknown> | undefined;
+  const usage = message?.usage as Record<string, unknown> | undefined;
+  if (!message || !usage) return null;
+
+  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+  const output =
+    typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+  const cacheRead =
+    typeof usage.cache_read_input_tokens === "number"
+      ? usage.cache_read_input_tokens
+      : undefined;
+  const cacheWrite =
+    typeof usage.cache_creation_input_tokens === "number"
+      ? usage.cache_creation_input_tokens
+      : undefined;
+
+  return {
+    usage: {
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      totalTokens: input + output,
+    },
+    model: typeof message.model === "string" ? message.model : undefined,
+  };
+}
+
+function computeContextEstimate(
+  usage?: ModelUsage,
+  model?: string
+): ContextEstimate | undefined {
+  if (!usage) return undefined;
+
+  const lowerModel = model?.toLowerCase() ?? "";
+  const maxTokens = getMaxContextTokens(model);
+  const promptTokens =
+    usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+  const pct = Math.round((promptTokens / maxTokens) * 100);
+
+  if (lowerModel.includes("gpt")) {
+    return {
+      usedTokens: promptTokens,
+      maxTokens,
+      pct,
+      basis: "codex_cumulative",
+      available: false,
+      reason: "codex_cumulative_only",
+    };
+  }
+
+  if (PI_MODEL_NAMES.some((name) => lowerModel.includes(name))) {
+    return {
+      usedTokens: promptTokens,
+      maxTokens,
+      pct,
+      basis: "pi_prompt_tokens",
+      available: false,
+      reason: "pi_unconfirmed",
+    };
+  }
+
+  return {
+    usedTokens: promptTokens,
+    maxTokens,
+    pct,
+    basis: "claude_prompt_tokens",
+    available: true,
+  };
 }
 
 function attachRalphMetadata<T extends RalphLinkable>(items: T[]): T[] {
@@ -984,36 +1107,67 @@ export async function getSubagentLogs(
 
   const projectDir = path.join(root, dirName);
   await migrateLegacySessions(root, projectId, projectDir);
-  const logsPath = path.join(getSessionsRoot(projectDir), slug, "logs.jsonl");
+  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
+  const logsPath = path.join(sessionDir, "logs.jsonl");
+  const storedConfig = await readJson<{ model?: string }>(
+    path.join(sessionDir, "config.json")
+  );
   let stat;
   try {
     stat = await fs.stat(logsPath);
   } catch {
-    return { ok: true, data: { cursor: 0, events: [] } };
+    return {
+      ok: true,
+      data: { cursor: 0, events: [], latestUsage: undefined },
+    };
   }
 
   const size = stat.size;
-  if (since >= size) {
-    return { ok: true, data: { cursor: size, events: [] } };
+  const buffer = await fs.readFile(logsPath);
+  const allText = buffer.toString("utf8");
+  const allLines = allText.split(/\r?\n/).filter((line) => line.length > 0);
+  let latestRawUsage: ModelUsage | undefined;
+  let latestModel = storedConfig?.model;
+
+  for (const line of allLines) {
+    const raw = parseJsonObject(line);
+    if (raw) {
+      const extracted = extractUsageFromRawEvent(raw);
+      if (extracted) {
+        latestRawUsage = extracted.usage;
+        latestModel = extracted.model ?? latestModel;
+      }
+    }
   }
 
-  const buffer = await fs.readFile(logsPath);
+  if (since >= size) {
+    return {
+      ok: true,
+      data: {
+        cursor: size,
+        events: [],
+        latestUsage: latestRawUsage,
+        latestContextEstimate: computeContextEstimate(
+          latestRawUsage,
+          latestModel
+        ),
+      },
+    };
+  }
+
   const slice = buffer.subarray(Math.max(0, since));
   const text = slice.toString("utf8");
   const lines = text.split(/\r?\n/).filter((line) => line.length > 0);
   const events: SubagentLogEvent[] = [];
   const shellCommandByToolId = new Map<string, string>();
   for (const line of lines) {
+    const raw = parseJsonObject(line);
+
+    const parentToolUseId =
+      raw && typeof raw.parent_tool_use_id === "string"
+        ? raw.parent_tool_use_id
+        : undefined;
     const normalized = normalizeLogLine(line);
-    let parentToolUseId: string | undefined;
-    try {
-      const raw = JSON.parse(line) as Record<string, unknown>;
-      if (typeof raw.parent_tool_use_id === "string") {
-        parentToolUseId = raw.parent_tool_use_id;
-      }
-    } catch {
-      /* ignore */
-    }
     const attach = (ev: SubagentLogEvent): SubagentLogEvent =>
       parentToolUseId ? { ...ev, parentToolUseId } : ev;
     const appendEvent = (ev: SubagentLogEvent): void => {
@@ -1052,7 +1206,18 @@ export async function getSubagentLogs(
     }
   }
 
-  return { ok: true, data: { cursor: size, events } };
+  return {
+    ok: true,
+    data: {
+      cursor: size,
+      events,
+      latestUsage: latestRawUsage,
+      latestContextEstimate: computeContextEstimate(
+        latestRawUsage,
+        latestModel
+      ),
+    },
+  };
 }
 
 export async function listProjectBranches(

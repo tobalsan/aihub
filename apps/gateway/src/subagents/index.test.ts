@@ -92,3 +92,110 @@ describe("getSubagentLogs shell diagnostics", () => {
     );
   });
 });
+
+describe("getSubagentLogs usage snapshots", () => {
+  it("returns latest Claude usage and context estimate", async () => {
+    const { config } = await setupLogs([
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-6",
+          content: [{ type: "text", text: "hi" }],
+          usage: {
+            input_tokens: 1200,
+            cache_read_input_tokens: 5000,
+            cache_creation_input_tokens: 800,
+            output_tokens: 200,
+          },
+        },
+      },
+    ]);
+
+    const out = await getSubagentLogs(config, "PRO-1", "worker", 0);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    expect(out.data.latestUsage).toEqual({
+      input: 1200,
+      output: 200,
+      cacheRead: 5000,
+      cacheWrite: 800,
+      totalTokens: 1400,
+    });
+    expect(out.data.latestContextEstimate).toEqual({
+      usedTokens: 7000,
+      maxTokens: 200000,
+      pct: 4,
+      basis: "claude_prompt_tokens",
+      available: true,
+    });
+
+    const next = await getSubagentLogs(
+      config,
+      "PRO-1",
+      "worker",
+      out.data.cursor
+    );
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+
+    expect(next.data.events).toEqual([]);
+    expect(next.data.latestUsage).toEqual(out.data.latestUsage);
+    expect(next.data.latestContextEstimate).toEqual(
+      out.data.latestContextEstimate
+    );
+  });
+
+  it("classifies Codex usage as unavailable from stored model", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-subagents-"));
+    tmpRoots.push(root);
+    const projectDir = path.join(root, "PRO-1_empty-exec");
+    const sessionDir = path.join(projectDir, "sessions", "worker");
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ model: "gpt-5.3-codex" }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(sessionDir, "logs.jsonl"),
+      `${JSON.stringify({
+        type: "turn.completed",
+        usage: {
+          input_tokens: 2942360,
+          output_tokens: 20210,
+          total_tokens: 2962570,
+        },
+      })}\n`,
+      "utf8"
+    );
+
+    const out = await getSubagentLogs(
+      {
+        agents: [],
+        sessions: { idleMinutes: 360 },
+        projects: { root },
+      },
+      "PRO-1",
+      "worker",
+      0
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    expect(out.data.latestUsage).toEqual({
+      input: 2942360,
+      output: 20210,
+      totalTokens: 2962570,
+    });
+    expect(out.data.latestContextEstimate).toEqual({
+      usedTokens: 2942360,
+      maxTokens: 200000,
+      pct: 1471,
+      basis: "codex_cumulative",
+      available: false,
+      reason: "codex_cumulative_only",
+    });
+  });
+});

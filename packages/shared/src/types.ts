@@ -696,6 +696,15 @@ export type ModelUsage = {
   };
 };
 
+export type ContextEstimate = {
+  usedTokens: number;
+  maxTokens: number;
+  pct: number;
+  basis: string;
+  available: boolean;
+  reason?: string;
+};
+
 /** Model metadata for assistant messages */
 export type ModelMeta = {
   api?: string;

@@ -202,6 +202,8 @@ describe("subagents API", () => {
     expect(logs.events.length).toBe(1);
     expect(logs.events[0].type).toBe("stdout");
     expect(logs.events[0].text).toContain("hello");
+    expect(logs.latestUsage).toBeUndefined();
+    expect(logs.latestContextEstimate).toBeUndefined();
 
     const logsRes2 = await Promise.resolve(
       api.request(
