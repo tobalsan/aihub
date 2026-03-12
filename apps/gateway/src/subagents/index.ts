@@ -254,6 +254,10 @@ function extractUsageFromRawEvent(
       typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
     const output =
       typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+    const cacheRead =
+      typeof usage.cached_input_tokens === "number"
+        ? usage.cached_input_tokens
+        : undefined;
     const totalTokens =
       typeof usage.total_tokens === "number"
         ? usage.total_tokens
@@ -262,6 +266,7 @@ function extractUsageFromRawEvent(
       usage: {
         input,
         output,
+        cacheRead,
         totalTokens,
       },
       model: typeof raw.model === "string" ? raw.model : undefined,
@@ -302,7 +307,8 @@ function extractUsageFromRawEvent(
 
 function computeContextEstimate(
   usage?: ModelUsage,
-  model?: string
+  model?: string,
+  codexTurnInfo?: { deltaInput: number; callCount: number }
 ): ContextEstimate | undefined {
   if (!usage) return undefined;
 
@@ -313,6 +319,19 @@ function computeContextEstimate(
   const pct = Math.round((promptTokens / maxTokens) * 100);
 
   if (lowerModel.includes("gpt")) {
+    if (codexTurnInfo && codexTurnInfo.callCount > 0) {
+      const usedTokens = Math.max(
+        0,
+        Math.round(codexTurnInfo.deltaInput / codexTurnInfo.callCount)
+      );
+      return {
+        usedTokens,
+        maxTokens,
+        pct: Math.round((usedTokens / maxTokens) * 100),
+        basis: "codex_inferred",
+        available: true,
+      };
+    }
     return {
       usedTokens: promptTokens,
       maxTokens,
@@ -1128,14 +1147,33 @@ export async function getSubagentLogs(
   const allLines = allText.split(/\r?\n/).filter((line) => line.length > 0);
   let latestRawUsage: ModelUsage | undefined;
   let latestModel = storedConfig?.model;
+  let prevCumulativeInput = 0;
+  let agentMessageCount = 0;
+  let latestCodexTurnInfo:
+    | { deltaInput: number; callCount: number }
+    | undefined;
 
   for (const line of allLines) {
     const raw = parseJsonObject(line);
     if (raw) {
+      const rawType = typeof raw.type === "string" ? raw.type : "";
+      if (rawType === "item.completed") {
+        const item = raw.item as Record<string, unknown> | undefined;
+        if (item?.type === "agent_message") {
+          agentMessageCount += 1;
+        }
+      }
       const extracted = extractUsageFromRawEvent(raw);
       if (extracted) {
         latestRawUsage = extracted.usage;
         latestModel = extracted.model ?? latestModel;
+        if (rawType === "turn.completed") {
+          const deltaInput = Math.max(0, extracted.usage.input - prevCumulativeInput);
+          const callCount = Math.max(agentMessageCount, 1);
+          latestCodexTurnInfo = { deltaInput, callCount };
+          prevCumulativeInput = extracted.usage.input;
+          agentMessageCount = 0;
+        }
       }
     }
   }
@@ -1149,7 +1187,8 @@ export async function getSubagentLogs(
         latestUsage: latestRawUsage,
         latestContextEstimate: computeContextEstimate(
           latestRawUsage,
-          latestModel
+          latestModel,
+          latestCodexTurnInfo
         ),
       },
     };
@@ -1214,7 +1253,8 @@ export async function getSubagentLogs(
       latestUsage: latestRawUsage,
       latestContextEstimate: computeContextEstimate(
         latestRawUsage,
-        latestModel
+        latestModel,
+        latestCodexTurnInfo
       ),
     },
   };

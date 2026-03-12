@@ -147,7 +147,211 @@ describe("getSubagentLogs usage snapshots", () => {
     );
   });
 
-  it("classifies Codex usage as unavailable from stored model", async () => {
+  it("infers Codex context usage from average input per agent message", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-subagents-"));
+    tmpRoots.push(root);
+    const projectDir = path.join(root, "PRO-1_empty-exec");
+    const sessionDir = path.join(projectDir, "sessions", "worker");
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ model: "gpt-5.3-codex" }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(sessionDir, "logs.jsonl"),
+      [
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "one" },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "two" },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "three" },
+        }),
+        JSON.stringify({
+          type: "turn.completed",
+          usage: {
+            input_tokens: 9000,
+            cached_input_tokens: 1500,
+            output_tokens: 120,
+            total_tokens: 9120,
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const out = await getSubagentLogs(
+      {
+        agents: [],
+        sessions: { idleMinutes: 360 },
+        projects: { root },
+      },
+      "PRO-1",
+      "worker",
+      0
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    expect(out.data.latestUsage).toEqual({
+      input: 9000,
+      output: 120,
+      cacheRead: 1500,
+      totalTokens: 9120,
+    });
+    expect(out.data.latestContextEstimate).toEqual({
+      usedTokens: 3000,
+      maxTokens: 200000,
+      pct: 2,
+      basis: "codex_inferred",
+      available: true,
+    });
+  });
+
+  it("uses the full turn delta when Codex has one agent message", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-subagents-"));
+    tmpRoots.push(root);
+    const projectDir = path.join(root, "PRO-1_empty-exec");
+    const sessionDir = path.join(projectDir, "sessions", "worker");
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ model: "gpt-5.3-codex" }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(sessionDir, "logs.jsonl"),
+      [
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "one" },
+        }),
+        JSON.stringify({
+          type: "turn.completed",
+          usage: {
+            input_tokens: 42000,
+            output_tokens: 200,
+            total_tokens: 42200,
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const out = await getSubagentLogs(
+      {
+        agents: [],
+        sessions: { idleMinutes: 360 },
+        projects: { root },
+      },
+      "PRO-1",
+      "worker",
+      0
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    expect(out.data.latestContextEstimate).toEqual({
+      usedTokens: 42000,
+      maxTokens: 200000,
+      pct: 21,
+      basis: "codex_inferred",
+      available: true,
+    });
+  });
+
+  it("uses only the latest Codex turn delta across consecutive turns", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-subagents-"));
+    tmpRoots.push(root);
+    const projectDir = path.join(root, "PRO-1_empty-exec");
+    const sessionDir = path.join(projectDir, "sessions", "worker");
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionDir, "config.json"),
+      JSON.stringify({ model: "gpt-5.3-codex" }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(sessionDir, "logs.jsonl"),
+      [
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "one" },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "two" },
+        }),
+        JSON.stringify({
+          type: "turn.completed",
+          usage: {
+            input_tokens: 10000,
+            output_tokens: 100,
+            total_tokens: 10100,
+          },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "three" },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "four" },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "five" },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "six" },
+        }),
+        JSON.stringify({
+          type: "turn.completed",
+          usage: {
+            input_tokens: 22000,
+            output_tokens: 220,
+            total_tokens: 22220,
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const out = await getSubagentLogs(
+      {
+        agents: [],
+        sessions: { idleMinutes: 360 },
+        projects: { root },
+      },
+      "PRO-1",
+      "worker",
+      0
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    expect(out.data.latestUsage).toEqual({
+      input: 22000,
+      output: 220,
+      totalTokens: 22220,
+    });
+    expect(out.data.latestContextEstimate).toEqual({
+      usedTokens: 3000,
+      maxTokens: 200000,
+      pct: 2,
+      basis: "codex_inferred",
+      available: true,
+    });
+  });
+
+  it("falls back to one Codex call when no agent messages were logged", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-subagents-"));
     tmpRoots.push(root);
     const projectDir = path.join(root, "PRO-1_empty-exec");
@@ -163,9 +367,9 @@ describe("getSubagentLogs usage snapshots", () => {
       `${JSON.stringify({
         type: "turn.completed",
         usage: {
-          input_tokens: 2942360,
-          output_tokens: 20210,
-          total_tokens: 2962570,
+          input_tokens: 5000,
+          output_tokens: 150,
+          total_tokens: 5150,
         },
       })}\n`,
       "utf8"
@@ -184,18 +388,12 @@ describe("getSubagentLogs usage snapshots", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
 
-    expect(out.data.latestUsage).toEqual({
-      input: 2942360,
-      output: 20210,
-      totalTokens: 2962570,
-    });
     expect(out.data.latestContextEstimate).toEqual({
-      usedTokens: 2942360,
+      usedTokens: 5000,
       maxTokens: 200000,
-      pct: 1471,
-      basis: "codex_cumulative",
-      available: false,
-      reason: "codex_cumulative_only",
+      pct: 3,
+      basis: "codex_inferred",
+      available: true,
     });
   });
 });
