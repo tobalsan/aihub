@@ -207,8 +207,8 @@ describe("getSubagentLogs usage snapshots", () => {
     });
     expect(out.data.latestContextEstimate).toEqual({
       usedTokens: 3000,
-      maxTokens: 200000,
-      pct: 2,
+      maxTokens: 1000000,
+      pct: 0,
       basis: "codex_inferred",
       available: true,
     });
@@ -259,8 +259,8 @@ describe("getSubagentLogs usage snapshots", () => {
 
     expect(out.data.latestContextEstimate).toEqual({
       usedTokens: 42000,
-      maxTokens: 200000,
-      pct: 21,
+      maxTokens: 1000000,
+      pct: 4,
       basis: "codex_inferred",
       available: true,
     });
@@ -344,8 +344,8 @@ describe("getSubagentLogs usage snapshots", () => {
     });
     expect(out.data.latestContextEstimate).toEqual({
       usedTokens: 3000,
-      maxTokens: 200000,
-      pct: 2,
+      maxTokens: 1000000,
+      pct: 0,
       basis: "codex_inferred",
       available: true,
     });
@@ -390,8 +390,8 @@ describe("getSubagentLogs usage snapshots", () => {
 
     expect(out.data.latestContextEstimate).toEqual({
       usedTokens: 5000,
-      maxTokens: 200000,
-      pct: 3,
+      maxTokens: 1000000,
+      pct: 1,
       basis: "codex_inferred",
       available: true,
     });
