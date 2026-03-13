@@ -100,6 +100,16 @@ function getFrontmatterRecord(
   return value as Record<string, unknown>;
 }
 
+function getRepoStatusMessage(project?: {
+  frontmatter: Record<string, unknown>;
+  repoValid: boolean;
+}): string {
+  const repoPath = getFrontmatterString(project?.frontmatter, "repo");
+  if (!repoPath) return "No repo configured";
+  if (project?.repoValid) return "";
+  return `Repo path not found: ${repoPath}`;
+}
+
 function buildTaskProgress(tasks: Task[]): { done: number; total: number } {
   return {
     done: tasks.filter((task) => task.checked).length,
@@ -211,6 +221,7 @@ export function ProjectDetailPage() {
     if (!areaId) return undefined;
     return (areas() ?? []).find((item) => item.id === areaId);
   });
+  const repoMessage = createMemo(() => getRepoStatusMessage(project()));
 
   const handleBack = () => {
     navigate("/projects");
@@ -619,7 +630,8 @@ export function ProjectDetailPage() {
                     subagents={subagents()}
                     onCancelSpawn={() => setSpawnMode(null)}
                     hasArea={Boolean(area())}
-                    hasRepo={Boolean(getFrontmatterString(detail().frontmatter, "repo") || area()?.repo)}
+                    repoValid={detail().repoValid}
+                    repoMessage={repoMessage()}
                     onSpawned={(slug) => {
                       setSpawnMode(null);
                       setSelectedAgent({
@@ -710,7 +722,8 @@ export function ProjectDetailPage() {
                         subagents={subagents()}
                         onCancelSpawn={() => setSpawnMode(null)}
                         hasArea={Boolean(area())}
-                        hasRepo={Boolean(getFrontmatterString(detail().frontmatter, "repo") || area()?.repo)}
+                        repoValid={detail().repoValid}
+                        repoMessage={repoMessage()}
                         onSpawned={(slug) => {
                           setSpawnMode(null);
                           setSelectedAgent({

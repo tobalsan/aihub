@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ProjectDetailPage } from "./ProjectDetailPage";
-import { updateProject } from "../../api/client";
+import { fetchProject, updateProject } from "../../api/client";
 
 const navigateMock = vi.fn();
 
@@ -17,6 +17,7 @@ vi.mock("../../api/client", () => ({
     title: "Alpha Project",
     path: "PRO-1_alpha-project",
     absolutePath: "/tmp/PRO-1_alpha-project",
+    repoValid: true,
     frontmatter: { area: "aihub", status: "todo" },
     docs: {},
     thread: [],
@@ -165,5 +166,39 @@ describe("ProjectDetailPage", () => {
 
     dispose();
     localStorage.removeItem("aihub:project:PRO-1:center-view");
+  });
+
+  it("disables agent creation and shows repo error when repo is invalid", async () => {
+    vi.mocked(fetchProject).mockResolvedValueOnce({
+      id: "PRO-1",
+      title: "Alpha Project",
+      path: "PRO-1_alpha-project",
+      absolutePath: "/tmp/PRO-1_alpha-project",
+      repoValid: false,
+      frontmatter: {
+        area: "aihub",
+        status: "todo",
+        repo: "/tmp/missing-repo",
+      },
+      docs: {},
+      thread: [],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const addButton = container.querySelector(
+      ".add-agent-btn"
+    ) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "Repo path not found: /tmp/missing-repo"
+    );
+
+    dispose();
   });
 });

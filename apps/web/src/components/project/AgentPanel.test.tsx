@@ -45,6 +45,7 @@ const project: ProjectDetail = {
   title: "Alpha Project",
   path: "PRO-1_alpha-project",
   absolutePath: "/tmp/PRO-1_alpha-project",
+  repoValid: true,
   frontmatter: {
     status: "todo",
     created: "2026-02-28T20:00:00.000Z",
@@ -306,6 +307,44 @@ describe("AgentPanel", () => {
     expect(text).toContain("Worker");
     expect(text).toContain("Reviewer");
     expect(text).toContain("Custom");
+
+    dispose();
+  });
+
+  it("disables create new agent when repo is invalid", async () => {
+    const invalidProject: ProjectDetail = {
+      ...project,
+      repoValid: false,
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <AgentPanel
+          project={invalidProject}
+          area={undefined}
+          areas={[]}
+          subagents={[]}
+          onSubagentsChange={() => {}}
+          onOpenSpawn={() => {}}
+          onTitleChange={() => {}}
+          onStatusChange={() => {}}
+          onAreaChange={() => {}}
+          onRepoChange={() => {}}
+          selectedAgentSlug={null}
+          onSelectAgent={() => {}}
+        />
+      ),
+      container
+    );
+
+    const openButton = container.querySelector(
+      ".add-agent-btn"
+    ) as HTMLButtonElement;
+    expect(openButton.disabled).toBe(true);
+    expect(openButton.title).toBe("Repo path not found: ~/code/aihub");
+    expect(container.textContent).toContain("Repo path not found: ~/code/aihub");
 
     dispose();
   });

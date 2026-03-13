@@ -272,6 +272,7 @@ export type ProjectListItem = {
   title: string;
   path: string;
   absolutePath: string;
+  repoValid: boolean;
   frontmatter: Record<string, unknown>;
 };
 
@@ -280,6 +281,7 @@ export type ProjectDetail = {
   title: string;
   path: string;
   absolutePath: string;
+  repoValid: boolean;
   frontmatter: Record<string, unknown>;
   docs: Record<string, string>;
   thread: ProjectThreadEntry[];

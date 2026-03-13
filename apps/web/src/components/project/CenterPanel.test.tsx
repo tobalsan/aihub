@@ -30,6 +30,7 @@ const project: ProjectDetail = {
   title: "Alpha Project",
   path: "PRO-1_alpha-project",
   absolutePath: "/tmp/PRO-1_alpha-project",
+  repoValid: true,
   frontmatter: {},
   docs: {},
   thread: [],
@@ -107,6 +108,34 @@ describe("CenterPanel", () => {
 
     expect(container.textContent).toContain("Spawn Agent");
     expect(container.querySelector(".agent-chat-mock")).toBeNull();
+
+    dispose();
+  });
+
+  it("shows repo error instead of spawn form when repo is invalid", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={{ ...project, repoValid: false, frontmatter: { repo: "/tmp/missing" } }}
+          tab="chat"
+          showTabs={false}
+          selectedAgent={null}
+          repoValid={false}
+          repoMessage="Repo path not found: /tmp/missing"
+          spawnMode={{
+            template: "custom",
+            prefill: { cli: "codex", model: "gpt-5.3-codex" },
+          }}
+          subagents={[]}
+        />
+      ),
+      container
+    );
+
+    expect(container.textContent).toContain("Repo path not found: /tmp/missing");
+    expect(container.textContent).not.toContain("Spawn Agent");
 
     dispose();
   });

@@ -54,7 +54,8 @@ type CenterPanelProps = {
   onCancelSpawn?: () => void;
   onTabChange?: (tab: CenterTab) => void;
   hasArea?: boolean;
-  hasRepo?: boolean;
+  repoValid?: boolean;
+  repoMessage?: string;
 };
 
 type TimelineItem = {
@@ -249,17 +250,28 @@ export function CenterPanel(props: CenterPanelProps) {
           <Show when={tab() === "chat"}>
             <div class="center-chat-shell">
               <Show when={props.spawnMode}>
-                <SpawnForm
-                  projectId={props.project.id}
-                  project={props.project}
-                  prefill={props.spawnMode!.prefill}
-                  template={props.spawnMode!.template}
-                  subagents={props.subagents ?? []}
-                  draft={props.spawnFormDraft}
-                  onDraftChange={props.onSpawnFormDraftChange}
-                  onSpawned={(slug) => props.onSpawned?.(slug)}
-                  onCancel={() => props.onCancelSpawn?.()}
-                />
+                <Show
+                  when={props.repoValid !== false}
+                  fallback={
+                    <div class="center-placeholder-centered">
+                      <p class="center-error-msg">
+                        {props.repoMessage ?? "No repo configured"}
+                      </p>
+                    </div>
+                  }
+                >
+                  <SpawnForm
+                    projectId={props.project.id}
+                    project={props.project}
+                    prefill={props.spawnMode!.prefill}
+                    template={props.spawnMode!.template}
+                    subagents={props.subagents ?? []}
+                    draft={props.spawnFormDraft}
+                    onDraftChange={props.onSpawnFormDraftChange}
+                    onSpawned={(slug) => props.onSpawned?.(slug)}
+                    onCancel={() => props.onCancelSpawn?.()}
+                  />
+                </Show>
               </Show>
               <Show when={chatSelectedAgent()}>
                 <AgentChat
@@ -301,11 +313,14 @@ export function CenterPanel(props: CenterPanelProps) {
               </Show>
               <Show when={!props.spawnMode && !props.selectedAgent}>
                 <Show
-                  when={props.hasRepo !== false}
+                  when={props.repoValid !== false}
                   fallback={
                     <div class="center-placeholder-centered">
                       <p class="center-error-msg">
-                        ⚠ {props.hasArea === false ? "No area set" : "No repo set"}
+                        {props.repoMessage ??
+                          (props.hasArea === false
+                            ? "No area set"
+                            : "No repo configured")}
                       </p>
                     </div>
                   }

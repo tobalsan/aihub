@@ -258,7 +258,11 @@ export function AgentPanel(props: AgentPanelProps) {
   const status = () =>
     getFrontmatterString(props.project.frontmatter, "status") || "unknown";
   const repo = () => getFrontmatterString(props.project.frontmatter, "repo");
-  const hasRepo = () => Boolean(repo() || props.area?.repo);
+  const repoMessage = () => {
+    if (!repo()) return "No repo configured";
+    if (props.project.repoValid) return "";
+    return `Repo path not found: ${repo()}`;
+  };
   const created = () =>
     getFrontmatterString(props.project.frontmatter, "created");
   const areaLabel = () => props.area?.title || "No area";
@@ -1113,6 +1117,11 @@ export function AgentPanel(props: AgentPanelProps) {
                 </p>
               </Show>
             </div>
+            <Show when={!props.project.repoValid}>
+              <p class="agent-panel-hint agent-panel-hint--error">
+                {repoMessage()}
+              </p>
+            </Show>
           </section>
         </Show>
 
@@ -1122,16 +1131,21 @@ export function AgentPanel(props: AgentPanelProps) {
             <button
               type="button"
               class="add-agent-btn"
-              disabled={!hasRepo()}
-              title={!hasRepo() ? (props.area ? "No repo set" : "No area set") : undefined}
+              disabled={!props.project.repoValid}
+              title={!props.project.repoValid ? repoMessage() : undefined}
               onClick={(event) => {
-                if (!hasRepo()) return;
+                if (!props.project.repoValid) return;
                 event.stopPropagation();
                 setTemplateMenuOpen((open) => !open);
               }}
             >
               + Create new agent
             </button>
+            <Show when={!props.project.repoValid}>
+              <p class="agent-panel-hint agent-panel-hint--error">
+                {repoMessage()}
+              </p>
+            </Show>
             <Show when={templateMenuOpen()}>
               <div class="template-menu">
                 <button
@@ -1481,6 +1495,17 @@ export function AgentPanel(props: AgentPanelProps) {
           min-width: 0;
           width: auto;
           text-align: right;
+        }
+
+        .agent-panel-hint {
+          margin: 6px 0 0;
+          font-size: 12px;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
+        }
+
+        .agent-panel-hint--error {
+          color: #ef4444;
         }
 
         .agent-panel-input {

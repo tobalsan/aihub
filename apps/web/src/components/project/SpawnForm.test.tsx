@@ -14,6 +14,7 @@ const project: ProjectDetail = {
   title: "Spawn templates",
   path: "PRO-149_spawn",
   absolutePath: "/tmp/PRO-149_spawn",
+  repoValid: true,
   frontmatter: {},
   docs: {},
   thread: [],
