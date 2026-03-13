@@ -57,6 +57,7 @@ Features:
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
+- Project API responses now include `repoValid` on both project detail and project list items; it is `true` only when the resolved repo path exists on disk and contains `.git`
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail center-panel subagent chat follow-ups reuse the selected subagent `runMode` to preserve CLI session cwd continuity (important for Claude CLI resume by `session_id`)
 - Subagent resume/follow-up turns are delta-only: only the new user message (+ current-turn attachment marker), without re-prepending project summary context
@@ -71,6 +72,7 @@ Features:
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
 - Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
+- Project detail blocks new agent creation when `repoValid` is false and shows a clear message: `No repo configured` or `Repo path not found: <path>`
 - Project detail left panel subagent rows support inline rename (click name, save on Enter/blur; Space is treated as input while editing and does not trigger row selection)
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, Rebase on main, and Space-targeted commit/PR actions
 - Changes tab surfaces space-level rebase conflicts via `ProjectSpaceState.rebaseConflict`, with a dashboard-level "Fix rebase conflict" action (`POST /api/projects/:id/space/rebase/fix`) after a rebase attempt (`POST /api/projects/:id/space/rebase`)
@@ -91,6 +93,8 @@ Zod schemas and TypeScript types:
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
+  - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
+  - Coordinator prompts include the canonical repo root as read-only context and explicitly require workers to stay in dedicated worktrees/workspaces, never the main repo, unless explicitly required
 
 ### packages/cli
 

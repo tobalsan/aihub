@@ -75,6 +75,8 @@ describe("role-based project prompts", () => {
     });
     expect(out).toContain("## Your Role: Coordinator");
     expect(out).not.toContain("## Implementation Repository");
+    expect(out).toContain("## Canonical Repo Root");
+    expect(out).toContain("Path: /tmp/repo");
     expect(out).not.toContain("Run relevant tests after changes.");
     expect(out).not.toContain("apm move PRO-151 review");
     expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
@@ -95,6 +97,12 @@ describe("role-based project prompts", () => {
     );
     expect(out).toContain(
       "Do not merge/cherry-pick directly from coordinator/reviewer runs."
+    );
+    expect(out).toContain(
+      "Every worker agent must run in its dedicated worktree or workspace, never directly in the main repo, unless explicitly required."
+    );
+    expect(out).toContain(
+      "When delegating implementation, keep workers on dedicated worktrees/workspaces; do not send them to the main repo unless the task explicitly requires it."
     );
     expect(out).toContain(
       "When writing SPECS.md, keep checklist sections parseable"

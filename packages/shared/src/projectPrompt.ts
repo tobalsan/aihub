@@ -279,6 +279,15 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
   const agentLabel = runAuthorLabel(input);
+  const repo = input.repo?.trim();
+  const repoBlock = repo
+    ? [
+        "## Canonical Repo Root",
+        `Path: ${repo}`,
+        "Treat this as the main repo root for context only.",
+        "Every worker agent must run in its dedicated worktree or workspace, never directly in the main repo, unless explicitly required.",
+      ].join("\n")
+    : "";
   const postRun = includePostRun
     ? [
         "## IMPORTANT: MUST DO AFTER IMPLEMENTATION",
@@ -291,6 +300,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
     : "";
   return joinPromptParts([
     includeDefault ? roleDefaultPrompt(input, false) : "",
+    repoBlock,
     includeRole
       ? [
           "## Your Role: Coordinator",
@@ -301,6 +311,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- Delegate code review, verification, and test validation to reviewer agents",
           "- Track progress and keep project docs updated",
           "- Verify acceptance criteria before signaling completion",
+          "- When delegating implementation, keep workers on dedicated worktrees/workspaces; do not send them to the main repo unless the task explicitly requires it.",
           "Use `apm start` with templates for delegation:",
           "- Preflight first: `command -v apm && apm --version`",
           '- Worker: `apm start <project_id> --template worker --slug worker-<task> --name "Worker <Name>" --custom-prompt "Implement <task>; update SPECS.md status."`',
