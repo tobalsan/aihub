@@ -68,6 +68,7 @@ packages/
 
 - Left sidebar: AIHub logo + primary links (`Projects`, `Conversations`, `Chats`)
 - Main route: `/` for Areas overview (new homepage)
+- Areas homepage supports quick area creation with auto-generated ids and color picker selection
 - Kanban routes: `/projects` for all projects, `/projects?area=<id>` for area-filtered kanban
 - Right sidebar tabs: `Agents`, `Chat`, `Feed`
 - Legacy direct-chat agent list remains at `/agents`

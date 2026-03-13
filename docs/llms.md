@@ -47,6 +47,7 @@ Features:
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
   - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - `/` is the Areas overview homepage (grid of area cards + aggregate "All Projects" card)
+- Areas homepage includes a quick-create flow with slugified ids from title and a native color picker
 - Area cards show per-status project counts and support inline area editing (`title`, `color`, `order`, `repo`)
 - Area title click routes to `/projects?area=<id>`; kanban header shows selected area + `Back to Areas` link
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation

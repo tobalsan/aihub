@@ -639,6 +639,21 @@ export async function fetchAreas(): Promise<Area[]> {
   return res.json();
 }
 
+export async function createArea(payload: Area): Promise<Area> {
+  const res = await fetch(`${API_BASE}/areas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to create area" }));
+    throw new Error(data.error ?? "Failed to create area");
+  }
+  return res.json();
+}
+
 export async function updateArea(
   id: string,
   payload: Partial<Area>

@@ -1,6 +1,6 @@
-import { For, Show, createMemo, createResource } from "solid-js";
+import { For, Show, createMemo, createResource, createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { fetchAreas, fetchProjects, updateArea } from "../api/client";
+import { createArea, fetchAreas, fetchProjects, updateArea } from "../api/client";
 import type { Area, ProjectListItem } from "../api/types";
 import { AreaCard, STATUS_META, type AreaStats } from "./AreaCard";
 
@@ -45,10 +45,24 @@ function applyProjectToStats(stats: AreaStats, project: ProjectListItem): void {
   if (status) stats.statuses[status] += 1;
 }
 
+function slugifyAreaId(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function AreasOverview() {
   const navigate = useNavigate();
   const [areas, { mutate: mutateAreas }] = createResource(fetchAreas);
   const [projects] = createResource(() => fetchProjects());
+  const [creating, setCreating] = createSignal(false);
+  const [createTitle, setCreateTitle] = createSignal("");
+  const [createColor, setCreateColor] = createSignal("#3b82f6");
+  const [createRepo, setCreateRepo] = createSignal("");
+  const [createSaving, setCreateSaving] = createSignal(false);
+  const [createError, setCreateError] = createSignal<string | null>(null);
 
   const sortedAreas = createMemo(() =>
     [...(areas() ?? [])].sort((a, b) => {
@@ -83,6 +97,25 @@ export function AreasOverview() {
     return current instanceof Error ? current.message : "Failed to load data.";
   });
 
+  const createIdPreview = createMemo(() => slugifyAreaId(createTitle()));
+
+  const resetCreateForm = () => {
+    setCreateTitle("");
+    setCreateColor("#3b82f6");
+    setCreateRepo("");
+    setCreateError(null);
+  };
+
+  const openCreate = () => {
+    setCreating(true);
+    setCreateError(null);
+  };
+
+  const cancelCreate = () => {
+    setCreating(false);
+    resetCreateForm();
+  };
+
   const saveArea = async (id: string, patch: Partial<Area>): Promise<void> => {
     const updated = await updateArea(id, patch);
     mutateAreas((current) =>
@@ -90,11 +123,66 @@ export function AreasOverview() {
     );
   };
 
+  const handleCreate = async (event: Event) => {
+    event.preventDefault();
+    const title = createTitle().trim();
+    const id = slugifyAreaId(title);
+    if (!title) {
+      setCreateError("Title is required.");
+      return;
+    }
+    if (!id) {
+      setCreateError("Title must include letters or numbers.");
+      return;
+    }
+
+    setCreateSaving(true);
+    setCreateError(null);
+    try {
+      const created = await createArea({
+        id,
+        title,
+        color: createColor(),
+        repo: createRepo().trim() || undefined,
+      });
+      mutateAreas((current) => [...(current ?? []), created]);
+      cancelCreate();
+    } catch (createErr) {
+      setCreateError(
+        createErr instanceof Error ? createErr.message : "Failed to create area."
+      );
+    } finally {
+      setCreateSaving(false);
+    }
+  };
+
   return (
     <main class="areas-page">
       <header class="areas-header">
-        <h1>Areas</h1>
-        <p>Select an area to open its kanban, or jump to all projects.</p>
+        <div>
+          <h1>Areas</h1>
+          <p>Select an area to open its kanban, or jump to all projects.</p>
+        </div>
+        <Show
+          when={!creating()}
+          fallback={
+            <button
+              class="areas-create-toggle secondary"
+              type="button"
+              onClick={cancelCreate}
+            >
+              Cancel
+            </button>
+          }
+        >
+          <button
+            class="areas-create-toggle"
+            type="button"
+            onClick={openCreate}
+          >
+            Add area
+          </button>
+        </Show>
       </header>
 
       <Show when={loadError()}>
@@ -107,6 +195,70 @@ export function AreasOverview() {
 
       <Show when={(sortedAreas().length > 0 || !areas.loading) && !loadError()}>
         <div class="areas-grid">
+          <Show when={creating()}>
+            <form class="area-card area-create-card" onSubmit={handleCreate}>
+              <div class="area-card-top">
+                <span class="all-projects-title">New Area</span>
+                <span class="area-id-preview">ID: {createIdPreview() || "..."}</span>
+              </div>
+              <div class="area-create-fields">
+                <label class="area-edit-label">
+                  <span>Title</span>
+                  <input
+                    class="area-edit-input"
+                    type="text"
+                    value={createTitle()}
+                    onInput={(event) => setCreateTitle(event.currentTarget.value)}
+                    placeholder="AIHub"
+                    required
+                  />
+                </label>
+                <div class="area-edit-row">
+                  <label class="area-edit-label">
+                    <span>Color</span>
+                    <input
+                      class="area-edit-input area-edit-color"
+                      type="color"
+                      value={createColor()}
+                      onInput={(event) => setCreateColor(event.currentTarget.value)}
+                      required
+                    />
+                  </label>
+                  <label class="area-edit-label">
+                    <span>Repo path</span>
+                    <input
+                      class="area-edit-input"
+                      type="text"
+                      value={createRepo()}
+                      onInput={(event) => setCreateRepo(event.currentTarget.value)}
+                      placeholder="~/code/repo"
+                    />
+                  </label>
+                </div>
+              </div>
+              <Show when={createError()}>
+                <div class="area-edit-error">{createError()}</div>
+              </Show>
+              <div class="area-edit-actions">
+                <button
+                  class="area-edit-btn save"
+                  type="submit"
+                  disabled={createSaving()}
+                >
+                  {createSaving() ? "Creating..." : "Create area"}
+                </button>
+                <button
+                  class="area-edit-btn cancel"
+                  type="button"
+                  onClick={cancelCreate}
+                  disabled={createSaving()}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </Show>
+
           <button
             class="area-card all-projects-card"
             type="button"
@@ -152,6 +304,11 @@ export function AreasOverview() {
         <div class="areas-empty">
           <h2>Create your first area</h2>
           <p>No area files found yet in `.areas/`.</p>
+          <Show when={!creating()}>
+            <button class="areas-create-toggle" type="button" onClick={openCreate}>
+              Add area
+            </button>
+          </Show>
         </div>
       </Show>
 
@@ -163,6 +320,13 @@ export function AreasOverview() {
           color: var(--text-primary);
           padding: 24px 20px 36px;
           font-family: "Adwaita Sans", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        }
+
+        .areas-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
         }
 
         .areas-header h1 {
@@ -182,6 +346,21 @@ export function AreasOverview() {
           margin-top: 14px;
           color: var(--text-secondary);
           font-size: 14px;
+        }
+
+        .areas-create-toggle {
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          padding: 10px 14px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .areas-create-toggle.secondary {
+          background: transparent;
         }
 
         .areas-grid {
@@ -209,6 +388,25 @@ export function AreasOverview() {
         .all-projects-card:hover {
           transform: translateY(-1px);
           border-color: var(--mix-col-border);
+        }
+
+        .area-create-card {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          border-style: dashed;
+        }
+
+        .area-create-fields {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .area-id-preview {
+          color: var(--text-secondary);
+          font-size: 12px;
+          font-family: "SF Mono", "Menlo", monospace;
         }
 
         .area-card-top {
@@ -333,7 +531,7 @@ export function AreasOverview() {
         }
 
         .area-edit-color {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          padding: 4px;
         }
 
         .area-edit-error {
@@ -394,6 +592,15 @@ export function AreasOverview() {
         @media (max-width: 768px) {
           .areas-page {
             padding: 18px 14px 24px;
+          }
+
+          .areas-header {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .area-edit-row {
+            grid-template-columns: 1fr;
           }
 
           .areas-grid {

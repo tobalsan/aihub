@@ -40,12 +40,11 @@ export function AreaEditForm(props: AreaEditFormProps) {
           <span>Color</span>
           <input
             class="area-edit-input area-edit-color"
-            type="text"
+            type="color"
             value={props.draft.color}
             onInput={(event) =>
               props.onChange({ color: event.currentTarget.value })
             }
-            placeholder="#3b82f6"
             required
           />
         </label>

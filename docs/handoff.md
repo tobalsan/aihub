@@ -11,6 +11,22 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-13: Areas homepage quick-create + native color picker
+
+- `apps/web/src/components/AreasOverview.tsx`
+  - Added quick area creation from the Areas homepage via header/empty-state `Add area`.
+  - Creation happens inline as a card with slugified `id` preview from `title`, native color picker, optional repo path, and in-place area list update after success.
+- `apps/web/src/components/AreaEditForm.tsx`
+  - Replaced the color text input with `input[type="color"]`.
+- `apps/web/src/api/client.ts`
+  - Added `createArea(payload)` for `POST /api/areas`.
+- Tests:
+  - Added `apps/web/src/components/AreasOverview.test.tsx`
+  - Added `apps/web/src/components/AreaEditForm.test.tsx`
+  - Extended `apps/web/src/api/client.test.ts`
+- Docs:
+  - Updated `README.md` and `docs/llms.md`
+
 ### 2026-03-10: Codex `gpt-5.4` added to run preparation + CLI model validation
 
 - `apps/web/src/components/project/SpawnForm.tsx`

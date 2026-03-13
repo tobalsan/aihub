@@ -21,6 +21,7 @@ import {
   interruptSubagent,
   archiveSubagent,
   unarchiveSubagent,
+  createArea,
   updateArea,
 } from "./client";
 
@@ -97,6 +98,32 @@ describe("api client (projects/subagents)", () => {
       body: JSON.stringify({ title: "AIHub Updated", color: "#123456" }),
     });
     expect(res.title).toBe("AIHub Updated");
+  });
+
+  it("creates area with payload", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: "ops", title: "Ops", color: "#123456" }),
+    });
+
+    const res = await createArea({
+      id: "ops",
+      title: "Ops",
+      color: "#123456",
+      repo: "~/code/ops",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/areas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "ops",
+        title: "Ops",
+        color: "#123456",
+        repo: "~/code/ops",
+      }),
+    });
+    expect(res.id).toBe("ops");
   });
 
   it("fetches subagents list with archived", async () => {
