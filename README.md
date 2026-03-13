@@ -75,6 +75,7 @@ packages/
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
 - Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
+- In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
 - Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
 - Intercom-style quick chat is available globally via a fixed bottom-right bubble; it opens a lead-agent overlay with agent picker, streaming chat, and image attachments
 - Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)

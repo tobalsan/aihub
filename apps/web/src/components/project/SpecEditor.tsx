@@ -213,6 +213,7 @@ export function SpecEditor(props: SpecEditorProps) {
   const [addingTask, setAddingTask] = createSignal(false);
   const [newTaskTitle, setNewTaskTitle] = createSignal("");
   const [newTaskDesc, setNewTaskDesc] = createSignal("");
+  const [checklistCollapsed, setChecklistCollapsed] = createSignal(false);
   const [optimisticCheckedByOrder, setOptimisticCheckedByOrder] = createSignal<
     Record<number, boolean>
   >({});
@@ -402,8 +403,33 @@ export function SpecEditor(props: SpecEditorProps) {
     setAddingTask(false);
   };
 
+  const acceptanceSummary = createMemo(() => {
+    const total = acceptanceItems().length;
+    if (total === 0) return "No acceptance criteria";
+    const done = acceptanceItems().filter((item) => item.checked).length;
+    return `${done}/${total} acceptance criteria`;
+  });
+
   const specChecklistPane = () => (
     <div class="spec-bottom-pane">
+      <div class="spec-bottom-pane-header">
+        <div class="spec-bottom-pane-summary">
+          <span>
+            {displayedProgress().done}/{displayedProgress().total} tasks
+          </span>
+          <span>{acceptanceSummary()}</span>
+        </div>
+        <button
+          type="button"
+          class="spec-collapse-toggle"
+          onClick={() => setChecklistCollapsed((current) => !current)}
+          aria-expanded={!checklistCollapsed()}
+        >
+          {checklistCollapsed() ? "Expand" : "Collapse"}
+        </button>
+      </div>
+
+      <Show when={!checklistCollapsed()}>
       <section class="spec-section">
         <h3>Tasks</h3>
         <ProgressBar
@@ -545,6 +571,7 @@ export function SpecEditor(props: SpecEditorProps) {
           </For>
         </section>
       </Show>
+      </Show>
     </div>
   );
 
@@ -577,11 +604,14 @@ export function SpecEditor(props: SpecEditorProps) {
         <Show
           when={!isEditingSelectedDoc()}
           fallback={
-            <div
-              class="spec-editor-edit"
-              classList={{ "split-view": viewingSpec() }}
-            >
-              <div class="spec-edit-pane">
+          <div
+            class="spec-editor-edit"
+            classList={{
+              "split-view": viewingSpec(),
+              "collapsed-checklist": viewingSpec() && checklistCollapsed(),
+            }}
+          >
+            <div class="spec-edit-pane">
                 <textarea
                   ref={(el) => (editorRef = el)}
                   class="spec-textarea"
@@ -608,7 +638,10 @@ export function SpecEditor(props: SpecEditorProps) {
         >
           <div
             class="spec-editor-preview"
-            classList={{ "split-view": viewingSpec() }}
+            classList={{
+              "split-view": viewingSpec(),
+              "collapsed-checklist": viewingSpec() && checklistCollapsed(),
+            }}
           >
             <div class="spec-doc-pane">
               <article
@@ -680,6 +713,11 @@ export function SpecEditor(props: SpecEditorProps) {
           gap: 12px;
         }
 
+        .spec-editor-preview.collapsed-checklist,
+        .spec-editor-edit.collapsed-checklist {
+          grid-template-rows: minmax(0, 1fr) auto;
+        }
+
         .spec-doc-pane,
         .spec-edit-pane,
         .spec-bottom-pane {
@@ -697,6 +735,36 @@ export function SpecEditor(props: SpecEditorProps) {
           display: grid;
           gap: 10px;
           align-content: start;
+        }
+
+        .spec-bottom-pane-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border: 1px solid var(--border-subtle);
+          border-radius: 12px;
+          padding: 10px 14px;
+          background: var(--bg-inset);
+        }
+
+        .spec-bottom-pane-summary {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+
+        .spec-collapse-toggle {
+          border: 1px solid var(--border-subtle);
+          border-radius: 999px;
+          background: transparent;
+          color: var(--text-primary);
+          padding: 5px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
         }
 
         .spec-doc-pane > * {

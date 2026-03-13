@@ -52,6 +52,7 @@ Features:
 - Area title click routes to `/projects?area=<id>`; kanban header shows selected area + `Back to Areas` link
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
+- `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
 - Left sidebar shows last 5 recently viewed projects (from `localStorage`) above the theme toggle, with truncated titles and relative viewed timestamps
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.

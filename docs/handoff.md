@@ -11,6 +11,16 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-13: SPECS checklist collapse toggle
+
+- `apps/web/src/components/project/SpecEditor.tsx`
+  - Added one lower-pane toggle that collapses/expands both Tasks and Acceptance Criteria together.
+  - Collapsed state shrinks the checklist pane to an auto-height summary row so the markdown preview/editor gets more vertical space.
+- `apps/web/src/components/project/SpecEditor.test.tsx`
+  - Added coverage for the shared collapse/expand behavior.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`
+
 ### 2026-03-13: Areas homepage quick-create + native color picker
 
 - `apps/web/src/components/AreasOverview.tsx`

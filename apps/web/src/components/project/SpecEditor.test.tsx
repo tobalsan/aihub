@@ -266,6 +266,63 @@ describe("SpecEditor", () => {
     dispose();
   });
 
+  it("collapses and expands tasks and acceptance criteria together", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpecEditor
+          specContent={`## Tasks\n- [ ] Ship toggle\n\n## Acceptance Criteria\n- [ ] Toggle hides both sections`}
+          docs={{
+            "SPECS.md": `## Tasks\n- [ ] Ship toggle\n\n## Acceptance Criteria\n- [ ] Toggle hides both sections`,
+          }}
+          tasks={[
+            {
+              title: "Ship toggle",
+              status: "todo",
+              checked: false,
+              order: 0,
+            },
+          ]}
+          progress={{ done: 0, total: 1 }}
+          onToggleTask={async () => {}}
+          onAddTask={async () => {}}
+          onSaveSpec={async () => {}}
+          onRefresh={async () => {}}
+        />
+      ),
+      container
+    );
+
+    expect(container.textContent).toContain("Tasks");
+    expect(container.textContent).toContain("Acceptance Criteria");
+    expect(container.textContent).toContain("Ship toggle");
+    expect(container.textContent).toContain("Toggle hides both sections");
+
+    const toggle = container.querySelector(
+      ".spec-collapse-toggle"
+    ) as HTMLButtonElement | null;
+    expect(toggle).not.toBeNull();
+    toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await Promise.resolve();
+
+    expect(toggle!.textContent).toBe("Expand");
+    expect(container.textContent).not.toContain("+ Add task");
+    expect(container.textContent).not.toContain("Acceptance Criteria");
+    expect(container.textContent).not.toContain("Toggle hides both sections");
+
+    toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await Promise.resolve();
+
+    expect(toggle!.textContent).toBe("Collapse");
+    expect(container.textContent).toContain("Acceptance Criteria");
+    expect(container.textContent).toContain("Toggle hides both sections");
+
+    dispose();
+  });
+
   it("updates progress immediately while task toggle request is pending", async () => {
     const task: Task = {
       title: "Route setup",
