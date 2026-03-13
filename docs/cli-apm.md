@@ -271,7 +271,8 @@ apm start PRO-19 --custom-prompt "Focus on the rollout plan."
 apm start PRO-19 --agent codex --mode worktree --branch main --slug my-run
 
 # Start a worker template run (CLI equivalent of UI Add Agent template)
-apm start PRO-19 --agent codex --template worker --mode worktree --branch main --slug worker-task-a
+# Default base branch is space/PRO-19 unless overridden with --branch.
+apm start PRO-19 --agent codex --template worker --mode worktree --slug worker-task-a
 
 # Start a reviewer/verifier template run
 apm start PRO-19 --agent claude --template reviewer --mode worktree --branch main --slug verifier-task-a

@@ -234,6 +234,15 @@ function templateRoleLabel(
   return "Custom";
 }
 
+function resolveTemplateBaseBranch(
+  projectId: string,
+  template: StartTemplate,
+  profileBaseBranch: string
+): string {
+  if (template === "worker") return `space/${projectId}`;
+  return profileBaseBranch;
+}
+
 function slugToName(slug: string): string {
   return slug
     .split("-")
@@ -847,7 +856,11 @@ api.post("/projects/:id/start", async (c) => {
     }
     if (!hasText(startInput.runMode)) startInput.runMode = profile.runMode;
     if (!hasText(startInput.baseBranch)) {
-      startInput.baseBranch = profile.baseBranch;
+      startInput.baseBranch = resolveTemplateBaseBranch(
+        id,
+        template,
+        profile.baseBranch
+      );
     }
     if (!hasText(startInput.promptRole)) {
       startInput.promptRole = profile.promptRole;

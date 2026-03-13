@@ -229,7 +229,9 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
         body.model = defaults.model;
         body.reasoningEffort = defaults.reasoningEffort;
         body.runMode = defaults.runMode;
-        body.baseBranch = defaults.baseBranch;
+        if (template !== "worker") {
+          body.baseBranch = defaults.baseBranch;
+        }
         body.includeDefaultPrompt = defaults.includeDefaultPrompt;
         body.includeRoleInstructions = defaults.includeRoleInstructions;
         body.includePostRun = defaults.includePostRun;

@@ -98,7 +98,7 @@ pnpm apm rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-e
 
 # `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role (resolved server-side by default).
 # Override locked fields only with `--allow-template-overrides`.
-# Template defaults: coordinator mode=none, worker mode=worktree (base=main), reviewer mode=none.
+# Template defaults: coordinator mode=none, worker mode=worktree (base=`space/<projectId>`), reviewer mode=none.
 
 # Override API URL (highest precedence)
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list

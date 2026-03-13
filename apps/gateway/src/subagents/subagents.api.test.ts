@@ -1415,6 +1415,102 @@ describe("subagents API", () => {
     }
   });
 
+  it("uses the Space branch for worker template runs from /projects/:id/start", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Worker Space Base" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = path.join(tmpDir, "repo-worker-space-base");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-worker-space-base");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo "$@"',
+      'echo \'{"type":"thread.started","thread_id":"s-worker-space-base"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const startRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "worker",
+            slug: "worker-space-base",
+          }),
+        })
+      );
+      expect(startRes.status).toBe(200);
+
+      const sessionDir = path.join(
+        projectsRoot,
+        created.path,
+        "sessions",
+        "worker-space-base"
+      );
+      const logsPath = path.join(sessionDir, "logs.jsonl");
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 2000) {
+        try {
+          const logs = await fs.readFile(logsPath, "utf8");
+          if (logs.includes("thread.started")) break;
+        } catch {
+          // wait
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      const config = JSON.parse(
+        await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+      );
+      expect(config.runMode).toBe("worktree");
+      expect(config.baseBranch).toBe(`space/${created.id}`);
+
+      const branchRes = await execFileAsync("git", [
+        "-C",
+        path.join(projectsRoot, ".workspaces", created.id, "worker-space-base"),
+        "rev-parse",
+        "--abbrev-ref",
+        "HEAD",
+      ]);
+      expect(branchRes.stdout.trim()).toBe(`${created.id}/worker-space-base`);
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
   it("auto-generates worker name from slug on /projects/:id/subagents", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

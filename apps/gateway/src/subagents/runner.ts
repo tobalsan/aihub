@@ -82,6 +82,19 @@ function getProjectsRoot(config: GatewayConfig): string {
   return expandPath(root);
 }
 
+function isProjectSpaceBranch(projectId: string, branch: string): boolean {
+  return branch === `space/${projectId}`;
+}
+
+async function ensureRunnerBaseBranch(
+  config: GatewayConfig,
+  projectId: string,
+  baseBranch: string
+): Promise<void> {
+  if (!isProjectSpaceBranch(projectId, baseBranch)) return;
+  await ensureProjectSpace(config, projectId);
+}
+
 function buildProjectSummary(
   title: string,
   status: string,
@@ -671,6 +684,7 @@ export async function spawnSubagent(
       .then(() => true)
       .catch(() => false);
     if (!worktreeGitExists) {
+      await ensureRunnerBaseBranch(config, input.projectId, baseBranch);
       if (mode === "worktree") {
         await createWorktree(repo, worktreePath, branch, baseBranch);
       } else {
@@ -1102,6 +1116,7 @@ export async function spawnRalphLoop(
       .then(() => true)
       .catch(() => false);
     if (!worktreeGitExists) {
+      await ensureRunnerBaseBranch(config, input.projectId, baseBranch);
       if (mode === "worktree") {
         await createWorktree(repo, worktreeDir, branch, baseBranch);
       } else {

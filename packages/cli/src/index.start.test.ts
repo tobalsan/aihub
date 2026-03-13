@@ -96,6 +96,24 @@ describe("apm start request body mapping", () => {
     expect(body).not.toHaveProperty("reasoningEffort");
   });
 
+  it("keeps worker template base branch server-resolved with escape hatch", () => {
+    const { body, errors } = buildStartRequestBody({
+      template: "worker",
+      allowTemplateOverrides: true,
+    });
+
+    expect(errors).toEqual([]);
+    expect(body).toMatchObject({
+      template: "worker",
+      allowTemplateOverrides: true,
+      runAgent: "cli:codex",
+      model: "gpt-5.4",
+      reasoningEffort: "medium",
+      runMode: "worktree",
+    });
+    expect(body).not.toHaveProperty("baseBranch");
+  });
+
   it("normalizes model and effort when agent override changes harness", () => {
     const { body, errors } = buildStartRequestBody({
       template: "custom",

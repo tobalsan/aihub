@@ -381,6 +381,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ### 2026-03-02
 
+- Worker template worktrees now default to `space/<projectId>` instead of `main`; server resolves this dynamically and CLI no longer injects `main` when `--allow-template-overrides` is used.
 - Added/iterated template-based spawn flow, coordinator/worker/reviewer prompt semantics, and safer template lock behavior.
 - Landed project detail chat Stop flow (`/abort` for lead, interrupt API for subagents).
 - Added `SPECS.md` parsing/format guidance and subsection support across gateway/web/prompts.

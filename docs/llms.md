@@ -456,7 +456,7 @@ Behavior:
 - `apm start --template` sends template-only by default; server applies locked template profile defaults for run agent/model/reasoning(or thinking)/runMode/baseBranch/prompt includes.
 - If `--allow-template-overrides` is set, CLI also sends profile defaults client-side and allows explicit override flags.
   - `coordinator`: `cli:claude`, `opus`, effort `medium`, `mode=none`, includes `true/true/false`
-  - `worker`: `cli:codex`, `gpt-5.4`, effort `medium`, `mode=worktree`, `baseBranch=main`, includes `true/true/true`
+  - `worker`: `cli:codex`, `gpt-5.4`, effort `medium`, `mode=worktree`, `baseBranch=space/<projectId>`, includes `true/true/true`
   - `reviewer`: `cli:codex`, `gpt-5.4`, effort `high`, `mode=none`, includes `true/true/true`
   - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, `mode=clone`, `baseBranch=main`, includes `true/true/true`
   - If harness is overridden to PI (`--agent pi`), effort defaults are translated to `thinking` and normalized for PI.
