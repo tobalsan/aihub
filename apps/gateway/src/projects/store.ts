@@ -23,6 +23,7 @@ export type ProjectListItem = {
   title: string;
   path: string;
   absolutePath: string;
+  repoValid: boolean;
   frontmatter: Record<string, unknown>;
 };
 
@@ -31,6 +32,7 @@ export type ProjectDetail = {
   title: string;
   path: string;
   absolutePath: string;
+  repoValid: boolean;
   frontmatter: Record<string, unknown>;
   docs: Record<string, string>;
   thread: ProjectThreadEntry[];
@@ -78,6 +80,18 @@ async function dirExists(dirPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(dirPath);
     return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function isValidGitRepo(repoPath?: string): Promise<boolean> {
+  if (!repoPath) return false;
+  const expandedRepoPath = expandPath(repoPath);
+  if (!(await dirExists(expandedRepoPath))) return false;
+  try {
+    await fs.stat(path.join(expandedRepoPath, ".git"));
+    return true;
   } catch {
     return false;
   }
@@ -322,6 +336,7 @@ export async function listProjects(
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
       const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
+      const repoValid = await isValidGitRepo(resolvedRepo);
       const resolvedFrontmatter: Record<string, unknown> = {
         ...frontmatter,
         id,
@@ -339,6 +354,7 @@ export async function listProjects(
         title: resolvedTitle,
         path: dirName,
         absolutePath: dirPath,
+        repoValid,
         frontmatter: resolvedFrontmatter,
       });
     } catch {
@@ -394,6 +410,7 @@ export async function listArchivedProjects(
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
       const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
+      const repoValid = await isValidGitRepo(resolvedRepo);
       const resolvedFrontmatter: Record<string, unknown> = {
         ...frontmatter,
         id,
@@ -407,6 +424,7 @@ export async function listArchivedProjects(
         title: resolvedTitle,
         path: path.join(ARCHIVE_DIR, dirName),
         absolutePath: dirPath,
+        repoValid,
         frontmatter: resolvedFrontmatter,
       });
     } catch {
@@ -482,6 +500,7 @@ export async function getProject(
   const resolvedTitle = toStringField(frontmatter.title) ?? title;
   const resolvedId = toStringField(frontmatter.id) ?? id;
   const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
+  const repoValid = await isValidGitRepo(resolvedRepo);
   const resolvedFrontmatter: Record<string, unknown> = {
     ...frontmatter,
     id: resolvedId,
@@ -498,6 +517,7 @@ export async function getProject(
       title: resolvedTitle,
       path: baseRoot === root ? dirName : path.join(ARCHIVE_DIR, dirName),
       absolutePath: dirPath,
+      repoValid,
       frontmatter: resolvedFrontmatter,
       docs,
       thread,
@@ -563,6 +583,7 @@ export async function createProject(
       title: trimmedTitle,
       path: dirName,
       absolutePath: dirPath,
+      repoValid: false,
       frontmatter,
       docs,
       thread: [],
@@ -708,6 +729,7 @@ export async function updateProject(
 
   const areaRepoMap = await getAreaRepoMap(config);
   const resolvedRepo = resolveProjectRepo(nextFrontmatter, areaRepoMap);
+  const repoValid = await isValidGitRepo(resolvedRepo);
   const resolvedFrontmatter = { ...nextFrontmatter };
   if (resolvedRepo) {
     resolvedFrontmatter.repo = resolvedRepo;
@@ -720,6 +742,7 @@ export async function updateProject(
       title: nextTitle,
       path: finalDirName,
       absolutePath: finalDirPath,
+      repoValid,
       frontmatter: resolvedFrontmatter,
       docs,
       thread: [],

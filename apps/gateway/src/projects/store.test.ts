@@ -30,6 +30,10 @@ describe("projects store", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
+  async function createGitRepo(repoPath: string): Promise<void> {
+    await fs.mkdir(path.join(repoPath, ".git"), { recursive: true });
+  }
+
   it("creates projects with metadata and increments ids", async () => {
     const { createProject, listProjects, getProject } =
       await import("./store.js");
@@ -90,9 +94,11 @@ describe("projects store", () => {
     const ids = listResult.data.map((item) => item.id);
     expect(ids).toContain("PRO-1");
     expect(ids).toContain("PRO-2");
+    expect(listResult.data.every((item) => item.repoValid === false)).toBe(true);
 
     const getResult = await getProject(config, firstResult.data.id);
     if (!getResult.ok) throw new Error(getResult.error);
+    expect(getResult.data.repoValid).toBe(false);
     expect(getResult.data.frontmatter.domain).toBe("coding");
     expect(getResult.data.docs.README).toContain("Ship it.");
     expect(getResult.data.thread.length).toBe(0);
@@ -282,6 +288,9 @@ describe("projects store", () => {
       projects: { root: projectsRoot },
     };
 
+    const repoPath = path.join(tmpDir, "code", "aihub");
+    await createGitRepo(repoPath);
+
     await fs.mkdir(path.join(projectsRoot, ".areas"), { recursive: true });
     await fs.writeFile(
       path.join(projectsRoot, ".areas", "aihub.yaml"),
@@ -298,11 +307,13 @@ describe("projects store", () => {
     expect(withArea.ok).toBe(true);
     if (!withArea.ok) return;
     expect(withArea.data.frontmatter.repo).toBe("~/code/aihub");
+    expect(withArea.data.repoValid).toBe(true);
 
     const fetched = await getProject(config, created.data.id);
     expect(fetched.ok).toBe(true);
     if (!fetched.ok) return;
     expect(fetched.data.frontmatter.repo).toBe("~/code/aihub");
+    expect(fetched.data.repoValid).toBe(true);
 
     const withRepo = await updateProject(config, created.data.id, {
       repo: "/tmp/custom-repo",
@@ -310,5 +321,76 @@ describe("projects store", () => {
     expect(withRepo.ok).toBe(true);
     if (!withRepo.ok) return;
     expect(withRepo.data.frontmatter.repo).toBe("/tmp/custom-repo");
+    expect(withRepo.data.repoValid).toBe(false);
+  });
+
+  it("marks repoValid false when repo path is missing or not a git repo", async () => {
+    const { createProject, updateProject, getProject, listProjects } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, { title: "Invalid Repo" });
+    if (!created.ok) throw new Error(created.error);
+
+    const noRepo = await getProject(config, created.data.id);
+    if (!noRepo.ok) throw new Error(noRepo.error);
+    expect(noRepo.data.repoValid).toBe(false);
+
+    const missingRepo = await updateProject(config, created.data.id, {
+      repo: path.join(tmpDir, "missing-repo"),
+    });
+    expect(missingRepo.ok).toBe(true);
+    if (!missingRepo.ok) return;
+    expect(missingRepo.data.repoValid).toBe(false);
+
+    const plainDir = path.join(tmpDir, "plain-dir");
+    await fs.mkdir(plainDir, { recursive: true });
+    const plainRepo = await updateProject(config, created.data.id, {
+      repo: plainDir,
+    });
+    expect(plainRepo.ok).toBe(true);
+    if (!plainRepo.ok) return;
+    expect(plainRepo.data.repoValid).toBe(false);
+
+    const list = await listProjects(config);
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    expect(list.data[0]?.repoValid).toBe(false);
+  });
+
+  it("includes repoValid in archived project list items", async () => {
+    const { createProject, updateProject, archiveProject, listArchivedProjects } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const repoPath = path.join(tmpDir, "repo-archive");
+    await createGitRepo(repoPath);
+
+    const created = await createProject(config, { title: "Archive Repo" });
+    if (!created.ok) throw new Error(created.error);
+
+    const updated = await updateProject(config, created.data.id, {
+      repo: repoPath,
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+
+    const archived = await archiveProject(config, created.data.id);
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) return;
+
+    const list = await listArchivedProjects(config);
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    expect(list.data).toHaveLength(1);
+    expect(list.data[0]?.repoValid).toBe(true);
   });
 });
