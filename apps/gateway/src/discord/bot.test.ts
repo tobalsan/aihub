@@ -875,7 +875,9 @@ describe("Discord slash commands", () => {
         meta: { durationMs: 0, sessionId: "test-session", aborted: true },
       });
 
-      await cmd.run(mockInteraction as any);
+      await cmd.run(
+        mockInteraction as unknown as Parameters<typeof cmd.run>[0]
+      );
 
       expect(mockRunAgent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -908,7 +910,9 @@ describe("Discord slash commands", () => {
         meta: { durationMs: 0, sessionId: "custom-session", aborted: true },
       });
 
-      await cmd.run(mockInteraction as any);
+      await cmd.run(
+        mockInteraction as unknown as Parameters<typeof cmd.run>[0]
+      );
 
       expect(mockRunAgent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -936,7 +940,9 @@ describe("Discord slash commands", () => {
         meta: { durationMs: 50, sessionId: "new-session" },
       });
 
-      await cmd.run(mockInteraction as any);
+      await cmd.run(
+        mockInteraction as unknown as Parameters<typeof cmd.run>[0]
+      );
 
       expect(mockRunAgent).toHaveBeenCalledWith(
         expect.objectContaining({

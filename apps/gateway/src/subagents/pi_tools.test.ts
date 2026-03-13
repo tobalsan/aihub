@@ -20,7 +20,7 @@ describe("pi subagent tools", () => {
       slug: "alpha",
       cli: "codex",
       prompt: "hi",
-    } as any);
+    });
 
     expect(handlers.spawn).toHaveBeenCalledWith({
       projectId: "PRO-1",
@@ -48,7 +48,12 @@ describe("pi subagent tools", () => {
     const tools = createPiSubagentTools(handlers);
     const tool = tools.find((t) => t.name === "subagent.spawn");
     await expect(
-      tool!.execute("call_2", { projectId: "PRO-1", slug: "alpha", cli: "codex", prompt: "hi" } as any)
+      tool!.execute("call_2", {
+        projectId: "PRO-1",
+        slug: "alpha",
+        cli: "codex",
+        prompt: "hi",
+      })
     ).rejects.toThrow("nope");
   });
 
@@ -68,7 +73,7 @@ describe("pi subagent tools", () => {
       projectId: "PRO-2",
       slug: "beta",
       since: 123,
-    } as any);
+    });
 
     expect(handlers.logs).toHaveBeenCalledWith({
       projectId: "PRO-2",

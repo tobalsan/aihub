@@ -162,7 +162,10 @@ describe("processReaction", () => {
       const reaction = createReaction();
       const config = createConfig({
         guilds: {
-          "guild-1": { requireMention: true, reactionNotifications: "invalid" as any },
+          "guild-1": {
+            requireMention: true,
+            reactionNotifications: "invalid" as never,
+          },
         },
       });
       const result = processReaction(reaction, config, "bot-id");

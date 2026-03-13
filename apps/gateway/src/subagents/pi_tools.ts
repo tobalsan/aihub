@@ -1,6 +1,12 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { createSubagentToolHandlers, type SubagentToolHandlers } from "./tool_handlers.js";
-import { SUPPORTED_SUBAGENT_CLIS } from "./runner.js";
+import {
+  SUPPORTED_SUBAGENT_CLIS,
+  type SpawnSubagentInput,
+  type SubagentCli,
+  type SubagentMode,
+  isSupportedSubagentCli,
+} from "./runner.js";
 
 const spawnParams = {
   type: "object",
@@ -14,7 +20,7 @@ const spawnParams = {
     resume: { type: "boolean" },
   },
   required: ["projectId", "slug", "cli", "prompt"],
-} as any;
+} as unknown as AgentTool["parameters"];
 
 const statusParams = {
   type: "object",
@@ -23,7 +29,7 @@ const statusParams = {
     slug: { type: "string" },
   },
   required: ["projectId", "slug"],
-} as any;
+} as unknown as AgentTool["parameters"];
 
 const logsParams = {
   type: "object",
@@ -33,13 +39,22 @@ const logsParams = {
     since: { type: "number" },
   },
   required: ["projectId", "slug"],
-} as any;
+} as unknown as AgentTool["parameters"];
 
 const interruptParams = statusParams;
 const killParams = statusParams;
 
 function okText(data: unknown) {
   return [{ type: "text" as const, text: JSON.stringify(data) }];
+}
+
+function isSubagentMode(value: string): value is SubagentMode {
+  return (
+    value === "main-run" ||
+    value === "worktree" ||
+    value === "clone" ||
+    value === "none"
+  );
 }
 
 export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentTool[] {
@@ -61,15 +76,18 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
           baseBranch?: string;
           resume?: boolean;
         };
+        if (!isSupportedSubagentCli(input.cli)) {
+          throw new Error(`Unsupported CLI: ${input.cli}`);
+        }
         const result = await ops.spawn({
           projectId: input.projectId,
           slug: input.slug,
-          cli: input.cli as any,
+          cli: input.cli as SubagentCli,
           prompt: input.prompt,
-          mode: input.mode as any,
+          mode: input.mode && isSubagentMode(input.mode) ? input.mode : undefined,
           baseBranch: input.baseBranch,
           resume: input.resume,
-        });
+        } satisfies SpawnSubagentInput);
         if (!result.ok) throw new Error(result.error);
         return { content: okText(result.data), details: result.data };
       },

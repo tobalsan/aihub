@@ -1,3 +1,4 @@
+import type { AgentContext } from "@aihub/shared";
 import { describe, it, expect } from "vitest";
 import { renderDiscordContext, buildDiscordContext, renderAgentContext } from "./context.js";
 
@@ -143,7 +144,7 @@ describe("renderAgentContext", () => {
   });
 
   it("returns empty string for unknown context kind", () => {
-    const ctx = { kind: "unknown" as any, blocks: [] };
+    const ctx = { kind: "unknown", blocks: [] } as unknown as AgentContext;
     const result = renderAgentContext(ctx);
     expect(result).toBe("");
   });

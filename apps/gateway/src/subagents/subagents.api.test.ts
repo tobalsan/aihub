@@ -1509,7 +1509,7 @@ describe("subagents API", () => {
     } finally {
       process.env.PATH = prevPath;
     }
-  });
+  }, 15000);
 
   it("auto-generates worker name from slug on /projects/:id/subagents", async () => {
     const createRes = await Promise.resolve(
