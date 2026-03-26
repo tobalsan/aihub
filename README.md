@@ -2,6 +2,17 @@
 
 Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, CLI, and scheduled jobs.
 
+![Dashboard](./aihub.png)
+
+**Main features:**
+
+- Multi-agent orchestration spaces
+- Project management with Kanban boards
+- Direct chat with CLI agents
+- Specs and task management
+- Activity feed
+- 100% file-based, no database
+
 ## Quick Start
 
 ```bash
