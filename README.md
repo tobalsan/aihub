@@ -16,10 +16,29 @@ Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, CLI, and 
 ## Quick Start
 
 ```bash
+
+# Clone the repo
+git clone https://github.com/tobalsan/aihub.git
+cd aihub
+
 # Install
 pnpm install
+```
 
-# Configure
+## Configuration
+
+The app uses a main config file at `~/.aihub/aihub.json`.
+All data is saved as markdown files in the projects folder.
+By default, if you don't specify anything, all projects are saved in `~/projects`.
+
+The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
+
+### Lead agents
+
+Lead agent configuration is optional, as orchestration is done via CLI subagents.
+But if you want to configure lead agent, you can do so by adding them in the main config file. Each agent has their workspace, and is powered by Pi SDK under the hood.
+
+```bash
 mkdir -p ~/.aihub
 cat > ~/.aihub/aihub.json << 'EOF'
 {
@@ -29,17 +48,6 @@ cat > ~/.aihub/aihub.json << 'EOF'
       "name": "My Agent",
       "workspace": "~/workspace/my-agent",
       "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" }
-    },
-    {
-      "id": "claude-agent",
-      "name": "Claude Agent",
-      "workspace": "~/workspace/claude-agent",
-      "sdk": "claude",
-      "model": {
-        "model": "claude-opus-4-5-20251101",
-        "base_url": "http://127.0.0.1:8317",
-        "auth_token": "sk-dummy"
-      }
     },
     {
       "id": "openclaw-agent",
@@ -53,10 +61,17 @@ cat > ~/.aihub/aihub.json << 'EOF'
       },
       "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
     }
-  ]
+  ],
+  "projects": {
+    "root": "/your/custom/projects/path"
+  }
 }
 EOF
+```
 
+## Starting the app
+
+```bash
 # Build & run
 pnpm build && pnpm build:web
 pnpm aihub gateway
