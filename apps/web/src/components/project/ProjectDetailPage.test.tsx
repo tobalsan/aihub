@@ -258,6 +258,12 @@ describe("ProjectDetailPage", () => {
       ".project-detail-merged-tabs button.active"
     ) as HTMLButtonElement;
     expect(activeTab.textContent?.trim()).toBe("Overview");
+    const styles = Array.from(container.querySelectorAll("style"))
+      .map((node) => node.textContent ?? "")
+      .join("\n");
+    expect(styles).toContain(
+      ".project-detail__merged-body {\n          min-height: 0;\n          overflow: hidden;"
+    );
 
     dispose();
   });

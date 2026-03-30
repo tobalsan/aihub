@@ -1152,7 +1152,7 @@ export function ProjectDetailPage() {
 
         .project-detail__merged-body {
           min-height: 0;
-          overflow-y: auto;
+          overflow: hidden;
         }
 
         @media (max-width: 1199px) {
