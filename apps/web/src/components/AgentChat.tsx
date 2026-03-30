@@ -1916,6 +1916,19 @@ export function AgentChat(props: AgentChatProps) {
     }
     return null;
   });
+  const contextWarning = createMemo(() => {
+    if (props.agentType === "lead" && aihubHistoryMessages().length > 0) {
+      const pct = estimatedContextUsagePct();
+      if (pct >= 80) {
+        return `Context usage is high (~${pct}%). Consider wrapping up this conversation or creating a handoff document to continue in a new session.`;
+      }
+      return null;
+    }
+    if (props.agentType !== "subagent" || !props.subagentInfo) return null;
+    const estimate = subagentContextEstimate();
+    if (!estimate?.available || estimate.pct < 80) return null;
+    return `Context usage is high (~${estimate.pct}%). Consider wrapping up this conversation or creating a handoff document to continue in a new session.`;
+  });
   const cliDisplayEvents = createMemo(() => {
     const pending = pendingCliUserMessages();
     if (pending.length === 0) return cliLogs();
@@ -2273,6 +2286,9 @@ export function AgentChat(props: AgentChatProps) {
               {display().text}
             </div>
           )}
+        </Show>
+        <Show when={contextWarning()}>
+          {(warning) => <div class="context-warning">{warning()}</div>}
         </Show>
       </div>
 
@@ -2852,6 +2868,17 @@ export function AgentChat(props: AgentChatProps) {
 
         .context-usage.unavailable {
           opacity: 0.9;
+        }
+
+        .context-warning {
+          margin-top: 6px;
+          padding: 8px 10px;
+          border: 1px solid color-mix(in srgb, #ef4444 35%, transparent);
+          border-radius: 10px;
+          background: color-mix(in srgb, #ef4444 10%, transparent);
+          color: #fca5a5;
+          font-size: 12px;
+          line-height: 1.4;
         }
 
         .chat-file-input {

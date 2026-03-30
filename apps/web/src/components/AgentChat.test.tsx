@@ -177,6 +177,39 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("shows lead context warning at 80% or higher", async () => {
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          timestamp: Date.now(),
+          content: [{ type: "text", text: "done" }],
+          meta: {
+            model: "claude-3-5-sonnet",
+            usage: {
+              input: 160000,
+              output: 50,
+              totalTokens: 160050,
+            },
+          },
+        },
+      ],
+    });
+
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-warning")?.textContent).toContain(
+      "Context usage is high (~80%)"
+    );
+    expect(container.querySelector(".context-warning")?.textContent).toContain(
+      "creating a handoff document"
+    );
+
+    dispose();
+  });
+
   it("renders subagent context usage percent from latest estimate", async () => {
     fetchSubagentLogsMock.mockResolvedValueOnce({
       ok: true,
@@ -199,6 +232,33 @@ describe("AgentChat stop/send behavior", () => {
 
     expect(container.querySelector(".context-usage")?.textContent).toContain(
       "~30% context used"
+    );
+
+    dispose();
+  });
+
+  it("shows subagent context warning when estimate is high", async () => {
+    fetchSubagentLogsMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        cursor: 1,
+        events: [],
+        latestContextEstimate: {
+          usedTokens: 170000,
+          maxTokens: 200000,
+          pct: 85,
+          basis: "claude_prompt_tokens",
+          available: true,
+        },
+      },
+    });
+
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-warning")?.textContent).toContain(
+      "Context usage is high (~85%)"
     );
 
     dispose();
@@ -238,6 +298,7 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
 
     expect(container.querySelector(".context-usage")).toBeNull();
+    expect(container.querySelector(".context-warning")).toBeNull();
 
     dispose();
   });
