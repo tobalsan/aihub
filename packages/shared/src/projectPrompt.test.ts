@@ -110,6 +110,34 @@ describe("role-based project prompts", () => {
     expect(out).toContain(
       "Optional `###` subsections are supported in both sections."
     );
+    expect(out).toContain("## Agent Management Rules");
+    expect(out).toContain(
+      "Monitor agents with `apm status <project-id> --slug <agent>`."
+    );
+    expect(out).toContain(
+      'Resume agents with `apm resume <project-id> -m "..." --slug <agent>`.'
+    );
+    expect(out).toContain(
+      "while true; do apm status <project-id> --slug <agent> --json; sleep 30; done"
+    );
+    expect(out).toContain(
+      "Never merge commits directly into `main`. Route all changes through the Space branch first."
+    );
+    expect(out).toContain(
+      'Never act on a worker\'s changes until `apm status` shows the worker finished with status `"done"`.'
+    );
+    expect(out).toContain(
+      "Never implement fixes or run reviews yourself unless the user explicitly asks."
+    );
+    expect(out).toContain(
+      "Never spawn direct native subagents outside AIHub/apm for implementation work."
+    );
+    expect(out).toContain(
+      "wait until the first worker's worktree has been integrated into the Space branch before dispatching the dependent worker."
+    );
+    expect(out).toContain(
+      "update the project's `space.json` to mark those commits integrated."
+    );
   });
 
   it("builds worker prompt with implementation repo and no move-to-review", () => {
