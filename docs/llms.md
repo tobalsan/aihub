@@ -73,6 +73,7 @@ Features:
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
 - Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
+- Project detail page is responsive: at `<=768px` it switches to a single-column `Overview | Chat | Activity | Changes | Spec` tabbed layout, moving `AgentPanel` into `Overview`; at `769px-1199px` it keeps the merged center/right tabs with a fixed `280px` left rail
 - Project detail blocks new agent creation when `repoValid` is false and shows a clear message: `No repo configured` or `Repo path not found: <path>`
 - Project detail left panel subagent rows support inline rename (click name, save on Enter/blur; Space is treated as input while editing and does not trigger row selection)
 - Project detail Changes tab is Space-first: Space queue dashboard, per-worker contribution drill-down, Integrate Now, Rebase on main, and Space-targeted commit/PR actions

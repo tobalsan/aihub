@@ -51,9 +51,37 @@ vi.mock("../../api/client", () => ({
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "alpha" } })),
 }));
 
+function mockMatchMedia({
+  compact = false,
+  mobile = false,
+}: {
+  compact?: boolean;
+  mobile?: boolean;
+} = {}) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches:
+        query === "(max-width: 1199px)"
+          ? compact
+          : query === "(max-width: 768px)"
+            ? mobile
+            : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 describe("ProjectDetailPage", () => {
   it("navigates to /projects when Back to Projects is clicked", async () => {
     navigateMock.mockReset();
+    mockMatchMedia();
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -72,6 +100,8 @@ describe("ProjectDetailPage", () => {
   });
 
   it("renders three-column shell and breadcrumb", async () => {
+    mockMatchMedia();
+
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <ProjectDetailPage />, container);
@@ -93,6 +123,7 @@ describe("ProjectDetailPage", () => {
 
   it("allows inline title edit on double-click and updates breadcrumb after save", async () => {
     vi.mocked(updateProject).mockClear();
+    mockMatchMedia();
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -128,6 +159,7 @@ describe("ProjectDetailPage", () => {
   });
 
   it("opens spawn form in center panel after selecting a template", async () => {
+    mockMatchMedia();
     localStorage.setItem(
       "aihub:project:PRO-1:center-view",
       JSON.stringify({ tab: "activity" })
@@ -169,6 +201,7 @@ describe("ProjectDetailPage", () => {
   });
 
   it("disables agent creation and shows repo error when repo is invalid", async () => {
+    mockMatchMedia();
     vi.mocked(fetchProject).mockResolvedValueOnce({
       id: "PRO-1",
       title: "Alpha Project",
@@ -198,6 +231,33 @@ describe("ProjectDetailPage", () => {
     expect(container.textContent).toContain(
       "Repo path not found: /tmp/missing-repo"
     );
+
+    dispose();
+  });
+
+  it("renders a single mobile tabbed layout with overview by default", async () => {
+    mockMatchMedia({ compact: true, mobile: true });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const tabs = Array.from(
+      container.querySelectorAll(".project-detail-merged-tabs button")
+    ).map((button) => button.textContent?.trim());
+    expect(tabs).toEqual(["Overview", "Chat", "Activity", "Changes", "Spec"]);
+    expect(container.querySelector(".project-detail__center")).toBeNull();
+    expect(container.querySelector(".project-detail__right")).toBeNull();
+    expect(container.textContent).toContain("Back to Projects");
+    expect(container.textContent).toContain("AIHub");
+
+    const activeTab = container.querySelector(
+      ".project-detail-merged-tabs button.active"
+    ) as HTMLButtonElement;
+    expect(activeTab.textContent?.trim()).toBe("Overview");
 
     dispose();
   });

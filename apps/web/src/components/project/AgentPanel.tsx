@@ -1272,10 +1272,16 @@ export function AgentPanel(props: AgentPanelProps) {
                 class="show-archived-toggle"
                 onClick={() => setShowArchived((v) => !v)}
               >
-                {showArchived() ? "Hide archived" : `Show archived (${groupedSubagents().archivedAgents.length})`}
+                {showArchived()
+                  ? "Hide archived"
+                  : `Show archived (${groupedSubagents().archivedAgents.length})`}
               </button>
             </Show>
-            <Show when={showArchived() && groupedSubagents().archivedAgents.length > 0}>
+            <Show
+              when={
+                showArchived() && groupedSubagents().archivedAgents.length > 0
+              }
+            >
               <div class="agent-group-gap" />
               <For each={groupedSubagents().archivedAgents}>
                 {(item) => renderSubagentCard(item)}
@@ -1681,6 +1687,17 @@ export function AgentPanel(props: AgentPanelProps) {
           flex: 1;
           overflow: visible;
           position: relative;
+        }
+
+        @media (max-width: 768px) {
+          .agent-list-item {
+            padding: 14px;
+          }
+
+          .agent-row-action {
+            width: 32px;
+            height: 32px;
+          }
         }
 
         .agent-name-btn {
