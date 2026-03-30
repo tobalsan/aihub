@@ -1,6 +1,8 @@
 import { useNavigate, useParams } from "@solidjs/router";
 import {
+  Match,
   Show,
+  Switch,
   createEffect,
   createMemo,
   createResource,
@@ -28,11 +30,7 @@ import {
   type SelectedProjectAgent,
 } from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
-import type {
-  SpawnFormDraft,
-  SpawnPrefill,
-  SpawnTemplate,
-} from "./SpawnForm";
+import type { SpawnFormDraft, SpawnPrefill, SpawnTemplate } from "./SpawnForm";
 
 type PersistedCenterView = {
   tab: CenterTab;
@@ -51,7 +49,9 @@ function readCenterView(id: string): PersistedCenterView | null {
     if (
       parsed &&
       typeof parsed === "object" &&
-      (parsed.tab === "chat" || parsed.tab === "activity" || parsed.tab === "changes")
+      (parsed.tab === "chat" ||
+        parsed.tab === "activity" ||
+        parsed.tab === "changes")
     ) {
       return parsed as PersistedCenterView;
     }
@@ -70,6 +70,7 @@ function saveCenterView(id: string, view: PersistedCenterView): void {
 }
 
 type MergedTab = "chat" | "activity" | "changes" | "spec";
+type MobileTab = "overview" | "chat" | "activity" | "changes" | "spec";
 
 function getBaseAppTitle(): string {
   if (import.meta.env.VITE_AIHUB_DEV === "true") {
@@ -128,7 +129,9 @@ export function ProjectDetailPage() {
   const navigate = useNavigate();
   const projectId = createMemo(() => params.id ?? "");
   const [compactLayout, setCompactLayout] = createSignal(false);
+  const [isMobile, setIsMobile] = createSignal(false);
   const [mergedTab, setMergedTab] = createSignal<MergedTab>("spec");
+  const [mobileTab, setMobileTab] = createSignal<MobileTab>("overview");
   const savedView = readCenterView(projectId());
   const [centerTab, setCenterTab] = createSignal<CenterTab>(
     savedView?.tab ?? "chat"
@@ -202,8 +205,23 @@ export function ProjectDetailPage() {
 
   onMount(() => {
     if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(max-width: 1599px)");
+    const media = window.matchMedia("(max-width: 1199px)");
     const update = (matches: boolean) => setCompactLayout(matches);
+    update(media.matches);
+    const handler = (event: MediaQueryListEvent) => update(event.matches);
+    if (media.addEventListener) {
+      media.addEventListener("change", handler);
+      onCleanup(() => media.removeEventListener("change", handler));
+      return;
+    }
+    media.addListener(handler);
+    onCleanup(() => media.removeListener(handler));
+  });
+
+  onMount(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 768px)");
+    const update = (matches: boolean) => setIsMobile(matches);
     update(media.matches);
     const handler = (event: MediaQueryListEvent) => update(event.matches);
     if (media.addEventListener) {
@@ -509,11 +527,17 @@ export function ProjectDetailPage() {
                 class="project-detail-back"
                 onClick={handleBack}
               >
-                ← Back to Projects
+                <span aria-hidden="true">←</span>
+                <span class="project-detail-back-text">Back to Projects</span>
               </button>
-              <span>/</span>
-              <span>{area()?.title ?? "Unknown area"}</span>
-              <span>/</span>
+              <span class="project-detail-breadcrumb-separator">/</span>
+              <span
+                class="project-detail-breadcrumb-area"
+                title={area()?.title ?? "Unknown area"}
+              >
+                {area()?.title ?? "Unknown area"}
+              </span>
+              <span class="project-detail-breadcrumb-separator">/</span>
               <Show
                 when={isEditingTitle()}
                 fallback={
@@ -555,191 +579,430 @@ export function ProjectDetailPage() {
               </Show>
             </header>
             <div class="project-detail">
-              <div class="project-detail__left">
-                <AgentPanel
-                  project={detail()}
-                  area={area()}
-                  areas={areas() ?? []}
-                  subagents={subagents()}
-                  onSubagentsChange={(items) => setSubagents(items)}
-                  onOpenSpawn={(input) => {
-                    setSpawnMode(input);
-                    setSpawnFormDraft({
-                      includeDefaultPrompt:
-                        input.prefill.includeDefaultPrompt ?? true,
-                      includeRoleInstructions:
-                        input.prefill.includeRoleInstructions ?? true,
-                      includePostRun: input.prefill.includePostRun ?? true,
-                      includeCustomInstructions: false,
-                      customInstructions: input.prefill.customInstructions ?? "",
-                    });
-                    setMergedTab("chat");
-                    setCenterTab("chat");
-                  }}
-                  onTitleChange={handleTitleChange}
-                  onStatusChange={handleStatusChange}
-                  onAreaChange={handleAreaChange}
-                  onRepoChange={handleRepoChange}
-                  selectedAgentSlug={
-                    selectedAgent()?.type === "lead"
-                      ? `lead:${selectedAgent()?.agentId ?? ""}`
-                      : (selectedAgent()?.slug ?? null)
-                  }
-                  onSelectAgent={(info) => {
-                    setMergedTab("chat");
-                    setCenterTab("chat");
-                    if (info.type === "lead") {
-                      setSelectedAgent({
-                        type: "lead",
-                        projectId: info.projectId,
-                        agentId: info.agentId,
-                        agentName: info.agentId,
-                      });
-                      return;
-                    }
-                    setSelectedAgent({
-                      type: "subagent",
-                      projectId: info.projectId,
-                      slug: info.slug,
-                      cli: info.cli,
-                      runMode:
-                        info.runMode === "main-run" ||
-                        info.runMode === "worktree" ||
-                        info.runMode === "clone" ||
-                        info.runMode === "none"
-                          ? info.runMode
-                          : undefined,
-                      status: info.status,
-                    });
-                  }}
-                />
-              </div>
-              <Show when={!compactLayout()}>
-                <div class="project-detail__center">
-                  <CenterPanel
-                    project={detail()}
-                    tab={centerTab()}
-                    onTabChange={setCenterTab}
-                    onAddComment={handleAddComment}
-                    selectedAgent={selectedAgent()}
-                    spawnMode={spawnMode()}
-                    chatInputDraft={chatInputDraft()}
-                    onChatInputDraftChange={setChatInputDraft}
-                    spawnFormDraft={spawnFormDraft()}
-                    onSpawnFormDraftChange={setSpawnFormDraft}
-                    subagents={subagents()}
-                    onCancelSpawn={() => setSpawnMode(null)}
-                    hasArea={Boolean(area())}
-                    repoValid={detail().repoValid}
-                    repoMessage={repoMessage()}
-                    onSpawned={(slug) => {
-                      setSpawnMode(null);
-                      setSelectedAgent({
-                        type: "subagent",
-                        projectId: projectId(),
-                        slug,
-                        cli: undefined,
-                        runMode: undefined,
-                        status: "running",
-                      });
-                    }}
-                  />
-                </div>
-                <div class="project-detail__right">
-                  <SpecEditor
-                    specContent={spec()?.content ?? ""}
-                    docs={detail().docs}
-                    tasks={tasks()?.tasks ?? []}
-                    progress={tasks()?.progress ?? { done: 0, total: 0 }}
-                    areaColor={area()?.color}
-                    onToggleTask={handleToggleTask}
-                    onAddTask={handleAddTask}
-                    onSaveSpec={handleSaveSpec}
-                    onSaveDoc={handleSaveDoc}
-                    onRefresh={handleRefreshSpec}
-                  />
-                </div>
-              </Show>
-              <Show when={compactLayout()}>
-                <div class="project-detail__merged">
-                  <header class="project-detail-merged-tabs">
-                    <button
-                      type="button"
-                      classList={{ active: mergedTab() === "chat" }}
-                      onClick={() => { setMergedTab("chat"); setCenterTab("chat"); }}
-                    >
-                      Chat
-                    </button>
-                    <button
-                      type="button"
-                      classList={{ active: mergedTab() === "activity" }}
-                      onClick={() => { setMergedTab("activity"); setCenterTab("activity"); }}
-                    >
-                      Activity
-                    </button>
-                    <button
-                      type="button"
-                      classList={{ active: mergedTab() === "changes" }}
-                      onClick={() => { setMergedTab("changes"); setCenterTab("changes"); }}
-                    >
-                      Changes
-                    </button>
-                    <button
-                      type="button"
-                      classList={{ active: mergedTab() === "spec" }}
-                      onClick={() => setMergedTab("spec")}
-                    >
-                      Spec
-                    </button>
-                  </header>
-                  <div class="project-detail__merged-body">
-                    <Show when={mergedTab() === "spec"}>
-                      <SpecEditor
-                        specContent={spec()?.content ?? ""}
-                        docs={detail().docs}
-                        tasks={tasks()?.tasks ?? []}
-                        progress={tasks()?.progress ?? { done: 0, total: 0 }}
-                        areaColor={area()?.color}
-                        onToggleTask={handleToggleTask}
-                        onAddTask={handleAddTask}
-                        onSaveSpec={handleSaveSpec}
-                        onSaveDoc={handleSaveDoc}
-                        onRefresh={handleRefreshSpec}
-                      />
-                    </Show>
-                    <Show when={mergedTab() !== "spec"}>
-                      <CenterPanel
-                        project={detail()}
-                        onAddComment={handleAddComment}
-                        showTabs={false}
-                        tab={mergedTab() as "chat" | "activity" | "changes"}
-                        selectedAgent={selectedAgent()}
-                        spawnMode={spawnMode()}
-                        chatInputDraft={chatInputDraft()}
-                        onChatInputDraftChange={setChatInputDraft}
-                        spawnFormDraft={spawnFormDraft()}
-                        onSpawnFormDraftChange={setSpawnFormDraft}
-                        subagents={subagents()}
-                        onCancelSpawn={() => setSpawnMode(null)}
-                        hasArea={Boolean(area())}
-                        repoValid={detail().repoValid}
-                        repoMessage={repoMessage()}
-                        onSpawned={(slug) => {
-                          setSpawnMode(null);
-                          setSelectedAgent({
-                            type: "subagent",
-                            projectId: projectId(),
-                            slug,
-                            cli: undefined,
-                            runMode: undefined,
-                            status: "running",
-                          });
+              <Switch>
+                <Match when={isMobile()}>
+                  <div class="project-detail__merged project-detail__merged--mobile">
+                    <header class="project-detail-merged-tabs">
+                      <button
+                        type="button"
+                        classList={{ active: mobileTab() === "overview" }}
+                        onClick={() => setMobileTab("overview")}
+                      >
+                        Overview
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mobileTab() === "chat" }}
+                        onClick={() => {
+                          setMobileTab("chat");
+                          setCenterTab("chat");
                         }}
-                      />
-                    </Show>
+                      >
+                        Chat
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mobileTab() === "activity" }}
+                        onClick={() => {
+                          setMobileTab("activity");
+                          setCenterTab("activity");
+                        }}
+                      >
+                        Activity
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mobileTab() === "changes" }}
+                        onClick={() => {
+                          setMobileTab("changes");
+                          setCenterTab("changes");
+                        }}
+                      >
+                        Changes
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mobileTab() === "spec" }}
+                        onClick={() => setMobileTab("spec")}
+                      >
+                        Spec
+                      </button>
+                    </header>
+                    <div class="project-detail__merged-body">
+                      <Switch>
+                        <Match when={mobileTab() === "overview"}>
+                          <AgentPanel
+                            project={detail()}
+                            area={area()}
+                            areas={areas() ?? []}
+                            subagents={subagents()}
+                            onSubagentsChange={(items) => setSubagents(items)}
+                            onOpenSpawn={(input) => {
+                              setSpawnMode(input);
+                              setSpawnFormDraft({
+                                includeDefaultPrompt:
+                                  input.prefill.includeDefaultPrompt ?? true,
+                                includeRoleInstructions:
+                                  input.prefill.includeRoleInstructions ?? true,
+                                includePostRun:
+                                  input.prefill.includePostRun ?? true,
+                                includeCustomInstructions: false,
+                                customInstructions:
+                                  input.prefill.customInstructions ?? "",
+                              });
+                              setMobileTab("chat");
+                              setMergedTab("chat");
+                              setCenterTab("chat");
+                            }}
+                            onTitleChange={handleTitleChange}
+                            onStatusChange={handleStatusChange}
+                            onAreaChange={handleAreaChange}
+                            onRepoChange={handleRepoChange}
+                            selectedAgentSlug={
+                              selectedAgent()?.type === "lead"
+                                ? `lead:${selectedAgent()?.agentId ?? ""}`
+                                : (selectedAgent()?.slug ?? null)
+                            }
+                            onSelectAgent={(info) => {
+                              setMobileTab("chat");
+                              setMergedTab("chat");
+                              setCenterTab("chat");
+                              if (info.type === "lead") {
+                                setSelectedAgent({
+                                  type: "lead",
+                                  projectId: info.projectId,
+                                  agentId: info.agentId,
+                                  agentName: info.agentId,
+                                });
+                                return;
+                              }
+                              setSelectedAgent({
+                                type: "subagent",
+                                projectId: info.projectId,
+                                slug: info.slug,
+                                cli: info.cli,
+                                runMode:
+                                  info.runMode === "main-run" ||
+                                  info.runMode === "worktree" ||
+                                  info.runMode === "clone" ||
+                                  info.runMode === "none"
+                                    ? info.runMode
+                                    : undefined,
+                                status: info.status,
+                              });
+                            }}
+                          />
+                        </Match>
+                        <Match when={mobileTab() === "spec"}>
+                          <SpecEditor
+                            specContent={spec()?.content ?? ""}
+                            docs={detail().docs}
+                            tasks={tasks()?.tasks ?? []}
+                            progress={
+                              tasks()?.progress ?? { done: 0, total: 0 }
+                            }
+                            areaColor={area()?.color}
+                            onToggleTask={handleToggleTask}
+                            onAddTask={handleAddTask}
+                            onSaveSpec={handleSaveSpec}
+                            onSaveDoc={handleSaveDoc}
+                            onRefresh={handleRefreshSpec}
+                          />
+                        </Match>
+                        <Match
+                          when={
+                            mobileTab() !== "overview" && mobileTab() !== "spec"
+                          }
+                        >
+                          <CenterPanel
+                            project={detail()}
+                            onAddComment={handleAddComment}
+                            showTabs={false}
+                            tab={mobileTab() as "chat" | "activity" | "changes"}
+                            selectedAgent={selectedAgent()}
+                            spawnMode={spawnMode()}
+                            chatInputDraft={chatInputDraft()}
+                            onChatInputDraftChange={setChatInputDraft}
+                            spawnFormDraft={spawnFormDraft()}
+                            onSpawnFormDraftChange={setSpawnFormDraft}
+                            subagents={subagents()}
+                            onCancelSpawn={() => setSpawnMode(null)}
+                            hasArea={Boolean(area())}
+                            repoValid={detail().repoValid}
+                            repoMessage={repoMessage()}
+                            onSpawned={(slug) => {
+                              setSpawnMode(null);
+                              setSelectedAgent({
+                                type: "subagent",
+                                projectId: projectId(),
+                                slug,
+                                cli: undefined,
+                                runMode: undefined,
+                                status: "running",
+                              });
+                            }}
+                          />
+                        </Match>
+                      </Switch>
+                    </div>
                   </div>
-                </div>
-              </Show>
+                </Match>
+                <Match when={!compactLayout()}>
+                  <div class="project-detail__left">
+                    <AgentPanel
+                      project={detail()}
+                      area={area()}
+                      areas={areas() ?? []}
+                      subagents={subagents()}
+                      onSubagentsChange={(items) => setSubagents(items)}
+                      onOpenSpawn={(input) => {
+                        setSpawnMode(input);
+                        setSpawnFormDraft({
+                          includeDefaultPrompt:
+                            input.prefill.includeDefaultPrompt ?? true,
+                          includeRoleInstructions:
+                            input.prefill.includeRoleInstructions ?? true,
+                          includePostRun: input.prefill.includePostRun ?? true,
+                          includeCustomInstructions: false,
+                          customInstructions:
+                            input.prefill.customInstructions ?? "",
+                        });
+                        setMergedTab("chat");
+                        setCenterTab("chat");
+                      }}
+                      onTitleChange={handleTitleChange}
+                      onStatusChange={handleStatusChange}
+                      onAreaChange={handleAreaChange}
+                      onRepoChange={handleRepoChange}
+                      selectedAgentSlug={
+                        selectedAgent()?.type === "lead"
+                          ? `lead:${selectedAgent()?.agentId ?? ""}`
+                          : (selectedAgent()?.slug ?? null)
+                      }
+                      onSelectAgent={(info) => {
+                        setMergedTab("chat");
+                        setCenterTab("chat");
+                        if (info.type === "lead") {
+                          setSelectedAgent({
+                            type: "lead",
+                            projectId: info.projectId,
+                            agentId: info.agentId,
+                            agentName: info.agentId,
+                          });
+                          return;
+                        }
+                        setSelectedAgent({
+                          type: "subagent",
+                          projectId: info.projectId,
+                          slug: info.slug,
+                          cli: info.cli,
+                          runMode:
+                            info.runMode === "main-run" ||
+                            info.runMode === "worktree" ||
+                            info.runMode === "clone" ||
+                            info.runMode === "none"
+                              ? info.runMode
+                              : undefined,
+                          status: info.status,
+                        });
+                      }}
+                    />
+                  </div>
+                  <div class="project-detail__center">
+                    <CenterPanel
+                      project={detail()}
+                      tab={centerTab()}
+                      onTabChange={setCenterTab}
+                      onAddComment={handleAddComment}
+                      selectedAgent={selectedAgent()}
+                      spawnMode={spawnMode()}
+                      chatInputDraft={chatInputDraft()}
+                      onChatInputDraftChange={setChatInputDraft}
+                      spawnFormDraft={spawnFormDraft()}
+                      onSpawnFormDraftChange={setSpawnFormDraft}
+                      subagents={subagents()}
+                      onCancelSpawn={() => setSpawnMode(null)}
+                      hasArea={Boolean(area())}
+                      repoValid={detail().repoValid}
+                      repoMessage={repoMessage()}
+                      onSpawned={(slug) => {
+                        setSpawnMode(null);
+                        setSelectedAgent({
+                          type: "subagent",
+                          projectId: projectId(),
+                          slug,
+                          cli: undefined,
+                          runMode: undefined,
+                          status: "running",
+                        });
+                      }}
+                    />
+                  </div>
+                  <div class="project-detail__right">
+                    <SpecEditor
+                      specContent={spec()?.content ?? ""}
+                      docs={detail().docs}
+                      tasks={tasks()?.tasks ?? []}
+                      progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                      areaColor={area()?.color}
+                      onToggleTask={handleToggleTask}
+                      onAddTask={handleAddTask}
+                      onSaveSpec={handleSaveSpec}
+                      onSaveDoc={handleSaveDoc}
+                      onRefresh={handleRefreshSpec}
+                    />
+                  </div>
+                </Match>
+                <Match when={compactLayout()}>
+                  <div class="project-detail__left">
+                    <AgentPanel
+                      project={detail()}
+                      area={area()}
+                      areas={areas() ?? []}
+                      subagents={subagents()}
+                      onSubagentsChange={(items) => setSubagents(items)}
+                      onOpenSpawn={(input) => {
+                        setSpawnMode(input);
+                        setSpawnFormDraft({
+                          includeDefaultPrompt:
+                            input.prefill.includeDefaultPrompt ?? true,
+                          includeRoleInstructions:
+                            input.prefill.includeRoleInstructions ?? true,
+                          includePostRun: input.prefill.includePostRun ?? true,
+                          includeCustomInstructions: false,
+                          customInstructions:
+                            input.prefill.customInstructions ?? "",
+                        });
+                        setMergedTab("chat");
+                        setCenterTab("chat");
+                      }}
+                      onTitleChange={handleTitleChange}
+                      onStatusChange={handleStatusChange}
+                      onAreaChange={handleAreaChange}
+                      onRepoChange={handleRepoChange}
+                      selectedAgentSlug={
+                        selectedAgent()?.type === "lead"
+                          ? `lead:${selectedAgent()?.agentId ?? ""}`
+                          : (selectedAgent()?.slug ?? null)
+                      }
+                      onSelectAgent={(info) => {
+                        setMergedTab("chat");
+                        setCenterTab("chat");
+                        if (info.type === "lead") {
+                          setSelectedAgent({
+                            type: "lead",
+                            projectId: info.projectId,
+                            agentId: info.agentId,
+                            agentName: info.agentId,
+                          });
+                          return;
+                        }
+                        setSelectedAgent({
+                          type: "subagent",
+                          projectId: info.projectId,
+                          slug: info.slug,
+                          cli: info.cli,
+                          runMode:
+                            info.runMode === "main-run" ||
+                            info.runMode === "worktree" ||
+                            info.runMode === "clone" ||
+                            info.runMode === "none"
+                              ? info.runMode
+                              : undefined,
+                          status: info.status,
+                        });
+                      }}
+                    />
+                  </div>
+                  <div class="project-detail__merged">
+                    <header class="project-detail-merged-tabs">
+                      <button
+                        type="button"
+                        classList={{ active: mergedTab() === "chat" }}
+                        onClick={() => {
+                          setMergedTab("chat");
+                          setCenterTab("chat");
+                        }}
+                      >
+                        Chat
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mergedTab() === "activity" }}
+                        onClick={() => {
+                          setMergedTab("activity");
+                          setCenterTab("activity");
+                        }}
+                      >
+                        Activity
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mergedTab() === "changes" }}
+                        onClick={() => {
+                          setMergedTab("changes");
+                          setCenterTab("changes");
+                        }}
+                      >
+                        Changes
+                      </button>
+                      <button
+                        type="button"
+                        classList={{ active: mergedTab() === "spec" }}
+                        onClick={() => setMergedTab("spec")}
+                      >
+                        Spec
+                      </button>
+                    </header>
+                    <div class="project-detail__merged-body">
+                      <Show when={mergedTab() === "spec"}>
+                        <SpecEditor
+                          specContent={spec()?.content ?? ""}
+                          docs={detail().docs}
+                          tasks={tasks()?.tasks ?? []}
+                          progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                          areaColor={area()?.color}
+                          onToggleTask={handleToggleTask}
+                          onAddTask={handleAddTask}
+                          onSaveSpec={handleSaveSpec}
+                          onSaveDoc={handleSaveDoc}
+                          onRefresh={handleRefreshSpec}
+                        />
+                      </Show>
+                      <Show when={mergedTab() !== "spec"}>
+                        <CenterPanel
+                          project={detail()}
+                          onAddComment={handleAddComment}
+                          showTabs={false}
+                          tab={mergedTab() as "chat" | "activity" | "changes"}
+                          selectedAgent={selectedAgent()}
+                          spawnMode={spawnMode()}
+                          chatInputDraft={chatInputDraft()}
+                          onChatInputDraftChange={setChatInputDraft}
+                          spawnFormDraft={spawnFormDraft()}
+                          onSpawnFormDraftChange={setSpawnFormDraft}
+                          subagents={subagents()}
+                          onCancelSpawn={() => setSpawnMode(null)}
+                          hasArea={Boolean(area())}
+                          repoValid={detail().repoValid}
+                          repoMessage={repoMessage()}
+                          onSpawned={(slug) => {
+                            setSpawnMode(null);
+                            setSelectedAgent({
+                              type: "subagent",
+                              projectId: projectId(),
+                              slug,
+                              cli: undefined,
+                              runMode: undefined,
+                              status: "running",
+                            });
+                          }}
+                        />
+                      </Show>
+                    </div>
+                  </div>
+                </Match>
+              </Switch>
             </div>
           </div>
         )}
@@ -759,6 +1022,9 @@ export function ProjectDetailPage() {
           border-bottom: 1px solid var(--border-subtle);
           color: var(--text-secondary);
           font-size: 13px;
+          min-width: 0;
+          overflow-x: auto;
+          white-space: nowrap;
         }
 
         .project-detail-back {
@@ -768,16 +1034,38 @@ export function ProjectDetailPage() {
           cursor: pointer;
           padding: 0;
           font-size: 13px;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          flex-shrink: 0;
+        }
+
+        .project-detail-breadcrumb-separator {
+          flex-shrink: 0;
+        }
+
+        .project-detail-breadcrumb-area,
+        .project-detail-title {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+        }
+
+        .project-detail-breadcrumb-area {
+          max-width: 220px;
         }
 
         .project-detail-title {
           cursor: text;
+          display: inline-block;
+          max-width: min(40vw, 360px);
         }
 
         .project-detail-title-edit {
           display: inline-flex;
           align-items: center;
           gap: 6px;
+          min-width: 0;
         }
 
         .project-detail-title-input {
@@ -842,6 +1130,8 @@ export function ProjectDetailPage() {
           padding: 16px 18px;
           border-bottom: 1px solid var(--border-subtle);
           background: var(--bg-base);
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
         }
 
         .project-detail-merged-tabs button {
@@ -865,7 +1155,7 @@ export function ProjectDetailPage() {
           overflow-y: auto;
         }
 
-        @media (max-width: 1599px) {
+        @media (max-width: 1199px) {
           .project-detail__left {
             width: 40%;
             min-width: 0;
@@ -874,6 +1164,12 @@ export function ProjectDetailPage() {
           .project-detail__merged {
             width: 60%;
             flex: 0 0 60%;
+          }
+        }
+
+        @media (min-width: 769px) and (max-width: 1199px) {
+          .project-detail__left {
+            width: 280px;
           }
         }
 
@@ -891,6 +1187,64 @@ export function ProjectDetailPage() {
           .project-detail__right {
             width: 40%;
             min-width: 0;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .project-detail {
+            flex-direction: column;
+          }
+
+          .project-detail-breadcrumb {
+            gap: 6px;
+            padding: 10px 12px;
+          }
+
+          .project-detail-back {
+            min-height: 44px;
+            padding: 0 10px 0 0;
+          }
+
+          .project-detail-back-text {
+            display: none;
+          }
+
+          .project-detail-breadcrumb-area {
+            max-width: 96px;
+          }
+
+          .project-detail-title {
+            max-width: min(48vw, 180px);
+          }
+
+          .project-detail-title-input {
+            min-width: 160px;
+            min-height: 44px;
+          }
+
+          .project-detail-title-save,
+          .project-detail-title-cancel,
+          .project-detail-merged-tabs button {
+            min-height: 44px;
+          }
+
+          .project-detail-merged-tabs {
+            padding: 12px;
+          }
+
+          .project-detail-merged-tabs button {
+            padding: 10px 16px;
+            flex-shrink: 0;
+          }
+
+          .project-detail__left {
+            display: none;
+          }
+
+          .project-detail__merged,
+          .project-detail__merged--mobile {
+            width: 100%;
+            flex: 1 1 auto;
           }
         }
 

@@ -11,6 +11,26 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 
 ## Recent Updates (Detailed)
 
+### 2026-03-30: PRO-164 mobile responsive project detail UI
+
+- `apps/web/src/components/project/ProjectDetailPage.tsx`
+  - Added local `isMobile` breakpoint state at `768px` and lowered compact layout activation to `1199px`.
+  - Added mobile-only single-column tabs: `Overview`, `Chat`, `Activity`, `Changes`, `Spec`.
+  - Moved `AgentPanel` into the mobile `Overview` tab and kept desktop/tablet split behavior intact.
+  - Added mobile breadcrumb truncation/scroll handling and touch-target sizing.
+  - Added tablet rule for a fixed `280px` left rail between `769px` and `1199px`.
+- `apps/web/src/components/project/AgentPanel.tsx`
+  - Increased mobile agent row padding and action button size for touch use.
+- Tests:
+  - Updated `apps/web/src/components/project/ProjectDetailPage.test.tsx` with deterministic breakpoint mocking and mobile layout coverage.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`
+- Verification:
+  - `pnpm test -- apps/web/src/components/project/ProjectDetailPage.test.tsx`
+  - `pnpm build`
+  - `pnpm lint`
+  - `pnpm typecheck`
+
 ### 2026-03-13: SPECS checklist collapse toggle
 
 - `apps/web/src/components/project/SpecEditor.tsx`
