@@ -2627,6 +2627,10 @@ api.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
       typeof persisted.data.thinking === "string"
         ? persisted.data.thinking.trim() || undefined
         : undefined;
+    const name =
+      typeof persisted.data.name === "string"
+        ? persisted.data.name.trim() || undefined
+        : undefined;
     const prompt = [
       "Your previous delivery caused a conflict when Space tried to cherry-pick it.",
       "",
@@ -2650,6 +2654,7 @@ api.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
       projectId: id,
       slug: context.entry.workerSlug,
       cli: cliRaw,
+      name,
       prompt,
       model,
       reasoningEffort,
