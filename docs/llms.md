@@ -182,6 +182,7 @@ All stored in `~/.aihub/`:
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
    - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
    - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
+   - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
 3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.

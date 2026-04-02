@@ -41,6 +41,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-phase5-hardening`
   - Added local config path resolution with `--config` > `AIHUB_CONFIG` > `~/.aihub/aihub.json`.
   - Added `apm config migrate [--dry-run]` to preview or apply migration with backup creation.
   - Added `apm config validate` to parse current config, auto-migrate legacy v1 in-memory for validation, and print agent/component summary.
+  - Follow-up on 2026-04-02: tightened migration so it does not auto-add `components.amsg` when legacy `agent.amsg` is absent, and does not auto-add `components.conversations` by default.
 - `packages/cli/src/config.commands.test.ts`
   - Added coverage for dry-run output, persisted migration + backup, and validate output.
 - Docs:

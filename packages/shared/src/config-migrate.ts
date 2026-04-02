@@ -67,7 +67,7 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
     };
   }
 
-  if (agents.some((agent) => agent.amsg?.enabled !== false)) {
+  if (agents.some((agent) => agent.amsg && agent.amsg.enabled !== false)) {
     components.amsg = { enabled: true };
   }
 
@@ -83,10 +83,6 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
       enabled: true,
       root: v1.projects.root,
     };
-  }
-
-  if (agents.length > 0) {
-    components.conversations ??= { enabled: true };
   }
 
   return {

@@ -33,8 +33,26 @@ describe("migrateConfigV1toV2", () => {
     expect(config.components?.amsg?.enabled).toBe(true);
     expect(config.components?.scheduler?.tickSeconds).toBe(60);
     expect(config.components?.projects?.root).toBe("~/projects");
-    expect(config.components?.conversations?.enabled).toBe(true);
+    expect(config.components?.conversations).toBeUndefined();
     expect(config.agents[0]?.discord?.token).toBe("$env:DISCORD_TOKEN");
+  });
+
+  it("does not add amsg or conversations when absent in v1", () => {
+    const { config } = migrateConfigV1toV2(
+      GatewayConfigSchema.parse({
+        agents: [
+          {
+            id: "main",
+            name: "Main",
+            workspace: "~/agents/main",
+            model: { provider: "anthropic", model: "claude" },
+          },
+        ],
+      })
+    );
+
+    expect(config.components?.amsg).toBeUndefined();
+    expect(config.components?.conversations).toBeUndefined();
   });
 
   it("warns when multiple discord tokens exist", () => {

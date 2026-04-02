@@ -128,7 +128,6 @@ describe("apm config commands", () => {
               name: "Main",
               workspace: "~/agents/main",
               model: { provider: "anthropic", model: "claude" },
-              amsg: { enabled: true },
             },
           ],
         },
@@ -143,7 +142,7 @@ describe("apm config commands", () => {
     expect(output).toContain(`Config path: ${configPath}`);
     expect(output).toContain("Config version: 1 (legacy)");
     expect(output).toContain("Agents: main");
-    expect(output).toContain("Components: amsg, conversations");
+    expect(output).toContain("Components: none");
     expect(output).toContain("Config is valid");
   });
 });

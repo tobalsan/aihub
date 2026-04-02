@@ -194,17 +194,10 @@ export function describeMigration(
   }
 
   if (
-    originalConfig.agents.some((agent) => agent.amsg?.enabled !== false) &&
+    originalConfig.agents.some((agent) => agent.amsg && agent.amsg.enabled !== false) &&
     migratedConfig.components?.amsg
   ) {
     actions.push("Add components.amsg");
-  }
-
-  if (
-    originalConfig.agents.length > 0 &&
-    migratedConfig.components?.conversations
-  ) {
-    actions.push("Add components.conversations");
   }
 
   if (
