@@ -1,9 +1,36 @@
+import type { AgentConfig, DiscordComponentConfig } from "@aihub/shared";
 import { getActiveAgents } from "../config/index.js";
-import { createDiscordBot, type DiscordBot } from "./bot.js";
+import {
+  createDiscordBot,
+  createDiscordComponentBot,
+  type DiscordBot,
+} from "./bot.js";
 
 const activeBots = new Map<string, DiscordBot>();
 
-export async function startDiscordBots() {
+type StartDiscordBotsOptions = {
+  agents: AgentConfig[];
+  componentConfig: DiscordComponentConfig;
+};
+
+export async function startDiscordBots(options?: StartDiscordBotsOptions) {
+  if (options) {
+    const bot = await createDiscordComponentBot(
+      options.agents,
+      options.componentConfig
+    );
+    if (!bot) return;
+
+    try {
+      await bot.start();
+      activeBots.set(bot.agentId, bot);
+      console.log("[discord] Started component bot");
+    } catch (err) {
+      console.error("[discord] Failed to start component bot:", err);
+    }
+    return;
+  }
+
   const agents = getActiveAgents();
 
   for (const agent of agents) {

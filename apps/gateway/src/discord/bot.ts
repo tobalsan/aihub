@@ -1,4 +1,11 @@
-import type { AgentConfig } from "@aihub/shared";
+import type {
+  CommandInteraction,
+} from "@buape/carbon";
+import type {
+  AgentConfig,
+  DiscordComponentConfig,
+  DiscordConfig,
+} from "@aihub/shared";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
 import { onHeartbeatEvent } from "../heartbeat/index.js";
@@ -26,6 +33,24 @@ export type DiscordBot = {
   start: () => Promise<void>;
   stop: () => Promise<void>;
 };
+
+type DiscordMessageTarget = {
+  agent: AgentConfig;
+  config: DiscordConfig;
+  isMainSession: boolean;
+};
+
+type DiscordReactionTarget = {
+  agent: AgentConfig;
+  config: DiscordConfig;
+};
+
+function buildComponentDmConfig(enabled: boolean): DiscordConfig["dm"] {
+  return {
+    enabled,
+    groupEnabled: false,
+  };
+}
 
 export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot | null> {
   if (!agent.discord?.token) return null;
@@ -383,6 +408,526 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
       textAccumulators.clear();
       stopAllTyping();
       // Disconnect gateway
+      const gateway = getGatewayPlugin(client);
+      if (gateway) {
+        gateway.disconnect();
+      }
+    },
+  };
+}
+
+function buildDiscordRouteConfig(
+  componentConfig: DiscordComponentConfig,
+  channelId: string,
+  guildId: string | undefined,
+  requireMention: boolean | undefined
+): DiscordConfig {
+  return {
+    token: componentConfig.token,
+    applicationId: componentConfig.applicationId,
+    dm: buildComponentDmConfig(false),
+    groupPolicy: "allowlist",
+    guilds: guildId
+      ? {
+          [guildId]: {
+            requireMention: requireMention ?? true,
+            reactionNotifications: "off",
+            channels: {
+              [channelId]: {
+                enabled: true,
+                requireMention,
+              },
+            },
+          },
+        }
+      : undefined,
+    historyLimit: componentConfig.historyLimit ?? 20,
+    clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
+    replyToMode: componentConfig.replyToMode ?? "off",
+    mentionPatterns: componentConfig.mentionPatterns,
+    broadcastToChannel: componentConfig.broadcastToChannel,
+  };
+}
+
+function resolveMessageTarget(
+  componentConfig: DiscordComponentConfig,
+  agentsById: Map<string, AgentConfig>,
+  data: MessageData
+): DiscordMessageTarget | null {
+  if (!data.guild_id) {
+    if (componentConfig.dm?.enabled === false) return null;
+    if (!componentConfig.dm?.agent) return null;
+    const agent = agentsById.get(componentConfig.dm.agent);
+    if (!agent) return null;
+    return {
+      agent,
+      config: {
+        token: componentConfig.token,
+        applicationId: componentConfig.applicationId,
+        dm: buildComponentDmConfig(true),
+        groupPolicy: "disabled",
+        historyLimit: componentConfig.historyLimit ?? 20,
+        clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
+        replyToMode: componentConfig.replyToMode ?? "off",
+        mentionPatterns: componentConfig.mentionPatterns,
+        broadcastToChannel: componentConfig.broadcastToChannel,
+      },
+      isMainSession: true,
+    };
+  }
+
+  const route = componentConfig.channels?.[data.channel_id];
+  if (!route) return null;
+
+  const agent = agentsById.get(route.agent);
+  if (!agent) return null;
+
+  return {
+    agent,
+    config: buildDiscordRouteConfig(
+      componentConfig,
+      data.channel_id,
+      data.guild_id,
+      route.requireMention
+    ),
+    isMainSession: false,
+  };
+}
+
+function resolveReactionTarget(
+  componentConfig: DiscordComponentConfig,
+  agentsById: Map<string, AgentConfig>,
+  data: ReactionData
+): DiscordReactionTarget | null {
+  if (!data.guild_id) {
+    if (componentConfig.dm?.enabled === false) return null;
+    if (!componentConfig.dm?.agent) return null;
+    const agent = agentsById.get(componentConfig.dm.agent);
+    if (!agent) return null;
+    return {
+      agent,
+      config: {
+        token: componentConfig.token,
+        applicationId: componentConfig.applicationId,
+        dm: buildComponentDmConfig(true),
+        groupPolicy: "disabled",
+        historyLimit: componentConfig.historyLimit ?? 20,
+        clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
+        replyToMode: componentConfig.replyToMode ?? "off",
+        mentionPatterns: componentConfig.mentionPatterns,
+        broadcastToChannel: componentConfig.broadcastToChannel,
+      },
+    };
+  }
+
+  const route = componentConfig.channels?.[data.channel_id];
+  if (!route) return null;
+
+  const agent = agentsById.get(route.agent);
+  if (!agent) return null;
+
+  return {
+    agent,
+    config: buildDiscordRouteConfig(
+      componentConfig,
+      data.channel_id,
+      data.guild_id,
+      route.requireMention
+    ),
+  };
+}
+
+export async function createDiscordComponentBot(
+  agents: AgentConfig[],
+  componentConfig: DiscordComponentConfig
+): Promise<DiscordBot | null> {
+  if (!componentConfig.token) return null;
+
+  const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+  const routedAgentIds = new Set<string>();
+
+  for (const route of Object.values(componentConfig.channels ?? {})) {
+    routedAgentIds.add(route.agent);
+  }
+  if (componentConfig.dm?.agent) {
+    routedAgentIds.add(componentConfig.dm.agent);
+  }
+
+  const routedAgents = agents.filter((agent) => routedAgentIds.has(agent.id));
+  if (routedAgents.length === 0) return null;
+
+  const textAccumulators = new Map<string, string>();
+  let unsubscribeBroadcast: (() => void) | null = null;
+  let unsubscribeHeartbeat: (() => void) | null = null;
+  let botUserId: string | undefined;
+
+  const historyLimit = componentConfig.historyLimit ?? 20;
+  const clearHistoryAfterReply = componentConfig.clearHistoryAfterReply ?? true;
+  const replyToMode = componentConfig.replyToMode ?? "off";
+
+  const handleMessage: MessageHandler = async (data, client) => {
+    const msgData: MessageData = {
+      id: data.id,
+      content: data.content ?? "",
+      channel_id: data.channel_id,
+      guild_id: data.guild_id,
+      author: {
+        id: data.author.id,
+        username: data.author.username,
+        discriminator: data.author.discriminator,
+        bot: data.author.bot,
+      },
+      mentions: data.mentions,
+    };
+
+    const target = resolveMessageTarget(componentConfig, agentsById, msgData);
+    if (!target) return;
+
+    const result = processMessage(msgData, target.config, botUserId);
+
+    if (!data.author.bot) {
+      recordMessage(
+        data.channel_id,
+        {
+          author: data.author.username,
+          content: data.content ?? "",
+          timestamp: Date.now(),
+        },
+        historyLimit,
+        data.id
+      );
+    }
+
+    if (!result.shouldReply) {
+      if (result.reason && result.reason !== "author_is_bot") {
+        console.debug(`[discord:${target.agent.id}] Ignored: ${result.reason}`);
+      }
+      return;
+    }
+
+    const content = result.normalizedContent;
+    if (!content) return;
+
+    const sessionKey = target.isMainSession
+      ? DEFAULT_MAIN_KEY
+      : `discord:${data.channel_id}`;
+
+    startTyping(client, data.channel_id, target.agent.id, { sessionKey }, false);
+
+    try {
+      const [channelMeta, threadStarter] = await Promise.all([
+        getChannelMetadata(client, data.channel_id),
+        getThreadStarter(client, data.channel_id),
+      ]);
+
+      const recentHistory = getHistory(data.channel_id, historyLimit);
+
+      const context = buildDiscordContext({
+        channelName: channelMeta.name,
+        channelTopic: channelMeta.topic,
+        threadStarter: threadStarter ?? undefined,
+        history: recentHistory.length > 0 ? recentHistory : undefined,
+      });
+
+      const agentResult = await runAgent({
+        agentId: target.agent.id,
+        message: content,
+        sessionKey,
+        thinkLevel: target.agent.thinkLevel,
+        source: "discord",
+        context,
+      });
+
+      if (agentResult.meta.queued) {
+        startTyping(client, data.channel_id, target.agent.id, { sessionKey }, true);
+        return;
+      }
+
+      const buildBody = (chunk: string, isFirst: boolean) => {
+        const body: { content: string; message_reference?: { message_id: string } } = {
+          content: chunk,
+        };
+        if (replyToMode === "all" || (replyToMode === "first" && isFirst)) {
+          body.message_reference = { message_id: data.id };
+        }
+        return body;
+      };
+
+      let isFirstChunk = true;
+      for (const payload of agentResult.payloads) {
+        if (payload.text) {
+          const chunks = splitMessage(payload.text);
+          for (const chunk of chunks) {
+            await client.rest.post(`/channels/${data.channel_id}/messages`, {
+              body: buildBody(chunk, isFirstChunk),
+            });
+            isFirstChunk = false;
+          }
+        }
+      }
+
+      if (clearHistoryAfterReply) {
+        clearHistory(data.channel_id);
+      }
+    } catch (err) {
+      console.error(`[discord:${target.agent.id}] Error:`, err);
+      const errorBody: { content: string; message_reference?: { message_id: string } } = {
+        content: "Sorry, I encountered an error processing your message.",
+      };
+      if (replyToMode !== "off") {
+        errorBody.message_reference = { message_id: data.id };
+      }
+      await client.rest.post(`/channels/${data.channel_id}/messages`, {
+        body: errorBody,
+      });
+    }
+  };
+
+  const handleReaction: ReactionHandler = async (data, client, added) => {
+    const reactionData: ReactionData = {
+      emoji: data.emoji,
+      user_id: data.user_id,
+      channel_id: data.channel_id,
+      message_id: data.message_id,
+      guild_id: data.guild_id,
+    };
+
+    const target = resolveReactionTarget(
+      componentConfig,
+      agentsById,
+      reactionData
+    );
+    if (!target) return;
+
+    const guildConfig = data.guild_id
+      ? target.config.guilds?.[data.guild_id]
+      : undefined;
+    const mode = guildConfig?.reactionNotifications ?? "off";
+
+    if (mode === "own" && botUserId) {
+      try {
+        const msg = (await client.rest.get(
+          `/channels/${data.channel_id}/messages/${data.message_id}`
+        )) as { author?: { id: string } };
+        reactionData.message_author_id = msg?.author?.id;
+      } catch {
+        return;
+      }
+    }
+
+    const result = processReaction(reactionData, target.config, botUserId);
+
+    if (!result.shouldProcess) {
+      if (result.reason && result.reason !== "reactions_off") {
+        console.debug(
+          `[discord:${target.agent.id}] Reaction ignored: ${result.reason}`
+        );
+      }
+      return;
+    }
+
+    const context = buildDiscordContext({
+      reaction: {
+        emoji: formatEmoji(data.emoji),
+        user: data.user_id,
+        messageId: data.message_id,
+        action: added ? "add" : "remove",
+      },
+    });
+
+    const sessionKey = `discord:${data.channel_id}`;
+
+    try {
+      const action = added ? "reacted with" : "removed reaction";
+      const message = `[SYSTEM] User ${data.user_id} ${action} ${formatEmoji(data.emoji)} on message ${data.message_id}`;
+
+      await runAgent({
+        agentId: target.agent.id,
+        message,
+        sessionKey,
+        thinkLevel: target.agent.thinkLevel,
+        source: "discord",
+        context,
+      });
+    } catch (err) {
+      console.error(`[discord:${target.agent.id}] Reaction error:`, err);
+    }
+  };
+
+  const resolveCommandTarget = (
+    interaction: CommandInteraction
+  ): { agent: AgentConfig; config: DiscordConfig } | undefined => {
+    const raw = interaction.rawData as { channel_id?: string; guild_id?: string };
+    if (!raw.channel_id) return undefined;
+    if (!raw.guild_id) {
+      if (componentConfig.dm?.enabled === false || !componentConfig.dm?.agent) {
+        return undefined;
+      }
+      const agent = agentsById.get(componentConfig.dm.agent);
+      if (!agent) return undefined;
+        return {
+          agent,
+          config: {
+            token: componentConfig.token,
+            applicationId: componentConfig.applicationId,
+            dm: buildComponentDmConfig(true),
+            groupPolicy: "disabled",
+            historyLimit: componentConfig.historyLimit ?? 20,
+            clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
+            replyToMode: componentConfig.replyToMode ?? "off",
+          mentionPatterns: componentConfig.mentionPatterns,
+          broadcastToChannel: componentConfig.broadcastToChannel,
+        },
+      };
+    }
+
+    const route = componentConfig.channels?.[raw.channel_id];
+    if (!route) return undefined;
+    const agent = agentsById.get(route.agent);
+    if (!agent) return undefined;
+    return {
+      agent,
+      config: buildDiscordRouteConfig(
+        componentConfig,
+        raw.channel_id,
+        raw.guild_id,
+        route.requireMention
+      ),
+    };
+  };
+
+  const hasCommands = Boolean(componentConfig.applicationId);
+  const commands = hasCommands
+    ? createSlashCommands({
+        resolveAgent: (interaction) => resolveCommandTarget(interaction)?.agent,
+        resolveDiscordConfig: (interaction) =>
+          resolveCommandTarget(interaction)?.config,
+        botUserId,
+      })
+    : undefined;
+
+  const handleReady: ReadyHandler = async (data, client) => {
+    botUserId = data.user.id;
+    console.log(`[discord] Bot ready as ${data.user.username} (${botUserId})`);
+
+    if (hasCommands) {
+      try {
+        await client.handleDeployRequest();
+        console.log("[discord] Slash commands deployed");
+      } catch (err) {
+        console.error("[discord] Failed to deploy commands:", err);
+      }
+    }
+  };
+
+  let clientId = componentConfig.applicationId;
+  if (!clientId) {
+    try {
+      const res = await fetch("https://discord.com/api/v10/oauth2/applications/@me", {
+        headers: { Authorization: `Bot ${componentConfig.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        clientId = data.id;
+      }
+    } catch {
+      // Ignore fetch errors
+    }
+  }
+  if (!clientId) {
+    console.error("[discord] Failed to get application ID. Set 'applicationId' in config.");
+    return null;
+  }
+
+  const client = createCarbonClient({
+    token: componentConfig.token,
+    clientId,
+    commands,
+    onMessage: handleMessage,
+    onReaction: handleReaction,
+    onReady: handleReady,
+  });
+
+  const setupBroadcaster = () => {
+    const broadcastChannel = componentConfig.broadcastToChannel;
+    if (broadcastChannel) {
+      unsubscribeBroadcast = agentEventBus.onStreamEvent(async (event) => {
+        if (!routedAgentIds.has(event.agentId)) return;
+        if (event.source === "discord" || event.source === "heartbeat") return;
+
+        const mainEntry = getSessionEntry(event.agentId, DEFAULT_MAIN_KEY);
+        if (!mainEntry || mainEntry.sessionId !== event.sessionId) return;
+
+        const accKey = `${event.agentId}:${event.sessionId}`;
+
+        if (event.type === "text") {
+          const current = textAccumulators.get(accKey) ?? "";
+          textAccumulators.set(accKey, current + event.data);
+        } else if (event.type === "done") {
+          const text = textAccumulators.get(accKey);
+          textAccumulators.delete(accKey);
+
+          if (text) {
+            try {
+              const chunks = splitMessage(text, 2000);
+              for (const chunk of chunks) {
+                await client.rest.post(`/channels/${broadcastChannel}/messages`, {
+                  body: { content: chunk },
+                });
+              }
+            } catch (err) {
+              console.error("[discord] Broadcast error:", err);
+            }
+          }
+        } else if (event.type === "error") {
+          textAccumulators.delete(accKey);
+        }
+      });
+    }
+
+    unsubscribeHeartbeat = onHeartbeatEvent(async (payload) => {
+      if (!routedAgentIds.has(payload.agentId)) return;
+      if (payload.status !== "sent") return;
+      if (!payload.to || !payload.alertText) return;
+
+      if (!botUserId) {
+        console.warn("[discord] Heartbeat delivery skipped: bot not ready");
+        return;
+      }
+
+      const gateway = getGatewayPlugin(client);
+      if (!gateway?.isConnected) {
+        console.warn("[discord] Heartbeat delivery skipped: gateway not connected");
+        return;
+      }
+
+      try {
+        const chunks = splitMessage(payload.alertText, 2000);
+        for (const chunk of chunks) {
+          await client.rest.post(`/channels/${payload.to}/messages`, {
+            body: { content: chunk },
+          });
+        }
+        console.log(`[discord] Heartbeat alert delivered to ${payload.to}`);
+      } catch (err) {
+        console.error("[discord] Heartbeat delivery error:", err);
+      }
+    });
+  };
+
+  return {
+    client,
+    agentId: "discord",
+    start: async () => {
+      setupBroadcaster();
+    },
+    stop: async () => {
+      unsubscribeBroadcast?.();
+      unsubscribeBroadcast = null;
+      unsubscribeHeartbeat?.();
+      unsubscribeHeartbeat = null;
+      textAccumulators.clear();
+      stopAllTyping();
       const gateway = getGatewayPlugin(client);
       if (gateway) {
         gateway.disconnect();

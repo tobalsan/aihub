@@ -10,13 +10,17 @@ import {
   type CommandOptions,
 } from "@buape/carbon";
 import { ApplicationCommandType, ApplicationCommandOptionType } from "discord-api-types/v10";
-import type { AgentConfig } from "@aihub/shared";
+import type { AgentConfig, DiscordConfig } from "@aihub/shared";
 import { runAgent } from "../../agents/index.js";
 import { DEFAULT_MAIN_KEY } from "../../sessions/index.js";
 
 export type CommandContext = {
-  agent: AgentConfig;
+  agent?: AgentConfig;
   botUserId?: string;
+  resolveAgent?: (interaction: CommandInteraction) => AgentConfig | undefined;
+  resolveDiscordConfig?: (
+    interaction: CommandInteraction
+  ) => DiscordConfig | undefined;
 };
 
 function getDefaultSessionKey(interaction: CommandInteraction): string {
@@ -25,6 +29,26 @@ function getDefaultSessionKey(interaction: CommandInteraction): string {
     return `discord:${raw.channel_id}`;
   }
   return DEFAULT_MAIN_KEY;
+}
+
+function getAgent(
+  ctx: CommandContext,
+  interaction: CommandInteraction
+): AgentConfig {
+  const agent = ctx.resolveAgent?.(interaction) ?? ctx.agent;
+  if (!agent) {
+    throw new Error("No agent configured for this Discord route");
+  }
+  return agent;
+}
+
+function getDiscordConfig(
+  ctx: CommandContext,
+  interaction: CommandInteraction
+): DiscordConfig | undefined {
+  const resolved = ctx.resolveDiscordConfig?.(interaction);
+  if (resolved) return resolved;
+  return ctx.agent?.discord;
 }
 
 /**
@@ -53,6 +77,7 @@ export class NewCommand extends Command {
   }
 
   async run(interaction: CommandInteraction): Promise<void> {
+    const agent = getAgent(this.ctx, interaction);
     const defaultSessionKey = getDefaultSessionKey(interaction);
     const sessionKey = (interaction.options.raw.find(
       (o) => o.name === "session"
@@ -60,7 +85,7 @@ export class NewCommand extends Command {
 
     try {
       const result = await runAgent({
-        agentId: this.ctx.agent.id,
+        agentId: agent.id,
         message: "/new",
         sessionKey,
         source: "discord",
@@ -101,6 +126,7 @@ export class AbortCommand extends Command {
   }
 
   async run(interaction: CommandInteraction): Promise<void> {
+    const agent = getAgent(this.ctx, interaction);
     const defaultSessionKey = getDefaultSessionKey(interaction);
     const sessionKey = (interaction.options.raw.find(
       (o) => o.name === "session"
@@ -108,7 +134,7 @@ export class AbortCommand extends Command {
 
     try {
       const result = await runAgent({
-        agentId: this.ctx.agent.id,
+        agentId: agent.id,
         message: "/abort",
         sessionKey,
         source: "discord",
@@ -141,8 +167,8 @@ export class HelpCommand extends Command {
   }
 
   async run(interaction: CommandInteraction): Promise<void> {
-    const agent = this.ctx.agent;
-    const discord = agent.discord;
+    const agent = getAgent(this.ctx, interaction);
+    const discord = getDiscordConfig(this.ctx, interaction);
 
     const lines = [
       `**${agent.name}** - Discord Commands`,
@@ -190,7 +216,7 @@ export class PingCommand extends Command {
   }
 
   async run(interaction: CommandInteraction): Promise<void> {
-    const agent = this.ctx.agent;
+    const agent = getAgent(this.ctx, interaction);
     const sdk = agent.sdk ?? "pi";
     const model = agent.model?.model ?? "unknown";
 
