@@ -8,6 +8,8 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - PRO-198 modular architecture is integrated on `space/PRO-198`.
 - Gateway/runtime now support v2 modular components with resolved-config threading and component-declared disabled-route metadata.
 - Recent follow-up work tightened `apm config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
+- Local preview entrypoints now honor `AIHUB_CONFIG`, so `pnpm dev`/`pnpm dev:web` use the same config file as gateway local-config commands.
+- Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
 

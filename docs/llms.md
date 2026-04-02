@@ -111,6 +111,7 @@ Standalone `apm` CLI package.
 - Env URL precedence for HTTP commands: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/aihub.json` (`apiUrl`)
 - Token precedence for HTTP commands: `AIHUB_TOKEN` > `~/.aihub/aihub.json` (`token`)
 - Local config path precedence: `--config` > `AIHUB_CONFIG` > `~/.aihub/aihub.json`
+- Gateway/web dev entrypoints now also honor `AIHUB_CONFIG`, so `pnpm dev` and `pnpm dev:web` preview the same config file as local config commands
 
 ## Runtime Data
 
@@ -178,7 +179,7 @@ All stored in `~/.aihub/`:
 
 ## Agent Runtime Flow
 
-1. **Config Load**: `loadConfig()` reads `~/.aihub/aihub.json`, validates via Zod
+1. **Config Load**: `loadConfig()` reads `AIHUB_CONFIG` when set, else `~/.aihub/aihub.json`, validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
    - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
    - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
@@ -202,6 +203,7 @@ All stored in `~/.aihub/`:
 - Route-owning components now declare `routePrefixes`, and disabled-component 404 middleware is built from static registry metadata instead of a hardcoded list or eager component imports.
 - Core routes now live in `apps/gateway/src/server/api.core.ts`.
 - Disabled component route requests return `404 { error: "component_disabled", component }`.
+- The main server forwards `/api/*` requests into the live `api.core` router instead of snapshot-mounting it at module load, so component routes registered during startup are reachable in dev/prod.
 
 ### Workspace Bootstrap
 

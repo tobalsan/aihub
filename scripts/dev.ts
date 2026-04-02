@@ -10,9 +10,9 @@
  */
 import fs from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { spawn, ChildProcess } from "node:child_process";
+import { resolveConfigPath } from "../packages/shared/src/config-path.js";
 
 interface Config {
   ui?: {
@@ -28,7 +28,7 @@ interface Config {
 
 function loadConfig(): Config {
   try {
-    const configPath = path.join(os.homedir(), ".aihub", "aihub.json");
+    const configPath = resolveConfigPath();
     const raw = fs.readFileSync(configPath, "utf-8");
     return JSON.parse(raw);
   } catch {

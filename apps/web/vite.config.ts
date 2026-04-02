@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
 import { execSync } from "node:child_process";
+import { resolveConfigPath } from "../../packages/shared/src/config-path.js";
 
 type BindMode = "loopback" | "lan" | "tailnet";
 
@@ -31,7 +31,7 @@ interface AihubConfig {
 
 function loadConfig(): AihubConfig {
   try {
-    const configPath = path.join(os.homedir(), ".aihub", "aihub.json");
+    const configPath = resolveConfigPath();
     const raw = fs.readFileSync(configPath, "utf-8");
     return JSON.parse(raw);
   } catch {

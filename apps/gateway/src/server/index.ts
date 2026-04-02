@@ -94,7 +94,16 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.route("/api", api);
+app.all("/api/*", (c) => {
+  const url = new URL(c.req.url);
+  const pathname = url.pathname.startsWith("/api/")
+    ? url.pathname.slice(4)
+    : url.pathname === "/api"
+      ? "/"
+      : url.pathname;
+  url.pathname = pathname || "/";
+  return api.fetch(new Request(url, c.req.raw));
+});
 
 app.get("/health", (c) => c.json({ ok: true }));
 

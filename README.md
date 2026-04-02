@@ -33,6 +33,7 @@ By default, if you don't specify anything, all projects are saved in `~/projects
 Config now supports a modular v2 shape with optional top-level `version`, `secrets`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Startup now resolves `$env:` and `$secret:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
+The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
@@ -167,6 +168,7 @@ AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
 AIHUB_URL=http://127.0.0.1:4000 pnpm apm list
 # Config file fallback (~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
 # Local config commands honor: --config > AIHUB_CONFIG > ~/.aihub/aihub.json
+# Dev launchers (`pnpm dev`, `pnpm dev:web`, gateway config loading) also honor AIHUB_CONFIG.
 
 # Global shortcut (apm)
 mkdir -p ~/.local/bin

@@ -9,10 +9,10 @@
  * - ui.tailscale.resetOnExit: reset tailscale serve on exit (default true)
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { getTailnetHostname, enableTailscaleServe, disableTailscaleServe } from "./tailscale.js";
+import { resolveConfigPath } from "../../../packages/shared/src/config-path.js";
 
 type UiBindMode = "loopback" | "lan" | "tailnet";
 
@@ -37,7 +37,7 @@ interface Config {
 
 function loadConfig(): Config {
   try {
-    const configPath = path.join(os.homedir(), ".aihub", "aihub.json");
+    const configPath = resolveConfigPath();
     const raw = fs.readFileSync(configPath, "utf-8");
     return JSON.parse(raw);
   } catch {

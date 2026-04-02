@@ -1,24 +1,33 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GatewayConfigSchema, type GatewayConfig } from "@aihub/shared";
+import {
+  GatewayConfigSchema,
+  resolveConfigPath,
+  type GatewayConfig,
+} from "@aihub/shared";
 import { migrateConfigV1toV2 } from "./migrate.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".aihub");
-export const CONFIG_PATH = path.join(CONFIG_DIR, "aihub.json");
 export const SCHEDULES_PATH = path.join(CONFIG_DIR, "schedules.json");
 
 let cachedConfig: GatewayConfig | null = null;
 let singleAgentId: string | null = null;
 
+export function getConfigPath(): string {
+  return resolveConfigPath();
+}
+
 export function loadConfig(): GatewayConfig {
   if (cachedConfig) return cachedConfig;
 
-  if (!fs.existsSync(CONFIG_PATH)) {
-    throw new Error(`Config not found: ${CONFIG_PATH}`);
+  const configPath = getConfigPath();
+
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`Config not found: ${configPath}`);
   }
 
-  const raw = fs.readFileSync(CONFIG_PATH, "utf8");
+  const raw = fs.readFileSync(configPath, "utf8");
   const json = JSON.parse(raw);
   const parsed = GatewayConfigSchema.parse(json);
   const migration =

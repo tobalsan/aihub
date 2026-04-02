@@ -1,11 +1,10 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { GatewayConfigSchema, migrateConfigV1toV2 } from "@aihub/shared";
-
-export function getDefaultConfigPath(): string {
-  return path.join(os.homedir(), ".aihub", "aihub.json");
-}
+import {
+  GatewayConfigSchema,
+  migrateConfigV1toV2,
+  resolveConfigPath,
+} from "@aihub/shared";
 
 export type ConfigVersionInfo = {
   label: "1 (legacy)" | "2";
@@ -25,20 +24,8 @@ export type ConfigValidationResult = {
   version: ConfigVersionInfo;
 };
 
-function trimValue(value: string | undefined): string | undefined {
-  const next = value?.trim();
-  return next ? next : undefined;
-}
-
 export function resolveLocalConfigPath(configPath?: string): string {
-  const rawPath =
-    trimValue(configPath) ??
-    trimValue(process.env.AIHUB_CONFIG) ??
-    getDefaultConfigPath();
-  if (rawPath.startsWith("~")) {
-    return path.join(os.homedir(), rawPath.slice(1));
-  }
-  return path.resolve(rawPath);
+  return resolveConfigPath(configPath);
 }
 
 export function readLocalConfigFile(configPath?: string): LocalConfigFile {
