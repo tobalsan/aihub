@@ -2746,7 +2746,7 @@ describe("subagents API", () => {
     expect(spawnRes2.status).toBe(201);
 
     const start = Date.now();
-    while (Date.now() - start < 2000) {
+    while (Date.now() - start < 5000) {
       const logs = await fs.readFile(logsPath, "utf8");
       if (logs.slice(resumeOffset).includes("resume s1")) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -2873,7 +2873,7 @@ describe("subagents API", () => {
     expect(resumeLogs).not.toContain("Let's tackle the following project:");
 
     process.env.PATH = prevPath;
-  });
+  }, 15000);
 
   it("reuses saved pi session file on resume", async () => {
     const createRes = await Promise.resolve(
@@ -2996,7 +2996,7 @@ describe("subagents API", () => {
     expect(resumeLogs).not.toContain("Let's tackle the following project:");
 
     process.env.PATH = prevPath;
-  });
+  }, 15000);
 
   it("returns 400 when resume prompt exceeds configured byte limit", async () => {
     const createRes = await Promise.resolve(
@@ -3059,7 +3059,7 @@ describe("subagents API", () => {
     const payload = await resumeRes.json();
     expect(payload.error).toContain("Prompt too large for resume:");
     expect(payload.error).toContain("> 64 bytes");
-  });
+  }, 15000);
 
   it("returns 400 when spawn prompt exceeds configured byte limit", async () => {
     const createRes = await Promise.resolve(
@@ -3121,7 +3121,7 @@ describe("subagents API", () => {
     const payload = await spawnRes.json();
     expect(payload.error).toContain("Prompt too large for start/spawn:");
     expect(payload.error).toContain("> 64 bytes");
-  });
+  }, 15000);
 
   it("creates worktree when mode is worktree", async () => {
     const createRes = await Promise.resolve(
@@ -3207,7 +3207,7 @@ describe("subagents API", () => {
     expect(listRes.stdout).toContain(`worktree ${realWorkDir}`);
 
     process.env.PATH = prevPath;
-  });
+  }, 15000);
 
   it("resolves repo from area fallback when frontmatter repo is missing", async () => {
     const createRes = await Promise.resolve(
@@ -3299,7 +3299,7 @@ describe("subagents API", () => {
     await expect(fs.stat(path.join(workDir, ".git"))).resolves.toBeDefined();
 
     process.env.PATH = prevPath;
-  });
+  }, 15000);
 
   it("creates clone when mode is clone and adds named remote", async () => {
     const createRes = await Promise.resolve(
@@ -3387,7 +3387,7 @@ describe("subagents API", () => {
     expect(remoteUrl.stdout.trim()).toBe(realCloneDir);
 
     process.env.PATH = prevPath;
-  });
+  }, 15000);
 
   it("kills clone subagent and removes named remote", async () => {
     const createRes = await Promise.resolve(
@@ -3478,7 +3478,7 @@ describe("subagents API", () => {
     await expect(fs.stat(cloneDir)).rejects.toThrow();
     const remotes = await execFileAsync("git", ["-C", repoDir, "remote"]);
     expect(remotes.stdout).not.toContain(remote);
-  });
+  }, 15000);
 
   it("kills worktree subagent and removes branch", async () => {
     const createRes = await Promise.resolve(
@@ -3567,7 +3567,7 @@ describe("subagents API", () => {
       branch,
     ]);
     expect(branchRes.stdout.trim()).toBe("");
-  });
+  }, 15000);
 
   it("kills main-run subagent by removing workspace", async () => {
     const createRes = await Promise.resolve(

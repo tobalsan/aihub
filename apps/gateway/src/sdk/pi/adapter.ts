@@ -141,7 +141,7 @@ export const piAdapter: SdkAdapter = {
     }
 
     const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
-    const modelRegistry = new ModelRegistry(authStorage, path.join(CONFIG_DIR, "models.json"));
+    const modelRegistry = ModelRegistry.create(authStorage, path.join(CONFIG_DIR, "models.json"));
     if (!agent.model.provider) {
       throw new Error(`Pi SDK requires model.provider to be set for agent: ${agent.id}`);
     }
@@ -163,7 +163,11 @@ export const piAdapter: SdkAdapter = {
           `No OAuth credentials for provider: ${model.provider}. Run 'aihub auth login ${model.provider}' first.`
         );
       }
-      apiKey = (await authStorage.getApiKey(model.provider)) ?? null;
+      const auth = await modelRegistry.getApiKeyAndHeaders(model);
+      if (!auth.ok) {
+        throw new Error(auth.error);
+      }
+      apiKey = auth.apiKey ?? null;
     } else if (authMode === "api_key") {
       // API key mode: only use API key credentials or env vars, skip OAuth
       const cred = authStorage.get(model.provider);
@@ -178,9 +182,11 @@ export const piAdapter: SdkAdapter = {
         throw new Error(`No API key for provider: ${model.provider}. Set ${envVar} env var.`);
       }
     } else {
-      // Default/proxy: Pi SDK's getApiKey handles OAuth, API keys, and env vars
-      // Priority: runtime override > api_key > oauth (refreshed) > env > fallback (models.json)
-      apiKey = (await authStorage.getApiKey(model.provider)) ?? null;
+      const auth = await modelRegistry.getApiKeyAndHeaders(model);
+      if (!auth.ok) {
+        throw new Error(auth.error);
+      }
+      apiKey = auth.apiKey ?? null;
     }
 
     if (!apiKey) {

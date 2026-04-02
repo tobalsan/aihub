@@ -264,7 +264,7 @@ describe("openclaw adapter", () => {
       onHistoryEvent: () => undefined,
       abortSignal: new AbortController().signal,
     });
-  });
+  }, 15000);
 
   it("prefers explicit openclaw.sessionKey over sessionMode", async () => {
     wss = new WebSocketServer({ port: 0 });

@@ -19,6 +19,9 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
+    fileParallelism: false,
+    maxWorkers: 1,
+    minWorkers: 1,
     environmentMatchGlobs: [["apps/web/src/**/*.test.tsx", "jsdom"]],
     deps: {
       inline: ["solid-js", "solid-js/web"],

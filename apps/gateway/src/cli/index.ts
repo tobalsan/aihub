@@ -425,9 +425,8 @@ authCmd
   .action(async (provider?: string) => {
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const { getOAuthProviders } = await import("@mariozechner/pi-ai");
       const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
-      const providers = getOAuthProviders() as Array<{
+      const providers = authStorage.getOAuthProviders() as Array<{
         id: string;
         name: string;
       }>;
