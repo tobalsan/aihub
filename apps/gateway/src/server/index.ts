@@ -11,12 +11,11 @@ import type {
   WsServerMessage,
   GatewayBindMode,
   GatewayConfig,
-  Component,
 } from "@aihub/shared";
 import { api } from "./api.core.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import { loadKnownComponents } from "../components/registry.js";
+import { getKnownComponentRouteMetadata } from "../components/registry.js";
 import {
   resolveSessionId,
   getSessionEntry,
@@ -47,10 +46,8 @@ function routePrefixToMatcher(prefix: string): (path: string) => boolean {
   return (path) => regex.test(path);
 }
 
-function buildComponentRouteMatchers(
-  components: Component[]
-): ComponentRouteMatcher[] {
-  return components.flatMap((component) =>
+function buildComponentRouteMatchers(): ComponentRouteMatcher[] {
+  return getKnownComponentRouteMetadata().flatMap((component) =>
     component.routePrefixes.map((prefix) => ({
       component: component.id,
       matches: routePrefixToMatcher(prefix),
@@ -58,9 +55,7 @@ function buildComponentRouteMatchers(
   );
 }
 
-const knownComponentRouteMatchersPromise = loadKnownComponents()
-  .then((components) => buildComponentRouteMatchers(components))
-  .catch(() => []);
+const componentRouteMatchers = buildComponentRouteMatchers();
 
 function isComponentEnabled(
   config: GatewayConfig,
@@ -75,7 +70,6 @@ function isComponentEnabled(
 app.use("*", cors());
 app.use("*", logger());
 app.use("/api/*", async (c, next) => {
-  const componentRouteMatchers = await knownComponentRouteMatchersPromise;
   let config: GatewayConfig;
   try {
     config = loadConfig();

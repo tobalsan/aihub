@@ -1,25 +1,60 @@
 import type { Component, GatewayConfig } from "@aihub/shared";
 
-const COMPONENT_MAP: Record<string, () => Promise<Component>> = {
-  discord: () =>
-    import("./discord/index.js").then((module) => module.discordComponent),
-  scheduler: () =>
-    import("./scheduler/index.js").then((module) => module.schedulerComponent),
-  heartbeat: () =>
-    import("./heartbeat/index.js").then((module) => module.heartbeatComponent),
-  amsg: () => import("./amsg/index.js").then((module) => module.amsgComponent),
-  conversations: () =>
-    import("./conversations/index.js").then(
-      (module) => module.conversationsComponent
-    ),
-  projects: () =>
-    import("./projects/index.js").then((module) => module.projectsComponent),
+type ComponentRegistration = {
+  load: () => Promise<Component>;
+  routePrefixes: string[];
+};
+
+const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
+  discord: {
+    load: () =>
+      import("./discord/index.js").then((module) => module.discordComponent),
+    routePrefixes: [],
+  },
+  scheduler: {
+    load: () =>
+      import("./scheduler/index.js").then((module) => module.schedulerComponent),
+    routePrefixes: ["/api/schedules"],
+  },
+  heartbeat: {
+    load: () =>
+      import("./heartbeat/index.js").then((module) => module.heartbeatComponent),
+    routePrefixes: ["/api/agents/:id/heartbeat"],
+  },
+  amsg: {
+    load: () => import("./amsg/index.js").then((module) => module.amsgComponent),
+    routePrefixes: [],
+  },
+  conversations: {
+    load: () =>
+      import("./conversations/index.js").then(
+        (module) => module.conversationsComponent
+      ),
+    routePrefixes: ["/api/conversations"],
+  },
+  projects: {
+    load: () =>
+      import("./projects/index.js").then((module) => module.projectsComponent),
+    routePrefixes: [
+      "/api/areas",
+      "/api/projects",
+      "/api/subagents",
+      "/api/activity",
+      "/api/taskboard",
+    ],
+  },
 };
 
 let loadedComponents: Component[] = [];
 
-export async function loadKnownComponents(): Promise<Component[]> {
-  return Promise.all(Object.values(COMPONENT_MAP).map((loader) => loader()));
+export function getKnownComponentRouteMetadata(): Array<{
+  id: string;
+  routePrefixes: string[];
+}> {
+  return Object.entries(COMPONENT_REGISTRY).map(([id, registration]) => ({
+    id,
+    routePrefixes: registration.routePrefixes,
+  }));
 }
 
 export function topoSort(components: Component[]): Component[] {
@@ -58,13 +93,13 @@ export function topoSort(components: Component[]): Component[] {
 export async function loadComponents(config: GatewayConfig): Promise<Component[]> {
   const components: Component[] = [];
 
-  for (const [id, loader] of Object.entries(COMPONENT_MAP)) {
+  for (const [id, registration] of Object.entries(COMPONENT_REGISTRY)) {
     const componentConfig = config.components?.[
       id as keyof NonNullable<GatewayConfig["components"]>
     ];
     if (!componentConfig || componentConfig.enabled === false) continue;
 
-    const component = await loader();
+    const component = await registration.load();
     const validation = component.validateConfig(componentConfig);
     if (!validation.valid) {
       throw new Error(

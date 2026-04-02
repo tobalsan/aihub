@@ -197,7 +197,7 @@ All stored in `~/.aihub/`:
   - component registry + startup lifecycle wiring
   - `GET /api/capabilities`
 - Startup now resolves config secrets once and stores the resolved config as the runtime config exposed by `ComponentContext.getConfig()`.
-- Route-owning components now declare `routePrefixes`, and disabled-component 404 middleware is built from component metadata instead of a hardcoded list.
+- Route-owning components now declare `routePrefixes`, and disabled-component 404 middleware is built from static registry metadata instead of a hardcoded list or eager component imports.
 - Core routes now live in `apps/gateway/src/server/api.core.ts`.
 - Disabled component route requests return `404 { error: "component_disabled", component }`.
 

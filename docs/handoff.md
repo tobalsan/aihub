@@ -21,7 +21,8 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-phase5-hardening`
   - `ComponentContext.getConfig()` now exposes resolved values during component startup/runtime.
   - Discord component startup no longer performs ad hoc token resolution.
 - `apps/gateway/src/server/index.ts`
-  - Replaced the hardcoded disabled-component route matcher list with middleware built from component-declared route prefixes.
+  - Replaced the hardcoded disabled-component route matcher list with middleware built from static component route metadata.
+  - Kept disabled components lazy by avoiding eager component imports during server boot.
 - Tests:
   - Added coverage for resolved runtime config and registry route metadata.
   - Updated Discord component tests to assert resolved-config consumption.

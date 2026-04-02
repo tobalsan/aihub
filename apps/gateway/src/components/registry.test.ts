@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { GatewayConfigSchema } from "@aihub/shared";
 import {
   getLoadedComponents,
+  getKnownComponentRouteMetadata,
   loadComponents,
-  loadKnownComponents,
   topoSort,
 } from "./registry.js";
 
@@ -114,12 +114,10 @@ describe("component registry", () => {
     );
   });
 
-  it("loads known component route metadata", async () => {
-    const components = await loadKnownComponents();
+  it("returns known component route metadata without loading components", () => {
+    const components = getKnownComponentRouteMetadata();
     const projects = components.find((component) => component.id === "projects");
-    const heartbeat = components.find(
-      (component) => component.id === "heartbeat"
-    );
+    const heartbeat = components.find((component) => component.id === "heartbeat");
 
     expect(projects?.routePrefixes).toContain("/api/projects");
     expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");
