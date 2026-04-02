@@ -30,6 +30,7 @@ pnpm install
 The app uses a main config file at `~/.aihub/aihub.json`.
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
+Config now supports a modular v2 shape with optional top-level `version`, `secrets`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
@@ -42,6 +43,7 @@ But if you want to configure lead agent, you can do so by adding them in the mai
 mkdir -p ~/.aihub
 cat > ~/.aihub/aihub.json << 'EOF'
 {
+  "version": 2,
   "agents": [
     {
       "id": "my-agent",
@@ -62,8 +64,15 @@ cat > ~/.aihub/aihub.json << 'EOF'
       "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
     }
   ],
-  "projects": {
-    "root": "/your/custom/projects/path"
+  "components": {
+    "projects": {
+      "enabled": true,
+      "root": "/your/custom/projects/path"
+    },
+    "scheduler": {
+      "enabled": true,
+      "tickSeconds": 60
+    }
   }
 }
 EOF
@@ -83,7 +92,7 @@ Open http://localhost:3000
 
 ```
 apps/
-  gateway/    # Server, CLI, Discord, scheduler
+  gateway/    # Server, CLI, agent runtime, opt-in components
   web/        # Solid.js chat UI
 packages/
   cli/        # apm CLI (remote-friendly, API client)

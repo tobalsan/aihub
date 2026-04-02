@@ -8,13 +8,16 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { loadConfig, getAgents, getAgent, setSingleAgentMode, CONFIG_DIR } from "../config/index.js";
 import { startServer } from "../server/index.js";
-import { startDiscordBots, stopDiscordBots } from "../discord/index.js";
-import { startScheduler, stopScheduler } from "../scheduler/index.js";
-import { startAmsgWatcher, stopAmsgWatcher } from "../amsg/index.js";
-import { startAllHeartbeats, stopAllHeartbeats } from "../heartbeat/index.js";
+import { api } from "../server/api.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
-import type { UiConfig, GatewayBindMode } from "@aihub/shared";
+import type { Component, UiConfig, GatewayBindMode } from "@aihub/shared";
+import { loadComponents } from "../components/registry.js";
+import {
+  validateStartupConfig,
+  logComponentSummary,
+} from "../config/validate.js";
+import { resolveSecretValue } from "../config/secrets.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -141,6 +144,17 @@ function getApiBaseUrl(): string {
   return `http://${host}:${port}`;
 }
 
+function createComponentContext(config: ReturnType<typeof loadConfig>) {
+  return {
+    resolveSecret: async (name: string) =>
+      resolveSecretValue(`$secret:${name}`, config.secrets),
+    getAgent,
+    getAgents,
+    runAgent,
+    getConfig: () => config,
+  } satisfies Parameters<Component["start"]>[0];
+}
+
 function startWebUI(uiConfig: UiConfig, gatewayPort: number): ChildProcess | null {
   if (process.env.AIHUB_SKIP_WEB) return null;
 
@@ -216,6 +230,10 @@ program
   .action(async (opts) => {
     try {
       const config = loadConfig();
+      const components = await loadComponents(config);
+      const summary = await validateStartupConfig(config, components);
+      logComponentSummary(summary);
+
       console.log(`Loaded config with ${config.agents.length} agent(s)`);
 
       if (opts.agentId) {
@@ -231,6 +249,10 @@ program
       // In dev mode, set AIHUB_DEV env var for child processes
       if (opts.dev) {
         process.env.AIHUB_DEV = "1";
+      }
+
+      for (const component of components) {
+        component.registerRoutes(api);
       }
 
       // Start server (undefined args let startServer use config defaults)
@@ -252,17 +274,10 @@ program
       if (opts.dev) {
         printDevBanner(actualPort, uiEnabled ? uiPort : null);
       } else {
-        // Start Discord bots
-        await startDiscordBots();
-
-        // Start scheduler
-        await startScheduler();
-
-        // Start amsg watcher
-        startAmsgWatcher();
-
-        // Start heartbeats
-        startAllHeartbeats();
+        const componentContext = createComponentContext(config);
+        for (const component of components) {
+          await component.start(componentContext);
+        }
       }
 
       // Handle shutdown
@@ -274,10 +289,9 @@ program
           resetTailscaleServe();
         }
         if (!opts.dev) {
-          stopAllHeartbeats();
-          stopAmsgWatcher();
-          await stopScheduler();
-          await stopDiscordBots();
+          for (const component of [...components].reverse()) {
+            await component.stop();
+          }
         }
         process.exit(0);
       };

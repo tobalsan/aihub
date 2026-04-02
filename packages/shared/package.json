@@ -15,6 +15,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
+    "hono": "^4.11.4",
     "zod": "^3.23.8"
   }
 }

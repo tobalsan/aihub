@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { GatewayConfigSchema, type GatewayConfig } from "@aihub/shared";
+import { migrateConfigV1toV2 } from "./migrate.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".aihub");
 export const CONFIG_PATH = path.join(CONFIG_DIR, "aihub.json");
@@ -19,7 +20,16 @@ export function loadConfig(): GatewayConfig {
 
   const raw = fs.readFileSync(CONFIG_PATH, "utf8");
   const json = JSON.parse(raw);
-  const result = GatewayConfigSchema.parse(json);
+  const parsed = GatewayConfigSchema.parse(json);
+  const migration =
+    parsed.version === undefined ? migrateConfigV1toV2(parsed) : null;
+  const result = migration?.config ?? parsed;
+
+  if (migration) {
+    for (const warning of migration.warnings) {
+      console.warn(`[config] ${warning}`);
+    }
+  }
 
   // Apply env vars from config (only if not already set in process.env)
   if (result.env) {
@@ -45,6 +55,11 @@ export function loadConfig(): GatewayConfig {
 export function reloadConfig(): GatewayConfig {
   cachedConfig = null;
   return loadConfig();
+}
+
+export function clearConfigCacheForTests(): void {
+  cachedConfig = null;
+  singleAgentId = null;
 }
 
 /** Set single-agent mode - only this agent will be active */

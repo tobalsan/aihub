@@ -93,6 +93,7 @@ Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 Zod schemas and TypeScript types:
 
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
+- Modular runtime types: `Component`, `ComponentContext`, `ValidationResult`
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
   - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
@@ -122,6 +123,7 @@ All stored in `~/.aihub/`:
 
 ```typescript
 {
+  version?: number,              // absent = legacy v1; startup auto-migrates to v2 in memory
   agents: [{
     id: string,
     name: string,
@@ -147,6 +149,19 @@ All stored in `~/.aihub/`:
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)
+  secrets?: {
+    provider?: "onecli",
+    gatewayUrl?: string,
+    agents?: Record<string, { token: string }>
+  },
+  components?: {
+    discord?: { enabled?, token, channels?, dm?, historyLimit?, replyToMode? },
+    scheduler?: { enabled?, tickSeconds? },
+    heartbeat?: { enabled? },
+    amsg?: { enabled? },
+    conversations?: { enabled? },
+    projects?: { enabled?, root? }
+  },
   scheduler?: { enabled?, tickSeconds? },
   web?: { baseUrl? },
   projects?: { root? },            // Projects root (default: ~/projects)
@@ -158,11 +173,23 @@ All stored in `~/.aihub/`:
 ## Agent Runtime Flow
 
 1. **Config Load**: `loadConfig()` reads `~/.aihub/aihub.json`, validates via Zod
+   - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
+   - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
 3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
 5. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
 6. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
+
+### Modular foundation status
+
+- Phase 1 modular foundation is in place:
+  - shared component contracts + v2 config schemas
+  - secret resolution for `$env:` and `$secret:`
+  - v1 to v2 runtime migration
+  - component registry + startup lifecycle wiring
+  - `GET /api/capabilities`
+- Route ownership is still monolithic in `apps/gateway/src/server/api.ts`; component route extraction is Phase 2/3 work.
 
 ### Workspace Bootstrap
 

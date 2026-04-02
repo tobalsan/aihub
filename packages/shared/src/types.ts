@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Hono } from "hono";
 
 // Think levels
 export const ThinkLevelSchema = z.enum([
@@ -238,9 +239,119 @@ export const ProjectsConfigSchema = z.object({
 });
 export type ProjectsConfig = z.infer<typeof ProjectsConfigSchema>;
 
+export const SecretRefSchema = z.string();
+export type SecretRef = z.infer<typeof SecretRefSchema>;
+
+export const SecretsConfigSchema = z.object({
+  provider: z.enum(["onecli"]).optional(),
+  gatewayUrl: z.string().optional(),
+  agents: z
+    .record(
+      z.string(),
+      z.object({
+        token: z.string(),
+      })
+    )
+    .optional(),
+});
+export type SecretsConfig = z.infer<typeof SecretsConfigSchema>;
+
+export const ComponentBaseConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .passthrough();
+export type ComponentBaseConfig = z.infer<typeof ComponentBaseConfigSchema>;
+
+export const DiscordComponentChannelConfigSchema = z.object({
+  agent: z.string(),
+  requireMention: z.boolean().optional(),
+});
+export type DiscordComponentChannelConfig = z.infer<
+  typeof DiscordComponentChannelConfigSchema
+>;
+
+export const DiscordComponentDmConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  agent: z.string(),
+});
+export type DiscordComponentDmConfig = z.infer<
+  typeof DiscordComponentDmConfigSchema
+>;
+
+export const DiscordComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  token: SecretRefSchema,
+  channels: z
+    .record(z.string(), DiscordComponentChannelConfigSchema)
+    .optional(),
+  dm: DiscordComponentDmConfigSchema.optional(),
+  historyLimit: z.number().int().min(0).optional(),
+  replyToMode: z.enum(["off", "all", "first"]).optional(),
+  applicationId: z.string().optional(),
+  guilds: DiscordConfigSchema.shape.guilds.optional(),
+  groupPolicy: DiscordConfigSchema.shape.groupPolicy.optional(),
+  mentionPatterns: z.array(z.string()).optional(),
+  broadcastToChannel: z.string().optional(),
+  clearHistoryAfterReply: z.boolean().optional(),
+});
+export type DiscordComponentConfig = z.infer<
+  typeof DiscordComponentConfigSchema
+>;
+
+export const SchedulerComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  tickSeconds: z.number().optional(),
+});
+export type SchedulerComponentConfig = z.infer<
+  typeof SchedulerComponentConfigSchema
+>;
+
+export const HeartbeatComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+});
+export type HeartbeatComponentConfig = z.infer<
+  typeof HeartbeatComponentConfigSchema
+>;
+
+export const AmsgComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+});
+export type AmsgComponentConfig = z.infer<typeof AmsgComponentConfigSchema>;
+
+export const ConversationsComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+});
+export type ConversationsComponentConfig = z.infer<
+  typeof ConversationsComponentConfigSchema
+>;
+
+export const ProjectsComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  root: z.string().optional(),
+});
+export type ProjectsComponentConfig = z.infer<
+  typeof ProjectsComponentConfigSchema
+>;
+
+export const ComponentsConfigSchema = z
+  .object({
+    discord: DiscordComponentConfigSchema.optional(),
+    scheduler: SchedulerComponentConfigSchema.optional(),
+    heartbeat: HeartbeatComponentConfigSchema.optional(),
+    amsg: AmsgComponentConfigSchema.optional(),
+    conversations: ConversationsComponentConfigSchema.optional(),
+    projects: ProjectsComponentConfigSchema.optional(),
+  })
+  .optional();
+export type ComponentsConfig = z.infer<typeof ComponentsConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
+  version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
+  secrets: SecretsConfigSchema.optional(),
+  components: ComponentsConfigSchema,
   server: z
     .object({
       host: z.string().optional(),
@@ -268,6 +379,53 @@ export const GatewayConfigSchema = z.object({
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 
+export type RunAgentParams = {
+  agentId: string;
+  message: string;
+  attachments?: FileAttachment[];
+  sessionId?: string;
+  sessionKey?: string;
+  thinkLevel?: ThinkLevel;
+  context?: AgentContext;
+  source?: string;
+  onEvent?: (event: StreamEvent) => void;
+};
+
+export type RunAgentResult = {
+  payloads: Array<{ text?: string; mediaUrls?: string[] }>;
+  meta: {
+    durationMs: number;
+    sessionId: string;
+    aborted?: boolean;
+    queued?: boolean;
+  };
+};
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export interface ComponentContext {
+  resolveSecret(name: string): Promise<string>;
+  getAgent(id: string): AgentConfig | undefined;
+  getAgents(): AgentConfig[];
+  runAgent(params: RunAgentParams): Promise<RunAgentResult>;
+  getConfig(): GatewayConfig;
+}
+
+export interface Component {
+  id: string;
+  displayName: string;
+  dependencies: string[];
+  requiredSecrets: string[];
+  validateConfig(raw: unknown): ValidationResult;
+  registerRoutes(app: Hono): void;
+  start(ctx: ComponentContext): Promise<void>;
+  stop(): Promise<void>;
+  capabilities(): string[];
+}
+
 // API payloads
 export const SendMessageRequestSchema = z.object({
   message: z.string(),
@@ -284,6 +442,13 @@ export const AgentStatusSchema = z.object({
   lastActivity: z.number().optional(),
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
+
+export const CapabilitiesResponseSchema = z.object({
+  version: z.number(),
+  components: z.record(z.string(), z.boolean()),
+  agents: z.array(z.string()),
+});
+export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 
 // Projects API types
 export const ProjectStatusSchema = z.enum([

@@ -1,7 +1,7 @@
 # Hand-off
 
-Date: 2026-03-03
-Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-editor`
+Date: 2026-04-02
+Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-foundation`
 
 ## Current Status
 
@@ -10,6 +10,26 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-146/aihub-project-detail-page-spec-
 - Test baseline is green on touched suites.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-02: PRO-198 modular architecture Phase 1 foundation
+
+- `packages/shared/src/types.ts`, `packages/shared/src/__tests__/component-types.test.ts`, `packages/shared/src/__tests__/config-v2.test.ts`
+  - Added component contracts (`Component`, `ComponentContext`, `ValidationResult`).
+  - Added v2 config schemas for `version`, `secrets`, `components`, and capabilities response payload.
+- `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/secrets.ts`, `apps/gateway/src/config/migrate.ts`, `apps/gateway/src/config/validate.ts`
+  - Added legacy v1 -> v2 runtime migration with warnings.
+  - Added `$env:` and `$secret:` resolution helpers.
+  - Added startup validation for duplicate agent ids, component config validity, agent references, and summary logging.
+- `apps/gateway/src/components/*`, `apps/gateway/src/components/registry.ts`
+  - Added lazy component registry and Phase 1 stub components for `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, `projects`.
+  - Moved project watcher ownership out of `server/index.ts` into the projects component stub.
+- `apps/gateway/src/server/api.ts`, `apps/gateway/src/server/capabilities.api.test.ts`, `apps/gateway/src/cli/index.ts`
+  - Added `GET /api/capabilities`.
+  - CLI now loads components, validates startup, registers routes, starts components in order, and stops them in reverse order.
+- Verification:
+  - `pnpm test -- packages/shared/src/__tests__/component-types.test.ts` (repo runs broad vitest suite; passed)
+  - `pnpm build`
+  - `pnpm lint`
 
 ### 2026-03-30: PRO-164 mobile responsive project detail UI
 

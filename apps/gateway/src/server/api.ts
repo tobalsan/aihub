@@ -34,6 +34,7 @@ import {
   resolveWorkspaceDir,
   getConfig,
 } from "../config/index.js";
+import { getLoadedComponents } from "../components/registry.js";
 import {
   runAgent,
   getAllSessionsForAgent,
@@ -135,6 +136,18 @@ import { parseMarkdownFile } from "../taskboard/parser.js";
 
 const api = new Hono();
 const execFileAsync = promisify(execFile);
+
+api.get("/capabilities", (c) => {
+  const components = Object.fromEntries(
+    getLoadedComponents().map((component) => [component.id, true])
+  );
+
+  return c.json({
+    version: 2,
+    components,
+    agents: getActiveAgents().map((agent) => agent.id),
+  });
+});
 
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";

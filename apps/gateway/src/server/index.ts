@@ -19,7 +19,6 @@ import {
   getSessionEntry,
   isAbortTrigger,
 } from "../sessions/index.js";
-import { startProjectWatcher } from "../projects/watcher.js";
 
 const app = new Hono();
 
@@ -284,28 +283,6 @@ export function startServer(port?: number, host?: string) {
 
   // Start broadcasting events to subscribers
   setupEventBroadcast();
-
-  const projectWatcher = startProjectWatcher(config);
-  let watcherClosed = false;
-  const closeProjectWatcher = () => {
-    if (watcherClosed) return;
-    watcherClosed = true;
-    void projectWatcher.close();
-  };
-
-  const onSigInt = () => closeProjectWatcher();
-  const onSigTerm = () => closeProjectWatcher();
-  const onExit = () => closeProjectWatcher();
-  process.once("SIGINT", onSigInt);
-  process.once("SIGTERM", onSigTerm);
-  process.once("exit", onExit);
-
-  server.on("close", () => {
-    closeProjectWatcher();
-    process.off("SIGINT", onSigInt);
-    process.off("SIGTERM", onSigTerm);
-    process.off("exit", onExit);
-  });
 
   return server;
 }
