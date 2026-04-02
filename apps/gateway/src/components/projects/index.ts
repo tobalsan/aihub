@@ -2255,6 +2255,13 @@ const projectsComponent: Component = {
   displayName: "Projects",
   dependencies: [],
   requiredSecrets: [],
+  routePrefixes: [
+    "/api/areas",
+    "/api/projects",
+    "/api/subagents",
+    "/api/activity",
+    "/api/taskboard",
+  ],
   validateConfig(raw) {
     const result = ProjectsComponentConfigSchema.safeParse(raw);
     return {

@@ -18,6 +18,10 @@ const COMPONENT_MAP: Record<string, () => Promise<Component>> = {
 
 let loadedComponents: Component[] = [];
 
+export async function loadKnownComponents(): Promise<Component[]> {
+  return Promise.all(Object.values(COMPONENT_MAP).map((loader) => loader()));
+}
+
 export function topoSort(components: Component[]): Component[] {
   const ordered: Component[] = [];
   const visiting = new Set<string>();

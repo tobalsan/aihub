@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { loadConfig, getAgents, getAgent, setSingleAgentMode, CONFIG_DIR } from "../config/index.js";
+import { loadConfig, getAgents, getAgent, setSingleAgentMode, CONFIG_DIR, setLoadedConfig } from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";
 import { runAgent } from "../agents/index.js";
@@ -14,7 +14,7 @@ import { registerSubagentCommands } from "./subagent.js";
 import type { Component, UiConfig, GatewayBindMode } from "@aihub/shared";
 import { loadComponents } from "../components/registry.js";
 import {
-  validateStartupConfig,
+  prepareStartupConfig,
   logComponentSummary,
 } from "../config/validate.js";
 import { resolveSecretValue } from "../config/secrets.js";
@@ -144,14 +144,18 @@ function getApiBaseUrl(): string {
   return `http://${host}:${port}`;
 }
 
-function createComponentContext(config: ReturnType<typeof loadConfig>) {
+function createComponentContext(
+  resolvedConfig: ReturnType<typeof loadConfig>,
+  rawConfig: ReturnType<typeof loadConfig>
+) {
   return {
-    resolveSecret: async (name: string) =>
-      resolveSecretValue(`$secret:${name}`, config.secrets),
+    resolveSecret: async (name: string) => {
+      return resolveSecretValue(`$secret:${name}`, rawConfig.secrets);
+    },
     getAgent,
     getAgents,
     runAgent,
-    getConfig: () => config,
+    getConfig: () => resolvedConfig,
   } satisfies Parameters<Component["start"]>[0];
 }
 
@@ -229,10 +233,14 @@ program
   .option("--dev", "Dev mode: auto-find ports, disable Discord/scheduler/heartbeat/amsg")
   .action(async (opts) => {
     try {
-      const config = loadConfig();
-      const components = await loadComponents(config);
-      const summary = await validateStartupConfig(config, components);
+      const rawConfig = loadConfig();
+      const components = await loadComponents(rawConfig);
+      const { resolvedConfig: config, summary } = await prepareStartupConfig(
+        rawConfig,
+        components
+      );
       logComponentSummary(summary);
+      setLoadedConfig(config);
 
       console.log(`Loaded config with ${config.agents.length} agent(s)`);
 
@@ -274,7 +282,7 @@ program
       if (opts.dev) {
         printDevBanner(actualPort, uiEnabled ? uiPort : null);
       } else {
-        const componentContext = createComponentContext(config);
+        const componentContext = createComponentContext(config, rawConfig);
         for (const component of components) {
           await component.start(componentContext);
         }

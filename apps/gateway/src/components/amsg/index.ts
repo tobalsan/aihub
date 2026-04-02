@@ -6,6 +6,7 @@ const amsgComponent: Component = {
   displayName: "Amsg",
   dependencies: [],
   requiredSecrets: [],
+  routePrefixes: [],
   validateConfig(raw) {
     const result = AmsgComponentConfigSchema.safeParse(raw);
     return {

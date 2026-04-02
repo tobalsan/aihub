@@ -75,14 +75,24 @@ export async function validateStartupConfig(
   config: GatewayConfig,
   components: Component[]
 ): Promise<{ loaded: string[]; skipped: string[] }> {
+  const prepared = await prepareStartupConfig(config, components);
+  return prepared.summary;
+}
+
+export async function prepareStartupConfig(
+  config: GatewayConfig,
+  components: Component[]
+): Promise<{
+  resolvedConfig: GatewayConfig;
+  summary: { loaded: string[]; skipped: string[] };
+}> {
+  const resolvedConfig = await resolveConfigSecrets(config, config.secrets);
+
   const checks = [
-    uniqueAgentIdValidation(config),
-    await (async () => {
-      await resolveConfigSecrets(config, config.secrets);
-      return { valid: true, errors: [] };
-    })(),
-    validateComponentConfigs(config, components),
-    validateComponentAgentReferences(config),
+    uniqueAgentIdValidation(resolvedConfig),
+    { valid: true, errors: [] },
+    validateComponentConfigs(resolvedConfig, components),
+    validateComponentAgentReferences(resolvedConfig),
   ];
 
   const errors = checks.flatMap((check) => check.errors);
@@ -91,11 +101,20 @@ export async function validateStartupConfig(
   }
 
   const loaded = components.map((component) => component.id);
-  const skipped = Object.keys(config.components ?? {}).filter(
+  const skipped = Object.keys(resolvedConfig.components ?? {}).filter(
     (id) => !loaded.includes(id)
   );
 
-  return { loaded, skipped };
+  return {
+    resolvedConfig,
+    summary: { loaded, skipped },
+  };
+}
+
+export async function resolveStartupConfig(
+  config: GatewayConfig
+): Promise<GatewayConfig> {
+  return resolveConfigSecrets(config, config.secrets);
 }
 
 export function logComponentSummary(summary: {

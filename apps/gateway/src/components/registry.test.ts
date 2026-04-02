@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { GatewayConfigSchema } from "@aihub/shared";
-import { getLoadedComponents, loadComponents, topoSort } from "./registry.js";
+import {
+  getLoadedComponents,
+  loadComponents,
+  loadKnownComponents,
+  topoSort,
+} from "./registry.js";
 
 describe("component registry", () => {
   it("sorts components by dependency order", () => {
@@ -10,6 +15,7 @@ describe("component registry", () => {
         displayName: "Heartbeat",
         dependencies: ["scheduler"],
         requiredSecrets: [],
+        routePrefixes: ["/api/agents/:id/heartbeat"],
         validateConfig: () => ({ valid: true, errors: [] }),
         registerRoutes: () => undefined,
         start: async () => undefined,
@@ -21,6 +27,7 @@ describe("component registry", () => {
         displayName: "Scheduler",
         dependencies: [],
         requiredSecrets: [],
+        routePrefixes: ["/api/schedules"],
         validateConfig: () => ({ valid: true, errors: [] }),
         registerRoutes: () => undefined,
         start: async () => undefined,
@@ -105,5 +112,16 @@ describe("component registry", () => {
     await expect(loadComponents(config)).rejects.toThrow(
       'Component "heartbeat" requires "scheduler" which is not enabled'
     );
+  });
+
+  it("loads known component route metadata", async () => {
+    const components = await loadKnownComponents();
+    const projects = components.find((component) => component.id === "projects");
+    const heartbeat = components.find(
+      (component) => component.id === "heartbeat"
+    );
+
+    expect(projects?.routePrefixes).toContain("/api/projects");
+    expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");
   });
 });

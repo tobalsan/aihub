@@ -12,6 +12,7 @@ const heartbeatComponent: Component = {
   displayName: "Heartbeat",
   dependencies: ["scheduler"],
   requiredSecrets: [],
+  routePrefixes: ["/api/agents/:id/heartbeat"],
   validateConfig(raw) {
     const result = HeartbeatComponentConfigSchema.safeParse(raw);
     return {

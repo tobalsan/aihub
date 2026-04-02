@@ -28,6 +28,7 @@ const conversationsComponent: Component = {
   displayName: "Conversations",
   dependencies: [],
   requiredSecrets: [],
+  routePrefixes: ["/api/conversations"],
   validateConfig(raw) {
     const result = ConversationsComponentConfigSchema.safeParse(raw);
     return {

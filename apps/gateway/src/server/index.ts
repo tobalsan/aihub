@@ -11,10 +11,12 @@ import type {
   WsServerMessage,
   GatewayBindMode,
   GatewayConfig,
+  Component,
 } from "@aihub/shared";
 import { api } from "./api.core.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
+import { loadKnownComponents } from "../components/registry.js";
 import {
   resolveSessionId,
   getSessionEntry,
@@ -24,52 +26,56 @@ import {
 const app = new Hono();
 
 type ComponentRouteMatcher = {
-  component: "projects" | "conversations" | "scheduler" | "heartbeat";
+  component: string;
   matches: (path: string) => boolean;
 };
 
-const componentRouteMatchers: ComponentRouteMatcher[] = [
-  {
-    component: "projects",
-    matches: (path) =>
-      path === "/api/areas" ||
-      path.startsWith("/api/areas/") ||
-      path === "/api/projects" ||
-      path.startsWith("/api/projects/") ||
-      path === "/api/subagents" ||
-      path.startsWith("/api/subagents/") ||
-      path === "/api/activity" ||
-      path.startsWith("/api/activity/") ||
-      path === "/api/taskboard" ||
-      path.startsWith("/api/taskboard/"),
-  },
-  {
-    component: "conversations",
-    matches: (path) =>
-      path === "/api/conversations" || path.startsWith("/api/conversations/"),
-  },
-  {
-    component: "scheduler",
-    matches: (path) =>
-      path === "/api/schedules" || path.startsWith("/api/schedules/"),
-  },
-  {
-    component: "heartbeat",
-    matches: (path) => /^\/api\/agents\/[^/]+\/heartbeat$/.test(path),
-  },
-];
+function routePrefixToMatcher(prefix: string): (path: string) => boolean {
+  if (!prefix.includes(":")) {
+    return (path) => path === prefix || path.startsWith(`${prefix}/`);
+  }
+
+  const pattern = prefix
+    .split("/")
+    .map((segment) => {
+      if (!segment) return "";
+      if (segment.startsWith(":")) return "[^/]+";
+      return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("/");
+  const regex = new RegExp(`^${pattern}$`);
+  return (path) => regex.test(path);
+}
+
+function buildComponentRouteMatchers(
+  components: Component[]
+): ComponentRouteMatcher[] {
+  return components.flatMap((component) =>
+    component.routePrefixes.map((prefix) => ({
+      component: component.id,
+      matches: routePrefixToMatcher(prefix),
+    }))
+  );
+}
+
+const knownComponentRouteMatchersPromise = loadKnownComponents()
+  .then((components) => buildComponentRouteMatchers(components))
+  .catch(() => []);
 
 function isComponentEnabled(
   config: GatewayConfig,
-  componentId: ComponentRouteMatcher["component"]
+  componentId: string
 ): boolean {
-  const componentConfig = config.components?.[componentId];
+  const componentConfig = config.components?.[
+    componentId as keyof NonNullable<GatewayConfig["components"]>
+  ];
   return !!componentConfig && componentConfig.enabled !== false;
 }
 
 app.use("*", cors());
 app.use("*", logger());
 app.use("/api/*", async (c, next) => {
+  const componentRouteMatchers = await knownComponentRouteMatchersPromise;
   let config: GatewayConfig;
   try {
     config = loadConfig();

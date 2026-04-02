@@ -3,6 +3,7 @@ import { GatewayConfigSchema } from "@aihub/shared";
 import { loadComponents } from "../../components/registry.js";
 import {
   logComponentSummary,
+  resolveStartupConfig,
   validateStartupConfig,
 } from "../validate.js";
 
@@ -101,5 +102,40 @@ describe("startup validation", () => {
     }
 
     expect(info).toHaveLength(2);
+  });
+
+  it("returns a resolved runtime config", async () => {
+    process.env.TEST_RUNTIME_SECRET = "resolved-value";
+
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      components: {
+        discord: {
+          enabled: true,
+          token: "$env:TEST_RUNTIME_SECRET",
+          channels: {
+            "123": { agent: "main" },
+          },
+        },
+      },
+    });
+
+    await expect(resolveStartupConfig(config)).resolves.toMatchObject({
+      components: {
+        discord: expect.objectContaining({
+          token: "resolved-value",
+        }),
+      },
+    });
+
+    delete process.env.TEST_RUNTIME_SECRET;
   });
 });

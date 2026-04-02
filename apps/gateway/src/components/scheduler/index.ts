@@ -17,6 +17,7 @@ const schedulerComponent: Component = {
   displayName: "Scheduler",
   dependencies: [],
   requiredSecrets: [],
+  routePrefixes: ["/api/schedules"],
   validateConfig(raw) {
     const result = SchedulerComponentConfigSchema.safeParse(raw);
     return {

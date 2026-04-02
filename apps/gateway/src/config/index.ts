@@ -57,6 +57,10 @@ export function reloadConfig(): GatewayConfig {
   return loadConfig();
 }
 
+export function setLoadedConfig(config: GatewayConfig): void {
+  cachedConfig = config;
+}
+
 export function clearConfigCacheForTests(): void {
   cachedConfig = null;
   singleAgentId = null;

@@ -78,6 +78,7 @@ describe("component config schemas", () => {
       displayName: "Scheduler",
       dependencies: [],
       requiredSecrets: [],
+      routePrefixes: ["/api/schedules"],
       validateConfig: () => validation,
       registerRoutes: () => undefined,
       start: async (_context) => {

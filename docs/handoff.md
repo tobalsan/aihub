@@ -1,7 +1,7 @@
 # Hand-off
 
 Date: 2026-04-02
-Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-migrate-cli`
+Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-phase5-hardening`
 
 ## Current Status
 
@@ -10,6 +10,27 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-migrate-cli`
 - Test baseline is green on touched suites.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-02: PRO-198 modular architecture Phase 5 hardening
+
+- `packages/shared/src/types.ts`, `apps/gateway/src/components/*`, `apps/gateway/src/components/registry.ts`
+  - Extended the shared component contract with `routePrefixes`.
+  - Added route metadata to route-owning components and a `loadKnownComponents()` helper for server-side route guard construction.
+- `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/validate.ts`, `apps/gateway/src/cli/index.ts`
+  - Added startup preparation that resolves `$env:` / `$secret:` refs once, then stores the resolved config as the runtime config.
+  - `ComponentContext.getConfig()` now exposes resolved values during component startup/runtime.
+  - Discord component startup no longer performs ad hoc token resolution.
+- `apps/gateway/src/server/index.ts`
+  - Replaced the hardcoded disabled-component route matcher list with middleware built from component-declared route prefixes.
+- Tests:
+  - Added coverage for resolved runtime config and registry route metadata.
+  - Updated Discord component tests to assert resolved-config consumption.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- apps/gateway/src/server/component-disabled.api.test.ts` (repo-wide Vitest run: `71/71` files, `622/622` tests)
+  - `pnpm build`
+  - `pnpm lint`
 
 ### 2026-04-02: PRO-198 apm config migrate/validate CLI
 

@@ -15,8 +15,6 @@ describe("discord component", () => {
   });
 
   it("resolves component token and starts a single routed bot", async () => {
-    process.env.DISCORD_TOKEN = "env-token";
-
     const { discordComponent } = await import("./index.js");
     const config = GatewayConfigSchema.parse({
       version: 2,
@@ -31,7 +29,7 @@ describe("discord component", () => {
       components: {
         discord: {
           enabled: true,
-          token: "$env:DISCORD_TOKEN",
+          token: "env-token",
           channels: {
             "123": { agent: "main", requireMention: false },
           },
@@ -61,11 +59,9 @@ describe("discord component", () => {
       }),
     });
     expect(ctx.resolveSecret).not.toHaveBeenCalled();
-
-    delete process.env.DISCORD_TOKEN;
   });
 
-  it("uses component context secret resolver for vault refs", async () => {
+  it("uses already resolved config values", async () => {
     const { discordComponent } = await import("./index.js");
     const config = GatewayConfigSchema.parse({
       version: 2,
@@ -80,7 +76,7 @@ describe("discord component", () => {
       components: {
         discord: {
           enabled: true,
-          token: "$secret:discord_bot_token",
+          token: "secret-token",
           channels: {
             "123": { agent: "main" },
           },
@@ -98,7 +94,7 @@ describe("discord component", () => {
 
     await discordComponent.start(ctx);
 
-    expect(ctx.resolveSecret).toHaveBeenCalledWith("discord_bot_token");
+    expect(ctx.resolveSecret).not.toHaveBeenCalled();
     expect(startDiscordBots).toHaveBeenCalledWith({
       agents: config.agents,
       componentConfig: expect.objectContaining({

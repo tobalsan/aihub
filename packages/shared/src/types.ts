@@ -419,6 +419,7 @@ export interface Component {
   displayName: string;
   dependencies: string[];
   requiredSecrets: string[];
+  routePrefixes: string[];
   validateConfig(raw: unknown): ValidationResult;
   registerRoutes(app: Hono): void;
   start(ctx: ComponentContext): Promise<void>;

@@ -3,7 +3,6 @@ import {
   type Component,
   type DiscordComponentConfig,
 } from "@aihub/shared";
-import { resolveSecretValue } from "../../config/secrets.js";
 import { startDiscordBots, stopDiscordBots } from "../../discord/index.js";
 
 const discordComponent: Component = {
@@ -11,6 +10,7 @@ const discordComponent: Component = {
   displayName: "Discord",
   dependencies: [],
   requiredSecrets: [],
+  routePrefixes: [],
   validateConfig(raw) {
     const result = DiscordComponentConfigSchema.safeParse(raw);
     return {
@@ -25,18 +25,10 @@ const discordComponent: Component = {
       rawConfig
     ) as DiscordComponentConfig;
 
-    let token = config.token;
-    if (token.startsWith("$secret:")) {
-      token = await ctx.resolveSecret(token.slice("$secret:".length));
-    } else {
-      token = await resolveSecretValue(token, ctx.getConfig().secrets);
-    }
-
     await startDiscordBots({
       agents: ctx.getAgents(),
       componentConfig: {
         ...config,
-        token,
       },
     });
   },
