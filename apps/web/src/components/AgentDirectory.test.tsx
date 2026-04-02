@@ -14,6 +14,7 @@ const {
   fetchAllSubagentsMock,
   fetchProjectsMock,
   fetchAgentStatusesMock,
+  subscribeToFileChangesMock,
   subscribeToStatusMock,
 } = vi.hoisted(() => ({
   fetchAgentsMock: vi.fn<() => Promise<Agent[]>>(async () => []),
@@ -24,6 +25,7 @@ const {
   fetchAgentStatusesMock: vi.fn<
     () => Promise<{ statuses: Record<string, "streaming" | "idle"> }>
   >(async () => ({ statuses: {} })),
+  subscribeToFileChangesMock: vi.fn(() => () => {}),
   subscribeToStatusMock: vi.fn(() => () => {}),
 }));
 
@@ -32,6 +34,7 @@ vi.mock("../api/client", () => ({
   fetchAllSubagents: fetchAllSubagentsMock,
   fetchProjects: fetchProjectsMock,
   fetchAgentStatuses: fetchAgentStatusesMock,
+  subscribeToFileChanges: subscribeToFileChangesMock,
   subscribeToStatus: subscribeToStatusMock,
 }));
 
@@ -48,11 +51,13 @@ describe("AgentDirectory", () => {
     fetchAllSubagentsMock.mockReset();
     fetchProjectsMock.mockReset();
     fetchAgentStatusesMock.mockReset();
+    subscribeToFileChangesMock.mockReset();
     subscribeToStatusMock.mockReset();
     fetchAgentsMock.mockResolvedValue([]);
     fetchAllSubagentsMock.mockResolvedValue({ items: [] });
     fetchProjectsMock.mockResolvedValue([]);
     fetchAgentStatusesMock.mockResolvedValue({ statuses: {} });
+    subscribeToFileChangesMock.mockReturnValue(() => {});
     subscribeToStatusMock.mockReturnValue(() => {});
     vi.clearAllMocks();
   });

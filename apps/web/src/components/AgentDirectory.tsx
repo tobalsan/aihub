@@ -13,6 +13,7 @@ import {
   fetchAllSubagents,
   fetchAgentStatuses,
   fetchProjects,
+  subscribeToFileChanges,
   subscribeToStatus,
 } from "../api/client";
 import type { SubagentGlobalListItem } from "../api/types";
@@ -97,11 +98,28 @@ export function AgentDirectory(props: AgentDirectoryProps) {
   });
 
   createEffect(() => {
-    const interval = setInterval(() => {
-      void refetchSubagents();
-      void refetchProjects();
-    }, 5000);
-    onCleanup(() => clearInterval(interval));
+    let refreshTimer: number | undefined;
+    const unsubscribe = subscribeToFileChanges({
+      onFileChanged: () => {
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refetchProjects();
+          refreshTimer = undefined;
+        }, 500);
+      },
+      onAgentChanged: () => {
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refetchSubagents();
+          void refetchProjects();
+          refreshTimer = undefined;
+        }, 500);
+      },
+    });
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
   });
 
   const activeProjects = createMemo<ActiveProjectItem[]>(() => {

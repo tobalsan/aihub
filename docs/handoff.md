@@ -5,6 +5,8 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- Main repo follow-up on 2026-04-02: `AgentDirectory` no longer force-refetches projects/subagents every 5s; it now refreshes from the existing file/agent websocket feed to avoid visible shell-wide UI churn.
+
 - PRO-198 modular architecture is integrated on `space/PRO-198`.
 - Gateway/runtime now support v2 modular components with resolved-config threading and component-declared disabled-route metadata.
 - Recent follow-up work tightened `apm config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
