@@ -98,6 +98,7 @@ Zod schemas and TypeScript types:
 
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
 - Modular runtime types: `Component`, `ComponentContext`, `ValidationResult`
+- Connector framework types/loader/registry/discovery now live under `packages/shared/src/connectors`
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
   - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
@@ -152,8 +153,16 @@ All stored in `~/.aihub/`:
     discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, broadcastToChannel?, ... },
     heartbeat?: { every?, prompt?, ackMaxChars? },
     amsg?: { id?, enabled? },
-    introMessage?: string            // Custom intro for /new (default: "New conversation started.")
+    introMessage?: string,           // Custom intro for /new (default: "New conversation started.")
+    connectors?: Record<string, {
+      enabled?: boolean
+      // connector-specific per-agent overrides
+    }>
   }],
+  connectors?: {
+    path?: string                    // external connector directory
+    // connector-specific global config passthrough
+  },
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)

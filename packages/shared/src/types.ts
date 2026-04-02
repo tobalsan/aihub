@@ -117,6 +117,22 @@ export const AgentAuthConfigSchema = z.object({
 });
 export type AgentAuthConfig = z.infer<typeof AgentAuthConfigSchema>;
 
+export const AgentConnectorConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .passthrough();
+export type AgentConnectorConfig = z.infer<typeof AgentConnectorConfigSchema>;
+
+export const ConnectorsGlobalConfigSchema = z
+  .object({
+    path: z.string().optional(),
+  })
+  .passthrough();
+export type ConnectorsGlobalConfig = z.infer<
+  typeof ConnectorsGlobalConfigSchema
+>;
+
 // Agent config
 const AgentConfigBaseSchema = z.object({
   id: z.string(),
@@ -132,6 +148,7 @@ const AgentConfigBaseSchema = z.object({
   amsg: AmsgConfigSchema.optional(),
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
+  connectors: z.record(z.string(), AgentConnectorConfigSchema).optional(),
 });
 export const AgentConfigSchema = AgentConfigBaseSchema.superRefine(
   (value, ctx) => {
@@ -351,6 +368,7 @@ export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
   secrets: SecretsConfigSchema.optional(),
+  connectors: ConnectorsGlobalConfigSchema.optional(),
   components: ComponentsConfigSchema,
   server: z
     .object({

@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- PRO-199 shared connector foundation is in place on 2026-04-03: shared connector contracts, registry, loader, discovery, config schema updates, and unit coverage landed in `packages/shared`.
 - Main repo follow-up on 2026-04-02: `AgentDirectory` no longer force-refetches projects/subagents every 5s; it now refreshes from the existing file/agent websocket feed to avoid visible shell-wide UI churn.
 
 - PRO-198 modular architecture is integrated on `space/PRO-198`.
@@ -14,6 +15,24 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-03: PRO-199 shared connector foundation
+
+- `packages/shared/src/connectors/*`, `packages/shared/src/types.ts`, `packages/shared/src/index.ts`
+  - Added connector contracts plus Zod-backed runtime schemas.
+  - Added in-memory connector registry.
+  - Added config merge + tool loading helpers with tool-name namespacing.
+  - Added external connector discovery from directory subfolders with non-fatal warning logs for invalid modules.
+  - Extended shared config schemas with root-level `connectors` and per-agent `agent.connectors`.
+- `packages/shared/src/__tests__/connectors.test.ts`
+  - Added coverage for registry override behavior, config merge/load flow, validation failures, external discovery, schema acceptance, and migration behavior when `connectors` is absent.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test`
+  - `pnpm lint`
+  - `pnpm typecheck`
+  - `pnpm build`
 
 ### 2026-04-02: PRO-198 modular architecture Phase 5 hardening
 

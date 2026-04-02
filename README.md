@@ -31,6 +31,7 @@ The app uses a main config file at `~/.aihub/aihub.json`.
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `secrets`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
+Config also has a top-level `connectors` map plus per-agent `agent.connectors` overrides for stateless tool providers loaded from `packages/shared/src/connectors` or an external `connectors.path` directory.
 Startup now resolves `$env:` and `$secret:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
@@ -93,6 +94,14 @@ AIHub v2 is modular. These are the built-in component IDs you can enable under `
 - `projects`: project management surface including areas, kanban, taskboard, activity feed, subagents, and Space workflows
 
 If a component key is absent, it is disabled and not loaded.
+
+### Connectors
+
+Connectors are config-driven, stateless tool bundles mounted per agent.
+
+- Root `connectors` holds shared defaults plus optional `path` for external connector directories.
+- `agent.connectors.<id>` enables a connector for that agent and can override connector-specific config.
+- Shared connector framework exports live in `packages/shared/src/connectors`.
 
 ## Starting the app
 
