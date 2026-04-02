@@ -28,6 +28,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-phase5-hardening`
   - Updated Discord component tests to assert resolved-config consumption.
 - Docs:
   - Updated `README.md` and `docs/llms.md`.
+  - Follow-up on 2026-04-02: `README.md` now has a dedicated built-in components section with short explanations for `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`.
 - Verification:
   - `pnpm test -- apps/gateway/src/server/component-disabled.api.test.ts` (repo-wide Vitest run: `71/71` files, `622/622` tests)
   - `pnpm build`

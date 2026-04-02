@@ -80,6 +80,19 @@ cat > ~/.aihub/aihub.json << 'EOF'
 EOF
 ```
 
+### Built-in components
+
+AIHub v2 is modular. These are the built-in component IDs you can enable under `components`:
+
+- `discord`: one shared Discord bot that routes configured channels/DMs to agents
+- `scheduler`: recurring schedule runner for interval/daily jobs
+- `heartbeat`: periodic heartbeat prompts for agents; depends on `scheduler`
+- `amsg`: background watcher that checks agent amsg inboxes and nudges agents when new messages arrive
+- `conversations`: saved conversation API/UI surface for browsing threads, attachments, and creating projects from conversations
+- `projects`: project management surface including areas, kanban, taskboard, activity feed, subagents, and Space workflows
+
+If a component key is absent, it is disabled and not loaded.
+
 ## Starting the app
 
 ```bash
