@@ -1,13 +1,13 @@
 # Hand-off
 
 Date: 2026-04-02
-Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-phase5-hardening`
+Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
-- Project detail + subagent workflow is active and stable.
-- Most recent work focused on realtime refresh correctness, stop/interrupt UX, and template prompt guardrails.
-- Test baseline is green on touched suites.
+- PRO-198 modular architecture is integrated on `space/PRO-198`.
+- Gateway/runtime now support v2 modular components with resolved-config threading and component-declared disabled-route metadata.
+- Recent follow-up work tightened `apm config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
 
 ## Recent Updates (Detailed)
 
@@ -15,7 +15,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-phase5-hardening`
 
 - `packages/shared/src/types.ts`, `apps/gateway/src/components/*`, `apps/gateway/src/components/registry.ts`
   - Extended the shared component contract with `routePrefixes`.
-  - Added route metadata to route-owning components and a `loadKnownComponents()` helper for server-side route guard construction.
+  - Added route metadata to route-owning components and exposed static registry metadata for server-side route guard construction without eager component imports.
 - `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/validate.ts`, `apps/gateway/src/cli/index.ts`
   - Added startup preparation that resolves `$env:` / `$secret:` refs once, then stores the resolved config as the runtime config.
   - `ComponentContext.getConfig()` now exposes resolved values during component startup/runtime.

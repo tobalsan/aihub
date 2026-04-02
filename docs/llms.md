@@ -25,7 +25,7 @@ Core TypeScript/Node.js application. Exports:
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution
-- **Discord** (`src/discord/`): Per-agent Discord bot integration
+- **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
 
