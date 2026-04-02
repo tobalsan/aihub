@@ -1,7 +1,7 @@
 # Hand-off
 
 Date: 2026-04-02
-Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-ui`
+Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-migrate-cli`
 
 ## Current Status
 
@@ -10,6 +10,23 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-ui`
 - Test baseline is green on touched suites.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-02: PRO-198 apm config migrate/validate CLI
+
+- `packages/shared/src/config-migrate.ts`, `apps/gateway/src/config/migrate.ts`
+  - Moved the pure v1 -> v2 migration helper into `@aihub/shared` so gateway and `apm` reuse the same logic.
+- `packages/cli/src/local-config.ts`, `packages/cli/src/index.ts`
+  - Added local config path resolution with `--config` > `AIHUB_CONFIG` > `~/.aihub/aihub.json`.
+  - Added `apm config migrate [--dry-run]` to preview or apply migration with backup creation.
+  - Added `apm config validate` to parse current config, auto-migrate legacy v1 in-memory for validation, and print agent/component summary.
+- `packages/cli/src/config.commands.test.ts`
+  - Added coverage for dry-run output, persisted migration + backup, and validate output.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- packages/cli/src/config.commands.test.ts` (repo-wide Vitest run: `71/71` files, `620/620` tests)
+  - `pnpm build`
+  - `pnpm lint`
 
 ### 2026-04-02: PRO-198 modular architecture Phase 3 + Phase 4
 

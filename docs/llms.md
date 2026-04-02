@@ -104,10 +104,13 @@ Zod schemas and TypeScript types:
 
 ### packages/cli
 
-Standalone `apm` CLI package. It only talks to the gateway API over HTTP.
+Standalone `apm` CLI package.
 
-- Env URL precedence: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/aihub.json` (`apiUrl`)
-- Token precedence: `AIHUB_TOKEN` > `~/.aihub/aihub.json` (`token`)
+- Remote project/subagent commands talk to the gateway API over HTTP.
+- Local config commands (`apm config migrate`, `apm config validate`) read/write `aihub.json` directly.
+- Env URL precedence for HTTP commands: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/aihub.json` (`apiUrl`)
+- Token precedence for HTTP commands: `AIHUB_TOKEN` > `~/.aihub/aihub.json` (`token`)
+- Local config path precedence: `--config` > `AIHUB_CONFIG` > `~/.aihub/aihub.json`
 
 ## Runtime Data
 
@@ -178,6 +181,7 @@ All stored in `~/.aihub/`:
 1. **Config Load**: `loadConfig()` reads `~/.aihub/aihub.json`, validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
    - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
+   - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
 3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.

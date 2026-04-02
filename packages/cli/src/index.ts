@@ -4,10 +4,18 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   START_TEMPLATE_PROFILES,
+  type GatewayConfig,
   type StartTemplate,
   type StartPromptRole as SharedStartPromptRole,
 } from "@aihub/shared";
 import { ApiClient } from "./client.js";
+import {
+  describeMigration,
+  migrateLocalConfig,
+  previewMigration,
+  resolveLocalConfigPath,
+  validateLocalConfig,
+} from "./local-config.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -376,9 +384,126 @@ function fail(err: unknown): never {
   process.exit(1);
 }
 
+function formatComponentList(config: GatewayConfig): string {
+  const components = Object.entries(config.components ?? {})
+    .filter(([, value]) => value && value.enabled !== false)
+    .map(([key]) => key);
+  return components.length > 0 ? components.join(", ") : "none";
+}
+
+function printWarnings(warnings: string[]): void {
+  for (const warning of warnings) {
+    console.log(`Warning: ${warning}`);
+  }
+}
+
+function formatValidationError(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "issues" in error &&
+    Array.isArray((error as { issues?: unknown }).issues)
+  ) {
+    return (error as { issues: Array<{ path?: unknown[]; message?: string }> }).issues
+      .map((issue) => {
+        const path =
+          Array.isArray(issue.path) && issue.path.length > 0
+            ? issue.path.join(".")
+            : "config";
+        return `${path}: ${issue.message ?? "Invalid value"}`;
+      })
+      .join("\n");
+  }
+
+  if (error instanceof Error) return error.message;
+  return "Validation failed";
+}
+
+export function runConfigMigrateCommand(opts?: {
+  config?: string;
+  dryRun?: boolean;
+}): void {
+  const preview = previewMigration(opts?.config);
+  console.log(`Config path: ${preview.path}`);
+  console.log(`Config version: ${preview.version.label}`);
+  printWarnings(preview.warnings);
+
+  if (opts?.dryRun) {
+    if (!preview.changed) {
+      console.log("Config already at version 2. No changes required.");
+      console.log("No changes written (dry run).");
+      return;
+    }
+
+    console.log("Migration would:");
+    for (const action of describeMigration(
+      preview.originalConfig,
+      preview.migratedConfig
+    )) {
+      console.log(`  - ${action}`);
+    }
+    console.log("No changes written (dry run).");
+    return;
+  }
+
+  const result = migrateLocalConfig(opts?.config);
+  if (!result.changed) {
+    console.log("Config already at version 2. No changes written.");
+    return;
+  }
+
+  console.log(`Migrated ${result.path} from v${result.version.number} -> v2`);
+  console.log(`Backup saved to ${result.backupPath}`);
+  if (result.warnings.length > 0) {
+    printWarnings(result.warnings);
+  }
+}
+
+export function runConfigValidateCommand(opts?: { config?: string }): void {
+  const result = validateLocalConfig(opts?.config);
+  console.log(`Config path: ${resolveLocalConfigPath(opts?.config)}`);
+  console.log(`Config version: ${result.migrated ? result.version.label : "2"}`);
+  if (result.warnings.length > 0) {
+    printWarnings(result.warnings);
+  }
+  console.log(
+    `Agents: ${result.config.agents.map((agent) => agent.id).join(", ") || "none"}`
+  );
+  console.log(`Components: ${formatComponentList(result.config)}`);
+  console.log("Config is valid");
+}
+
 export const program = new Command();
 
 program.name("apm").description("AIHub project manager").version("0.1.0");
+
+const configCommand = program.command("config").description("Manage local AIHub config");
+
+configCommand
+  .command("migrate")
+  .description("Migrate local config from v1 to v2")
+  .option("--config <path>", "Config path")
+  .option("--dry-run", "Preview migration without writing")
+  .action((opts) => {
+    try {
+      runConfigMigrateCommand(opts as { config?: string; dryRun?: boolean });
+    } catch (err) {
+      fail(err);
+    }
+  });
+
+configCommand
+  .command("validate")
+  .description("Validate local AIHub config")
+  .option("--config <path>", "Config path")
+  .action((opts) => {
+    try {
+      runConfigValidateCommand(opts as { config?: string });
+    } catch (err) {
+      console.error(formatValidationError(err));
+      process.exit(1);
+    }
+  });
 
 program
   .command("list")

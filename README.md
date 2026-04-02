@@ -96,7 +96,7 @@ apps/
   gateway/    # Server, CLI, agent runtime, opt-in components
   web/        # Solid.js chat UI
 packages/
-  cli/        # apm CLI (remote-friendly, API client)
+  cli/        # apm CLI (gateway API + local config commands)
   shared/     # Types & schemas
 ```
 
@@ -136,6 +136,10 @@ pnpm apm move <id> <status>
 pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-template-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 pnpm apm rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
 
+# Local config CLI
+pnpm apm config migrate [--config <path>] [--dry-run]
+pnpm apm config validate [--config <path>]
+
 # `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role (resolved server-side by default).
 # Override locked fields only with `--allow-template-overrides`.
 # Template defaults: coordinator mode=none, worker mode=worktree (base=`space/<projectId>`), reviewer mode=none.
@@ -145,6 +149,7 @@ AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
 # Backward-compatible alias
 AIHUB_URL=http://127.0.0.1:4000 pnpm apm list
 # Config file fallback (~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
+# Local config commands honor: --config > AIHUB_CONFIG > ~/.aihub/aihub.json
 
 # Global shortcut (apm)
 mkdir -p ~/.local/bin

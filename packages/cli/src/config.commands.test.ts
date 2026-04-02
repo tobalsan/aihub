@@ -1,0 +1,149 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  runConfigMigrateCommand,
+  runConfigValidateCommand,
+} from "./index.js";
+
+describe("apm config commands", () => {
+  let prevHome: string | undefined;
+  let prevConfig: string | undefined;
+  let tmpHome = "";
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    prevHome = process.env.HOME;
+    prevConfig = process.env.AIHUB_CONFIG;
+    tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-cli-"));
+    process.env.HOME = tmpHome;
+    delete process.env.AIHUB_CONFIG;
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  });
+
+  afterEach(async () => {
+    logSpy.mockRestore();
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevConfig === undefined) delete process.env.AIHUB_CONFIG;
+    else process.env.AIHUB_CONFIG = prevConfig;
+    await fs.rm(tmpHome, { recursive: true, force: true });
+  });
+
+  it("prints dry-run migration summary without writing", async () => {
+    const configPath = path.join(tmpHome, ".aihub", "aihub.json");
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          agents: [
+            {
+              id: "main",
+              name: "Main",
+              workspace: "~/agents/main",
+              model: { provider: "anthropic", model: "claude" },
+              discord: {
+                token: "$env:DISCORD_TOKEN",
+                channelId: "123",
+              },
+              heartbeat: { every: "30m" },
+              amsg: { enabled: true },
+            },
+          ],
+          scheduler: { enabled: true, tickSeconds: 60 },
+          projects: { root: "~/projects" },
+        },
+        null,
+        2
+      )
+    );
+
+    runConfigMigrateCommand({ dryRun: true });
+
+    const output = logSpy.mock.calls.map(([line]) => String(line));
+    expect(output).toContain(`Config path: ${configPath}`);
+    expect(output).toContain("Config version: 1 (legacy)");
+    expect(output).toContain("Migration would:");
+    expect(
+      output.some((line) =>
+        line.includes('Move agent "main" discord config -> components.discord')
+      )
+    ).toBe(true);
+    expect(output).toContain("No changes written (dry run).");
+
+    const file = await fs.readFile(configPath, "utf8");
+    expect(file).not.toContain('"version": 2');
+  });
+
+  it("writes migrated config and backup", async () => {
+    const configPath = path.join(tmpHome, "custom.json");
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          agents: [
+            {
+              id: "main",
+              name: "Main",
+              workspace: "~/agents/main",
+              model: { provider: "anthropic", model: "claude" },
+              amsg: { enabled: true },
+            },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    runConfigMigrateCommand({ config: configPath });
+
+    const migrated = JSON.parse(await fs.readFile(configPath, "utf8")) as {
+      version?: number;
+      components?: Record<string, unknown>;
+    };
+    const backupPath = configPath.replace(/\.json$/i, ".v1.json");
+    const backup = await fs.readFile(backupPath, "utf8");
+    const output = logSpy.mock.calls.map(([line]) => String(line));
+
+    expect(migrated.version).toBe(2);
+    expect(migrated.components).toHaveProperty("amsg");
+    expect(backup).not.toContain('"version": 2');
+    expect(output).toContain(`Migrated ${configPath} from v1 -> v2`);
+    expect(output).toContain(`Backup saved to ${backupPath}`);
+  });
+
+  it("validates config through migrated v2 shape", async () => {
+    const configPath = path.join(tmpHome, ".aihub", "aihub.json");
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          agents: [
+            {
+              id: "main",
+              name: "Main",
+              workspace: "~/agents/main",
+              model: { provider: "anthropic", model: "claude" },
+              amsg: { enabled: true },
+            },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    runConfigValidateCommand();
+
+    const output = logSpy.mock.calls.map(([line]) => String(line));
+    expect(output).toContain(`Config path: ${configPath}`);
+    expect(output).toContain("Config version: 1 (legacy)");
+    expect(output).toContain("Agents: main");
+    expect(output).toContain("Components: amsg, conversations");
+    expect(output).toContain("Config is valid");
+  });
+});
