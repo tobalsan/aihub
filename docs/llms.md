@@ -27,6 +27,7 @@ Core TypeScript/Node.js application. Exports:
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution
 - **Discord** (`src/discord/`): Per-agent Discord bot integration
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
+- **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
 
 ### apps/web
 

@@ -11,6 +11,22 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-foundation`
 
 ## Recent Updates (Detailed)
 
+### 2026-04-02: PRO-198 modular architecture Phase 2a simple components
+
+- `apps/gateway/src/components/scheduler/index.ts`, `apps/gateway/src/components/heartbeat/index.ts`, `apps/gateway/src/components/amsg/index.ts`, `apps/gateway/src/components/conversations/index.ts`
+  - Replaced Phase 1 stubs with real component wrappers for scheduler, heartbeat, amsg, and conversations.
+  - Scheduler now owns `/schedules` CRUD route registration.
+  - Heartbeat now owns `POST /api/agents/:id/heartbeat`.
+  - Conversations now own listing/detail/message/attachment/project-creation routes.
+- `apps/gateway/src/server/api.ts`
+  - Removed extracted scheduler, heartbeat, and conversations route handlers from the core API module.
+- `apps/gateway/src/conversations/conversations.api.test.ts`
+  - Updated the test harness to use v2 config and explicitly register loaded component routes before exercising conversation endpoints.
+- Verification:
+  - `pnpm test -- apps/gateway/src/conversations/conversations.api.test.ts` (repo ran broad vitest suite; passing)
+  - `pnpm build`
+  - `pnpm lint`
+
 ### 2026-04-02: PRO-198 modular architecture Phase 1 foundation
 
 - `packages/shared/src/types.ts`, `packages/shared/src/__tests__/component-types.test.ts`, `packages/shared/src/__tests__/config-v2.test.ts`

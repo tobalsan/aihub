@@ -33,6 +33,7 @@ describe("conversations API", () => {
       path.join(configDir, "aihub.json"),
       JSON.stringify(
         {
+          version: 2,
           agents: [
             {
               id: "codex",
@@ -70,6 +71,9 @@ describe("conversations API", () => {
             },
           ],
           projects: { root: path.join(tmpDir, "projects") },
+          components: {
+            conversations: { enabled: true },
+          },
         },
         null,
         2
@@ -138,8 +142,17 @@ Yes, route by mention, then append each response to THREAD.md.
         runAgent: runAgentMock,
       };
     });
+    const { clearConfigCacheForTests, loadConfig } = await import(
+      "../config/index.js"
+    );
+    clearConfigCacheForTests();
+    const { loadComponents } = await import("../components/registry.js");
     const mod = await import("../server/api.js");
     api = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api as never);
+    }
   });
 
   afterAll(async () => {
