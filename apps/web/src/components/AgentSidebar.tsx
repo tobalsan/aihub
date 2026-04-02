@@ -10,6 +10,7 @@ import {
 import { A, useLocation } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
 import { fetchProjects } from "../api/client";
+import { isComponentEnabled } from "../lib/capabilities";
 
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
@@ -89,7 +90,10 @@ function readProjectIdFromPathname(pathname: string): string | null {
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const location = useLocation();
-  const [projects] = createResource(() => fetchProjects());
+  const [projects] = createResource(
+    () => isComponentEnabled("projects"),
+    async (enabled) => (enabled ? fetchProjects() : [])
+  );
   const [recentViews, setRecentViews] = createSignal<RecentProjectView[]>(
     readRecentProjectViews()
   );
@@ -139,26 +143,30 @@ export function AgentSidebar(props: AgentSidebarProps) {
       </div>
       <div class="sidebar-content">
         <nav class="sidebar-nav" aria-label="Primary">
-          <A
-            href="/projects"
-            class="nav-link"
-            classList={{
-              active: stripBase(location.pathname).startsWith("/projects"),
-            }}
-          >
-            <span class="nav-full">Projects</span>
-            <span class="nav-short">Pr</span>
-          </A>
-          <A
-            href="/conversations"
-            class="nav-link"
-            classList={{
-              active: stripBase(location.pathname).startsWith("/conversations"),
-            }}
-          >
-            <span class="nav-full">Conversations</span>
-            <span class="nav-short">Co</span>
-          </A>
+          <Show when={isComponentEnabled("projects")}>
+            <A
+              href="/projects"
+              class="nav-link"
+              classList={{
+                active: stripBase(location.pathname).startsWith("/projects"),
+              }}
+            >
+              <span class="nav-full">Projects</span>
+              <span class="nav-short">Pr</span>
+            </A>
+          </Show>
+          <Show when={isComponentEnabled("conversations")}>
+            <A
+              href="/conversations"
+              class="nav-link"
+              classList={{
+                active: stripBase(location.pathname).startsWith("/conversations"),
+              }}
+            >
+              <span class="nav-full">Conversations</span>
+              <span class="nav-short">Co</span>
+            </A>
+          </Show>
           <A
             href="/agents"
             class="nav-link"
@@ -174,7 +182,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         </nav>
       </div>
       <div class="sidebar-spacer" />
-      <Show when={recentProjects().length > 0}>
+      <Show when={isComponentEnabled("projects") && recentProjects().length > 0}>
         <div class="sidebar-recent">
           <div class="sidebar-recent-label">Recent</div>
           <For each={recentProjects()}>

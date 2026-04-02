@@ -7,7 +7,6 @@ import {
   getAgent,
   isAgentActive,
   resolveWorkspaceDir,
-  getConfig,
 } from "../config/index.js";
 import { getLoadedComponents } from "../components/registry.js";
 import {
@@ -24,10 +23,6 @@ import {
   isAbortTrigger,
   getSessionThinkLevel,
 } from "../sessions/index.js";
-import {
-  isProjectsComponentEnabled,
-  registerProjectRoutes,
-} from "../components/projects/index.js";
 import {
   saveUploadedFile,
   isAllowedMimeType,
@@ -47,14 +42,6 @@ api.get("/capabilities", (c) => {
     agents: getActiveAgents().map((agent) => agent.id),
   });
 });
-
-try {
-  if (isProjectsComponentEnabled(getConfig())) {
-    registerProjectRoutes(api);
-  }
-} catch {
-  // Some tests import the core API without a config file on disk.
-}
 
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", (c) => {

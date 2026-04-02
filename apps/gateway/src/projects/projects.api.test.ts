@@ -27,6 +27,7 @@ describe("projects API", () => {
     const configDir = path.join(tmpDir, ".aihub");
     await fs.mkdir(configDir, { recursive: true });
     const config = {
+      version: 2,
       agents: [
         {
           id: "test-agent",
@@ -36,6 +37,9 @@ describe("projects API", () => {
         },
       ],
       projects: { root: projectsRoot },
+      components: {
+        projects: { enabled: true, root: projectsRoot },
+      },
     };
     await fs.writeFile(
       path.join(configDir, "aihub.json"),
@@ -43,8 +47,17 @@ describe("projects API", () => {
     );
 
     vi.resetModules();
-    const mod = await import("../server/api.js");
+    const { clearConfigCacheForTests, loadConfig } = await import(
+      "../config/index.js"
+    );
+    clearConfigCacheForTests();
+    const { loadComponents } = await import("../components/registry.js");
+    const mod = await import("../server/api.core.js");
     api = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api as never);
+    }
   });
 
   afterAll(async () => {

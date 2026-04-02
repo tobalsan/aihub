@@ -31,7 +31,7 @@ The app uses a main config file at `~/.aihub/aihub.json`.
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `secrets`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
-Phase 2a route extraction is in place: `scheduler`, `heartbeat`, and `conversations` now mount their own API routes through the component lifecycle instead of `apps/gateway/src/server/api.ts`.
+Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }`.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
@@ -102,7 +102,7 @@ packages/
 
 ## Web UI Navigation
 
-- Left sidebar: AIHub logo + primary links (`Projects`, `Conversations`, `Chats`)
+- Left sidebar: AIHub logo + primary links (`Chats` always; `Projects` and `Conversations` only when those components are enabled)
 - Main route: `/` for Areas overview (new homepage)
 - Areas homepage supports quick area creation with auto-generated ids and color picker selection
 - Kanban routes: `/projects` for all projects, `/projects?area=<id>` for area-filtered kanban
@@ -114,6 +114,7 @@ packages/
 - Project detail is mobile/tablet responsive: `<=768px` uses a single-column `Overview | Chat | Activity | Changes | Spec` tabbed view, and `769px-1199px` uses a `280px` left rail with merged center/right tabs
 - In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
 - Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
+- Web UI fetches `/api/capabilities` on boot, hides disabled component nav, and lazy-loads projects/conversations route bundles only when enabled
 - Intercom-style quick chat is available globally via a fixed bottom-right bubble; it opens a lead-agent overlay with agent picker, streaming chat, and image attachments
 - Project detail center-panel chat swaps `Send` to `Stop` while a run is active (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi)
 - Changes tab branch header is expandable: click branch aggregate stats to view per-file pending +/- counts (when available)

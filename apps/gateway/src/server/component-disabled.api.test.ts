@@ -3,13 +3,13 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
 
-describe("/capabilities API", () => {
+describe("component-disabled API responses", () => {
   let tmpDir: string;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
   beforeAll(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-capabilities-"));
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-component-404-"));
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpDir;
@@ -28,19 +28,13 @@ describe("/capabilities API", () => {
             model: { provider: "anthropic", model: "claude" },
           },
         ],
-        components: {
-          scheduler: { enabled: true, tickSeconds: 60 },
-        },
+        components: {},
       })
     );
 
     vi.resetModules();
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../config/index.js"
-    );
+    const { clearConfigCacheForTests } = await import("../config/index.js");
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
-    await loadComponents(loadConfig());
   });
 
   afterAll(async () => {
@@ -51,15 +45,15 @@ describe("/capabilities API", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns loaded component and agent ids", async () => {
-    const { api } = await import("./api.core.js");
+  it("returns a structured 404 for disabled component routes", async () => {
+    const { app } = await import("./index.js");
 
-    const response = await Promise.resolve(api.request("/capabilities"));
-    expect(response.status).toBe(200);
+    const response = await Promise.resolve(app.request("/api/projects"));
+
+    expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({
-      version: 2,
-      components: { scheduler: true },
-      agents: ["main"],
+      error: "component_disabled",
+      component: "projects",
     });
   });
 });

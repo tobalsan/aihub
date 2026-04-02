@@ -1,7 +1,9 @@
 import { Router, Route, useParams } from "@solidjs/router";
 import {
   Show,
+  Suspense,
   createEffect,
+  lazy,
   createMemo,
   createResource,
   createSignal,
@@ -13,13 +15,35 @@ import { fetchAgents, getSessionKey, subscribeToSession } from "./api/client";
 import type { Agent } from "./api/types";
 import { AgentList } from "./components/AgentList";
 import { AgentSidebar } from "./components/AgentSidebar";
-import { AreasOverview } from "./components/AreasOverview";
 import { ChatView } from "./components/ChatView";
-import { ConversationsPage } from "./components/conversations/ConversationsPage";
-import { ProjectsBoard } from "./components/ProjectsBoard";
-import { ProjectDetailPage } from "./components/project/ProjectDetailPage";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { QuickChatOverlay } from "./components/QuickChatOverlay";
+import {
+  capabilitiesReady,
+  isComponentEnabled,
+  loadCapabilities,
+} from "./lib/capabilities";
+
+const LazyAreasOverview = lazy(() =>
+  import("./components/AreasOverview").then((mod) => ({
+    default: mod.AreasOverview,
+  }))
+);
+const LazyConversationsPage = lazy(() =>
+  import("./components/conversations/ConversationsPage").then((mod) => ({
+    default: mod.ConversationsPage,
+  }))
+);
+const LazyProjectsBoard = lazy(() =>
+  import("./components/ProjectsBoard").then((mod) => ({
+    default: mod.ProjectsBoard,
+  }))
+);
+const LazyProjectDetailPage = lazy(() =>
+  import("./components/project/ProjectDetailPage").then((mod) => ({
+    default: mod.ProjectDetailPage,
+  }))
+);
 
 const QUICK_CHAT_LAST_AGENT_KEY = "aihub:quick-chat-last-agent";
 
@@ -62,6 +86,7 @@ function Layout(props: { children?: JSX.Element }) {
       const port = import.meta.env.VITE_AIHUB_UI_PORT ?? "?";
       document.title = `[DEV :${port}] AIHub`;
     }
+    void loadCapabilities().catch(() => undefined);
   });
 
   onMount(() => {
@@ -127,7 +152,9 @@ function Layout(props: { children?: JSX.Element }) {
 
   return (
     <>
-      <div class="app">{props.children}</div>
+      <Show when={capabilitiesReady()} fallback={<AppBootSplash />}>
+        <div class="app">{props.children}</div>
+      </Show>
       <QuickChatOverlay
         open={quickChatOpen()}
         mobile={quickChatMobile()}
@@ -164,41 +191,89 @@ function Layout(props: { children?: JSX.Element }) {
   );
 }
 
+function AppBootSplash() {
+  return <div class="app" />;
+}
+
+function ComponentUnavailable(props: { component: string }) {
+  return (
+    <LeftNavShell>
+      <div class="component-unavailable">
+        <h1>Component not available</h1>
+        <p>
+          <code>{props.component}</code> is disabled in this AIHub config.
+        </p>
+      </div>
+      <style>{`
+        .component-unavailable {
+          height: 100%;
+          display: grid;
+          place-items: center;
+          padding: 32px;
+          text-align: center;
+          color: var(--text-secondary);
+        }
+
+        .component-unavailable h1 {
+          margin: 0 0 8px;
+          color: var(--text-primary);
+        }
+
+        .component-unavailable p {
+          margin: 0;
+        }
+      `}</style>
+    </LeftNavShell>
+  );
+}
+
 function ProjectsRouteShell() {
+  if (!isComponentEnabled("projects")) {
+    return <ComponentUnavailable component="projects" />;
+  }
+
   const params = useParams();
   const showDetail = createMemo(
     () => typeof params.id === "string" && params.id.length > 0
   );
   return (
     <LeftNavShell>
-      <div class="projects-route-shell">
-        <ProjectsBoard withSidebar={false} />
-        <Show when={showDetail()}>
-          <div class="projects-route-detail-layer">
-            <ProjectDetailPage />
-          </div>
-        </Show>
-        <style>{`
-          .projects-route-shell {
-            height: 100%;
-            position: relative;
-          }
+      <Suspense>
+        <div class="projects-route-shell">
+          <LazyProjectsBoard withSidebar={false} />
+          <Show when={showDetail()}>
+            <div class="projects-route-detail-layer">
+              <LazyProjectDetailPage />
+            </div>
+          </Show>
+          <style>{`
+            .projects-route-shell {
+              height: 100%;
+              position: relative;
+            }
 
-          .projects-route-detail-layer {
-            position: absolute;
-            inset: 0;
-            z-index: 20;
-          }
-        `}</style>
-      </div>
+            .projects-route-detail-layer {
+              position: absolute;
+              inset: 0;
+              z-index: 20;
+            }
+          `}</style>
+        </div>
+      </Suspense>
     </LeftNavShell>
   );
 }
 
 function AreasOverviewRouteShell() {
+  if (!isComponentEnabled("projects")) {
+    return <AgentsRouteShell />;
+  }
+
   return (
     <LeftNavShell>
-      <AreasOverview />
+      <Suspense>
+        <LazyAreasOverview />
+      </Suspense>
     </LeftNavShell>
   );
 }
@@ -305,9 +380,15 @@ function LeftNavShell(props: { children?: JSX.Element }) {
 }
 
 function ConversationsRouteShell() {
+  if (!isComponentEnabled("conversations")) {
+    return <ComponentUnavailable component="conversations" />;
+  }
+
   return (
     <LeftNavShell>
-      <ConversationsPage />
+      <Suspense>
+        <LazyConversationsPage />
+      </Suspense>
     </LeftNavShell>
   );
 }

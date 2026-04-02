@@ -44,7 +44,7 @@ Features:
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
 - Projects board shell uses split sidebars:
-  - Left sidebar: AIHub logo + primary nav (`Projects`, `Conversations`, `Chats`)
+  - Left sidebar: AIHub logo + primary nav (`Chats` always; `Projects`/`Conversations` only when enabled by `/api/capabilities`)
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
   - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - `/` is the Areas overview homepage (grid of area cards + aggregate "All Projects" card)
@@ -52,9 +52,11 @@ Features:
 - Area cards show per-status project counts and support inline area editing (`title`, `color`, `order`, `repo`)
 - Area title click routes to `/projects?area=<id>`; kanban header shows selected area + `Back to Areas` link
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
+- Web app fetches `/api/capabilities` on boot; if `projects` is disabled, `/` falls back to the core agent list instead of the Areas route
 - `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
 - `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
 - Left sidebar shows last 5 recently viewed projects (from `localStorage`) above the theme toggle, with truncated titles and relative viewed timestamps
+- Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
@@ -190,7 +192,8 @@ All stored in `~/.aihub/`:
   - v1 to v2 runtime migration
   - component registry + startup lifecycle wiring
   - `GET /api/capabilities`
-- Route ownership is still monolithic in `apps/gateway/src/server/api.ts`; component route extraction is Phase 2/3 work.
+- Core routes now live in `apps/gateway/src/server/api.core.ts`.
+- Disabled component route requests return `404 { error: "component_disabled", component }`.
 
 ### Workspace Bootstrap
 

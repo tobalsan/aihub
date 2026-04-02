@@ -1,5 +1,6 @@
 import type {
   Agent,
+  CapabilitiesResponse,
   SendMessageResponse,
   SimpleHistoryMessage,
   FullHistoryMessage,
@@ -54,6 +55,12 @@ export async function fetchAgents(): Promise<Agent[]> {
 export async function fetchAgent(agentId: string): Promise<Agent> {
   const res = await fetch(`${API_BASE}/agents/${agentId}`);
   if (!res.ok) throw new Error("Failed to fetch agent");
+  return res.json();
+}
+
+export async function fetchCapabilities(): Promise<CapabilitiesResponse> {
+  const res = await fetch(`${API_BASE}/capabilities`);
+  if (!res.ok) throw new Error("Failed to fetch capabilities");
   return res.json();
 }
 

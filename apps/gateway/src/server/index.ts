@@ -10,8 +10,9 @@ import type {
   WsClientMessage,
   WsServerMessage,
   GatewayBindMode,
+  GatewayConfig,
 } from "@aihub/shared";
-import { api } from "./api.js";
+import { api } from "./api.core.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import {
@@ -22,8 +23,76 @@ import {
 
 const app = new Hono();
 
+type ComponentRouteMatcher = {
+  component: "projects" | "conversations" | "scheduler" | "heartbeat";
+  matches: (path: string) => boolean;
+};
+
+const componentRouteMatchers: ComponentRouteMatcher[] = [
+  {
+    component: "projects",
+    matches: (path) =>
+      path === "/api/areas" ||
+      path.startsWith("/api/areas/") ||
+      path === "/api/projects" ||
+      path.startsWith("/api/projects/") ||
+      path === "/api/subagents" ||
+      path.startsWith("/api/subagents/") ||
+      path === "/api/activity" ||
+      path.startsWith("/api/activity/") ||
+      path === "/api/taskboard" ||
+      path.startsWith("/api/taskboard/"),
+  },
+  {
+    component: "conversations",
+    matches: (path) =>
+      path === "/api/conversations" || path.startsWith("/api/conversations/"),
+  },
+  {
+    component: "scheduler",
+    matches: (path) =>
+      path === "/api/schedules" || path.startsWith("/api/schedules/"),
+  },
+  {
+    component: "heartbeat",
+    matches: (path) => /^\/api\/agents\/[^/]+\/heartbeat$/.test(path),
+  },
+];
+
+function isComponentEnabled(
+  config: GatewayConfig,
+  componentId: ComponentRouteMatcher["component"]
+): boolean {
+  const componentConfig = config.components?.[componentId];
+  return !!componentConfig && componentConfig.enabled !== false;
+}
+
 app.use("*", cors());
 app.use("*", logger());
+app.use("/api/*", async (c, next) => {
+  let config: GatewayConfig;
+  try {
+    config = loadConfig();
+  } catch {
+    await next();
+    return;
+  }
+
+  const path = c.req.path;
+  for (const matcher of componentRouteMatchers) {
+    if (!matcher.matches(path)) continue;
+    if (isComponentEnabled(config, matcher.component)) break;
+    return c.json(
+      {
+        error: "component_disabled",
+        component: matcher.component,
+      },
+      404
+    );
+  }
+
+  await next();
+});
 
 app.route("/api", api);
 

@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchCapabilities,
   fetchProjects,
   fetchProjectBranches,
   fetchProjectChanges,
@@ -67,6 +68,22 @@ describe("api client (projects/subagents)", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/projects");
     expect(res.length).toBe(1);
+  });
+
+  it("fetches capabilities", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: 2,
+        components: { projects: true },
+        agents: ["main"],
+      }),
+    });
+
+    const res = await fetchCapabilities();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/capabilities");
+    expect(res.components.projects).toBe(true);
   });
 
   it("fetches projects with area filter", async () => {

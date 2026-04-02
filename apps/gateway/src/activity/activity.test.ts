@@ -34,8 +34,12 @@ describe("activity persistence", () => {
     const configDir = path.join(tmpDir, ".aihub");
     await fs.mkdir(configDir, { recursive: true });
     const config = {
+      version: 2,
       agents: [agentConfig],
       projects: { root: projectsRoot },
+      components: {
+        projects: { enabled: true, root: projectsRoot },
+      },
     };
     await fs.writeFile(
       path.join(configDir, "aihub.json"),
@@ -43,8 +47,17 @@ describe("activity persistence", () => {
     );
 
     vi.resetModules();
-    const mod = await import("../server/api.js");
+    const { clearConfigCacheForTests, loadConfig } = await import(
+      "../config/index.js"
+    );
+    clearConfigCacheForTests();
+    const { loadComponents } = await import("../components/registry.js");
+    const mod = await import("../server/api.core.js");
     api = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api as never);
+    }
   });
 
   afterEach(async () => {
@@ -133,8 +146,14 @@ describe("activity persistence", () => {
     expect(persisted.some((event) => event.actor === "Avery")).toBe(true);
 
     vi.resetModules();
-    const mod = await import("../server/api.js");
+    const { loadConfig } = await import("../config/index.js");
+    const { loadComponents } = await import("../components/registry.js");
+    const mod = await import("../server/api.core.js");
     const api2 = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api2 as never);
+    }
 
     const activityRes = await Promise.resolve(api2.request("/activity"));
     expect(activityRes.status).toBe(200);
@@ -255,8 +274,14 @@ describe("activity persistence", () => {
     expect(first.status).toBe(200);
 
     vi.resetModules();
-    const mod = await import("../server/api.js");
+    const { loadConfig } = await import("../config/index.js");
+    const { loadComponents } = await import("../components/registry.js");
+    const mod = await import("../server/api.core.js");
     const api2 = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api2 as never);
+    }
 
     await fs.writeFile(
       progressPath,

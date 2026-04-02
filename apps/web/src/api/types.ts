@@ -1,5 +1,6 @@
 import type {
   Area as SharedArea,
+  CapabilitiesResponse as SharedCapabilitiesResponse,
   ContextEstimate,
   Task as SharedTask,
 } from "@aihub/shared";
@@ -39,6 +40,8 @@ export type UploadResponse = {
   mimeType: string;
   size: number;
 };
+
+export type CapabilitiesResponse = SharedCapabilitiesResponse;
 
 export type Agent = {
   id: string;

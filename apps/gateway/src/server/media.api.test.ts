@@ -18,7 +18,7 @@ describe("media upload API", () => {
     process.env.USERPROFILE = tmpDir;
 
     vi.resetModules();
-    const mod = await import("../server/api.js");
+    const mod = await import("../server/api.core.js");
     api = mod.api;
   });
 

@@ -1,0 +1,58 @@
+import type { CapabilitiesResponse } from "../api/types";
+import { fetchCapabilities } from "../api/client";
+import { createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
+
+const defaultCapabilities: CapabilitiesResponse = {
+  version: 2,
+  components: {},
+  agents: [],
+};
+
+const [capabilities, setCapabilities] =
+  createStore<CapabilitiesResponse>(defaultCapabilities);
+const [capabilitiesReady, setCapabilitiesReady] = createSignal(false);
+
+let loadPromise: Promise<CapabilitiesResponse> | null = null;
+
+export async function loadCapabilities(): Promise<CapabilitiesResponse> {
+  if (loadPromise) return loadPromise;
+  loadPromise = fetchCapabilities()
+    .then((data) => {
+      setCapabilities(data);
+      setCapabilitiesReady(true);
+      return data;
+    })
+    .catch((error) => {
+      setCapabilities(defaultCapabilities);
+      setCapabilitiesReady(true);
+      throw error;
+    })
+    .finally(() => {
+      loadPromise = null;
+    });
+  return loadPromise;
+}
+
+export function resetCapabilitiesForTests(): void {
+  setCapabilities(defaultCapabilities);
+  setCapabilitiesReady(false);
+  loadPromise = null;
+}
+
+export function setCapabilitiesForTests(
+  value: Partial<CapabilitiesResponse>
+): void {
+  setCapabilities({
+    version: value.version ?? defaultCapabilities.version,
+    components: value.components ?? defaultCapabilities.components,
+    agents: value.agents ?? defaultCapabilities.agents,
+  });
+  setCapabilitiesReady(true);
+}
+
+export function isComponentEnabled(id: string): boolean {
+  return capabilities.components[id] === true;
+}
+
+export { capabilities, capabilitiesReady };

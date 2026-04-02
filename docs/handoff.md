@@ -1,7 +1,7 @@
 # Hand-off
 
 Date: 2026-04-02
-Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-foundation`
+Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-ui`
 
 ## Current Status
 
@@ -10,6 +10,20 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/worker-foundation`
 - Test baseline is green on touched suites.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-02: PRO-198 modular architecture Phase 3 + Phase 4
+
+- `apps/gateway/src/server/api.core.ts`, `apps/gateway/src/server/index.ts`, `apps/gateway/src/cli/index.ts`
+  - Renamed the core route module from `api.ts` to `api.core.ts`.
+  - Removed the temporary projects compatibility mount from the core API.
+  - Added `/api/*` disabled-component guards that return `404 { error: "component_disabled", component }` for known component route prefixes.
+- `apps/web/src/lib/capabilities.ts`, `apps/web/src/App.tsx`, `apps/web/src/components/AgentSidebar.tsx`, `apps/web/src/api/client.ts`
+  - Added a shared capabilities store fetched from `/api/capabilities` on boot.
+  - Sidebar now hides `Projects` and `Conversations` when those components are disabled.
+  - `/`, `/projects`, and `/conversations` now gate on capabilities and lazy-load component-owned route bundles only when enabled.
+- Tests:
+  - Updated API route tests to register component routes explicitly against `api.core`.
+  - Added disabled-component server coverage and sidebar/client capabilities coverage.
 
 ### 2026-04-02: PRO-198 modular architecture Phase 2a simple components
 

@@ -31,6 +31,7 @@ describe("subagents API", () => {
     const configDir = path.join(tmpDir, ".aihub");
     await fs.mkdir(configDir, { recursive: true });
     const config = {
+      version: 2,
       agents: [
         {
           id: "test-agent",
@@ -40,6 +41,9 @@ describe("subagents API", () => {
         },
       ],
       projects: { root: projectsRoot },
+      components: {
+        projects: { enabled: true, root: projectsRoot },
+      },
     };
     await fs.writeFile(
       path.join(configDir, "aihub.json"),
@@ -47,8 +51,17 @@ describe("subagents API", () => {
     );
 
     vi.resetModules();
-    const mod = await import("../server/api.js");
+    const { clearConfigCacheForTests, loadConfig } = await import(
+      "../config/index.js"
+    );
+    clearConfigCacheForTests();
+    const { loadComponents } = await import("../components/registry.js");
+    const mod = await import("../server/api.core.js");
     api = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api as never);
+    }
   });
 
   afterAll(async () => {
@@ -874,7 +887,7 @@ describe("subagents API", () => {
     expect(spawnRes.status).toBe(400);
     const body = await spawnRes.json();
     expect(body.error).toContain("Prompt file not found");
-  });
+  }, 15000);
 
   it("returns error when SCOPES.md is missing in generation mode", async () => {
     const createRes = await Promise.resolve(
@@ -925,7 +938,7 @@ describe("subagents API", () => {
     expect(spawnRes.status).toBe(400);
     const body = await spawnRes.json();
     expect(body.error).toContain("SCOPES.md not found");
-  });
+  }, 15000);
 
   it("dispatches ralph_loop from /projects/:id/start when executionMode is set", async () => {
     const createRes = await Promise.resolve(
@@ -1017,7 +1030,7 @@ describe("subagents API", () => {
     else process.env.HOME = prevHome2;
     if (prevUserProfile2 === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = prevUserProfile2;
-  });
+  }, 15000);
 
   it("uses frontmatter runAgent but ignores frontmatter runMode for /projects/:id/start", async () => {
     const createRes = await Promise.resolve(

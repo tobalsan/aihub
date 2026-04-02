@@ -72,6 +72,7 @@ describe("conversations API", () => {
           ],
           projects: { root: path.join(tmpDir, "projects") },
           components: {
+            projects: { enabled: true, root: path.join(tmpDir, "projects") },
             conversations: { enabled: true },
           },
         },
@@ -147,7 +148,7 @@ Yes, route by mention, then append each response to THREAD.md.
     );
     clearConfigCacheForTests();
     const { loadComponents } = await import("../components/registry.js");
-    const mod = await import("../server/api.js");
+    const mod = await import("../server/api.core.js");
     api = mod.api;
     const components = await loadComponents(loadConfig());
     for (const component of components) {

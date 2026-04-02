@@ -63,6 +63,7 @@ describe("space merge API", () => {
       path.join(configDir, "aihub.json"),
       JSON.stringify(
         {
+          version: 2,
           agents: [
             {
               id: "test-agent",
@@ -75,6 +76,9 @@ describe("space merge API", () => {
             },
           ],
           projects: { root: projectsRoot },
+          components: {
+            projects: { enabled: true, root: projectsRoot },
+          },
         },
         null,
         2
@@ -82,8 +86,17 @@ describe("space merge API", () => {
     );
 
     vi.resetModules();
-    const mod = await import("./api.js");
+    const { clearConfigCacheForTests, loadConfig } = await import(
+      "../config/index.js"
+    );
+    clearConfigCacheForTests();
+    const { loadComponents } = await import("../components/registry.js");
+    const mod = await import("./api.core.js");
     api = mod.api;
+    const components = await loadComponents(loadConfig());
+    for (const component of components) {
+      component.registerRoutes(api as never);
+    }
   });
 
   afterAll(async () => {

@@ -24,6 +24,9 @@ vi.mock("@solidjs/router", () => ({
 }));
 
 const { AgentSidebar } = await import("./AgentSidebar");
+const { resetCapabilitiesForTests, setCapabilitiesForTests } = await import(
+  "../lib/capabilities"
+);
 
 describe("AgentSidebar", () => {
   afterEach(() => {
@@ -34,10 +37,14 @@ describe("AgentSidebar", () => {
     setPathname("/projects");
     fetchProjectsMock.mockReset();
     fetchProjectsMock.mockResolvedValue([]);
+    resetCapabilitiesForTests();
     vi.clearAllMocks();
   });
 
   it("renders sidebar logo and primary navigation links", () => {
+    setCapabilitiesForTests({
+      components: { projects: true, conversations: true },
+    });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const [collapsed] = createSignal(false);
@@ -61,6 +68,9 @@ describe("AgentSidebar", () => {
   });
 
   it("renders theme toggle button", () => {
+    setCapabilitiesForTests({
+      components: { projects: true, conversations: true },
+    });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const [collapsed] = createSignal(false);
@@ -83,6 +93,9 @@ describe("AgentSidebar", () => {
   });
 
   it("toggles theme on click", () => {
+    setCapabilitiesForTests({
+      components: { projects: true, conversations: true },
+    });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const [collapsed] = createSignal(false);
@@ -107,6 +120,9 @@ describe("AgentSidebar", () => {
   });
 
   it("renders recents from most recently viewed order", async () => {
+    setCapabilitiesForTests({
+      components: { projects: true, conversations: true },
+    });
     fetchProjectsMock.mockResolvedValue([
       { id: "PRO-1", title: "One", frontmatter: {} },
       { id: "PRO-2", title: "Two", frontmatter: {} },
@@ -131,7 +147,7 @@ describe("AgentSidebar", () => {
       container
     );
 
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const links = Array.from(
       container.querySelectorAll(".recent-project-link .recent-project-title")
@@ -143,6 +159,29 @@ describe("AgentSidebar", () => {
     );
     expect(stored[0]?.id).toBe("PRO-2");
     expect(stored[1]?.id).toBe("PRO-1");
+
+    dispose();
+  });
+
+  it("hides component nav links when capabilities disable them", () => {
+    setCapabilitiesForTests({ components: {} });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [collapsed] = createSignal(false);
+
+    const dispose = render(
+      () => (
+        <AgentSidebar
+          collapsed={collapsed}
+          onToggleCollapse={() => {}}
+        />
+      ),
+      container
+    );
+
+    expect(container.textContent).not.toContain("Projects");
+    expect(container.textContent).not.toContain("Conversations");
+    expect(container.textContent).toContain("Chats");
 
     dispose();
   });

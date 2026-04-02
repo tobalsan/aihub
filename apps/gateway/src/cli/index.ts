@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { loadConfig, getAgents, getAgent, setSingleAgentMode, CONFIG_DIR } from "../config/index.js";
 import { startServer } from "../server/index.js";
-import { api } from "../server/api.js";
+import { api } from "../server/api.core.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import type { Component, UiConfig, GatewayBindMode } from "@aihub/shared";
