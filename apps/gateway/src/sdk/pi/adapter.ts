@@ -25,6 +25,7 @@ import {
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { createPiSubagentTools } from "../../subagents/pi_tools.js";
 import { getConnectorToolsForAgent } from "../../connectors/index.js";
+import { getLoadedComponents } from "../../components/registry.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -152,6 +153,10 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
   }));
 }
 
+function hasProjectsComponentEnabled(): boolean {
+  return getLoadedComponents().some((component) => component.id === "projects");
+}
+
 export const piAdapter: SdkAdapter = {
   id: "pi",
   displayName: "Pi Agent",
@@ -267,26 +272,31 @@ export const piAdapter: SdkAdapter = {
     // Create tools
     const tools = createCodingTools(params.workspaceDir);
     const connectorTools = createPiConnectorTools(agent);
-    const customTools = createPiSubagentTools().map((tool) => ({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-      execute: async (
-        toolCallId: string,
-        params: unknown,
-        _signal: AbortSignal | undefined,
-        _onUpdate: unknown,
-        _ctx: unknown
-      ) => tool.execute(toolCallId, params),
-    }));
-    const subagentToolPrompt = [
-      "Additional tools:",
-      "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
-      "- subagent.status { projectId, slug }",
-      "- subagent.logs { projectId, slug, since? }",
-      "- subagent.interrupt { projectId, slug }",
-    ].join("\n");
+    const projectsComponentEnabled = hasProjectsComponentEnabled();
+    const customTools = projectsComponentEnabled
+      ? createPiSubagentTools().map((tool) => ({
+          name: tool.name,
+          label: tool.label,
+          description: tool.description,
+          parameters: tool.parameters,
+          execute: async (
+            toolCallId: string,
+            params: unknown,
+            _signal: AbortSignal | undefined,
+            _onUpdate: unknown,
+            _ctx: unknown
+          ) => tool.execute(toolCallId, params),
+        }))
+      : [];
+    const subagentToolPrompt = projectsComponentEnabled
+      ? [
+          "Additional tools:",
+          "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
+          "- subagent.status { projectId, slug }",
+          "- subagent.logs { projectId, slug, since? }",
+          "- subagent.interrupt { projectId, slug }",
+        ].join("\n")
+      : undefined;
 
     const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
     const settingsManager = SettingsManager.create(

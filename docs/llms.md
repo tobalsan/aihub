@@ -209,6 +209,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - Connector tools are injected at agent session start.
 - Connector tool parameter schemas are object-only Zod schemas.
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
+- Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
