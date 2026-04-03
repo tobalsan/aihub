@@ -1,4 +1,6 @@
-import type { OnecliEnv } from "../config/onecli.js";
+import fs from "node:fs";
+import type { Dispatcher } from "undici";
+import { ProxyAgent } from "undici";
 
 export type OnecliRuntimeConfig = {
   enabled: boolean;
@@ -18,33 +20,30 @@ export type ConnectorHttpClient = {
   fetch(input: string | URL, init?: RequestInit): Promise<Response>;
 };
 
-let connectorEnvLock: Promise<void> = Promise.resolve();
-
 export function createHttpClient(
   options: CreateHttpClientOptions
 ): ConnectorHttpClient {
+  const dispatcher = createDispatcher(options.onecli);
+
   if (!options.onecli?.enabled) {
     return {
       async fetch(input: string | URL, init?: RequestInit): Promise<Response> {
-        return globalThis.fetch(input, mergeInit(init, options));
+        return globalThis.fetch(input, mergeInit(init, options, dispatcher));
       },
     };
   }
 
-  const onecli = options.onecli;
-
   return {
     async fetch(input: string | URL, init?: RequestInit): Promise<Response> {
-      return withOnecliEnv(buildOnecliEnv(onecli), async () =>
-        globalThis.fetch(input, mergeInit(init, options))
-      );
+      return globalThis.fetch(input, mergeInit(init, options, dispatcher));
     },
   };
 }
 
 function mergeInit(
   init: RequestInit | undefined,
-  options: CreateHttpClientOptions
+  options: CreateHttpClientOptions,
+  dispatcher?: Dispatcher
 ): RequestInit {
   const mergedHeaders = new Headers(options.headers);
   const initHeaders = new Headers(init?.headers);
@@ -52,7 +51,7 @@ function mergeInit(
     mergedHeaders.set(key, value);
   }
 
-  const merged: RequestInit = {
+  const merged: RequestInit & { dispatcher?: Dispatcher } = {
     ...init,
     headers: mergedHeaders,
   };
@@ -61,69 +60,35 @@ function mergeInit(
     merged.signal = AbortSignal.timeout(options.timeoutMs);
   }
 
+  if (dispatcher) {
+    merged.dispatcher = dispatcher;
+  }
+
   return merged;
 }
 
-function buildOnecliEnv(onecli: OnecliRuntimeConfig): OnecliEnv {
-  let proxyUrl = onecli.gatewayUrl;
+function createDispatcher(
+  onecli: OnecliRuntimeConfig | undefined
+): Dispatcher | undefined {
+  if (!onecli?.enabled) {
+    return undefined;
+  }
+
+  const requestTls = onecli.caPath
+    ? { ca: fs.readFileSync(onecli.caPath, "utf8") }
+    : undefined;
+
+  return new ProxyAgent({
+    uri: buildProxyUrl(onecli),
+    ...(requestTls ? { requestTls } : {}),
+  });
+}
+
+function buildProxyUrl(onecli: OnecliRuntimeConfig): string {
+  const url = new URL(onecli.gatewayUrl);
   if (onecli.gatewayToken) {
-    const url = new URL(onecli.gatewayUrl);
     url.username = "onecli";
     url.password = onecli.gatewayToken;
-    proxyUrl = url.toString().replace(/\/$/, "");
   }
-
-  return {
-    HTTP_PROXY: proxyUrl,
-    HTTPS_PROXY: proxyUrl,
-    ...(onecli.caPath
-      ? {
-          NODE_EXTRA_CA_CERTS: onecli.caPath,
-          SSL_CERT_FILE: onecli.caPath,
-          REQUESTS_CA_BUNDLE: onecli.caPath,
-        }
-      : {}),
-  };
-}
-
-async function withOnecliEnv<T>(
-  env: OnecliEnv,
-  fn: () => Promise<T>
-): Promise<T> {
-  const previousLock = connectorEnvLock;
-  let releaseLock!: () => void;
-  connectorEnvLock = new Promise((resolve) => {
-    releaseLock = resolve;
-  });
-
-  await previousLock;
-
-  const saved = applyProxyEnv(env);
-  try {
-    return await fn();
-  } finally {
-    restoreEnv(saved);
-    releaseLock();
-  }
-}
-
-function applyProxyEnv(env: OnecliEnv): Record<string, string | undefined> {
-  const saved: Record<string, string | undefined> = {};
-
-  for (const [key, value] of Object.entries(env)) {
-    saved[key] = process.env[key];
-    process.env[key] = value;
-  }
-
-  return saved;
-}
-
-function restoreEnv(saved: Record<string, string | undefined>): void {
-  for (const [key, value] of Object.entries(saved)) {
-    if (value === undefined) {
-      delete process.env[key];
-      continue;
-    }
-    process.env[key] = value;
-  }
+  return url.toString().replace(/\/$/, "");
 }

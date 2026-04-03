@@ -1,19 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createHttpClient,
-  type CreateHttpClientOptions,
-} from "../http-client.js";
+import fs from "node:fs";
 
-const ENV_KEYS = [
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "NODE_EXTRA_CA_CERTS",
-  "SSL_CERT_FILE",
-  "REQUESTS_CA_BUNDLE",
-] as const;
+const proxyAgentMock = vi.fn();
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    default: {
+      ...actual,
+      readFileSync: vi.fn(),
+    },
+    readFileSync: vi.fn(),
+  };
+});
+
+vi.mock("undici", () => ({
+  ProxyAgent: proxyAgentMock,
+}));
+
 type FetchMock = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
-function makeClient(options: Partial<CreateHttpClientOptions> = {}) {
+type HttpClientModule = typeof import("../http-client.js");
+type CreateHttpClientOptions =
+  import("../http-client.js").CreateHttpClientOptions;
+
+async function loadHttpClient(): Promise<HttpClientModule> {
+  return import("../http-client.js");
+}
+
+async function makeClient(
+  options: Partial<CreateHttpClientOptions> = {}
+) {
+  const { createHttpClient } = await loadHttpClient();
   return createHttpClient({
     connectorId: "demo",
     ...options,
@@ -22,21 +41,23 @@ function makeClient(options: Partial<CreateHttpClientOptions> = {}) {
 
 describe("createHttpClient", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.resetModules();
+    vi.clearAllMocks();
+    proxyAgentMock.mockImplementation((options) => ({
+      kind: "proxy-agent",
+      options,
+    }));
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    for (const key of ENV_KEYS) {
-      delete process.env[key];
-    }
   });
 
   it("passes through plain fetch when onecli is disabled", async () => {
     const fetchMock = vi.fn<FetchMock>(async () => new Response("ok"));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = makeClient();
+    const client = await makeClient();
     await client.fetch("https://example.com");
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -46,27 +67,15 @@ describe("createHttpClient", () => {
         headers: expect.any(Headers),
       })
     );
-    expect(process.env.HTTP_PROXY).toBeUndefined();
-    expect(process.env.HTTPS_PROXY).toBeUndefined();
+    expect(proxyAgentMock).not.toHaveBeenCalled();
+    expect(vi.mocked(fs.readFileSync)).not.toHaveBeenCalled();
   });
 
-  it("sets proxy env vars during fetch and restores them after", async () => {
-    process.env.HTTP_PROXY = "http://previous-http";
-    process.env.HTTPS_PROXY = "http://previous-https";
+  it("creates a ProxyAgent with the gateway url and passes it to fetch", async () => {
+    const fetchMock = vi.fn<FetchMock>(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
 
-    const snapshots: Array<Record<string, string | undefined>> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        snapshots.push({
-          HTTP_PROXY: process.env.HTTP_PROXY,
-          HTTPS_PROXY: process.env.HTTPS_PROXY,
-        });
-        return new Response("ok");
-      })
-    );
-
-    const client = makeClient({
+    const client = await makeClient({
       onecli: {
         enabled: true,
         gatewayUrl: "http://localhost:10255",
@@ -75,27 +84,27 @@ describe("createHttpClient", () => {
 
     await client.fetch("https://example.com");
 
-    expect(snapshots).toEqual([
-      {
-        HTTP_PROXY: "http://localhost:10255",
-        HTTPS_PROXY: "http://localhost:10255",
-      },
-    ]);
-    expect(process.env.HTTP_PROXY).toBe("http://previous-http");
-    expect(process.env.HTTPS_PROXY).toBe("http://previous-https");
+    expect(proxyAgentMock).toHaveBeenCalledOnce();
+    expect(proxyAgentMock).toHaveBeenCalledWith({
+      uri: "http://localhost:10255",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com",
+      expect.objectContaining({
+        dispatcher: expect.objectContaining({
+          kind: "proxy-agent",
+          options: {
+            uri: "http://localhost:10255",
+          },
+        }),
+      })
+    );
   });
 
   it("embeds the gateway token in the proxy url", async () => {
-    let seenHttpProxy: string | undefined;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        seenHttpProxy = process.env.HTTP_PROXY;
-        return new Response("ok");
-      })
-    );
+    vi.stubGlobal("fetch", vi.fn<FetchMock>(async () => new Response("ok")));
 
-    const client = makeClient({
+    const client = await makeClient({
       onecli: {
         enabled: true,
         gatewayUrl: "http://localhost:10255/",
@@ -105,24 +114,16 @@ describe("createHttpClient", () => {
 
     await client.fetch("https://example.com");
 
-    expect(seenHttpProxy).toBe("http://onecli:abc123@localhost:10255");
+    expect(proxyAgentMock).toHaveBeenCalledWith({
+      uri: "http://onecli:abc123@localhost:10255",
+    });
   });
 
-  it("sets CA env vars when a CA path is configured", async () => {
-    const snapshots: Array<Record<string, string | undefined>> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        snapshots.push({
-          NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS,
-          SSL_CERT_FILE: process.env.SSL_CERT_FILE,
-          REQUESTS_CA_BUNDLE: process.env.REQUESTS_CA_BUNDLE,
-        });
-        return new Response("ok");
-      })
-    );
+  it("loads the CA cert and passes it as requestTls", async () => {
+    vi.mocked(fs.readFileSync).mockReturnValue("CA_CERT");
+    vi.stubGlobal("fetch", vi.fn<FetchMock>(async () => new Response("ok")));
 
-    const client = makeClient({
+    const client = await makeClient({
       onecli: {
         enabled: true,
         gatewayUrl: "http://localhost:10255",
@@ -132,23 +133,20 @@ describe("createHttpClient", () => {
 
     await client.fetch("https://example.com");
 
-    expect(snapshots).toEqual([
-      {
-        NODE_EXTRA_CA_CERTS: "/tmp/onecli-ca.pem",
-        SSL_CERT_FILE: "/tmp/onecli-ca.pem",
-        REQUESTS_CA_BUNDLE: "/tmp/onecli-ca.pem",
+    expect(fs.readFileSync).toHaveBeenCalledWith("/tmp/onecli-ca.pem", "utf8");
+    expect(proxyAgentMock).toHaveBeenCalledWith({
+      uri: "http://localhost:10255",
+      requestTls: {
+        ca: "CA_CERT",
       },
-    ]);
-    expect(process.env.NODE_EXTRA_CA_CERTS).toBeUndefined();
-    expect(process.env.SSL_CERT_FILE).toBeUndefined();
-    expect(process.env.REQUESTS_CA_BUNDLE).toBeUndefined();
+    });
   });
 
   it("applies default headers and timeout", async () => {
     const fetchMock = vi.fn<FetchMock>(async () => new Response("ok"));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = makeClient({
+    const client = await makeClient({
       headers: {
         "x-default": "default",
       },
