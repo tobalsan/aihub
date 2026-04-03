@@ -198,13 +198,14 @@ All stored in `~/.aihub/`:
    - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
    - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
-3. **Connector Init**: Connector registry is rebuilt from built-ins + external `connectors.path`, then configured connector mounts are validated for missing ids/config/secrets.
+3. **Connector Init**: Connector registry is rebuilt from built-ins + external `connectors.path`, then configured connector mounts are validated once during initialization for missing ids/config/secrets.
 4. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 5. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
 6. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
 7. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
 
 - Connector tools are injected at agent session start.
+- Connector tool parameter schemas are object-only Zod schemas.
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
 

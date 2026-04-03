@@ -17,7 +17,10 @@ import {
   listConnectors,
   registerConnector,
 } from "../connectors/registry.js";
-import type { ConnectorDefinition } from "../connectors/types.js";
+import {
+  ConnectorToolSchema,
+  type ConnectorDefinition,
+} from "../connectors/types.js";
 import { AgentConfigSchema, GatewayConfigSchema } from "../types.js";
 
 const require = createRequire(import.meta.url);
@@ -209,6 +212,26 @@ describe("connector loader", () => {
         { sample: { enabled: true, region: 1 } }
       )
     ).toThrow();
+  });
+
+  it("requires connector tool parameters to be object schemas", () => {
+    expect(() =>
+      ConnectorToolSchema.parse({
+        name: "ping",
+        description: "Ping",
+        parameters: z.string(),
+        execute: async () => "pong",
+      })
+    ).toThrow("Expected Zod object schema");
+
+    expect(
+      ConnectorToolSchema.parse({
+        name: "ping",
+        description: "Ping",
+        parameters: z.object({ id: z.string() }),
+        execute: async () => "pong",
+      }).parameters
+    ).toBeInstanceOf(z.ZodObject);
   });
 });
 

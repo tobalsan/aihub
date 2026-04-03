@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- PRO-199 review follow-up landed on 2026-04-03: connector startup validation now emits unknown-connector warnings once from `initializeConnectors()`, and shared connector tool params are explicitly object-shaped Zod schemas to match both adapters.
 - PRO-199 gateway connector runtime integration is in place on 2026-04-03: startup discovery/validation, per-agent tool loading, and Pi/Claude adapter injection landed in `apps/gateway`.
 - PRO-199 shared connector foundation is in place on 2026-04-03: shared connector contracts, registry, loader, discovery, config schema updates, and unit coverage landed in `packages/shared`.
 - Main repo follow-up on 2026-04-02: `AgentDirectory` no longer force-refetches projects/subagents every 5s; it now refreshes from the existing file/agent websocket feed to avoid visible shell-wide UI churn.
@@ -16,6 +17,22 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-03: PRO-199 connector review fixes
+
+- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/config/validate.ts`
+  - Centralized connector startup validation in `initializeConnectors()` so unknown connector warnings emit once and config/secret failures still stop startup early.
+- `packages/shared/src/connectors/types.ts`
+  - Narrowed `ConnectorTool.parameters` from any Zod schema to object-shaped Zod schemas to match Pi JSON Schema conversion and Claude MCP mounting.
+- `packages/shared/src/__tests__/connectors.test.ts`, `apps/gateway/src/config/__tests__/validate.test.ts`
+  - Added schema coverage for object-only connector params and moved startup missing-secret coverage onto real external discovery instead of in-memory registry state.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- packages/shared`
+  - `pnpm test -- apps/gateway`
+  - `pnpm lint`
+  - `pnpm typecheck`
 
 ### 2026-04-03: PRO-199 gateway connector runtime integration
 

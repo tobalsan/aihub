@@ -42,6 +42,9 @@ export async function initializeConnectors(config: GatewayConfig): Promise<void>
   for (const warning of validation.warnings) {
     console.warn(`[connectors] ${warning}`);
   }
+  if (validation.errors.length > 0) {
+    throw new Error(validation.errors.join("\n"));
+  }
 }
 
 export function validateConfiguredConnectors(config: GatewayConfig): {

@@ -9,7 +9,7 @@ export interface ResolvedConnectorConfig {
 export interface ConnectorTool {
   name: string;
   description: string;
-  parameters: z.ZodTypeAny;
+  parameters: z.AnyZodObject;
   execute(params: unknown): Promise<unknown>;
 }
 
@@ -29,8 +29,15 @@ const isZodSchema = (value: unknown): value is z.ZodTypeAny =>
   "safeParse" in value &&
   typeof value.safeParse === "function";
 
+const isZodObjectSchema = (value: unknown): value is z.AnyZodObject =>
+  isZodSchema(value) && value instanceof z.ZodObject;
+
 export const ZodSchemaSchema = z.custom<z.ZodTypeAny>(isZodSchema, {
   message: "Expected Zod schema",
+});
+
+export const ZodObjectSchemaSchema = z.custom<z.AnyZodObject>(isZodObjectSchema, {
+  message: "Expected Zod object schema",
 });
 
 export const ResolvedConnectorConfigSchema = z.object({
@@ -42,7 +49,7 @@ export const ResolvedConnectorConfigSchema = z.object({
 export const ConnectorToolSchema = z.object({
   name: z.string(),
   description: z.string(),
-  parameters: ZodSchemaSchema,
+  parameters: ZodObjectSchemaSchema,
   execute: z.function().args(z.unknown()).returns(z.promise(z.unknown())),
 });
 

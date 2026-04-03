@@ -1,7 +1,11 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { GatewayConfigSchema } from "@aihub/shared";
-import { clearConnectors, registerConnector } from "@aihub/shared";
+import { clearConnectors } from "@aihub/shared";
 import { loadComponents } from "../../components/registry.js";
 import {
   logComponentSummary,
@@ -9,6 +13,8 @@ import {
   resolveStartupConfig,
   validateStartupConfig,
 } from "../validate.js";
+
+const require = createRequire(import.meta.url);
 
 describe("startup validation", () => {
   it("warns for missing connectors without failing startup", async () => {
@@ -41,9 +47,9 @@ describe("startup validation", () => {
         loaded: [],
         skipped: [],
       });
-      expect(warnings).toContain(
-        '[connectors] agent "main" references unknown connector "missing"'
-      );
+      expect(warnings).toEqual([
+        '[connectors] agent "main" references unknown connector "missing"',
+      ]);
     } finally {
       console.warn = originalWarn;
       clearConnectors();
@@ -182,38 +188,57 @@ describe("startup validation", () => {
   });
 
   it("fails early when a connector is missing a required secret", async () => {
-    registerConnector({
-      id: "sample",
-      displayName: "Sample",
-      description: "Sample connector",
-      configSchema: z.object({ apiKey: z.string().optional() }),
-      requiredSecrets: ["apiKey"],
-      createTools: () => [],
-    });
+    const root = await mkdtemp(path.join(os.tmpdir(), "aihub-connectors-"));
+    const sampleDir = path.join(root, "sample");
+    const zodUrl = pathToFileURL(require.resolve("zod")).href;
 
-    const config = GatewayConfigSchema.parse({
-      version: 2,
-      agents: [
-        {
-          id: "main",
-          name: "Main",
-          workspace: "~/agents/main",
-          model: { provider: "anthropic", model: "claude" },
-          connectors: {
-            sample: {
-              enabled: true,
+    try {
+      await mkdir(sampleDir);
+      await writeFile(
+        path.join(sampleDir, "package.json"),
+        JSON.stringify({ type: "module" })
+      );
+      await writeFile(
+        path.join(sampleDir, "index.js"),
+        [
+          `import { z } from ${JSON.stringify(zodUrl)};`,
+          "export default {",
+          '  id: "sample",',
+          '  displayName: "Sample",',
+          '  description: "Sample connector",',
+          "  configSchema: z.object({ apiKey: z.string().optional() }),",
+          "  requiredSecrets: ['apiKey'],",
+          "  createTools: () => [],",
+          "};",
+        ].join("\n")
+      );
+
+      const config = GatewayConfigSchema.parse({
+        version: 2,
+        agents: [
+          {
+            id: "main",
+            name: "Main",
+            workspace: "~/agents/main",
+            model: { provider: "anthropic", model: "claude" },
+            connectors: {
+              sample: {
+                enabled: true,
+              },
             },
           },
+        ],
+        connectors: {
+          path: root,
         },
-      ],
-    });
+      });
 
-    await expect(
-      prepareStartupConfig(config, [], { skipConnectorInitialization: true })
-    ).rejects.toThrow(
-      'Connector "sample" for agent "main" missing required secret "apiKey"'
-    );
-
-    clearConnectors();
+      await expect(prepareStartupConfig(config, [])).rejects.toThrow(
+        'Connector "sample" for agent "main" missing required secret "apiKey"'
+      );
+    } finally {
+      clearConnectors();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
