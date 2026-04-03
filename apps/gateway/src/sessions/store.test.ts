@@ -21,6 +21,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // Mock config to avoid loading real config
 vi.mock("../config/index.js", () => ({
+  CONFIG_DIR: "/tmp/aihub-test",
   loadConfig: () => ({ agents: [], sessions: {} }),
 }));
 

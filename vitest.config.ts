@@ -5,11 +5,8 @@ import solid from "vite-plugin-solid";
 const sharedSrc = fileURLToPath(
   new URL("./packages/shared/src/index.ts", import.meta.url)
 );
-const sharedModelContextSrc = fileURLToPath(
-  new URL("./packages/shared/src/model-context.ts", import.meta.url)
-);
-const sharedProjectPromptSrc = fileURLToPath(
-  new URL("./packages/shared/src/projectPrompt.ts", import.meta.url)
+const sharedSrcDir = fileURLToPath(
+  new URL("./packages/shared/src/", import.meta.url)
 );
 
 export default defineConfig({
@@ -19,12 +16,8 @@ export default defineConfig({
       { find: /^solid-js\/web$/, replacement: "solid-js/web/dist/web.js" },
       { find: /^solid-js$/, replacement: "solid-js/dist/solid.js" },
       {
-        find: "@aihub/shared/model-context",
-        replacement: sharedModelContextSrc,
-      },
-      {
-        find: "@aihub/shared/projectPrompt",
-        replacement: sharedProjectPromptSrc,
+        find: /^@aihub\/shared\/(.+)$/,
+        replacement: `${sharedSrcDir}$1.ts`,
       },
       { find: "@aihub/shared", replacement: sharedSrc },
     ],
