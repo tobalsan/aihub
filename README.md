@@ -135,6 +135,8 @@ Use top-level `onecli` for native gateway/proxy config:
 - `mode` currently supports only `"proxy"`.
 - `ca.source="file"` is used to propagate the same CA path to Node and Python trust env vars.
 - `agents.<id>.gatewayToken` is the per-agent proxy token source.
+- Claude and Pi agent runs now use scoped proxy env injection when native `onecli` is enabled for that agent.
+- Connectors can use `apps/gateway/src/connectors/http-client.ts` to route outbound HTTP calls through the same OneCLI gateway path.
 - `secrets.provider="onecli"` is deprecated and models the wrong integration pattern.
 
 ## Starting the app

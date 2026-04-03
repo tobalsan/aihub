@@ -202,6 +202,14 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 }
 ```
 
+OneCLI notes:
+
+- Prefer top-level `onecli` for native gateway/proxy wiring.
+- `secrets.provider="onecli"` is deprecated and kept only for backward-compatible `$secret:` lookup.
+- Native OneCLI mode routes traffic through the OneCLI gateway with `HTTP_PROXY`/`HTTPS_PROXY`.
+- `onecli.agents.<id>.gatewayToken` is per-agent and should usually resolve from `$env:...`.
+- `onecli.ca` controls CA trust propagation for TLS interception.
+
 ## Agent Runtime Flow
 
 1. **Config Load**: `loadConfig()` reads `--config`/explicit file paths when provided, else `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), validates via Zod
@@ -229,6 +237,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
+- When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
+- Connector HTTP calls can opt into `apps/gateway/src/connectors/http-client.ts`, which applies the same scoped OneCLI proxy/token/CA wiring per request.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status
