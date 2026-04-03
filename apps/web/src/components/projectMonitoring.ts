@@ -1,1 +1,5 @@
-export { buildProjectSummary, buildStartPrompt, buildProjectStartPrompt } from "@aihub/shared";
+export {
+  buildProjectSummary,
+  buildStartPrompt,
+  buildProjectStartPrompt,
+} from "@aihub/shared/projectPrompt";

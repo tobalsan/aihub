@@ -10,7 +10,8 @@ import {
 } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { getMaxContextTokens, type ContextEstimate } from "@aihub/shared";
+import { getMaxContextTokens } from "@aihub/shared/model-context";
+import type { ContextEstimate } from "@aihub/shared/types";
 import {
   archiveSubagent,
   fetchFullHistory,

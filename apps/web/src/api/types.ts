@@ -3,7 +3,7 @@ import type {
   CapabilitiesResponse as SharedCapabilitiesResponse,
   ContextEstimate,
   Task as SharedTask,
-} from "@aihub/shared";
+} from "@aihub/shared/types";
 export type SdkId = "pi" | "claude" | "openclaw";
 export type ThinkLevel =
   | "off"

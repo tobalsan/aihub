@@ -8,6 +8,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types.js",
+      "types": "./dist/types.d.ts"
+    },
+    "./model-context": {
+      "import": "./dist/model-context.js",
+      "types": "./dist/model-context.d.ts"
+    },
+    "./projectPrompt": {
+      "import": "./dist/projectPrompt.js",
+      "types": "./dist/projectPrompt.d.ts"
     }
   },
   "scripts": {

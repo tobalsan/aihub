@@ -100,6 +100,7 @@ Zod schemas and TypeScript types:
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
 - Modular runtime types: `Component`, `ComponentContext`, `ValidationResult`
 - Connector framework types/loader/registry/discovery now live under `packages/shared/src/connectors`
+- Browser consumers must import browser-safe subpaths like `@aihub/shared/types`, `@aihub/shared/model-context`, and `@aihub/shared/projectPrompt` instead of the package root, which also re-exports Node-only config/connectors helpers
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
   - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
