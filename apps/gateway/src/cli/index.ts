@@ -277,7 +277,7 @@ program
 
       // Resolve actual port for banner
       const actualPort = port ?? config.gateway?.port ?? 4000;
-      const uiPort = config.ui?.port ?? 3000;
+      const uiPort = process.env.AIHUB_UI_PORT ? parseInt(process.env.AIHUB_UI_PORT, 10) : (config.ui?.port ?? 3000);
 
       // Start web UI if enabled (default: true) and not in dev mode
       // In dev mode, web UI is started by scripts/dev.ts with proper port coordination
