@@ -524,6 +524,9 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     };
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[agent:${params.agentId}] run failed (session ${sessionId}): ${errMessage}`
+    );
     emit({ type: "error", message: errMessage });
     throw err;
   } finally {

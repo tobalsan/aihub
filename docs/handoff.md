@@ -5,6 +5,8 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-03 follow-up: ChatView no longer reloads history on every `isStreaming` transition. That fixes silent failed sends where the optimistic user message disappeared and no inline error remained; full-mode chat now appends error text on stream failure too.
+- 2026-04-03 follow-up: gateway now logs all agent run failures from the shared runner catch, not just Pi post-prompt `stopReason:error` failures. This covers config/model-resolution errors like missing custom provider models.
 - PRO-199 review follow-up landed on 2026-04-03: connector startup validation now emits unknown-connector warnings once from `initializeConnectors()`, and shared connector tool params are explicitly object-shaped Zod schemas to match both adapters.
 - PRO-199 gateway connector runtime integration is in place on 2026-04-03: startup discovery/validation, per-agent tool loading, and Pi/Claude adapter injection landed in `apps/gateway`.
 - PRO-199 shared connector foundation is in place on 2026-04-03: shared connector contracts, registry, loader, discovery, config schema updates, and unit coverage landed in `packages/shared`.

@@ -44,6 +44,7 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
+- ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; full-mode chat also renders transport/run errors inline
 - Projects board shell uses split sidebars:
   - Left sidebar: AIHub logo + primary nav (`Chats` always; `Projects`/`Conversations` only when enabled by `/api/capabilities`)
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
@@ -209,6 +210,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - Connector tool parameter schemas are object-only Zod schemas.
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
+- Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status
 

@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createResource, createMemo, For, onCleanup, Show } from "solid-js";
+import { createSignal, createEffect, createResource, createMemo, For, onCleanup, Show, on } from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -313,12 +313,14 @@ export function ChatView() {
     setLoading(false);
   };
 
-  // Load history when agent is loaded or view mode changes
-  // Skip if streaming - the user message was already added locally and server data is stale
-  createEffect(() => {
-    const mode = viewMode(); // track viewMode
-    if (agent() && !isStreaming()) loadHistory(mode);
-  });
+  // Load history when agent is loaded or view mode changes.
+  // Do not track isStreaming here: reloading on stream end can wipe optimistic
+  // user/error messages for failed runs before history is persisted.
+  createEffect(
+    on([agent, viewMode], ([currentAgent, mode]) => {
+      if (currentAgent) void loadHistory(mode);
+    })
+  );
 
   // Subscribe to live updates for background runs
   createEffect(() => {
@@ -583,6 +585,14 @@ export function ChatView() {
         setSimpleMessages((prev) => [
           ...prev,
           { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
+        ]);
+        setFullMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: [{ type: "text", text: content }],
+            timestamp: Date.now(),
+          },
         ]);
         resetStreamingState();
         cleanup = null;
