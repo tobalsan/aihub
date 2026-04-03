@@ -29,6 +29,7 @@ Core TypeScript/Node.js application. Exports:
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
 - **Connectors** (`src/connectors/`): Gateway runtime glue that discovers external connectors, validates configured connector mounts, and exposes connector tools to Pi/Claude sessions.
+  - `src/connectors/http-client.ts` provides a connector-scoped fetch wrapper that can temporarily inject OneCLI proxy + CA env vars for outbound connector HTTP requests.
 
 ### apps/web
 

@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
 - 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, gateway config loading warns on deprecated `secrets.provider="onecli"`, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
 - 2026-04-03 follow-up: `aihub send` now resolves startup config and initializes connectors before running an agent, so connector tools/system prompts are available on the standalone CLI path and connector config errors fail early there too.
 - 2026-04-03 follow-up: external connector discovery now follows symlinked connector directories too, which fixes setups that mount built connector bundles into `$AIHUB_HOME/connectors` via symlink.
@@ -25,6 +26,21 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-04: PRO-208 connector HTTP client factory
+
+- `apps/gateway/src/connectors/http-client.ts`
+  - Added `createHttpClient()` for connector-scoped `fetch()` calls with optional default headers and timeout handling.
+  - OneCLI-enabled clients temporarily inject proxy env vars, embed per-client gateway token into the proxy URL, propagate CA trust env vars, and restore the previous process env after each request.
+  - Serialized OneCLI-wrapped requests with a module-level env lock so concurrent connector calls do not cross-contaminate proxy env state.
+- `apps/gateway/src/connectors/__tests__/http-client.test.ts`
+  - Added coverage for plain fetch passthrough, scoped proxy env mutation/restoration, tokenized proxy URLs, CA env propagation, and header/timeout merging.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- apps/gateway/src/connectors`
+  - `pnpm typecheck`
+  - `pnpm exec eslint apps/gateway/src/connectors/http-client.ts apps/gateway/src/connectors/__tests__/http-client.test.ts`
 
 ### 2026-04-03: PRO-208 OneCLI Phase 1 foundation
 

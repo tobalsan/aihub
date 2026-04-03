@@ -110,6 +110,7 @@ Connectors are config-driven, stateless tool bundles mounted per agent.
 - Connectors can optionally ship `systemPrompt` guidance; when the connector is enabled for an agent, that text is appended to the agent system prompt automatically.
 - Connector tool `parameters` must be Zod object schemas so Pi JSON Schema conversion and Claude MCP mounting share one contract.
 - Pi agents receive connector tools as custom tools; Claude agents receive them through an in-process MCP server.
+- Gateway now also exposes `apps/gateway/src/connectors/http-client.ts` so connectors can opt into OneCLI-scoped fetch proxy/CA env wiring instead of embedding raw credentials directly in requests.
 
 ### OneCLI
 
