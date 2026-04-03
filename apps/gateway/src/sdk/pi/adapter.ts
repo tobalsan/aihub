@@ -6,7 +6,12 @@ import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import type { SdkAdapter, SdkRunParams, SdkRunResult, HistoryEvent } from "../types.js";
+import type {
+  SdkAdapter,
+  SdkRunParams,
+  SdkRunResult,
+  HistoryEvent,
+} from "../types.js";
 import { CONFIG_DIR, getConfig } from "../../config/index.js";
 import {
   ensureBootstrapFiles,
@@ -30,14 +35,21 @@ async function ensureSessionsDir() {
 const legacyFileName = (agentId: string, sessionId: string) =>
   `${agentId}-${sessionId}.jsonl`;
 
-const timestampedFileName = (timestamp: number, agentId: string, sessionId: string) =>
-  `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
+const timestampedFileName = (
+  timestamp: number,
+  agentId: string,
+  sessionId: string
+) => `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
 
 /**
  * Find existing timestamped file by scanning directory for pattern *_{agentId}-{sessionId}.jsonl
  * Returns the most recent (lexicographically last) if multiple exist
  */
-async function findTimestampedFile(dir: string, agentId: string, sessionId: string): Promise<string | null> {
+async function findTimestampedFile(
+  dir: string,
+  agentId: string,
+  sessionId: string
+): Promise<string | null> {
   const suffix = `_${agentId}-${sessionId}.jsonl`;
   try {
     const files = await fs.readdir(dir);
@@ -54,13 +66,19 @@ async function findTimestampedFile(dir: string, agentId: string, sessionId: stri
  * - For existing files: checks known timestamped path, then scans for any timestamped file, then legacy
  * - For new files: always creates timestamped filename (uses createdAt or defaults to now)
  */
-async function resolveSessionFile(agentId: string, sessionId: string): Promise<string> {
+async function resolveSessionFile(
+  agentId: string,
+  sessionId: string
+): Promise<string> {
   await ensureSessionsDir();
   const createdAt = getSessionCreatedAt(sessionId);
 
   // Try exact timestamped file first (if we have createdAt)
   if (createdAt) {
-    const timestampedPath = path.join(SESSIONS_DIR, timestampedFileName(createdAt, agentId, sessionId));
+    const timestampedPath = path.join(
+      SESSIONS_DIR,
+      timestampedFileName(createdAt, agentId, sessionId)
+    );
     try {
       await fs.access(timestampedPath);
       return timestampedPath;
@@ -70,13 +88,20 @@ async function resolveSessionFile(agentId: string, sessionId: string): Promise<s
   }
 
   // Scan for any existing timestamped file (handles missing createdAt in sessions.json)
-  const existingTimestamped = await findTimestampedFile(SESSIONS_DIR, agentId, sessionId);
+  const existingTimestamped = await findTimestampedFile(
+    SESSIONS_DIR,
+    agentId,
+    sessionId
+  );
   if (existingTimestamped) {
     return existingTimestamped;
   }
 
   // Try legacy file (backwards compat)
-  const legacyPath = path.join(SESSIONS_DIR, legacyFileName(agentId, sessionId));
+  const legacyPath = path.join(
+    SESSIONS_DIR,
+    legacyFileName(agentId, sessionId)
+  );
   try {
     await fs.access(legacyPath);
     return legacyPath;
@@ -86,7 +111,10 @@ async function resolveSessionFile(agentId: string, sessionId: string): Promise<s
 
   // New file: always use timestamped format (use createdAt or default to now)
   const timestamp = createdAt ?? Date.now();
-  return path.join(SESSIONS_DIR, timestampedFileName(timestamp, agentId, sessionId));
+  return path.join(
+    SESSIONS_DIR,
+    timestampedFileName(timestamp, agentId, sessionId)
+  );
 }
 
 function extractAssistantText(msg: AssistantMessage): string {
@@ -139,7 +167,10 @@ export const piAdapter: SdkAdapter = {
   },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
-    const sessionFile = await resolveSessionFile(params.agentId, params.sessionId);
+    const sessionFile = await resolveSessionFile(
+      params.agentId,
+      params.sessionId
+    );
 
     // Ensure bootstrap files exist
     await ensureBootstrapFiles(params.workspaceDir);
@@ -167,14 +198,21 @@ export const piAdapter: SdkAdapter = {
     }
 
     const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
-    const modelRegistry = ModelRegistry.create(authStorage, path.join(CONFIG_DIR, "models.json"));
+    const modelRegistry = ModelRegistry.create(
+      authStorage,
+      path.join(CONFIG_DIR, "models.json")
+    );
     if (!agent.model.provider) {
-      throw new Error(`Pi SDK requires model.provider to be set for agent: ${agent.id}`);
+      throw new Error(
+        `Pi SDK requires model.provider to be set for agent: ${agent.id}`
+      );
     }
     const model = modelRegistry.find(agent.model.provider, agent.model.model);
 
     if (!model) {
-      throw new Error(`Model not found: ${agent.model.provider}/${agent.model.model}`);
+      throw new Error(
+        `Model not found: ${agent.model.provider}/${agent.model.model}`
+      );
     }
 
     // Get API key based on auth.mode
@@ -205,7 +243,9 @@ export const piAdapter: SdkAdapter = {
       if (!apiKey) {
         // Format env var name: github-copilot -> GITHUB_COPILOT_API_KEY
         const envVar = `${model.provider.toUpperCase().replace(/-/g, "_")}_API_KEY`;
-        throw new Error(`No API key for provider: ${model.provider}. Set ${envVar} env var.`);
+        throw new Error(
+          `No API key for provider: ${model.provider}. Set ${envVar} env var.`
+        );
       }
     } else {
       const auth = await modelRegistry.getApiKeyAndHeaders(model);
@@ -249,7 +289,10 @@ export const piAdapter: SdkAdapter = {
     ].join("\n");
 
     const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
-    const settingsManager = SettingsManager.create(params.workspaceDir, CONFIG_DIR);
+    const settingsManager = SettingsManager.create(
+      params.workspaceDir,
+      CONFIG_DIR
+    );
     const resourceLoader = new DefaultResourceLoader({
       cwd: params.workspaceDir,
       agentDir: CONFIG_DIR,
@@ -324,7 +367,11 @@ export const piAdapter: SdkAdapter = {
       : params.message;
 
     // Emit user message to history (without context preamble)
-    params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
+    params.onHistoryEvent({
+      type: "user",
+      text: params.message,
+      timestamp: Date.now(),
+    });
 
     // Subscribe to streaming events
 
@@ -362,11 +409,17 @@ export const piAdapter: SdkAdapter = {
 
       if (evt.type === "tool_execution_start") {
         const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
-        const toolCallId = (evt as { toolCallId?: string }).toolCallId ?? `call_${Date.now()}`;
+        const toolCallId =
+          (evt as { toolCallId?: string }).toolCallId ?? `call_${Date.now()}`;
         const args = (evt as { args?: unknown }).args;
 
         params.onEvent({ type: "tool_start", toolName });
-        params.onEvent({ type: "tool_call", id: toolCallId, name: toolName, arguments: args });
+        params.onEvent({
+          type: "tool_call",
+          id: toolCallId,
+          name: toolName,
+          arguments: args,
+        });
         params.onHistoryEvent({
           type: "tool_call",
           id: toolCallId,
@@ -425,7 +478,12 @@ export const piAdapter: SdkAdapter = {
             provider: assistantMsg.provider as string | undefined,
             model: assistantMsg.model as string | undefined,
             api: assistantMsg.api as string | undefined,
-            usage: assistantMsg.usage as HistoryEvent extends { type: "meta"; usage?: infer U } ? U : undefined,
+            usage: assistantMsg.usage as HistoryEvent extends {
+              type: "meta";
+              usage?: infer U;
+            }
+              ? U
+              : undefined,
             stopReason: assistantMsg.stopReason as string | undefined,
             timestamp: Date.now(),
           });
@@ -435,17 +493,36 @@ export const piAdapter: SdkAdapter = {
     });
 
     try {
-      await agentSession.prompt(messageToSend, images && images.length > 0 ? { images } : undefined);
+      await agentSession.prompt(
+        messageToSend,
+        images && images.length > 0 ? { images } : undefined
+      );
     } finally {
       unsubscribe();
     }
 
-    // Extract text from last assistant message
     const messages = agentSession.messages;
     const lastAssistant = messages
       .slice()
       .reverse()
-      .find((m: AgentMessage) => m.role === "assistant") as AssistantMessage | undefined;
+      .find((m: AgentMessage) => m.role === "assistant") as
+      | AssistantMessage
+      | undefined;
+
+    const lastAssistantRecord = lastAssistant as
+      | (Record<string, unknown> & AssistantMessage)
+      | undefined;
+    if (lastAssistantRecord?.stopReason === "error") {
+      const errorMessage =
+        typeof lastAssistantRecord.errorMessage === "string" &&
+        lastAssistantRecord.errorMessage
+          ? lastAssistantRecord.errorMessage
+          : "unknown error";
+      const errorStr = `Agent error: ${errorMessage}`;
+      console.error(`[${params.agent.id}] ${errorStr}`);
+      agentSession.dispose();
+      throw new Error(errorStr);
+    }
 
     const finalText = lastAssistant ? extractAssistantText(lastAssistant) : "";
 

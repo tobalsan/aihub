@@ -12,7 +12,7 @@ describe("pi subagent tools", () => {
       kill: vi.fn(),
     };
     const tools = createPiSubagentTools(handlers);
-    const tool = tools.find((t) => t.name === "subagent.spawn");
+    const tool = tools.find((t) => t.name === "subagent_spawn");
     expect(tool).toBeDefined();
 
     const result = await tool!.execute("call_1", {
@@ -33,7 +33,7 @@ describe("pi subagent tools", () => {
     });
     expect(result.content[0].type).toBe("text");
     if (result.content[0].type === "text") {
-      expect(result.content[0].text).toContain("\"slug\":\"alpha\"");
+      expect(result.content[0].text).toContain('"slug":"alpha"');
     }
   });
 
@@ -46,7 +46,7 @@ describe("pi subagent tools", () => {
       kill: vi.fn(),
     };
     const tools = createPiSubagentTools(handlers);
-    const tool = tools.find((t) => t.name === "subagent.spawn");
+    const tool = tools.find((t) => t.name === "subagent_spawn");
     await expect(
       tool!.execute("call_2", {
         projectId: "PRO-1",
@@ -61,12 +61,14 @@ describe("pi subagent tools", () => {
     const handlers: SubagentToolHandlers = {
       spawn: vi.fn(),
       status: vi.fn(),
-      logs: vi.fn().mockResolvedValue({ ok: true, data: { cursor: 10, events: [] } }),
+      logs: vi
+        .fn()
+        .mockResolvedValue({ ok: true, data: { cursor: 10, events: [] } }),
       interrupt: vi.fn(),
       kill: vi.fn(),
     };
     const tools = createPiSubagentTools(handlers);
-    const tool = tools.find((t) => t.name === "subagent.logs");
+    const tool = tools.find((t) => t.name === "subagent_logs");
     expect(tool).toBeDefined();
 
     const result = await tool!.execute("call_3", {
@@ -81,7 +83,7 @@ describe("pi subagent tools", () => {
       since: 123,
     });
     if (result.content[0].type === "text") {
-      expect(result.content[0].text).toContain("\"cursor\":10");
+      expect(result.content[0].text).toContain('"cursor":10');
     }
   });
 });
