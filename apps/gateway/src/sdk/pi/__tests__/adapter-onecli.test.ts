@@ -77,9 +77,9 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   createCodingTools: mockCreateCodingTools,
 }));
 
-function makeAgent(): AgentConfig {
+function makeAgent(id = "pi-agent"): AgentConfig {
   return {
-    id: "pi-agent",
+    id,
     name: "Pi Agent",
     workspace: "~/agents/pi-agent",
     sdk: "pi",
@@ -224,5 +224,98 @@ describe("pi adapter onecli env wiring", () => {
     expect(process.env.HTTP_PROXY).toBe("http://unchanged-proxy");
     expect(process.env.HTTPS_PROXY).toBe("http://unchanged-secure-proxy");
     expect(process.env.NODE_EXTRA_CA_CERTS).toBe("/tmp/unchanged-ca.pem");
+  });
+
+  it("serializes concurrent runs so onecli env mutations do not overlap", async () => {
+    const firstAgent = makeAgent("pi-agent-1");
+    const secondAgent = makeAgent("pi-agent-2");
+    const config = {
+      agents: [firstAgent, secondAgent],
+      onecli: {
+        enabled: true,
+        mode: "proxy",
+        gatewayUrl: "http://localhost:10255",
+        agents: {
+          [firstAgent.id]: {
+            gatewayToken: "token-1",
+          },
+          [secondAgent.id]: {
+            gatewayToken: "token-2",
+          },
+        },
+      },
+    } as GatewayConfig;
+
+    let releaseFirstPrompt: (() => void) | undefined;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      releaseFirstPrompt = resolve;
+    });
+    let completeFirstPrompt: (() => void) | undefined;
+    const firstPromptCompleted = new Promise<void>((resolve) => {
+      completeFirstPrompt = resolve;
+    });
+    const createOrder: string[] = [];
+    const envSnapshots: Array<{ agentId: string; httpProxy: string | undefined }> =
+      [];
+
+    setLoadedConfig(config);
+    mockCreateAgentSession.mockImplementation(async ({ model }: { model: { provider: string } }) => {
+      const agentId =
+        process.env.HTTP_PROXY === "http://onecli:token-1@localhost:10255"
+          ? firstAgent.id
+          : secondAgent.id;
+      createOrder.push(agentId);
+      envSnapshots.push({
+        agentId,
+        httpProxy: process.env.HTTP_PROXY,
+      });
+
+      return {
+        session: {
+          messages: [{ role: "assistant", content: agentId }],
+          subscribe: vi.fn(() => vi.fn()),
+          prompt: vi.fn(async () => {
+            if (model.provider && agentId === firstAgent.id) {
+              completeFirstPrompt?.();
+              await firstPromptStarted;
+            }
+          }),
+          abort: vi.fn(),
+          dispose: vi.fn(),
+        },
+      };
+    });
+
+    const { piAdapter } = await import("../adapter.js");
+    const firstRun = piAdapter.run(makeRunParams(firstAgent));
+    await firstPromptCompleted;
+
+    const secondRun = piAdapter.run({
+      ...makeRunParams(secondAgent),
+      sessionId: "session-2",
+    });
+
+    await Promise.resolve();
+    expect(createOrder).toEqual([firstAgent.id]);
+    expect(process.env.HTTP_PROXY).toBe("http://onecli:token-1@localhost:10255");
+
+    releaseFirstPrompt?.();
+
+    const [firstResult, secondResult] = await Promise.all([firstRun, secondRun]);
+
+    expect(firstResult).toEqual({ text: firstAgent.id, aborted: false });
+    expect(secondResult).toEqual({ text: secondAgent.id, aborted: false });
+    expect(createOrder).toEqual([firstAgent.id, secondAgent.id]);
+    expect(envSnapshots).toEqual([
+      {
+        agentId: firstAgent.id,
+        httpProxy: "http://onecli:token-1@localhost:10255",
+      },
+      {
+        agentId: secondAgent.id,
+        httpProxy: "http://onecli:token-2@localhost:10255",
+      },
+    ]);
+    expect(process.env.HTTP_PROXY).toBeUndefined();
   });
 });

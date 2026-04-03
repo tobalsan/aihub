@@ -33,6 +33,7 @@ import {
 import { getLoadedComponents } from "../../components/registry.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
+let piEnvLock: Promise<void> = Promise.resolve();
 
 async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
@@ -162,28 +163,40 @@ function hasProjectsComponentEnabled(): boolean {
   return getLoadedComponents().some((component) => component.id === "projects");
 }
 
-function applyOnecliEnv(agentId: string): { restore: () => void } | null {
+async function withPiOnecliEnv<T>(
+  agentId: string,
+  fn: () => Promise<T>
+): Promise<T> {
   const env = buildOnecliEnv(getConfig(), agentId);
-  if (!env) return null;
+  if (!env) return fn();
+
+  const prevLock = piEnvLock;
+  let releaseLock: () => void;
+  piEnvLock = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+
+  await prevLock;
 
   const saved: Record<string, string | undefined> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) continue;
-    saved[key] = process.env[key];
-    process.env[key] = value;
-  }
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) continue;
+      saved[key] = process.env[key];
+      process.env[key] = value;
+    }
 
-  return {
-    restore() {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = value;
-        }
+    return await fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
       }
-    },
-  };
+    }
+    releaseLock!();
+  }
 }
 
 export const piAdapter: SdkAdapter = {
@@ -201,39 +214,36 @@ export const piAdapter: SdkAdapter = {
   },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
-    const sessionFile = await resolveSessionFile(
-      params.agentId,
-      params.sessionId
-    );
+    return withPiOnecliEnv(params.agentId, async () => {
+      const sessionFile = await resolveSessionFile(
+        params.agentId,
+        params.sessionId
+      );
 
-    // Ensure bootstrap files exist
-    await ensureBootstrapFiles(params.workspaceDir);
+      // Ensure bootstrap files exist
+      await ensureBootstrapFiles(params.workspaceDir);
 
-    // Dynamically import pi-coding-agent
-    const {
-      createAgentSession,
-      SessionManager,
-      SettingsManager,
-      AuthStorage,
-      ModelRegistry,
-      DefaultResourceLoader,
-      createCodingTools,
-    } = await import("@mariozechner/pi-coding-agent");
-    const { getEnvApiKey } = await import("@mariozechner/pi-ai");
+      // Dynamically import pi-coding-agent
+      const {
+        createAgentSession,
+        SessionManager,
+        SettingsManager,
+        AuthStorage,
+        ModelRegistry,
+        DefaultResourceLoader,
+        createCodingTools,
+      } = await import("@mariozechner/pi-coding-agent");
+      const { getEnvApiKey } = await import("@mariozechner/pi-ai");
 
-    // Resolve model
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
+      // Resolve model
+      await fs.mkdir(CONFIG_DIR, { recursive: true });
 
-    // Get agent config to resolve model
-    const { getAgent } = await import("../../config/index.js");
-    const agent = getAgent(params.agentId);
-    if (!agent) {
-      throw new Error(`Agent not found: ${params.agentId}`);
-    }
-
-    const onecliHandle = applyOnecliEnv(params.agentId);
-
-    try {
+      // Get agent config to resolve model
+      const { getAgent } = await import("../../config/index.js");
+      const agent = getAgent(params.agentId);
+      if (!agent) {
+        throw new Error(`Agent not found: ${params.agentId}`);
+      }
       const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
       const modelRegistry = ModelRegistry.create(
         authStorage,
@@ -589,9 +599,7 @@ export const piAdapter: SdkAdapter = {
       agentSession.dispose();
 
       return { text: finalText, aborted };
-    } finally {
-      onecliHandle?.restore();
-    }
+    });
   },
 
   async queueMessage(handle: unknown, message: string): Promise<void> {
