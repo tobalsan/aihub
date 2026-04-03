@@ -2,7 +2,7 @@
 /**
  * Dev launcher for web UI with optional Tailscale HTTPS support.
  *
- * Reads ~/.aihub/aihub.json for ui config:
+ * Reads $AIHUB_HOME/aihub.json for ui config:
  * - ui.port: dev server port (default 3000)
  * - ui.bind: "loopback" | "lan" | "tailnet"
  * - ui.tailscale.mode: "off" | "serve" (enables HTTPS via tailscale serve)

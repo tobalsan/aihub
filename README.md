@@ -27,7 +27,7 @@ pnpm install
 
 ## Configuration
 
-The app uses a main config file at `~/.aihub/aihub.json`.
+The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`).
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `secrets`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
@@ -44,8 +44,9 @@ Lead agent configuration is optional, as orchestration is done via CLI subagents
 But if you want to configure lead agent, you can do so by adding them in the main config file. Each agent has their workspace, and is powered by Pi SDK under the hood.
 
 ```bash
-mkdir -p ~/.aihub
-cat > ~/.aihub/aihub.json << 'EOF'
+export AIHUB_HOME="${AIHUB_HOME:-$HOME/.aihub}"
+mkdir -p "$AIHUB_HOME"
+cat > "$AIHUB_HOME/aihub.json" << 'EOF'
 {
   "version": 2,
   "agents": [
@@ -178,9 +179,10 @@ pnpm apm config validate [--config <path>]
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
 # Backward-compatible alias
 AIHUB_URL=http://127.0.0.1:4000 pnpm apm list
-# Config file fallback (~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
-# Local config commands honor: --config > AIHUB_CONFIG > ~/.aihub/aihub.json
-# Dev launchers (`pnpm dev`, `pnpm dev:web`, gateway config loading) also honor AIHUB_CONFIG.
+# Config file fallback ($AIHUB_HOME/aihub.json, default ~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
+# Local config commands honor: --config > $AIHUB_HOME/aihub.json
+# Legacy fallback: AIHUB_CONFIG still works, but only to derive AIHUB_HOME with a deprecation warning.
+# Dev launchers (`pnpm dev`, `pnpm dev:web`, gateway config loading) honor AIHUB_HOME too.
 
 # Global shortcut (apm)
 mkdir -p ~/.local/bin
@@ -296,7 +298,7 @@ pnpm aihub auth login anthropic
 }
 ```
 
-Credentials stored in `~/.aihub/auth.json`. Tokens auto-refresh when expired.
+Credentials stored in `$AIHUB_HOME/auth.json` (default: `~/.aihub/auth.json`). Tokens auto-refresh when expired.
 
 ## OpenClaw Connector
 
@@ -373,7 +375,7 @@ Project API details: `docs/projects_api.md`
 
 ## Configuration
 
-`~/.aihub/aihub.json`:
+`$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`):
 
 ```json
 {
@@ -525,7 +527,7 @@ Periodic agent check-ins with Discord delivery for alerts.
 
 ## Custom Models
 
-Add custom providers via `~/.aihub/models.json`:
+Add custom providers via `$AIHUB_HOME/models.json` (default: `~/.aihub/models.json`):
 
 ```json
 {
@@ -619,8 +621,8 @@ pnpm aihub gateway  # no --dev flag
 
 ## Data
 
-- Config: `~/.aihub/aihub.json`
-- Auth: `~/.aihub/auth.json` (OAuth/API key credentials)
-- Models: `~/.aihub/models.json` (optional)
-- Schedules: `~/.aihub/schedules.json`
-- Sessions: `~/.aihub/sessions/*.jsonl`
+- Config: `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`)
+- Auth: `$AIHUB_HOME/auth.json` (OAuth/API key credentials)
+- Models: `$AIHUB_HOME/models.json` (optional)
+- Schedules: `$AIHUB_HOME/schedules.json`
+- Sessions: `$AIHUB_HOME/sessions/*.jsonl`

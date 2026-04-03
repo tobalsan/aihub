@@ -14,7 +14,7 @@ aihub/
 ├── packages/
 │   ├── cli/         # apm CLI package (HTTP client to gateway API)
 │   └── shared/      # Zod schemas, shared types
-└── ~/.aihub/        # Runtime config & data
+└── ~/.aihub/        # Default AIHUB_HOME runtime config & data
 ```
 
 ### apps/gateway
@@ -112,14 +112,14 @@ Standalone `apm` CLI package.
 
 - Remote project/subagent commands talk to the gateway API over HTTP.
 - Local config commands (`apm config migrate`, `apm config validate`) read/write `aihub.json` directly.
-- Env URL precedence for HTTP commands: `AIHUB_API_URL` > `AIHUB_URL` > `~/.aihub/aihub.json` (`apiUrl`)
-- Token precedence for HTTP commands: `AIHUB_TOKEN` > `~/.aihub/aihub.json` (`token`)
-- Local config path precedence: `--config` > `AIHUB_CONFIG` > `~/.aihub/aihub.json`
-- Gateway/web dev entrypoints now also honor `AIHUB_CONFIG`, so `pnpm dev` and `pnpm dev:web` preview the same config file as local config commands
+- Env URL precedence for HTTP commands: `AIHUB_API_URL` > `AIHUB_URL` > `$AIHUB_HOME/aihub.json` (`apiUrl`, default home `~/.aihub/`)
+- Token precedence for HTTP commands: `AIHUB_TOKEN` > `$AIHUB_HOME/aihub.json` (`token`, default home `~/.aihub/`)
+- Local config path precedence: `--config` > `$AIHUB_HOME/aihub.json` (legacy fallback: derive home from `AIHUB_CONFIG`)
+- Gateway/web dev entrypoints now honor `AIHUB_HOME`, so `pnpm dev` and `pnpm dev:web` preview the same config home as local config commands
 
 ## Runtime Data
 
-All stored in `~/.aihub/`:
+All stored under `AIHUB_HOME` (default `~/.aihub/`):
 
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
@@ -127,7 +127,7 @@ All stored in `~/.aihub/`:
 - `projects.json` - Project ID counter (`{ lastId }`)
 - `sessions.json` - Session key -> sessionId mapping with timestamps
 - `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
-- (Pi SDK) auth/settings files under `~/.aihub/` (created after a successful agent run)
+- (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
 
 ## Config Schema
@@ -191,14 +191,14 @@ All stored in `~/.aihub/`:
 
 ## Agent Runtime Flow
 
-1. **Config Load**: `loadConfig()` reads `AIHUB_CONFIG` when set, else `~/.aihub/aihub.json`, validates via Zod
+1. **Config Load**: `loadConfig()` reads `--config`/explicit file paths when provided, else `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
 - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
 - Startup also initializes connectors from `apps/gateway/src/connectors/index.ts` after secret resolution and before component loading.
    - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
    - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
    - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
-2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
+2. **Model Resolution**: Pi SDK `discoverModels()` reads `AIHUB_HOME/models.json`
 3. **Connector Init**: Connector registry is rebuilt from built-ins + external `connectors.path`, then configured connector mounts are validated once during initialization for missing ids/config/secrets.
 4. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 5. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
@@ -293,7 +293,7 @@ Web UI uses both: `send` for user messages, `subscribe` for live background upda
 
 Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`:
 
-- **sessionKey**: Logical key (default: "main") stored in `~/.aihub/sessions.json`
+- **sessionKey**: Logical key (default: "main") stored in `AIHUB_HOME/sessions.json`
 - **sessionId**: Raw UUID, bypasses key resolution if provided directly
 - **idleMinutes**: Sessions expire after 360 minutes (6 hours) of inactivity by default; configurable via `sessions.idleMinutes`
 - **resetTriggers**: `/new` or `/reset` force a new session; the trigger is stripped from message
@@ -304,7 +304,7 @@ Web UI persists `sessionKey` per agent in localStorage (default "main"). On moun
 
 ### Session Transcript Format
 
-Sessions stored as JSONL in `~/.aihub/sessions/{agentId}-{sessionId}.jsonl`:
+Sessions stored as JSONL in `AIHUB_HOME/sessions/{agentId}-{sessionId}.jsonl`:
 
 ```jsonl
 {"type":"session","id":"...","timestamp":"...","cwd":"..."}
@@ -330,7 +330,7 @@ Two schedule types:
 - **interval**: `{ type: "interval", everyMinutes: N, startAt?: ISO8601 }`
 - **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }`
 
-Jobs stored in `~/.aihub/schedules.json` with state (nextRunAtMs, lastRunAtMs, lastStatus). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling.
+Jobs stored in `AIHUB_HOME/schedules.json` with state (nextRunAtMs, lastRunAtMs, lastStatus). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling.
 
 ### Discord (`src/discord/`)
 
@@ -536,7 +536,7 @@ Behavior:
 
 ## Direct OAuth Authentication (Pi SDK)
 
-Pi SDK agents can authenticate via OAuth tokens stored in `~/.aihub/auth.json`. This allows running agents without a separate CLIProxyAPI.
+Pi SDK agents can authenticate via OAuth tokens stored in `AIHUB_HOME/auth.json`. This allows running agents without a separate CLIProxyAPI.
 
 ### Supported OAuth Providers
 
@@ -606,7 +606,7 @@ The `auth.profileId` field is reserved for future multi-profile support.
 
 ### Storage
 
-Credentials are stored in `~/.aihub/auth.json`:
+Credentials are stored in `AIHUB_HOME/auth.json`:
 
 ```json
 {
