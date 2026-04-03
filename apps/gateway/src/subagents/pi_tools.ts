@@ -62,7 +62,7 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
 
   return [
     {
-      name: "subagent.spawn",
+      name: "subagent_spawn",
       label: "Spawn subagent",
       description: "Spawn an external CLI subagent",
       parameters: spawnParams,
@@ -93,7 +93,7 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       },
     },
     {
-      name: "subagent.status",
+      name: "subagent_status",
       label: "Subagent status",
       description: "Get status for a subagent",
       parameters: statusParams,
@@ -108,7 +108,7 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       },
     },
     {
-      name: "subagent.logs",
+      name: "subagent_logs",
       label: "Subagent logs",
       description: "Fetch logs for a subagent",
       parameters: logsParams,
@@ -124,7 +124,7 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       },
     },
     {
-      name: "subagent.interrupt",
+      name: "subagent_interrupt",
       label: "Interrupt subagent",
       description: "Interrupt a running subagent",
       parameters: interruptParams,
@@ -139,7 +139,7 @@ export function createPiSubagentTools(handlers?: SubagentToolHandlers): AgentToo
       },
     },
     {
-      name: "subagent.kill",
+      name: "subagent_kill",
       label: "Kill subagent",
       description: "Kill and remove a subagent workspace",
       parameters: killParams,
