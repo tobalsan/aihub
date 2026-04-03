@@ -857,7 +857,18 @@ export async function spawnSubagent(
   const persistState = async (nextState: typeof state): Promise<void> => {
     state = nextState;
     const snapshot = { ...nextState };
-    stateWrite = stateWrite.then(() => writeJson(statePath, snapshot));
+    stateWrite = stateWrite.then(async () => {
+      let current: Record<string, unknown> = {};
+      try {
+        current = JSON.parse(await fs.readFile(statePath, "utf8")) as Record<
+          string,
+          unknown
+        >;
+      } catch {
+        current = {};
+      }
+      await writeJson(statePath, { ...current, ...snapshot });
+    });
     await stateWrite;
   };
 
@@ -994,7 +1005,21 @@ export async function spawnSubagent(
       data,
     });
     if (outcome === "error") {
-      await persistState({ ...state, last_error: exitMessage });
+      let interruptRequestedAt: string | undefined;
+      try {
+        const raw = await fs.readFile(statePath, "utf8");
+        const current = JSON.parse(raw) as { interrupt_requested_at?: string };
+        if (typeof current.interrupt_requested_at === "string") {
+          interruptRequestedAt = current.interrupt_requested_at;
+        }
+      } catch {
+        // ignore
+      }
+      await persistState({
+        ...state,
+        interrupt_requested_at: interruptRequestedAt,
+        last_error: exitMessage,
+      });
       if (acquiredSpaceLease) {
         await releaseProjectSpaceWriteLease(config, input.projectId, {
           holder: input.slug,
