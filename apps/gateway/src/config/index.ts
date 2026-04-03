@@ -110,5 +110,10 @@ export function resolveWorkspaceDir(workspaceDir: string): string {
   if (workspaceDir.startsWith("~")) {
     return path.join(os.homedir(), workspaceDir.slice(1));
   }
-  return path.resolve(workspaceDir);
+  if (path.isAbsolute(workspaceDir)) {
+    return workspaceDir;
+  }
+  // Resolve relative paths against the config file's parent directory
+  const configDir = path.dirname(getConfigPath());
+  return path.resolve(configDir, workspaceDir);
 }
