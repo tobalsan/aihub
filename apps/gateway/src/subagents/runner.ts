@@ -186,9 +186,12 @@ async function appendHistory(
 }
 
 async function writeJson(filePath: string, data: unknown): Promise<void> {
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+    await fs.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8");
+    await fs.rename(tempPath, filePath);
   } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
@@ -850,6 +853,13 @@ export async function spawnSubagent(
     end_head_sha: "",
     commit_range: "",
   };
+  let stateWrite = Promise.resolve();
+  const persistState = async (nextState: typeof state): Promise<void> => {
+    state = nextState;
+    const snapshot = { ...nextState };
+    stateWrite = stateWrite.then(() => writeJson(statePath, snapshot));
+    await stateWrite;
+  };
 
   await writeJson(configPath, {
     name: input.name,
@@ -863,7 +873,7 @@ export async function spawnSubagent(
     created: createdAt,
     archived,
   });
-  await writeJson(statePath, state);
+  await persistState(state);
   await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
   await fs.appendFile(logsPath, "", "utf8");
   if (input.prompt.trim().length > 0) {
@@ -903,8 +913,7 @@ export async function spawnSubagent(
               thread_id?: string;
             };
             if (ev.type === "thread.started" && ev.thread_id) {
-              state = { ...state, session_id: ev.thread_id };
-              await writeJson(statePath, state);
+              await persistState({ ...state, session_id: ev.thread_id });
             }
           } catch {
             // ignore
@@ -917,8 +926,7 @@ export async function spawnSubagent(
               session_id?: string;
             };
             if (ev.type === "system" && ev.session_id) {
-              state = { ...state, session_id: ev.session_id };
-              await writeJson(statePath, state);
+              await persistState({ ...state, session_id: ev.session_id });
             }
           } catch {
             // ignore
@@ -928,8 +936,7 @@ export async function spawnSubagent(
           try {
             const ev = JSON.parse(line) as { type?: string; id?: string };
             if (ev.type === "session" && ev.id) {
-              state = { ...state, session_id: ev.id };
-              await writeJson(statePath, state);
+              await persistState({ ...state, session_id: ev.id });
             }
           } catch {
             // ignore
@@ -987,14 +994,7 @@ export async function spawnSubagent(
       data,
     });
     if (outcome === "error") {
-      try {
-        const raw = await fs.readFile(statePath, "utf8");
-        const current = JSON.parse(raw) as Record<string, unknown>;
-        current.last_error = exitMessage;
-        await writeJson(statePath, current);
-      } catch {
-        // ignore
-      }
+      await persistState({ ...state, last_error: exitMessage });
       if (acquiredSpaceLease) {
         await releaseProjectSpaceWriteLease(config, input.projectId, {
           holder: input.slug,
@@ -1004,20 +1004,18 @@ export async function spawnSubagent(
       return;
     }
 
+    await persistState({ ...state, finished_at: finishedAt, outcome: "done" });
+
     if ((mode === "worktree" || mode === "clone") && startHeadSha) {
       const endHeadSha = await getGitHead(worktreePath);
-      try {
-        const raw = await fs.readFile(statePath, "utf8");
-        const current = JSON.parse(raw) as Record<string, unknown>;
-        current.end_head_sha = endHeadSha ?? "";
-        current.commit_range =
+      await persistState({
+        ...state,
+        end_head_sha: endHeadSha ?? "",
+        commit_range:
           endHeadSha && endHeadSha !== startHeadSha
             ? `${startHeadSha}..${endHeadSha}`
-            : "";
-        await writeJson(statePath, current);
-      } catch {
-        // ignore
-      }
+            : "",
+      });
       if (endHeadSha) {
         let replacesFromConfig: string[] | undefined;
         try {
@@ -1229,7 +1227,7 @@ export async function spawnRalphLoop(
     created: startedAt,
     archived: false,
   });
-  await writeJson(statePath, {
+  let state: Record<string, unknown> = {
     supervisor_pid: child.pid ?? 0,
     started_at: startedAt,
     last_error: "",
@@ -1237,7 +1235,8 @@ export async function spawnRalphLoop(
     run_mode: mode,
     worktree_path: workspacePath,
     base_branch: baseBranch,
-  });
+  };
+  await writeJson(statePath, state);
   await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
   await fs.appendFile(logsPath, "", "utf8");
   await appendHistory(historyPath, {
@@ -1312,7 +1311,10 @@ export async function spawnRalphLoop(
       } catch {
         // ignore
       }
+      return;
     }
+    state = { ...state, finished_at: finishedAt, outcome: "done" };
+    await writeJson(statePath, state);
   });
 
   return { ok: true, data: { slug: input.slug } };
