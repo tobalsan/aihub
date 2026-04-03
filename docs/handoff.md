@@ -13,7 +13,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - PRO-198 modular architecture is integrated on `space/PRO-198`.
 - Gateway/runtime now support v2 modular components with resolved-config threading and component-declared disabled-route metadata.
 - Recent follow-up work tightened `apm config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
-- Local preview entrypoints now honor `AIHUB_CONFIG`, so `pnpm dev`/`pnpm dev:web` use the same config file as gateway local-config commands.
+- Local preview entrypoints now honor `AIHUB_HOME`, so `pnpm dev`/`pnpm dev:web` use the same config home as gateway local-config commands. Legacy `AIHUB_CONFIG` still falls back by deriving the home directory from its parent path.
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
@@ -99,7 +99,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - `packages/shared/src/config-migrate.ts`, `apps/gateway/src/config/migrate.ts`
   - Moved the pure v1 -> v2 migration helper into `@aihub/shared` so gateway and `apm` reuse the same logic.
 - `packages/cli/src/local-config.ts`, `packages/cli/src/index.ts`
-  - Added local config path resolution with `--config` > `AIHUB_CONFIG` > `~/.aihub/aihub.json`.
+  - Added local config path resolution with `--config` > `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), with deprecated `AIHUB_CONFIG` fallback deriving the home directory from the legacy file path.
   - Added `apm config migrate [--dry-run]` to preview or apply migration with backup creation.
   - Added `apm config validate` to parse current config, auto-migrate legacy v1 in-memory for validation, and print agent/component summary.
   - Follow-up on 2026-04-02: tightened migration so it does not auto-add `components.amsg` when legacy `agent.amsg` is absent, and does not auto-add `components.conversations` by default.
