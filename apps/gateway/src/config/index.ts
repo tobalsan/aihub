@@ -4,11 +4,12 @@ import path from "node:path";
 import {
   GatewayConfigSchema,
   resolveConfigPath,
+  resolveHomeDir,
   type GatewayConfig,
 } from "@aihub/shared";
 import { migrateConfigV1toV2 } from "./migrate.js";
 
-export const CONFIG_DIR = path.join(os.homedir(), ".aihub");
+export const CONFIG_DIR = resolveHomeDir();
 export const SCHEDULES_PATH = path.join(CONFIG_DIR, "schedules.json");
 
 let cachedConfig: GatewayConfig | null = null;

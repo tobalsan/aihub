@@ -1,6 +1,5 @@
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { resolveHomeDir } from "@aihub/shared";
 
 type UserConfig = {
   apiUrl?: string;
@@ -13,7 +12,7 @@ export type CliConfig = {
 };
 
 function readUserConfig(): UserConfig {
-  const filePath = path.join(os.homedir(), ".aihub", "aihub.json");
+  const filePath = `${resolveHomeDir()}/aihub.json`;
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw) as UserConfig;
@@ -37,7 +36,7 @@ export function resolveConfig(): CliConfig {
 
   if (!apiUrl) {
     throw new Error(
-      'Missing AIHub API URL. Set AIHUB_API_URL (or AIHUB_URL) or add ~/.aihub/aihub.json with {"apiUrl":"http://..."}.'
+      'Missing AIHub API URL. Set AIHUB_API_URL (or AIHUB_URL) or add $AIHUB_HOME/aihub.json with {"apiUrl":"http://..."} (default home: user AIHub directory).'
     );
   }
 

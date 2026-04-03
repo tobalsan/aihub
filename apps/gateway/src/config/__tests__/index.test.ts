@@ -10,16 +10,19 @@ import {
 
 describe("config loading", () => {
   const prevConfig = process.env.AIHUB_CONFIG;
+  const prevHome = process.env.AIHUB_HOME;
 
   afterEach(() => {
     clearConfigCacheForTests();
     if (prevConfig === undefined) delete process.env.AIHUB_CONFIG;
     else process.env.AIHUB_CONFIG = prevConfig;
+    if (prevHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevHome;
   });
 
-  it("honors AIHUB_CONFIG when loading config", async () => {
+  it("honors AIHUB_HOME when loading config", async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
-    const configPath = path.join(tmpDir, "custom.json");
+    const configPath = path.join(tmpDir, "aihub.json");
     await fs.writeFile(
       configPath,
       JSON.stringify({
@@ -35,7 +38,7 @@ describe("config loading", () => {
       })
     );
 
-    process.env.AIHUB_CONFIG = configPath;
+    process.env.AIHUB_HOME = tmpDir;
 
     expect(getConfigPath()).toBe(configPath);
     expect(loadConfig().agents.map((agent) => agent.id)).toEqual(["custom"]);

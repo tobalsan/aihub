@@ -1,9 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { ThinkLevel } from "@aihub/shared";
-import { loadConfig } from "../config/index.js";
+import { CONFIG_DIR, loadConfig } from "../config/index.js";
 
 export type SessionEntry = {
   sessionId: string;
@@ -35,7 +34,7 @@ export function isAbortTrigger(
   return false;
 }
 
-const STORE_PATH = path.join(os.homedir(), ".aihub", "sessions.json");
+const STORE_PATH = path.join(CONFIG_DIR, "sessions.json");
 
 let store: Record<string, SessionEntry> = {};
 let loaded = false;

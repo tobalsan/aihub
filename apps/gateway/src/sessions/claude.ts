@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { CONFIG_DIR } from "../config/index.js";
 
 /**
  * Persistent mapping of agentId+sessionId -> Claude SDK session info.
@@ -12,7 +12,7 @@ type ClaudeSessionEntry = {
   model: string;
 };
 
-const STORE_PATH = path.join(os.homedir(), ".aihub", "claude-sessions.json");
+const STORE_PATH = path.join(CONFIG_DIR, "claude-sessions.json");
 
 let store: Record<string, ClaudeSessionEntry | string> = {}; // string for backwards compat
 let loaded = false;
