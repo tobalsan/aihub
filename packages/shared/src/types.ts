@@ -149,6 +149,7 @@ const AgentConfigBaseSchema = z.object({
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
   connectors: z.record(z.string(), AgentConnectorConfigSchema).optional(),
+  globalSkills: z.boolean().optional(), // Include ~/.agents/skills/ (default: false)
 });
 export const AgentConfigSchema = AgentConfigBaseSchema.superRefine(
   (value, ctx) => {

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
@@ -310,12 +311,23 @@ export const piAdapter: SdkAdapter = {
       params.workspaceDir,
       CONFIG_DIR
     );
+    const globalSkillsDir = path.join(os.homedir(), ".agents", "skills");
+    const includeGlobalSkills = agent.globalSkills === true;
+
     const resourceLoader = new DefaultResourceLoader({
       cwd: params.workspaceDir,
       agentDir: CONFIG_DIR,
       settingsManager,
       appendSystemPrompt: allAppendedPrompts,
       agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
+      ...(!includeGlobalSkills && {
+        skillsOverride: (result) => ({
+          skills: result.skills.filter(
+            (s) => !s.filePath.startsWith(globalSkillsDir)
+          ),
+          diagnostics: result.diagnostics,
+        }),
+      }),
     });
     await resourceLoader.reload();
 
