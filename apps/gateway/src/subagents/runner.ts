@@ -62,6 +62,24 @@ export type KillSubagentResult =
   | { ok: true; data: { slug: string } }
   | { ok: false; error: string };
 
+type SubagentState = {
+  session_id: string;
+  session_file?: string;
+  supervisor_pid: number;
+  started_at: string;
+  finished_at?: string;
+  interrupt_requested_at?: string;
+  last_error: string;
+  outcome?: "done";
+  cli: SubagentCli;
+  run_mode: SubagentMode;
+  worktree_path: string;
+  base_branch: string;
+  start_head_sha: string;
+  end_head_sha: string;
+  commit_range: string;
+};
+
 export function isSupportedSubagentCli(value: string): value is SubagentCli {
   return (SUPPORTED_SUBAGENT_CLIS as readonly string[]).includes(value);
 }
@@ -838,7 +856,7 @@ export async function spawnSubagent(
   } catch {
     // ignore
   }
-  let state = {
+  let state: SubagentState = {
     session_id:
       cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
     session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
@@ -849,7 +867,7 @@ export async function spawnSubagent(
     run_mode: mode,
     worktree_path: worktreePath,
     base_branch: baseBranch,
-    start_head_sha: startHeadSha,
+    start_head_sha: startHeadSha ?? "",
     end_head_sha: "",
     commit_range: "",
   };
@@ -1367,11 +1385,11 @@ export async function interruptSubagent(
       supervisor_pid?: number;
     };
     if (state.supervisor_pid) {
-      process.kill(state.supervisor_pid, "SIGTERM");
       await writeJson(statePath, {
         ...state,
         interrupt_requested_at: new Date().toISOString(),
       });
+      process.kill(state.supervisor_pid, "SIGTERM");
       await appendHistory(historyPath, {
         ts: new Date().toISOString(),
         type: "worker.interrupt",

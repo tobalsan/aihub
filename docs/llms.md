@@ -209,6 +209,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 7. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
 
 - Connector tools are injected at agent session start.
+- If `connectors.path` is unset, external connectors are discovered from `$AIHUB_HOME/connectors` (default `~/.aihub/connectors`).
+- External connector discovery accepts both real directories and symlinked directories.
 - Connector tool parameter schemas are object-only Zod schemas.
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
 - Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.

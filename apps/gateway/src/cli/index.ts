@@ -344,6 +344,19 @@ program
   .option("-s, --session <id>", "Session ID", "default")
   .action(async (opts) => {
     try {
+      const rawConfig = loadConfig();
+      const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
+      await initializeConnectors(resolvedStartupConfig);
+      const { resolvedConfig: config } = await prepareStartupConfig(
+        rawConfig,
+        [],
+        {
+          resolvedConfig: resolvedStartupConfig,
+          skipConnectorInitialization: true,
+        }
+      );
+      setLoadedConfig(config);
+
       const agent = getAgent(opts.agent);
       if (!agent) {
         console.error(`Agent not found: ${opts.agent}`);

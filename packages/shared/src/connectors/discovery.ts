@@ -1,4 +1,4 @@
-import { access, readdir } from "node:fs/promises";
+import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerConnector } from "./registry.js";
@@ -19,11 +19,19 @@ export async function discoverExternalConnectors(
   }
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    const entryPath = path.join(directoryPath, entry.name);
+    const isDirectory =
+      entry.isDirectory() ||
+      (entry.isSymbolicLink() &&
+        (await stat(entryPath).then(
+          (value) => value.isDirectory(),
+          () => false
+        )));
+
+    if (!isDirectory) {
       continue;
     }
 
-    const entryPath = path.join(directoryPath, entry.name);
     const indexPath = path.join(entryPath, "index.js");
 
     try {

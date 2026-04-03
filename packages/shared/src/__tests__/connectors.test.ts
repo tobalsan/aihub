@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -299,6 +299,46 @@ describe("connector discovery", () => {
         path.join(os.tmpdir(), "missing-connectors-dir")
       )
     ).resolves.toBeUndefined();
+  });
+
+  it("registers connectors from symlinked directories", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "aihub-connectors-"));
+    const targetRoot = await mkdtemp(
+      path.join(os.tmpdir(), "aihub-connectors-target-")
+    );
+    const targetDir = path.join(targetRoot, "linked");
+    const linkDir = path.join(root, "linked");
+    const zodUrl = pathToFileURL(require.resolve("zod")).href;
+
+    try {
+      await mkdir(targetDir, { recursive: true });
+      await writeFile(
+        path.join(targetDir, "package.json"),
+        JSON.stringify({ type: "module" })
+      );
+      await writeFile(
+        path.join(targetDir, "index.js"),
+        [
+          `import { z } from ${JSON.stringify(zodUrl)};`,
+          "export default {",
+          '  id: "linked",',
+          '  displayName: "Linked",',
+          '  description: "Symlinked connector",',
+          "  configSchema: z.object({}),",
+          "  requiredSecrets: [],",
+          "  createTools: () => [],",
+          "};",
+        ].join("\n")
+      );
+      await symlink(targetDir, linkDir);
+
+      await discoverExternalConnectors(root);
+
+      expect(getConnector("linked")?.displayName).toBe("Linked");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(targetRoot, { recursive: true, force: true });
+    }
   });
 });
 

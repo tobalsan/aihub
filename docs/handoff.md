@@ -5,6 +5,9 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-03 follow-up: `aihub send` now resolves startup config and initializes connectors before running an agent, so connector tools/system prompts are available on the standalone CLI path and connector config errors fail early there too.
+- 2026-04-03 follow-up: external connector discovery now follows symlinked connector directories too, which fixes setups that mount built connector bundles into `$AIHUB_HOME/connectors` via symlink.
+- 2026-04-03 follow-up: external connector auto-discovery now defaults to `$AIHUB_HOME/connectors` instead of hard-coding `~/.aihub/connectors`, so connector system-prompt/tool injection works when running against a custom config home.
 - 2026-04-03 PRO-206 scope 1 landed: connector definitions now support optional `systemPrompt`, gateway exposes `getConnectorPromptsForAgent()`, and both Pi/Claude adapters append enabled connector guidance into their system prompts.
 - 2026-04-03 follow-up: Pi adapter now only mounts subagent tools and appends the `Additional tools` system-prompt block when the `projects` component is actually loaded. Non-project setups no longer advertise unavailable subagent capabilities in Pi system prompt/tooling.
 - 2026-04-03 follow-up: ChatView no longer reloads history on every `isStreaming` transition. That fixes silent failed sends where the optimistic user message disappeared and no inline error remained; full-mode chat now appends error text on stream failure too.

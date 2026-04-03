@@ -1,3 +1,7 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -7,17 +11,25 @@ import {
   registerConnector,
 } from "@aihub/shared";
 import {
+  getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
   initializeConnectors,
 } from "../connectors/index.js";
 
 describe("gateway connectors", () => {
+  const prevAihubHome = process.env.AIHUB_HOME;
+
   beforeEach(() => {
     clearConnectors();
   });
 
   afterEach(() => {
     clearConnectors();
+    if (prevAihubHome === undefined) {
+      delete process.env.AIHUB_HOME;
+    } else {
+      process.env.AIHUB_HOME = prevAihubHome;
+    }
   });
 
   it("loads enabled connector tools for an agent", async () => {
@@ -147,6 +159,61 @@ describe("gateway connectors", () => {
       );
     } finally {
       warnSpy.mockRestore();
+    }
+  });
+
+  it("discovers external connectors from AIHUB_HOME by default", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "aihub-home-"));
+    const connectorDir = path.join(homeDir, "connectors", "cloudifi-admin");
+    const zodUrl = pathToFileURL(require.resolve("zod")).href;
+
+    try {
+      process.env.AIHUB_HOME = homeDir;
+      await mkdir(connectorDir, { recursive: true });
+      await writeFile(
+        path.join(connectorDir, "package.json"),
+        JSON.stringify({ type: "module" })
+      );
+      await writeFile(
+        path.join(connectorDir, "index.js"),
+        [
+          `import { z } from ${JSON.stringify(zodUrl)};`,
+          "export default {",
+          '  id: "cloudifi-admin",',
+          '  displayName: "Cloudifi Admin",',
+          '  description: "Cloudifi admin connector",',
+          '  systemPrompt: "Use Cloudifi Admin for account tasks.",',
+          "  configSchema: z.object({}),",
+          "  requiredSecrets: [],",
+          "  createTools: () => [],",
+          "};",
+        ].join("\n")
+      );
+
+      const gatewayConfig = GatewayConfigSchema.parse({
+        version: 2,
+        agents: [
+          {
+            id: "main",
+            name: "Main",
+            workspace: "~/agents/main",
+            model: { provider: "anthropic", model: "claude" },
+            connectors: {
+              "cloudifi-admin": {},
+            },
+          },
+        ],
+      });
+      const agentConfig = AgentConfigSchema.parse(gatewayConfig.agents[0]);
+
+      await initializeConnectors(gatewayConfig);
+
+      expect(getConnectorToolsForAgent(agentConfig, gatewayConfig)).toEqual([]);
+      expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([
+        "Use Cloudifi Admin for account tasks.",
+      ]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
     }
   });
 });

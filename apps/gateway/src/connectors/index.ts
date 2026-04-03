@@ -1,6 +1,10 @@
 import os from "node:os";
 import path from "node:path";
-import type { AgentConfig, GatewayConfig } from "@aihub/shared";
+import {
+  resolveHomeDir,
+  type AgentConfig,
+  type GatewayConfig,
+} from "@aihub/shared";
 import {
   clearConnectors,
   discoverExternalConnectors,
@@ -9,8 +13,6 @@ import {
   resolveConnectorConfig,
   type ConnectorTool,
 } from "@aihub/shared";
-
-const DEFAULT_CONNECTORS_PATH = path.join(os.homedir(), ".aihub", "connectors");
 
 function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -21,7 +23,7 @@ function toRecord(value: unknown): Record<string, unknown> {
 function resolveConnectorsPath(config: GatewayConfig): string {
   const configuredPath = config.connectors?.path;
   if (!configuredPath) {
-    return DEFAULT_CONNECTORS_PATH;
+    return path.join(resolveHomeDir(), "connectors");
   }
   if (configuredPath.startsWith("~")) {
     return path.join(os.homedir(), configuredPath.slice(1));
