@@ -102,6 +102,8 @@ Connectors are config-driven, stateless tool bundles mounted per agent.
 - Root `connectors` holds shared defaults plus optional `path` for external connector directories.
 - `agent.connectors.<id>` enables a connector for that agent and can override connector-specific config.
 - Shared connector framework exports live in `packages/shared/src/connectors`.
+- Gateway startup resolves connector secrets, discovers external connectors, warns on missing connector ids, and fails early on missing required connector secrets.
+- Pi agents receive connector tools as custom tools; Claude agents receive them through an in-process MCP server.
 
 ## Starting the app
 

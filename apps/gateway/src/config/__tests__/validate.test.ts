@@ -1,13 +1,55 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { GatewayConfigSchema } from "@aihub/shared";
+import { clearConnectors, registerConnector } from "@aihub/shared";
 import { loadComponents } from "../../components/registry.js";
 import {
   logComponentSummary,
+  prepareStartupConfig,
   resolveStartupConfig,
   validateStartupConfig,
 } from "../validate.js";
 
 describe("startup validation", () => {
+  it("warns for missing connectors without failing startup", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.join(" "));
+    };
+
+    try {
+      const config = GatewayConfigSchema.parse({
+        version: 2,
+        agents: [
+          {
+            id: "main",
+            name: "Main",
+            workspace: "~/agents/main",
+            model: { provider: "anthropic", model: "claude" },
+            connectors: {
+              missing: {
+                enabled: true,
+              },
+            },
+          },
+        ],
+      });
+
+      const components = await loadComponents(config);
+      await expect(validateStartupConfig(config, components)).resolves.toEqual({
+        loaded: [],
+        skipped: [],
+      });
+      expect(warnings).toContain(
+        '[connectors] agent "main" references unknown connector "missing"'
+      );
+    } finally {
+      console.warn = originalWarn;
+      clearConnectors();
+    }
+  });
+
   it("rejects duplicate agent ids", async () => {
     const config = GatewayConfigSchema.parse({
       version: 2,
@@ -137,5 +179,41 @@ describe("startup validation", () => {
     });
 
     delete process.env.TEST_RUNTIME_SECRET;
+  });
+
+  it("fails early when a connector is missing a required secret", async () => {
+    registerConnector({
+      id: "sample",
+      displayName: "Sample",
+      description: "Sample connector",
+      configSchema: z.object({ apiKey: z.string().optional() }),
+      requiredSecrets: ["apiKey"],
+      createTools: () => [],
+    });
+
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+          connectors: {
+            sample: {
+              enabled: true,
+            },
+          },
+        },
+      ],
+    });
+
+    await expect(
+      prepareStartupConfig(config, [], { skipConnectorInitialization: true })
+    ).rejects.toThrow(
+      'Connector "sample" for agent "main" missing required secret "apiKey"'
+    );
+
+    clearConnectors();
   });
 });

@@ -1,21 +1,66 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { z } from "zod";
+import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { ClaudeUserContent, QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { createSubagentMcpServer, SUBAGENT_MCP_SERVER, SUBAGENT_TOOL_NAMES } from "../../subagents/claude_tools.js";
-import { CONFIG_DIR } from "../../config/index.js";
+import { CONFIG_DIR, getConfig } from "../../config/index.js";
+import { getConnectorToolsForAgent } from "../../connectors/index.js";
+import type { ConnectorTool } from "@aihub/shared";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
 
 const DEFAULT_CLAUDE_CONFIG_DIR = path.join(CONFIG_DIR, "sessions");
+const CONNECTOR_MCP_SERVER = "aihub-connectors";
 
 function ensureClaudeConfigDir() {
   process.env.CLAUDE_CONFIG_DIR = DEFAULT_CLAUDE_CONFIG_DIR;
+}
+
+function stringifyToolResult(result: unknown): string {
+  return typeof result === "string" ? result : JSON.stringify(result ?? null);
+}
+
+function unwrapConnectorInputSchema(schema: z.ZodTypeAny): z.ZodRawShape {
+  if (schema instanceof z.ZodObject) {
+    return schema.shape;
+  }
+  if (schema instanceof z.ZodEffects) {
+    return unwrapConnectorInputSchema(schema.innerType());
+  }
+  if (schema instanceof z.ZodDefault) {
+    return unwrapConnectorInputSchema(schema.removeDefault());
+  }
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
+    return unwrapConnectorInputSchema(schema.unwrap());
+  }
+  throw new Error("Connector tool parameters must be a Zod object schema");
+}
+
+function createConnectorMcpServer(connectorTools: ConnectorTool[]) {
+  return createSdkMcpServer({
+    name: CONNECTOR_MCP_SERVER,
+    version: "1.0.0",
+    tools: connectorTools.map((connectorTool) =>
+      tool(
+        connectorTool.name,
+        connectorTool.description,
+        unwrapConnectorInputSchema(connectorTool.parameters),
+        async (args) => {
+          const result = await connectorTool.execute(args);
+          return {
+            content: [{ type: "text", text: stringifyToolResult(result) }],
+          };
+        }
+      )
+    ),
+  });
 }
 
 type EnvOverrides = {
@@ -193,9 +238,22 @@ export const claudeAdapter: SdkAdapter = {
 
       try {
         const subagentServer = createSubagentMcpServer();
+        const connectorTools = getConnectorToolsForAgent(params.agent, getConfig());
+        const connectorServer =
+          connectorTools.length > 0
+            ? createConnectorMcpServer(connectorTools)
+            : null;
         const allowedTools = Object.values(SUBAGENT_TOOL_NAMES).map(
           (name) => `mcp__${SUBAGENT_MCP_SERVER}__${name}`
         );
+        if (connectorServer) {
+          allowedTools.push(
+            ...connectorTools.map(
+              (connectorTool) =>
+                `mcp__${CONNECTOR_MCP_SERVER}__${connectorTool.name}`
+            )
+          );
+        }
 
         async function* promptStream() {
           yield {
@@ -230,6 +288,9 @@ export const claudeAdapter: SdkAdapter = {
             permissionMode: "bypassPermissions",
             mcpServers: {
               [SUBAGENT_MCP_SERVER]: subagentServer,
+              ...(connectorServer
+                ? { [CONNECTOR_MCP_SERVER]: connectorServer }
+                : {}),
             },
             allowedTools,
           },

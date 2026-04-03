@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- PRO-199 gateway connector runtime integration is in place on 2026-04-03: startup discovery/validation, per-agent tool loading, and Pi/Claude adapter injection landed in `apps/gateway`.
 - PRO-199 shared connector foundation is in place on 2026-04-03: shared connector contracts, registry, loader, discovery, config schema updates, and unit coverage landed in `packages/shared`.
 - Main repo follow-up on 2026-04-02: `AgentDirectory` no longer force-refetches projects/subagents every 5s; it now refreshes from the existing file/agent websocket feed to avoid visible shell-wide UI churn.
 
@@ -15,6 +16,25 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-03: PRO-199 gateway connector runtime integration
+
+- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/config/validate.ts`, `apps/gateway/src/cli/index.ts`
+  - Added gateway connector initialization with external discovery, startup validation, missing-connector warnings, and required-secret checks.
+  - Wired connector init into gateway startup after secret resolution and before component loading.
+- `apps/gateway/src/sdk/pi/adapter.ts`, `apps/gateway/src/sdk/claude/adapter.ts`, `apps/gateway/package.json`
+  - Injected connector tools into Pi custom tools and Claude MCP tool mounts.
+  - Added Zod-to-JSON-Schema conversion for Pi connector tools.
+- `apps/gateway/src/__tests__/connectors.test.ts`, `apps/gateway/src/config/__tests__/validate.test.ts`
+  - Added gateway connector loading and startup validation coverage.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm exec vitest run apps/gateway/src/__tests__/connectors.test.ts apps/gateway/src/config/__tests__/validate.test.ts`
+  - `pnpm typecheck`
+  - `pnpm lint`
+  - `pnpm build`
+  - `pnpm test -- apps/gateway`
 
 ### 2026-04-03: PRO-199 shared connector foundation
 

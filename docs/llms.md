@@ -28,6 +28,7 @@ Core TypeScript/Node.js application. Exports:
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
+- **Connectors** (`src/connectors/`): Gateway runtime glue that discovers external connectors, validates configured connector mounts, and exposes connector tools to Pi/Claude sessions.
 
 ### apps/web
 
@@ -191,15 +192,21 @@ All stored in `~/.aihub/`:
 
 1. **Config Load**: `loadConfig()` reads `AIHUB_CONFIG` when set, else `~/.aihub/aihub.json`, validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
-   - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
+- Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
+- Startup also initializes connectors from `apps/gateway/src/connectors/index.ts` after secret resolution and before component loading.
    - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
    - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
    - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `~/.aihub/models.json` directly
-3. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
-4. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
-5. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
-6. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
+3. **Connector Init**: Connector registry is rebuilt from built-ins + external `connectors.path`, then configured connector mounts are validated for missing ids/config/secrets.
+4. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
+5. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
+6. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
+7. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
+
+- Connector tools are injected at agent session start.
+- Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
+- Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
 
 ### Modular foundation status
 

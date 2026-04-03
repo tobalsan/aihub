@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import type { SdkAdapter, SdkRunParams, SdkRunResult, HistoryEvent } from "../types.js";
-import { CONFIG_DIR } from "../../config/index.js";
+import { CONFIG_DIR, getConfig } from "../../config/index.js";
 import {
   ensureBootstrapFiles,
   loadBootstrapFiles,
@@ -17,6 +19,7 @@ import {
 } from "../../sessions/store.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { createPiSubagentTools } from "../../subagents/pi_tools.js";
+import { getConnectorToolsForAgent } from "../../connectors/index.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -96,6 +99,29 @@ function extractAssistantText(msg: AssistantMessage): string {
       .join("\n");
   }
   return "";
+}
+
+function stringifyToolResult(result: unknown): string {
+  return typeof result === "string" ? result : JSON.stringify(result ?? null);
+}
+
+function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
+  return getConnectorToolsForAgent(agent, getConfig()).map((tool) => ({
+    name: tool.name,
+    label: tool.description,
+    description: tool.description,
+    parameters: zodToJsonSchema(
+      tool.parameters,
+      `${tool.name}Parameters`
+    ) as unknown as AgentTool["parameters"],
+    execute: async (_toolCallId, params) => {
+      const result = await tool.execute(params);
+      return {
+        content: [{ type: "text", text: stringifyToolResult(result) }],
+        details: result,
+      };
+    },
+  }));
 }
 
 export const piAdapter: SdkAdapter = {
@@ -200,6 +226,7 @@ export const piAdapter: SdkAdapter = {
 
     // Create tools
     const tools = createCodingTools(params.workspaceDir);
+    const connectorTools = createPiConnectorTools(agent);
     const customTools = createPiSubagentTools().map((tool) => ({
       name: tool.name,
       label: tool.label,
@@ -240,7 +267,7 @@ export const piAdapter: SdkAdapter = {
       model,
       ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
       tools,
-      customTools,
+      customTools: [...customTools, ...connectorTools],
       resourceLoader,
       sessionManager,
       settingsManager,

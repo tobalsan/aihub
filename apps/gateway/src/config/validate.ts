@@ -3,6 +3,7 @@ import type {
   GatewayConfig,
   ValidationResult,
 } from "@aihub/shared";
+import { initializeConnectors, validateConfiguredConnectors } from "../connectors/index.js";
 import { resolveConfigSecrets } from "./secrets.js";
 
 function uniqueAgentIdValidation(config: GatewayConfig): ValidationResult {
@@ -81,16 +82,34 @@ export async function validateStartupConfig(
 
 export async function prepareStartupConfig(
   config: GatewayConfig,
-  components: Component[]
+  components: Component[],
+  options?: {
+    resolvedConfig?: GatewayConfig;
+    skipConnectorInitialization?: boolean;
+  }
 ): Promise<{
   resolvedConfig: GatewayConfig;
   summary: { loaded: string[]; skipped: string[] };
 }> {
-  const resolvedConfig = await resolveConfigSecrets(config, config.secrets);
+  const resolvedConfig =
+    options?.resolvedConfig ??
+    (await resolveConfigSecrets(config, config.secrets));
+
+  if (!options?.skipConnectorInitialization) {
+    await initializeConnectors(resolvedConfig);
+  }
+
+  const connectorValidation = validateConfiguredConnectors(resolvedConfig);
+  for (const warning of connectorValidation.warnings) {
+    console.warn(`[connectors] ${warning}`);
+  }
 
   const checks = [
     uniqueAgentIdValidation(resolvedConfig),
-    { valid: true, errors: [] },
+    {
+      valid: connectorValidation.errors.length === 0,
+      errors: connectorValidation.errors,
+    },
     validateComponentConfigs(resolvedConfig, components),
     validateComponentAgentReferences(resolvedConfig),
   ];

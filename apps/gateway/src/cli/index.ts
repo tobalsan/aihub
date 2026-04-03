@@ -16,8 +16,10 @@ import { loadComponents } from "../components/registry.js";
 import {
   prepareStartupConfig,
   logComponentSummary,
+  resolveStartupConfig,
 } from "../config/validate.js";
 import { resolveSecretValue } from "../config/secrets.js";
+import { initializeConnectors } from "../connectors/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -234,10 +236,16 @@ program
   .action(async (opts) => {
     try {
       const rawConfig = loadConfig();
-      const components = await loadComponents(rawConfig);
+      const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
+      await initializeConnectors(resolvedStartupConfig);
+      const components = await loadComponents(resolvedStartupConfig);
       const { resolvedConfig: config, summary } = await prepareStartupConfig(
         rawConfig,
-        components
+        components,
+        {
+          resolvedConfig: resolvedStartupConfig,
+          skipConnectorInitialization: true,
+        }
       );
       logComponentSummary(summary);
       setLoadedConfig(config);
