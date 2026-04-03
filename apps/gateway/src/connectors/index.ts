@@ -33,7 +33,9 @@ function registerBuiltInConnectors(): void {
   // Built-in connectors land in follow-up work.
 }
 
-export async function initializeConnectors(config: GatewayConfig): Promise<void> {
+export async function initializeConnectors(
+  config: GatewayConfig
+): Promise<void> {
   clearConnectors();
   registerBuiltInConnectors();
   await discoverExternalConnectors(resolveConnectorsPath(config));
@@ -133,6 +135,33 @@ export function getConnectorToolsForAgent(
         globalConnectorsConfig,
         agentConnectorsConfig
       );
+    }
+  );
+}
+
+export function getConnectorPromptsForAgent(
+  agentConfig: AgentConfig,
+  gatewayConfig: GatewayConfig
+): string[] {
+  const agentConnectorsConfig = toRecord(agentConfig.connectors);
+  void gatewayConfig;
+
+  return Object.entries(agentConnectorsConfig).flatMap(
+    ([connectorId, rawAgentEntry]) => {
+      const agentEntry = toRecord(rawAgentEntry);
+      if (agentEntry.enabled === false) {
+        return [];
+      }
+
+      const connector = getConnector(connectorId);
+      if (
+        !connector?.systemPrompt ||
+        connector.systemPrompt.trim().length === 0
+      ) {
+        return [];
+      }
+
+      return [connector.systemPrompt];
     }
   );
 }

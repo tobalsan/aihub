@@ -6,11 +6,21 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import type { ClaudeUserContent, QueryFunction, SDKMessage } from "./types.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
-import { getClaudeSessionId, setClaudeSessionId } from "../../sessions/claude.js";
+import {
+  getClaudeSessionId,
+  setClaudeSessionId,
+} from "../../sessions/claude.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
-import { createSubagentMcpServer, SUBAGENT_MCP_SERVER, SUBAGENT_TOOL_NAMES } from "../../subagents/claude_tools.js";
+import {
+  createSubagentMcpServer,
+  SUBAGENT_MCP_SERVER,
+  SUBAGENT_TOOL_NAMES,
+} from "../../subagents/claude_tools.js";
 import { CONFIG_DIR, getConfig } from "../../config/index.js";
-import { getConnectorToolsForAgent } from "../../connectors/index.js";
+import {
+  getConnectorPromptsForAgent,
+  getConnectorToolsForAgent,
+} from "../../connectors/index.js";
 import type { ConnectorTool } from "@aihub/shared";
 
 // Module-level lock for serializing runs that modify env vars
@@ -230,15 +240,30 @@ export const claudeAdapter: SdkAdapter = {
       }
 
       // Emit user message to history (without context preamble)
-      params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
+      params.onHistoryEvent({
+        type: "user",
+        text: params.message,
+        timestamp: Date.now(),
+      });
 
       // Look up existing Claude session for resumption (only if model matches)
       const requestedModel = params.agent.model.model;
-      const existingClaudeSessionId = getClaudeSessionId(params.agentId, params.sessionId, requestedModel);
+      const existingClaudeSessionId = getClaudeSessionId(
+        params.agentId,
+        params.sessionId,
+        requestedModel
+      );
 
       try {
         const subagentServer = createSubagentMcpServer();
-        const connectorTools = getConnectorToolsForAgent(params.agent, getConfig());
+        const connectorTools = getConnectorToolsForAgent(
+          params.agent,
+          getConfig()
+        );
+        const connectorPrompts = getConnectorPromptsForAgent(
+          params.agent,
+          getConfig()
+        );
         const connectorServer =
           connectorTools.length > 0
             ? createConnectorMcpServer(connectorTools)
@@ -262,6 +287,12 @@ export const claudeAdapter: SdkAdapter = {
           };
         }
 
+        const baseAppend =
+          "Always start by using the Read tool to read file AGENTS.md. At the start of every new session, begin with '٩(◕‿◕｡)۶ '";
+        const appendPrompt = [baseAppend, ...connectorPrompts]
+          .filter(Boolean)
+          .join("\n\n");
+
         // Query the Claude Agent SDK
         const conversation = query({
           prompt: promptStream(),
@@ -271,10 +302,10 @@ export const claudeAdapter: SdkAdapter = {
             // Use Claude Code's built-in tools
             tools: { type: "preset", preset: "claude_code" },
             // Use Claude Code's system prompt
-            systemPrompt: { 
-              type: "preset", 
+            systemPrompt: {
+              type: "preset",
               preset: "claude_code",
-              append: "Always start by using the Read tool to read file AGENTS.md. At the start of every new session, begin with '٩(◕‿◕｡)۶ '"
+              append: appendPrompt,
             },
             // Load settings from user (~/.claude/) and project (.claude/)
             settingSources: ["user", "project"],
@@ -309,7 +340,9 @@ export const claudeAdapter: SdkAdapter = {
             // This ensures proper separation when Claude outputs multiple text blocks
             // (e.g., text -> tool -> text should have newlines between text sections)
             if (event.type === "content_block_start") {
-              const contentBlock = (event as { content_block?: { type?: string } }).content_block;
+              const contentBlock = (
+                event as { content_block?: { type?: string } }
+              ).content_block;
               if (contentBlock?.type === "text" && assistantText.length > 0) {
                 // Add newline to separate from previous content
                 if (!assistantText.endsWith("\n")) {
@@ -337,7 +370,12 @@ export const claudeAdapter: SdkAdapter = {
                 if (block.type === "tool_use" && block.id && block.name) {
                   toolIdToName.set(block.id, block.name);
                   params.onEvent({ type: "tool_start", toolName: block.name });
-                  params.onEvent({ type: "tool_call", id: block.id, name: block.name, arguments: block.input });
+                  params.onEvent({
+                    type: "tool_call",
+                    id: block.id,
+                    name: block.name,
+                    arguments: block.input,
+                  });
                   params.onHistoryEvent({
                     type: "tool_call",
                     id: block.id,
@@ -352,7 +390,10 @@ export const claudeAdapter: SdkAdapter = {
                     text: block.thinking,
                     timestamp: Date.now(),
                   });
-                } else if (block.type === "text" && typeof block.text === "string") {
+                } else if (
+                  block.type === "text" &&
+                  typeof block.text === "string"
+                ) {
                   textBlocks.push(block.text);
                 }
               }
@@ -370,10 +411,13 @@ export const claudeAdapter: SdkAdapter = {
                 usage: {
                   input: apiMessage.usage.input_tokens,
                   output: apiMessage.usage.output_tokens,
-                  cacheRead: apiMessage.usage.cache_read_input_tokens ?? undefined,
-                  cacheWrite: apiMessage.usage.cache_creation_input_tokens ?? undefined,
+                  cacheRead:
+                    apiMessage.usage.cache_read_input_tokens ?? undefined,
+                  cacheWrite:
+                    apiMessage.usage.cache_creation_input_tokens ?? undefined,
                   totalTokens:
-                    apiMessage.usage.input_tokens + apiMessage.usage.output_tokens,
+                    apiMessage.usage.input_tokens +
+                    apiMessage.usage.output_tokens,
                 },
                 stopReason: apiMessage.stop_reason ?? undefined,
                 timestamp: Date.now(),
@@ -387,7 +431,8 @@ export const claudeAdapter: SdkAdapter = {
             if (apiMessage.content) {
               for (const block of apiMessage.content) {
                 if (block.type === "tool_result") {
-                  const toolName = toolIdToName.get(block.tool_use_id) ?? block.tool_use_id;
+                  const toolName =
+                    toolIdToName.get(block.tool_use_id) ?? block.tool_use_id;
                   const content =
                     typeof block.content === "string"
                       ? block.content
@@ -425,8 +470,17 @@ export const claudeAdapter: SdkAdapter = {
           }
 
           // Handle system init message to capture session_id
-          if (message.type === "system" && message.subtype === "init" && message.session_id) {
-            await setClaudeSessionId(params.agentId, params.sessionId, message.session_id, requestedModel);
+          if (
+            message.type === "system" &&
+            message.subtype === "init" &&
+            message.session_id
+          ) {
+            await setClaudeSessionId(
+              params.agentId,
+              params.sessionId,
+              message.session_id,
+              requestedModel
+            );
           }
         }
       } catch (err) {

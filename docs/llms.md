@@ -194,11 +194,13 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 
 1. **Config Load**: `loadConfig()` reads `--config`/explicit file paths when provided, else `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
+
 - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
 - Startup also initializes connectors from `apps/gateway/src/connectors/index.ts` after secret resolution and before component loading.
-   - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
-   - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
-   - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
+  - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
+  - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
+  - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
+
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `AIHUB_HOME/models.json`
 3. **Connector Init**: Connector registry is rebuilt from built-ins + external `connectors.path`, then configured connector mounts are validated once during initialization for missing ids/config/secrets.
 4. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
@@ -209,6 +211,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - Connector tools are injected at agent session start.
 - Connector tool parameter schemas are object-only Zod schemas.
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
+- Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.

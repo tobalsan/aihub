@@ -24,7 +24,10 @@ import {
 } from "../../sessions/store.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { createPiSubagentTools } from "../../subagents/pi_tools.js";
-import { getConnectorToolsForAgent } from "../../connectors/index.js";
+import {
+  getConnectorPromptsForAgent,
+  getConnectorToolsForAgent,
+} from "../../connectors/index.js";
 import { getLoadedComponents } from "../../components/registry.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
@@ -297,6 +300,10 @@ export const piAdapter: SdkAdapter = {
           "- subagent.interrupt { projectId, slug }",
         ].join("\n")
       : undefined;
+    const connectorPrompts = getConnectorPromptsForAgent(agent, getConfig());
+    const allAppendedPrompts =
+      [subagentToolPrompt, ...connectorPrompts].filter(Boolean).join("\n\n") ||
+      undefined;
 
     const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
     const settingsManager = SettingsManager.create(
@@ -307,7 +314,7 @@ export const piAdapter: SdkAdapter = {
       cwd: params.workspaceDir,
       agentDir: CONFIG_DIR,
       settingsManager,
-      appendSystemPrompt: subagentToolPrompt,
+      appendSystemPrompt: allAppendedPrompts,
       agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
     });
     await resourceLoader.reload();

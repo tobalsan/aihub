@@ -17,6 +17,7 @@ export interface ConnectorDefinition {
   id: string;
   displayName: string;
   description: string;
+  systemPrompt?: string;
   configSchema: z.ZodTypeAny;
   agentConfigSchema?: z.ZodTypeAny;
   requiredSecrets: string[];
@@ -36,9 +37,12 @@ export const ZodSchemaSchema = z.custom<z.ZodTypeAny>(isZodSchema, {
   message: "Expected Zod schema",
 });
 
-export const ZodObjectSchemaSchema = z.custom<z.AnyZodObject>(isZodObjectSchema, {
-  message: "Expected Zod object schema",
-});
+export const ZodObjectSchemaSchema = z.custom<z.AnyZodObject>(
+  isZodObjectSchema,
+  {
+    message: "Expected Zod object schema",
+  }
+);
 
 export const ResolvedConnectorConfigSchema = z.object({
   global: z.record(z.string(), z.unknown()),
@@ -57,6 +61,7 @@ export const ConnectorDefinitionSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   description: z.string(),
+  systemPrompt: z.string().optional(),
   configSchema: ZodSchemaSchema,
   agentConfigSchema: ZodSchemaSchema.optional(),
   requiredSecrets: z.array(z.string()),

@@ -104,6 +104,7 @@ Connectors are config-driven, stateless tool bundles mounted per agent.
 - `agent.connectors.<id>` enables a connector for that agent and can override connector-specific config.
 - Shared connector framework exports live in `packages/shared/src/connectors`.
 - Gateway startup resolves connector secrets, discovers external connectors, validates configured mounts once during connector initialization, warns on missing connector ids, and fails early on invalid config or missing required connector secrets.
+- Connectors can optionally ship `systemPrompt` guidance; when the connector is enabled for an agent, that text is appended to the agent system prompt automatically.
 - Connector tool `parameters` must be Zod object schemas so Pi JSON Schema conversion and Claude MCP mounting share one contract.
 - Pi agents receive connector tools as custom tools; Claude agents receive them through an in-process MCP server.
 

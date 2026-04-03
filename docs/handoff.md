@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-03 PRO-206 scope 1 landed: connector definitions now support optional `systemPrompt`, gateway exposes `getConnectorPromptsForAgent()`, and both Pi/Claude adapters append enabled connector guidance into their system prompts.
 - 2026-04-03 follow-up: Pi adapter now only mounts subagent tools and appends the `Additional tools` system-prompt block when the `projects` component is actually loaded. Non-project setups no longer advertise unavailable subagent capabilities in Pi system prompt/tooling.
 - 2026-04-03 follow-up: ChatView no longer reloads history on every `isStreaming` transition. That fixes silent failed sends where the optimistic user message disappeared and no inline error remained; full-mode chat now appends error text on stream failure too.
 - 2026-04-03 follow-up: gateway now logs all agent run failures from the shared runner catch, not just Pi post-prompt `stopReason:error` failures. This covers config/model-resolution errors like missing custom provider models.
@@ -20,6 +21,22 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-03: PRO-206 connector tool knowledge injection scope 1
+
+- `packages/shared/src/connectors/types.ts`
+  - Added optional connector-level `systemPrompt` to the shared connector contract and runtime schema.
+- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/connectors/index.test.ts`
+  - Added `getConnectorPromptsForAgent()` and focused coverage for enabled/disabled/no-prompt/no-config cases.
+- `apps/gateway/src/sdk/pi/adapter.ts`, `apps/gateway/src/sdk/claude/adapter.ts`
+  - Appended enabled connector prompt guidance into both adapter system prompts alongside existing built-in prompt additions.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- apps/gateway/src/connectors/index.test.ts`
+  - `pnpm test -- apps/gateway`
+  - `pnpm lint`
+  - `pnpm typecheck`
 
 ### 2026-04-03: PRO-199 connector review fixes
 
