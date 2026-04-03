@@ -41,6 +41,14 @@ export function loadConfig(): GatewayConfig {
     }
   }
 
+  if (result.secrets?.provider === "onecli") {
+    console.warn(
+      '[config] DEPRECATED: secrets.provider="onecli" treats OneCLI as a secret lookup API. ' +
+        'Use the new "onecli" config section for native gateway/proxy integration instead. ' +
+        "See docs for migration guide."
+    );
+  }
+
   // Apply env vars from config (only if not already set in process.env)
   if (result.env) {
     for (const [key, value] of Object.entries(result.env)) {

@@ -274,6 +274,28 @@ export const SecretsConfigSchema = z.object({
 });
 export type SecretsConfig = z.infer<typeof SecretsConfigSchema>;
 
+export const OnecliCaConfigSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("file"), path: z.string().min(1) }),
+  z.object({ source: z.literal("system") }),
+]);
+export type OnecliCaConfig = z.infer<typeof OnecliCaConfigSchema>;
+
+export const OnecliAgentConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  gatewayToken: z.string().min(1),
+});
+export type OnecliAgentConfig = z.infer<typeof OnecliAgentConfigSchema>;
+
+export const OnecliConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  mode: z.literal("proxy").default("proxy"),
+  dashboardUrl: z.string().url().optional(),
+  gatewayUrl: z.string().url(),
+  ca: OnecliCaConfigSchema.optional(),
+  agents: z.record(z.string(), OnecliAgentConfigSchema).optional(),
+});
+export type OnecliConfig = z.infer<typeof OnecliConfigSchema>;
+
 export const ComponentBaseConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -369,6 +391,7 @@ export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
   secrets: SecretsConfigSchema.optional(),
+  onecli: OnecliConfigSchema.optional(),
   connectors: ConnectorsGlobalConfigSchema.optional(),
   components: ComponentsConfigSchema,
   server: z

@@ -35,6 +35,7 @@ Config also has a top-level `connectors` map plus per-agent `agent.connectors` o
 Startup now resolves `$env:` and `$secret:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
+OneCLI now has a dedicated top-level `onecli` config section for native proxy/gateway wiring. The old `secrets.provider="onecli"` path still exists only as a deprecated secret-lookup compatibility path and logs warnings at config load and secret resolution time.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
@@ -109,6 +110,31 @@ Connectors are config-driven, stateless tool bundles mounted per agent.
 - Connectors can optionally ship `systemPrompt` guidance; when the connector is enabled for an agent, that text is appended to the agent system prompt automatically.
 - Connector tool `parameters` must be Zod object schemas so Pi JSON Schema conversion and Claude MCP mounting share one contract.
 - Pi agents receive connector tools as custom tools; Claude agents receive them through an in-process MCP server.
+
+### OneCLI
+
+Use top-level `onecli` for native gateway/proxy config:
+
+```json
+{
+  "onecli": {
+    "enabled": true,
+    "gatewayUrl": "http://localhost:10255",
+    "dashboardUrl": "http://localhost:10254",
+    "mode": "proxy",
+    "ca": { "source": "file", "path": "~/.onecli/gateway/ca.pem" },
+    "agents": {
+      "my-agent": { "gatewayToken": "$env:ONECLI_MY_AGENT_TOKEN" }
+    }
+  }
+}
+```
+
+- `gatewayUrl` is required when `onecli` is configured.
+- `mode` currently supports only `"proxy"`.
+- `ca.source="file"` is used to propagate the same CA path to Node and Python trust env vars.
+- `agents.<id>.gatewayToken` is the per-agent proxy token source.
+- `secrets.provider="onecli"` is deprecated and models the wrong integration pattern.
 
 ## Starting the app
 

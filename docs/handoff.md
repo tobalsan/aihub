@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, gateway config loading warns on deprecated `secrets.provider="onecli"`, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
 - 2026-04-03 follow-up: `aihub send` now resolves startup config and initializes connectors before running an agent, so connector tools/system prompts are available on the standalone CLI path and connector config errors fail early there too.
 - 2026-04-03 follow-up: external connector discovery now follows symlinked connector directories too, which fixes setups that mount built connector bundles into `$AIHUB_HOME/connectors` via symlink.
 - 2026-04-03 follow-up: external connector auto-discovery now defaults to `$AIHUB_HOME/connectors` instead of hard-coding `~/.aihub/connectors`, so connector system-prompt/tool injection works when running against a custom config home.
@@ -24,6 +25,23 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-03: PRO-208 OneCLI Phase 1 foundation
+
+- `packages/shared/src/types.ts`, `apps/gateway/src/config/onecli.ts`
+  - Added `OnecliCaConfigSchema`, `OnecliAgentConfigSchema`, `OnecliConfigSchema`, and top-level `GatewayConfigSchema.onecli`.
+  - Added `buildOnecliEnv(config, agentId)` to derive proxy env vars plus optional CA trust env vars from resolved gateway config.
+- `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/secrets.ts`
+  - Added deprecation warnings for legacy `secrets.provider="onecli"` config-time and runtime secret lookup usage.
+- `apps/gateway/src/config/__tests__/onecli.test.ts`
+  - Added coverage for env builder null/enabled/token/CA cases and OneCLI schema defaults/validation.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- apps/gateway/src/config`
+  - `pnpm exec vitest run apps/gateway/src/config/__tests__/onecli.test.ts apps/gateway/src/config/__tests__/secrets.test.ts apps/gateway/src/config/__tests__/index.test.ts apps/gateway/src/config/__tests__/validate.test.ts apps/gateway/src/config/config.test.ts apps/gateway/src/config/__tests__/migrate.test.ts`
+  - `pnpm typecheck`
+  - `pnpm exec eslint packages/shared/src/types.ts apps/gateway/src/config/index.ts apps/gateway/src/config/secrets.ts apps/gateway/src/config/onecli.ts apps/gateway/src/config/__tests__/onecli.test.ts`
 
 ### 2026-04-03: PRO-206 connector tool knowledge injection scope 1
 

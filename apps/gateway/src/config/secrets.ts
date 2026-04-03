@@ -16,6 +16,11 @@ export async function resolveSecretValue(
       );
     }
 
+    console.warn(
+      `[secrets] DEPRECATED: Resolving secret "${name}" via OneCLI secret lookup. ` +
+        "This will be removed in a future version. Migrate to native OneCLI proxy integration."
+    );
+
     const response = await fetch(
       `${secretsConfig.gatewayUrl.replace(/\/$/, "")}/secrets/${name}`
     );
