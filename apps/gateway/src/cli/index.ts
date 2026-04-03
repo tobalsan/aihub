@@ -286,14 +286,14 @@ program
         webProcess = startWebUI(config.ui ?? {}, actualPort);
       }
 
+      const componentContext = createComponentContext(config, rawConfig);
+      for (const component of components) {
+        await component.start(componentContext);
+      }
+
       // In dev mode, skip external services and show banner
       if (opts.dev) {
         printDevBanner(actualPort, uiEnabled ? uiPort : null);
-      } else {
-        const componentContext = createComponentContext(config, rawConfig);
-        for (const component of components) {
-          await component.start(componentContext);
-        }
       }
 
       // Handle shutdown
@@ -304,10 +304,8 @@ program
         if (tailscaleServeEnabled && tailscaleServeResetOnExit) {
           resetTailscaleServe();
         }
-        if (!opts.dev) {
-          for (const component of [...components].reverse()) {
-            await component.stop();
-          }
+        for (const component of [...components].reverse()) {
+          await component.stop();
         }
         process.exit(0);
       };
