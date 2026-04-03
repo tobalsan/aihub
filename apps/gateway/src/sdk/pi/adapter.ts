@@ -314,11 +314,14 @@ export const piAdapter: SdkAdapter = {
     const globalSkillsDir = path.join(os.homedir(), ".agents", "skills");
     const includeGlobalSkills = agent.globalSkills === true;
 
+    const workspaceSkillsDir = path.join(params.workspaceDir, "skills");
+
     const resourceLoader = new DefaultResourceLoader({
       cwd: params.workspaceDir,
       agentDir: CONFIG_DIR,
       settingsManager,
       appendSystemPrompt: allAppendedPrompts,
+      additionalSkillPaths: [workspaceSkillsDir],
       agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
       ...(!includeGlobalSkills && {
         skillsOverride: (result) => ({
