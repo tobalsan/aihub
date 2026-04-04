@@ -31,7 +31,10 @@ const isZodSchema = (value: unknown): value is z.ZodTypeAny =>
   typeof value.safeParse === "function";
 
 const isZodObjectSchema = (value: unknown): value is z.AnyZodObject =>
-  isZodSchema(value) && value instanceof z.ZodObject;
+  isZodSchema(value) &&
+  typeof (value as { _def?: { typeName?: string } })._def?.typeName ===
+    "string" &&
+  (value as { _def: { typeName: string } })._def.typeName === "ZodObject";
 
 export const ZodSchemaSchema = z.custom<z.ZodTypeAny>(isZodSchema, {
   message: "Expected Zod schema",
