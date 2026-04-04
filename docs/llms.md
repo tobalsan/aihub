@@ -29,6 +29,7 @@ Core TypeScript/Node.js application. Exports:
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
 - **Connectors** (`src/connectors/`): Gateway runtime glue that discovers external connectors, validates configured connector mounts, and exposes connector tools to Pi/Claude sessions.
+  - `src/connectors/http-client.ts` provides a connector-scoped fetch wrapper that can temporarily inject OneCLI proxy + CA env vars for outbound connector HTTP requests.
 
 ### apps/web
 
@@ -169,10 +170,16 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)
-  secrets?: {
-    provider?: "onecli",
-    gatewayUrl?: string,
-    agents?: Record<string, { token: string }>
+  onecli?: {
+    enabled?: boolean,                // Default: false
+    mode?: "proxy",                   // Default: "proxy"
+    dashboardUrl?: string,
+    gatewayUrl: string,
+    ca?: { source: "file", path: string } | { source: "system" },
+    agents?: Record<string, {
+      enabled?: boolean,              // Default: true
+      gatewayToken: string
+    }>
   },
   components?: {
     discord?: { enabled?, token, channels?, dm?, historyLimit?, replyToMode? },
@@ -189,6 +196,13 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
   // Note: tailscale.mode=serve requires gateway.bind and ui.bind to be loopback
 }
 ```
+
+OneCLI notes:
+
+- Use top-level `onecli` for native gateway/proxy wiring.
+- Native OneCLI mode routes traffic through the OneCLI gateway with `HTTP_PROXY`/`HTTPS_PROXY`.
+- `onecli.agents.<id>.gatewayToken` is per-agent and should usually resolve from `$env:...`.
+- `onecli.ca` controls CA trust propagation for TLS interception.
 
 ## Agent Runtime Flow
 
@@ -216,6 +230,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
+- When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
+- Connector HTTP calls can opt into `apps/gateway/src/connectors/http-client.ts`, which applies the same scoped OneCLI proxy/token/CA wiring per request.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status

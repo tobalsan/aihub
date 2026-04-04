@@ -5,6 +5,9 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path is removed. Config/runtime/docs now only support native top-level `onecli` proxy wiring plus `$env:` config refs. Current status: Phase 3 cleanup complete; remaining follow-up is CA file existence validation in schema.
+- 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
+- 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
 - 2026-04-03 follow-up: `aihub send` now resolves startup config and initializes connectors before running an agent, so connector tools/system prompts are available on the standalone CLI path and connector config errors fail early there too.
 - 2026-04-03 follow-up: external connector discovery now follows symlinked connector directories too, which fixes setups that mount built connector bundles into `$AIHUB_HOME/connectors` via symlink.
 - 2026-04-03 follow-up: external connector auto-discovery now defaults to `$AIHUB_HOME/connectors` instead of hard-coding `~/.aihub/connectors`, so connector system-prompt/tool injection works when running against a custom config home.
@@ -24,6 +27,47 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-04: PRO-208 adapter wiring + docs update
+
+- `apps/gateway/src/sdk/claude/adapter.ts`, `apps/gateway/src/sdk/pi/adapter.ts`
+  - Claude and Pi runs now apply scoped OneCLI proxy env vars and CA trust env vars from the native `onecli` config and restore prior process env after each run.
+- Docs:
+  - Updated `README.md` and `docs/llms.md` to describe native `onecli` as the primary gateway/proxy integration path, per-agent gateway tokens, CA trust wiring, adapter support, and connector HTTP client support.
+- Status:
+  - Phase 1 foundation complete.
+  - Phase 2 adapter/runtime plumbing complete.
+  - Remaining follow-up: migrate concrete connectors onto the shared HTTP client where needed, then remove the deprecated secret lookup path in Phase 3.
+
+### 2026-04-04: PRO-208 connector HTTP client factory
+
+- `apps/gateway/src/connectors/http-client.ts`
+  - Added `createHttpClient()` for connector-scoped `fetch()` calls with optional default headers and timeout handling.
+  - OneCLI-enabled clients temporarily inject proxy env vars, embed per-client gateway token into the proxy URL, propagate CA trust env vars, and restore the previous process env after each request.
+  - Serialized OneCLI-wrapped requests with a module-level env lock so concurrent connector calls do not cross-contaminate proxy env state.
+- `apps/gateway/src/connectors/__tests__/http-client.test.ts`
+  - Added coverage for plain fetch passthrough, scoped proxy env mutation/restoration, tokenized proxy URLs, CA env propagation, and header/timeout merging.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- apps/gateway/src/connectors`
+  - `pnpm typecheck`
+  - `pnpm exec eslint apps/gateway/src/connectors/http-client.ts apps/gateway/src/connectors/__tests__/http-client.test.ts`
+
+### 2026-04-03: PRO-208 OneCLI Phase 1 foundation
+
+- `packages/shared/src/types.ts`, `apps/gateway/src/config/onecli.ts`
+  - Added `OnecliCaConfigSchema`, `OnecliAgentConfigSchema`, `OnecliConfigSchema`, and top-level `GatewayConfigSchema.onecli`.
+  - Added `buildOnecliEnv(config, agentId)` to derive proxy env vars plus optional CA trust env vars from resolved gateway config.
+- `apps/gateway/src/config/__tests__/onecli.test.ts`
+  - Added coverage for env builder null/enabled/token/CA cases and OneCLI schema defaults/validation.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm test -- apps/gateway/src/config`
+  - `pnpm exec vitest run apps/gateway/src/config/__tests__/onecli.test.ts apps/gateway/src/config/__tests__/secrets.test.ts apps/gateway/src/config/__tests__/index.test.ts apps/gateway/src/config/__tests__/validate.test.ts apps/gateway/src/config/config.test.ts apps/gateway/src/config/__tests__/migrate.test.ts`
+  - `pnpm typecheck`
+  - `pnpm exec eslint packages/shared/src/types.ts apps/gateway/src/config/index.ts apps/gateway/src/config/secrets.ts apps/gateway/src/config/onecli.ts apps/gateway/src/config/__tests__/onecli.test.ts`
 
 ### 2026-04-03: PRO-206 connector tool knowledge injection scope 1
 

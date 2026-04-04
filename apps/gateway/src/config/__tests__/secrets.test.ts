@@ -24,27 +24,10 @@ describe("secret resolution", () => {
     );
   });
 
-  it("errors when onecli is not configured", async () => {
+  it("errors when secret refs use removed legacy lookup", async () => {
     await expect(resolveSecretValue("$secret:discord_bot")).rejects.toThrow(
-      'Secret "discord_bot" requires secrets.provider="onecli" with gatewayUrl'
+      'Secret "discord_bot" uses removed $secret: resolution. Use $env:discord_bot or native top-level onecli proxy config instead.'
     );
-  });
-
-  it("resolves onecli secret refs", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ value: "discord-token" }),
-      }))
-    );
-
-    await expect(
-      resolveSecretValue("$secret:discord_bot", {
-        provider: "onecli",
-        gatewayUrl: "http://localhost:10255/",
-      })
-    ).resolves.toBe("discord-token");
   });
 
   it("walks nested config objects", async () => {

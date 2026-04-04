@@ -3,25 +3,12 @@ import {
   CapabilitiesResponseSchema,
   ComponentsConfigSchema,
   DiscordComponentConfigSchema,
-  SecretsConfigSchema,
   type Component,
   type ComponentContext,
   type ValidationResult,
 } from "../types.js";
 
 describe("component config schemas", () => {
-  it("parses secrets config", () => {
-    const result = SecretsConfigSchema.parse({
-      provider: "onecli",
-      gatewayUrl: "http://localhost:10255",
-      agents: {
-        main: { token: "oc_tok_main" },
-      },
-    });
-
-    expect(result.agents?.main?.token).toBe("oc_tok_main");
-  });
-
   it("parses discord component config", () => {
     const result = DiscordComponentConfigSchema.parse({
       token: "$env:DISCORD_TOKEN",

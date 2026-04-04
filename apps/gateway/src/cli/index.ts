@@ -18,7 +18,6 @@ import {
   logComponentSummary,
   resolveStartupConfig,
 } from "../config/validate.js";
-import { resolveSecretValue } from "../config/secrets.js";
 import { initializeConnectors } from "../connectors/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,12 +146,13 @@ function getApiBaseUrl(): string {
 }
 
 function createComponentContext(
-  resolvedConfig: ReturnType<typeof loadConfig>,
-  rawConfig: ReturnType<typeof loadConfig>
+  resolvedConfig: ReturnType<typeof loadConfig>
 ) {
   return {
     resolveSecret: async (name: string) => {
-      return resolveSecretValue(`$secret:${name}`, rawConfig.secrets);
+      throw new Error(
+        `Component secret "${name}" uses removed $secret: resolution. Use $env:... refs in component config or native top-level onecli proxy config instead.`
+      );
     },
     getAgent,
     getAgents,
@@ -286,7 +286,7 @@ program
         webProcess = startWebUI(config.ui ?? {}, actualPort);
       }
 
-      const componentContext = createComponentContext(config, rawConfig);
+      const componentContext = createComponentContext(config);
       for (const component of components) {
         await component.start(componentContext);
       }

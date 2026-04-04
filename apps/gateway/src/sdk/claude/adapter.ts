@@ -17,6 +17,7 @@ import {
   SUBAGENT_TOOL_NAMES,
 } from "../../subagents/claude_tools.js";
 import { CONFIG_DIR, getConfig } from "../../config/index.js";
+import { buildOnecliEnv, type OnecliEnv } from "../../config/onecli.js";
 import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
@@ -76,11 +77,20 @@ function createConnectorMcpServer(connectorTools: ConnectorTool[]) {
 type EnvOverrides = {
   base_url?: string;
   auth_token?: string;
+  onecliEnv?: OnecliEnv;
 };
 
-function getEnvOverrides(model: AgentModelConfig): EnvOverrides | null {
-  if (!model.base_url && !model.auth_token) return null;
-  return { base_url: model.base_url, auth_token: model.auth_token };
+function getEnvOverrides(
+  model: AgentModelConfig,
+  agentId: string
+): EnvOverrides | null {
+  const onecliEnv = buildOnecliEnv(getConfig(), agentId);
+  if (!model.base_url && !model.auth_token && !onecliEnv) return null;
+  return {
+    base_url: model.base_url,
+    auth_token: model.auth_token,
+    onecliEnv: onecliEnv ?? undefined,
+  };
 }
 
 async function withClaudeEnv<T>(
@@ -113,6 +123,14 @@ async function withClaudeEnv<T>(
       savedEnv.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
       process.env.ANTHROPIC_AUTH_TOKEN = overrides.auth_token;
     }
+    if (overrides.onecliEnv) {
+      for (const [key, value] of Object.entries(overrides.onecliEnv)) {
+        if (value !== undefined) {
+          savedEnv[key] = process.env[key];
+          process.env[key] = value;
+        }
+      }
+    }
 
     return await fn();
   } finally {
@@ -144,7 +162,7 @@ export const claudeAdapter: SdkAdapter = {
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
     ensureClaudeConfigDir();
-    const envOverrides = getEnvOverrides(params.agent.model);
+    const envOverrides = getEnvOverrides(params.agent.model, params.agentId);
 
     // Ensure bootstrap files exist (AGENTS.md, SOUL.md, etc.)
     await ensureBootstrapFiles(params.workspaceDir);

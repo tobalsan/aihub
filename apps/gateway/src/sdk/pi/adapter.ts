@@ -14,6 +14,7 @@ import type {
   HistoryEvent,
 } from "../types.js";
 import { CONFIG_DIR, getConfig } from "../../config/index.js";
+import { buildOnecliEnv } from "../../config/onecli.js";
 import {
   ensureBootstrapFiles,
   loadBootstrapFiles,
@@ -32,6 +33,7 @@ import {
 import { getLoadedComponents } from "../../components/registry.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
+let piEnvLock: Promise<void> = Promise.resolve();
 
 async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
@@ -161,6 +163,42 @@ function hasProjectsComponentEnabled(): boolean {
   return getLoadedComponents().some((component) => component.id === "projects");
 }
 
+async function withPiOnecliEnv<T>(
+  agentId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const env = buildOnecliEnv(getConfig(), agentId);
+  if (!env) return fn();
+
+  const prevLock = piEnvLock;
+  let releaseLock: () => void;
+  piEnvLock = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+
+  await prevLock;
+
+  const saved: Record<string, string | undefined> = {};
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) continue;
+      saved[key] = process.env[key];
+      process.env[key] = value;
+    }
+
+    return await fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    releaseLock!();
+  }
+}
+
 export const piAdapter: SdkAdapter = {
   id: "pi",
   displayName: "Pi Agent",
@@ -176,391 +214,392 @@ export const piAdapter: SdkAdapter = {
   },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
-    const sessionFile = await resolveSessionFile(
-      params.agentId,
-      params.sessionId
-    );
-
-    // Ensure bootstrap files exist
-    await ensureBootstrapFiles(params.workspaceDir);
-
-    // Dynamically import pi-coding-agent
-    const {
-      createAgentSession,
-      SessionManager,
-      SettingsManager,
-      AuthStorage,
-      ModelRegistry,
-      DefaultResourceLoader,
-      createCodingTools,
-    } = await import("@mariozechner/pi-coding-agent");
-    const { getEnvApiKey } = await import("@mariozechner/pi-ai");
-
-    // Resolve model
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
-
-    // Get agent config to resolve model
-    const { getAgent } = await import("../../config/index.js");
-    const agent = getAgent(params.agentId);
-    if (!agent) {
-      throw new Error(`Agent not found: ${params.agentId}`);
-    }
-
-    const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
-    const modelRegistry = ModelRegistry.create(
-      authStorage,
-      path.join(CONFIG_DIR, "models.json")
-    );
-    if (!agent.model.provider) {
-      throw new Error(
-        `Pi SDK requires model.provider to be set for agent: ${agent.id}`
+    return withPiOnecliEnv(params.agentId, async () => {
+      const sessionFile = await resolveSessionFile(
+        params.agentId,
+        params.sessionId
       );
-    }
-    const model = modelRegistry.find(agent.model.provider, agent.model.model);
 
-    if (!model) {
-      throw new Error(
-        `Model not found: ${agent.model.provider}/${agent.model.model}`
+      // Ensure bootstrap files exist
+      await ensureBootstrapFiles(params.workspaceDir);
+
+      // Dynamically import pi-coding-agent
+      const {
+        createAgentSession,
+        SessionManager,
+        SettingsManager,
+        AuthStorage,
+        ModelRegistry,
+        DefaultResourceLoader,
+        createCodingTools,
+      } = await import("@mariozechner/pi-coding-agent");
+      const { getEnvApiKey } = await import("@mariozechner/pi-ai");
+
+      // Resolve model
+      await fs.mkdir(CONFIG_DIR, { recursive: true });
+
+      // Get agent config to resolve model
+      const { getAgent } = await import("../../config/index.js");
+      const agent = getAgent(params.agentId);
+      if (!agent) {
+        throw new Error(`Agent not found: ${params.agentId}`);
+      }
+      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
+      const modelRegistry = ModelRegistry.create(
+        authStorage,
+        path.join(CONFIG_DIR, "models.json")
       );
-    }
-
-    // Get API key based on auth.mode
-    const authMode = agent.auth?.mode;
-    let apiKey: string | null = null;
-
-    if (authMode === "oauth") {
-      // OAuth mode: require OAuth credentials
-      const cred = authStorage.get(model.provider);
-      if (!cred || cred.type !== "oauth") {
+      if (!agent.model.provider) {
         throw new Error(
-          `No OAuth credentials for provider: ${model.provider}. Run 'aihub auth login ${model.provider}' first.`
+          `Pi SDK requires model.provider to be set for agent: ${agent.id}`
         );
       }
-      const auth = await modelRegistry.getApiKeyAndHeaders(model);
-      if (!auth.ok) {
-        throw new Error(auth.error);
+      const model = modelRegistry.find(agent.model.provider, agent.model.model);
+
+      if (!model) {
+        throw new Error(
+          `Model not found: ${agent.model.provider}/${agent.model.model}`
+        );
       }
-      apiKey = auth.apiKey ?? null;
-    } else if (authMode === "api_key") {
-      // API key mode: only use API key credentials or env vars, skip OAuth
-      const cred = authStorage.get(model.provider);
-      if (cred?.type === "api_key") {
-        apiKey = cred.key;
+
+      // Get API key based on auth.mode
+      const authMode = agent.auth?.mode;
+      let apiKey: string | null = null;
+
+      if (authMode === "oauth") {
+        // OAuth mode: require OAuth credentials
+        const cred = authStorage.get(model.provider);
+        if (!cred || cred.type !== "oauth") {
+          throw new Error(
+            `No OAuth credentials for provider: ${model.provider}. Run 'aihub auth login ${model.provider}' first.`
+          );
+        }
+        const auth = await modelRegistry.getApiKeyAndHeaders(model);
+        if (!auth.ok) {
+          throw new Error(auth.error);
+        }
+        apiKey = auth.apiKey ?? null;
+      } else if (authMode === "api_key") {
+        // API key mode: only use API key credentials or env vars, skip OAuth
+        const cred = authStorage.get(model.provider);
+        if (cred?.type === "api_key") {
+          apiKey = cred.key;
+        } else {
+          apiKey = getEnvApiKey(model.provider) ?? null;
+        }
+        if (!apiKey) {
+          // Format env var name: github-copilot -> GITHUB_COPILOT_API_KEY
+          const envVar = `${model.provider.toUpperCase().replace(/-/g, "_")}_API_KEY`;
+          throw new Error(
+            `No API key for provider: ${model.provider}. Set ${envVar} env var.`
+          );
+        }
       } else {
-        apiKey = getEnvApiKey(model.provider) ?? null;
+        const auth = await modelRegistry.getApiKeyAndHeaders(model);
+        if (!auth.ok) {
+          throw new Error(auth.error);
+        }
+        apiKey = auth.apiKey ?? null;
       }
+
       if (!apiKey) {
-        // Format env var name: github-copilot -> GITHUB_COPILOT_API_KEY
-        const envVar = `${model.provider.toUpperCase().replace(/-/g, "_")}_API_KEY`;
-        throw new Error(
-          `No API key for provider: ${model.provider}. Set ${envVar} env var.`
-        );
+        throw new Error(`No API key for provider: ${model.provider}`);
       }
-    } else {
-      const auth = await modelRegistry.getApiKeyAndHeaders(model);
-      if (!auth.ok) {
-        throw new Error(auth.error);
-      }
-      apiKey = auth.apiKey ?? null;
-    }
+      authStorage.setRuntimeApiKey(model.provider, apiKey);
 
-    if (!apiKey) {
-      throw new Error(`No API key for provider: ${model.provider}`);
-    }
-    authStorage.setRuntimeApiKey(model.provider, apiKey);
+      // Load bootstrap context files
+      const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
+      const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
 
-    // Load bootstrap context files
-    const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
-    const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
+      // Create tools
+      const tools = createCodingTools(params.workspaceDir);
+      const connectorTools = createPiConnectorTools(agent);
+      const projectsComponentEnabled = hasProjectsComponentEnabled();
+      const customTools = projectsComponentEnabled
+        ? createPiSubagentTools().map((tool) => ({
+            name: tool.name,
+            label: tool.label,
+            description: tool.description,
+            parameters: tool.parameters,
+            execute: async (
+              toolCallId: string,
+              params: unknown,
+              _signal: AbortSignal | undefined,
+              _onUpdate: unknown,
+              _ctx: unknown
+            ) => tool.execute(toolCallId, params),
+          }))
+        : [];
+      const subagentToolPrompt = projectsComponentEnabled
+        ? [
+            "Additional tools:",
+            "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
+            "- subagent.status { projectId, slug }",
+            "- subagent.logs { projectId, slug, since? }",
+            "- subagent.interrupt { projectId, slug }",
+          ].join("\n")
+        : undefined;
+      const connectorPrompts = getConnectorPromptsForAgent(agent, getConfig());
+      const allAppendedPrompts =
+        [subagentToolPrompt, ...connectorPrompts].filter(Boolean).join("\n\n") ||
+        undefined;
 
-    // Create tools
-    const tools = createCodingTools(params.workspaceDir);
-    const connectorTools = createPiConnectorTools(agent);
-    const projectsComponentEnabled = hasProjectsComponentEnabled();
-    const customTools = projectsComponentEnabled
-      ? createPiSubagentTools().map((tool) => ({
-          name: tool.name,
-          label: tool.label,
-          description: tool.description,
-          parameters: tool.parameters,
-          execute: async (
-            toolCallId: string,
-            params: unknown,
-            _signal: AbortSignal | undefined,
-            _onUpdate: unknown,
-            _ctx: unknown
-          ) => tool.execute(toolCallId, params),
-        }))
-      : [];
-    const subagentToolPrompt = projectsComponentEnabled
-      ? [
-          "Additional tools:",
-          "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
-          "- subagent.status { projectId, slug }",
-          "- subagent.logs { projectId, slug, since? }",
-          "- subagent.interrupt { projectId, slug }",
-        ].join("\n")
-      : undefined;
-    const connectorPrompts = getConnectorPromptsForAgent(agent, getConfig());
-    const allAppendedPrompts =
-      [subagentToolPrompt, ...connectorPrompts].filter(Boolean).join("\n\n") ||
-      undefined;
-
-    const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
-    const settingsManager = SettingsManager.create(
-      params.workspaceDir,
-      CONFIG_DIR
-    );
-    const globalSkillsDir = path.join(os.homedir(), ".agents", "skills");
-    const includeGlobalSkills = agent.globalSkills === true;
-
-    const workspaceSkillsDir = path.join(params.workspaceDir, "skills");
-
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: params.workspaceDir,
-      agentDir: CONFIG_DIR,
-      settingsManager,
-      appendSystemPrompt: allAppendedPrompts,
-      additionalSkillPaths: [workspaceSkillsDir],
-      agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
-      ...(!includeGlobalSkills && {
-        skillsOverride: (result) => ({
-          skills: result.skills.filter(
-            (s) => !s.filePath.startsWith(globalSkillsDir)
-          ),
-          diagnostics: result.diagnostics,
-        }),
-      }),
-    });
-    await resourceLoader.reload();
-
-    const { session: agentSession } = await createAgentSession({
-      cwd: params.workspaceDir,
-      agentDir: CONFIG_DIR,
-      authStorage,
-      modelRegistry,
-      model,
-      ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
-      tools,
-      customTools: [...customTools, ...connectorTools],
-      resourceLoader,
-      sessionManager,
-      settingsManager,
-    });
-
-    // Emit session handle for queue injection
-    params.onSessionHandle?.(agentSession);
-
-    let aborted = false;
-
-    // Handle abort
-    params.abortSignal.addEventListener("abort", () => {
-      aborted = true;
-      agentSession.abort();
-    });
-
-    // Render context preamble and emit system_context event if present
-    let contextPreamble = "";
-    if (params.context) {
-      contextPreamble = renderAgentContext(params.context);
-      if (contextPreamble) {
-        params.onHistoryEvent({
-          type: "system_context",
-          context: params.context,
-          rendered: contextPreamble,
-          timestamp: Date.now(),
-        });
-      }
-    }
-
-    // Load images from file paths
-    let images: ImageContent[] | undefined;
-    if (params.attachments && params.attachments.length > 0) {
-      const imageAttachments = params.attachments.filter((a) =>
-        a.mimeType.startsWith("image/")
+      const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
+      const settingsManager = SettingsManager.create(
+        params.workspaceDir,
+        CONFIG_DIR
       );
-      if (imageAttachments.length > 0) {
-        images = await Promise.all(
-          imageAttachments.map(async (attachment) => {
-            const buffer = await fs.readFile(attachment.path);
-            return {
-              type: "image" as const,
-              data: buffer.toString("base64"),
-              mimeType: attachment.mimeType,
-            };
-          })
-        );
-      }
-    }
+      const globalSkillsDir = path.join(os.homedir(), ".agents", "skills");
+      const includeGlobalSkills = agent.globalSkills === true;
 
-    // Build message with context preamble (if any)
-    const messageToSend = contextPreamble
-      ? `${contextPreamble}\n\n${params.message}`
-      : params.message;
+      const workspaceSkillsDir = path.join(params.workspaceDir, "skills");
 
-    // Emit user message to history (without context preamble)
-    params.onHistoryEvent({
-      type: "user",
-      text: params.message,
-      timestamp: Date.now(),
-    });
+      const resourceLoader = new DefaultResourceLoader({
+        cwd: params.workspaceDir,
+        agentDir: CONFIG_DIR,
+        settingsManager,
+        appendSystemPrompt: allAppendedPrompts,
+        additionalSkillPaths: [workspaceSkillsDir],
+        agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
+        ...(!includeGlobalSkills && {
+          skillsOverride: (result) => ({
+            skills: result.skills.filter(
+              (s) => !s.filePath.startsWith(globalSkillsDir)
+            ),
+            diagnostics: result.diagnostics,
+          }),
+        }),
+      });
+      await resourceLoader.reload();
 
-    // Subscribe to streaming events
+      const { session: agentSession } = await createAgentSession({
+        cwd: params.workspaceDir,
+        agentDir: CONFIG_DIR,
+        authStorage,
+        modelRegistry,
+        model,
+        ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
+        tools,
+        customTools: [...customTools, ...connectorTools],
+        resourceLoader,
+        sessionManager,
+        settingsManager,
+      });
 
-    const unsubscribe = agentSession.subscribe((evt) => {
-      if (evt.type === "message_update") {
-        const msg = (evt as { message?: AgentMessage }).message;
-        if (msg?.role === "assistant") {
-          const assistantEvent = (evt as { assistantMessageEvent?: unknown })
-            .assistantMessageEvent as Record<string, unknown> | undefined;
-          const evtType = assistantEvent?.type as string | undefined;
+      // Emit session handle for queue injection
+      params.onSessionHandle?.(agentSession);
 
-          if (evtType === "text_delta") {
-            const chunk = assistantEvent?.delta as string;
-            if (chunk) {
-              params.onEvent({ type: "text", data: chunk });
-              params.onHistoryEvent({
-                type: "assistant_text",
-                text: chunk,
-                timestamp: Date.now(),
-              });
-            }
-          } else if (evtType === "thinking_delta") {
-            const chunk = assistantEvent?.delta as string;
-            if (chunk) {
-              params.onEvent({ type: "thinking", data: chunk });
-              params.onHistoryEvent({
-                type: "assistant_thinking",
-                text: chunk,
-                timestamp: Date.now(),
-              });
-            }
-          }
-        }
-      }
+      let aborted = false;
 
-      if (evt.type === "tool_execution_start") {
-        const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
-        const toolCallId =
-          (evt as { toolCallId?: string }).toolCallId ?? `call_${Date.now()}`;
-        const args = (evt as { args?: unknown }).args;
+      // Handle abort
+      params.abortSignal.addEventListener("abort", () => {
+        aborted = true;
+        agentSession.abort();
+      });
 
-        params.onEvent({ type: "tool_start", toolName });
-        params.onEvent({
-          type: "tool_call",
-          id: toolCallId,
-          name: toolName,
-          arguments: args,
-        });
-        params.onHistoryEvent({
-          type: "tool_call",
-          id: toolCallId,
-          name: toolName,
-          args,
-          timestamp: Date.now(),
-        });
-      }
-
-      if (evt.type === "tool_execution_end") {
-        const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
-        const toolCallId = (evt as { toolCallId?: string }).toolCallId ?? "";
-        const isError = (evt as { isError?: boolean }).isError ?? false;
-        const rawResult = (evt as { result?: unknown }).result;
-
-        // Extract text from result - handle both string and structured formats
-        let content = "";
-        if (typeof rawResult === "string") {
-          content = rawResult;
-        } else if (rawResult && typeof rawResult === "object") {
-          // Handle structured content like {content: [{type: "text", text: "..."}]}
-          const obj = rawResult as Record<string, unknown>;
-          if (Array.isArray(obj.content)) {
-            content = (obj.content as Array<Record<string, unknown>>)
-              .filter((c) => c?.type === "text" && typeof c.text === "string")
-              .map((c) => c.text as string)
-              .join("\n");
-          }
-        }
-
-        params.onEvent({ type: "tool_end", toolName, isError });
-        params.onEvent({
-          type: "tool_result",
-          id: toolCallId,
-          name: toolName,
-          content,
-          isError,
-        });
-        params.onHistoryEvent({
-          type: "tool_result",
-          id: toolCallId,
-          name: toolName,
-          content,
-          isError,
-          timestamp: Date.now(),
-        });
-      }
-
-      // Capture meta from message end
-      if (evt.type === "message_end") {
-        const msg = (evt as { message?: AgentMessage }).message;
-        if (msg?.role === "assistant") {
-          const assistantMsg = msg as unknown as Record<string, unknown>;
+      // Render context preamble and emit system_context event if present
+      let contextPreamble = "";
+      if (params.context) {
+        contextPreamble = renderAgentContext(params.context);
+        if (contextPreamble) {
           params.onHistoryEvent({
-            type: "meta",
-            provider: assistantMsg.provider as string | undefined,
-            model: assistantMsg.model as string | undefined,
-            api: assistantMsg.api as string | undefined,
-            usage: assistantMsg.usage as HistoryEvent extends {
-              type: "meta";
-              usage?: infer U;
-            }
-              ? U
-              : undefined,
-            stopReason: assistantMsg.stopReason as string | undefined,
+            type: "system_context",
+            context: params.context,
+            rendered: contextPreamble,
             timestamp: Date.now(),
           });
-          params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
         }
       }
-    });
 
-    try {
-      await agentSession.prompt(
-        messageToSend,
-        images && images.length > 0 ? { images } : undefined
-      );
-    } finally {
-      unsubscribe();
-    }
+      // Load images from file paths
+      let images: ImageContent[] | undefined;
+      if (params.attachments && params.attachments.length > 0) {
+        const imageAttachments = params.attachments.filter((a) =>
+          a.mimeType.startsWith("image/")
+        );
+        if (imageAttachments.length > 0) {
+          images = await Promise.all(
+            imageAttachments.map(async (attachment) => {
+              const buffer = await fs.readFile(attachment.path);
+              return {
+                type: "image" as const,
+                data: buffer.toString("base64"),
+                mimeType: attachment.mimeType,
+              };
+            })
+          );
+        }
+      }
 
-    const messages = agentSession.messages;
-    const lastAssistant = messages
-      .slice()
-      .reverse()
-      .find((m: AgentMessage) => m.role === "assistant") as
-      | AssistantMessage
-      | undefined;
+      // Build message with context preamble (if any)
+      const messageToSend = contextPreamble
+        ? `${contextPreamble}\n\n${params.message}`
+        : params.message;
 
-    const lastAssistantRecord = lastAssistant as
-      | (Record<string, unknown> & AssistantMessage)
-      | undefined;
-    if (lastAssistantRecord?.stopReason === "error") {
-      const errorMessage =
-        typeof lastAssistantRecord.errorMessage === "string" &&
-        lastAssistantRecord.errorMessage
-          ? lastAssistantRecord.errorMessage
-          : "unknown error";
-      const errorStr = `Agent error: ${errorMessage}`;
-      console.error(`[${params.agent.id}] ${errorStr}`);
+      // Emit user message to history (without context preamble)
+      params.onHistoryEvent({
+        type: "user",
+        text: params.message,
+        timestamp: Date.now(),
+      });
+
+      // Subscribe to streaming events
+
+      const unsubscribe = agentSession.subscribe((evt) => {
+        if (evt.type === "message_update") {
+          const msg = (evt as { message?: AgentMessage }).message;
+          if (msg?.role === "assistant") {
+            const assistantEvent = (evt as { assistantMessageEvent?: unknown })
+              .assistantMessageEvent as Record<string, unknown> | undefined;
+            const evtType = assistantEvent?.type as string | undefined;
+
+            if (evtType === "text_delta") {
+              const chunk = assistantEvent?.delta as string;
+              if (chunk) {
+                params.onEvent({ type: "text", data: chunk });
+                params.onHistoryEvent({
+                  type: "assistant_text",
+                  text: chunk,
+                  timestamp: Date.now(),
+                });
+              }
+            } else if (evtType === "thinking_delta") {
+              const chunk = assistantEvent?.delta as string;
+              if (chunk) {
+                params.onEvent({ type: "thinking", data: chunk });
+                params.onHistoryEvent({
+                  type: "assistant_thinking",
+                  text: chunk,
+                  timestamp: Date.now(),
+                });
+              }
+            }
+          }
+        }
+
+        if (evt.type === "tool_execution_start") {
+          const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
+          const toolCallId =
+            (evt as { toolCallId?: string }).toolCallId ?? `call_${Date.now()}`;
+          const args = (evt as { args?: unknown }).args;
+
+          params.onEvent({ type: "tool_start", toolName });
+          params.onEvent({
+            type: "tool_call",
+            id: toolCallId,
+            name: toolName,
+            arguments: args,
+          });
+          params.onHistoryEvent({
+            type: "tool_call",
+            id: toolCallId,
+            name: toolName,
+            args,
+            timestamp: Date.now(),
+          });
+        }
+
+        if (evt.type === "tool_execution_end") {
+          const toolName = (evt as { toolName?: string }).toolName ?? "unknown";
+          const toolCallId = (evt as { toolCallId?: string }).toolCallId ?? "";
+          const isError = (evt as { isError?: boolean }).isError ?? false;
+          const rawResult = (evt as { result?: unknown }).result;
+
+          // Extract text from result - handle both string and structured formats
+          let content = "";
+          if (typeof rawResult === "string") {
+            content = rawResult;
+          } else if (rawResult && typeof rawResult === "object") {
+            // Handle structured content like {content: [{type: "text", text: "..."}]}
+            const obj = rawResult as Record<string, unknown>;
+            if (Array.isArray(obj.content)) {
+              content = (obj.content as Array<Record<string, unknown>>)
+                .filter((c) => c?.type === "text" && typeof c.text === "string")
+                .map((c) => c.text as string)
+                .join("\n");
+            }
+          }
+
+          params.onEvent({ type: "tool_end", toolName, isError });
+          params.onEvent({
+            type: "tool_result",
+            id: toolCallId,
+            name: toolName,
+            content,
+            isError,
+          });
+          params.onHistoryEvent({
+            type: "tool_result",
+            id: toolCallId,
+            name: toolName,
+            content,
+            isError,
+            timestamp: Date.now(),
+          });
+        }
+
+        // Capture meta from message end
+        if (evt.type === "message_end") {
+          const msg = (evt as { message?: AgentMessage }).message;
+          if (msg?.role === "assistant") {
+            const assistantMsg = msg as unknown as Record<string, unknown>;
+            params.onHistoryEvent({
+              type: "meta",
+              provider: assistantMsg.provider as string | undefined,
+              model: assistantMsg.model as string | undefined,
+              api: assistantMsg.api as string | undefined,
+              usage: assistantMsg.usage as HistoryEvent extends {
+                type: "meta";
+                usage?: infer U;
+              }
+                ? U
+                : undefined,
+              stopReason: assistantMsg.stopReason as string | undefined,
+              timestamp: Date.now(),
+            });
+            params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
+          }
+        }
+      });
+
+      try {
+        await agentSession.prompt(
+          messageToSend,
+          images && images.length > 0 ? { images } : undefined
+        );
+      } finally {
+        unsubscribe();
+      }
+
+      const messages = agentSession.messages;
+      const lastAssistant = messages
+        .slice()
+        .reverse()
+        .find((m: AgentMessage) => m.role === "assistant") as
+        | AssistantMessage
+        | undefined;
+
+      const lastAssistantRecord = lastAssistant as
+        | (Record<string, unknown> & AssistantMessage)
+        | undefined;
+      if (lastAssistantRecord?.stopReason === "error") {
+        const errorMessage =
+          typeof lastAssistantRecord.errorMessage === "string" &&
+          lastAssistantRecord.errorMessage
+            ? lastAssistantRecord.errorMessage
+            : "unknown error";
+        const errorStr = `Agent error: ${errorMessage}`;
+        console.error(`[${params.agent.id}] ${errorStr}`);
+        agentSession.dispose();
+        throw new Error(errorStr);
+      }
+
+      const finalText = lastAssistant ? extractAssistantText(lastAssistant) : "";
+
       agentSession.dispose();
-      throw new Error(errorStr);
-    }
 
-    const finalText = lastAssistant ? extractAssistantText(lastAssistant) : "";
-
-    agentSession.dispose();
-
-    return { text: finalText, aborted };
+      return { text: finalText, aborted };
+    });
   },
 
   async queueMessage(handle: unknown, message: string): Promise<void> {
