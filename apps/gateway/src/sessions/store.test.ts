@@ -136,3 +136,41 @@ describe("getSessionEntry", () => {
     });
   });
 });
+
+describe("session store isolation", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("keeps single-user sessions in the root store", async () => {
+    const { resolveSessionId } = await import("./store.js");
+
+    await resolveSessionId({
+      agentId: "test-agent",
+      sessionKey: "main",
+      message: "hello",
+    });
+
+    expect(vi.mocked(fs.promises.rename)).toHaveBeenCalledWith(
+      expect.stringContaining("/tmp/aihub-test/sessions.json."),
+      "/tmp/aihub-test/sessions.json"
+    );
+  });
+
+  it("writes multi-user sessions into the user store", async () => {
+    const { resolveSessionId } = await import("./store.js");
+
+    await resolveSessionId({
+      agentId: "test-agent",
+      userId: "user-123",
+      sessionKey: "main",
+      message: "hello",
+    });
+
+    expect(vi.mocked(fs.promises.rename)).toHaveBeenCalledWith(
+      expect.stringContaining("/tmp/aihub-test/users/user-123/sessions.json."),
+      "/tmp/aihub-test/users/user-123/sessions.json"
+    );
+  });
+});

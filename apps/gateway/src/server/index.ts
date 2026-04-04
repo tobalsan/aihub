@@ -202,10 +202,12 @@ function handleWsConnection(
       }
 
       try {
+        const userId = authContext?.session.userId;
         // Handle /abort - skip session resolution to avoid creating new session
         if (isAbortTrigger(msg.message)) {
           await runAgent({
             agentId: msg.agentId,
+            userId,
             message: msg.message,
             attachments: msg.attachments,
             sessionId: msg.sessionId,
@@ -222,6 +224,7 @@ function handleWsConnection(
         if (!sessionId && msg.sessionKey) {
           const resolved = await resolveSessionId({
             agentId: msg.agentId,
+            userId,
             sessionKey: msg.sessionKey,
             message: msg.message,
           });
@@ -245,6 +248,7 @@ function handleWsConnection(
 
         await runAgent({
           agentId: msg.agentId,
+          userId,
           message,
           attachments: msg.attachments,
           sessionId: sessionId ?? "default",
@@ -285,7 +289,11 @@ function setupEventBroadcast() {
       if (sub.agentId !== event.agentId) continue;
 
       // Match by sessionKey: resolve current sessionId for the key
-      const entry = getSessionEntry(sub.agentId, sub.sessionKey);
+      const entry = getSessionEntry(
+        sub.agentId,
+        sub.sessionKey,
+        wsAuthContexts.get(ws)?.session.userId
+      );
       if (!entry || entry.sessionId !== event.sessionId) continue;
 
       // Forward the event (strip internal fields)

@@ -8,17 +8,12 @@ import type {
 } from "@aihub/shared";
 import type { HistoryEvent } from "../sdk/types.js";
 import { CONFIG_DIR } from "../config/index.js";
+import { getUserHistoryDir } from "../components/multi-user/isolation.js";
 import { getClaudeSessionIdForSession } from "../sessions/claude.js";
 import {
   getSessionCreatedAt,
   formatSessionTimestamp,
 } from "../sessions/store.js";
-
-const HISTORY_DIR = path.join(CONFIG_DIR, "history");
-
-async function ensureHistoryDir() {
-  await fs.mkdir(HISTORY_DIR, { recursive: true });
-}
 
 const legacyFileName = (agentId: string, sessionId: string) =>
   `${agentId}-${sessionId}.jsonl`;
@@ -47,13 +42,21 @@ async function findTimestampedFile(dir: string, agentId: string, sessionId: stri
  * - For existing files: checks known timestamped path, then scans for any timestamped file, then legacy
  * - For new files: always creates timestamped filename (uses createdAt or defaults to now)
  */
-async function resolveHistoryFile(agentId: string, sessionId: string): Promise<string> {
-  await ensureHistoryDir();
-  const createdAt = getSessionCreatedAt(sessionId);
+async function resolveHistoryFile(
+  agentId: string,
+  sessionId: string,
+  userId?: string
+): Promise<string> {
+  const historyDir = getHistoryDir(userId);
+  await ensureHistoryDir(userId);
+  const createdAt = getSessionCreatedAt(sessionId, userId);
 
   // Try exact timestamped file first (if we have createdAt)
   if (createdAt) {
-    const timestampedPath = path.join(HISTORY_DIR, timestampedFileName(createdAt, agentId, sessionId));
+    const timestampedPath = path.join(
+      historyDir,
+      timestampedFileName(createdAt, agentId, sessionId)
+    );
     try {
       await fs.access(timestampedPath);
       return timestampedPath;
@@ -63,13 +66,17 @@ async function resolveHistoryFile(agentId: string, sessionId: string): Promise<s
   }
 
   // Scan for any existing timestamped file (handles missing createdAt in sessions.json)
-  const existingTimestamped = await findTimestampedFile(HISTORY_DIR, agentId, sessionId);
+  const existingTimestamped = await findTimestampedFile(
+    historyDir,
+    agentId,
+    sessionId
+  );
   if (existingTimestamped) {
     return existingTimestamped;
   }
 
   // Try legacy file (backwards compat)
-  const legacyPath = path.join(HISTORY_DIR, legacyFileName(agentId, sessionId));
+  const legacyPath = path.join(historyDir, legacyFileName(agentId, sessionId));
   try {
     await fs.access(legacyPath);
     return legacyPath;
@@ -79,7 +86,10 @@ async function resolveHistoryFile(agentId: string, sessionId: string): Promise<s
 
   // New file: always use timestamped format (use createdAt or default to now)
   const timestamp = createdAt ?? Date.now();
-  return path.join(HISTORY_DIR, timestampedFileName(timestamp, agentId, sessionId));
+  return path.join(
+    historyDir,
+    timestampedFileName(timestamp, agentId, sessionId)
+  );
 }
 
 // JSONL entry format for canonical history
@@ -131,9 +141,10 @@ type MetaEntry = {
 async function appendRawEntry(
   agentId: string,
   sessionId: string,
-  entry: Record<string, unknown>
+  entry: Record<string, unknown>,
+  userId?: string
 ): Promise<void> {
-  const file = await resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId, userId);
   const line = JSON.stringify({ type: "history", agentId, sessionId, ...entry }) + "\n";
   await fs.appendFile(file, line, "utf-8");
 }
@@ -146,9 +157,10 @@ export async function appendSessionMeta(
   agentId: string,
   sessionId: string,
   key: string,
-  value: unknown
+  value: unknown,
+  userId?: string
 ): Promise<void> {
-  const file = await resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId, userId);
   const entry: MetaEntry = { type: "meta", key, value, timestamp: Date.now() };
   const line = JSON.stringify(entry) + "\n";
   await fs.appendFile(file, line, "utf-8");
@@ -205,7 +217,8 @@ export function createTurnBuffer(): TurnBuffer {
 export async function flushTurnBuffer(
   agentId: string,
   sessionId: string,
-  buffer: TurnBuffer
+  buffer: TurnBuffer,
+  userId?: string
 ): Promise<void> {
   // 1. User message
   if (buffer.userText) {
@@ -213,7 +226,7 @@ export async function flushTurnBuffer(
       role: "user",
       content: [{ type: "text", text: buffer.userText }],
       timestamp: buffer.userTimestamp,
-    });
+    }, userId);
   }
 
   // 2. Assistant message
@@ -234,7 +247,7 @@ export async function flushTurnBuffer(
       content,
       meta: buffer.meta,
       timestamp: buffer.startTimestamp,
-    });
+    }, userId);
   }
 
   // 3. Tool results (after assistant message)
@@ -247,7 +260,7 @@ export async function flushTurnBuffer(
       isError: tr.isError,
       details: tr.details,
       timestamp: tr.timestamp,
-    });
+    }, userId);
   }
 }
 
@@ -318,9 +331,10 @@ export function bufferHistoryEvent(buffer: TurnBuffer, event: HistoryEvent): voi
  */
 export async function getSimpleHistory(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<SimpleHistoryMessage[]> {
-  const file = await resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId, userId);
   const messages: SimpleHistoryMessage[] = [];
 
   try {
@@ -358,9 +372,10 @@ export async function getSimpleHistory(
  */
 export async function getFullHistory(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<FullHistoryMessage[]> {
-  const file = await resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId, userId);
   const messages: FullHistoryMessage[] = [];
 
   try {
@@ -413,9 +428,10 @@ export async function getFullHistory(
  */
 export async function hasCanonicalHistory(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<boolean> {
-  const file = await resolveHistoryFile(agentId, sessionId);
+  const file = await resolveHistoryFile(agentId, sessionId, userId);
   try {
     await fs.access(file);
     return true;
@@ -430,8 +446,12 @@ const CLAUDE_SESSIONS_DIR = path.join(CONFIG_DIR, "sessions", "projects");
 /**
  * Resolve Pi session file path (supports both timestamped and legacy formats)
  */
-async function resolvePiSessionFile(agentId: string, sessionId: string): Promise<string | null> {
-  const createdAt = getSessionCreatedAt(sessionId);
+async function resolvePiSessionFile(
+  agentId: string,
+  sessionId: string,
+  userId?: string
+): Promise<string | null> {
+  const createdAt = getSessionCreatedAt(sessionId, userId);
 
   // Try exact timestamped file first (if we have createdAt)
   if (createdAt) {
@@ -462,9 +482,10 @@ async function resolvePiSessionFile(agentId: string, sessionId: string): Promise
 
 async function resolveClaudeSessionFile(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<string | null> {
-  const claudeSessionId = getClaudeSessionIdForSession(agentId, sessionId);
+  const claudeSessionId = getClaudeSessionIdForSession(agentId, sessionId, userId);
   if (!claudeSessionId) return null;
 
   try {
@@ -488,11 +509,12 @@ async function resolveClaudeSessionFile(
 
 async function backfillFromClaudeSession(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<boolean> {
-  if (await hasCanonicalHistory(agentId, sessionId)) return false;
+  if (await hasCanonicalHistory(agentId, sessionId, userId)) return false;
 
-  const claudeFile = await resolveClaudeSessionFile(agentId, sessionId);
+  const claudeFile = await resolveClaudeSessionFile(agentId, sessionId, userId);
   if (!claudeFile) return false;
 
   let content: string;
@@ -502,7 +524,7 @@ async function backfillFromClaudeSession(
     return false;
   }
 
-  await ensureHistoryDir();
+  await ensureHistoryDir(userId);
   const lines = content.trim().split("\n");
   for (const line of lines) {
     if (!line) continue;
@@ -539,7 +561,7 @@ async function backfillFromClaudeSession(
           role: "user",
           content: [{ type: "text", text }],
           timestamp: Number.isNaN(ts) ? Date.now() : ts,
-        });
+        }, userId);
       } else if (entry.type === "assistant") {
         const message = entry.message as Record<string, unknown> | undefined;
         const role = message?.role;
@@ -586,7 +608,7 @@ async function backfillFromClaudeSession(
             stopReason: typeof message?.stop_reason === "string" ? message.stop_reason : undefined,
           },
           timestamp: Number.isNaN(ts) ? Date.now() : ts,
-        });
+        }, userId);
       }
     } catch {
       // skip malformed lines
@@ -602,12 +624,13 @@ async function backfillFromClaudeSession(
  */
 export async function backfillFromPiSession(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<boolean> {
   // Skip if canonical already exists or Pi session doesn't exist
-  if (await hasCanonicalHistory(agentId, sessionId)) return false;
+  if (await hasCanonicalHistory(agentId, sessionId, userId)) return false;
 
-  const piFile = await resolvePiSessionFile(agentId, sessionId);
+  const piFile = await resolvePiSessionFile(agentId, sessionId, userId);
   if (!piFile) return false;
 
   let content: string;
@@ -617,7 +640,7 @@ export async function backfillFromPiSession(
     return false;
   }
 
-  await ensureHistoryDir();
+  await ensureHistoryDir(userId);
   const lines = content.trim().split("\n");
 
   for (const line of lines) {
@@ -639,7 +662,7 @@ export async function backfillFromPiSession(
             role: "user",
             content: [{ type: "text", text }],
             timestamp,
-          });
+          }, userId);
         }
       } else if (msg.role === "assistant") {
         const blocks = convertPiContent(rawContent);
@@ -655,7 +678,7 @@ export async function backfillFromPiSession(
               stopReason: msg.stopReason as string | undefined,
             },
             timestamp,
-          });
+          }, userId);
         }
       } else if (msg.role === "toolResult") {
         const text = extractText(rawContent);
@@ -668,7 +691,7 @@ export async function backfillFromPiSession(
           isError: (msg.isError as boolean) ?? false,
           details: details?.diff ? { diff: details.diff as string } : undefined,
           timestamp,
-        });
+        }, userId);
       }
     } catch {
       // Skip malformed lines
@@ -680,9 +703,10 @@ export async function backfillFromPiSession(
 
 export async function backfillFromClaudeSessionIfNeeded(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<boolean> {
-  return backfillFromClaudeSession(agentId, sessionId);
+  return backfillFromClaudeSession(agentId, sessionId, userId);
 }
 
 function extractText(content: unknown[]): string {
@@ -716,4 +740,11 @@ function convertPiContent(content: unknown[]): ContentBlock[] {
     }
   }
   return blocks;
+}
+function getHistoryDir(userId?: string): string {
+  return getUserHistoryDir(userId, CONFIG_DIR);
+}
+
+async function ensureHistoryDir(userId?: string) {
+  await fs.mkdir(getHistoryDir(userId), { recursive: true });
 }

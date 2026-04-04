@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   SendMessageRequestSchema,
 } from "@aihub/shared";
@@ -28,8 +28,13 @@ import {
   isAllowedMimeType,
   getAllowedMimeTypes,
 } from "../media/upload.js";
+import { getForwardedAuthContext } from "../components/multi-user/middleware.js";
 
 const api = new Hono();
+
+function getRequestUserId(c: Context): string | undefined {
+  return getForwardedAuthContext(c.req.raw.headers)?.session.userId;
+}
 
 api.get("/capabilities", (c) => {
   const components = Object.fromEntries(
@@ -121,10 +126,12 @@ api.post("/agents/:id/messages", async (c) => {
   }
 
   try {
+    const userId = getRequestUserId(c);
     // Handle /abort - skip session resolution to avoid creating new session
     if (isAbortTrigger(parsed.data.message)) {
       const result = await runAgent({
         agentId: agent.id,
+        userId,
         message: parsed.data.message,
         sessionId: parsed.data.sessionId,
         sessionKey: parsed.data.sessionKey,
@@ -138,6 +145,7 @@ api.post("/agents/:id/messages", async (c) => {
     if (!sessionId && parsed.data.sessionKey) {
       const resolved = await resolveSessionId({
         agentId: agent.id,
+        userId,
         sessionKey: parsed.data.sessionKey,
         message: parsed.data.message,
       });
@@ -147,6 +155,7 @@ api.post("/agents/:id/messages", async (c) => {
 
     const result = await runAgent({
       agentId: agent.id,
+      userId,
       message,
       sessionId,
       sessionKey: parsed.data.sessionKey ?? "main",
@@ -172,7 +181,8 @@ api.get("/agents/:id/history", async (c) => {
 
   const sessionKey = c.req.query("sessionKey") ?? "main";
   const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
-  const entry = getSessionEntry(agentId, sessionKey);
+  const userId = getRequestUserId(c);
+  const entry = getSessionEntry(agentId, sessionKey, userId);
 
   if (!entry) {
     return c.json({ messages: [], view });
@@ -180,13 +190,13 @@ api.get("/agents/:id/history", async (c) => {
 
   const messages =
     view === "full"
-      ? await getFullSessionHistory(agentId, entry.sessionId)
-      : await getSessionHistory(agentId, entry.sessionId);
+      ? await getFullSessionHistory(agentId, entry.sessionId, userId)
+      : await getSessionHistory(agentId, entry.sessionId, userId);
 
   // Only include thinkingLevel for OAuth agents
   const thinkingLevel =
     agent.auth?.mode === "oauth"
-      ? getSessionThinkLevel(agentId, sessionKey)
+      ? getSessionThinkLevel(agentId, sessionKey, userId)
       : undefined;
 
   return c.json({ messages, sessionId: entry.sessionId, view, thinkingLevel });
