@@ -701,6 +701,7 @@ export async function fetchAgentStatuses(): Promise<AgentStatusResponse> {
 export type CreateProjectInput = {
   title: string;
   description?: string;
+  area?: string;
 };
 
 export type CreateProjectResult =

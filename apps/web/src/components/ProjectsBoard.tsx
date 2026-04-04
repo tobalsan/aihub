@@ -1163,6 +1163,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [createTitle, setCreateTitle] = createSignal("");
   const [createDescription, setCreateDescription] = createSignal("");
+  const [createArea, setCreateArea] = createSignal("");
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
   const [createSuccess, setCreateSuccess] = createSignal<string | null>(null);
@@ -2284,6 +2285,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
     setCreateModalOpen(true);
     setCreateTitle(saved?.title ?? "");
     setCreateDescription(saved?.description ?? "");
+    setCreateArea(areaFilterId() || "");
     setCreateError("");
     setCreateToast("");
     setFilesLoaded(false);
@@ -2393,6 +2395,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   const handleCreateSubmit = async () => {
     let title = createTitle().trim();
     const description = createDescription().trim();
+    const areaValue = createArea();
     if (!title && description) {
       const firstLine = description.split(/\r?\n/)[0]?.trim() ?? "";
       const cleaned = firstLine.replace(/^[#>*\s-]+/, "").trim();
@@ -2412,6 +2415,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
     const result = await createProject({
       title,
       description: description || undefined,
+      ...(areaValue ? { area: areaValue } : {}),
     });
 
     if (!result.ok) {
@@ -2449,6 +2453,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
     void clearFilesFromStorage();
     setCreateTitle("");
     setCreateDescription("");
+    setCreateArea("");
     setCreateError("");
     setCreateToast("");
     setPendingFiles([]);
@@ -4235,6 +4240,24 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
                         {createError()}
                       </div>
                     </Show>
+                  </div>
+                  <div class="create-field">
+                    <label class="create-label" for="create-area">
+                      Area
+                    </label>
+                    <select
+                      id="create-area"
+                      class="create-input"
+                      value={createArea()}
+                      onChange={(e) => setCreateArea(e.currentTarget.value)}
+                    >
+                      <option value="">No area</option>
+                      <For each={areas() ?? []}>
+                        {(area) => (
+                          <option value={area.id}>{area.title}</option>
+                        )}
+                      </For>
+                    </select>
                   </div>
                   <div class="create-field create-notes">
                     <div class="create-notes-header">
