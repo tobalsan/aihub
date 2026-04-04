@@ -1,6 +1,7 @@
 import { createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
+import { isComponentEnabled } from "../lib/capabilities";
 
 function shortenPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/)?.[0];
@@ -15,17 +16,19 @@ export function AgentList() {
     <div class="agent-list">
       <header class="header">
         <A class="home-link" href="/projects">AIHub</A>
-        <A
-          class="taskboard-btn"
-          href="/projects"
-          aria-label="Open taskboard"
-          title="Tasks (Cmd+K)"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 11l3 3L22 4" />
-            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-          </svg>
-        </A>
+        <Show when={isComponentEnabled("projects")}>
+          <A
+            class="taskboard-btn"
+            href="/projects"
+            aria-label="Open taskboard"
+            title="Tasks (Cmd+K)"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+            </svg>
+          </A>
+        </Show>
       </header>
 
       <Show when={agents.loading}>

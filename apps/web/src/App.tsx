@@ -1,4 +1,4 @@
-import { Router, Route, useParams } from "@solidjs/router";
+import { Router, Route, useParams, useLocation } from "@solidjs/router";
 import {
   Show,
   Suspense,
@@ -133,8 +133,15 @@ function Layout(props: { children?: JSX.Element }) {
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
+  const location = useLocation();
+  const isOnChatPage = createMemo(() => location.pathname.startsWith("/chat/") || location.pathname.startsWith("/agents"));
+
   createEffect(() => {
     if (quickChatOpen()) setQuickChatHasUnread(false);
+  });
+
+  createEffect(() => {
+    if (isOnChatPage() && quickChatOpen()) setQuickChatOpen(false);
   });
 
   createEffect(() => {
@@ -155,6 +162,7 @@ function Layout(props: { children?: JSX.Element }) {
       <Show when={capabilitiesReady()} fallback={<AppBootSplash />}>
         <div class="app">{props.children}</div>
       </Show>
+      <Show when={!isOnChatPage()}>
       <QuickChatOverlay
         open={quickChatOpen()}
         mobile={quickChatMobile()}
@@ -179,6 +187,7 @@ function Layout(props: { children?: JSX.Element }) {
           });
         }}
       />
+      </Show>
       <style>{`
         .app {
           height: 100%;
