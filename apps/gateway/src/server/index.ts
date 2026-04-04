@@ -15,12 +15,24 @@ import type {
 import { api } from "./api.core.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import { getKnownComponentRouteMetadata } from "../components/registry.js";
+import {
+  getKnownComponentRouteMetadata,
+  getLoadedComponents,
+} from "../components/registry.js";
 import {
   resolveSessionId,
   getSessionEntry,
   isAbortTrigger,
 } from "../sessions/index.js";
+import {
+  createAuthMiddleware,
+  forwardAuthContextToRequest,
+  getRequestAuthContext,
+  hasAgentAccess,
+  requireAgentAccess,
+  validateWebSocketRequest,
+  type RequestAuthContext,
+} from "../components/multi-user/middleware.js";
 
 const app = new Hono();
 
@@ -96,6 +108,9 @@ app.use("/api/*", async (c, next) => {
 
   await next();
 });
+app.use("/api/*", createAuthMiddleware());
+app.use("/api/agents/:id", requireAgentAccess("id"));
+app.use("/api/agents/:id/*", requireAgentAccess("id"));
 
 app.all("/api/*", (c) => {
   const url = new URL(c.req.url);
@@ -105,7 +120,9 @@ app.all("/api/*", (c) => {
       ? "/"
       : url.pathname;
   url.pathname = pathname || "/";
-  return api.fetch(new Request(url, c.req.raw));
+  const request = new Request(url, c.req.raw);
+  forwardAuthContextToRequest(request, getRequestAuthContext(c));
+  return api.fetch(request);
 });
 
 app.get("/health", (c) => c.json({ ok: true }));
@@ -114,12 +131,21 @@ app.get("/health", (c) => c.json({ ok: true }));
 type Subscription = { agentId: string; sessionKey: string };
 const subscriptions = new Map<WebSocket, Subscription>();
 const connectedClients = new Set<WebSocket>();
+const wsAuthContexts = new Map<WebSocket, RequestAuthContext>();
 
 // Global status subscribers (for sidebar real-time updates)
 const statusSubscribers = new Set<WebSocket>();
 
-function handleWsConnection(ws: WebSocket) {
+function handleWsConnection(
+  ws: WebSocket,
+  request?: import("http").IncomingMessage & {
+    authContext?: RequestAuthContext | null;
+  }
+) {
   connectedClients.add(ws);
+  if (request?.authContext) {
+    wsAuthContexts.set(ws, request.authContext);
+  }
 
   ws.on("message", async (raw) => {
     let msg: WsClientMessage;
@@ -130,10 +156,16 @@ function handleWsConnection(ws: WebSocket) {
       return;
     }
 
+    const authContext = wsAuthContexts.get(ws) ?? null;
+
     if (msg.type === "subscribe") {
       const agent = getAgent(msg.agentId);
       if (!agent || !isAgentActive(msg.agentId)) {
         sendWs(ws, { type: "error", message: "Agent not found" });
+        return;
+      }
+      if (!(await hasAgentAccess(authContext, msg.agentId))) {
+        sendWs(ws, { type: "error", message: "Forbidden" });
         return;
       }
       subscriptions.set(ws, {
@@ -162,6 +194,10 @@ function handleWsConnection(ws: WebSocket) {
       const agent = getAgent(msg.agentId);
       if (!agent || !isAgentActive(msg.agentId)) {
         sendWs(ws, { type: "error", message: "Agent not found" });
+        return;
+      }
+      if (!(await hasAgentAccess(authContext, msg.agentId))) {
+        sendWs(ws, { type: "error", message: "Forbidden" });
         return;
       }
 
@@ -232,6 +268,7 @@ function handleWsConnection(ws: WebSocket) {
     subscriptions.delete(ws);
     statusSubscribers.delete(ws);
     connectedClients.delete(ws);
+    wsAuthContexts.delete(ws);
   });
 }
 
@@ -356,9 +393,28 @@ export function startServer(port?: number, host?: string) {
   });
 
   // Attach WebSocket server to the HTTP server
+  const shouldValidateWs = getLoadedComponents().some(
+    (component) => component.id === "multiUser"
+  );
   const wss = new WebSocketServer({
     server: server as import("http").Server,
     path: "/ws",
+    verifyClient: shouldValidateWs
+      ? (info, done) => {
+          const request = new Request("http://localhost/ws", {
+            headers: new Headers(info.req.headers as Record<string, string>),
+          });
+
+          validateWebSocketRequest(request)
+            .then((authContext) => {
+              (info.req as import("http").IncomingMessage & {
+                authContext?: RequestAuthContext | null;
+              }).authContext = authContext;
+              done(!!authContext, authContext ? undefined : 401);
+            })
+            .catch(() => done(false, 401));
+        }
+      : undefined,
   });
   wss.on("connection", handleWsConnection);
 
