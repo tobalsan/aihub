@@ -15,18 +15,23 @@ const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
   },
   scheduler: {
     load: () =>
-      import("./scheduler/index.js").then((module) => module.schedulerComponent),
+      import("./scheduler/index.js").then(
+        (module) => module.schedulerComponent
+      ),
     getConfig: (config) => config.components?.scheduler,
     routePrefixes: ["/api/schedules"],
   },
   heartbeat: {
     load: () =>
-      import("./heartbeat/index.js").then((module) => module.heartbeatComponent),
+      import("./heartbeat/index.js").then(
+        (module) => module.heartbeatComponent
+      ),
     getConfig: (config) => config.components?.heartbeat,
     routePrefixes: ["/api/agents/:id/heartbeat"],
   },
   amsg: {
-    load: () => import("./amsg/index.js").then((module) => module.amsgComponent),
+    load: () =>
+      import("./amsg/index.js").then((module) => module.amsgComponent),
     getConfig: (config) => config.components?.amsg,
     routePrefixes: [],
   },
@@ -56,7 +61,7 @@ const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
         (module) => module.multiUserComponent
       ),
     getConfig: (config) => config.multiUser,
-    routePrefixes: ["/api/auth", "/api/me"],
+    routePrefixes: ["/api/auth", "/api/me", "/api/admin"],
   },
 };
 
@@ -76,12 +81,16 @@ export function topoSort(components: Component[]): Component[] {
   const ordered: Component[] = [];
   const visiting = new Set<string>();
   const visited = new Set<string>();
-  const byId = new Map(components.map((component) => [component.id, component]));
+  const byId = new Map(
+    components.map((component) => [component.id, component])
+  );
 
   function visit(component: Component): void {
     if (visited.has(component.id)) return;
     if (visiting.has(component.id)) {
-      throw new Error(`Circular component dependency involving "${component.id}"`);
+      throw new Error(
+        `Circular component dependency involving "${component.id}"`
+      );
     }
     visiting.add(component.id);
     for (const dependency of component.dependencies) {
@@ -105,7 +114,9 @@ export function topoSort(components: Component[]): Component[] {
   return ordered;
 }
 
-export async function loadComponents(config: GatewayConfig): Promise<Component[]> {
+export async function loadComponents(
+  config: GatewayConfig
+): Promise<Component[]> {
   const components: Component[] = [];
 
   for (const [id, registration] of Object.entries(COMPONENT_REGISTRY)) {

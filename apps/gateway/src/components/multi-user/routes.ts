@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { getMultiUserRuntime } from "./index.js";
+import { registerMultiUserAdminRoutes } from "./admin-routes.js";
 
 function getRuntimeOrThrow() {
   const runtime = getMultiUserRuntime();
@@ -16,7 +17,7 @@ export function registerMultiUserRoutes(app: Hono): void {
   });
 
   app.get("/me", async (c) => {
-    const { auth } = getRuntimeOrThrow();
+    const { auth, assignments } = getRuntimeOrThrow();
     const session = await auth.api.getSession({
       headers: c.req.raw.headers,
     });
@@ -25,6 +26,27 @@ export function registerMultiUserRoutes(app: Hono): void {
       return c.json({ user: null, session: null }, 401);
     }
 
-    return c.json(session);
+    const userId = String(session.user.id);
+    const user = session.user as Record<string, unknown>;
+    return c.json({
+      user: {
+        id: userId,
+        name: typeof user.name === "string" ? user.name : null,
+        email: typeof user.email === "string" ? user.email : null,
+        role:
+          typeof user.role === "string" || Array.isArray(user.role)
+            ? user.role
+            : null,
+        approved:
+          typeof user.approved === "boolean"
+            ? user.approved
+            : user.approved === null
+              ? null
+              : null,
+      },
+      assignedAgentIds: assignments.getAssignmentsForUser(userId),
+    });
   });
+
+  registerMultiUserAdminRoutes(app);
 }

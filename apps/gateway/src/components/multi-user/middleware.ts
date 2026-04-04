@@ -30,13 +30,15 @@ function normalizeAuthContext(session: {
       id: String(session.user.id),
       email:
         typeof session.user.email === "string" ? session.user.email : undefined,
-      name: typeof session.user.name === "string" ? session.user.name : undefined,
+      name:
+        typeof session.user.name === "string" ? session.user.name : undefined,
       image:
         typeof session.user.image === "string" || session.user.image === null
           ? (session.user.image as string | null)
           : undefined,
       role:
-        typeof session.user.role === "string" || Array.isArray(session.user.role)
+        typeof session.user.role === "string" ||
+        Array.isArray(session.user.role)
           ? (session.user.role as string | string[])
           : undefined,
       approved:
@@ -70,7 +72,9 @@ function isApproved(authContext: RequestAuthContext): boolean {
 }
 
 function encodeAuthContext(authContext: RequestAuthContext): string {
-  return Buffer.from(JSON.stringify(authContext), "utf-8").toString("base64url");
+  return Buffer.from(JSON.stringify(authContext), "utf-8").toString(
+    "base64url"
+  );
 }
 
 function decodeAuthContext(value: string): RequestAuthContext | null {
@@ -187,18 +191,12 @@ export async function hasAgentAccess(
   const runtime = getMultiUserRuntime();
   if (!runtime) return true;
 
-  const assignment = runtime.db
-    .prepare(
-      "SELECT 1 FROM agent_assignments WHERE userId = ? AND agentId = ? LIMIT 1"
-    )
-    .get(authContext.user.id, agentId);
-
-  return !!assignment;
+  return runtime.assignments
+    .getAssignmentsForUser(authContext.user.id)
+    .includes(agentId);
 }
 
-export const requireAgentAccess = (
-  agentIdParam = "id"
-): MiddlewareHandler => {
+export const requireAgentAccess = (agentIdParam = "id"): MiddlewareHandler => {
   return async (c, next) => {
     if (!getMultiUserRuntime()) {
       await next();

@@ -77,6 +77,7 @@ describe("api client (projects/subagents)", () => {
         version: 2,
         components: { projects: true },
         agents: ["main"],
+        multiUser: false,
       }),
     });
 

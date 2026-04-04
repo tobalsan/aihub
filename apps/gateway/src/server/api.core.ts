@@ -1,7 +1,5 @@
 import { Hono, type Context } from "hono";
-import {
-  SendMessageRequestSchema,
-} from "@aihub/shared";
+import { SendMessageRequestSchema } from "@aihub/shared";
 import {
   getActiveAgents,
   getAgent,
@@ -28,7 +26,13 @@ import {
   isAllowedMimeType,
   getAllowedMimeTypes,
 } from "../media/upload.js";
-import { getForwardedAuthContext } from "../components/multi-user/middleware.js";
+import {
+  getForwardedAuthContext,
+} from "../components/multi-user/middleware.js";
+import {
+  getAgentFilter,
+  getMultiUserRuntime,
+} from "../components/multi-user/index.js";
 
 const api = new Hono();
 
@@ -36,21 +40,44 @@ function getRequestUserId(c: Context): string | undefined {
   return getForwardedAuthContext(c.req.raw.headers)?.session.userId;
 }
 
+function getVisibleAgents(c: Context) {
+  const agents = getActiveAgents();
+  const authContext = getForwardedAuthContext(c.req.raw.headers);
+  if (!getMultiUserRuntime() || !authContext) {
+    return agents;
+  }
+  return getAgentFilter(authContext.user.id, authContext.user.role)(agents);
+}
+
 api.get("/capabilities", (c) => {
   const components = Object.fromEntries(
     getLoadedComponents().map((component) => [component.id, true])
   );
+  const authContext = getForwardedAuthContext(c.req.raw.headers);
+  const multiUserEnabled = !!getMultiUserRuntime();
+  const agents = getVisibleAgents(c);
 
   return c.json({
     version: 2,
     components,
-    agents: getActiveAgents().map((agent) => agent.id),
+    agents: agents.map((agent) => agent.id),
+    multiUser: multiUserEnabled,
+    ...(multiUserEnabled && authContext
+      ? {
+          user: {
+            id: authContext.user.id,
+            name: authContext.user.name ?? null,
+            email: authContext.user.email ?? null,
+            role: authContext.user.role ?? null,
+          },
+        }
+      : {}),
   });
 });
 
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", (c) => {
-  const agents = getActiveAgents();
+  const agents = getVisibleAgents(c);
   return c.json(
     agents.map((a) => ({
       id: a.id,

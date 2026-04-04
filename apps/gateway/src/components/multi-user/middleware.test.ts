@@ -22,9 +22,7 @@ describe("multi-user middleware", () => {
       },
     });
 
-    const {
-      createAuthMiddleware,
-    } = await import("./middleware.js");
+    const { createAuthMiddleware } = await import("./middleware.js");
 
     const app = new Hono();
     app.use("/api/*", createAuthMiddleware());
@@ -58,10 +56,8 @@ describe("multi-user middleware", () => {
       },
     });
 
-    const {
-      createAuthMiddleware,
-      getRequestAuthContext,
-    } = await import("./middleware.js");
+    const { createAuthMiddleware, getRequestAuthContext } =
+      await import("./middleware.js");
 
     const app = new Hono();
     app.use("/api/*", createAuthMiddleware());
@@ -105,9 +101,7 @@ describe("multi-user middleware", () => {
       },
     });
 
-    const {
-      createAuthMiddleware,
-    } = await import("./middleware.js");
+    const { createAuthMiddleware } = await import("./middleware.js");
 
     const app = new Hono();
     app.use("/api/*", createAuthMiddleware());
@@ -138,10 +132,8 @@ describe("multi-user middleware", () => {
       },
     });
 
-    const {
-      createAuthMiddleware,
-      requireAdmin,
-    } = await import("./middleware.js");
+    const { createAuthMiddleware, requireAdmin } =
+      await import("./middleware.js");
 
     const app = new Hono();
     app.use("/api/*", createAuthMiddleware());
@@ -175,12 +167,13 @@ describe("multi-user middleware", () => {
           get: vi.fn(() => undefined),
         })),
       },
+      assignments: {
+        getAssignmentsForUser: vi.fn(() => []),
+      },
     });
 
-    const {
-      createAuthMiddleware,
-      requireAgentAccess,
-    } = await import("./middleware.js");
+    const { createAuthMiddleware, requireAgentAccess } =
+      await import("./middleware.js");
 
     const app = new Hono();
     app.use("/api/*", createAuthMiddleware());
@@ -213,9 +206,7 @@ describe("multi-user middleware", () => {
       },
     });
 
-    const {
-      validateWebSocketRequest,
-    } = await import("./middleware.js");
+    const { validateWebSocketRequest } = await import("./middleware.js");
 
     const authContext = await validateWebSocketRequest(
       new Request("http://localhost/ws", {

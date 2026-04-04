@@ -35,9 +35,8 @@ describe("/capabilities API", () => {
     );
 
     vi.resetModules();
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../config/index.js");
     clearConfigCacheForTests();
     const { loadComponents } = await import("../components/registry.js");
     await loadComponents(loadConfig());
@@ -60,6 +59,7 @@ describe("/capabilities API", () => {
       version: 2,
       components: { scheduler: true },
       agents: ["main"],
+      multiUser: false,
     });
   });
 });

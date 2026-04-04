@@ -34,12 +34,30 @@ function isAllowedDomain(email: string, allowedDomains?: string[]): boolean {
   return allowedDomains.some((allowed) => allowed.toLowerCase() === domain);
 }
 
-export async function createMultiUserAuth(
+export type MultiUserAuth = {
+  handler: ReturnType<typeof betterAuth>["handler"];
+  api: ReturnType<typeof betterAuth>["api"] & {
+    listUsers(args: {
+      headers: Headers;
+      query: Record<string, never>;
+    }): Promise<{ users: Array<Record<string, unknown>>; total: number }>;
+    getUser(args: {
+      headers: Headers;
+      query: { id: string };
+    }): Promise<Record<string, unknown> | null>;
+    setRole(args: {
+      headers: Headers;
+      body: { userId: string; role: string };
+    }): Promise<{ user: Record<string, unknown> }>;
+  };
+};
+
+function buildMultiUserAuth(
   config: GatewayConfig,
   multiUserConfig: Extract<MultiUserConfig, { enabled: true }>,
   db: Database.Database
-): Promise<ReturnType<typeof betterAuth>> {
-  const auth = betterAuth({
+) {
+  return betterAuth({
     appName: "AIHub",
     baseURL: getAuthBaseUrl(config),
     basePath: "/api/auth",
@@ -98,18 +116,24 @@ export async function createMultiUserAuth(
 
             if (userCount.count !== 1) return;
 
-            db.prepare("UPDATE user SET role = ?, approved = ? WHERE id = ?").run(
-              "admin",
-              1,
-              user.id
-            );
+            db.prepare(
+              "UPDATE user SET role = ?, approved = ? WHERE id = ?"
+            ).run("admin", 1, user.id);
           },
         },
       },
     },
   });
+}
+
+export async function createMultiUserAuth(
+  config: GatewayConfig,
+  multiUserConfig: Extract<MultiUserConfig, { enabled: true }>,
+  db: Database.Database
+): Promise<MultiUserAuth> {
+  const auth = buildMultiUserAuth(config, multiUserConfig, db);
 
   const migrations = await getMigrations(auth.options);
   await migrations.runMigrations();
-  return auth as unknown as ReturnType<typeof betterAuth>;
+  return auth as unknown as MultiUserAuth;
 }

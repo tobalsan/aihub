@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  GatewayConfigSchema,
-  type ComponentContext,
-} from "@aihub/shared";
+import { GatewayConfigSchema, type ComponentContext } from "@aihub/shared";
 
 describe("multi-user component", () => {
   beforeEach(() => {
@@ -43,6 +40,15 @@ describe("multi-user component", () => {
     }));
     vi.doMock("./auth.js", () => ({
       createMultiUserAuth: vi.fn(async () => auth),
+    }));
+    vi.doMock("./assignments.js", () => ({
+      createAgentAssignmentStore: vi.fn(() => ({
+        getAssignmentsForUser: vi.fn(() => []),
+        getAssignmentsForAgent: vi.fn(() => []),
+        getAllAssignments: vi.fn(() => []),
+        setAssignmentsForAgent: vi.fn(),
+        removeAssignment: vi.fn(),
+      })),
     }));
 
     const { multiUserComponent } = await import("./index.js");

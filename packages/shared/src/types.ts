@@ -503,10 +503,22 @@ export const AgentStatusSchema = z.object({
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
+const CapabilitiesUserSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  role: z
+    .union([z.string(), z.array(z.string())])
+    .nullable()
+    .optional(),
+});
+
 export const CapabilitiesResponseSchema = z.object({
   version: z.number(),
   components: z.record(z.string(), z.boolean()),
   agents: z.array(z.string()),
+  multiUser: z.boolean(),
+  user: CapabilitiesUserSchema.optional(),
 });
 export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 

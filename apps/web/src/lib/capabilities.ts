@@ -7,6 +7,7 @@ const defaultCapabilities: CapabilitiesResponse = {
   version: 2,
   components: {},
   agents: [],
+  multiUser: false,
 };
 
 const [capabilities, setCapabilities] =
@@ -47,6 +48,8 @@ export function setCapabilitiesForTests(
     version: value.version ?? defaultCapabilities.version,
     components: value.components ?? defaultCapabilities.components,
     agents: value.agents ?? defaultCapabilities.agents,
+    multiUser: value.multiUser ?? defaultCapabilities.multiUser,
+    user: value.user,
   });
   setCapabilitiesReady(true);
 }
