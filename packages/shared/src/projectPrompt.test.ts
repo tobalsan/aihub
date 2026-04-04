@@ -121,6 +121,9 @@ describe("role-based project prompts", () => {
       "while true; do apm status <project-id> --slug <agent> --json; sleep 30; done"
     );
     expect(out).toContain(
+      "Never use background tasks to monitor worker agents"
+    );
+    expect(out).toContain(
       "Never merge commits directly into `main`. Route all changes through the Space branch first."
     );
     expect(out).toContain(
@@ -136,7 +139,16 @@ describe("role-based project prompts", () => {
       "wait until the first worker's worktree has been integrated into the Space branch before dispatching the dependent worker."
     );
     expect(out).toContain(
+      "As soon as you dispatch workers, move the project to `in_progress` status using `apm update <project-id> --status in_progress`."
+    );
+    expect(out).toContain(
+      "As soon as implementation is complete and you are ready for review, move the project to `review` status using `apm update <project-id> --status review`."
+    );
+    expect(out).toContain(
       "update the project's `space.json` to mark those commits integrated."
+    );
+    expect(out).toContain(
+      "update each commit's status in `space.json` to `integrated` or `skipped` as appropriate."
     );
   });
 
