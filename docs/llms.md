@@ -170,11 +170,6 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)
-  secrets?: {
-    provider?: "onecli",              // Deprecated secret-lookup compatibility path
-    gatewayUrl?: string,
-    agents?: Record<string, { token: string }>
-  },
   onecli?: {
     enabled?: boolean,                // Default: false
     mode?: "proxy",                   // Default: "proxy"
@@ -204,8 +199,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 
 OneCLI notes:
 
-- Prefer top-level `onecli` for native gateway/proxy wiring.
-- `secrets.provider="onecli"` is deprecated and kept only for backward-compatible `$secret:` lookup.
+- Use top-level `onecli` for native gateway/proxy wiring.
 - Native OneCLI mode routes traffic through the OneCLI gateway with `HTTP_PROXY`/`HTTPS_PROXY`.
 - `onecli.agents.<id>.gatewayToken` is per-agent and should usually resolve from `$env:...`.
 - `onecli.ca` controls CA trust propagation for TLS interception.
@@ -214,7 +208,6 @@ OneCLI notes:
 
 1. **Config Load**: `loadConfig()` reads `--config`/explicit file paths when provided, else `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
-   - If `secrets.provider="onecli"` is present, gateway logs a deprecation warning and keeps that path only for backward-compatible `$secret:` resolution
 
 - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
 - Startup also initializes connectors from `apps/gateway/src/connectors/index.ts` after secret resolution and before component loading.

@@ -267,6 +267,5 @@ Each connector is a self-contained directory. Dependencies are managed independe
 
 Connector config values support the same secret resolution as the rest of AIHub:
 
-- `"$secret:name"` — resolved via OneCLI Agent Vault (if `secrets.provider` is `"onecli"`)
 - `"$env:NAME"` — resolved from `process.env.NAME`
 - Raw string — used as-is

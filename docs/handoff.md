@@ -5,9 +5,9 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
-- 2026-04-04 PRO-208 adapter/docs slice landed: Claude and Pi runs now apply scoped OneCLI proxy + CA env wiring from the native top-level `onecli` config, docs now describe `onecli` as the primary integration path, and `secrets.provider="onecli"` remains deprecated compatibility only. Current status: Phase 1 foundation complete, Phase 2 adapter/runtime plumbing complete, connector adoption + Phase 3 removal of deprecated secret lookup still pending.
+- 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path is removed. Config/runtime/docs now only support native top-level `onecli` proxy wiring plus `$env:` config refs. Current status: Phase 3 cleanup complete; remaining follow-up is CA file existence validation in schema.
 - 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
-- 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, gateway config loading warns on deprecated `secrets.provider="onecli"`, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
+- 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
 - 2026-04-03 follow-up: `aihub send` now resolves startup config and initializes connectors before running an agent, so connector tools/system prompts are available on the standalone CLI path and connector config errors fail early there too.
 - 2026-04-03 follow-up: external connector discovery now follows symlinked connector directories too, which fixes setups that mount built connector bundles into `$AIHUB_HOME/connectors` via symlink.
 - 2026-04-03 follow-up: external connector auto-discovery now defaults to `$AIHUB_HOME/connectors` instead of hard-coding `~/.aihub/connectors`, so connector system-prompt/tool injection works when running against a custom config home.
@@ -33,7 +33,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - `apps/gateway/src/sdk/claude/adapter.ts`, `apps/gateway/src/sdk/pi/adapter.ts`
   - Claude and Pi runs now apply scoped OneCLI proxy env vars and CA trust env vars from the native `onecli` config and restore prior process env after each run.
 - Docs:
-  - Updated `README.md` and `docs/llms.md` to describe native `onecli` as the primary gateway/proxy integration path, per-agent gateway tokens, CA trust wiring, adapter support, connector HTTP client support, and deprecation of `secrets.provider="onecli"`.
+  - Updated `README.md` and `docs/llms.md` to describe native `onecli` as the primary gateway/proxy integration path, per-agent gateway tokens, CA trust wiring, adapter support, and connector HTTP client support.
 - Status:
   - Phase 1 foundation complete.
   - Phase 2 adapter/runtime plumbing complete.
@@ -59,8 +59,6 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - `packages/shared/src/types.ts`, `apps/gateway/src/config/onecli.ts`
   - Added `OnecliCaConfigSchema`, `OnecliAgentConfigSchema`, `OnecliConfigSchema`, and top-level `GatewayConfigSchema.onecli`.
   - Added `buildOnecliEnv(config, agentId)` to derive proxy env vars plus optional CA trust env vars from resolved gateway config.
-- `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/secrets.ts`
-  - Added deprecation warnings for legacy `secrets.provider="onecli"` config-time and runtime secret lookup usage.
 - `apps/gateway/src/config/__tests__/onecli.test.ts`
   - Added coverage for env builder null/enabled/token/CA cases and OneCLI schema defaults/validation.
 - Docs:

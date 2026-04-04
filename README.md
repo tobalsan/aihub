@@ -30,12 +30,12 @@ pnpm install
 The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`).
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
-Config now supports a modular v2 shape with optional top-level `version`, `secrets`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
+Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config also has a top-level `connectors` map plus per-agent `agent.connectors` overrides for stateless tool providers loaded from `packages/shared/src/connectors` or an external `connectors.path` directory.
-Startup now resolves `$env:` and `$secret:` refs once and threads the resolved config through runtime/component context.
+Startup now resolves `$env:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
-OneCLI now has a dedicated top-level `onecli` config section for native proxy/gateway wiring. The old `secrets.provider="onecli"` path still exists only as a deprecated secret-lookup compatibility path and logs warnings at config load and secret resolution time.
+OneCLI now uses the dedicated top-level `onecli` config section for native proxy/gateway wiring.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
@@ -137,7 +137,7 @@ Use top-level `onecli` for native gateway/proxy config:
 - `agents.<id>.gatewayToken` is the per-agent proxy token source.
 - Claude and Pi agent runs now use scoped proxy env injection when native `onecli` is enabled for that agent.
 - Connectors can use `apps/gateway/src/connectors/http-client.ts` to route outbound HTTP calls through the same OneCLI gateway path.
-- `secrets.provider="onecli"` is deprecated and models the wrong integration pattern.
+- Legacy `$secret:` lookup is removed. Use `$env:` for config values and top-level `onecli` for native gateway/proxy wiring.
 
 ## Starting the app
 

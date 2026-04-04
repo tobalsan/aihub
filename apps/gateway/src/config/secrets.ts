@@ -1,38 +1,13 @@
-import type { SecretsConfig } from "@aihub/shared";
-
 function isSecretRef(value: string): boolean {
-  return value.startsWith("$secret:") || value.startsWith("$env:");
+  return value.startsWith("$env:");
 }
 
-export async function resolveSecretValue(
-  value: string,
-  secretsConfig?: SecretsConfig
-): Promise<string> {
+export async function resolveSecretValue(value: string): Promise<string> {
   if (value.startsWith("$secret:")) {
     const name = value.slice("$secret:".length);
-    if (secretsConfig?.provider !== "onecli" || !secretsConfig.gatewayUrl) {
-      throw new Error(
-        `Secret "${name}" requires secrets.provider="onecli" with gatewayUrl`
-      );
-    }
-
-    console.warn(
-      `[secrets] DEPRECATED: Resolving secret "${name}" via OneCLI secret lookup. ` +
-        "This will be removed in a future version. Migrate to native OneCLI proxy integration."
+    throw new Error(
+      `Secret "${name}" uses removed $secret: resolution. Use $env:${name} or native top-level onecli proxy config instead.`
     );
-
-    const response = await fetch(
-      `${secretsConfig.gatewayUrl.replace(/\/$/, "")}/secrets/${name}`
-    );
-    if (!response.ok) {
-      throw new Error(`Secret "${name}" not found in OneCLI vault`);
-    }
-
-    const data = (await response.json()) as { value?: unknown };
-    if (typeof data.value !== "string") {
-      throw new Error(`Secret "${name}" resolved to invalid value`);
-    }
-    return data.value;
   }
 
   if (value.startsWith("$env:")) {
@@ -47,15 +22,13 @@ export async function resolveSecretValue(
   return value;
 }
 
-export async function resolveConfigSecrets<T>(
-  config: T,
-  secretsConfig?: SecretsConfig
-): Promise<T> {
+export async function resolveConfigSecrets<T>(config: T): Promise<T> {
   async function walk(value: unknown): Promise<unknown> {
     if (typeof value === "string") {
-      return isSecretRef(value)
-        ? resolveSecretValue(value, secretsConfig)
-        : value;
+      if (value.startsWith("$secret:")) {
+        return resolveSecretValue(value);
+      }
+      return isSecretRef(value) ? resolveSecretValue(value) : value;
     }
     if (Array.isArray(value)) {
       const resolved = await Promise.all(value.map((entry) => walk(entry)));

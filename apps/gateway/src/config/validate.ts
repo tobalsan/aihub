@@ -93,7 +93,7 @@ export async function prepareStartupConfig(
 }> {
   const resolvedConfig =
     options?.resolvedConfig ??
-    (await resolveConfigSecrets(config, config.secrets));
+    (await resolveConfigSecrets(config));
 
   if (!options?.skipConnectorInitialization) {
     await initializeConnectors(resolvedConfig);
@@ -124,7 +124,7 @@ export async function prepareStartupConfig(
 export async function resolveStartupConfig(
   config: GatewayConfig
 ): Promise<GatewayConfig> {
-  return resolveConfigSecrets(config, config.secrets);
+  return resolveConfigSecrets(config);
 }
 
 export function logComponentSummary(summary: {

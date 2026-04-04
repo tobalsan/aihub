@@ -19,7 +19,7 @@ describe("GatewayConfigSchema v2", () => {
     expect(result.scheduler?.enabled).toBe(true);
   });
 
-  it("parses v2 config with secrets and components", () => {
+  it("parses v2 config with onecli and components", () => {
     const result = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -30,8 +30,8 @@ describe("GatewayConfigSchema v2", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      secrets: {
-        provider: "onecli",
+      onecli: {
+        enabled: true,
         gatewayUrl: "http://localhost:10255",
       },
       components: {
@@ -41,7 +41,7 @@ describe("GatewayConfigSchema v2", () => {
     });
 
     expect(result.version).toBe(2);
-    expect(result.secrets?.provider).toBe("onecli");
+    expect(result.onecli?.gatewayUrl).toBe("http://localhost:10255");
     expect(result.components?.scheduler?.tickSeconds).toBe(30);
   });
 });
