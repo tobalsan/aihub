@@ -44,6 +44,7 @@ import {
 
 export type RunAgentParams = {
   agentId: string;
+  userId?: string;
   message: string;
   attachments?: FileAttachment[]; // file attachments (paths from upload)
   sessionId?: string;
@@ -131,7 +132,11 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     if (params.sessionId) {
       sessionId = params.sessionId;
     } else if (params.sessionKey) {
-      const entry = getSessionEntry(params.agentId, params.sessionKey);
+      const entry = getSessionEntry(
+        params.agentId,
+        params.sessionKey,
+        params.userId
+      );
       sessionId = entry?.sessionId;
     } else {
       sessionId = "default";
@@ -210,6 +215,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   } else if (params.sessionKey) {
     const resolved = await resolveSessionId({
       agentId: params.agentId,
+      userId: params.userId,
       sessionKey: params.sessionKey,
       message: params.message,
     });
@@ -217,7 +223,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     message = resolved.message;
     // Clear Claude SDK session mapping on reset (new session via /new, /reset, or idle timeout)
     if (resolved.isNew) {
-      await clearClaudeSessionId(params.agentId, sessionId);
+      await clearClaudeSessionId(params.agentId, sessionId, params.userId);
     }
   } else {
     sessionId = "default";
@@ -250,8 +256,20 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       if (directive.thinkLevel) {
         // /think level - update session state and persist
         directiveThinkLevel = directive.thinkLevel;
-        await setSessionThinkLevel(params.agentId, resolvedSessionKey, directive.thinkLevel, sessionId);
-        await appendSessionMeta(params.agentId, sessionId, "thinkingLevel", directive.thinkLevel);
+        await setSessionThinkLevel(
+          params.agentId,
+          resolvedSessionKey,
+          directive.thinkLevel,
+          sessionId,
+          params.userId
+        );
+        await appendSessionMeta(
+          params.agentId,
+          sessionId,
+          "thinkingLevel",
+          directive.thinkLevel,
+          params.userId
+        );
 
         // If no remaining message, just acknowledge and return
         if (!message.trim()) {
@@ -275,7 +293,14 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         };
       } else {
         // /think with no arg - show current level
-        const currentLevel = getSessionThinkLevel(params.agentId, resolvedSessionKey) ?? agent.thinkLevel ?? "not set";
+        const currentLevel =
+          getSessionThinkLevel(
+            params.agentId,
+            resolvedSessionKey,
+            params.userId
+          ) ??
+          agent.thinkLevel ??
+          "not set";
         const statusText = `Current thinking level: ${currentLevel}`;
         emit({ type: "text", data: statusText });
         emit({ type: "done", meta: { durationMs: 0 } });
@@ -295,7 +320,11 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     resolvedThinkLevel =
       params.thinkLevel ??
       directiveThinkLevel ??
-      getSessionThinkLevel(params.agentId, resolvedSessionKey) ??
+      getSessionThinkLevel(
+        params.agentId,
+        resolvedSessionKey,
+        params.userId
+      ) ??
       agent.thinkLevel;
   } else {
     // Non-OAuth: still honor API param and config, just no directive/session
@@ -424,6 +453,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     const runParams = {
       agentId: params.agentId,
       agent,
+      userId: params.userId,
       sessionId,
       sessionKey: params.sessionKey,
       message,
@@ -495,11 +525,16 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
     // Flush completed turns first
     for (const buffer of completedTurns) {
-      await flushTurnBuffer(params.agentId, sessionId, buffer);
+      await flushTurnBuffer(params.agentId, sessionId, buffer, params.userId);
     }
     // Flush any in-progress turn
     if (currentTurn) {
-      await flushTurnBuffer(params.agentId, sessionId, currentTurn);
+      await flushTurnBuffer(
+        params.agentId,
+        sessionId,
+        currentTurn,
+        params.userId
+      );
       currentTurn = null;
     }
     // Flush any pending user-only turns (queued but not processed)
@@ -511,7 +546,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         text: pending.text,
         timestamp: pending.timestamp,
       });
-      await flushTurnBuffer(params.agentId, sessionId, buffer);
+      await flushTurnBuffer(params.agentId, sessionId, buffer, params.userId);
     }
 
     const durationMs = Date.now() - started;
@@ -540,6 +575,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         // Run next message - omit onEvent to use agentEventBus only
         await runAgent({
           agentId: params.agentId,
+          userId: params.userId,
           message: pendingMsg,
           sessionId,
           sessionKey: params.sessionKey,
@@ -568,15 +604,16 @@ export type HistoryMessage = SimpleHistoryMessage;
  */
 export async function getSessionHistory(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<SimpleHistoryMessage[]> {
   // One-time backfill from Pi session if canonical doesn't exist
-  await backfillFromPiSession(agentId, sessionId);
-  await backfillFromClaudeSessionIfNeeded(agentId, sessionId);
+  await backfillFromPiSession(agentId, sessionId, userId);
+  await backfillFromClaudeSessionIfNeeded(agentId, sessionId, userId);
 
   // Try canonical history
-  if (await hasCanonicalHistory(agentId, sessionId)) {
-    return getCanonicalSimpleHistory(agentId, sessionId);
+  if (await hasCanonicalHistory(agentId, sessionId, userId)) {
+    return getCanonicalSimpleHistory(agentId, sessionId, userId);
   }
 
   // No history exists
@@ -589,15 +626,16 @@ export async function getSessionHistory(
  */
 export async function getFullSessionHistory(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<FullHistoryMessage[]> {
   // One-time backfill from Pi session if canonical doesn't exist
-  await backfillFromPiSession(agentId, sessionId);
-  await backfillFromClaudeSessionIfNeeded(agentId, sessionId);
+  await backfillFromPiSession(agentId, sessionId, userId);
+  await backfillFromClaudeSessionIfNeeded(agentId, sessionId, userId);
 
   // Try canonical history
-  if (await hasCanonicalHistory(agentId, sessionId)) {
-    return getCanonicalFullHistory(agentId, sessionId);
+  if (await hasCanonicalHistory(agentId, sessionId, userId)) {
+    return getCanonicalFullHistory(agentId, sessionId, userId);
   }
 
   // No history exists

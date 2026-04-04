@@ -1,7 +1,5 @@
-import { Hono } from "hono";
-import {
-  SendMessageRequestSchema,
-} from "@aihub/shared";
+import { Hono, type Context } from "hono";
+import { SendMessageRequestSchema } from "@aihub/shared";
 import {
   getActiveAgents,
   getAgent,
@@ -31,21 +29,82 @@ import {
 
 const api = new Hono();
 
-api.get("/capabilities", (c) => {
+type MultiUserApiDeps = {
+  getForwardedAuthContext: typeof import(
+    "../components/multi-user/middleware.js"
+  ).getForwardedAuthContext;
+  getAgentFilter: typeof import("../components/multi-user/index.js").getAgentFilter;
+};
+
+let multiUserApiDepsPromise: Promise<MultiUserApiDeps> | null = null;
+
+function isMultiUserLoaded(): boolean {
+  return getLoadedComponents().some((component) => component.id === "multiUser");
+}
+
+function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
+  multiUserApiDepsPromise ??= Promise.all([
+    import("../components/multi-user/middleware.js"),
+    import("../components/multi-user/index.js"),
+  ]).then(([middlewareModule, componentModule]) => ({
+    getForwardedAuthContext: middlewareModule.getForwardedAuthContext,
+    getAgentFilter: componentModule.getAgentFilter,
+  }));
+  return multiUserApiDepsPromise;
+}
+
+async function getRequestAuthContext(c: Context) {
+  if (!isMultiUserLoaded()) return null;
+  const { getForwardedAuthContext } = await loadMultiUserApiDeps();
+  return getForwardedAuthContext(c.req.raw.headers);
+}
+
+async function getRequestUserId(c: Context): Promise<string | undefined> {
+  return (await getRequestAuthContext(c))?.session.userId;
+}
+
+async function getVisibleAgents(c: Context) {
+  const agents = getActiveAgents();
+  if (!isMultiUserLoaded()) {
+    return agents;
+  }
+
+  const authContext = await getRequestAuthContext(c);
+  if (!authContext) return agents;
+
+  const { getAgentFilter } = await loadMultiUserApiDeps();
+  return getAgentFilter(authContext.user.id, authContext.user.role)(agents);
+}
+
+api.get("/capabilities", async (c) => {
   const components = Object.fromEntries(
     getLoadedComponents().map((component) => [component.id, true])
   );
+  const multiUserEnabled = isMultiUserLoaded();
+  const authContext = multiUserEnabled ? await getRequestAuthContext(c) : null;
+  const agents = await getVisibleAgents(c);
 
   return c.json({
     version: 2,
     components,
-    agents: getActiveAgents().map((agent) => agent.id),
+    agents: agents.map((agent) => agent.id),
+    multiUser: multiUserEnabled,
+    ...(multiUserEnabled && authContext
+      ? {
+          user: {
+            id: authContext.user.id,
+            name: authContext.user.name ?? null,
+            email: authContext.user.email ?? null,
+            role: authContext.user.role ?? null,
+          },
+        }
+      : {}),
   });
 });
 
 // GET /api/agents - list all agents (respects single-agent mode)
-api.get("/agents", (c) => {
-  const agents = getActiveAgents();
+api.get("/agents", async (c) => {
+  const agents = await getVisibleAgents(c);
   return c.json(
     agents.map((a) => ({
       id: a.id,
@@ -60,8 +119,8 @@ api.get("/agents", (c) => {
 });
 
 // GET /api/agents/status - get all agent streaming statuses
-api.get("/agents/status", (c) => {
-  const agents = getActiveAgents();
+api.get("/agents/status", async (c) => {
+  const agents = await getVisibleAgents(c);
   const statuses = getAgentStatuses(agents.map((agent) => agent.id));
   return c.json({ statuses });
 });
@@ -121,10 +180,12 @@ api.post("/agents/:id/messages", async (c) => {
   }
 
   try {
+    const userId = await getRequestUserId(c);
     // Handle /abort - skip session resolution to avoid creating new session
     if (isAbortTrigger(parsed.data.message)) {
       const result = await runAgent({
         agentId: agent.id,
+        userId,
         message: parsed.data.message,
         sessionId: parsed.data.sessionId,
         sessionKey: parsed.data.sessionKey,
@@ -138,6 +199,7 @@ api.post("/agents/:id/messages", async (c) => {
     if (!sessionId && parsed.data.sessionKey) {
       const resolved = await resolveSessionId({
         agentId: agent.id,
+        userId,
         sessionKey: parsed.data.sessionKey,
         message: parsed.data.message,
       });
@@ -147,6 +209,7 @@ api.post("/agents/:id/messages", async (c) => {
 
     const result = await runAgent({
       agentId: agent.id,
+      userId,
       message,
       sessionId,
       sessionKey: parsed.data.sessionKey ?? "main",
@@ -172,7 +235,8 @@ api.get("/agents/:id/history", async (c) => {
 
   const sessionKey = c.req.query("sessionKey") ?? "main";
   const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
-  const entry = getSessionEntry(agentId, sessionKey);
+  const userId = await getRequestUserId(c);
+  const entry = getSessionEntry(agentId, sessionKey, userId);
 
   if (!entry) {
     return c.json({ messages: [], view });
@@ -180,13 +244,13 @@ api.get("/agents/:id/history", async (c) => {
 
   const messages =
     view === "full"
-      ? await getFullSessionHistory(agentId, entry.sessionId)
-      : await getSessionHistory(agentId, entry.sessionId);
+      ? await getFullSessionHistory(agentId, entry.sessionId, userId)
+      : await getSessionHistory(agentId, entry.sessionId, userId);
 
   // Only include thinkingLevel for OAuth agents
   const thinkingLevel =
     agent.auth?.mode === "oauth"
-      ? getSessionThinkLevel(agentId, sessionKey)
+      ? getSessionThinkLevel(agentId, sessionKey, userId)
       : undefined;
 
   return c.json({ messages, sessionId: entry.sessionId, view, thinkingLevel });

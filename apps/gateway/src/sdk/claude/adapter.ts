@@ -269,7 +269,8 @@ export const claudeAdapter: SdkAdapter = {
       const existingClaudeSessionId = getClaudeSessionId(
         params.agentId,
         params.sessionId,
-        requestedModel
+        requestedModel,
+        params.userId
       );
 
       try {
@@ -500,7 +501,8 @@ export const claudeAdapter: SdkAdapter = {
               params.agentId,
               params.sessionId,
               message.session_id,
-              requestedModel
+              requestedModel,
+              params.userId
             );
           }
         }

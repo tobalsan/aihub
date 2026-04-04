@@ -28,6 +28,7 @@ Core TypeScript/Node.js application. Exports:
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
+  - `multiUser` is an auth component that enables Better Auth + SQLite, guards `/api/*` and `/ws`, exposes `/api/auth/*`, `/api/me`, `/api/admin/*`, and keeps session/history storage isolated per user.
 - **Connectors** (`src/connectors/`): Gateway runtime glue that discovers external connectors, validates configured connector mounts, and exposes connector tools to Pi/Claude sessions.
   - `src/connectors/http-client.ts` provides a connector-scoped fetch wrapper that can temporarily inject OneCLI proxy + CA env vars for outbound connector HTTP requests.
 
@@ -56,6 +57,7 @@ Features:
 - Area title click routes to `/projects?area=<id>`; kanban header shows selected area + `Back to Areas` link
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - Web app fetches `/api/capabilities` on boot; if `projects` is disabled, `/` falls back to the core agent list instead of the Areas route
+- When `/api/capabilities` reports `multiUser: true`, the app gates protected routes behind Better Auth session checks, exposes `/login`, and shows admin pages for `/admin/users` and `/admin/agents`
 - `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
 - `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
 - Left sidebar shows last 5 recently viewed projects (from `localStorage`) above the theme toggle, with truncated titles and relative viewed timestamps
@@ -129,6 +131,10 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `projects.json` - Project ID counter (`{ lastId }`)
 - `sessions.json` - Session key -> sessionId mapping with timestamps
 - `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
+- `auth.db` - Better Auth + multi-user SQLite database; only created when `multiUser.enabled: true`
+- `users/<userId>/sessions.json` - Per-user session mapping file when multi-user mode is enabled
+- `users/<userId>/claude-sessions.json` - Per-user Claude session map when multi-user mode is enabled
+- `users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled
 - (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
 
@@ -190,6 +196,17 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     projects?: { enabled?, root? }
   },
   scheduler?: { enabled?, tickSeconds? },
+  multiUser?: {
+    enabled: boolean,
+    oauth?: {
+      google: {
+        clientId: string,
+        clientSecret: string
+      }
+    },
+    allowedDomains?: string[],
+    sessionSecret?: string
+  },
   web?: { baseUrl? },
   projects?: { root? },            // Projects root (default: ~/projects)
   ui?: { enabled?, port?, bind?, tailscale? }  // enabled: default true; bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
@@ -203,6 +220,35 @@ OneCLI notes:
 - Native OneCLI mode routes traffic through the OneCLI gateway with `HTTP_PROXY`/`HTTPS_PROXY`.
 - `onecli.agents.<id>.gatewayToken` is per-agent and should usually resolve from `$env:...`.
 - `onecli.ca` controls CA trust propagation for TLS interception.
+
+## Multi-User Mode
+
+- Enable with top-level `multiUser.enabled: true`. When disabled, gateway skips Better Auth setup, SQLite creation, auth middleware, and per-user storage paths.
+- Better Auth mounts on `/api/auth/*` with Google OAuth and cookie sessions. `GET /api/me` returns the current user plus assigned agent IDs. Admin-only APIs live under `/api/admin/users` and `/api/admin/agents`.
+- Startup flow:
+  1. Gateway loads config and checks `multiUser.enabled`
+  2. If enabled, it creates `$AIHUB_HOME/auth.db`, runs Better Auth migrations, and creates the custom `agent_assignments` table
+  3. `/api/*` requests require a valid approved session except `/api/auth/*`; `/ws` upgrades are rejected without a valid session
+  4. First OAuth user is promoted to `admin`; later allowed-domain users start as unapproved `user`
+- Per-user file isolation:
+
+```text
+$AIHUB_HOME/
+├── auth.db
+├── aihub.json
+└── users/
+    └── <userId>/
+        ├── sessions.json
+        ├── claude-sessions.json
+        └── history/
+```
+
+- Web UI changes in multi-user mode:
+  - `/login` shows the Google sign-in entrypoint
+  - `AuthGuard` redirects unauthenticated users away from protected routes
+  - Sidebar shows account metadata + logout action
+  - Admin users get `/admin/users` and `/admin/agents`
+- There is no migration path from an existing single-user data directory into per-user ownership. Enabling multi-user mode is a fresh start for auth-owned state.
 
 ## Agent Runtime Flow
 

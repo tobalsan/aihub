@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-04 PRO-209 multi-user auth landed: Better Auth + SQLite is now integrated behind top-level `multiUser`, with `/api/auth/*`, `/api/me`, `/api/admin/*`, per-user session/history isolation under `$AIHUB_HOME/users/<userId>/`, web login/admin pages, integration coverage for enabled/disabled modes, and docs updates across `README.md` + `docs/llms.md`.
 - 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path is removed. Config/runtime/docs now only support native top-level `onecli` proxy wiring plus `$env:` config refs. Current status: Phase 3 cleanup complete; remaining follow-up is CA file existence validation in schema.
 - 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
 - 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
@@ -27,6 +28,19 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-04: PRO-209 multi-user auth integration + docs
+
+- `apps/gateway/src/components/multi-user/*`, `apps/web/src/auth/*`, `apps/web/src/pages/admin/*`
+  - Gateway now supports optional Better Auth + SQLite multi-user mode with API/WebSocket auth guards, admin assignment APIs, and per-user file isolation.
+  - Web now exposes login, auth guard, sidebar account/logout UI, `/admin/users`, and `/admin/agents`.
+- `apps/gateway/src/components/multi-user/integration.test.ts`
+  - Added end-to-end component lifecycle coverage for enabled mode (`/api/auth/ok`, SQLite creation, `agent_assignments` table, protected-route 401s) plus disabled-mode regression coverage (no DB, core APIs still unauthenticated).
+- Docs:
+  - Updated `docs/llms.md` and `README.md` with config, auth flow, API, UI, and fresh-start notes.
+- Status:
+  - Tasks 1-8 from PRO-209 are implemented.
+  - Remaining external validation is a real Google OAuth smoke test with live credentials if needed.
 
 ### 2026-04-04: PRO-208 adapter wiring + docs update
 

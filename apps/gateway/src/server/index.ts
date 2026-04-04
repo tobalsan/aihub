@@ -15,12 +15,18 @@ import type {
 import { api } from "./api.core.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import { getKnownComponentRouteMetadata } from "../components/registry.js";
+import {
+  getKnownComponentRouteMetadata,
+  getLoadedComponents,
+} from "../components/registry.js";
 import {
   resolveSessionId,
   getSessionEntry,
   isAbortTrigger,
 } from "../sessions/index.js";
+
+type RequestAuthContext =
+  import("../components/multi-user/middleware.js").RequestAuthContext;
 
 const app = new Hono();
 
@@ -57,13 +63,34 @@ function buildComponentRouteMatchers(): ComponentRouteMatcher[] {
 
 const componentRouteMatchers = buildComponentRouteMatchers();
 
+type MultiUserMiddlewareModule = typeof import(
+  "../components/multi-user/middleware.js"
+);
+
+let multiUserMiddlewareModulePromise: Promise<MultiUserMiddlewareModule> | null =
+  null;
+
+function isMultiUserLoaded(): boolean {
+  return getLoadedComponents().some((component) => component.id === "multiUser");
+}
+
+function loadMultiUserMiddlewareModule(): Promise<MultiUserMiddlewareModule> {
+  multiUserMiddlewareModulePromise ??= import(
+    "../components/multi-user/middleware.js"
+  );
+  return multiUserMiddlewareModulePromise;
+}
+
 function isComponentEnabled(
   config: GatewayConfig,
   componentId: string
 ): boolean {
-  const componentConfig = config.components?.[
-    componentId as keyof NonNullable<GatewayConfig["components"]>
-  ];
+  const componentConfig =
+    componentId === "multiUser"
+      ? config.multiUser
+      : config.components?.[
+          componentId as keyof NonNullable<GatewayConfig["components"]>
+        ];
   return !!componentConfig && componentConfig.enabled !== false;
 }
 
@@ -93,8 +120,35 @@ app.use("/api/*", async (c, next) => {
 
   await next();
 });
+app.use("/api/*", async (c, next) => {
+  if (!isMultiUserLoaded()) {
+    await next();
+    return;
+  }
 
-app.all("/api/*", (c) => {
+  const { createAuthMiddleware } = await loadMultiUserMiddlewareModule();
+  return createAuthMiddleware()(c, next);
+});
+app.use("/api/agents/:id", async (c, next) => {
+  if (!isMultiUserLoaded()) {
+    await next();
+    return;
+  }
+
+  const { requireAgentAccess } = await loadMultiUserMiddlewareModule();
+  return requireAgentAccess("id")(c, next);
+});
+app.use("/api/agents/:id/*", async (c, next) => {
+  if (!isMultiUserLoaded()) {
+    await next();
+    return;
+  }
+
+  const { requireAgentAccess } = await loadMultiUserMiddlewareModule();
+  return requireAgentAccess("id")(c, next);
+});
+
+app.all("/api/*", async (c) => {
   const url = new URL(c.req.url);
   const pathname = url.pathname.startsWith("/api/")
     ? url.pathname.slice(4)
@@ -102,7 +156,15 @@ app.all("/api/*", (c) => {
       ? "/"
       : url.pathname;
   url.pathname = pathname || "/";
-  return api.fetch(new Request(url, c.req.raw));
+  const request = new Request(url, c.req.raw);
+
+  if (isMultiUserLoaded()) {
+    const { forwardAuthContextToRequest, getRequestAuthContext } =
+      await loadMultiUserMiddlewareModule();
+    forwardAuthContextToRequest(request, getRequestAuthContext(c));
+  }
+
+  return api.fetch(request);
 });
 
 app.get("/health", (c) => c.json({ ok: true }));
@@ -111,12 +173,31 @@ app.get("/health", (c) => c.json({ ok: true }));
 type Subscription = { agentId: string; sessionKey: string };
 const subscriptions = new Map<WebSocket, Subscription>();
 const connectedClients = new Set<WebSocket>();
+const wsAuthContexts = new Map<WebSocket, RequestAuthContext>();
 
 // Global status subscribers (for sidebar real-time updates)
 const statusSubscribers = new Set<WebSocket>();
 
-function handleWsConnection(ws: WebSocket) {
+async function canAccessAgent(
+  authContext: RequestAuthContext | null,
+  agentId: string
+): Promise<boolean> {
+  if (!isMultiUserLoaded()) return true;
+  if (!authContext) return false;
+  const { hasAgentAccess } = await loadMultiUserMiddlewareModule();
+  return hasAgentAccess(authContext, agentId);
+}
+
+function handleWsConnection(
+  ws: WebSocket,
+  request?: import("http").IncomingMessage & {
+    authContext?: RequestAuthContext | null;
+  }
+) {
   connectedClients.add(ws);
+  if (request?.authContext) {
+    wsAuthContexts.set(ws, request.authContext);
+  }
 
   ws.on("message", async (raw) => {
     let msg: WsClientMessage;
@@ -127,10 +208,16 @@ function handleWsConnection(ws: WebSocket) {
       return;
     }
 
+    const authContext = wsAuthContexts.get(ws) ?? null;
+
     if (msg.type === "subscribe") {
       const agent = getAgent(msg.agentId);
       if (!agent || !isAgentActive(msg.agentId)) {
         sendWs(ws, { type: "error", message: "Agent not found" });
+        return;
+      }
+      if (!(await canAccessAgent(authContext, msg.agentId))) {
+        sendWs(ws, { type: "error", message: "Forbidden" });
         return;
       }
       subscriptions.set(ws, {
@@ -161,12 +248,18 @@ function handleWsConnection(ws: WebSocket) {
         sendWs(ws, { type: "error", message: "Agent not found" });
         return;
       }
+      if (!(await canAccessAgent(authContext, msg.agentId))) {
+        sendWs(ws, { type: "error", message: "Forbidden" });
+        return;
+      }
 
       try {
+        const userId = authContext?.session.userId;
         // Handle /abort - skip session resolution to avoid creating new session
         if (isAbortTrigger(msg.message)) {
           await runAgent({
             agentId: msg.agentId,
+            userId,
             message: msg.message,
             attachments: msg.attachments,
             sessionId: msg.sessionId,
@@ -183,6 +276,7 @@ function handleWsConnection(ws: WebSocket) {
         if (!sessionId && msg.sessionKey) {
           const resolved = await resolveSessionId({
             agentId: msg.agentId,
+            userId,
             sessionKey: msg.sessionKey,
             message: msg.message,
           });
@@ -206,6 +300,7 @@ function handleWsConnection(ws: WebSocket) {
 
         await runAgent({
           agentId: msg.agentId,
+          userId,
           message,
           attachments: msg.attachments,
           sessionId: sessionId ?? "default",
@@ -229,6 +324,7 @@ function handleWsConnection(ws: WebSocket) {
     subscriptions.delete(ws);
     statusSubscribers.delete(ws);
     connectedClients.delete(ws);
+    wsAuthContexts.delete(ws);
   });
 }
 
@@ -245,7 +341,11 @@ function setupEventBroadcast() {
       if (sub.agentId !== event.agentId) continue;
 
       // Match by sessionKey: resolve current sessionId for the key
-      const entry = getSessionEntry(sub.agentId, sub.sessionKey);
+      const entry = getSessionEntry(
+        sub.agentId,
+        sub.sessionKey,
+        wsAuthContexts.get(ws)?.session.userId
+      );
       if (!entry || entry.sessionId !== event.sessionId) continue;
 
       // Forward the event (strip internal fields)
@@ -266,9 +366,17 @@ function setupEventBroadcast() {
       agentId: event.agentId,
       status: event.status,
     };
-    for (const ws of statusSubscribers) {
-      sendWs(ws, statusMessage);
-    }
+
+    void (async () => {
+      for (const ws of statusSubscribers) {
+        if (
+          !(await canAccessAgent(wsAuthContexts.get(ws) ?? null, event.agentId))
+        ) {
+          continue;
+        }
+        sendWs(ws, statusMessage);
+      }
+    })();
   });
 
   agentEventBus.onFileChanged((event) => {
@@ -353,9 +461,31 @@ export function startServer(port?: number, host?: string) {
   });
 
   // Attach WebSocket server to the HTTP server
+  const shouldValidateWs = getLoadedComponents().some(
+    (component) => component.id === "multiUser"
+  );
   const wss = new WebSocketServer({
     server: server as import("http").Server,
     path: "/ws",
+    verifyClient: shouldValidateWs
+      ? (info, done) => {
+          const request = new Request("http://localhost/ws", {
+            headers: new Headers(info.req.headers as Record<string, string>),
+          });
+
+          loadMultiUserMiddlewareModule()
+            .then(({ validateWebSocketRequest }) =>
+              validateWebSocketRequest(request)
+            )
+            .then((authContext) => {
+              (info.req as import("http").IncomingMessage & {
+                authContext?: RequestAuthContext | null;
+              }).authContext = authContext;
+              done(!!authContext, authContext ? undefined : 401);
+            })
+            .catch(() => done(false, 401));
+        }
+      : undefined,
   });
   wss.on("connection", handleWsConnection);
 

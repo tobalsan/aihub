@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ThinkLevel } from "@aihub/shared";
 import { CONFIG_DIR, loadConfig } from "../config/index.js";
+import { getUserSessionsPath } from "../components/multi-user/isolation.js";
 
 export type SessionEntry = {
   sessionId: string;
@@ -34,35 +35,56 @@ export function isAbortTrigger(
   return false;
 }
 
-const STORE_PATH = path.join(CONFIG_DIR, "sessions.json");
+type StoreState = {
+  store: Record<string, SessionEntry>;
+  loaded: boolean;
+};
 
-let store: Record<string, SessionEntry> = {};
-let loaded = false;
+const storeStates = new Map<string, StoreState>();
 
-function ensureLoaded() {
-  if (loaded) return;
-  try {
-    const raw = fs.readFileSync(STORE_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      store = parsed;
-    }
-  } catch {
-    store = {};
-  }
-  loaded = true;
+function getStorePath(userId?: string): string {
+  return getUserSessionsPath(userId, CONFIG_DIR);
 }
 
-async function save() {
-  await fs.promises.mkdir(path.dirname(STORE_PATH), { recursive: true });
-  const json = JSON.stringify(store, null, 2);
-  const tmp = `${STORE_PATH}.${process.pid}.tmp`;
+function getStoreState(userId?: string): StoreState {
+  const storePath = getStorePath(userId);
+  let state = storeStates.get(storePath);
+  if (!state) {
+    state = { store: {}, loaded: false };
+    storeStates.set(storePath, state);
+  }
+  return state;
+}
+
+function ensureLoaded(userId?: string) {
+  const storePath = getStorePath(userId);
+  const state = getStoreState(userId);
+  if (state.loaded) return;
+  try {
+    const raw = fs.readFileSync(storePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      state.store = parsed;
+    }
+  } catch {
+    state.store = {};
+  }
+  state.loaded = true;
+}
+
+async function save(userId?: string) {
+  const storePath = getStorePath(userId);
+  const state = getStoreState(userId);
+  await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
+  const json = JSON.stringify(state.store, null, 2);
+  const tmp = `${storePath}.${process.pid}.tmp`;
   await fs.promises.writeFile(tmp, json, "utf-8");
-  await fs.promises.rename(tmp, STORE_PATH);
+  await fs.promises.rename(tmp, storePath);
 }
 
 export type ResolveSessionParams = {
   agentId: string;
+  userId?: string;
   sessionKey?: string;
   message: string;
   idleMinutes?: number;
@@ -85,13 +107,15 @@ export async function resolveSessionId(
 ): Promise<ResolveSessionResult> {
   const {
     agentId,
+    userId,
     sessionKey = DEFAULT_MAIN_KEY,
     message,
     idleMinutes,
     resetTriggers = DEFAULT_RESET_TRIGGERS,
   } = params;
 
-  ensureLoaded();
+  ensureLoaded(userId);
+  const state = getStoreState(userId);
 
   const config = loadConfig();
   const configuredIdleMinutes = config.sessions?.idleMinutes;
@@ -99,7 +123,7 @@ export async function resolveSessionId(
     idleMinutes ?? configuredIdleMinutes ?? DEFAULT_IDLE_MINUTES;
 
   const storeKey = `${agentId}:${sessionKey}`;
-  const entry = store[storeKey];
+  const entry = state.store[storeKey];
   const now = Date.now();
   const idleMs = resolvedIdleMinutes * 60_000;
   const trimmedMsg = message.trim();
@@ -136,8 +160,8 @@ export async function resolveSessionId(
   }
 
   // Update store
-  store[storeKey] = { sessionId, updatedAt: now, createdAt };
-  await save();
+  state.store[storeKey] = { sessionId, updatedAt: now, createdAt };
+  await save(userId);
 
   return {
     sessionId,
@@ -152,19 +176,23 @@ export async function resolveSessionId(
  */
 export function getSessionEntry(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  userId?: string
 ): SessionEntry | undefined {
-  ensureLoaded();
-  return store[`${agentId}:${sessionKey}`];
+  ensureLoaded(userId);
+  return getStoreState(userId).store[`${agentId}:${sessionKey}`];
 }
 
 /**
  * Look up createdAt timestamp for a sessionId (searches all entries)
  * Returns undefined if not found
  */
-export function getSessionCreatedAt(sessionId: string): number | undefined {
-  ensureLoaded();
-  for (const entry of Object.values(store)) {
+export function getSessionCreatedAt(
+  sessionId: string,
+  userId?: string
+): number | undefined {
+  ensureLoaded(userId);
+  for (const entry of Object.values(getStoreState(userId).store)) {
     if (entry.sessionId === sessionId) {
       return entry.createdAt;
     }
@@ -187,11 +215,12 @@ export function formatSessionTimestamp(timestamp: number): string {
  */
 export function getSessionThinkLevel(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  userId?: string
 ): ThinkLevel | undefined {
-  ensureLoaded();
+  ensureLoaded(userId);
   const storeKey = `${agentId}:${sessionKey}`;
-  return store[storeKey]?.thinkLevel;
+  return getStoreState(userId).store[storeKey]?.thinkLevel;
 }
 
 /**
@@ -202,15 +231,17 @@ export function getSessionThinkLevel(
 export async function restoreSessionUpdatedAt(
   agentId: string,
   sessionKey: string,
-  originalUpdatedAt: number | undefined
+  originalUpdatedAt: number | undefined,
+  userId?: string
 ): Promise<void> {
   if (originalUpdatedAt === undefined) return;
-  ensureLoaded();
+  ensureLoaded(userId);
+  const state = getStoreState(userId);
   const storeKey = `${agentId}:${sessionKey}`;
-  const entry = store[storeKey];
+  const entry = state.store[storeKey];
   if (entry) {
     entry.updatedAt = originalUpdatedAt;
-    await save();
+    await save(userId);
   }
 }
 
@@ -222,22 +253,24 @@ export async function setSessionThinkLevel(
   agentId: string,
   sessionKey: string,
   level: ThinkLevel,
-  sessionId?: string
+  sessionId?: string,
+  userId?: string
 ): Promise<void> {
-  ensureLoaded();
+  ensureLoaded(userId);
+  const state = getStoreState(userId);
   const storeKey = `${agentId}:${sessionKey}`;
-  const entry = store[storeKey];
+  const entry = state.store[storeKey];
   if (entry) {
     entry.thinkLevel = level;
   } else {
     // Create entry if missing (use provided sessionId or generate new)
     const now = Date.now();
-    store[storeKey] = {
+    state.store[storeKey] = {
       sessionId: sessionId ?? crypto.randomUUID(),
       updatedAt: now,
       createdAt: now,
       thinkLevel: level,
     };
   }
-  await save();
+  await save(userId);
 }

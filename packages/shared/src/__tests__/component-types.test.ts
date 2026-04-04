@@ -52,6 +52,7 @@ describe("component config schemas", () => {
       version: 2,
       components: { scheduler: true, projects: false },
       agents: ["main"],
+      multiUser: false,
     });
 
     expect(result.components.scheduler).toBe(true);

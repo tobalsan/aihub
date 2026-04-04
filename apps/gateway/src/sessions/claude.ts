@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG_DIR } from "../config/index.js";
+import { getUserClaudeSessionsPath } from "../components/multi-user/isolation.js";
 
 /**
  * Persistent mapping of agentId+sessionId -> Claude SDK session info.
@@ -12,31 +13,51 @@ type ClaudeSessionEntry = {
   model: string;
 };
 
-const STORE_PATH = path.join(CONFIG_DIR, "claude-sessions.json");
+type ClaudeStoreState = {
+  store: Record<string, ClaudeSessionEntry | string>;
+  loaded: boolean;
+};
 
-let store: Record<string, ClaudeSessionEntry | string> = {}; // string for backwards compat
-let loaded = false;
+const storeStates = new Map<string, ClaudeStoreState>();
 
-function ensureLoaded() {
-  if (loaded) return;
-  try {
-    const raw = fs.readFileSync(STORE_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      store = parsed;
-    }
-  } catch {
-    store = {};
-  }
-  loaded = true;
+function getStorePath(userId?: string): string {
+  return getUserClaudeSessionsPath(userId, CONFIG_DIR);
 }
 
-async function save() {
-  await fs.promises.mkdir(path.dirname(STORE_PATH), { recursive: true });
-  const json = JSON.stringify(store, null, 2);
-  const tmp = `${STORE_PATH}.${process.pid}.tmp`;
+function getStoreState(userId?: string): ClaudeStoreState {
+  const storePath = getStorePath(userId);
+  let state = storeStates.get(storePath);
+  if (!state) {
+    state = { store: {}, loaded: false };
+    storeStates.set(storePath, state);
+  }
+  return state;
+}
+
+function ensureLoaded(userId?: string) {
+  const storePath = getStorePath(userId);
+  const state = getStoreState(userId);
+  if (state.loaded) return;
+  try {
+    const raw = fs.readFileSync(storePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      state.store = parsed;
+    }
+  } catch {
+    state.store = {};
+  }
+  state.loaded = true;
+}
+
+async function save(userId?: string) {
+  const storePath = getStorePath(userId);
+  const state = getStoreState(userId);
+  await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
+  const json = JSON.stringify(state.store, null, 2);
+  const tmp = `${storePath}.${process.pid}.tmp`;
   await fs.promises.writeFile(tmp, json, "utf-8");
-  await fs.promises.rename(tmp, STORE_PATH);
+  await fs.promises.rename(tmp, storePath);
 }
 
 function makeKey(agentId: string, sessionId: string): string {
@@ -50,10 +71,11 @@ function makeKey(agentId: string, sessionId: string): string {
 export function getClaudeSessionId(
   agentId: string,
   sessionId: string,
-  model: string
+  model: string,
+  userId?: string
 ): string | undefined {
-  ensureLoaded();
-  const entry = store[makeKey(agentId, sessionId)];
+  ensureLoaded(userId);
+  const entry = getStoreState(userId).store[makeKey(agentId, sessionId)];
   if (!entry) return undefined;
   // Backwards compat: old entries are just strings
   if (typeof entry === "string") return undefined; // Can't verify model, skip resume
@@ -68,10 +90,11 @@ export function getClaudeSessionId(
  */
 export function getClaudeSessionIdForSession(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): string | undefined {
-  ensureLoaded();
-  const entry = store[makeKey(agentId, sessionId)];
+  ensureLoaded(userId);
+  const entry = getStoreState(userId).store[makeKey(agentId, sessionId)];
   if (!entry) return undefined;
   if (typeof entry === "string") return entry;
   return entry.claudeSessionId;
@@ -84,11 +107,15 @@ export async function setClaudeSessionId(
   agentId: string,
   sessionId: string,
   claudeSessionId: string,
-  model: string
+  model: string,
+  userId?: string
 ): Promise<void> {
-  ensureLoaded();
-  store[makeKey(agentId, sessionId)] = { claudeSessionId, model };
-  await save();
+  ensureLoaded(userId);
+  getStoreState(userId).store[makeKey(agentId, sessionId)] = {
+    claudeSessionId,
+    model,
+  };
+  await save(userId);
 }
 
 /**
@@ -97,12 +124,14 @@ export async function setClaudeSessionId(
  */
 export async function clearClaudeSessionId(
   agentId: string,
-  sessionId: string
+  sessionId: string,
+  userId?: string
 ): Promise<void> {
-  ensureLoaded();
+  ensureLoaded(userId);
+  const state = getStoreState(userId);
   const key = makeKey(agentId, sessionId);
-  if (key in store) {
-    delete store[key];
-    await save();
+  if (key in state.store) {
+    delete state.store[key];
+    await save(userId);
   }
 }

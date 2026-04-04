@@ -31,9 +31,16 @@ type FetchResponse = {
   json: () => Promise<unknown>;
 };
 
-describe("api client (projects/subagents)", () => {
-  const fetchMock = vi.fn<() => Promise<FetchResponse>>();
+const fetchMock = vi.fn<() => Promise<FetchResponse>>();
 
+function expectFetchCall(url: string, init?: RequestInit) {
+  expect(fetchMock).toHaveBeenCalledWith(url, {
+    ...init,
+    credentials: "include",
+  });
+}
+
+describe("api client (projects/subagents)", () => {
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
@@ -51,7 +58,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchSubagents("PRO-1");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-1/subagents");
+    expectFetchCall("/api/projects/PRO-1/subagents");
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.items[0]?.slug).toBe("main");
@@ -66,7 +73,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchProjects();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects");
+    expectFetchCall("/api/projects");
     expect(res.length).toBe(1);
   });
 
@@ -77,12 +84,13 @@ describe("api client (projects/subagents)", () => {
         version: 2,
         components: { projects: true },
         agents: ["main"],
+        multiUser: false,
       }),
     });
 
     const res = await fetchCapabilities();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/capabilities");
+    expectFetchCall("/api/capabilities");
     expect(res.components.projects).toBe(true);
   });
 
@@ -94,7 +102,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchProjects("aihub");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects?area=aihub");
+    expectFetchCall("/api/projects?area=aihub");
     expect(res[0]?.id).toBe("PRO-2");
   });
 
@@ -109,7 +117,7 @@ describe("api client (projects/subagents)", () => {
       color: "#123456",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/areas/aihub", {
+    expectFetchCall("/api/areas/aihub", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "AIHub Updated", color: "#123456" }),
@@ -130,7 +138,7 @@ describe("api client (projects/subagents)", () => {
       repo: "~/code/ops",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/areas", {
+    expectFetchCall("/api/areas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -153,9 +161,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchSubagents("PRO-1", true);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/PRO-1/subagents?includeArchived=true"
-    );
+    expectFetchCall("/api/projects/PRO-1/subagents?includeArchived=true");
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.items[0]?.archived).toBe(true);
@@ -172,7 +178,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchAllSubagents();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/subagents");
+    expectFetchCall("/api/subagents");
     expect(res.items[0]?.projectId).toBe("PRO-1");
   });
 
@@ -187,9 +193,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchSubagentLogs("PRO-1", "main", 5);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/PRO-1/subagents/main/logs?since=5"
-    );
+    expectFetchCall("/api/projects/PRO-1/subagents/main/logs?since=5");
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.cursor).toBe(10);
@@ -205,7 +209,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchProjectBranches("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/branches");
+    expectFetchCall("/api/projects/PRO-9/branches");
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.branches).toContain("main");
@@ -226,7 +230,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchProjectChanges("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/changes");
+    expectFetchCall("/api/projects/PRO-9/changes");
     expect(res.branch).toBe("feature/x");
     expect(res.stats.filesChanged).toBe(1);
   });
@@ -248,7 +252,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fetchProjectSpace("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space");
+    expectFetchCall("/api/projects/PRO-9/space");
     expect(res.branch).toBe("space/PRO-9");
   });
 
@@ -269,12 +273,9 @@ describe("api client (projects/subagents)", () => {
 
     const res = await integrateProjectSpace("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/PRO-9/space/integrate",
-      {
-        method: "POST",
-      }
-    );
+    expectFetchCall("/api/projects/PRO-9/space/integrate", {
+      method: "POST",
+    });
     expect(res.projectId).toBe("PRO-9");
   });
 
@@ -295,7 +296,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await rebaseSpaceOntoMain("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/rebase", {
+    expectFetchCall("/api/projects/PRO-9/space/rebase", {
       method: "POST",
     });
     expect(res.projectId).toBe("PRO-9");
@@ -309,7 +310,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fixSpaceRebaseConflict("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expectFetchCall(
       "/api/projects/PRO-9/space/rebase/fix",
       {
         method: "POST",
@@ -348,7 +349,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await skipSpaceEntries("PRO-9", ["alpha:1", "alpha:2"]);
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expectFetchCall(
       "/api/projects/PRO-9/space/entries/skip",
       {
         method: "POST",
@@ -376,7 +377,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await integrateSpaceEntries("PRO-9", ["alpha:1", "alpha:2"]);
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expectFetchCall(
       "/api/projects/PRO-9/space/entries/integrate",
       {
         method: "POST",
@@ -405,7 +406,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await mergeSpaceIntoMain("PRO-9");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/merge", {
+    expectFetchCall("/api/projects/PRO-9/space/merge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cleanup: true }),
@@ -426,7 +427,7 @@ describe("api client (projects/subagents)", () => {
 
     const result = await mergeSpaceIntoMain("PRO-9", { cleanup: false });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/space/merge", {
+    expectFetchCall("/api/projects/PRO-9/space/merge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cleanup: false }),
@@ -442,7 +443,7 @@ describe("api client (projects/subagents)", () => {
 
     const res = await commitProjectChanges("PRO-9", "test commit");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-9/commit", {
+    expectFetchCall("/api/projects/PRO-9/commit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: "test commit" }),
@@ -465,7 +466,7 @@ describe("api client (projects/subagents)", () => {
       title: "Routing",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expectFetchCall(
       "/api/conversations/conv-1/projects",
       {
         method: "POST",
@@ -489,7 +490,7 @@ describe("api client (projects/subagents)", () => {
       message: "Ping @codex",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expectFetchCall(
       "/api/conversations/conv-1/messages",
       {
         method: "POST",
@@ -518,7 +519,7 @@ describe("api client (projects/subagents)", () => {
       resume: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-2/subagents", {
+    expectFetchCall("/api/projects/PRO-2/subagents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -544,12 +545,9 @@ describe("api client (projects/subagents)", () => {
 
     const res = await interruptSubagent("PRO-3", "main");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/PRO-3/subagents/main/interrupt",
-      {
-        method: "POST",
-      }
-    );
+    expectFetchCall("/api/projects/PRO-3/subagents/main/interrupt", {
+      method: "POST",
+    });
     expect(res.ok).toBe(true);
   });
 
@@ -565,7 +563,7 @@ describe("api client (projects/subagents)", () => {
       promptFile: "/tmp/prompt.md",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/PRO-2/ralph-loop", {
+    expectFetchCall("/api/projects/PRO-2/ralph-loop", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -585,12 +583,9 @@ describe("api client (projects/subagents)", () => {
 
     const res = await archiveSubagent("PRO-3", "main");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/PRO-3/subagents/main/archive",
-      {
-        method: "POST",
-      }
-    );
+    expectFetchCall("/api/projects/PRO-3/subagents/main/archive", {
+      method: "POST",
+    });
     expect(res.ok).toBe(true);
   });
 
@@ -602,12 +597,9 @@ describe("api client (projects/subagents)", () => {
 
     const res = await unarchiveSubagent("PRO-3", "main");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/PRO-3/subagents/main/unarchive",
-      {
-        method: "POST",
-      }
-    );
+    expectFetchCall("/api/projects/PRO-3/subagents/main/unarchive", {
+      method: "POST",
+    });
     expect(res.ok).toBe(true);
   });
 });

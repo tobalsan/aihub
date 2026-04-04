@@ -7,6 +7,7 @@ const defaultCapabilities: CapabilitiesResponse = {
   version: 2,
   components: {},
   agents: [],
+  multiUser: false,
 };
 
 const [capabilities, setCapabilities] =
@@ -24,9 +25,22 @@ export async function loadCapabilities(): Promise<CapabilitiesResponse> {
       return data;
     })
     .catch((error) => {
-      setCapabilities(defaultCapabilities);
+      const status =
+        typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        typeof error.status === "number"
+          ? error.status
+          : undefined;
+      setCapabilities(
+        status === 401 || status === 403
+          ? { ...defaultCapabilities, multiUser: true }
+          : defaultCapabilities
+      );
       setCapabilitiesReady(true);
-      throw error;
+      return status === 401 || status === 403
+        ? { ...defaultCapabilities, multiUser: true }
+        : Promise.reject(error);
     })
     .finally(() => {
       loadPromise = null;
@@ -47,6 +61,8 @@ export function setCapabilitiesForTests(
     version: value.version ?? defaultCapabilities.version,
     components: value.components ?? defaultCapabilities.components,
     agents: value.agents ?? defaultCapabilities.agents,
+    multiUser: value.multiUser ?? defaultCapabilities.multiUser,
+    user: value.user,
   });
   setCapabilitiesReady(true);
 }

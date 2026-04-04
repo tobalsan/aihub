@@ -46,6 +46,10 @@ const API_BASE = "/api";
 const SESSION_KEY_PREFIX = "aihub:sessionKey:";
 const DEFAULT_SESSION_KEY = "main";
 
+function fetch(input: RequestInfo | URL, init?: RequestInit) {
+  return globalThis.fetch(input, { ...init, credentials: "include" });
+}
+
 export async function fetchAgents(): Promise<Agent[]> {
   const res = await fetch(`${API_BASE}/agents`);
   if (!res.ok) throw new Error("Failed to fetch agents");
@@ -60,7 +64,13 @@ export async function fetchAgent(agentId: string): Promise<Agent> {
 
 export async function fetchCapabilities(): Promise<CapabilitiesResponse> {
   const res = await fetch(`${API_BASE}/capabilities`);
-  if (!res.ok) throw new Error("Failed to fetch capabilities");
+  if (!res.ok) {
+    const error = new Error("Failed to fetch capabilities") as Error & {
+      status?: number;
+    };
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
 }
 

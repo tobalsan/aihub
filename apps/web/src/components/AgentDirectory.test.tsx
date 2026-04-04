@@ -152,6 +152,7 @@ describe("AgentDirectory", () => {
         title: "First active project",
         path: "",
         absolutePath: "",
+        repoValid: true,
         frontmatter: { status: "in_progress" },
       },
       {
@@ -159,6 +160,7 @@ describe("AgentDirectory", () => {
         title: "Second active project",
         path: "",
         absolutePath: "",
+        repoValid: true,
         frontmatter: { status: "todo" },
       },
       {
@@ -166,6 +168,7 @@ describe("AgentDirectory", () => {
         title: "Done but running",
         path: "",
         absolutePath: "",
+        repoValid: true,
         frontmatter: { status: "done" },
       },
       {
@@ -173,6 +176,7 @@ describe("AgentDirectory", () => {
         title: "Fourth active project",
         path: "",
         absolutePath: "",
+        repoValid: true,
         frontmatter: { status: "shaping" },
       },
       {
@@ -180,6 +184,7 @@ describe("AgentDirectory", () => {
         title: "Fifth active project",
         path: "",
         absolutePath: "",
+        repoValid: true,
         frontmatter: { status: "todo" },
       },
       {
@@ -187,6 +192,7 @@ describe("AgentDirectory", () => {
         title: "Sixth active project",
         path: "",
         absolutePath: "",
+        repoValid: true,
         frontmatter: { status: "maybe" },
       },
     ] as ProjectListItem[]);

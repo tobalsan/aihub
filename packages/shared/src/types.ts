@@ -260,6 +260,37 @@ export type ProjectsConfig = z.infer<typeof ProjectsConfigSchema>;
 export const SecretRefSchema = z.string();
 export type SecretRef = z.infer<typeof SecretRefSchema>;
 
+export const MultiUserGoogleOAuthConfigSchema = z.object({
+  clientId: SecretRefSchema.min(1),
+  clientSecret: SecretRefSchema.min(1),
+});
+export type MultiUserGoogleOAuthConfig = z.infer<
+  typeof MultiUserGoogleOAuthConfigSchema
+>;
+
+export const MultiUserOAuthConfigSchema = z.object({
+  google: MultiUserGoogleOAuthConfigSchema,
+});
+export type MultiUserOAuthConfig = z.infer<typeof MultiUserOAuthConfigSchema>;
+
+const MultiUserConfigBaseSchema = z.object({
+  allowedDomains: z.array(z.string().min(1)).optional(),
+});
+
+export const MultiUserConfigSchema = z.discriminatedUnion("enabled", [
+  MultiUserConfigBaseSchema.extend({
+    enabled: z.literal(false),
+    oauth: MultiUserOAuthConfigSchema.optional(),
+    sessionSecret: SecretRefSchema.optional(),
+  }),
+  MultiUserConfigBaseSchema.extend({
+    enabled: z.literal(true),
+    oauth: MultiUserOAuthConfigSchema,
+    sessionSecret: SecretRefSchema.min(1),
+  }),
+]);
+export type MultiUserConfig = z.infer<typeof MultiUserConfigSchema>;
+
 export const OnecliCaConfigSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("file"), path: z.string().min(1) }),
   z.object({ source: z.literal("system") }),
@@ -379,6 +410,7 @@ export const GatewayConfigSchema = z.object({
   onecli: OnecliConfigSchema.optional(),
   connectors: ConnectorsGlobalConfigSchema.optional(),
   components: ComponentsConfigSchema,
+  multiUser: MultiUserConfigSchema.optional(),
   server: z
     .object({
       host: z.string().optional(),
@@ -471,10 +503,22 @@ export const AgentStatusSchema = z.object({
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
+const CapabilitiesUserSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  role: z
+    .union([z.string(), z.array(z.string())])
+    .nullable()
+    .optional(),
+});
+
 export const CapabilitiesResponseSchema = z.object({
   version: z.number(),
   components: z.record(z.string(), z.boolean()),
   agents: z.array(z.string()),
+  multiUser: z.boolean(),
+  user: CapabilitiesUserSchema.optional(),
 });
 export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 

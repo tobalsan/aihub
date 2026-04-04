@@ -15,6 +15,7 @@ export {
 
 export {
   getClaudeSessionId,
+  getClaudeSessionIdForSession,
   setClaudeSessionId,
   clearClaudeSessionId,
 } from "./claude.js";
