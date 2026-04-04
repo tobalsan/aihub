@@ -11,6 +11,7 @@
   "dependencies": {
     "@aihub/shared": "workspace:*",
     "@solidjs/router": "^0.15.4",
+    "better-auth": "^1.5.6",
     "dompurify": "^3.3.1",
     "marked": "^17.0.1",
     "solid-js": "^1.9.3"

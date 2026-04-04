@@ -20,6 +20,7 @@ import { QuickChatFAB } from "./components/QuickChatFAB";
 import { QuickChatOverlay } from "./components/QuickChatOverlay";
 import {
   capabilitiesReady,
+  capabilities,
   isComponentEnabled,
   loadCapabilities,
 } from "./lib/capabilities";
@@ -44,6 +45,12 @@ const LazyProjectDetailPage = lazy(() =>
     default: mod.ProjectDetailPage,
   }))
 );
+const LazyAuthGuard = lazy(() => import("./auth/AuthGuard"));
+const LazyLoginPage = lazy(() => import("./pages/Login"));
+const LazyAdminUsersPage = lazy(() => import("./pages/admin/Users"));
+const LazyAdminAgentsPage = lazy(() =>
+  import("./pages/admin/AgentAssignments")
+);
 
 const QUICK_CHAT_LAST_AGENT_KEY = "aihub:quick-chat-last-agent";
 
@@ -64,13 +71,24 @@ function pickDefaultQuickAgentId(agents: Agent[]): string | null {
 }
 
 function Layout(props: { children?: JSX.Element }) {
+  const location = useLocation();
+  const isLoginPage = createMemo(() => location.pathname.startsWith("/login"));
+  const canLoadQuickChatAgents = createMemo(
+    () =>
+      capabilitiesReady() &&
+      !isLoginPage() &&
+      (!capabilities.multiUser || Boolean(capabilities.user))
+  );
   const [quickChatOpen, setQuickChatOpen] = createSignal(false);
   const [quickChatHasUnread, setQuickChatHasUnread] = createSignal(false);
   const [quickChatMobile, setQuickChatMobile] = createSignal(false);
   const [quickChatAgentId, setQuickChatAgentId] = createSignal<string | null>(
     readQuickChatAgentId()
   );
-  const [agents] = createResource(fetchAgents);
+  const [agents] = createResource(
+    canLoadQuickChatAgents,
+    async (enabled) => (enabled ? fetchAgents() : [])
+  );
   const quickChatAgents = createMemo(() => agents() ?? []);
   const selectedQuickChatAgent = createMemo(
     () =>
@@ -133,8 +151,11 @@ function Layout(props: { children?: JSX.Element }) {
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
-  const location = useLocation();
-  const isOnChatPage = createMemo(() => location.pathname.startsWith("/chat/") || location.pathname.startsWith("/agents"));
+  const isOnChatPage = createMemo(
+    () =>
+      location.pathname.startsWith("/chat/") ||
+      location.pathname.startsWith("/agents")
+  );
 
   createEffect(() => {
     if (quickChatOpen()) setQuickChatHasUnread(false);
@@ -162,31 +183,31 @@ function Layout(props: { children?: JSX.Element }) {
       <Show when={capabilitiesReady()} fallback={<AppBootSplash />}>
         <div class="app">{props.children}</div>
       </Show>
-      <Show when={!isOnChatPage()}>
-      <QuickChatOverlay
-        open={quickChatOpen()}
-        mobile={quickChatMobile()}
-        agents={quickChatAgents()}
-        selectedAgentId={quickChatAgentId()}
-        onSelectAgent={(agentId) => {
-          setQuickChatAgentId(agentId);
-          setQuickChatHasUnread(false);
-        }}
-        onMinimize={() => setQuickChatOpen(false)}
-        onClose={() => setQuickChatOpen(false)}
-      />
-      <QuickChatFAB
-        open={quickChatOpen}
-        hasUnread={quickChatHasUnread}
-        agentLabel={quickChatFabLabel}
-        onToggle={() => {
-          setQuickChatOpen((prev) => {
-            const next = !prev;
-            if (next) setQuickChatHasUnread(false);
-            return next;
-          });
-        }}
-      />
+      <Show when={canLoadQuickChatAgents() && !isOnChatPage()}>
+        <QuickChatOverlay
+          open={quickChatOpen()}
+          mobile={quickChatMobile()}
+          agents={quickChatAgents()}
+          selectedAgentId={quickChatAgentId()}
+          onSelectAgent={(agentId) => {
+            setQuickChatAgentId(agentId);
+            setQuickChatHasUnread(false);
+          }}
+          onMinimize={() => setQuickChatOpen(false)}
+          onClose={() => setQuickChatOpen(false)}
+        />
+        <QuickChatFAB
+          open={quickChatOpen}
+          hasUnread={quickChatHasUnread}
+          agentLabel={quickChatFabLabel}
+          onToggle={() => {
+            setQuickChatOpen((prev) => {
+              const next = !prev;
+              if (next) setQuickChatHasUnread(false);
+              return next;
+            });
+          }}
+        />
       </Show>
       <style>{`
         .app {
@@ -233,6 +254,16 @@ function ComponentUnavailable(props: { component: string }) {
         }
       `}</style>
     </LeftNavShell>
+  );
+}
+
+function GuardedRoute(props: { children?: JSX.Element }) {
+  return (
+    <Show when={capabilities.multiUser} fallback={props.children}>
+      <Suspense fallback={<AppBootSplash />}>
+        <LazyAuthGuard>{props.children}</LazyAuthGuard>
+      </Suspense>
+    </Show>
   );
 }
 
@@ -418,15 +449,95 @@ function ChatRouteShell() {
   );
 }
 
+function LoginRoute() {
+  return (
+    <Suspense fallback={<AppBootSplash />}>
+      <LazyLoginPage />
+    </Suspense>
+  );
+}
+
+function AdminUsersRouteShell() {
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazyAdminUsersPage />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
+
+function AdminAgentsRouteShell() {
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazyAdminAgentsPage />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
+
 export default function App() {
   const base = import.meta.env.BASE_URL;
   return (
     <Router root={Layout} base={base}>
-      <Route path="/" component={AreasOverviewRouteShell} />
-      <Route path="/agents" component={AgentsRouteShell} />
-      <Route path="/chat/:agentId/:view?" component={ChatRouteShell} />
-      <Route path="/conversations" component={ConversationsRouteShell} />
-      <Route path="/projects/:id?" component={ProjectsRouteShell} />
+      <Route path="/login" component={LoginRoute} />
+      <Route
+        path="/"
+        component={() => (
+          <GuardedRoute>
+            <AreasOverviewRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/agents"
+        component={() => (
+          <GuardedRoute>
+            <AgentsRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/chat/:agentId/:view?"
+        component={() => (
+          <GuardedRoute>
+            <ChatRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/conversations"
+        component={() => (
+          <GuardedRoute>
+            <ConversationsRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/projects/:id?"
+        component={() => (
+          <GuardedRoute>
+            <ProjectsRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/admin/users"
+        component={() => (
+          <GuardedRoute>
+            <AdminUsersRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/admin/agents"
+        component={() => (
+          <GuardedRoute>
+            <AdminAgentsRouteShell />
+          </GuardedRoute>
+        )}
+      />
     </Router>
   );
 }

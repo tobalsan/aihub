@@ -1,16 +1,18 @@
 import {
   Accessor,
+  Suspense,
   createEffect,
   createMemo,
   createResource,
   createSignal,
   For,
   Show,
+  lazy,
 } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
 import { fetchProjects } from "../api/client";
-import { isComponentEnabled } from "../lib/capabilities";
+import { capabilities, isComponentEnabled } from "../lib/capabilities";
 
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
@@ -24,6 +26,12 @@ type RecentProjectView = {
 
 const RECENT_PROJECTS_STORAGE_KEY = "aihub:recent-project-views";
 const RECENT_PROJECTS_MAX = 5;
+const LazySidebarAccountPanel = lazy(() => import("../auth/SidebarAccountPanel"));
+
+function hasAdminRole(role: string | string[] | null | undefined): boolean {
+  if (Array.isArray(role)) return role.includes("admin");
+  return role === "admin";
+}
 
 function relativeTime(timestampMs: number): string {
   const ms = Date.now() - timestampMs;
@@ -179,6 +187,22 @@ export function AgentSidebar(props: AgentSidebarProps) {
             <span class="nav-full">Chats</span>
             <span class="nav-short">Ch</span>
           </A>
+          <Show
+            when={
+              capabilities.multiUser && hasAdminRole(capabilities.user?.role)
+            }
+          >
+            <A
+              href="/admin/users"
+              class="nav-link"
+              classList={{
+                active: stripBase(location.pathname).startsWith("/admin/"),
+              }}
+            >
+              <span class="nav-full">Admin</span>
+              <span class="nav-short">Ad</span>
+            </A>
+          </Show>
         </nav>
       </div>
       <div class="sidebar-spacer" />
@@ -206,6 +230,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
         </div>
       </Show>
       <div class="sidebar-footer">
+        <Show when={capabilities.multiUser}>
+          <Suspense>
+            <LazySidebarAccountPanel collapsed={props.collapsed} />
+          </Suspense>
+        </Show>
         <button
           class="theme-toggle"
           type="button"

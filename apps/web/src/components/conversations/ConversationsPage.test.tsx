@@ -154,6 +154,7 @@ describe("ConversationsPage", () => {
         title: "Design session",
         path: "PRO-9_design-session",
         absolutePath: "/tmp/PRO-9_design-session",
+        repoValid: true,
         frontmatter: { status: "shaping" },
         docs: { README: "# Design session" },
         thread: [],

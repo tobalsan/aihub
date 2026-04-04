@@ -25,9 +25,22 @@ export async function loadCapabilities(): Promise<CapabilitiesResponse> {
       return data;
     })
     .catch((error) => {
-      setCapabilities(defaultCapabilities);
+      const status =
+        typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        typeof error.status === "number"
+          ? error.status
+          : undefined;
+      setCapabilities(
+        status === 401 || status === 403
+          ? { ...defaultCapabilities, multiUser: true }
+          : defaultCapabilities
+      );
       setCapabilitiesReady(true);
-      throw error;
+      return status === 401 || status === 403
+        ? { ...defaultCapabilities, multiUser: true }
+        : Promise.reject(error);
     })
     .finally(() => {
       loadPromise = null;
