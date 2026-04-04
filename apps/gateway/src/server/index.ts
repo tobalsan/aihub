@@ -61,9 +61,12 @@ function isComponentEnabled(
   config: GatewayConfig,
   componentId: string
 ): boolean {
-  const componentConfig = config.components?.[
-    componentId as keyof NonNullable<GatewayConfig["components"]>
-  ];
+  const componentConfig =
+    componentId === "multiUser"
+      ? config.multiUser
+      : config.components?.[
+          componentId as keyof NonNullable<GatewayConfig["components"]>
+        ];
   return !!componentConfig && componentConfig.enabled !== false;
 }
 

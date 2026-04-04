@@ -44,4 +44,43 @@ describe("GatewayConfigSchema v2", () => {
     expect(result.onecli?.gatewayUrl).toBe("http://localhost:10255");
     expect(result.components?.scheduler?.tickSeconds).toBe(30);
   });
+
+  it("allows disabled multiUser without oauth config", () => {
+    const result = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      multiUser: {
+        enabled: false,
+      },
+    });
+
+    expect(result.multiUser).toEqual({ enabled: false });
+  });
+
+  it("requires oauth config when multiUser is enabled", () => {
+    expect(() =>
+      GatewayConfigSchema.parse({
+        version: 2,
+        agents: [
+          {
+            id: "main",
+            name: "Main",
+            workspace: "~/agents/main",
+            model: { provider: "anthropic", model: "claude" },
+          },
+        ],
+        multiUser: {
+          enabled: true,
+          sessionSecret: "secret",
+        },
+      })
+    ).toThrow();
+  });
 });

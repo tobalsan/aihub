@@ -72,6 +72,34 @@ describe("component registry", () => {
     ]);
   });
 
+  it("loads top-level multiUser component when enabled", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      multiUser: {
+        enabled: true,
+        oauth: {
+          google: {
+            clientId: "google-client-id",
+            clientSecret: "google-client-secret",
+          },
+        },
+        sessionSecret: "test-secret",
+      },
+    });
+
+    const result = await loadComponents(config);
+
+    expect(result.map((component) => component.id)).toEqual(["multiUser"]);
+  });
+
   it("fails on invalid component config", async () => {
     const config = {
       version: 2,
@@ -118,8 +146,10 @@ describe("component registry", () => {
     const components = getKnownComponentRouteMetadata();
     const projects = components.find((component) => component.id === "projects");
     const heartbeat = components.find((component) => component.id === "heartbeat");
+    const multiUser = components.find((component) => component.id === "multiUser");
 
     expect(projects?.routePrefixes).toContain("/api/projects");
     expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");
+    expect(multiUser?.routePrefixes).toContain("/api/auth");
   });
 });
