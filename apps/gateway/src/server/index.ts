@@ -24,15 +24,9 @@ import {
   getSessionEntry,
   isAbortTrigger,
 } from "../sessions/index.js";
-import {
-  createAuthMiddleware,
-  forwardAuthContextToRequest,
-  getRequestAuthContext,
-  hasAgentAccess,
-  requireAgentAccess,
-  validateWebSocketRequest,
-  type RequestAuthContext,
-} from "../components/multi-user/middleware.js";
+
+type RequestAuthContext =
+  import("../components/multi-user/middleware.js").RequestAuthContext;
 
 const app = new Hono();
 
@@ -68,6 +62,24 @@ function buildComponentRouteMatchers(): ComponentRouteMatcher[] {
 }
 
 const componentRouteMatchers = buildComponentRouteMatchers();
+
+type MultiUserMiddlewareModule = typeof import(
+  "../components/multi-user/middleware.js"
+);
+
+let multiUserMiddlewareModulePromise: Promise<MultiUserMiddlewareModule> | null =
+  null;
+
+function isMultiUserLoaded(): boolean {
+  return getLoadedComponents().some((component) => component.id === "multiUser");
+}
+
+function loadMultiUserMiddlewareModule(): Promise<MultiUserMiddlewareModule> {
+  multiUserMiddlewareModulePromise ??= import(
+    "../components/multi-user/middleware.js"
+  );
+  return multiUserMiddlewareModulePromise;
+}
 
 function isComponentEnabled(
   config: GatewayConfig,
@@ -108,11 +120,35 @@ app.use("/api/*", async (c, next) => {
 
   await next();
 });
-app.use("/api/*", createAuthMiddleware());
-app.use("/api/agents/:id", requireAgentAccess("id"));
-app.use("/api/agents/:id/*", requireAgentAccess("id"));
+app.use("/api/*", async (c, next) => {
+  if (!isMultiUserLoaded()) {
+    await next();
+    return;
+  }
 
-app.all("/api/*", (c) => {
+  const { createAuthMiddleware } = await loadMultiUserMiddlewareModule();
+  return createAuthMiddleware()(c, next);
+});
+app.use("/api/agents/:id", async (c, next) => {
+  if (!isMultiUserLoaded()) {
+    await next();
+    return;
+  }
+
+  const { requireAgentAccess } = await loadMultiUserMiddlewareModule();
+  return requireAgentAccess("id")(c, next);
+});
+app.use("/api/agents/:id/*", async (c, next) => {
+  if (!isMultiUserLoaded()) {
+    await next();
+    return;
+  }
+
+  const { requireAgentAccess } = await loadMultiUserMiddlewareModule();
+  return requireAgentAccess("id")(c, next);
+});
+
+app.all("/api/*", async (c) => {
   const url = new URL(c.req.url);
   const pathname = url.pathname.startsWith("/api/")
     ? url.pathname.slice(4)
@@ -121,7 +157,13 @@ app.all("/api/*", (c) => {
       : url.pathname;
   url.pathname = pathname || "/";
   const request = new Request(url, c.req.raw);
-  forwardAuthContextToRequest(request, getRequestAuthContext(c));
+
+  if (isMultiUserLoaded()) {
+    const { forwardAuthContextToRequest, getRequestAuthContext } =
+      await loadMultiUserMiddlewareModule();
+    forwardAuthContextToRequest(request, getRequestAuthContext(c));
+  }
+
   return api.fetch(request);
 });
 
@@ -135,6 +177,16 @@ const wsAuthContexts = new Map<WebSocket, RequestAuthContext>();
 
 // Global status subscribers (for sidebar real-time updates)
 const statusSubscribers = new Set<WebSocket>();
+
+async function canAccessAgent(
+  authContext: RequestAuthContext | null,
+  agentId: string
+): Promise<boolean> {
+  if (!isMultiUserLoaded()) return true;
+  if (!authContext) return false;
+  const { hasAgentAccess } = await loadMultiUserMiddlewareModule();
+  return hasAgentAccess(authContext, agentId);
+}
 
 function handleWsConnection(
   ws: WebSocket,
@@ -164,7 +216,7 @@ function handleWsConnection(
         sendWs(ws, { type: "error", message: "Agent not found" });
         return;
       }
-      if (!(await hasAgentAccess(authContext, msg.agentId))) {
+      if (!(await canAccessAgent(authContext, msg.agentId))) {
         sendWs(ws, { type: "error", message: "Forbidden" });
         return;
       }
@@ -196,7 +248,7 @@ function handleWsConnection(
         sendWs(ws, { type: "error", message: "Agent not found" });
         return;
       }
-      if (!(await hasAgentAccess(authContext, msg.agentId))) {
+      if (!(await canAccessAgent(authContext, msg.agentId))) {
         sendWs(ws, { type: "error", message: "Forbidden" });
         return;
       }
@@ -314,9 +366,17 @@ function setupEventBroadcast() {
       agentId: event.agentId,
       status: event.status,
     };
-    for (const ws of statusSubscribers) {
-      sendWs(ws, statusMessage);
-    }
+
+    void (async () => {
+      for (const ws of statusSubscribers) {
+        if (
+          !(await canAccessAgent(wsAuthContexts.get(ws) ?? null, event.agentId))
+        ) {
+          continue;
+        }
+        sendWs(ws, statusMessage);
+      }
+    })();
   });
 
   agentEventBus.onFileChanged((event) => {
@@ -413,7 +473,10 @@ export function startServer(port?: number, host?: string) {
             headers: new Headers(info.req.headers as Record<string, string>),
           });
 
-          validateWebSocketRequest(request)
+          loadMultiUserMiddlewareModule()
+            .then(({ validateWebSocketRequest }) =>
+              validateWebSocketRequest(request)
+            )
             .then((authContext) => {
               (info.req as import("http").IncomingMessage & {
                 authContext?: RequestAuthContext | null;

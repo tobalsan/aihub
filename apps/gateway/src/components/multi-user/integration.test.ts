@@ -261,4 +261,55 @@ describe("multi-user integration", () => {
       restoreEnv(previousEnv);
     }
   });
+
+  it("keeps auth modules unloaded in single-user mode", async () => {
+    const { dir, previousEnv } = await createTempHome();
+
+    try {
+      await fs.writeFile(
+        path.join(dir, "aihub.json"),
+        JSON.stringify({
+          version: 2,
+          agents: [
+            {
+              id: "main",
+              name: "Main",
+              workspace: "~/agents/main",
+              model: { provider: "anthropic", model: "claude" },
+            },
+          ],
+        })
+      );
+
+      vi.doMock("./auth.js", () => {
+        throw new Error("multi-user auth should stay unloaded");
+      });
+      vi.doMock("./db.js", () => {
+        throw new Error("multi-user db should stay unloaded");
+      });
+
+      const { clearConfigCacheForTests, loadConfig } =
+        await import("../../config/index.js");
+      clearConfigCacheForTests();
+
+      const { loadComponents } = await import("../../components/registry.js");
+      await loadComponents(loadConfig());
+
+      const { api } = await import("../../server/api.core.js");
+      await expect(import("../../server/index.js")).resolves.toHaveProperty(
+        "startServer"
+      );
+
+      const response = await api.request("/capabilities");
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        version: 2,
+        components: {},
+        agents: ["main"],
+        multiUser: false,
+      });
+    } finally {
+      restoreEnv(previousEnv);
+    }
+  });
 });

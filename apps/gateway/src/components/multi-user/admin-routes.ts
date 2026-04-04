@@ -92,16 +92,46 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
       return c.json({ error: "Agent not found" }, 404);
     }
 
-    const { assignments } = getRuntimeOrThrow();
+    const { assignments, db } = getRuntimeOrThrow();
     const authContext = getRequestAuthContext(c);
     if (!authContext) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    assignments.setAssignmentsForAgent(
-      agentId,
-      parsed.data.userIds,
-      authContext.user.id
-    );
+
+    const userIds = [...new Set(parsed.data.userIds)];
+    if (userIds.length > 0) {
+      const placeholders = userIds.map(() => "?").join(", ");
+      const existingUserIds = new Set(
+        (
+          db.prepare(`SELECT id FROM user WHERE id IN (${placeholders})`).all(
+            ...userIds
+          ) as Array<{ id: string }>
+        ).map((row) => row.id)
+      );
+      const invalidUserIds = userIds.filter((userId) => !existingUserIds.has(userId));
+
+      if (invalidUserIds.length > 0) {
+        return c.json(
+          {
+            error: "Unknown user ids",
+            userIds: invalidUserIds,
+          },
+          400
+        );
+      }
+    }
+
+    try {
+      assignments.setAssignmentsForAgent(agentId, userIds, authContext.user.id);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("FOREIGN KEY constraint failed")
+      ) {
+        return c.json({ error: "Invalid assignment user ids" }, 400);
+      }
+      throw error;
+    }
 
     return c.json({
       agentId,

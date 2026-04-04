@@ -26,36 +26,63 @@ import {
   isAllowedMimeType,
   getAllowedMimeTypes,
 } from "../media/upload.js";
-import {
-  getForwardedAuthContext,
-} from "../components/multi-user/middleware.js";
-import {
-  getAgentFilter,
-  getMultiUserRuntime,
-} from "../components/multi-user/index.js";
 
 const api = new Hono();
 
-function getRequestUserId(c: Context): string | undefined {
-  return getForwardedAuthContext(c.req.raw.headers)?.session.userId;
+type MultiUserApiDeps = {
+  getForwardedAuthContext: typeof import(
+    "../components/multi-user/middleware.js"
+  ).getForwardedAuthContext;
+  getAgentFilter: typeof import("../components/multi-user/index.js").getAgentFilter;
+};
+
+let multiUserApiDepsPromise: Promise<MultiUserApiDeps> | null = null;
+
+function isMultiUserLoaded(): boolean {
+  return getLoadedComponents().some((component) => component.id === "multiUser");
 }
 
-function getVisibleAgents(c: Context) {
+function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
+  multiUserApiDepsPromise ??= Promise.all([
+    import("../components/multi-user/middleware.js"),
+    import("../components/multi-user/index.js"),
+  ]).then(([middlewareModule, componentModule]) => ({
+    getForwardedAuthContext: middlewareModule.getForwardedAuthContext,
+    getAgentFilter: componentModule.getAgentFilter,
+  }));
+  return multiUserApiDepsPromise;
+}
+
+async function getRequestAuthContext(c: Context) {
+  if (!isMultiUserLoaded()) return null;
+  const { getForwardedAuthContext } = await loadMultiUserApiDeps();
+  return getForwardedAuthContext(c.req.raw.headers);
+}
+
+async function getRequestUserId(c: Context): Promise<string | undefined> {
+  return (await getRequestAuthContext(c))?.session.userId;
+}
+
+async function getVisibleAgents(c: Context) {
   const agents = getActiveAgents();
-  const authContext = getForwardedAuthContext(c.req.raw.headers);
-  if (!getMultiUserRuntime() || !authContext) {
+  if (!isMultiUserLoaded()) {
     return agents;
   }
+
+  const authContext = await getRequestAuthContext(c);
+  if (!authContext) return agents;
+
+  const { getAgentFilter } = await loadMultiUserApiDeps();
   return getAgentFilter(authContext.user.id, authContext.user.role)(agents);
 }
 
-api.get("/capabilities", (c) => {
+api.get("/capabilities", async (c) => {
   const components = Object.fromEntries(
     getLoadedComponents().map((component) => [component.id, true])
   );
-  const authContext = getForwardedAuthContext(c.req.raw.headers);
-  const multiUserEnabled = !!getMultiUserRuntime();
-  const agents = getVisibleAgents(c);
+  const multiUserEnabled = isMultiUserLoaded();
+  const authContext = multiUserEnabled ? await getRequestAuthContext(c) : null;
+  const agents = await getVisibleAgents(c);
 
   return c.json({
     version: 2,
@@ -76,8 +103,8 @@ api.get("/capabilities", (c) => {
 });
 
 // GET /api/agents - list all agents (respects single-agent mode)
-api.get("/agents", (c) => {
-  const agents = getVisibleAgents(c);
+api.get("/agents", async (c) => {
+  const agents = await getVisibleAgents(c);
   return c.json(
     agents.map((a) => ({
       id: a.id,
@@ -92,8 +119,8 @@ api.get("/agents", (c) => {
 });
 
 // GET /api/agents/status - get all agent streaming statuses
-api.get("/agents/status", (c) => {
-  const agents = getActiveAgents();
+api.get("/agents/status", async (c) => {
+  const agents = await getVisibleAgents(c);
   const statuses = getAgentStatuses(agents.map((agent) => agent.id));
   return c.json({ statuses });
 });
@@ -153,7 +180,7 @@ api.post("/agents/:id/messages", async (c) => {
   }
 
   try {
-    const userId = getRequestUserId(c);
+    const userId = await getRequestUserId(c);
     // Handle /abort - skip session resolution to avoid creating new session
     if (isAbortTrigger(parsed.data.message)) {
       const result = await runAgent({
@@ -208,7 +235,7 @@ api.get("/agents/:id/history", async (c) => {
 
   const sessionKey = c.req.query("sessionKey") ?? "main";
   const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
-  const userId = getRequestUserId(c);
+  const userId = await getRequestUserId(c);
   const entry = getSessionEntry(agentId, sessionKey, userId);
 
   if (!entry) {

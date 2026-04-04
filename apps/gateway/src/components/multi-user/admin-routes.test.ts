@@ -124,6 +124,14 @@ function createDbMock(users: Map<string, Record<string, unknown>>) {
     approvedByUserId,
     db: {
       prepare: vi.fn((sql: string) => ({
+        all: vi.fn((...userIds: string[]) => {
+          if (sql.includes("SELECT id FROM user WHERE id IN")) {
+            return userIds
+              .filter((userId) => users.has(userId))
+              .map((userId) => ({ id: userId }));
+          }
+          return [];
+        }),
         run: vi.fn((approved: number, userId: string) => {
           if (sql.includes("UPDATE user SET approved")) {
             approvedByUserId.set(userId, approved);
@@ -409,6 +417,37 @@ describe("multi-user admin routes", () => {
     });
   });
 
+  it("rejects unknown user ids when setting agent assignments", async () => {
+    const runtime = createRuntime();
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/agents/agent-b/assignments", {
+        method: "PUT",
+        headers: {
+          cookie: "session=1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ userIds: ["user-1", "missing-user"] }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unknown user ids",
+      userIds: ["missing-user"],
+    });
+    expect(runtime.assignmentStore.store.getAssignmentsForAgent("agent-b")).toEqual(
+      []
+    );
+  });
+
   it("non-admin gets 403 on admin routes", async () => {
     const runtime = createRuntime({ session: createSession("user") });
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
@@ -516,6 +555,38 @@ describe("multi-user api core", () => {
       expect.objectContaining({ id: "agent-a" }),
       expect.objectContaining({ id: "agent-b" }),
     ]);
+  });
+
+  it("/api/agents/status filters assignments for non-admin users", async () => {
+    const runtime = createRuntime();
+    runtime.assignmentStore.seed("agent-b", ["user-1"]);
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { api } = await import("../../server/api.core.js");
+    const response = await api.request(
+      new Request("http://localhost/agents/status", {
+        headers: {
+          "x-aihub-auth-context": encodeAuthHeader({
+            user: {
+              id: "user-1",
+              role: "user",
+              approved: true,
+            },
+            session: {
+              id: "session-1",
+              userId: "user-1",
+            },
+          }),
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      statuses: {
+        "agent-b": "idle",
+      },
+    });
   });
 
   it("/api/capabilities includes multi-user info", async () => {
