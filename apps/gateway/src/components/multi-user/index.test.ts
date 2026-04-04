@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vitest";
-import type { ComponentContext, GatewayConfig } from "@aihub/shared";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  GatewayConfigSchema,
+  type ComponentContext,
+} from "@aihub/shared";
 
 describe("multi-user component", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
   it("accepts disabled config without oauth", async () => {
     const { multiUserComponent } = await import("./index.js");
 
@@ -26,6 +34,17 @@ describe("multi-user component", () => {
   });
 
   it("starts and exposes multi-user capability", async () => {
+    const close = vi.fn();
+    const db = { close } as const;
+    const auth = { handler: vi.fn(), api: { getSession: vi.fn() } } as const;
+
+    vi.doMock("./db.js", () => ({
+      initializeMultiUserDatabase: vi.fn(() => db),
+    }));
+    vi.doMock("./auth.js", () => ({
+      createMultiUserAuth: vi.fn(async () => auth),
+    }));
+
     const { multiUserComponent } = await import("./index.js");
     const ctx = {
       resolveSecret: async () => "secret",
@@ -36,10 +55,21 @@ describe("multi-user component", () => {
         meta: { durationMs: 0, sessionId: "session" },
       }),
       getConfig: () =>
-        ({
+        GatewayConfigSchema.parse({
           agents: [],
           components: {},
-        }) as GatewayConfig,
+          sessions: {},
+          multiUser: {
+            enabled: true,
+            oauth: {
+              google: {
+                clientId: "client-id",
+                clientSecret: "client-secret",
+              },
+            },
+            sessionSecret: "x".repeat(32),
+          },
+        }),
     } satisfies ComponentContext;
 
     await multiUserComponent.start(ctx);
@@ -47,5 +77,6 @@ describe("multi-user component", () => {
 
     await multiUserComponent.stop();
     expect(multiUserComponent.capabilities()).toEqual([]);
+    expect(close).toHaveBeenCalledOnce();
   });
 });

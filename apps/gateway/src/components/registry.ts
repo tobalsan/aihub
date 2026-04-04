@@ -109,7 +109,9 @@ export async function loadComponents(config: GatewayConfig): Promise<Component[]
   const components: Component[] = [];
 
   for (const [id, registration] of Object.entries(COMPONENT_REGISTRY)) {
-    const componentConfig = registration.getConfig(config);
+    const componentConfig = registration.getConfig(config) as
+      | { enabled?: boolean }
+      | undefined;
     if (!componentConfig || componentConfig.enabled === false) continue;
 
     const component = await registration.load();
