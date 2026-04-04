@@ -60,6 +60,7 @@ Options:
 - `--execution-mode <mode>`: `subagent|ralph_loop`.
 - `--appetite <appetite>`: `small|big`.
 - `--status <status>`: initial status.
+- `--area <area>`: optional area id. Validated against `GET /api/areas`; invalid values print the valid ids.
 - `-j, --json`: JSON output.
 
 ### `apm get <id>`
@@ -130,6 +131,7 @@ Options:
 - `-j, --json`: JSON output.
 
 Template default mapping (`--template`) mirrors the UI preparation form:
+
 - `coordinator`: `runAgent=cli:claude`, `model=opus`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:false`
 - `worker`: `runAgent=cli:codex`, `model=gpt-5.4`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:true`
 - `reviewer`: `runAgent=cli:codex`, `model=gpt-5.4`, `reasoningEffort=high`, includes = `default:true`, `role:true`, `postRun:true`

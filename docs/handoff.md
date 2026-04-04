@@ -179,6 +179,17 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
   - `pnpm build`
   - `pnpm lint`
 
+### 2026-04-04: PRO-211 apm create area validation
+
+- `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
+  - Added `ApiClient.listAreas()` for `GET /api/areas`.
+  - Added `apm create --area <area>`.
+  - Validates `--area` against current area ids before project creation and prints valid ids on error.
+- `packages/cli/src/index.create.test.ts`
+  - Added coverage for valid and invalid `apm create --area` flows.
+- Docs:
+  - Updated `README.md` and `docs/cli-apm.md`.
+
 ### 2026-04-02: PRO-198 modular architecture Phase 3 + Phase 4
 
 - `apps/gateway/src/server/api.core.ts`, `apps/gateway/src/server/index.ts`, `apps/gateway/src/cli/index.ts`

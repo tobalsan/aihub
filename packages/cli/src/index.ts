@@ -257,7 +257,8 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
       (typeof opts.thinking === "string" && opts.thinking.trim().length > 0) ||
       (typeof opts.mode === "string" && opts.mode.trim().length > 0) ||
       (typeof opts.branch === "string" && opts.branch.trim().length > 0) ||
-      (typeof opts.promptRole === "string" && opts.promptRole.trim().length > 0);
+      (typeof opts.promptRole === "string" &&
+        opts.promptRole.trim().length > 0);
     if (hasLockedOverrides) {
       errors.push(
         "Template profile locked. Use --allow-template-overrides to override."
@@ -268,9 +269,7 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
 
   if (typeof opts.agent === "string" && opts.agent.trim()) {
     const agentValue = opts.agent.trim();
-    body.runAgent = agentValue.includes(":")
-      ? agentValue
-      : `cli:${agentValue}`;
+    body.runAgent = agentValue.includes(":") ? agentValue : `cli:${agentValue}`;
   }
   if (typeof opts.name === "string" && opts.name.trim()) {
     body.name = opts.name.trim();
@@ -278,10 +277,7 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
   if (typeof opts.model === "string" && opts.model.trim()) {
     body.model = opts.model.trim();
   }
-  if (
-    typeof opts.reasoningEffort === "string" &&
-    opts.reasoningEffort.trim()
-  ) {
+  if (typeof opts.reasoningEffort === "string" && opts.reasoningEffort.trim()) {
     body.reasoningEffort = opts.reasoningEffort.trim();
   }
   if (typeof opts.thinking === "string" && opts.thinking.trim()) {
@@ -313,8 +309,7 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
 
     if (harness && !hasExplicitModel) {
       const allowedModels = START_HARNESS_MODELS[harness];
-      const model =
-        typeof body.model === "string" ? body.model.trim() : "";
+      const model = typeof body.model === "string" ? body.model.trim() : "";
       if (!allowedModels.includes(model)) {
         body.model = allowedModels[0];
       }
@@ -378,6 +373,24 @@ function getClient() {
   return new ApiClient();
 }
 
+export async function resolveCreateArea(
+  client: Pick<ApiClient, "listAreas">,
+  area: string | undefined
+): Promise<string | undefined> {
+  if (!area) return undefined;
+  const areasList = (await client.listAreas()) as Array<{
+    id: string;
+    title: string;
+  }>;
+  const validIds = areasList.map((item) => item.id);
+  if (!validIds.includes(area)) {
+    throw new Error(
+      `Error: Invalid area "${area}". Valid areas: ${validIds.join(", ")}`
+    );
+  }
+  return area;
+}
+
 function fail(err: unknown): never {
   if (err instanceof Error) console.error(err.message);
   else console.error("Request failed");
@@ -404,7 +417,9 @@ function formatValidationError(error: unknown): string {
     "issues" in error &&
     Array.isArray((error as { issues?: unknown }).issues)
   ) {
-    return (error as { issues: Array<{ path?: unknown[]; message?: string }> }).issues
+    return (
+      error as { issues: Array<{ path?: unknown[]; message?: string }> }
+    ).issues
       .map((issue) => {
         const path =
           Array.isArray(issue.path) && issue.path.length > 0
@@ -462,7 +477,9 @@ export function runConfigMigrateCommand(opts?: {
 export function runConfigValidateCommand(opts?: { config?: string }): void {
   const result = validateLocalConfig(opts?.config);
   console.log(`Config path: ${resolveLocalConfigPath(opts?.config)}`);
-  console.log(`Config version: ${result.migrated ? result.version.label : "2"}`);
+  console.log(
+    `Config version: ${result.migrated ? result.version.label : "2"}`
+  );
   if (result.warnings.length > 0) {
     printWarnings(result.warnings);
   }
@@ -477,7 +494,9 @@ export const program = new Command();
 
 program.name("apm").description("AIHub project manager").version("0.1.0");
 
-const configCommand = program.command("config").description("Manage local AIHub config");
+const configCommand = program
+  .command("config")
+  .description("Manage local AIHub config");
 
 configCommand
   .command("migrate")
@@ -574,9 +593,11 @@ program
   .option("--execution-mode <mode>", "Execution mode (subagent|ralph_loop)")
   .option("--appetite <appetite>", "Appetite (small|big)")
   .option("--status <status>", "Status")
+  .option("--area <area>", "Area")
   .option("-j, --json", "JSON output")
   .action(async (description, opts) => {
     try {
+      const client = getClient();
       const body: Record<string, unknown> = { title: opts.title };
       if (description) body.description = description;
       if (opts.specs !== undefined) {
@@ -587,8 +608,10 @@ program
       if (opts.executionMode) body.executionMode = opts.executionMode;
       if (opts.appetite) body.appetite = opts.appetite;
       if (opts.status) body.status = opts.status;
+      const area = await resolveCreateArea(client, opts.area);
+      if (area) body.area = area;
 
-      const data = (await getClient().createProject(body)) as ProjectItem;
+      const data = (await client.createProject(body)) as ProjectItem;
       if (opts.json) {
         console.log(JSON.stringify(data, null, 2));
         return;
@@ -654,8 +677,7 @@ program
         return stdinContent;
       };
       if (opts.readme !== undefined) {
-        body.readme =
-          opts.readme === "-" ? await readStdinOnce() : opts.readme;
+        body.readme = opts.readme === "-" ? await readStdinOnce() : opts.readme;
       }
       if (opts.specs !== undefined) {
         body.specs = opts.specs === "-" ? await readStdinOnce() : opts.specs;
@@ -1073,10 +1095,7 @@ program
   .option("--agent <agent>", "Agent name (cli name or aihub:<id>)")
   .option("--name <name>", "Optional spawned CLI run name")
   .option("--model <model>", "Model override for CLI harness")
-  .option(
-    "--reasoning-effort <level>",
-    "Reasoning effort (codex|claude)"
-  )
+  .option("--reasoning-effort <level>", "Reasoning effort (codex|claude)")
   .option("--thinking <level>", "Thinking level (pi)")
   .option("--mode <mode>", "Run mode (main-run|clone|worktree|none)")
   .option("--branch <branch>", "Base branch for clone/worktree")

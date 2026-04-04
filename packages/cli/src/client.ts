@@ -67,6 +67,10 @@ export class ApiClient {
     return this.request("/projects");
   }
 
+  listAreas() {
+    return this.request("/areas");
+  }
+
   createProject(body: Record<string, unknown>) {
     return this.request("/projects", { method: "POST", body });
   }

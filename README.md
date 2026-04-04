@@ -189,7 +189,7 @@ pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
 # Projects CLI (apm; uses gateway API)
 pnpm apm list [--status <status>] [--owner <owner>] [--domain <domain>]
-pnpm apm create --title "My Project" [description] [--specs <text>|-] [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>]
+pnpm apm create --title "My Project" [description] [--specs <text>|-] [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>] [--area <area>]
 pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm apm move <id> <status>
