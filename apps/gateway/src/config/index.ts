@@ -41,6 +41,16 @@ export function loadConfig(): GatewayConfig {
     }
   }
 
+  // Validate OneCLI CA file path at startup if configured
+  if (result.onecli?.enabled && result.onecli.ca?.source === "file") {
+    const caPath = result.onecli.ca.path;
+    if (!fs.existsSync(caPath)) {
+      throw new Error(
+        `[onecli] CA file not found: ${caPath}. Check onecli.ca.path in your config.`
+      );
+    }
+  }
+
   // Apply env vars from config (only if not already set in process.env)
   if (result.env) {
     for (const [key, value] of Object.entries(result.env)) {
