@@ -22,6 +22,12 @@ export function getConfigPath(): string {
 export function loadConfig(): GatewayConfig {
   if (cachedConfig) return cachedConfig;
 
+  // Load .env file from AIHUB_HOME if it exists (silently skip if absent)
+  const dotenvPath = path.join(CONFIG_DIR, ".env");
+  if (fs.existsSync(dotenvPath)) {
+    process.loadEnvFile(dotenvPath);
+  }
+
   const configPath = getConfigPath();
 
   if (!fs.existsSync(configPath)) {

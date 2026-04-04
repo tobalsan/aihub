@@ -9,14 +9,34 @@ function toConfigRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function resolveEnvRefs(value: unknown): unknown {
+  if (typeof value === "string" && value.startsWith("$env:")) {
+    const envName = value.slice("$env:".length);
+    const envValue = process.env[envName];
+    if (envValue === undefined) {
+      throw new Error(`Env var "${envName}" not set (referenced in connector config)`);
+    }
+    return envValue;
+  }
+  if (Array.isArray(value)) {
+    return value.map(resolveEnvRefs);
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, resolveEnvRefs(v)])
+    );
+  }
+  return value;
+}
+
 export function resolveConnectorConfig(
   connectorId: string,
   globalConfig: Record<string, unknown>,
   agentConfig: Record<string, unknown>
 ): ResolvedConnectorConfig {
   void connectorId;
-  const resolvedGlobal = { ...globalConfig };
-  const resolvedAgent = { ...agentConfig };
+  const resolvedGlobal = resolveEnvRefs({ ...globalConfig }) as Record<string, unknown>;
+  const resolvedAgent = resolveEnvRefs({ ...agentConfig }) as Record<string, unknown>;
 
   return {
     global: resolvedGlobal,
