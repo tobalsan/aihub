@@ -54,7 +54,7 @@ describe("getConnectorPromptsForAgent", () => {
     const agentConfig = AgentConfigSchema.parse(gatewayConfig.agents[0]);
 
     expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([
-      "Use this connector for account lookups.",
+      { id: "with-prompt", prompt: "Use this connector for account lookups." },
     ]);
   });
 

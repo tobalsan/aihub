@@ -141,10 +141,15 @@ export function getConnectorToolsForAgent(
   );
 }
 
+export interface ConnectorPrompt {
+  id: string;
+  prompt: string;
+}
+
 export function getConnectorPromptsForAgent(
   agentConfig: AgentConfig,
   gatewayConfig: GatewayConfig
-): string[] {
+): ConnectorPrompt[] {
   const agentConnectorsConfig = toRecord(agentConfig.connectors);
   void gatewayConfig;
 
@@ -163,7 +168,7 @@ export function getConnectorPromptsForAgent(
         return [];
       }
 
-      return [connector.systemPrompt];
+      return [{ id: connectorId, prompt: connector.systemPrompt }];
     }
   );
 }

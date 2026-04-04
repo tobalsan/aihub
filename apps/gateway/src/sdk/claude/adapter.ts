@@ -307,7 +307,10 @@ export const claudeAdapter: SdkAdapter = {
 
         const baseAppend =
           "Always start by using the Read tool to read file AGENTS.md. At the start of every new session, begin with '٩(◕‿◕｡)۶ '";
-        const appendPrompt = [baseAppend, ...connectorPrompts]
+        const appendPrompt = [
+          baseAppend,
+          ...connectorPrompts.map((cp) => cp.prompt),
+        ]
           .filter(Boolean)
           .join("\n\n");
 

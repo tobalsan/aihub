@@ -340,9 +340,11 @@ export const piAdapter: SdkAdapter = {
           ].join("\n")
         : undefined;
       const connectorPrompts = getConnectorPromptsForAgent(agent, getConfig());
-      const allAppendedPrompts =
-        [subagentToolPrompt, ...connectorPrompts].filter(Boolean).join("\n\n") ||
-        undefined;
+      const connectorContextFiles = connectorPrompts.map((cp) => ({
+        path: `connector:${cp.id}`,
+        content: cp.prompt,
+      }));
+      const allAppendedPrompts = subagentToolPrompt || undefined;
 
       const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
       const settingsManager = SettingsManager.create(
@@ -360,7 +362,9 @@ export const piAdapter: SdkAdapter = {
         settingsManager,
         appendSystemPrompt: allAppendedPrompts,
         additionalSkillPaths: [workspaceSkillsDir],
-        agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
+        agentsFilesOverride: () => ({
+          agentsFiles: [...contextFiles, ...connectorContextFiles],
+        }),
         ...(!includeGlobalSkills && {
           skillsOverride: (result) => ({
             skills: result.skills.filter(
