@@ -13,7 +13,11 @@ function getRuntimeOrThrow() {
 export function registerMultiUserRoutes(app: Hono): void {
   app.on(["GET", "POST"], "/auth/*", (c) => {
     const { auth } = getRuntimeOrThrow();
-    return auth.handler(c.req.raw);
+    const url = new URL(c.req.url);
+    if (!url.pathname.startsWith("/api/")) {
+      url.pathname = `/api${url.pathname}`;
+    }
+    return auth.handler(new Request(url, c.req.raw));
   });
 
   app.get("/me", async (c) => {

@@ -26,7 +26,9 @@ describe("api client (activity/status)", () => {
 
     const res = await fetchActivity();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/activity?offset=0&limit=20");
+    expect(fetchMock).toHaveBeenCalledWith("/api/activity?offset=0&limit=20", {
+      credentials: "include",
+    });
     expect(res.events.length).toBe(1);
   });
 
@@ -38,7 +40,9 @@ describe("api client (activity/status)", () => {
 
     const res = await fetchAgentStatuses();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/agents/status");
+    expect(fetchMock).toHaveBeenCalledWith("/api/agents/status", {
+      credentials: "include",
+    });
     expect(res.statuses.cto).toBe("streaming");
   });
 });

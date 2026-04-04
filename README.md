@@ -11,7 +11,7 @@ Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, CLI, and 
 - Direct chat with CLI agents
 - Specs and task management
 - Activity feed
-- 100% file-based, no database
+- File-based by default; optional SQLite only for multi-user auth
 
 ## Quick Start
 
@@ -94,8 +94,63 @@ AIHub v2 is modular. These are the built-in component IDs you can enable under `
 - `amsg`: background watcher that checks agent amsg inboxes and nudges agents when new messages arrive
 - `conversations`: saved conversation API/UI surface for browsing threads, attachments, and creating projects from conversations
 - `projects`: project management surface including areas, kanban, taskboard, activity feed, subagents, and Space workflows
+- `multiUser`: optional Better Auth + SQLite auth layer with per-user isolation and admin APIs
 
 If a component key is absent, it is disabled and not loaded.
+
+### Multi-User Mode
+
+Enable multi-user auth with a top-level `multiUser` block in `$AIHUB_HOME/aihub.json`:
+
+```json
+{
+  "version": 2,
+  "agents": [
+    {
+      "id": "main",
+      "name": "Main",
+      "workspace": "~/workspace/main",
+      "model": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929"
+      }
+    }
+  ],
+  "multiUser": {
+    "enabled": true,
+    "oauth": {
+      "google": {
+        "clientId": "$env:GOOGLE_CLIENT_ID",
+        "clientSecret": "$env:GOOGLE_CLIENT_SECRET"
+      }
+    },
+    "allowedDomains": ["example.com"],
+    "sessionSecret": "$env:BETTER_AUTH_SECRET"
+  }
+}
+```
+
+Required config:
+
+- `multiUser.enabled: true`
+- `multiUser.oauth.google.clientId`
+- `multiUser.oauth.google.clientSecret`
+- `multiUser.sessionSecret`
+- `multiUser.allowedDomains` if you want to restrict signups by email domain
+
+Bootstrap flow:
+
+1. Set Google OAuth credentials and `BETTER_AUTH_SECRET`, then restart the gateway.
+2. Gateway creates `$AIHUB_HOME/auth.db`, runs Better Auth migrations, and mounts `/api/auth/*`.
+3. The first Google OAuth user becomes `admin`.
+4. That admin approves later signups and manages roles at `/admin/users`.
+5. Admins manage per-user agent access at `/admin/agents`.
+
+Notes:
+
+- Multi-user mode adds `/login`, `/api/me`, `/api/admin/users`, and `/api/admin/agents`.
+- Sessions/history move to per-user paths under `$AIHUB_HOME/users/<userId>/`.
+- There is no migration for existing single-user session/history data. Treat enablement as a fresh start.
 
 ### Connectors
 
