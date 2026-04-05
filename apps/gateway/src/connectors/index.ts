@@ -147,11 +147,9 @@ export interface ConnectorPrompt {
 }
 
 export function getConnectorPromptsForAgent(
-  agentConfig: AgentConfig,
-  gatewayConfig: GatewayConfig
+  agentConfig: AgentConfig
 ): ConnectorPrompt[] {
   const agentConnectorsConfig = toRecord(agentConfig.connectors);
-  void gatewayConfig;
 
   return Object.entries(agentConnectorsConfig).flatMap(
     ([connectorId, rawAgentEntry]) => {

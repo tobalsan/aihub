@@ -103,15 +103,6 @@ export async function fetchFullHistory(
   return { messages: data.messages ?? [], thinkingLevel: data.thinkingLevel };
 }
 
-/** @deprecated Use fetchSimpleHistory or fetchFullHistory */
-export async function fetchHistory(
-  agentId: string,
-  sessionKey: string
-): Promise<SimpleHistoryMessage[]> {
-  const res = await fetchSimpleHistory(agentId, sessionKey);
-  return res.messages;
-}
-
 export async function sendMessage(
   agentId: string,
   message: string,

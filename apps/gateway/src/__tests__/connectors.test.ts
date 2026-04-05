@@ -209,7 +209,7 @@ describe("gateway connectors", () => {
       await initializeConnectors(gatewayConfig);
 
       expect(getConnectorToolsForAgent(agentConfig, gatewayConfig)).toEqual([]);
-      expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([
+      expect(getConnectorPromptsForAgent(agentConfig)).toEqual([
         {
           id: "cloudifi-admin",
           prompt: "Use Cloudifi Admin for account tasks.",

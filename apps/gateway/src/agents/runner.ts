@@ -588,15 +588,8 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   }
 }
 
-export async function queueOrRun(params: RunAgentParams): Promise<RunAgentResult> {
-  return runAgent(params);
-}
-
 // Re-export types for backward compatibility
 export type { SimpleHistoryMessage, FullHistoryMessage, HistoryViewMode };
-
-/** @deprecated Use SimpleHistoryMessage instead */
-export type HistoryMessage = SimpleHistoryMessage;
 
 /**
  * Load conversation history (simple view)

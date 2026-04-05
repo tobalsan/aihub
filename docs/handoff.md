@@ -6,6 +6,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 ## Current Status
 
 - 2026-04-05 PRO-214 mobile scroll fix landed: mobile shell/content scroll is now isolated in the web UI via `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `left-nav-main` overflow isolation, chat input `flex-shrink: 0`, and mobile sidebar `100dvh` sizing across agents/chat/activity/areas/conversations.
+- 2026-04-05 PRO-212 dead-code slice landed: removed unused `queueOrRun`, deprecated `HistoryMessage` aliases, redundant `config.getConfig()` / web `fetchHistory()` wrappers, the unused `gatewayConfig` arg from `getConnectorPromptsForAgent()`, and the redundant Claude `sentTurnEnd` guard. Verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test`.
 - 2026-04-04 PRO-209 multi-user auth landed: Better Auth + SQLite is now integrated behind top-level `multiUser`, with `/api/auth/*`, `/api/me`, `/api/admin/*`, per-user session/history isolation under `$AIHUB_HOME/users/<userId>/`, web login/admin pages, integration coverage for enabled/disabled modes, and docs updates across `README.md` + `docs/llms.md`.
 - 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path is removed. Config/runtime/docs now only support native top-level `onecli` proxy wiring plus `$env:` config refs. Current status: Phase 3 cleanup complete; remaining follow-up is CA file existence validation in schema.
 - 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
@@ -41,6 +42,21 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
   - `pnpm typecheck`
   - `pnpm test -- apps/web`
   - `pnpm --filter @aihub/web build`
+
+### 2026-04-05: PRO-212 dead-code cleanup slice
+
+- `apps/gateway/src/agents/runner.ts`, `apps/gateway/src/index.ts`
+  - Removed the unused `queueOrRun()` wrapper and the deprecated runner `HistoryMessage` alias.
+- `apps/gateway/src/config/index.ts`, `apps/gateway/src/components/conversations/index.ts`, `apps/gateway/src/components/projects/index.ts`, `apps/gateway/src/sdk/*`, `apps/gateway/src/subagents/tool_handlers.ts`
+  - Removed the redundant `getConfig()` alias and updated direct callers to use `loadConfig()`.
+- `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`
+  - Removed deprecated `fetchHistory()` and the unused web `HistoryMessage` alias.
+- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/connectors/index.test.ts`, `apps/gateway/src/__tests__/connectors.test.ts`, `apps/gateway/src/sdk/claude/adapter.ts`
+  - Dropped the unused `gatewayConfig` arg from `getConnectorPromptsForAgent()` and removed the redundant `sentTurnEnd` guard in Claude adapter.
+- Verification:
+  - `pnpm lint`
+  - `pnpm typecheck`
+  - `pnpm test`
 
 ### 2026-04-04: PRO-209 multi-user auth integration + docs
 

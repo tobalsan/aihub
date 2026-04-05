@@ -24,7 +24,7 @@ import {
 } from "@aihub/shared";
 import { z } from "zod";
 import { agentEventBus } from "../../agents/events.js";
-import { getActiveAgents, getAgent, getConfig, isAgentActive } from "../../config/index.js";
+import { getActiveAgents, getAgent, loadConfig, isAgentActive } from "../../config/index.js";
 import {
   getRecentActivity,
   recordCommentActivity,
@@ -179,7 +179,7 @@ function getProjectsRuntimeConfig(config: GatewayConfig): GatewayConfig {
 }
 
 function getProjectsConfig(): GatewayConfig {
-  return getProjectsRuntimeConfig(getConfig());
+  return getProjectsRuntimeConfig(loadConfig());
 }
 
 function hasText(value: unknown): value is string {

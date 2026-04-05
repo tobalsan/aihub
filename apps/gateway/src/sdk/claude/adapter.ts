@@ -16,7 +16,7 @@ import {
   SUBAGENT_MCP_SERVER,
   SUBAGENT_TOOL_NAMES,
 } from "../../subagents/claude_tools.js";
-import { CONFIG_DIR, getConfig } from "../../config/index.js";
+import { CONFIG_DIR, loadConfig } from "../../config/index.js";
 import { buildOnecliEnv, type OnecliEnv } from "../../config/onecli.js";
 import {
   getConnectorPromptsForAgent,
@@ -84,7 +84,7 @@ function getEnvOverrides(
   model: AgentModelConfig,
   agentId: string
 ): EnvOverrides | null {
-  const onecliEnv = buildOnecliEnv(getConfig(), agentId);
+  const onecliEnv = buildOnecliEnv(loadConfig(), agentId);
   if (!model.base_url && !model.auth_token && !onecliEnv) return null;
   return {
     base_url: model.base_url,
@@ -202,8 +202,6 @@ export const claudeAdapter: SdkAdapter = {
         });
       };
       const toolIdToName = new Map<string, string>();
-      let sentTurnEnd = false;
-
       // Create abort controller
       const abortController = new AbortController();
       params.abortSignal.addEventListener("abort", () => {
@@ -275,14 +273,8 @@ export const claudeAdapter: SdkAdapter = {
 
       try {
         const subagentServer = createSubagentMcpServer();
-        const connectorTools = getConnectorToolsForAgent(
-          params.agent,
-          getConfig()
-        );
-        const connectorPrompts = getConnectorPromptsForAgent(
-          params.agent,
-          getConfig()
-        );
+        const connectorTools = getConnectorToolsForAgent(params.agent, loadConfig());
+        const connectorPrompts = getConnectorPromptsForAgent(params.agent);
         const connectorServer =
           connectorTools.length > 0
             ? createConnectorMcpServer(connectorTools)
@@ -519,10 +511,7 @@ export const claudeAdapter: SdkAdapter = {
         appendAssistantText(pendingResultText);
       }
 
-      if (!sentTurnEnd) {
-        params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
-        sentTurnEnd = true;
-      }
+      params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
 
       return { text: assistantText, aborted };
     });

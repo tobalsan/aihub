@@ -53,7 +53,7 @@ describe("getConnectorPromptsForAgent", () => {
     });
     const agentConfig = AgentConfigSchema.parse(gatewayConfig.agents[0]);
 
-    expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([
+    expect(getConnectorPromptsForAgent(agentConfig)).toEqual([
       { id: "with-prompt", prompt: "Use this connector for account lookups." },
     ]);
   });
@@ -84,7 +84,7 @@ describe("getConnectorPromptsForAgent", () => {
     });
     const agentConfig = AgentConfigSchema.parse(gatewayConfig.agents[0]);
 
-    expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([]);
+    expect(getConnectorPromptsForAgent(agentConfig)).toEqual([]);
   });
 
   it("returns an empty array when a connector is disabled", () => {
@@ -114,7 +114,7 @@ describe("getConnectorPromptsForAgent", () => {
     });
     const agentConfig = AgentConfigSchema.parse(gatewayConfig.agents[0]);
 
-    expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([]);
+    expect(getConnectorPromptsForAgent(agentConfig)).toEqual([]);
   });
 
   it("returns an empty array when no connectors are configured", () => {
@@ -131,6 +131,6 @@ describe("getConnectorPromptsForAgent", () => {
     });
     const agentConfig = AgentConfigSchema.parse(gatewayConfig.agents[0]);
 
-    expect(getConnectorPromptsForAgent(agentConfig, gatewayConfig)).toEqual([]);
+    expect(getConnectorPromptsForAgent(agentConfig)).toEqual([]);
   });
 });

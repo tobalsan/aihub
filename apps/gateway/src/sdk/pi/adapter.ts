@@ -13,7 +13,7 @@ import type {
   SdkRunResult,
   HistoryEvent,
 } from "../types.js";
-import { CONFIG_DIR, getConfig } from "../../config/index.js";
+import { CONFIG_DIR, loadConfig } from "../../config/index.js";
 import { buildOnecliEnv } from "../../config/onecli.js";
 import {
   ensureBootstrapFiles,
@@ -141,7 +141,7 @@ function stringifyToolResult(result: unknown): string {
 }
 
 function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
-  return getConnectorToolsForAgent(agent, getConfig()).map((tool) => ({
+  return getConnectorToolsForAgent(agent, loadConfig()).map((tool) => ({
     name: tool.name,
     label: tool.description,
     description: tool.description,
@@ -167,7 +167,7 @@ async function withPiOnecliEnv<T>(
   agentId: string,
   fn: () => Promise<T>
 ): Promise<T> {
-  const env = buildOnecliEnv(getConfig(), agentId);
+  const env = buildOnecliEnv(loadConfig(), agentId);
   if (!env) return fn();
 
   const prevLock = piEnvLock;
@@ -339,7 +339,7 @@ export const piAdapter: SdkAdapter = {
             "- subagent.interrupt { projectId, slug }",
           ].join("\n")
         : undefined;
-      const connectorPrompts = getConnectorPromptsForAgent(agent, getConfig());
+      const connectorPrompts = getConnectorPromptsForAgent(agent);
       const connectorContextFiles = connectorPrompts.map((cp) => ({
         path: `connector:${cp.id}`,
         content: cp.prompt,

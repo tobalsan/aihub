@@ -7,7 +7,7 @@ import {
 import type { Hono } from "hono";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { getConfig, getActiveAgents } from "../../config/index.js";
+import { loadConfig, getActiveAgents } from "../../config/index.js";
 import { runAgent } from "../../agents/index.js";
 import {
   appendConversationMessage,
@@ -38,7 +38,7 @@ const conversationsComponent: Component = {
   },
   registerRoutes(app: Hono) {
     app.get("/conversations", async (c) => {
-      const config = getConfig();
+      const config = loadConfig();
       const result = await listConversations(config, {
         q: c.req.query("q"),
         source: c.req.query("source"),
@@ -52,7 +52,7 @@ const conversationsComponent: Component = {
     });
 
     app.get("/conversations/:id", async (c) => {
-      const config = getConfig();
+      const config = loadConfig();
       const result = await getConversation(config, c.req.param("id"));
       if (!result.ok) {
         return c.json({ error: result.error }, 404);
@@ -62,7 +62,7 @@ const conversationsComponent: Component = {
 
     app.post("/conversations/:id/messages", async (c) => {
       const id = c.req.param("id");
-      const config = getConfig();
+      const config = loadConfig();
       const existing = await getConversation(config, id);
       if (!existing.ok) {
         return c.json({ error: existing.error }, 404);
@@ -193,7 +193,7 @@ const conversationsComponent: Component = {
     app.get("/conversations/:id/attachments/:name", async (c) => {
       const id = c.req.param("id");
       const name = c.req.param("name");
-      const config = getConfig();
+      const config = loadConfig();
       const result = await resolveConversationAttachment(config, id, name);
       if (!result.ok) {
         return c.json({ error: result.error }, 404);
@@ -216,7 +216,7 @@ const conversationsComponent: Component = {
         return c.json({ error: parsed.error.message }, 400);
       }
 
-      const config = getConfig();
+      const config = loadConfig();
       const conversation = await getConversation(config, id);
       if (!conversation.ok) {
         return c.json({ error: conversation.error }, 404);

@@ -104,9 +104,6 @@ export type SimpleHistoryMessage = {
   timestamp: number;
 };
 
-// Alias for backward compatibility
-export type HistoryMessage = SimpleHistoryMessage;
-
 // Content block types for full history
 export type ThinkingBlock = {
   type: "thinking";
