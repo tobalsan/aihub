@@ -64,4 +64,17 @@ describe("history store isolation", () => {
       "utf-8"
     );
   });
+
+  it("caches resolved history files until invalidated", async () => {
+    const { appendSessionMeta, invalidateResolvedHistoryFile } =
+      await import("./store.js");
+
+    await appendSessionMeta("agent-1", "session-1", "thinkingLevel", "high");
+    await appendSessionMeta("agent-1", "session-1", "thinkingLevel", "medium");
+    expect(vi.mocked(fs.readdir)).toHaveBeenCalledTimes(1);
+
+    invalidateResolvedHistoryFile("agent-1", "session-1");
+    await appendSessionMeta("agent-1", "session-1", "thinkingLevel", "low");
+    expect(vi.mocked(fs.readdir)).toHaveBeenCalledTimes(2);
+  });
 });

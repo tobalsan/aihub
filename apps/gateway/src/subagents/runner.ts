@@ -767,76 +767,9 @@ export async function spawnSubagent(
       error: err instanceof Error ? err.message : "CLI not found",
     };
   }
-  const child = spawn(resolved.command, resolved.args, {
-    cwd: worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const startHeadSha =
-    mode === "worktree" || mode === "clone"
-      ? await getGitHead(worktreePath)
-      : undefined;
-
-  child.on("error", async (err) => {
-    const finishedAt = new Date().toISOString();
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data: {
-        run_id: `${Date.now()}`,
-        outcome: "error",
-        error_message:
-          err instanceof Error
-            ? `spawn failed: ${err.message}`
-            : "spawn failed",
-      },
-    });
-    if (acquiredSpaceLease) {
-      await releaseProjectSpaceWriteLease(config, input.projectId, {
-        holder: input.slug,
-      }).catch(() => {});
-    }
-  });
-
-  const startedAt = new Date().toISOString();
-  let createdAt = startedAt;
-  let archived = false;
-  const persistedReplaces = normalizeReplaces(input.replaces);
-  try {
-    const raw = await fs.readFile(configPath, "utf8");
-    const existing = JSON.parse(raw) as {
-      created?: string;
-      archived?: boolean;
-      replaces?: string[];
-    };
-    if (
-      typeof existing.created === "string" &&
-      existing.created.trim().length > 0
-    ) {
-      createdAt = existing.created;
-    }
-    if (typeof existing.archived === "boolean") {
-      archived = existing.archived;
-    }
-  } catch {
-    // ignore
-  }
-  let state: SubagentState = {
-    session_id:
-      cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
-    session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
-    supervisor_pid: child.pid ?? 0,
-    started_at: startedAt,
-    last_error: "",
-    cli,
-    run_mode: mode,
-    worktree_path: worktreePath,
-    base_branch: baseBranch,
-    start_head_sha: startHeadSha ?? "",
-    end_head_sha: "",
-    commit_range: "",
-  };
+  let state!: SubagentState;
   let stateWrite = Promise.resolve();
-  const persistState = async (nextState: typeof state): Promise<void> => {
+  const persistState = async (nextState: SubagentState): Promise<void> => {
     state = nextState;
     const snapshot = { ...nextState };
     stateWrite = stateWrite.then(async () => {
@@ -853,40 +786,17 @@ export async function spawnSubagent(
     });
     await stateWrite;
   };
-
-  await writeJson(configPath, {
-    name: input.name,
-    cli,
-    model: input.model,
-    reasoningEffort: input.reasoningEffort,
-    thinking: input.thinking,
-    runMode: mode,
-    baseBranch,
-    replaces: persistedReplaces,
-    created: createdAt,
-    archived,
+  const child = spawn(resolved.command, resolved.args, {
+    cwd: worktreePath,
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  await persistState(state);
-  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
-  await fs.appendFile(logsPath, "", "utf8");
-  if (input.prompt.trim().length > 0) {
-    const userLine = JSON.stringify({
-      type: "event_msg",
-      payload: { type: "user_message", message: input.prompt },
-    });
-    await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
-  }
-  await appendHistory(historyPath, {
-    ts: startedAt,
-    type: "worker.started",
-    data: {
-      action: input.resume ? "follow_up" : "started",
-      harness: cli,
-      session_id: state.session_id,
-    },
+  let markIoReady!: () => void;
+  const ioReady = new Promise<void>((resolve) => {
+    markIoReady = resolve;
   });
 
   child.stdout?.on("data", async (chunk: Buffer) => {
+    await ioReady;
     try {
       const text = chunk.toString("utf8");
       await fs.appendFile(logsPath, text, "utf8");
@@ -943,6 +853,7 @@ export async function spawnSubagent(
   });
 
   child.stderr?.on("data", async (chunk: Buffer) => {
+    await ioReady;
     try {
       const text = chunk.toString("utf8");
       const lines = text
@@ -961,6 +872,102 @@ export async function spawnSubagent(
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       throw error;
     }
+  });
+  const startHeadSha =
+    mode === "worktree" || mode === "clone"
+      ? await getGitHead(worktreePath)
+      : undefined;
+
+  child.on("error", async (err) => {
+    const finishedAt = new Date().toISOString();
+    await appendHistory(historyPath, {
+      ts: finishedAt,
+      type: "worker.finished",
+      data: {
+        run_id: `${Date.now()}`,
+        outcome: "error",
+        error_message:
+          err instanceof Error
+            ? `spawn failed: ${err.message}`
+            : "spawn failed",
+      },
+    });
+    if (acquiredSpaceLease) {
+      await releaseProjectSpaceWriteLease(config, input.projectId, {
+        holder: input.slug,
+      }).catch(() => {});
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  let createdAt = startedAt;
+  let archived = false;
+  const persistedReplaces = normalizeReplaces(input.replaces);
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const existing = JSON.parse(raw) as {
+      created?: string;
+      archived?: boolean;
+      replaces?: string[];
+    };
+    if (
+      typeof existing.created === "string" &&
+      existing.created.trim().length > 0
+    ) {
+      createdAt = existing.created;
+    }
+    if (typeof existing.archived === "boolean") {
+      archived = existing.archived;
+    }
+  } catch {
+    // ignore
+  }
+  state = {
+    session_id:
+      cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
+    session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
+    supervisor_pid: child.pid ?? 0,
+    started_at: startedAt,
+    last_error: "",
+    cli,
+    run_mode: mode,
+    worktree_path: worktreePath,
+    base_branch: baseBranch,
+    start_head_sha: startHeadSha ?? "",
+    end_head_sha: "",
+    commit_range: "",
+  };
+  await writeJson(configPath, {
+    name: input.name,
+    cli,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+    thinking: input.thinking,
+    runMode: mode,
+    baseBranch,
+    replaces: persistedReplaces,
+    created: createdAt,
+    archived,
+  });
+  await persistState(state);
+  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
+  await fs.appendFile(logsPath, "", "utf8");
+  if (input.prompt.trim().length > 0) {
+    const userLine = JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: input.prompt },
+    });
+    await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
+  }
+  markIoReady();
+  await appendHistory(historyPath, {
+    ts: startedAt,
+    type: "worker.started",
+    data: {
+      action: input.resume ? "follow_up" : "started",
+      harness: cli,
+      session_id: state.session_id,
+    },
   });
 
   child.on("exit", async (code, signal) => {

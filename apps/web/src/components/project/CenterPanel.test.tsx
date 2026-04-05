@@ -118,7 +118,11 @@ describe("CenterPanel", () => {
     const dispose = render(
       () => (
         <CenterPanel
-          project={{ ...project, repoValid: false, frontmatter: { repo: "/tmp/missing" } }}
+          project={{
+            ...project,
+            repoValid: false,
+            frontmatter: { repo: "/tmp/missing" },
+          }}
           tab="chat"
           showTabs={false}
           selectedAgent={null}
@@ -134,7 +138,9 @@ describe("CenterPanel", () => {
       container
     );
 
-    expect(container.textContent).toContain("Repo path not found: /tmp/missing");
+    expect(container.textContent).toContain(
+      "Repo path not found: /tmp/missing"
+    );
     expect(container.textContent).not.toContain("Spawn Agent");
 
     dispose();
@@ -213,6 +219,65 @@ describe("CenterPanel", () => {
     expect(date?.textContent).toBe("2026-02-28 20:53");
     expect(meta?.firstElementChild).toBe(author);
     expect(meta?.lastElementChild).toBe(date);
+
+    dispose();
+  });
+
+  it("fetches subagent logs in parallel", async () => {
+    vi.mocked(fetchSubagents).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "alpha",
+            cli: "codex",
+            status: "running",
+            lastActive: "2026-02-28T21:10:00.000Z",
+          },
+          {
+            slug: "beta",
+            cli: "claude",
+            status: "running",
+            lastActive: "2026-02-28T21:11:00.000Z",
+          },
+        ],
+      },
+    });
+
+    const resolvers: Array<() => void> = [];
+    vi.mocked(fetchSubagentLogs).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(() =>
+            resolve({
+              ok: true,
+              data: { cursor: 0, events: [] },
+            })
+          );
+        })
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <CenterPanel
+          project={project}
+          tab="activity"
+          showTabs={false}
+          selectedAgent={null}
+        />
+      ),
+      container
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchSubagentLogs).toHaveBeenCalledTimes(2);
+    expect(resolvers).toHaveLength(2);
+
+    resolvers.forEach((resolve) => resolve());
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     dispose();
   });

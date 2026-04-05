@@ -16,14 +16,14 @@ import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import {
   getKnownComponentRouteMetadata,
-  getLoadedComponents,
-  isMultiUserLoaded,
+  isComponentLoaded,
 } from "../components/registry.js";
 import {
   resolveSessionId,
   getSessionEntry,
   isAbortTrigger,
 } from "../sessions/index.js";
+import { invalidateResolvedHistoryFile } from "../history/store.js";
 
 type RequestAuthContext =
   import("../components/multi-user/middleware.js").RequestAuthContext;
@@ -115,7 +115,7 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 app.use("/api/*", async (c, next) => {
-  if (!isMultiUserLoaded()) {
+  if (!isComponentLoaded("multiUser")) {
     await next();
     return;
   }
@@ -124,7 +124,7 @@ app.use("/api/*", async (c, next) => {
   return createAuthMiddleware()(c, next);
 });
 app.use("/api/agents/:id", async (c, next) => {
-  if (!isMultiUserLoaded()) {
+  if (!isComponentLoaded("multiUser")) {
     await next();
     return;
   }
@@ -133,7 +133,7 @@ app.use("/api/agents/:id", async (c, next) => {
   return requireAgentAccess("id")(c, next);
 });
 app.use("/api/agents/:id/*", async (c, next) => {
-  if (!isMultiUserLoaded()) {
+  if (!isComponentLoaded("multiUser")) {
     await next();
     return;
   }
@@ -152,7 +152,7 @@ app.all("/api/*", async (c) => {
   url.pathname = pathname || "/";
   const request = new Request(url, c.req.raw);
 
-  if (isMultiUserLoaded()) {
+  if (isComponentLoaded("multiUser")) {
     const { forwardAuthContextToRequest, getRequestAuthContext } =
       await loadMultiUserMiddlewareModule();
     forwardAuthContextToRequest(request, getRequestAuthContext(c));
@@ -176,7 +176,7 @@ async function canAccessAgent(
   authContext: RequestAuthContext | null,
   agentId: string
 ): Promise<boolean> {
-  if (!isMultiUserLoaded()) return true;
+  if (!isComponentLoaded("multiUser")) return true;
   if (!authContext) return false;
   const { hasAgentAccess } = await loadMultiUserMiddlewareModule();
   return hasAgentAccess(authContext, agentId);
@@ -267,6 +267,14 @@ function handleWsConnection(
         let sessionId = msg.sessionId;
         let message = msg.message;
         let isNewSession = false;
+        let resolvedSession:
+          | {
+              sessionId: string;
+              sessionKey?: string;
+              message: string;
+              isNew: boolean;
+            }
+          | undefined;
         if (!sessionId && msg.sessionKey) {
           const resolved = await resolveSessionId({
             agentId: msg.agentId,
@@ -277,10 +285,21 @@ function handleWsConnection(
           sessionId = resolved.sessionId;
           message = resolved.message;
           isNewSession = resolved.isNew;
+          resolvedSession = {
+            sessionId: resolved.sessionId,
+            sessionKey: msg.sessionKey,
+            message: resolved.message,
+            isNew: resolved.isNew,
+          };
         }
 
         // Handle session reset with empty message (e.g., /new command)
         if (isNewSession && !message.trim()) {
+          invalidateResolvedHistoryFile(
+            msg.agentId,
+            sessionId ?? "default",
+            userId
+          );
           const introMessage =
             agent.introMessage ?? "New conversation started.";
           sendWs(ws, {
@@ -295,10 +314,11 @@ function handleWsConnection(
         await runAgent({
           agentId: msg.agentId,
           userId,
-          message,
+          message: msg.message,
           attachments: msg.attachments,
-          sessionId: sessionId ?? "default",
-          sessionKey: msg.sessionKey ?? "main",
+          sessionId: msg.sessionId ?? (resolvedSession ? undefined : "default"),
+          sessionKey: resolvedSession ? undefined : (msg.sessionKey ?? "main"),
+          resolvedSession,
           thinkLevel: msg.thinkLevel,
           onEvent: (event) => sendWs(ws, event),
         });
@@ -362,12 +382,17 @@ function setupEventBroadcast() {
     };
 
     void (async () => {
-      for (const ws of statusSubscribers) {
-        if (
-          !(await canAccessAgent(wsAuthContexts.get(ws) ?? null, event.agentId))
-        ) {
-          continue;
-        }
+      const access = await Promise.all(
+        [...statusSubscribers].map(async (ws) => ({
+          ws,
+          allowed: await canAccessAgent(
+            wsAuthContexts.get(ws) ?? null,
+            event.agentId
+          ),
+        }))
+      );
+      for (const { ws, allowed } of access) {
+        if (!allowed) continue;
         sendWs(ws, statusMessage);
       }
     })();
@@ -418,9 +443,7 @@ export function startServer(port?: number, host?: string) {
   });
 
   // Attach WebSocket server to the HTTP server
-  const shouldValidateWs = getLoadedComponents().some(
-    (component) => component.id === "multiUser"
-  );
+  const shouldValidateWs = isComponentLoaded("multiUser");
   const wss = new WebSocketServer({
     server: server as import("http").Server,
     path: "/ws",

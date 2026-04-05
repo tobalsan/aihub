@@ -8,7 +8,7 @@ import {
 } from "../config/index.js";
 import {
   getLoadedComponents,
-  isMultiUserLoaded,
+  isComponentLoaded,
 } from "../components/registry.js";
 import {
   runAgent,
@@ -51,7 +51,7 @@ function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
 }
 
 async function getRequestAuthContext(c: Context) {
-  if (!isMultiUserLoaded()) return null;
+  if (!isComponentLoaded("multiUser")) return null;
   const { getForwardedAuthContext } = await loadMultiUserApiDeps();
   return getForwardedAuthContext(c.req.raw.headers);
 }
@@ -62,7 +62,7 @@ async function getRequestUserId(c: Context): Promise<string | undefined> {
 
 async function getVisibleAgents(c: Context) {
   const agents = getActiveAgents();
-  if (!isMultiUserLoaded()) {
+  if (!isComponentLoaded("multiUser")) {
     return agents;
   }
 
@@ -77,7 +77,7 @@ api.get("/capabilities", async (c) => {
   const components = Object.fromEntries(
     getLoadedComponents().map((component) => [component.id, true])
   );
-  const multiUserEnabled = isMultiUserLoaded();
+  const multiUserEnabled = isComponentLoaded("multiUser");
   const authContext = multiUserEnabled ? await getRequestAuthContext(c) : null;
   const agents = await getVisibleAgents(c);
 
@@ -190,26 +190,38 @@ api.post("/agents/:id/messages", async (c) => {
       return c.json(result);
     }
 
-    // Resolve sessionId from sessionKey if not explicitly provided
-    let sessionId = parsed.data.sessionId;
-    let message = parsed.data.message;
-    if (!sessionId && parsed.data.sessionKey) {
+    let resolvedSession:
+      | {
+          sessionId: string;
+          sessionKey?: string;
+          message: string;
+          isNew: boolean;
+        }
+      | undefined;
+    if (!parsed.data.sessionId && parsed.data.sessionKey) {
       const resolved = await resolveSessionId({
         agentId: agent.id,
         userId,
         sessionKey: parsed.data.sessionKey,
         message: parsed.data.message,
       });
-      sessionId = resolved.sessionId;
-      message = resolved.message;
+      resolvedSession = {
+        sessionId: resolved.sessionId,
+        sessionKey: parsed.data.sessionKey,
+        message: resolved.message,
+        isNew: resolved.isNew,
+      };
     }
 
     const result = await runAgent({
       agentId: agent.id,
       userId,
-      message,
-      sessionId,
-      sessionKey: parsed.data.sessionKey ?? "main",
+      message: parsed.data.message,
+      sessionId: parsed.data.sessionId,
+      sessionKey: resolvedSession
+        ? undefined
+        : (parsed.data.sessionKey ?? "main"),
+      resolvedSession,
       thinkLevel: parsed.data.thinkLevel,
     });
     return c.json(result);

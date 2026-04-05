@@ -172,6 +172,7 @@ describe("gateway status websocket in multi-user mode", () => {
         ...actual,
         getLoadedComponents: () => [{ id: "multiUser" }],
         isMultiUserLoaded: () => true,
+        isComponentLoaded: (componentId: string) => componentId === "multiUser",
       };
     });
     vi.doMock("../components/multi-user/middleware.js", () => ({

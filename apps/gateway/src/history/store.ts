@@ -18,14 +18,41 @@ import {
 const legacyFileName = (agentId: string, sessionId: string) =>
   `${agentId}-${sessionId}.jsonl`;
 
-const timestampedFileName = (timestamp: number, agentId: string, sessionId: string) =>
-  `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
+const timestampedFileName = (
+  timestamp: number,
+  agentId: string,
+  sessionId: string
+) => `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
+
+const resolvedHistoryFileCache = new Map<string, string>();
+
+function getResolvedHistoryFileCacheKey(
+  agentId: string,
+  sessionId: string,
+  userId?: string
+): string {
+  return `${userId ?? ""}:${agentId}:${sessionId}`;
+}
+
+export function invalidateResolvedHistoryFile(
+  agentId: string,
+  sessionId: string,
+  userId?: string
+): void {
+  resolvedHistoryFileCache.delete(
+    getResolvedHistoryFileCacheKey(agentId, sessionId, userId)
+  );
+}
 
 /**
  * Find existing timestamped file by scanning directory for pattern *_{agentId}-{sessionId}.jsonl
  * Returns the most recent (lexicographically last) if multiple exist
  */
-async function findTimestampedFile(dir: string, agentId: string, sessionId: string): Promise<string | null> {
+async function findTimestampedFile(
+  dir: string,
+  agentId: string,
+  sessionId: string
+): Promise<string | null> {
   const suffix = `_${agentId}-${sessionId}.jsonl`;
   try {
     const files = await fs.readdir(dir);
@@ -47,6 +74,12 @@ async function resolveHistoryFile(
   sessionId: string,
   userId?: string
 ): Promise<string> {
+  const cacheKey = getResolvedHistoryFileCacheKey(agentId, sessionId, userId);
+  const cached = resolvedHistoryFileCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const historyDir = getHistoryDir(userId);
   await ensureHistoryDir(userId);
   const createdAt = getSessionCreatedAt(sessionId, userId);
@@ -59,6 +92,7 @@ async function resolveHistoryFile(
     );
     try {
       await fs.access(timestampedPath);
+      resolvedHistoryFileCache.set(cacheKey, timestampedPath);
       return timestampedPath;
     } catch {
       // Exact timestamped file doesn't exist
@@ -72,6 +106,7 @@ async function resolveHistoryFile(
     sessionId
   );
   if (existingTimestamped) {
+    resolvedHistoryFileCache.set(cacheKey, existingTimestamped);
     return existingTimestamped;
   }
 
@@ -79,6 +114,7 @@ async function resolveHistoryFile(
   const legacyPath = path.join(historyDir, legacyFileName(agentId, sessionId));
   try {
     await fs.access(legacyPath);
+    resolvedHistoryFileCache.set(cacheKey, legacyPath);
     return legacyPath;
   } catch {
     // Neither exists, create new timestamped file
@@ -86,10 +122,12 @@ async function resolveHistoryFile(
 
   // New file: always use timestamped format (use createdAt or default to now)
   const timestamp = createdAt ?? Date.now();
-  return path.join(
+  const resolvedPath = path.join(
     historyDir,
     timestampedFileName(timestamp, agentId, sessionId)
   );
+  resolvedHistoryFileCache.set(cacheKey, resolvedPath);
+  return resolvedPath;
 }
 
 // JSONL entry format for canonical history
@@ -109,7 +147,13 @@ type AssistantHistoryEntry = {
   timestamp: number;
   role: "assistant";
   content: ContentBlock[];
-  meta?: { provider?: string; model?: string; api?: string; usage?: ModelUsage; stopReason?: string };
+  meta?: {
+    provider?: string;
+    model?: string;
+    api?: string;
+    usage?: ModelUsage;
+    stopReason?: string;
+  };
 };
 
 type ToolResultHistoryEntry = {
@@ -125,7 +169,10 @@ type ToolResultHistoryEntry = {
   details?: { diff?: string };
 };
 
-type HistoryEntry = UserHistoryEntry | AssistantHistoryEntry | ToolResultHistoryEntry;
+type HistoryEntry =
+  | UserHistoryEntry
+  | AssistantHistoryEntry
+  | ToolResultHistoryEntry;
 
 // Meta entry for session-level metadata (e.g., thinkingLevel changes)
 type MetaEntry = {
@@ -145,7 +192,8 @@ async function appendRawEntry(
   userId?: string
 ): Promise<void> {
   const file = await resolveHistoryFile(agentId, sessionId, userId);
-  const line = JSON.stringify({ type: "history", agentId, sessionId, ...entry }) + "\n";
+  const line =
+    JSON.stringify({ type: "history", agentId, sessionId, ...entry }) + "\n";
   await fs.appendFile(file, line, "utf-8");
 }
 
@@ -222,11 +270,16 @@ export async function flushTurnBuffer(
 ): Promise<void> {
   // 1. User message
   if (buffer.userText) {
-    await appendRawEntry(agentId, sessionId, {
-      role: "user",
-      content: [{ type: "text", text: buffer.userText }],
-      timestamp: buffer.userTimestamp,
-    }, userId);
+    await appendRawEntry(
+      agentId,
+      sessionId,
+      {
+        role: "user",
+        content: [{ type: "text", text: buffer.userText }],
+        timestamp: buffer.userTimestamp,
+      },
+      userId
+    );
   }
 
   // 2. Assistant message
@@ -235,39 +288,57 @@ export async function flushTurnBuffer(
     content.push({ type: "thinking", thinking: buffer.thinkingText });
   }
   for (const tc of buffer.toolCalls) {
-    content.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.args });
+    content.push({
+      type: "toolCall",
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.args,
+    });
   }
   if (buffer.assistantText) {
     content.push({ type: "text", text: buffer.assistantText });
   }
 
   if (content.length > 0) {
-    await appendRawEntry(agentId, sessionId, {
-      role: "assistant",
-      content,
-      meta: buffer.meta,
-      timestamp: buffer.startTimestamp,
-    }, userId);
+    await appendRawEntry(
+      agentId,
+      sessionId,
+      {
+        role: "assistant",
+        content,
+        meta: buffer.meta,
+        timestamp: buffer.startTimestamp,
+      },
+      userId
+    );
   }
 
   // 3. Tool results (after assistant message)
   for (const tr of buffer.toolResults) {
-    await appendRawEntry(agentId, sessionId, {
-      role: "toolResult",
-      toolCallId: tr.id,
-      toolName: tr.name,
-      content: [{ type: "text", text: tr.content }],
-      isError: tr.isError,
-      details: tr.details,
-      timestamp: tr.timestamp,
-    }, userId);
+    await appendRawEntry(
+      agentId,
+      sessionId,
+      {
+        role: "toolResult",
+        toolCallId: tr.id,
+        toolName: tr.name,
+        content: [{ type: "text", text: tr.content }],
+        isError: tr.isError,
+        details: tr.details,
+        timestamp: tr.timestamp,
+      },
+      userId
+    );
   }
 }
 
 /**
  * Accumulate a history event into the turn buffer (sync, no I/O)
  */
-export function bufferHistoryEvent(buffer: TurnBuffer, event: HistoryEvent): void {
+export function bufferHistoryEvent(
+  buffer: TurnBuffer,
+  event: HistoryEvent
+): void {
   switch (event.type) {
     case "user":
       buffer.userText = event.text;
@@ -292,7 +363,11 @@ export function bufferHistoryEvent(buffer: TurnBuffer, event: HistoryEvent): voi
         buffer.assistantStarted = true;
         buffer.startTimestamp = event.timestamp;
       }
-      buffer.toolCalls.push({ id: event.id, name: event.name, args: event.args });
+      buffer.toolCalls.push({
+        id: event.id,
+        name: event.name,
+        args: event.args,
+      });
       break;
     case "tool_result":
       if (!buffer.assistantStarted) {
@@ -349,11 +424,17 @@ export async function getSimpleHistory(
 
         if (entry.role === "user" || entry.role === "assistant") {
           const text = entry.content
-            .filter((c): c is { type: "text"; text: string } => c.type === "text")
+            .filter(
+              (c): c is { type: "text"; text: string } => c.type === "text"
+            )
             .map((c) => c.text)
             .join("\n");
           if (text) {
-            messages.push({ role: entry.role, content: text, timestamp: entry.timestamp });
+            messages.push({
+              role: entry.role,
+              content: text,
+              timestamp: entry.timestamp,
+            });
           }
         }
       } catch {
@@ -455,7 +536,10 @@ async function resolvePiSessionFile(
 
   // Try exact timestamped file first (if we have createdAt)
   if (createdAt) {
-    const timestampedPath = path.join(PI_SESSIONS_DIR, timestampedFileName(createdAt, agentId, sessionId));
+    const timestampedPath = path.join(
+      PI_SESSIONS_DIR,
+      timestampedFileName(createdAt, agentId, sessionId)
+    );
     try {
       await fs.access(timestampedPath);
       return timestampedPath;
@@ -465,13 +549,20 @@ async function resolvePiSessionFile(
   }
 
   // Scan for any existing timestamped file
-  const existingTimestamped = await findTimestampedFile(PI_SESSIONS_DIR, agentId, sessionId);
+  const existingTimestamped = await findTimestampedFile(
+    PI_SESSIONS_DIR,
+    agentId,
+    sessionId
+  );
   if (existingTimestamped) {
     return existingTimestamped;
   }
 
   // Try legacy file
-  const legacyPath = path.join(PI_SESSIONS_DIR, legacyFileName(agentId, sessionId));
+  const legacyPath = path.join(
+    PI_SESSIONS_DIR,
+    legacyFileName(agentId, sessionId)
+  );
   try {
     await fs.access(legacyPath);
     return legacyPath;
@@ -485,14 +576,24 @@ async function resolveClaudeSessionFile(
   sessionId: string,
   userId?: string
 ): Promise<string | null> {
-  const claudeSessionId = getClaudeSessionIdForSession(agentId, sessionId, userId);
+  const claudeSessionId = getClaudeSessionIdForSession(
+    agentId,
+    sessionId,
+    userId
+  );
   if (!claudeSessionId) return null;
 
   try {
-    const entries = await fs.readdir(CLAUDE_SESSIONS_DIR, { withFileTypes: true });
+    const entries = await fs.readdir(CLAUDE_SESSIONS_DIR, {
+      withFileTypes: true,
+    });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const candidate = path.join(CLAUDE_SESSIONS_DIR, entry.name, `${claudeSessionId}.jsonl`);
+      const candidate = path.join(
+        CLAUDE_SESSIONS_DIR,
+        entry.name,
+        `${claudeSessionId}.jsonl`
+      );
       try {
         await fs.access(candidate);
         return candidate;
@@ -543,12 +644,17 @@ async function backfillFromClaudeSession(
                   .map((item) => {
                     if (!item || typeof item !== "object") return "";
                     const block = item as Record<string, unknown>;
-                    if (block.type === "text" && typeof block.text === "string") {
+                    if (
+                      block.type === "text" &&
+                      typeof block.text === "string"
+                    ) {
                       return block.text;
                     }
                     if (block.type === "tool_result") {
-                      if (typeof block.content === "string") return block.content;
-                      if (Array.isArray(block.content)) return extractText(block.content);
+                      if (typeof block.content === "string")
+                        return block.content;
+                      if (Array.isArray(block.content))
+                        return extractText(block.content);
                     }
                     return "";
                   })
@@ -556,12 +662,20 @@ async function backfillFromClaudeSession(
                   .join("\n")
               : "";
         if (!text) continue;
-        const ts = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Date.now();
-        await appendRawEntry(agentId, sessionId, {
-          role: "user",
-          content: [{ type: "text", text }],
-          timestamp: Number.isNaN(ts) ? Date.now() : ts,
-        }, userId);
+        const ts =
+          typeof entry.timestamp === "string"
+            ? Date.parse(entry.timestamp)
+            : Date.now();
+        await appendRawEntry(
+          agentId,
+          sessionId,
+          {
+            role: "user",
+            content: [{ type: "text", text }],
+            timestamp: Number.isNaN(ts) ? Date.now() : ts,
+          },
+          userId
+        );
       } else if (entry.type === "assistant") {
         const message = entry.message as Record<string, unknown> | undefined;
         const role = message?.role;
@@ -574,41 +688,80 @@ async function backfillFromClaudeSession(
             const item = block as Record<string, unknown>;
             if (item.type === "text" && typeof item.text === "string") {
               blocks.push({ type: "text", text: item.text });
-            } else if (item.type === "thinking" && typeof item.thinking === "string") {
+            } else if (
+              item.type === "thinking" &&
+              typeof item.thinking === "string"
+            ) {
               blocks.push({ type: "thinking", thinking: item.thinking });
-            } else if (item.type === "tool_use" && typeof item.id === "string" && typeof item.name === "string") {
-              blocks.push({ type: "toolCall", id: item.id, name: item.name, arguments: item.input });
+            } else if (
+              item.type === "tool_use" &&
+              typeof item.id === "string" &&
+              typeof item.name === "string"
+            ) {
+              blocks.push({
+                type: "toolCall",
+                id: item.id,
+                name: item.name,
+                arguments: item.input,
+              });
             }
           }
         }
         if (blocks.length === 0) continue;
-        const ts = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Date.now();
-        const usage = (message?.usage as Record<string, unknown> | undefined) ?? undefined;
+        const ts =
+          typeof entry.timestamp === "string"
+            ? Date.parse(entry.timestamp)
+            : Date.now();
+        const usage =
+          (message?.usage as Record<string, unknown> | undefined) ?? undefined;
         const usageMapped =
           usage && typeof usage === "object"
             ? {
-                input: typeof usage.input_tokens === "number" ? usage.input_tokens : 0,
-                output: typeof usage.output_tokens === "number" ? usage.output_tokens : 0,
+                input:
+                  typeof usage.input_tokens === "number"
+                    ? usage.input_tokens
+                    : 0,
+                output:
+                  typeof usage.output_tokens === "number"
+                    ? usage.output_tokens
+                    : 0,
                 cacheRead:
-                  typeof usage.cache_read_input_tokens === "number" ? usage.cache_read_input_tokens : undefined,
+                  typeof usage.cache_read_input_tokens === "number"
+                    ? usage.cache_read_input_tokens
+                    : undefined,
                 cacheWrite:
-                  typeof usage.cache_creation_input_tokens === "number" ? usage.cache_creation_input_tokens : undefined,
+                  typeof usage.cache_creation_input_tokens === "number"
+                    ? usage.cache_creation_input_tokens
+                    : undefined,
                 totalTokens:
-                  (typeof usage.input_tokens === "number" ? usage.input_tokens : 0) +
-                  (typeof usage.output_tokens === "number" ? usage.output_tokens : 0),
+                  (typeof usage.input_tokens === "number"
+                    ? usage.input_tokens
+                    : 0) +
+                  (typeof usage.output_tokens === "number"
+                    ? usage.output_tokens
+                    : 0),
               }
             : undefined;
-        await appendRawEntry(agentId, sessionId, {
-          role: "assistant",
-          content: blocks,
-          meta: {
-            provider: "anthropic",
-            model: typeof message?.model === "string" ? message.model : undefined,
-            usage: usageMapped,
-            stopReason: typeof message?.stop_reason === "string" ? message.stop_reason : undefined,
+        await appendRawEntry(
+          agentId,
+          sessionId,
+          {
+            role: "assistant",
+            content: blocks,
+            meta: {
+              provider: "anthropic",
+              model:
+                typeof message?.model === "string" ? message.model : undefined,
+              usage: usageMapped,
+              stopReason:
+                typeof message?.stop_reason === "string"
+                  ? message.stop_reason
+                  : undefined,
+            },
+            timestamp: Number.isNaN(ts) ? Date.now() : ts,
           },
-          timestamp: Number.isNaN(ts) ? Date.now() : ts,
-        }, userId);
+          userId
+        );
       }
     } catch {
       // skip malformed lines
@@ -658,40 +811,57 @@ export async function backfillFromPiSession(
       if (msg.role === "user") {
         const text = extractText(rawContent);
         if (text) {
-          await appendRawEntry(agentId, sessionId, {
-            role: "user",
-            content: [{ type: "text", text }],
-            timestamp,
-          }, userId);
+          await appendRawEntry(
+            agentId,
+            sessionId,
+            {
+              role: "user",
+              content: [{ type: "text", text }],
+              timestamp,
+            },
+            userId
+          );
         }
       } else if (msg.role === "assistant") {
         const blocks = convertPiContent(rawContent);
         if (blocks.length > 0) {
-          await appendRawEntry(agentId, sessionId, {
-            role: "assistant",
-            content: blocks,
-            meta: {
-              api: msg.api as string | undefined,
-              provider: msg.provider as string | undefined,
-              model: msg.model as string | undefined,
-              usage: msg.usage as ModelUsage | undefined,
-              stopReason: msg.stopReason as string | undefined,
+          await appendRawEntry(
+            agentId,
+            sessionId,
+            {
+              role: "assistant",
+              content: blocks,
+              meta: {
+                api: msg.api as string | undefined,
+                provider: msg.provider as string | undefined,
+                model: msg.model as string | undefined,
+                usage: msg.usage as ModelUsage | undefined,
+                stopReason: msg.stopReason as string | undefined,
+              },
+              timestamp,
             },
-            timestamp,
-          }, userId);
+            userId
+          );
         }
       } else if (msg.role === "toolResult") {
         const text = extractText(rawContent);
         const details = msg.details as Record<string, unknown> | undefined;
-        await appendRawEntry(agentId, sessionId, {
-          role: "toolResult",
-          toolCallId: msg.toolCallId as string,
-          toolName: msg.toolName as string,
-          content: [{ type: "text", text: text || "" }],
-          isError: (msg.isError as boolean) ?? false,
-          details: details?.diff ? { diff: details.diff as string } : undefined,
-          timestamp,
-        }, userId);
+        await appendRawEntry(
+          agentId,
+          sessionId,
+          {
+            role: "toolResult",
+            toolCallId: msg.toolCallId as string,
+            toolName: msg.toolName as string,
+            content: [{ type: "text", text: text || "" }],
+            isError: (msg.isError as boolean) ?? false,
+            details: details?.diff
+              ? { diff: details.diff as string }
+              : undefined,
+            timestamp,
+          },
+          userId
+        );
       }
     } catch {
       // Skip malformed lines

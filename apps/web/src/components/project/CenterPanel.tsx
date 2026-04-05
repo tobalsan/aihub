@@ -148,9 +148,7 @@ export function CenterPanel(props: CenterPanelProps) {
       }
       if (item.status === "replied" || item.status === "error") {
         const outcome =
-          item.status === "error"
-            ? `${cli} errored.`
-            : `${cli} completed.`;
+          item.status === "error" ? `${cli} errored.` : `${cli} completed.`;
         const details = outcomeSnippet(events);
         const stamp =
           (events.length > 0 ? events[events.length - 1].ts : undefined) ??
@@ -198,17 +196,32 @@ export function CenterPanel(props: CenterPanelProps) {
       const list = await fetchSubagents(projectId, true);
       if (!active || !list.ok) return;
       setSubagents(list.data.items);
-      for (const item of list.data.items) {
-        const cursor = cursorBySlug[item.slug] ?? 0;
-        const logs = await fetchSubagentLogs(projectId, item.slug, cursor);
-        if (!active || !logs.ok) continue;
+      const logResults = await Promise.all(
+        list.data.items.map(async (item) => ({
+          item,
+          logs: await fetchSubagentLogs(
+            projectId,
+            item.slug,
+            cursorBySlug[item.slug] ?? 0
+          ),
+        }))
+      );
+      if (!active) return;
+      const updates = logResults.filter(
+        ({ logs }) => logs.ok && logs.data.events.length > 0
+      );
+      for (const { item, logs } of logResults) {
+        if (!logs.ok) continue;
         cursorBySlug[item.slug] = logs.data.cursor;
-        if (logs.data.events.length === 0) continue;
-        setLogBySlug((prev) => ({
-          ...prev,
-          [item.slug]: [...(prev[item.slug] ?? []), ...logs.data.events],
-        }));
       }
+      if (updates.length === 0) return;
+      setLogBySlug((prev) => {
+        const next = { ...prev };
+        for (const { item, logs } of updates) {
+          next[item.slug] = [...(next[item.slug] ?? []), ...logs.data.events];
+        }
+        return next;
+      });
     };
 
     void poll();
@@ -359,8 +372,12 @@ export function CenterPanel(props: CenterPanelProps) {
                         >
                           <div class="activity-item">
                             <div class="activity-meta">
-                              <span class="activity-author">{entry.author}</span>
-                              <span class="activity-date">{entry.dateLabel}</span>
+                              <span class="activity-author">
+                                {entry.author}
+                              </span>
+                              <span class="activity-date">
+                                {entry.dateLabel}
+                              </span>
                             </div>
                             <p>{entry.body}</p>
                           </div>

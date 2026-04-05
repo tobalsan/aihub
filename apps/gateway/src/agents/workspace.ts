@@ -89,7 +89,10 @@ async function loadTemplate(name: BootstrapFileName): Promise<string> {
   }
 }
 
-async function writeIfMissing(filePath: string, content: string): Promise<void> {
+async function writeIfMissing(
+  filePath: string,
+  content: string
+): Promise<void> {
   try {
     await fs.writeFile(filePath, content, { encoding: "utf-8", flag: "wx" });
   } catch (err) {
@@ -111,7 +114,9 @@ async function fileExists(filePath: string): Promise<boolean> {
  * Uses wx flag to only write if missing.
  * BOOTSTRAP.md is only created for brand-new workspaces (no core files exist).
  */
-export async function ensureBootstrapFiles(workspaceDir: string): Promise<void> {
+export async function ensureBootstrapFiles(
+  workspaceDir: string
+): Promise<void> {
   await fs.mkdir(workspaceDir, { recursive: true });
 
   // Check if any core file exists - if so, workspace is not brand-new
@@ -146,19 +151,27 @@ export async function ensureBootstrapFiles(workspaceDir: string): Promise<void> 
 export async function loadBootstrapFiles(
   workspaceDir: string
 ): Promise<BootstrapFile[]> {
-  const result: BootstrapFile[] = [];
-
-  for (const name of BOOTSTRAP_FILENAMES) {
-    const filePath = path.join(workspaceDir, name);
-    try {
+  const results = await Promise.allSettled(
+    BOOTSTRAP_FILENAMES.map(async (name) => {
+      const filePath = path.join(workspaceDir, name);
       const content = await fs.readFile(filePath, "utf-8");
-      result.push({ name, path: filePath, content, missing: false });
-    } catch {
-      result.push({ name, path: filePath, missing: true });
-    }
-  }
+      return {
+        name,
+        path: filePath,
+        content,
+        missing: false,
+      } satisfies BootstrapFile;
+    })
+  );
 
-  return result;
+  return results.map((result, index) => {
+    const name = BOOTSTRAP_FILENAMES[index];
+    const filePath = path.join(workspaceDir, name);
+    if (result.status === "fulfilled") {
+      return result.value;
+    }
+    return { name, path: filePath, missing: true };
+  });
 }
 
 /**

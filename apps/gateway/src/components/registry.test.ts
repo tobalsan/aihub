@@ -3,6 +3,7 @@ import { GatewayConfigSchema } from "@aihub/shared";
 import {
   getLoadedComponents,
   getKnownComponentRouteMetadata,
+  isComponentLoaded,
   loadComponents,
   topoSort,
 } from "./registry.js";
@@ -70,6 +71,8 @@ describe("component registry", () => {
       "scheduler",
       "heartbeat",
     ]);
+    expect(isComponentLoaded("scheduler")).toBe(true);
+    expect(isComponentLoaded("multiUser")).toBe(false);
   });
 
   it("loads top-level multiUser component when enabled", async () => {
@@ -98,6 +101,7 @@ describe("component registry", () => {
     const result = await loadComponents(config);
 
     expect(result.map((component) => component.id)).toEqual(["multiUser"]);
+    expect(isComponentLoaded("multiUser")).toBe(true);
   });
 
   it("fails on invalid component config", async () => {
@@ -144,9 +148,15 @@ describe("component registry", () => {
 
   it("returns known component route metadata without loading components", () => {
     const components = getKnownComponentRouteMetadata();
-    const projects = components.find((component) => component.id === "projects");
-    const heartbeat = components.find((component) => component.id === "heartbeat");
-    const multiUser = components.find((component) => component.id === "multiUser");
+    const projects = components.find(
+      (component) => component.id === "projects"
+    );
+    const heartbeat = components.find(
+      (component) => component.id === "heartbeat"
+    );
+    const multiUser = components.find(
+      (component) => component.id === "multiUser"
+    );
 
     expect(projects?.routePrefixes).toContain("/api/projects");
     expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");

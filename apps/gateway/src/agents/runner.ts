@@ -23,11 +23,24 @@ import {
   shiftPendingUserMessage,
   popAllPendingUserMessages,
 } from "./sessions.js";
-import { resolveSessionId, clearClaudeSessionId, getSessionEntry, isAbortTrigger } from "../sessions/index.js";
+import {
+  resolveSessionId,
+  clearClaudeSessionId,
+  getSessionEntry,
+  isAbortTrigger,
+} from "../sessions/index.js";
 import { parseThinkDirective } from "../sessions/directives.js";
-import { getSessionThinkLevel, setSessionThinkLevel, DEFAULT_MAIN_KEY } from "../sessions/store.js";
+import {
+  getSessionThinkLevel,
+  setSessionThinkLevel,
+  DEFAULT_MAIN_KEY,
+} from "../sessions/store.js";
 import { appendSessionMeta } from "../history/store.js";
-import { agentEventBus, type AgentStreamEvent, type RunSource } from "./events.js";
+import {
+  agentEventBus,
+  type AgentStreamEvent,
+  type RunSource,
+} from "./events.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
 import {
@@ -40,6 +53,7 @@ import {
   hasCanonicalHistory,
   backfillFromPiSession,
   backfillFromClaudeSessionIfNeeded,
+  invalidateResolvedHistoryFile,
 } from "../history/store.js";
 
 export type RunAgentParams = {
@@ -53,6 +67,12 @@ export type RunAgentParams = {
   context?: AgentContext; // Structured context (Discord metadata, etc.)
   source?: RunSource;
   onEvent?: (event: StreamEvent) => void;
+  resolvedSession?: {
+    sessionId: string;
+    sessionKey?: string;
+    message: string;
+    isNew: boolean;
+  };
 };
 
 export type RunAgentResult = {
@@ -68,14 +88,23 @@ export type RunAgentResult = {
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
 // Thinking levels in fallback order (highest to lowest)
-const THINK_LEVELS_ORDERED: ThinkLevel[] = ["xhigh", "high", "medium", "low", "minimal", "off"];
+const THINK_LEVELS_ORDERED: ThinkLevel[] = [
+  "xhigh",
+  "high",
+  "medium",
+  "low",
+  "minimal",
+  "off",
+];
 
 /**
  * Check if error is a thinking level unsupported error
  */
 function isThinkingLevelError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /thinking.*not.*supported|unsupported.*thinking|budget_tokens.*invalid|reasoning_effort.*invalid/i.test(msg);
+  return /thinking.*not.*supported|unsupported.*thinking|budget_tokens.*invalid|reasoning_effort.*invalid/i.test(
+    msg
+  );
 }
 
 // Max wait time for session handle to be set during queue race
@@ -105,7 +134,10 @@ async function waitForSessionHandle(
 }
 
 /** Wait for streaming to end, with timeout */
-async function waitForStreamingEnd(agentId: string, sessionId: string): Promise<boolean> {
+async function waitForStreamingEnd(
+  agentId: string,
+  sessionId: string
+): Promise<boolean> {
   const deadline = Date.now() + INTERRUPT_WAIT_MS;
   while (Date.now() < deadline) {
     if (!isStreaming(agentId, sessionId)) return true;
@@ -114,7 +146,9 @@ async function waitForStreamingEnd(agentId: string, sessionId: string): Promise<
   return false;
 }
 
-export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> {
+export async function runAgent(
+  params: RunAgentParams
+): Promise<RunAgentResult> {
   const agent = getAgent(params.agentId);
   if (!agent) {
     throw new Error(`Agent not found: ${params.agentId}`);
@@ -209,20 +243,28 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
   // Resolve sessionId: explicit > sessionKey resolution > default
   let sessionId: string;
-  let message = params.message;
-  if (params.sessionId) {
+  let message = params.resolvedSession?.message ?? params.message;
+  const sessionKey = params.resolvedSession?.sessionKey ?? params.sessionKey;
+  if (params.resolvedSession) {
+    sessionId = params.resolvedSession.sessionId;
+    if (params.resolvedSession.isNew) {
+      invalidateResolvedHistoryFile(params.agentId, sessionId, params.userId);
+      await clearClaudeSessionId(params.agentId, sessionId, params.userId);
+    }
+  } else if (params.sessionId) {
     sessionId = params.sessionId;
-  } else if (params.sessionKey) {
+  } else if (sessionKey) {
     const resolved = await resolveSessionId({
       agentId: params.agentId,
       userId: params.userId,
-      sessionKey: params.sessionKey,
+      sessionKey,
       message: params.message,
     });
     sessionId = resolved.sessionId;
     message = resolved.message;
     // Clear Claude SDK session mapping on reset (new session via /new, /reset, or idle timeout)
     if (resolved.isNew) {
+      invalidateResolvedHistoryFile(params.agentId, sessionId, params.userId);
       await clearClaudeSessionId(params.agentId, sessionId, params.userId);
     }
   } else {
@@ -236,13 +278,13 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       ...event,
       agentId: params.agentId,
       sessionId,
-      sessionKey: params.sessionKey,
+      sessionKey,
       source: params.source,
     } as AgentStreamEvent);
   };
 
   // Resolve sessionKey for thinkLevel persistence (OAuth only)
-  const resolvedSessionKey = params.sessionKey ?? DEFAULT_MAIN_KEY;
+  const resolvedSessionKey = sessionKey ?? DEFAULT_MAIN_KEY;
   const isOAuth = agent.auth?.mode === "oauth";
 
   // Handle /think directive (OAuth agents only)
@@ -283,7 +325,20 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         }
       } else if (directive.rawLevel) {
         // Invalid level specified
-        const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "min", "mid", "med", "max", "ultra", "none"];
+        const validLevels = [
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "min",
+          "mid",
+          "med",
+          "max",
+          "ultra",
+          "none",
+        ];
         const errText = `Invalid thinking level: "${directive.rawLevel}". Valid levels: ${validLevels.join(", ")}`;
         emit({ type: "text", data: errText });
         emit({ type: "done", meta: { durationMs: 0 } });
@@ -320,11 +375,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     resolvedThinkLevel =
       params.thinkLevel ??
       directiveThinkLevel ??
-      getSessionThinkLevel(
-        params.agentId,
-        resolvedSessionKey,
-        params.userId
-      ) ??
+      getSessionThinkLevel(params.agentId, resolvedSessionKey, params.userId) ??
       agent.thinkLevel;
   } else {
     // Non-OAuth: still honor API param and config, just no directive/session
@@ -338,9 +389,17 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     if (agent.queueMode === "queue") {
       if (capabilities.queueWhileStreaming && adapter.queueMessage) {
         // Track user message for the next assistant turn
-        enqueuePendingUserMessage(params.agentId, sessionId, message, Date.now());
+        enqueuePendingUserMessage(
+          params.agentId,
+          sessionId,
+          message,
+          Date.now()
+        );
         // Adapter supports native queue - wait for session handle
-        const existingHandle = await waitForSessionHandle(params.agentId, sessionId);
+        const existingHandle = await waitForSessionHandle(
+          params.agentId,
+          sessionId
+        );
         if (existingHandle) {
           await adapter.queueMessage(existingHandle, message);
         } else {
@@ -398,13 +457,20 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   let currentTurn: TurnBuffer | null = null;
   const completedTurns: TurnBuffer[] = [];
 
-  const startTurnWithUser = (event: Extract<HistoryEvent, { type: "user" }>) => {
+  const startTurnWithUser = (
+    event: Extract<HistoryEvent, { type: "user" }>
+  ) => {
     const buffer = createTurnBuffer();
     bufferHistoryEvent(buffer, event);
     if (!currentTurn) {
       currentTurn = buffer;
     } else {
-      enqueuePendingUserMessage(params.agentId, sessionId, event.text, event.timestamp);
+      enqueuePendingUserMessage(
+        params.agentId,
+        sessionId,
+        event.text,
+        event.timestamp
+      );
     }
   };
 
@@ -481,7 +547,9 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     };
 
     let result: Awaited<ReturnType<typeof adapter.run>>;
-    const startIdx = actualThinkLevel ? THINK_LEVELS_ORDERED.indexOf(actualThinkLevel) : -1;
+    const startIdx = actualThinkLevel
+      ? THINK_LEVELS_ORDERED.indexOf(actualThinkLevel)
+      : -1;
     const attempted = new Set<ThinkLevel>();
 
     if (startIdx === -1 || !actualThinkLevel) {

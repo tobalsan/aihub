@@ -66,6 +66,7 @@ const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
 };
 
 let loadedComponents: Component[] = [];
+let loadedComponentIds = new Set<string>();
 
 export function getKnownComponentRouteMetadata(): Array<{
   id: string;
@@ -136,6 +137,9 @@ export async function loadComponents(
   }
 
   loadedComponents = topoSort(components);
+  loadedComponentIds = new Set(
+    loadedComponents.map((component) => component.id)
+  );
   return loadedComponents;
 }
 
@@ -144,5 +148,9 @@ export function getLoadedComponents(): Component[] {
 }
 
 export function isMultiUserLoaded(): boolean {
-  return loadedComponents.some((component) => component.id === "multiUser");
+  return loadedComponentIds.has("multiUser");
+}
+
+export function isComponentLoaded(componentId: string): boolean {
+  return loadedComponentIds.has(componentId);
 }
