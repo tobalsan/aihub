@@ -18,10 +18,14 @@ function getAuthBaseUrl(config: GatewayConfig): string {
 }
 
 function getTrustedOrigins(config: GatewayConfig): string[] {
+  const uiPort = config.ui?.port ?? 3000;
   const candidates = [
     config.server?.baseUrl,
     config.web?.baseUrl,
     getAuthBaseUrl(config),
+    // Dev mode: web UI runs on a separate port
+    `http://localhost:${uiPort}`,
+    `http://127.0.0.1:${uiPort}`,
   ].filter((value): value is string => !!value);
 
   return [...new Set(candidates.map(normalizeOrigin))];
