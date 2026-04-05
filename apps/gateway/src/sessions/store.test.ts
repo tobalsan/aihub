@@ -169,4 +169,43 @@ describe("session store isolation", () => {
       "/tmp/aihub-test/users/user-123/sessions.json"
     );
   });
+
+  it("uses unique temp files for concurrent saves", async () => {
+    let releaseWrites: (() => void) | undefined;
+    const writesStarted = new Promise<void>((resolve) => {
+      releaseWrites = resolve;
+    });
+    let blocked = true;
+    vi.mocked(fs.writeFile).mockImplementation(async () => {
+      if (blocked) {
+        await writesStarted;
+      }
+    });
+
+    const { resolveSessionId } = await import("./store.js");
+
+    const first = resolveSessionId({
+      agentId: "test-agent",
+      sessionKey: "main",
+      message: "hello",
+    });
+    const second = resolveSessionId({
+      agentId: "test-agent",
+      sessionKey: "other",
+      message: "hello",
+    });
+
+    while (vi.mocked(fs.writeFile).mock.calls.length < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    blocked = false;
+    releaseWrites?.();
+    await Promise.all([first, second]);
+
+    const tempFiles = vi
+      .mocked(fs.writeFile)
+      .mock.calls.map(([file]) => String(file));
+    expect(new Set(tempFiles).size).toBe(tempFiles.length);
+  });
 });

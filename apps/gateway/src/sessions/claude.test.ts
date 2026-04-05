@@ -54,4 +54,35 @@ describe("claude session store isolation", () => {
       "/tmp/aihub-test/users/user-123/claude-sessions.json"
     );
   });
+
+  it("uses unique temp files for concurrent saves", async () => {
+    let releaseWrites: (() => void) | undefined;
+    const writesStarted = new Promise<void>((resolve) => {
+      releaseWrites = resolve;
+    });
+    let blocked = true;
+    vi.mocked(fs.writeFile).mockImplementation(async () => {
+      if (blocked) {
+        await writesStarted;
+      }
+    });
+
+    const { setClaudeSessionId } = await import("./claude.js");
+
+    const first = setClaudeSessionId("agent-1", "session-1", "claude-1", "model-1");
+    const second = setClaudeSessionId("agent-1", "session-2", "claude-2", "model-1");
+
+    while (vi.mocked(fs.writeFile).mock.calls.length < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    blocked = false;
+    releaseWrites?.();
+    await Promise.all([first, second]);
+
+    const tempFiles = vi
+      .mocked(fs.writeFile)
+      .mock.calls.map(([file]) => String(file));
+    expect(new Set(tempFiles).size).toBe(tempFiles.length);
+  });
 });

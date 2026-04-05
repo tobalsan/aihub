@@ -730,6 +730,13 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
   - Branch diff header now expands/collapses per-file +/- breakdown.
   - Space commit log rows now show relative commit age.
 
+### 2026-04-05: Session-store save race fix
+
+- `apps/gateway/src/sessions/store.ts`, `apps/gateway/src/sessions/claude.ts`
+  - Fixed async save race from the PRO-212 session-store rewrite by giving each save a unique temp file instead of reusing one `.<pid>.tmp` path per store.
+- `apps/gateway/src/sessions/store.test.ts`, `apps/gateway/src/sessions/claude.test.ts`
+  - Added concurrent-save coverage to lock in distinct temp paths for overlapping writes.
+
 ### 2026-03-03: Routing/sidebar and template lock fixes
 
 - `apps/web/src/App.tsx`, `ProjectsBoard.tsx`

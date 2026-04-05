@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_DIR } from "../config/index.js";
@@ -68,7 +69,7 @@ async function save(userId?: string) {
   const state = getStoreState(userId);
   await fs.mkdir(path.dirname(storePath), { recursive: true });
   const json = JSON.stringify(state.store, null, 2);
-  const tmp = `${storePath}.${process.pid}.tmp`;
+  const tmp = `${storePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(tmp, json, "utf-8");
   await fs.rename(tmp, storePath);
 }
