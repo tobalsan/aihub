@@ -45,6 +45,10 @@ vi.mock("../../components/registry.js", () => ({
     getLoadedComponents().some(
       (component: { id?: string }) => component.id === "multiUser"
     ),
+  isComponentLoaded: (id: string) =>
+    getLoadedComponents().some(
+      (component: { id?: string }) => component.id === id
+    ),
 }));
 
 type MockSession = {
