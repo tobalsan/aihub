@@ -48,6 +48,19 @@ function validateComponentAgentReferences(
   };
 }
 
+function getComponentConfig(
+  config: GatewayConfig,
+  component: Component
+): unknown {
+  // multiUser lives at config.multiUser, not config.components.multiUser
+  if (component.id === "multiUser") {
+    return config.multiUser;
+  }
+  return config.components?.[
+    component.id as keyof NonNullable<GatewayConfig["components"]>
+  ];
+}
+
 function validateComponentConfigs(
   config: GatewayConfig,
   components: Component[]
@@ -55,9 +68,7 @@ function validateComponentConfigs(
   const errors: string[] = [];
 
   for (const component of components) {
-    const rawConfig = config.components?.[
-      component.id as keyof NonNullable<GatewayConfig["components"]>
-    ];
+    const rawConfig = getComponentConfig(config, component);
     const result = component.validateConfig(rawConfig);
     if (!result.valid) {
       for (const error of result.errors) {
