@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Dirent } from "node:fs";
+import { dirExists } from "../util/fs.js";
 
 type LegacyState = {
   cli?: string;
@@ -9,16 +10,13 @@ type LegacyState = {
   started_at?: string;
 };
 
-const LEGACY_FILES = ["state.json", "progress.json", "logs.jsonl", "history.jsonl", "config.json"];
-
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
-}
+const LEGACY_FILES = [
+  "state.json",
+  "progress.json",
+  "logs.jsonl",
+  "history.jsonl",
+  "config.json",
+];
 
 async function pathExists(filePath: string): Promise<boolean> {
   try {
@@ -42,7 +40,12 @@ async function moveFile(source: string, target: string): Promise<void> {
   try {
     await fs.rename(source, target);
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === "EXDEV") {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      err.code === "EXDEV"
+    ) {
       await fs.copyFile(source, target);
       await fs.unlink(source);
       return;
@@ -51,26 +54,37 @@ async function moveFile(source: string, target: string): Promise<void> {
   }
 }
 
-async function ensureConfig(sessionDir: string, fallbackStatePath: string): Promise<void> {
+async function ensureConfig(
+  sessionDir: string,
+  fallbackStatePath: string
+): Promise<void> {
   const configPath = path.join(sessionDir, "config.json");
   if (await pathExists(configPath)) return;
 
-  const state = (await readJson<LegacyState>(path.join(sessionDir, "state.json"))) ??
+  const state =
+    (await readJson<LegacyState>(path.join(sessionDir, "state.json"))) ??
     (await readJson<LegacyState>(fallbackStatePath));
   if (!state) return;
 
-  const created = typeof state.started_at === "string" && state.started_at.trim() ? state.started_at : new Date().toISOString();
+  const created =
+    typeof state.started_at === "string" && state.started_at.trim()
+      ? state.started_at
+      : new Date().toISOString();
   const config = {
     cli: typeof state.cli === "string" ? state.cli : undefined,
     runMode: typeof state.run_mode === "string" ? state.run_mode : undefined,
-    baseBranch: typeof state.base_branch === "string" ? state.base_branch : undefined,
+    baseBranch:
+      typeof state.base_branch === "string" ? state.base_branch : undefined,
     created,
   };
 
   await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 }
 
-async function cleanupLegacyDir(legacyDir: string, sessionDir: string): Promise<void> {
+async function cleanupLegacyDir(
+  legacyDir: string,
+  sessionDir: string
+): Promise<void> {
   let entries: Dirent[] = [];
   try {
     entries = await fs.readdir(legacyDir, { withFileTypes: true });
@@ -82,7 +96,9 @@ async function cleanupLegacyDir(legacyDir: string, sessionDir: string): Promise<
     return;
   }
 
-  const onlyLegacyFiles = entries.every((entry) => entry.isFile() && LEGACY_FILES.includes(entry.name));
+  const onlyLegacyFiles = entries.every(
+    (entry) => entry.isFile() && LEGACY_FILES.includes(entry.name)
+  );
   if (!onlyLegacyFiles) return;
 
   for (const entry of entries) {
@@ -92,7 +108,11 @@ async function cleanupLegacyDir(legacyDir: string, sessionDir: string): Promise<
   await fs.rm(legacyDir, { recursive: true, force: true });
 }
 
-export async function migrateLegacySessions(root: string, projectId: string, projectDir: string): Promise<void> {
+export async function migrateLegacySessions(
+  root: string,
+  projectId: string,
+  projectDir: string
+): Promise<void> {
   const legacyRoot = path.join(root, ".workspaces", projectId);
   if (!(await dirExists(legacyRoot))) return;
 

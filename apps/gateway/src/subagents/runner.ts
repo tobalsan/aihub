@@ -5,9 +5,9 @@ import os from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
-import { buildRalphPromptFromTemplate } from "@aihub/shared";
+import { buildRalphPromptFromTemplate, expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
-import { getProject } from "../projects/store.js";
+import { findProjectDir, getProject } from "../projects/store.js";
 import {
   ensureProjectSpace,
   recordWorkerDelivery,
@@ -16,6 +16,8 @@ import {
   releaseProjectSpaceWriteLease,
   pruneProjectRepoWorktrees,
 } from "../projects/space.js";
+import { dirExists } from "../util/fs.js";
+import { getProjectsRoot } from "../util/paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -88,18 +90,6 @@ export function getUnsupportedSubagentCliError(value: string): string {
   return `Unsupported CLI: ${value}. Supported CLIs: ${SUPPORTED_SUBAGENT_CLIS.join(", ")}.`;
 }
 
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
-
 function isProjectSpaceBranch(projectId: string, branch: string): boolean {
   return branch === `space/${projectId}`;
 }
@@ -136,30 +126,6 @@ function parsePromptLimitEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
-}
-
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-async function findProjectDir(
-  root: string,
-  id: string
-): Promise<string | null> {
-  if (!(await dirExists(root))) return null;
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === id || entry.name.startsWith(`${id}_`)) {
-      return entry.name;
-    }
-  }
-  return null;
 }
 
 async function resolveProjectRepo(
@@ -254,13 +220,9 @@ async function resolveShell(): Promise<string | null> {
 async function canFindViaShell(execName: string): Promise<boolean> {
   const shell = await resolveShell();
   if (!shell) return false;
-  const child = spawn(
-    shell,
-    ["-l", "-c", `type ${execName} >/dev/null 2>&1`],
-    {
-      stdio: "ignore",
-    }
-  );
+  const child = spawn(shell, ["-l", "-c", `type ${execName} >/dev/null 2>&1`], {
+    stdio: "ignore",
+  });
   return new Promise((resolve) => {
     child.on("exit", (code) => resolve(code === 0));
     child.on("error", () => resolve(false));
@@ -823,7 +785,9 @@ export async function spawnSubagent(
         run_id: `${Date.now()}`,
         outcome: "error",
         error_message:
-          err instanceof Error ? `spawn failed: ${err.message}` : "spawn failed",
+          err instanceof Error
+            ? `spawn failed: ${err.message}`
+            : "spawn failed",
       },
     });
     if (acquiredSpaceLease) {
@@ -1253,7 +1217,9 @@ export async function spawnRalphLoop(
         run_id: `${Date.now()}`,
         outcome: "error",
         error_message:
-          err instanceof Error ? `spawn failed: ${err.message}` : "spawn failed",
+          err instanceof Error
+            ? `spawn failed: ${err.message}`
+            : "spawn failed",
       },
     });
   });

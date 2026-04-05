@@ -1,38 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
 import type { GatewayConfig, Task } from "@aihub/shared";
 import { TaskSchema } from "@aihub/shared";
-
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
-
-async function findProjectDir(
-  root: string,
-  id: string
-): Promise<string | null> {
-  try {
-    const entries = await fs.readdir(root, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name === id || entry.name.startsWith(`${id}_`)) {
-        return entry.name;
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
+import { getProjectsRoot } from "../util/paths.js";
+import { findProjectDir } from "./store.js";
 
 function parseMetadata(raw: string): {
   status?: Task["status"];

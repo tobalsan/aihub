@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
-import type { GatewayConfig } from "@aihub/shared";
+import { expandPath, type GatewayConfig } from "@aihub/shared";
+import { dirExists } from "../util/fs.js";
 
 const THREAD_FILE = "THREAD.md";
 const DEFAULT_CONVERSATIONS_ROOT = "~/projects/.conversations";
@@ -58,22 +58,8 @@ export type ConversationFilters = {
   participant?: string;
 };
 
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) return path.join(homedir(), p.slice(2));
-  return p;
-}
-
 function getConversationsRoot(_config: GatewayConfig): string {
   return expandPath(DEFAULT_CONVERSATIONS_ROOT);
-}
-
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -196,9 +182,7 @@ function parseMessages(content: string): ConversationMessage[] {
       continue;
     }
     if (!current) continue;
-    current.body = current.body
-      ? `${current.body}\n${line}`
-      : line;
+    current.body = current.body ? `${current.body}\n${line}` : line;
   }
 
   if (current) {
@@ -264,7 +248,10 @@ async function parseConversationDir(
   };
 }
 
-function matchesFilter(item: ConversationListItem, filters: ConversationFilters): boolean {
+function matchesFilter(
+  item: ConversationListItem,
+  filters: ConversationFilters
+): boolean {
   const q = filters.q?.trim().toLowerCase();
   const source = filters.source?.trim().toLowerCase();
   const tag = filters.tag?.trim().toLowerCase();

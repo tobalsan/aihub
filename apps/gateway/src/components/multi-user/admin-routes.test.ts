@@ -41,6 +41,10 @@ vi.mock("../../config/index.js", async (importOriginal) => {
 
 vi.mock("../../components/registry.js", () => ({
   getLoadedComponents,
+  isMultiUserLoaded: () =>
+    getLoadedComponents().some(
+      (component: { id?: string }) => component.id === "multiUser"
+    ),
 }));
 
 type MockSession = {
@@ -443,9 +447,9 @@ describe("multi-user admin routes", () => {
       error: "Unknown user ids",
       userIds: ["missing-user"],
     });
-    expect(runtime.assignmentStore.store.getAssignmentsForAgent("agent-b")).toEqual(
-      []
-    );
+    expect(
+      runtime.assignmentStore.store.getAssignmentsForAgent("agent-b")
+    ).toEqual([]);
   });
 
   it("non-admin gets 403 on admin routes", async () => {

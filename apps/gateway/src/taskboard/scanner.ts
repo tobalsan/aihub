@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
+import { expandPath } from "@aihub/shared";
 import type {
   TodoItem,
   ProjectItem,
@@ -9,30 +9,9 @@ import type {
   TaskboardConfig,
 } from "@aihub/shared";
 import { parseMarkdownFile } from "./parser.js";
+import { dirExists } from "../util/fs.js";
 
 const COMPANION_TYPES = ["scopes", "progress", "prompt"] as const;
-
-/**
- * Expands ~ to home directory.
- */
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-/**
- * Checks if a directory exists.
- */
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Checks if a filename is a companion file (e.g., file.scopes.md).
@@ -54,7 +33,9 @@ async function scanDir(dirPath: string): Promise<string[]> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     return entries
-      .filter((e) => e.isFile() && e.name.endsWith(".md") && !isCompanionFile(e.name))
+      .filter(
+        (e) => e.isFile() && e.name.endsWith(".md") && !isCompanionFile(e.name)
+      )
       .map((e) => path.join(dirPath, e.name));
   } catch {
     return [];
@@ -106,7 +87,10 @@ async function parseTodoFile(filePath: string): Promise<TodoItem> {
     id,
     title,
     status: "todo",
-    created: (typeof frontmatter.created === "string" ? frontmatter.created : undefined) ?? filenameDate,
+    created:
+      (typeof frontmatter.created === "string"
+        ? frontmatter.created
+        : undefined) ?? filenameDate,
     due: typeof frontmatter.due === "string" ? frontmatter.due : undefined,
     path: path.basename(filePath),
   };
@@ -128,7 +112,10 @@ async function parseProjectFile(
     id,
     title,
     status,
-    created: (typeof frontmatter.created === "string" ? frontmatter.created : undefined) ?? filenameDate,
+    created:
+      (typeof frontmatter.created === "string"
+        ? frontmatter.created
+        : undefined) ?? filenameDate,
     due: typeof frontmatter.due === "string" ? frontmatter.due : undefined,
     project: frontmatter.project as string | undefined,
     path: path.basename(filePath),
@@ -251,7 +238,10 @@ export async function getTaskboardItem(
   }
 
   // If companion requested, modify path
-  if (companion && COMPANION_TYPES.includes(companion as (typeof COMPANION_TYPES)[number])) {
+  if (
+    companion &&
+    COMPANION_TYPES.includes(companion as (typeof COMPANION_TYPES)[number])
+  ) {
     const dir = path.dirname(filePath);
     const baseName = path.basename(filePath, ".md");
     filePath = path.join(dir, `${baseName}.${companion}.md`);

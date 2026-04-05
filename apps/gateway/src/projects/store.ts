@@ -1,6 +1,5 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
 import type {
   GatewayConfig,
   CreateProjectRequest,
@@ -8,9 +7,12 @@ import type {
   UploadedAttachment,
   ProjectStatus,
 } from "@aihub/shared";
+import { expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { CONFIG_DIR } from "../config/index.js";
 import { listAreas } from "../areas/store.js";
+import { dirExists } from "../util/fs.js";
+import { getProjectsRoot } from "../util/paths.js";
 
 const PROJECTS_STATE_PATH = path.join(CONFIG_DIR, "projects.json");
 const THREAD_FILE = "THREAD.md";
@@ -63,27 +65,6 @@ export type ProjectThreadEntry = {
   date: string;
   body: string;
 };
-
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
-
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 async function isValidGitRepo(repoPath?: string): Promise<boolean> {
   if (!repoPath) return false;
@@ -239,7 +220,7 @@ async function readMarkdownIfExists(filePath: string): Promise<{
   return parseMarkdownFile(filePath);
 }
 
-async function findProjectDir(
+export async function findProjectDir(
   root: string,
   id: string
 ): Promise<string | null> {

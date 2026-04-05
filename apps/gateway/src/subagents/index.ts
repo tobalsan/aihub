@@ -1,15 +1,18 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
 import {
+  expandPath,
   getMaxContextTokens,
   type ContextEstimate,
   type GatewayConfig,
   type ModelUsage,
   type SubagentGlobalListItem,
 } from "@aihub/shared";
+import { findProjectDir } from "../projects/store.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { migrateLegacySessions } from "./migrate.js";
+import { dirExists } from "../util/fs.js";
+import { getProjectsRoot } from "../util/paths.js";
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";
 
@@ -74,27 +77,6 @@ type RalphLinkable = {
   groupKey?: string;
 };
 
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
-
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.stat(filePath);
@@ -102,21 +84,6 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function findProjectDir(
-  root: string,
-  id: string
-): Promise<string | null> {
-  if (!(await dirExists(root))) return null;
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === id || entry.name.startsWith(`${id}_`)) {
-      return entry.name;
-    }
-  }
-  return null;
 }
 
 function getSessionsRoot(projectDir: string): string {
@@ -1168,7 +1135,10 @@ export async function getSubagentLogs(
         latestRawUsage = extracted.usage;
         latestModel = extracted.model ?? latestModel;
         if (rawType === "turn.completed") {
-          const deltaInput = Math.max(0, extracted.usage.input - prevCumulativeInput);
+          const deltaInput = Math.max(
+            0,
+            extracted.usage.input - prevCumulativeInput
+          );
           const callCount = Math.max(agentMessageCount, 1);
           latestCodexTurnInfo = { deltaInput, callCount };
           prevCumulativeInput = extracted.usage.input;

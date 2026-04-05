@@ -1,9 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
 import yaml from "js-yaml";
 import { AreaSchema, type Area, type GatewayConfig } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
+import { getProjectsRoot } from "../util/paths.js";
 
 const AREAS_DIR = ".areas";
 
@@ -34,18 +34,6 @@ const DEFAULT_AREAS: DefaultArea[] = [
     order: 3,
   },
 ];
-
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
 
 function getAreasPath(config: GatewayConfig): string {
   return path.join(getProjectsRoot(config), AREAS_DIR);

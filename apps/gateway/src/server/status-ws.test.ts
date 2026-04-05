@@ -38,7 +38,10 @@ describe("gateway status websocket", () => {
         },
       ],
     };
-    await fs.writeFile(path.join(configDir, "aihub.json"), JSON.stringify(config, null, 2));
+    await fs.writeFile(
+      path.join(configDir, "aihub.json"),
+      JSON.stringify(config, null, 2)
+    );
 
     vi.resetModules();
     const serverMod = await import("./index.js");
@@ -69,13 +72,22 @@ describe("gateway status websocket", () => {
   it("broadcasts status updates to subscribers", async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
 
-    const received: Array<{ type: string; agentId: string; status: string }> = [];
+    const received: Array<{ type: string; agentId: string; status: string }> =
+      [];
     const receivePromise = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
       ws.on("message", (raw) => {
-        const msg = JSON.parse(raw.toString()) as { type?: string; agentId?: string; status?: string };
+        const msg = JSON.parse(raw.toString()) as {
+          type?: string;
+          agentId?: string;
+          status?: string;
+        };
         if (msg.type === "status") {
-          received.push({ type: msg.type, agentId: msg.agentId ?? "", status: msg.status ?? "" });
+          received.push({
+            type: msg.type,
+            agentId: msg.agentId ?? "",
+            status: msg.status ?? "",
+          });
           if (received.length === 2) {
             clearTimeout(timeout);
             resolve();
@@ -94,7 +106,9 @@ describe("gateway status websocket", () => {
 
     await receivePromise;
 
-    const closePromise = new Promise<void>((resolve) => ws.once("close", () => resolve()));
+    const closePromise = new Promise<void>((resolve) =>
+      ws.once("close", () => resolve())
+    );
     ws.close();
     await closePromise;
 
@@ -151,19 +165,20 @@ describe("gateway status websocket in multi-user mode", () => {
 
     vi.resetModules();
     vi.doMock("../components/registry.js", async () => {
-      const actual =
-        await vi.importActual<typeof import("../components/registry.js")>(
-          "../components/registry.js"
-        );
+      const actual = await vi.importActual<
+        typeof import("../components/registry.js")
+      >("../components/registry.js");
       return {
         ...actual,
         getLoadedComponents: () => [{ id: "multiUser" }],
+        isMultiUserLoaded: () => true,
       };
     });
     vi.doMock("../components/multi-user/middleware.js", () => ({
-      createAuthMiddleware: () => async (_c: unknown, next: () => Promise<void>) => {
-        await next();
-      },
+      createAuthMiddleware:
+        () => async (_c: unknown, next: () => Promise<void>) => {
+          await next();
+        },
       getRequestAuthContext: () => null,
       forwardAuthContextToRequest: (request: Request) => request,
       requireAgentAccess:
@@ -171,10 +186,12 @@ describe("gateway status websocket in multi-user mode", () => {
           await next();
         },
       hasAgentAccess: async (
-        authContext: { user?: { role?: string }; session?: { userId?: string } } | null,
+        authContext: {
+          user?: { role?: string };
+          session?: { userId?: string };
+        } | null,
         agentId: string
-      ) =>
-        authContext?.user?.role === "admin" || agentId === "allowed-agent",
+      ) => authContext?.user?.role === "admin" || agentId === "allowed-agent",
       validateWebSocketRequest: async (request: Request) => {
         const cookie = request.headers.get("cookie");
         if (cookie !== "session=allowed") return null;
@@ -222,7 +239,8 @@ describe("gateway status websocket in multi-user mode", () => {
       headers: { cookie: "session=allowed" },
     });
 
-    const received: Array<{ type: string; agentId: string; status: string }> = [];
+    const received: Array<{ type: string; agentId: string; status: string }> =
+      [];
     const receivePromise = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         clearTimeout(timeout);
@@ -259,7 +277,9 @@ describe("gateway status websocket in multi-user mode", () => {
 
     await receivePromise;
 
-    const closePromise = new Promise<void>((resolve) => ws.once("close", () => resolve()));
+    const closePromise = new Promise<void>((resolve) =>
+      ws.once("close", () => resolve())
+    );
     ws.close();
     await closePromise;
 

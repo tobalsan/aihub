@@ -6,7 +6,10 @@ import {
   isAgentActive,
   resolveWorkspaceDir,
 } from "../config/index.js";
-import { getLoadedComponents } from "../components/registry.js";
+import {
+  getLoadedComponents,
+  isMultiUserLoaded,
+} from "../components/registry.js";
 import {
   runAgent,
   getAllSessionsForAgent,
@@ -30,17 +33,11 @@ import {
 const api = new Hono();
 
 type MultiUserApiDeps = {
-  getForwardedAuthContext: typeof import(
-    "../components/multi-user/middleware.js"
-  ).getForwardedAuthContext;
+  getForwardedAuthContext: typeof import("../components/multi-user/middleware.js").getForwardedAuthContext;
   getAgentFilter: typeof import("../components/multi-user/index.js").getAgentFilter;
 };
 
 let multiUserApiDepsPromise: Promise<MultiUserApiDeps> | null = null;
-
-function isMultiUserLoaded(): boolean {
-  return getLoadedComponents().some((component) => component.id === "multiUser");
-}
 
 function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
   multiUserApiDepsPromise ??= Promise.all([

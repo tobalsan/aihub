@@ -1,11 +1,10 @@
 import { serve } from "@hono/node-server";
-import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { WebSocketServer, type WebSocket } from "ws";
+import { resolveBindHost } from "@aihub/shared";
 import type {
   WsClientMessage,
   WsServerMessage,
@@ -18,6 +17,7 @@ import { runAgent, agentEventBus } from "../agents/index.js";
 import {
   getKnownComponentRouteMetadata,
   getLoadedComponents,
+  isMultiUserLoaded,
 } from "../components/registry.js";
 import {
   resolveSessionId,
@@ -63,21 +63,15 @@ function buildComponentRouteMatchers(): ComponentRouteMatcher[] {
 
 const componentRouteMatchers = buildComponentRouteMatchers();
 
-type MultiUserMiddlewareModule = typeof import(
-  "../components/multi-user/middleware.js"
-);
+type MultiUserMiddlewareModule =
+  typeof import("../components/multi-user/middleware.js");
 
 let multiUserMiddlewareModulePromise: Promise<MultiUserMiddlewareModule> | null =
   null;
 
-function isMultiUserLoaded(): boolean {
-  return getLoadedComponents().some((component) => component.id === "multiUser");
-}
-
 function loadMultiUserMiddlewareModule(): Promise<MultiUserMiddlewareModule> {
-  multiUserMiddlewareModulePromise ??= import(
-    "../components/multi-user/middleware.js"
-  );
+  multiUserMiddlewareModulePromise ??=
+    import("../components/multi-user/middleware.js");
   return multiUserMiddlewareModulePromise;
 }
 
@@ -392,53 +386,14 @@ function setupEventBroadcast() {
   });
 }
 
-/**
- * Scan network interfaces for tailnet IPv4 (100.64.0.0/10)
- */
-function pickTailnetIPv4(): string | null {
-  const interfaces = os.networkInterfaces();
-  for (const [, addrs] of Object.entries(interfaces)) {
-    if (!addrs) continue;
-    for (const addr of addrs) {
-      if (addr.family !== "IPv4" || addr.internal) continue;
-      const octets = addr.address.split(".").map(Number);
-      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
-        return addr.address;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Fallback: get tailnet IP from tailscale status --json
- */
-function getTailscaleIP(): string | null {
-  try {
-    const output = execSync("tailscale status --json", {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    const status = JSON.parse(output);
-    const ips = status?.Self?.TailscaleIPs as string[] | undefined;
-    return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveBindHost(bind?: GatewayBindMode): string {
-  if (!bind || bind === "loopback") return "127.0.0.1";
-  if (bind === "lan") return "0.0.0.0";
-  if (bind === "tailnet") {
-    const ip = pickTailnetIPv4() ?? getTailscaleIP();
-    if (ip) return ip;
+function resolveGatewayBindHost(bind?: GatewayBindMode): string {
+  const host = resolveBindHost(bind);
+  if (bind === "tailnet" && host === "127.0.0.1") {
     console.warn(
       "[gateway] tailnet bind: no tailnet IP found, falling back to 127.0.0.1"
     );
-    return "127.0.0.1";
   }
-  return "127.0.0.1";
+  return host;
 }
 
 export function startServer(port?: number, host?: string) {
@@ -446,7 +401,9 @@ export function startServer(port?: number, host?: string) {
   const resolvedPort = port ?? config.gateway?.port ?? 4000;
   // host arg > config.gateway.host > resolve from bind > default loopback
   const resolvedHost =
-    host ?? config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
+    host ??
+    config.gateway?.host ??
+    resolveGatewayBindHost(config.gateway?.bind);
   const nodeBin = path.dirname(process.execPath);
   if (nodeBin && !process.env.PATH?.split(path.delimiter).includes(nodeBin)) {
     process.env.PATH = `${nodeBin}${path.delimiter}${process.env.PATH ?? ""}`;
@@ -478,9 +435,11 @@ export function startServer(port?: number, host?: string) {
               validateWebSocketRequest(request)
             )
             .then((authContext) => {
-              (info.req as import("http").IncomingMessage & {
-                authContext?: RequestAuthContext | null;
-              }).authContext = authContext;
+              (
+                info.req as import("http").IncomingMessage & {
+                  authContext?: RequestAuthContext | null;
+                }
+              ).authContext = authContext;
               done(!!authContext, authContext ? undefined : 401);
             })
             .catch(() => done(false, 401));

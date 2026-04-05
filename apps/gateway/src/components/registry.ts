@@ -142,3 +142,7 @@ export async function loadComponents(
 export function getLoadedComponents(): Component[] {
   return loadedComponents;
 }
+
+export function isMultiUserLoaded(): boolean {
+  return loadedComponents.some((component) => component.id === "multiUser");
+}

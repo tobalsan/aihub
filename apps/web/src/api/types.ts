@@ -2,36 +2,48 @@ import type {
   Area as SharedArea,
   CapabilitiesResponse as SharedCapabilitiesResponse,
   ContextEstimate,
+  ContentBlock,
+  FileAttachment,
+  FullHistoryMessage,
+  ImageAttachment,
+  ModelMeta,
+  ModelUsage,
+  ProjectItem,
+  SdkId,
+  SimpleHistoryMessage,
+  StreamEvent,
+  SubagentGlobalListItem as SharedSubagentGlobalListItem,
   Task as SharedTask,
+  TaskboardItemResponse,
+  TaskboardResponse,
+  TextBlock,
+  ThinkLevel,
+  ThinkingBlock,
+  TodoItem,
+  ToolCallBlock,
 } from "@aihub/shared/types";
-export type SdkId = "pi" | "claude" | "openclaw";
-export type ThinkLevel =
-  | "off"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh";
+export type {
+  ContextEstimate,
+  ContentBlock,
+  FileAttachment,
+  FullHistoryMessage,
+  ImageAttachment,
+  ModelMeta,
+  ModelUsage,
+  ProjectItem,
+  SdkId,
+  SimpleHistoryMessage,
+  StreamEvent,
+  TaskboardItemResponse,
+  TaskboardResponse,
+  TextBlock,
+  ThinkLevel,
+  ThinkingBlock,
+  TodoItem,
+  ToolCallBlock,
+};
 
 export type QueueMode = "queue" | "interrupt";
-
-// Image attachment for multimodal messages (legacy - base64)
-export type ImageAttachment = {
-  /** Base64-encoded image data (without data: prefix) */
-  data: string;
-  /** MIME type */
-  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-};
-
-// File attachment (file path from upload)
-export type FileAttachment = {
-  /** Absolute file path on disk */
-  path: string;
-  /** MIME type */
-  mimeType: string;
-  /** Original filename (optional) */
-  filename?: string;
-};
 
 // Upload response from /api/media/upload
 export type UploadResponse = {
@@ -73,154 +85,24 @@ export type SendMessageResponse = {
   };
 };
 
-// Stream event types (WebSocket protocol)
-export type StreamEvent =
-  | { type: "text"; data: string }
-  | { type: "thinking"; data: string }
-  | { type: "tool_call"; id: string; name: string; arguments: unknown }
-  | {
-      type: "tool_result";
-      id: string;
-      name: string;
-      content: string;
-      isError: boolean;
-      details?: { diff?: string };
-    }
-  | { type: "tool_start"; toolName: string }
-  | { type: "tool_end"; toolName: string; isError?: boolean }
-  | {
-      type: "done";
-      meta?: { durationMs: number; aborted?: boolean; queued?: boolean };
-    }
-  | { type: "error"; message: string };
-
 // History view mode
 export type HistoryViewMode = "simple" | "full";
 
-// Simple history message (text only)
-export type SimpleHistoryMessage = {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-};
-
-// Content block types for full history
-export type ThinkingBlock = {
-  type: "thinking";
-  thinking: string;
-};
-
-export type TextBlock = {
-  type: "text";
-  text: string;
-};
-
-export type ToolCallBlock = {
-  type: "toolCall";
-  id: string;
-  name: string;
-  arguments: unknown;
-};
-
-export type ContentBlock = ThinkingBlock | TextBlock | ToolCallBlock;
-
-// Model usage info
-export type ModelUsage = {
-  input: number;
-  output: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  totalTokens: number;
-  cost?: {
-    input: number;
-    output: number;
-    total: number;
-  };
-};
-
-// Model metadata for assistant messages
-export type ModelMeta = {
-  api?: string;
-  provider?: string;
-  model?: string;
-  usage?: ModelUsage;
-  stopReason?: string;
-};
-
-// Full history message types
-export type FullUserMessage = {
-  role: "user";
-  content: ContentBlock[];
-  timestamp: number;
-};
-
-export type FullAssistantMessage = {
-  role: "assistant";
-  content: ContentBlock[];
-  timestamp: number;
-  meta?: ModelMeta;
-};
-
-export type FullToolResultMessage = {
-  role: "toolResult";
-  toolCallId: string;
-  toolName: string;
-  content: ContentBlock[];
-  isError: boolean;
-  details?: { diff?: string };
-  timestamp: number;
-};
-
-export type FullHistoryMessage =
-  | FullUserMessage
-  | FullAssistantMessage
-  | FullToolResultMessage;
+export type FullUserMessage = Extract<FullHistoryMessage, { role: "user" }>;
+export type FullAssistantMessage = Extract<
+  FullHistoryMessage,
+  { role: "assistant" }
+>;
+export type FullToolResultMessage = Extract<
+  FullHistoryMessage,
+  { role: "toolResult" }
+>;
 
 // Active tool call during streaming
 export type ActiveToolCall = {
   id: string;
   toolName: string;
   status: "running" | "done" | "error";
-};
-
-// Taskboard types
-export type TodoItem = {
-  id: string;
-  title: string;
-  status: "todo";
-  created?: string;
-  due?: string;
-  path: string;
-};
-
-export type ProjectItem = {
-  id: string;
-  title: string;
-  status: "todo" | "doing";
-  created?: string;
-  due?: string;
-  project?: string;
-  path: string;
-  companions: string[];
-};
-
-export type TaskboardResponse = {
-  todos: {
-    todo: TodoItem[];
-    doing: TodoItem[];
-  };
-  projects: {
-    todo: ProjectItem[];
-    doing: ProjectItem[];
-  };
-};
-
-export type TaskboardItemResponse = {
-  id: string;
-  title: string;
-  content: string;
-  frontmatter: Record<string, unknown>;
-  companions: string[];
 };
 
 // Conversations API types
@@ -335,25 +217,7 @@ export type TasksResponse = {
 
 export type SubagentStatus = "running" | "replied" | "error" | "idle";
 
-export type SubagentGlobalListItem = {
-  projectId: string;
-  slug: string;
-  type?: "subagent" | "ralph_loop";
-  cli?: string;
-  name?: string;
-  model?: string;
-  reasoningEffort?: string;
-  thinking?: string;
-  runMode?: string;
-  role?: "supervisor" | "worker";
-  parentSlug?: string;
-  groupKey?: string;
-  baseBranch?: string;
-  worktreePath?: string;
-  iterations?: number;
-  status: SubagentStatus;
-  lastActive?: string;
-};
+export type SubagentGlobalListItem = SharedSubagentGlobalListItem;
 
 export type SubagentGlobalListResponse = {
   items: SubagentGlobalListItem[];

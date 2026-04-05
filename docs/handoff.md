@@ -7,6 +7,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 - 2026-04-05 PRO-214 mobile scroll fix landed: mobile shell/content scroll is now isolated in the web UI via `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `left-nav-main` overflow isolation, chat input `flex-shrink: 0`, and mobile sidebar `100dvh` sizing across agents/chat/activity/areas/conversations.
 - 2026-04-05 PRO-212 dead-code slice landed: removed unused `queueOrRun`, deprecated `HistoryMessage` aliases, redundant `config.getConfig()` / web `fetchHistory()` wrappers, the unused `gatewayConfig` arg from `getConnectorPromptsForAgent()`, and the redundant Claude `sentTurnEnd` guard. Verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test`.
+- 2026-04-05 PRO-212 DRY slice landed: shared `expandPath()` is now exported from `@aihub/shared`, shared network bind helpers live in `packages/shared/src/network.ts`, gateway now reuses `apps/gateway/src/util/paths.ts` + `apps/gateway/src/util/fs.ts`, canonical `findProjectDir()` is exported from `projects/store.ts`, `isMultiUserLoaded()` now comes from `components/registry.ts`, and web `api/types.ts` now reuses shared history/stream/taskboard/subagent types instead of re-declaring them.
 - 2026-04-04 PRO-209 multi-user auth landed: Better Auth + SQLite is now integrated behind top-level `multiUser`, with `/api/auth/*`, `/api/me`, `/api/admin/*`, per-user session/history isolation under `$AIHUB_HOME/users/<userId>/`, web login/admin pages, integration coverage for enabled/disabled modes, and docs updates across `README.md` + `docs/llms.md`.
 - 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path is removed. Config/runtime/docs now only support native top-level `onecli` proxy wiring plus `$env:` config refs. Current status: Phase 3 cleanup complete; remaining follow-up is CA file existence validation in schema.
 - 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
@@ -56,6 +57,26 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Verification:
   - `pnpm lint`
   - `pnpm typecheck`
+  - `pnpm test`
+
+### 2026-04-05: PRO-212 DRY cleanup slice
+
+- `packages/shared/src/config-path.ts`, `packages/shared/src/network.ts`, `packages/shared/src/index.ts`
+  - Exported shared `expandPath()`.
+  - Added shared `pickTailnetIPv4()`, `getTailscaleIP()`, and `resolveBindHost()`.
+- `apps/gateway/src/util/paths.ts`, `apps/gateway/src/util/fs.ts`
+  - Added shared gateway `getProjectsRoot()` and `dirExists()` helpers.
+- `apps/gateway/src/{areas,conversations,projects,subagents,taskboard,server,cli}/*`
+  - Replaced local `expandPath`, `getProjectsRoot`, `dirExists`, `findProjectDir`, network helpers, and `isMultiUserLoaded` copies with shared/canonical imports.
+- `apps/web/src/api/types.ts`, `apps/web/vite.config.ts`
+  - Web API types now import shared history/stream/taskboard/subagent types from `@aihub/shared/types`.
+  - Vite config now reuses the shared bind-host helper.
+- Tests:
+  - Updated registry mocks in `admin-routes.test.ts` and `status-ws.test.ts` for the new `isMultiUserLoaded()` export.
+- Verification:
+  - `pnpm install`
+  - `pnpm typecheck`
+  - `pnpm lint`
   - `pnpm test`
 
 ### 2026-04-04: PRO-209 multi-user auth integration + docs

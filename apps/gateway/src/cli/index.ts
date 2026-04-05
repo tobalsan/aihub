@@ -2,16 +2,22 @@
 import { Command } from "commander";
 import { spawn, ChildProcess, execSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { loadConfig, getAgents, getAgent, setSingleAgentMode, CONFIG_DIR, setLoadedConfig } from "../config/index.js";
+import {
+  loadConfig,
+  getAgents,
+  getAgent,
+  setSingleAgentMode,
+  CONFIG_DIR,
+  setLoadedConfig,
+} from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
-import type { Component, UiConfig, GatewayBindMode } from "@aihub/shared";
+import { resolveBindHost, type Component, type UiConfig } from "@aihub/shared";
 import { loadComponents } from "../components/registry.js";
 import {
   prepareStartupConfig,
@@ -49,7 +55,10 @@ function getTailscaleCmd(): string {
 
 function enableTailscaleServe(port: number, servePath: string): void {
   const cmd = getTailscaleCmd();
-  const normalizedPath = servePath.endsWith("/") && servePath !== "/" ? servePath.slice(0, -1) : servePath;
+  const normalizedPath =
+    servePath.endsWith("/") && servePath !== "/"
+      ? servePath.slice(0, -1)
+      : servePath;
   const target = `http://127.0.0.1:${port}${normalizedPath}`;
   execSync(`${cmd} serve --bg --yes --set-path=${normalizedPath} ${target}`, {
     encoding: "utf-8",
@@ -100,41 +109,6 @@ function resolveUiHost(bind?: string): string {
   return "127.0.0.1";
 }
 
-function pickTailnetIPv4(): string | null {
-  const interfaces = os.networkInterfaces();
-  for (const [, addrs] of Object.entries(interfaces)) {
-    if (!addrs) continue;
-    for (const addr of addrs) {
-      if (addr.family !== "IPv4" || addr.internal) continue;
-      const octets = addr.address.split(".").map(Number);
-      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
-        return addr.address;
-      }
-    }
-  }
-  return null;
-}
-
-function getTailscaleIP(): string | null {
-  try {
-    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
-    const status = JSON.parse(output);
-    const ips = status?.Self?.TailscaleIPs as string[] | undefined;
-    return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveBindHost(bind?: GatewayBindMode): string {
-  if (!bind || bind === "loopback") return "127.0.0.1";
-  if (bind === "lan") return "0.0.0.0";
-  if (bind === "tailnet") {
-    return pickTailnetIPv4() ?? getTailscaleIP() ?? "127.0.0.1";
-  }
-  return "127.0.0.1";
-}
-
 function getApiBaseUrl(): string {
   const envUrl = process.env.AIHUB_API_URL;
   if (envUrl) return envUrl;
@@ -145,9 +119,7 @@ function getApiBaseUrl(): string {
   return `http://${host}:${port}`;
 }
 
-function createComponentContext(
-  resolvedConfig: ReturnType<typeof loadConfig>
-) {
+function createComponentContext(resolvedConfig: ReturnType<typeof loadConfig>) {
   return {
     resolveSecret: async (name: string) => {
       throw new Error(
@@ -161,7 +133,10 @@ function createComponentContext(
   } satisfies Parameters<Component["start"]>[0];
 }
 
-function startWebUI(uiConfig: UiConfig, gatewayPort: number): ChildProcess | null {
+function startWebUI(
+  uiConfig: UiConfig,
+  gatewayPort: number
+): ChildProcess | null {
   if (process.env.AIHUB_SKIP_WEB) return null;
 
   const port = uiConfig.port ?? 3000;
@@ -176,7 +151,17 @@ function startWebUI(uiConfig: UiConfig, gatewayPort: number): ChildProcess | nul
 
   // Use vite dev for hot reload, vite preview for production-like serving
   const viteCmd = useDevServer ? "dev" : "preview";
-  const args = ["--filter", "@aihub/web", "exec", "vite", viteCmd, "--port", String(port), "--host", host];
+  const args = [
+    "--filter",
+    "@aihub/web",
+    "exec",
+    "vite",
+    viteCmd,
+    "--port",
+    String(port),
+    "--host",
+    host,
+  ];
   const child = spawn("pnpm", args, {
     cwd: monorepoRoot,
     stdio: "inherit",
@@ -210,13 +195,12 @@ function startWebUI(uiConfig: UiConfig, gatewayPort: number): ChildProcess | nul
 
 const program = new Command();
 
-program
-  .name("aihub")
-  .description("AIHub multi-agent gateway")
-  .version("0.1.0");
+program.name("aihub").description("AIHub multi-agent gateway").version("0.1.0");
 
 function printDevBanner(gatewayPort: number, uiPort: number | null) {
-  const uiLine = uiPort ? `║  Web UI:  http://127.0.0.1:${uiPort.toString().padEnd(5)}       ║` : null;
+  const uiLine = uiPort
+    ? `║  Web UI:  http://127.0.0.1:${uiPort.toString().padEnd(5)}       ║`
+    : null;
   console.log(`
 ╔════════════════════════════════════════╗
 ║           DEV MODE ACTIVE              ║
@@ -230,9 +214,15 @@ program
   .command("gateway")
   .description("Start the gateway server (multi-agent mode)")
   .option("-p, --port <port>", "Server port (default: 4000 or config)")
-  .option("-h, --host <host>", "Server host (default: from config gateway.bind)")
+  .option(
+    "-h, --host <host>",
+    "Server host (default: from config gateway.bind)"
+  )
   .option("--agent-id <id>", "Single-agent mode: only load this agent")
-  .option("--dev", "Dev mode: auto-find ports, disable Discord/scheduler/heartbeat/amsg")
+  .option(
+    "--dev",
+    "Dev mode: auto-find ports, disable Discord/scheduler/heartbeat/amsg"
+  )
   .action(async (opts) => {
     try {
       const rawConfig = loadConfig();
@@ -277,7 +267,9 @@ program
 
       // Resolve actual port for banner
       const actualPort = port ?? config.gateway?.port ?? 4000;
-      const uiPort = process.env.AIHUB_UI_PORT ? parseInt(process.env.AIHUB_UI_PORT, 10) : (config.ui?.port ?? 3000);
+      const uiPort = process.env.AIHUB_UI_PORT
+        ? parseInt(process.env.AIHUB_UI_PORT, 10)
+        : (config.ui?.port ?? 3000);
 
       // Start web UI if enabled (default: true) and not in dev mode
       // In dev mode, web UI is started by scripts/dev.ts with proper port coordination
@@ -288,7 +280,11 @@ program
 
       // Patch config with runtime-resolved values so components (e.g. auth)
       // see the actual port, not just the config-file default.
-      const runtimeConfig = { ...config, gateway: { ...config.gateway, port: actualPort }, ui: { ...config.ui, port: uiPort } };
+      const runtimeConfig = {
+        ...config,
+        gateway: { ...config.gateway, port: actualPort },
+        ui: { ...config.ui, port: uiPort },
+      };
       const componentContext = createComponentContext(runtimeConfig);
       for (const component of components) {
         await component.start(componentContext);
@@ -331,7 +327,9 @@ program
       const agents = getAgents();
       console.log("Configured agents:");
       for (const agent of agents) {
-        console.log(`  - ${agent.id}: ${agent.name} (${agent.model.provider}/${agent.model.model})`);
+        console.log(
+          `  - ${agent.id}: ${agent.name} (${agent.model.provider}/${agent.model.model})`
+        );
       }
     } catch (err) {
       console.error("Error:", err);
@@ -400,7 +398,10 @@ program
 
       console.log(`Running heartbeat for ${agent.name}...`);
       const baseUrl = getApiBaseUrl();
-      const url = new URL(`/api/agents/${agentId}/heartbeat`, baseUrl).toString();
+      const url = new URL(
+        `/api/agents/${agentId}/heartbeat`,
+        baseUrl
+      ).toString();
       let res;
       try {
         res = await fetch(url, { method: "POST" });
@@ -409,7 +410,9 @@ program
         process.exit(1);
       }
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: "Failed to run heartbeat" }));
+        const data = await res
+          .json()
+          .catch(() => ({ error: "Failed to run heartbeat" }));
         console.error(data.error ?? "Failed to run heartbeat");
         process.exit(1);
       }
@@ -439,15 +442,21 @@ program
 registerSubagentCommands(program);
 
 // Auth commands
-const authCmd = program.command("auth").description("Manage OAuth authentication");
+const authCmd = program
+  .command("auth")
+  .description("Manage OAuth authentication");
 
 authCmd
   .command("login [provider]")
-  .description("Login to an OAuth provider (run without args to see available providers)")
+  .description(
+    "Login to an OAuth provider (run without args to see available providers)"
+  )
   .action(async (provider?: string) => {
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
+      const authStorage = AuthStorage.create(
+        path.join(CONFIG_DIR, "auth.json")
+      );
       const providers = authStorage.getOAuthProviders() as Array<{
         id: string;
         name: string;
@@ -460,7 +469,10 @@ authCmd
         providers.forEach((p, i) => console.log(`  ${i + 1}. ${p.name}`));
         console.log();
 
-        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const rl = createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
         const choice = await new Promise<string>((resolve) =>
           rl.question("Enter number: ", resolve)
         );
@@ -484,20 +496,32 @@ authCmd
 
       console.log(`Logging in to ${providerInfo.name}...`);
 
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      await authStorage.login(selectedProvider as Parameters<typeof authStorage.login>[0], {
-        onAuth: (info: { url: string; instructions?: string }) => {
-          console.log(`\nOpen this URL in your browser:\n${info.url}`);
-          if (info.instructions) console.log(info.instructions);
-          console.log();
-        },
-        onPrompt: async (prompt: { message: string; placeholder?: string }) => {
-          return new Promise((resolve) =>
-            rl.question(`${prompt.message}${prompt.placeholder ? ` (${prompt.placeholder})` : ""}: `, resolve)
-          );
-        },
-        onProgress: (msg: string) => console.log(msg),
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
       });
+      await authStorage.login(
+        selectedProvider as Parameters<typeof authStorage.login>[0],
+        {
+          onAuth: (info: { url: string; instructions?: string }) => {
+            console.log(`\nOpen this URL in your browser:\n${info.url}`);
+            if (info.instructions) console.log(info.instructions);
+            console.log();
+          },
+          onPrompt: async (prompt: {
+            message: string;
+            placeholder?: string;
+          }) => {
+            return new Promise((resolve) =>
+              rl.question(
+                `${prompt.message}${prompt.placeholder ? ` (${prompt.placeholder})` : ""}: `,
+                resolve
+              )
+            );
+          },
+          onProgress: (msg: string) => console.log(msg),
+        }
+      );
       rl.close();
 
       console.log(`\nLogged in to ${providerInfo.name}`);
@@ -513,11 +537,15 @@ authCmd
   .action(async () => {
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
+      const authStorage = AuthStorage.create(
+        path.join(CONFIG_DIR, "auth.json")
+      );
       const providers = authStorage.list();
 
       if (providers.length === 0) {
-        console.log("No providers authenticated. Run 'aihub auth login' to authenticate.");
+        console.log(
+          "No providers authenticated. Run 'aihub auth login' to authenticate."
+        );
         return;
       }
 
@@ -528,7 +556,9 @@ authCmd
         if (cred.type === "oauth") {
           const expires = new Date((cred as { expires: number }).expires);
           const isExpired = expires.getTime() < Date.now();
-          console.log(`  - ${provider} (oauth) expires: ${expires.toLocaleString()}${isExpired ? " [EXPIRED]" : ""}`);
+          console.log(
+            `  - ${provider} (oauth) expires: ${expires.toLocaleString()}${isExpired ? " [EXPIRED]" : ""}`
+          );
         } else {
           console.log(`  - ${provider} (${cred.type})`);
         }
@@ -545,7 +575,9 @@ authCmd
   .action(async (provider: string) => {
     try {
       const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
+      const authStorage = AuthStorage.create(
+        path.join(CONFIG_DIR, "auth.json")
+      );
 
       if (!authStorage.has(provider)) {
         console.log(`Not logged in to ${provider}`);

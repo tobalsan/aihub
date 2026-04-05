@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
-import { homedir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import type { GatewayConfig } from "@aihub/shared";
+import { expandPath, type GatewayConfig } from "@aihub/shared";
 import { getProject } from "./store.js";
+import { dirExists } from "../util/fs.js";
+import { getProjectsRoot } from "../util/paths.js";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_LEASE_TTL_SECONDS = 60 * 60;
@@ -109,16 +110,6 @@ export type RecordWorkerDeliveryInput = {
   replaces?: string[];
 };
 
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) return path.join(homedir(), p.slice(2));
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
-
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trimEnd();
@@ -133,15 +124,6 @@ async function isGitRepo(cwd: string): Promise<boolean> {
   try {
     const out = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
     return out.trim() === "true";
-  } catch {
-    return false;
-  }
-}
-
-async function dirExists(dirPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
   } catch {
     return false;
   }
@@ -274,7 +256,8 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
     const rebaseConflict =
       rawRebaseConflict &&
       typeof rawRebaseConflict === "object" &&
-      typeof (rawRebaseConflict as Record<string, unknown>).baseSha === "string" &&
+      typeof (rawRebaseConflict as Record<string, unknown>).baseSha ===
+        "string" &&
       typeof (rawRebaseConflict as Record<string, unknown>).error === "string"
         ? {
             baseSha: (rawRebaseConflict as Record<string, string>).baseSha,
@@ -1066,14 +1049,16 @@ export async function rebaseSpaceOntoMain(
       baseRef = `origin/${space.baseBranch}`;
     })
     .catch(() => {});
-  const baseSha = await runGit(space.worktreePath, ["rev-parse", baseRef]).catch(
-    () => ""
-  );
+  const baseSha = await runGit(space.worktreePath, [
+    "rev-parse",
+    baseRef,
+  ]).catch(() => "");
 
   try {
     await runGit(space.worktreePath, ["rebase", baseRef]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "git rebase failed";
+    const message =
+      error instanceof Error ? error.message : "git rebase failed";
     return persistProjectSpace(config, projectId, (current) => ({
       ...current,
       rebaseConflict: {

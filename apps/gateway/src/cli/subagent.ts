@@ -1,6 +1,5 @@
 import { Command } from "commander";
-import os from "node:os";
-import { execSync } from "node:child_process";
+import { resolveBindHost } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -46,44 +45,6 @@ type Handlers = {
 
 function normalizeProjectId(id: string): string {
   return id.trim().toUpperCase();
-}
-
-function pickTailnetIPv4(): string | null {
-  const interfaces = os.networkInterfaces();
-  for (const [, addrs] of Object.entries(interfaces)) {
-    if (!addrs) continue;
-    for (const addr of addrs) {
-      if (addr.family !== "IPv4" || addr.internal) continue;
-      const octets = addr.address.split(".").map(Number);
-      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
-        return addr.address;
-      }
-    }
-  }
-  return null;
-}
-
-function getTailscaleIP(): string | null {
-  try {
-    const output = execSync("tailscale status --json", {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    const status = JSON.parse(output);
-    const ips = status?.Self?.TailscaleIPs as string[] | undefined;
-    return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveBindHost(bind?: string): string {
-  if (!bind || bind === "loopback") return "127.0.0.1";
-  if (bind === "lan") return "0.0.0.0";
-  if (bind === "tailnet") {
-    return pickTailnetIPv4() ?? getTailscaleIP() ?? "127.0.0.1";
-  }
-  return "127.0.0.1";
 }
 
 function getApiBaseUrl(): string {

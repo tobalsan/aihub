@@ -1,22 +1,10 @@
-import { homedir } from "node:os";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { GatewayConfig } from "@aihub/shared";
 import { agentEventBus } from "../agents/events.js";
+import { getProjectsRoot } from "../util/paths.js";
 
 const DEBOUNCE_MS = 300;
-
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return path.join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
-function getProjectsRoot(config: GatewayConfig): string {
-  const root = config.projects?.root ?? "~/projects";
-  return expandPath(root);
-}
 
 export function inferProjectIdFromDirName(dirName: string): string {
   const match = /^(PRO-\d+)/.exec(dirName);

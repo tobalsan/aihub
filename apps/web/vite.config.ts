@@ -1,9 +1,9 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import fs from "node:fs";
-import os from "node:os";
 import { execSync } from "node:child_process";
 import { resolveConfigPath } from "../../packages/shared/src/config-path.js";
+import { resolveBindHost } from "../../packages/shared/src/network.js";
 
 type BindMode = "loopback" | "lan" | "tailnet";
 
@@ -40,45 +40,14 @@ function loadConfig(): AihubConfig {
 }
 
 /**
- * Scan network interfaces for tailnet IPv4 (100.64.0.0/10)
- */
-function pickTailnetIPv4(): string | null {
-  const interfaces = os.networkInterfaces();
-  for (const [, addrs] of Object.entries(interfaces)) {
-    if (!addrs) continue;
-    for (const addr of addrs) {
-      if (addr.family !== "IPv4" || addr.internal) continue;
-      // Tailnet uses 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
-      const octets = addr.address.split(".").map(Number);
-      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
-        return addr.address;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Fallback: get tailnet IP from tailscale status --json
- */
-function getTailscaleIP(): string | null {
-  try {
-    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
-    const status = JSON.parse(output);
-    const ips = status?.Self?.TailscaleIPs as string[] | undefined;
-    // Prefer IPv4
-    return ips?.find((ip: string) => !ip.includes(":")) ?? ips?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Get tailnet MagicDNS hostname
  */
 function getTailnetHostname(): string | null {
   try {
-    const output = execSync("tailscale status --json", { encoding: "utf-8", timeout: 5000 });
+    const output = execSync("tailscale status --json", {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
     const status = JSON.parse(output);
     const dns = status?.Self?.DNSName as string | undefined;
     return dns ? dns.replace(/\.$/, "") : null;
@@ -88,15 +57,13 @@ function getTailnetHostname(): string | null {
 }
 
 function resolveHost(bind?: BindMode): string {
-  if (!bind || bind === "loopback") return "127.0.0.1";
-  if (bind === "lan") return "0.0.0.0";
-  if (bind === "tailnet") {
-    const ip = pickTailnetIPv4() ?? getTailscaleIP();
-    if (ip) return ip;
-    console.warn("[vite] tailnet bind: no tailnet IP found, falling back to 127.0.0.1");
-    return "127.0.0.1";
+  const host = resolveBindHost(bind);
+  if (bind === "tailnet" && host === "127.0.0.1") {
+    console.warn(
+      "[vite] tailnet bind: no tailnet IP found, falling back to 127.0.0.1"
+    );
   }
-  return "127.0.0.1";
+  return host;
 }
 
 const config = loadConfig();
@@ -107,7 +74,9 @@ const gatewayConfig = config.gateway ?? {};
 const isDevMode = process.env.AIHUB_DEV === "1";
 
 // Port resolution: env vars from dev orchestrator take precedence
-const port = process.env.AIHUB_UI_PORT ? parseInt(process.env.AIHUB_UI_PORT, 10) : (uiConfig.port ?? 3000);
+const port = process.env.AIHUB_UI_PORT
+  ? parseInt(process.env.AIHUB_UI_PORT, 10)
+  : (uiConfig.port ?? 3000);
 
 // In dev mode, disable tailscale serve (handled separately by production)
 const tailscaleServe = !isDevMode && uiConfig.tailscale?.mode === "serve";
@@ -123,7 +92,9 @@ const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 // Resolve gateway target for proxy
 // In dev mode, use AIHUB_GATEWAY_PORT from orchestrator
 const gatewayHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
-const gatewayPort = process.env.AIHUB_GATEWAY_PORT ? parseInt(process.env.AIHUB_GATEWAY_PORT, 10) : (gatewayConfig.port ?? 4000);
+const gatewayPort = process.env.AIHUB_GATEWAY_PORT
+  ? parseInt(process.env.AIHUB_GATEWAY_PORT, 10)
+  : (gatewayConfig.port ?? 4000);
 const gatewayTarget = `http://${gatewayHost}:${gatewayPort}`;
 
 // In dev mode, always use root path (no /aihub prefix)

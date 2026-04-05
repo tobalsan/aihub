@@ -1,8 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import * as path from "node:path";
-import { homedir } from "node:os";
-import type { GatewayConfig } from "@aihub/shared";
+import { expandPath, type GatewayConfig } from "@aihub/shared";
 import { getProject } from "./store.js";
 import { getProjectSpace } from "./space.js";
 
@@ -32,7 +30,11 @@ export type ProjectChanges = {
   files: FileChange[];
   diff: string;
   stats: { filesChanged: number; insertions: number; deletions: number };
-  branchDiffStats: { filesChanged: number; insertions: number; deletions: number };
+  branchDiffStats: {
+    filesChanged: number;
+    insertions: number;
+    deletions: number;
+  };
   branchDiffFiles: { path: string; insertions: number; deletions: number }[];
   mainAheadCommits: MainBranchCommit[];
   mainRepoDirty?: DirtyState;
@@ -47,11 +49,6 @@ export type ProjectPullRequestTarget = {
   baseBranch: string;
   compareUrl?: string;
 };
-
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) return path.join(homedir(), p.slice(2));
-  return p;
-}
 
 function mapStatus(code: string): FileChange["status"] {
   if (code === "A") return "added";
@@ -88,7 +85,12 @@ async function isGitRepo(cwd: string): Promise<boolean> {
 async function resolveRepoPath(
   config: GatewayConfig,
   projectId: string
-): Promise<{ repoPath: string; baseBranch: string; source: ProjectChanges["source"]; mainRepoPath?: string }> {
+): Promise<{
+  repoPath: string;
+  baseBranch: string;
+  source: ProjectChanges["source"];
+  mainRepoPath?: string;
+}> {
   const project = await getProject(config, projectId);
   if (!project.ok) throw new Error(project.error);
 
@@ -209,7 +211,11 @@ export async function getProjectChanges(
   // Branch diff stats: only count commits whose content isn't already on main.
   // git cherry marks already-picked commits with "-", unmerged with "+".
   let branchDiffStats = { filesChanged: 0, insertions: 0, deletions: 0 };
-  let branchDiffFiles: { path: string; insertions: number; deletions: number }[] = [];
+  let branchDiffFiles: {
+    path: string;
+    insertions: number;
+    deletions: number;
+  }[] = [];
   try {
     const cherryOutput = await runGit(repo, [
       "cherry",
@@ -225,13 +231,19 @@ export async function getProjectChanges(
       let totalIns = 0;
       let totalDel = 0;
       const allFiles = new Set<string>();
-      const perFile = new Map<string, { insertions: number; deletions: number }>();
+      const perFile = new Map<
+        string,
+        { insertions: number; deletions: number }
+      >();
       for (const sha of unmergedShas) {
         const stat = await runGit(repo, ["diff", `${sha}~1`, sha, "--numstat"]);
         const parsed = parseNumStat(stat);
         for (const f of parsed.files) allFiles.add(f);
         for (const [filePath, fileStat] of parsed.byFile.entries()) {
-          const current = perFile.get(filePath) ?? { insertions: 0, deletions: 0 };
+          const current = perFile.get(filePath) ?? {
+            insertions: 0,
+            deletions: 0,
+          };
           current.insertions += fileStat.insertions;
           current.deletions += fileStat.deletions;
           perFile.set(filePath, current);
@@ -284,17 +296,25 @@ export async function getProjectChanges(
   let mainRepoDirty: DirtyState | undefined;
   if (resolved.mainRepoPath && (await isGitRepo(resolved.mainRepoPath))) {
     try {
-      const [mrStatus, mrUnstagedDiff, mrStagedDiff, mrUnstagedStat, mrStagedStat] =
-        await Promise.all([
-          runGit(resolved.mainRepoPath, ["status", "--porcelain"]),
-          runGit(resolved.mainRepoPath, ["diff"]),
-          runGit(resolved.mainRepoPath, ["diff", "--cached"]),
-          runGit(resolved.mainRepoPath, ["diff", "--numstat"]),
-          runGit(resolved.mainRepoPath, ["diff", "--cached", "--numstat"]),
-        ]);
+      const [
+        mrStatus,
+        mrUnstagedDiff,
+        mrStagedDiff,
+        mrUnstagedStat,
+        mrStagedStat,
+      ] = await Promise.all([
+        runGit(resolved.mainRepoPath, ["status", "--porcelain"]),
+        runGit(resolved.mainRepoPath, ["diff"]),
+        runGit(resolved.mainRepoPath, ["diff", "--cached"]),
+        runGit(resolved.mainRepoPath, ["diff", "--numstat"]),
+        runGit(resolved.mainRepoPath, ["diff", "--cached", "--numstat"]),
+      ]);
       const mrFiles = parseStatusPorcelain(mrStatus);
       if (mrFiles.length > 0) {
-        const mrDiff = [mrUnstagedDiff, mrStagedDiff].filter(Boolean).join("\n").trim();
+        const mrDiff = [mrUnstagedDiff, mrStagedDiff]
+          .filter(Boolean)
+          .join("\n")
+          .trim();
         const mrU = parseNumStat(mrUnstagedStat);
         const mrS = parseNumStat(mrStagedStat);
         const mrFileSet = new Set([...mrU.files, ...mrS.files]);
