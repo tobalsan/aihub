@@ -53,6 +53,18 @@ type ResolvedDiscordReactionTarget = DiscordReactionTarget & {
   logPrefix: string;
 };
 
+type DiscordBotFactoryOptions = {
+  agentId: string;
+  token: string;
+  applicationId?: string;
+  logPrefix: string;
+  resolveMessageTarget: (data: MessageData) => ResolvedDiscordMessageTarget | null;
+  resolveReactionTarget: (data: ReactionData) => ResolvedDiscordReactionTarget | null;
+  createCommands?: () => ReturnType<typeof createSlashCommands> | undefined;
+  acceptsAgent: (agentId: string) => boolean;
+  getBroadcastChannel: (agentId: string) => string | undefined;
+};
+
 function buildComponentDmConfig(enabled: boolean): DiscordConfig["dm"] {
   return {
     enabled,
@@ -363,17 +375,12 @@ function setupDiscordBroadcasts(params: {
   };
 }
 
-export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot | null> {
-  if (!agent.discord?.token) return null;
-  const discordConfig = agent.discord;
-
+async function createConfiguredDiscordBot(
+  options: DiscordBotFactoryOptions
+): Promise<DiscordBot | null> {
   const textAccumulators = new Map<string, string>();
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
-
-  const historyLimit = discordConfig.historyLimit ?? 20;
-  const clearHistoryAfterReply = discordConfig.clearHistoryAfterReply ?? true;
-  const replyToMode = discordConfig.replyToMode ?? "off";
 
   const handleMessage: MessageHandler = async (data, client) => {
     const msgData: MessageData = {
@@ -389,67 +396,62 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
       },
       mentions: data.mentions,
     };
-    const isMainChannel = discordConfig.channelId === data.channel_id;
+
+    const target = options.resolveMessageTarget(msgData);
+    if (!target) return;
+
     await handleDiscordMessage(
       msgData,
       client,
-      {
-        agent,
-        config: discordConfig,
-        isMainSession:
-          processMessage(msgData, discordConfig, botUserId).isDm || isMainChannel,
-        logPrefix: `[discord:${agent.id}]`,
-      },
+      target,
       botUserId,
-      historyLimit,
-      clearHistoryAfterReply,
-      replyToMode
+      target.config.historyLimit ?? 20,
+      target.config.clearHistoryAfterReply ?? true,
+      target.config.replyToMode ?? "off"
     );
   };
 
   const handleReaction: ReactionHandler = async (data, client, added) => {
+    const target = options.resolveReactionTarget(data);
+    if (!target) return;
+
     await handleDiscordReaction(
       data,
       client,
-      { agent, config: discordConfig, logPrefix: `[discord:${agent.id}]` },
+      target,
       botUserId,
       added
     );
   };
 
-  // Create slash commands if applicationId is present
-  const hasCommands = Boolean(discordConfig.applicationId);
-  const commands = hasCommands
-    ? createSlashCommands({ agent, botUserId })
-    : undefined;
+  const commands = options.applicationId ? options.createCommands?.() : undefined;
+  const hasCommands = Boolean(commands);
 
   const handleReady: ReadyHandler = async (data, client) => {
     botUserId = data.user.id;
-    console.log(`[discord:${agent.id}] Bot ready as ${data.user.username} (${botUserId})`);
+    console.log(`${options.logPrefix} Bot ready as ${data.user.username} (${botUserId})`);
 
-    // Deploy slash commands if applicationId is configured
     if (hasCommands) {
       try {
         await client.handleDeployRequest();
-        console.log(`[discord:${agent.id}] Slash commands deployed`);
+        console.log(`${options.logPrefix} Slash commands deployed`);
       } catch (err) {
-        console.error(`[discord:${agent.id}] Failed to deploy commands:`, err);
+        console.error(`${options.logPrefix} Failed to deploy commands:`, err);
       }
     }
   };
 
   const clientId = await resolveDiscordClientId(
-    discordConfig.token,
-    discordConfig.applicationId,
-    `[discord:${agent.id}]`
+    options.token,
+    options.applicationId,
+    options.logPrefix
   );
   if (!clientId) {
     return null;
   }
 
-  // Create client
   const client = createCarbonClient({
-    token: discordConfig.token,
+    token: options.token,
     clientId,
     commands,
     onMessage: handleMessage,
@@ -459,15 +461,14 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
 
   return {
     client,
-    agentId: agent.id,
+    agentId: options.agentId,
     start: async () => {
       cleanupBroadcasts = setupDiscordBroadcasts({
         client,
-        logPrefix: `[discord:${agent.id}]`,
+        logPrefix: options.logPrefix,
         textAccumulators,
-        acceptsAgent: (agentId) => agentId === agent.id,
-        getBroadcastChannel: () =>
-          agent.discord?.broadcastToChannel ?? agent.discord?.channelId,
+        acceptsAgent: options.acceptsAgent,
+        getBroadcastChannel: options.getBroadcastChannel,
         getBotUserId: () => botUserId,
       });
     },
@@ -482,6 +483,34 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
       }
     },
   };
+}
+
+export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot | null> {
+  if (!agent.discord?.token) return null;
+  const discordConfig = agent.discord;
+  const logPrefix = `[discord:${agent.id}]`;
+
+  return createConfiguredDiscordBot({
+    agentId: agent.id,
+    token: discordConfig.token,
+    applicationId: discordConfig.applicationId,
+    logPrefix,
+    resolveMessageTarget: (data) => ({
+      agent,
+      config: discordConfig,
+      isMainSession: !data.guild_id || discordConfig.channelId === data.channel_id,
+      logPrefix,
+    }),
+    resolveReactionTarget: () => ({
+      agent,
+      config: discordConfig,
+      logPrefix,
+    }),
+    createCommands: () => createSlashCommands({ agent }),
+    acceptsAgent: (agentId) => agentId === agent.id,
+    getBroadcastChannel: () =>
+      discordConfig.broadcastToChannel ?? discordConfig.channelId,
+  });
 }
 
 function buildDiscordRouteConfig(
@@ -517,11 +546,27 @@ function buildDiscordRouteConfig(
   };
 }
 
+function buildDiscordDmRouteConfig(
+  componentConfig: DiscordComponentConfig
+): DiscordConfig {
+  return {
+    token: componentConfig.token,
+    applicationId: componentConfig.applicationId,
+    dm: buildComponentDmConfig(true),
+    groupPolicy: "disabled",
+    historyLimit: componentConfig.historyLimit ?? 20,
+    clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
+    replyToMode: componentConfig.replyToMode ?? "off",
+    mentionPatterns: componentConfig.mentionPatterns,
+    broadcastToChannel: componentConfig.broadcastToChannel,
+  };
+}
+
 function resolveMessageTarget(
   componentConfig: DiscordComponentConfig,
   agentsById: Map<string, AgentConfig>,
   data: MessageData
-): DiscordMessageTarget | null {
+): ResolvedDiscordMessageTarget | null {
   if (!data.guild_id) {
     if (componentConfig.dm?.enabled === false) return null;
     if (!componentConfig.dm?.agent) return null;
@@ -529,18 +574,9 @@ function resolveMessageTarget(
     if (!agent) return null;
     return {
       agent,
-      config: {
-        token: componentConfig.token,
-        applicationId: componentConfig.applicationId,
-        dm: buildComponentDmConfig(true),
-        groupPolicy: "disabled",
-        historyLimit: componentConfig.historyLimit ?? 20,
-        clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
-        replyToMode: componentConfig.replyToMode ?? "off",
-        mentionPatterns: componentConfig.mentionPatterns,
-        broadcastToChannel: componentConfig.broadcastToChannel,
-      },
+      config: buildDiscordDmRouteConfig(componentConfig),
       isMainSession: true,
+      logPrefix: `[discord:${agent.id}]`,
     };
   }
 
@@ -559,6 +595,7 @@ function resolveMessageTarget(
       route.requireMention
     ),
     isMainSession: false,
+    logPrefix: `[discord:${agent.id}]`,
   };
 }
 
@@ -566,7 +603,7 @@ function resolveReactionTarget(
   componentConfig: DiscordComponentConfig,
   agentsById: Map<string, AgentConfig>,
   data: ReactionData
-): DiscordReactionTarget | null {
+): ResolvedDiscordReactionTarget | null {
   if (!data.guild_id) {
     if (componentConfig.dm?.enabled === false) return null;
     if (!componentConfig.dm?.agent) return null;
@@ -574,17 +611,8 @@ function resolveReactionTarget(
     if (!agent) return null;
     return {
       agent,
-      config: {
-        token: componentConfig.token,
-        applicationId: componentConfig.applicationId,
-        dm: buildComponentDmConfig(true),
-        groupPolicy: "disabled",
-        historyLimit: componentConfig.historyLimit ?? 20,
-        clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
-        replyToMode: componentConfig.replyToMode ?? "off",
-        mentionPatterns: componentConfig.mentionPatterns,
-        broadcastToChannel: componentConfig.broadcastToChannel,
-      },
+      config: buildDiscordDmRouteConfig(componentConfig),
+      logPrefix: `[discord:${agent.id}]`,
     };
   }
 
@@ -600,6 +628,42 @@ function resolveReactionTarget(
       componentConfig,
       data.channel_id,
       data.guild_id,
+      route.requireMention
+    ),
+    logPrefix: `[discord:${agent.id}]`,
+  };
+}
+
+function resolveCommandTarget(
+  componentConfig: DiscordComponentConfig,
+  agentsById: Map<string, AgentConfig>,
+  interaction: CommandInteraction
+): { agent: AgentConfig; config: DiscordConfig } | undefined {
+  const raw = interaction.rawData as { channel_id?: string; guild_id?: string };
+  if (!raw.channel_id) return undefined;
+
+  if (!raw.guild_id) {
+    if (componentConfig.dm?.enabled === false || !componentConfig.dm?.agent) {
+      return undefined;
+    }
+    const agent = agentsById.get(componentConfig.dm.agent);
+    if (!agent) return undefined;
+    return {
+      agent,
+      config: buildDiscordDmRouteConfig(componentConfig),
+    };
+  }
+
+  const route = componentConfig.channels?.[raw.channel_id];
+  if (!route) return undefined;
+  const agent = agentsById.get(route.agent);
+  if (!agent) return undefined;
+  return {
+    agent,
+    config: buildDiscordRouteConfig(
+      componentConfig,
+      raw.channel_id,
+      raw.guild_id,
       route.requireMention
     ),
   };
@@ -621,167 +685,27 @@ export async function createDiscordComponentBot(
     routedAgentIds.add(componentConfig.dm.agent);
   }
 
-  const routedAgents = agents.filter((agent) => routedAgentIds.has(agent.id));
-  if (routedAgents.length === 0) return null;
-
-  const textAccumulators = new Map<string, string>();
-  let cleanupBroadcasts: (() => void) | null = null;
-  let botUserId: string | undefined;
-
-  const historyLimit = componentConfig.historyLimit ?? 20;
-  const clearHistoryAfterReply = componentConfig.clearHistoryAfterReply ?? true;
-  const replyToMode = componentConfig.replyToMode ?? "off";
-
-  const handleMessage: MessageHandler = async (data, client) => {
-    const msgData: MessageData = {
-      id: data.id,
-      content: data.content ?? "",
-      channel_id: data.channel_id,
-      guild_id: data.guild_id,
-      author: {
-        id: data.author.id,
-        username: data.author.username,
-        discriminator: data.author.discriminator,
-        bot: data.author.bot,
-      },
-      mentions: data.mentions,
-    };
-
-    const target = resolveMessageTarget(componentConfig, agentsById, msgData);
-    if (!target) return;
-    await handleDiscordMessage(
-      msgData,
-      client,
-      { ...target, logPrefix: `[discord:${target.agent.id}]` },
-      botUserId,
-      historyLimit,
-      clearHistoryAfterReply,
-      replyToMode
-    );
-  };
-
-  const handleReaction: ReactionHandler = async (data, client, added) => {
-    const target = resolveReactionTarget(
-      componentConfig,
-      agentsById,
-      data
-    );
-    if (!target) return;
-    await handleDiscordReaction(
-      data,
-      client,
-      { ...target, logPrefix: `[discord:${target.agent.id}]` },
-      botUserId,
-      added
-    );
-  };
-
-  const resolveCommandTarget = (
-    interaction: CommandInteraction
-  ): { agent: AgentConfig; config: DiscordConfig } | undefined => {
-    const raw = interaction.rawData as { channel_id?: string; guild_id?: string };
-    if (!raw.channel_id) return undefined;
-    if (!raw.guild_id) {
-      if (componentConfig.dm?.enabled === false || !componentConfig.dm?.agent) {
-        return undefined;
-      }
-      const agent = agentsById.get(componentConfig.dm.agent);
-      if (!agent) return undefined;
-        return {
-          agent,
-          config: {
-            token: componentConfig.token,
-            applicationId: componentConfig.applicationId,
-            dm: buildComponentDmConfig(true),
-            groupPolicy: "disabled",
-            historyLimit: componentConfig.historyLimit ?? 20,
-            clearHistoryAfterReply: componentConfig.clearHistoryAfterReply ?? true,
-            replyToMode: componentConfig.replyToMode ?? "off",
-          mentionPatterns: componentConfig.mentionPatterns,
-          broadcastToChannel: componentConfig.broadcastToChannel,
-        },
-      };
-    }
-
-    const route = componentConfig.channels?.[raw.channel_id];
-    if (!route) return undefined;
-    const agent = agentsById.get(route.agent);
-    if (!agent) return undefined;
-    return {
-      agent,
-      config: buildDiscordRouteConfig(
-        componentConfig,
-        raw.channel_id,
-        raw.guild_id,
-        route.requireMention
-      ),
-    };
-  };
-
-  const hasCommands = Boolean(componentConfig.applicationId);
-  const commands = hasCommands
-    ? createSlashCommands({
-        resolveAgent: (interaction) => resolveCommandTarget(interaction)?.agent,
-        resolveDiscordConfig: (interaction) =>
-          resolveCommandTarget(interaction)?.config,
-        botUserId,
-      })
-    : undefined;
-
-  const handleReady: ReadyHandler = async (data, client) => {
-    botUserId = data.user.id;
-    console.log(`[discord] Bot ready as ${data.user.username} (${botUserId})`);
-
-    if (hasCommands) {
-      try {
-        await client.handleDeployRequest();
-        console.log("[discord] Slash commands deployed");
-      } catch (err) {
-        console.error("[discord] Failed to deploy commands:", err);
-      }
-    }
-  };
-
-  const clientId = await resolveDiscordClientId(
-    componentConfig.token,
-    componentConfig.applicationId,
-    "[discord]"
-  );
-  if (!clientId) {
+  if (!agents.some((agent) => routedAgentIds.has(agent.id))) {
     return null;
   }
 
-  const client = createCarbonClient({
-    token: componentConfig.token,
-    clientId,
-    commands,
-    onMessage: handleMessage,
-    onReaction: handleReaction,
-    onReady: handleReady,
-  });
-
-  return {
-    client,
+  return createConfiguredDiscordBot({
     agentId: "discord",
-    start: async () => {
-      cleanupBroadcasts = setupDiscordBroadcasts({
-        client,
-        logPrefix: "[discord]",
-        textAccumulators,
-        acceptsAgent: (agentId) => routedAgentIds.has(agentId),
-        getBroadcastChannel: () => componentConfig.broadcastToChannel,
-        getBotUserId: () => botUserId,
-      });
-    },
-    stop: async () => {
-      cleanupBroadcasts?.();
-      cleanupBroadcasts = null;
-      textAccumulators.clear();
-      stopAllTyping();
-      const gateway = getGatewayPlugin(client);
-      if (gateway) {
-        gateway.disconnect();
-      }
-    },
-  };
+    token: componentConfig.token,
+    applicationId: componentConfig.applicationId,
+    logPrefix: "[discord]",
+    resolveMessageTarget: (data) =>
+      resolveMessageTarget(componentConfig, agentsById, data),
+    resolveReactionTarget: (data) =>
+      resolveReactionTarget(componentConfig, agentsById, data),
+    createCommands: () =>
+      createSlashCommands({
+        resolveAgent: (interaction) =>
+          resolveCommandTarget(componentConfig, agentsById, interaction)?.agent,
+        resolveDiscordConfig: (interaction) =>
+          resolveCommandTarget(componentConfig, agentsById, interaction)?.config,
+      }),
+    acceptsAgent: (agentId) => routedAgentIds.has(agentId),
+    getBroadcastChannel: () => componentConfig.broadcastToChannel,
+  });
 }

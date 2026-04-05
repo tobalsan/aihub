@@ -7,7 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import type { AgentConfig, DiscordConfig } from "@aihub/shared";
+import type {
+  AgentConfig,
+  DiscordComponentConfig,
+  DiscordConfig,
+} from "@aihub/shared";
 
 // Mock runAgent and agentEventBus before importing bot
 vi.mock("../agents/index.js", () => {
@@ -86,7 +90,7 @@ vi.mock("./client.js", () => {
   };
 });
 
-import { createDiscordBot } from "./bot.js";
+import { createDiscordBot, createDiscordComponentBot } from "./bot.js";
 import { runAgent } from "../agents/index.js";
 import { createCarbonClient } from "./client.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
@@ -132,6 +136,24 @@ function createTestAgent(discordOverrides: Partial<DiscordConfig> = {}): AgentCo
       replyToMode: "off",
       ...discordOverrides,
     },
+  };
+}
+
+function createTestComponentConfig(
+  overrides: Partial<DiscordComponentConfig> = {}
+): DiscordComponentConfig {
+  return {
+    token: "test-token",
+    channels: {
+      "channel-1": {
+        agent: "test-agent",
+        requireMention: false,
+      },
+    },
+    historyLimit: 20,
+    clearHistoryAfterReply: true,
+    replyToMode: "off",
+    ...overrides,
   };
 }
 
@@ -1243,5 +1265,97 @@ describe("Discord heartbeat delivery", () => {
     expect(mockClient.rest.post).toHaveBeenCalled();
 
     // Should not throw (no unhandled promise rejection)
+  });
+});
+
+describe("Discord component bot", () => {
+  let capturedHandlers: CapturedHandlers;
+  let mockClient: ReturnType<typeof createMockClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedHandlers = {};
+    mockClient = createMockClient();
+
+    mockCreateCarbonClient.mockImplementation((config: {
+      onMessage?: CapturedHandlers["onMessage"];
+      onReaction?: CapturedHandlers["onReaction"];
+      onReady?: CapturedHandlers["onReady"];
+    }) => {
+      capturedHandlers.onMessage = config.onMessage;
+      capturedHandlers.onReaction = config.onReaction;
+      capturedHandlers.onReady = config.onReady;
+      return mockClient;
+    });
+
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "Hello from routed agent" }],
+      meta: { durationMs: 100, sessionId: "test-session" },
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("routes configured channel messages through the shared component bot", async () => {
+    const agent = createTestAgent();
+    const componentConfig = createTestComponentConfig();
+
+    await createDiscordComponentBot([agent], componentConfig);
+
+    await capturedHandlers.onMessage?.(
+      {
+        id: "msg-1",
+        content: "Hello routed channel",
+        channel_id: "channel-1",
+        guild_id: "guild-1",
+        author: { id: "user-1", username: "testuser", bot: false },
+        mentions: [],
+      },
+      mockClient
+    );
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "test-agent",
+        message: "Hello routed channel",
+        sessionKey: "discord:channel-1",
+        source: "discord",
+      })
+    );
+  });
+
+  it("routes configured DMs through the shared component bot main session", async () => {
+    const agent = createTestAgent();
+    const componentConfig = createTestComponentConfig({
+      channels: {},
+      dm: {
+        enabled: true,
+        agent: "test-agent",
+      },
+    });
+
+    await createDiscordComponentBot([agent], componentConfig);
+
+    await capturedHandlers.onMessage?.(
+      {
+        id: "msg-1",
+        content: "Hello DM",
+        channel_id: "dm-1",
+        author: { id: "user-1", username: "testuser", bot: false },
+        mentions: [],
+      },
+      mockClient
+    );
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "test-agent",
+        message: "Hello DM",
+        sessionKey: "main",
+        source: "discord",
+      })
+    );
   });
 });
