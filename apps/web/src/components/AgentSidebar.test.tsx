@@ -62,7 +62,7 @@ describe("AgentSidebar", () => {
     expect(container.textContent).toContain("AIHub");
     expect(container.textContent).toContain("Projects");
     expect(container.textContent).toContain("Conversations");
-    expect(container.textContent).toContain("Chats");
+    expect(container.textContent).toContain("Agents");
 
     dispose();
   });
@@ -181,7 +181,7 @@ describe("AgentSidebar", () => {
 
     expect(container.textContent).not.toContain("Projects");
     expect(container.textContent).not.toContain("Conversations");
-    expect(container.textContent).toContain("Chats");
+    expect(container.textContent).toContain("Agents");
 
     dispose();
   });

@@ -188,8 +188,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 stripBase(location.pathname).startsWith("/chat"),
             }}
           >
-            <span class="nav-full">Chats</span>
-            <span class="nav-short">Ch</span>
+            <span class="nav-full">Agents</span>
+            <span class="nav-short">Ag</span>
           </A>
           <Show
             when={
