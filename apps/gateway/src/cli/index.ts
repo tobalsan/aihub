@@ -286,7 +286,10 @@ program
         webProcess = startWebUI(config.ui ?? {}, actualPort);
       }
 
-      const componentContext = createComponentContext(config);
+      // Patch config with runtime-resolved values so components (e.g. auth)
+      // see the actual port, not just the config-file default.
+      const runtimeConfig = { ...config, gateway: { ...config.gateway, port: actualPort }, ui: { ...config.ui, port: uiPort } };
+      const componentContext = createComponentContext(runtimeConfig);
       for (const component of components) {
         await component.start(componentContext);
       }

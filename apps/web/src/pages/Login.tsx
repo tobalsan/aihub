@@ -32,7 +32,7 @@ export default function LoginPage() {
     try {
       const result = await signIn.social({
         provider: "google",
-        callbackURL: "/",
+        callbackURL: window.location.origin + "/",
       });
       if (result?.error) {
         setError(result.error.message ?? "Sign-in failed.");
