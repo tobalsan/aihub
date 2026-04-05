@@ -2,6 +2,22 @@ import type { Hono } from "hono";
 import { getMultiUserRuntime } from "./index.js";
 import { registerMultiUserAdminRoutes } from "./admin-routes.js";
 
+function refreshApproval(
+  user: Record<string, unknown>,
+  db: import("better-sqlite3").Database
+): void {
+  if (user.approved === true) return;
+  const row = db
+    .prepare("SELECT approved, role FROM user WHERE id = ?")
+    .get(String(user.id)) as
+    | { approved: number; role: string | null }
+    | undefined;
+  if (row?.approved) {
+    user.approved = true;
+    if (row.role) user.role = row.role;
+  }
+}
+
 function getRuntimeOrThrow() {
   const runtime = getMultiUserRuntime();
   if (!runtime) {
@@ -21,7 +37,7 @@ export function registerMultiUserRoutes(app: Hono): void {
   });
 
   app.get("/me", async (c) => {
-    const { auth, assignments } = getRuntimeOrThrow();
+    const { auth, db, assignments } = getRuntimeOrThrow();
     const session = await auth.api.getSession({
       headers: c.req.raw.headers,
     });
@@ -32,6 +48,7 @@ export function registerMultiUserRoutes(app: Hono): void {
 
     const userId = String(session.user.id);
     const user = session.user as Record<string, unknown>;
+    refreshApproval(user, db);
     return c.json({
       user: {
         id: userId,

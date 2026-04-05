@@ -71,6 +71,29 @@ function isApproved(authContext: RequestAuthContext): boolean {
   return authContext.user.approved === true || hasAdminRole(authContext);
 }
 
+/**
+ * When the cookie-cached session says `approved: false`, check the DB
+ * directly so newly-approved users don't have to wait for the cache to
+ * expire.  Approved users still benefit from the full cookie cache TTL.
+ */
+function refreshApprovalFromDb(authContext: RequestAuthContext): void {
+  if (isApproved(authContext)) return;
+
+  const runtime = getMultiUserRuntime();
+  if (!runtime?.db) return;
+
+  const row = runtime.db
+    .prepare("SELECT approved, role FROM user WHERE id = ?")
+    .get(authContext.user.id) as
+    | { approved: number; role: string | null }
+    | undefined;
+
+  if (row?.approved) {
+    authContext.user.approved = true;
+    if (row.role) authContext.user.role = row.role;
+  }
+}
+
 function encodeAuthContext(authContext: RequestAuthContext): string {
   return Buffer.from(JSON.stringify(authContext), "utf-8").toString(
     "base64url"
@@ -129,6 +152,7 @@ async function getValidatedAuthContext(
   if (!session) return null;
 
   const authContext = normalizeAuthContext(session);
+  refreshApprovalFromDb(authContext);
   if (!isApproved(authContext)) return null;
   return authContext;
 }
@@ -154,6 +178,7 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
     }
 
     const authContext = normalizeAuthContext(session);
+    refreshApprovalFromDb(authContext);
     if (!isApproved(authContext)) {
       return c.json({ error: "forbidden" }, 403);
     }
@@ -170,7 +195,15 @@ export const requireAdmin = (): MiddlewareHandler => {
       return;
     }
 
-    const authContext = getRequestAuthContext(c);
+    let authContext = getRequestAuthContext(c);
+    if (!authContext) {
+      // When running inside the api sub-app, the main app forwards the
+      // auth context via header instead of Hono's context store.
+      authContext = getForwardedAuthContext(c.req.raw.headers);
+      if (authContext) {
+        c.set(REQUEST_AUTH_CONTEXT_KEY, authContext);
+      }
+    }
     if (!authContext) {
       return c.json({ error: "unauthorized" }, 401);
     }
