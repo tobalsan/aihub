@@ -10,19 +10,8 @@ import type { HistoryEvent } from "../sdk/types.js";
 import { CONFIG_DIR } from "../config/index.js";
 import { getUserHistoryDir } from "../components/multi-user/isolation.js";
 import { getClaudeSessionIdForSession } from "../sessions/claude.js";
-import {
-  getSessionCreatedAt,
-  formatSessionTimestamp,
-} from "../sessions/store.js";
-
-const legacyFileName = (agentId: string, sessionId: string) =>
-  `${agentId}-${sessionId}.jsonl`;
-
-const timestampedFileName = (
-  timestamp: number,
-  agentId: string,
-  sessionId: string
-) => `${formatSessionTimestamp(timestamp)}_${agentId}-${sessionId}.jsonl`;
+import { getSessionCreatedAt } from "../sessions/store.js";
+import { resolveSessionDataFile } from "../sessions/files.js";
 
 const resolvedHistoryFileCache = new Map<string, string>();
 
@@ -45,26 +34,6 @@ export function invalidateResolvedHistoryFile(
 }
 
 /**
- * Find existing timestamped file by scanning directory for pattern *_{agentId}-{sessionId}.jsonl
- * Returns the most recent (lexicographically last) if multiple exist
- */
-async function findTimestampedFile(
-  dir: string,
-  agentId: string,
-  sessionId: string
-): Promise<string | null> {
-  const suffix = `_${agentId}-${sessionId}.jsonl`;
-  try {
-    const files = await fs.readdir(dir);
-    const matches = files.filter((f) => f.endsWith(suffix)).sort();
-    const latest = matches.at(-1);
-    return latest ? path.join(dir, latest) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Resolve history file path with timestamp prefix support.
  * - For existing files: checks known timestamped path, then scans for any timestamped file, then legacy
  * - For new files: always creates timestamped filename (uses createdAt or defaults to now)
@@ -81,53 +50,16 @@ async function resolveHistoryFile(
   }
 
   const historyDir = getHistoryDir(userId);
-  await ensureHistoryDir(userId);
-  const createdAt = getSessionCreatedAt(sessionId, userId);
-
-  // Try exact timestamped file first (if we have createdAt)
-  if (createdAt) {
-    const timestampedPath = path.join(
-      historyDir,
-      timestampedFileName(createdAt, agentId, sessionId)
-    );
-    try {
-      await fs.access(timestampedPath);
-      resolvedHistoryFileCache.set(cacheKey, timestampedPath);
-      return timestampedPath;
-    } catch {
-      // Exact timestamped file doesn't exist
-    }
-  }
-
-  // Scan for any existing timestamped file (handles missing createdAt in sessions.json)
-  const existingTimestamped = await findTimestampedFile(
-    historyDir,
+  const createdAt = await getSessionCreatedAt(sessionId, userId);
+  const resolved = (await resolveSessionDataFile({
+    dir: historyDir,
     agentId,
-    sessionId
-  );
-  if (existingTimestamped) {
-    resolvedHistoryFileCache.set(cacheKey, existingTimestamped);
-    return existingTimestamped;
-  }
-
-  // Try legacy file (backwards compat)
-  const legacyPath = path.join(historyDir, legacyFileName(agentId, sessionId));
-  try {
-    await fs.access(legacyPath);
-    resolvedHistoryFileCache.set(cacheKey, legacyPath);
-    return legacyPath;
-  } catch {
-    // Neither exists, create new timestamped file
-  }
-
-  // New file: always use timestamped format (use createdAt or default to now)
-  const timestamp = createdAt ?? Date.now();
-  const resolvedPath = path.join(
-    historyDir,
-    timestampedFileName(timestamp, agentId, sessionId)
-  );
-  resolvedHistoryFileCache.set(cacheKey, resolvedPath);
-  return resolvedPath;
+    sessionId,
+    createdAt,
+    createIfMissing: true,
+  })) as string;
+  resolvedHistoryFileCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 // JSONL entry format for canonical history
@@ -532,43 +464,14 @@ async function resolvePiSessionFile(
   sessionId: string,
   userId?: string
 ): Promise<string | null> {
-  const createdAt = getSessionCreatedAt(sessionId, userId);
-
-  // Try exact timestamped file first (if we have createdAt)
-  if (createdAt) {
-    const timestampedPath = path.join(
-      PI_SESSIONS_DIR,
-      timestampedFileName(createdAt, agentId, sessionId)
-    );
-    try {
-      await fs.access(timestampedPath);
-      return timestampedPath;
-    } catch {
-      // Exact timestamped file doesn't exist
-    }
-  }
-
-  // Scan for any existing timestamped file
-  const existingTimestamped = await findTimestampedFile(
-    PI_SESSIONS_DIR,
+  const createdAt = await getSessionCreatedAt(sessionId, userId);
+  return resolveSessionDataFile({
+    dir: PI_SESSIONS_DIR,
     agentId,
-    sessionId
-  );
-  if (existingTimestamped) {
-    return existingTimestamped;
-  }
-
-  // Try legacy file
-  const legacyPath = path.join(
-    PI_SESSIONS_DIR,
-    legacyFileName(agentId, sessionId)
-  );
-  try {
-    await fs.access(legacyPath);
-    return legacyPath;
-  } catch {
-    return null;
-  }
+    sessionId,
+    createdAt,
+    createIfMissing: false,
+  });
 }
 
 async function resolveClaudeSessionFile(
@@ -576,7 +479,7 @@ async function resolveClaudeSessionFile(
   sessionId: string,
   userId?: string
 ): Promise<string | null> {
-  const claudeSessionId = getClaudeSessionIdForSession(
+  const claudeSessionId = await getClaudeSessionIdForSession(
     agentId,
     sessionId,
     userId

@@ -24,8 +24,11 @@ vi.mock("../../agents/workspace.js", () => ({
 }));
 
 vi.mock("../../sessions/store.js", () => ({
-  getSessionCreatedAt: vi.fn(() => undefined),
-  formatSessionTimestamp: vi.fn(() => "20260404_000000"),
+  getSessionCreatedAt: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../sessions/files.js", () => ({
+  resolveSessionDataFile: vi.fn(async () => "/tmp/aihub-test/sessions/session-1.jsonl"),
 }));
 
 vi.mock("../../discord/utils/context.js", () => ({

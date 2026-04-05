@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { ThinkLevel } from "@aihub/shared";
 import { CONFIG_DIR, loadConfig } from "../config/index.js";
 import { getUserSessionsPath } from "../components/multi-user/isolation.js";
+
+export { formatSessionTimestamp } from "./files.js";
 
 export type SessionEntry = {
   sessionId: string;
@@ -38,6 +40,7 @@ export function isAbortTrigger(
 type StoreState = {
   store: Record<string, SessionEntry>;
   loaded: boolean;
+  loadPromise?: Promise<void>;
 };
 
 const storeStates = new Map<string, StoreState>();
@@ -56,30 +59,42 @@ function getStoreState(userId?: string): StoreState {
   return state;
 }
 
-function ensureLoaded(userId?: string) {
-  const storePath = getStorePath(userId);
+async function ensureLoaded(userId?: string): Promise<void> {
   const state = getStoreState(userId);
   if (state.loaded) return;
-  try {
-    const raw = fs.readFileSync(storePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      state.store = parsed;
-    }
-  } catch {
-    state.store = {};
+  if (state.loadPromise) {
+    await state.loadPromise;
+    return;
   }
-  state.loaded = true;
+
+  const storePath = getStorePath(userId);
+  state.loadPromise = (async () => {
+    try {
+      const raw = await fs.readFile(storePath, "utf-8");
+      const parsed = JSON.parse(raw);
+      state.store =
+        parsed && typeof parsed === "object"
+          ? (parsed as Record<string, SessionEntry>)
+          : {};
+    } catch {
+      state.store = {};
+    } finally {
+      state.loaded = true;
+      state.loadPromise = undefined;
+    }
+  })();
+
+  await state.loadPromise;
 }
 
 async function save(userId?: string) {
   const storePath = getStorePath(userId);
   const state = getStoreState(userId);
-  await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
+  await fs.mkdir(path.dirname(storePath), { recursive: true });
   const json = JSON.stringify(state.store, null, 2);
   const tmp = `${storePath}.${process.pid}.tmp`;
-  await fs.promises.writeFile(tmp, json, "utf-8");
-  await fs.promises.rename(tmp, storePath);
+  await fs.writeFile(tmp, json, "utf-8");
+  await fs.rename(tmp, storePath);
 }
 
 export type ResolveSessionParams = {
@@ -114,7 +129,7 @@ export async function resolveSessionId(
     resetTriggers = DEFAULT_RESET_TRIGGERS,
   } = params;
 
-  ensureLoaded(userId);
+  await ensureLoaded(userId);
   const state = getStoreState(userId);
 
   const config = loadConfig();
@@ -174,12 +189,12 @@ export async function resolveSessionId(
 /**
  * Get session entry without modifying it (for status checks)
  */
-export function getSessionEntry(
+export async function getSessionEntry(
   agentId: string,
   sessionKey: string,
   userId?: string
-): SessionEntry | undefined {
-  ensureLoaded(userId);
+): Promise<SessionEntry | undefined> {
+  await ensureLoaded(userId);
   return getStoreState(userId).store[`${agentId}:${sessionKey}`];
 }
 
@@ -187,11 +202,11 @@ export function getSessionEntry(
  * Look up createdAt timestamp for a sessionId (searches all entries)
  * Returns undefined if not found
  */
-export function getSessionCreatedAt(
+export async function getSessionCreatedAt(
   sessionId: string,
   userId?: string
-): number | undefined {
-  ensureLoaded(userId);
+): Promise<number | undefined> {
+  await ensureLoaded(userId);
   for (const entry of Object.values(getStoreState(userId).store)) {
     if (entry.sessionId === sessionId) {
       return entry.createdAt;
@@ -201,24 +216,14 @@ export function getSessionCreatedAt(
 }
 
 /**
- * Format timestamp for session filename prefix
- * Format: 2026-01-08T14-19-25-394Z (ISO-like but filesystem safe)
- */
-export function formatSessionTimestamp(timestamp: number): string {
-  const d = new Date(timestamp);
-  const pad = (n: number, len = 2) => n.toString().padStart(len, "0");
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}-${pad(d.getUTCMinutes())}-${pad(d.getUTCSeconds())}-${pad(d.getUTCMilliseconds(), 3)}Z`;
-}
-
-/**
  * Get the thinkLevel for a session
  */
-export function getSessionThinkLevel(
+export async function getSessionThinkLevel(
   agentId: string,
   sessionKey: string,
   userId?: string
-): ThinkLevel | undefined {
-  ensureLoaded(userId);
+): Promise<ThinkLevel | undefined> {
+  await ensureLoaded(userId);
   const storeKey = `${agentId}:${sessionKey}`;
   return getStoreState(userId).store[storeKey]?.thinkLevel;
 }
@@ -235,7 +240,7 @@ export async function restoreSessionUpdatedAt(
   userId?: string
 ): Promise<void> {
   if (originalUpdatedAt === undefined) return;
-  ensureLoaded(userId);
+  await ensureLoaded(userId);
   const state = getStoreState(userId);
   const storeKey = `${agentId}:${sessionKey}`;
   const entry = state.store[storeKey];
@@ -256,7 +261,7 @@ export async function setSessionThinkLevel(
   sessionId?: string,
   userId?: string
 ): Promise<void> {
-  ensureLoaded(userId);
+  await ensureLoaded(userId);
   const state = getStoreState(userId);
   const storeKey = `${agentId}:${sessionKey}`;
   const entry = state.store[storeKey];

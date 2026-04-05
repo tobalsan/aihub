@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_DIR } from "../config/index.js";
 import { getUserClaudeSessionsPath } from "../components/multi-user/isolation.js";
@@ -16,6 +16,7 @@ type ClaudeSessionEntry = {
 type ClaudeStoreState = {
   store: Record<string, ClaudeSessionEntry | string>;
   loaded: boolean;
+  loadPromise?: Promise<void>;
 };
 
 const storeStates = new Map<string, ClaudeStoreState>();
@@ -34,30 +35,42 @@ function getStoreState(userId?: string): ClaudeStoreState {
   return state;
 }
 
-function ensureLoaded(userId?: string) {
-  const storePath = getStorePath(userId);
+async function ensureLoaded(userId?: string): Promise<void> {
   const state = getStoreState(userId);
   if (state.loaded) return;
-  try {
-    const raw = fs.readFileSync(storePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      state.store = parsed;
-    }
-  } catch {
-    state.store = {};
+  if (state.loadPromise) {
+    await state.loadPromise;
+    return;
   }
-  state.loaded = true;
+
+  const storePath = getStorePath(userId);
+  state.loadPromise = (async () => {
+    try {
+      const raw = await fs.readFile(storePath, "utf-8");
+      const parsed = JSON.parse(raw);
+      state.store =
+        parsed && typeof parsed === "object"
+          ? (parsed as Record<string, ClaudeSessionEntry | string>)
+          : {};
+    } catch {
+      state.store = {};
+    } finally {
+      state.loaded = true;
+      state.loadPromise = undefined;
+    }
+  })();
+
+  await state.loadPromise;
 }
 
 async function save(userId?: string) {
   const storePath = getStorePath(userId);
   const state = getStoreState(userId);
-  await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
+  await fs.mkdir(path.dirname(storePath), { recursive: true });
   const json = JSON.stringify(state.store, null, 2);
   const tmp = `${storePath}.${process.pid}.tmp`;
-  await fs.promises.writeFile(tmp, json, "utf-8");
-  await fs.promises.rename(tmp, storePath);
+  await fs.writeFile(tmp, json, "utf-8");
+  await fs.rename(tmp, storePath);
 }
 
 function makeKey(agentId: string, sessionId: string): string {
@@ -68,13 +81,13 @@ function makeKey(agentId: string, sessionId: string): string {
  * Get Claude SDK session_id for an agent session.
  * Only returns if model matches (session can't change models).
  */
-export function getClaudeSessionId(
+export async function getClaudeSessionId(
   agentId: string,
   sessionId: string,
   model: string,
   userId?: string
-): string | undefined {
-  ensureLoaded(userId);
+): Promise<string | undefined> {
+  await ensureLoaded(userId);
   const entry = getStoreState(userId).store[makeKey(agentId, sessionId)];
   if (!entry) return undefined;
   // Backwards compat: old entries are just strings
@@ -88,12 +101,12 @@ export function getClaudeSessionId(
  * Get Claude SDK session_id without model verification.
  * Used for history backfill when model is not available.
  */
-export function getClaudeSessionIdForSession(
+export async function getClaudeSessionIdForSession(
   agentId: string,
   sessionId: string,
   userId?: string
-): string | undefined {
-  ensureLoaded(userId);
+): Promise<string | undefined> {
+  await ensureLoaded(userId);
   const entry = getStoreState(userId).store[makeKey(agentId, sessionId)];
   if (!entry) return undefined;
   if (typeof entry === "string") return entry;
@@ -110,7 +123,7 @@ export async function setClaudeSessionId(
   model: string,
   userId?: string
 ): Promise<void> {
-  ensureLoaded(userId);
+  await ensureLoaded(userId);
   getStoreState(userId).store[makeKey(agentId, sessionId)] = {
     claudeSessionId,
     model,
@@ -127,7 +140,7 @@ export async function clearClaudeSessionId(
   sessionId: string,
   userId?: string
 ): Promise<void> {
-  ensureLoaded(userId);
+  await ensureLoaded(userId);
   const state = getStoreState(userId);
   const key = makeKey(agentId, sessionId);
   if (key in state.store) {

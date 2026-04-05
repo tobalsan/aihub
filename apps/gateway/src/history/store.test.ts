@@ -21,12 +21,20 @@ vi.mock("../config/index.js", () => ({
 }));
 
 vi.mock("../sessions/store.js", () => ({
-  getSessionCreatedAt: vi.fn(() => 0),
-  formatSessionTimestamp: vi.fn(() => "1970-01-01T00-00-00-000Z"),
+  getSessionCreatedAt: vi.fn().mockResolvedValue(0),
+}));
+
+vi.mock("../sessions/files.js", () => ({
+  resolveSessionDataFile: vi.fn(async ({ dir, agentId, sessionId, createdAt }) =>
+    `${dir}/${createdAt ?? 0 ? "1970-01-01T00-00-00-000Z" : "1970-01-01T00-00-00-000Z"}_${agentId}-${sessionId}.jsonl`
+  ),
+  timestampedSessionFileName: vi.fn(
+    () => "1970-01-01T00-00-00-000Z_agent-1-session-1.jsonl"
+  ),
 }));
 
 vi.mock("../sessions/claude.js", () => ({
-  getClaudeSessionIdForSession: vi.fn(),
+  getClaudeSessionIdForSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("history store isolation", () => {

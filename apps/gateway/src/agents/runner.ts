@@ -166,7 +166,7 @@ export async function runAgent(
     if (params.sessionId) {
       sessionId = params.sessionId;
     } else if (params.sessionKey) {
-      const entry = getSessionEntry(
+      const entry = await getSessionEntry(
         params.agentId,
         params.sessionKey,
         params.userId
@@ -349,11 +349,11 @@ export async function runAgent(
       } else {
         // /think with no arg - show current level
         const currentLevel =
-          getSessionThinkLevel(
+          (await getSessionThinkLevel(
             params.agentId,
             resolvedSessionKey,
             params.userId
-          ) ??
+          )) ??
           agent.thinkLevel ??
           "not set";
         const statusText = `Current thinking level: ${currentLevel}`;
@@ -375,7 +375,7 @@ export async function runAgent(
     resolvedThinkLevel =
       params.thinkLevel ??
       directiveThinkLevel ??
-      getSessionThinkLevel(params.agentId, resolvedSessionKey, params.userId) ??
+      (await getSessionThinkLevel(params.agentId, resolvedSessionKey, params.userId)) ??
       agent.thinkLevel;
   } else {
     // Non-OAuth: still honor API param and config, just no directive/session

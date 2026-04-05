@@ -24,6 +24,7 @@ import {
   type SpawnPrefill,
   type SpawnTemplate,
 } from "./SpawnForm";
+import { formatRelativeActivityTime } from "../../lib/format";
 
 export type CenterTab = "chat" | "activity" | "changes";
 export type SelectedProjectAgent = {
@@ -75,18 +76,6 @@ function parseTimestamp(raw: string | undefined): number {
 
 function formatDateLabel(raw: string | undefined): string {
   return raw && raw.trim() ? raw : "Unknown time";
-}
-
-function formatRelativeActivityTime(ts: number): string {
-  if (!ts) return "";
-  const diffMs = Date.now() - ts;
-  if (diffMs < 60_000) return "now";
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 function outcomeSnippet(events: SubagentLogEvent[]): string {

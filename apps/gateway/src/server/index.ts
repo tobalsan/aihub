@@ -351,26 +351,24 @@ function sendWs(ws: WebSocket, event: WsServerMessage) {
 // Broadcast stream events to subscribers
 function setupEventBroadcast() {
   agentEventBus.onStreamEvent((event) => {
-    for (const [ws, sub] of subscriptions) {
-      if (sub.agentId !== event.agentId) continue;
+    void (async () => {
+      for (const [ws, sub] of subscriptions) {
+        if (sub.agentId !== event.agentId) continue;
 
-      // Match by sessionKey: resolve current sessionId for the key
-      const entry = getSessionEntry(
-        sub.agentId,
-        sub.sessionKey,
-        wsAuthContexts.get(ws)?.session.userId
-      );
-      if (!entry || entry.sessionId !== event.sessionId) continue;
+        const entry = await getSessionEntry(
+          sub.agentId,
+          sub.sessionKey,
+          wsAuthContexts.get(ws)?.session.userId
+        );
+        if (!entry || entry.sessionId !== event.sessionId) continue;
 
-      // Forward the event (strip internal fields)
-      const { agentId, sessionId, ...streamEvent } = event;
-      sendWs(ws, streamEvent);
-
-      // Also send history_updated on done so UI can refetch
-      if (event.type === "done") {
-        sendWs(ws, { type: "history_updated", agentId, sessionId });
+        const { agentId, sessionId, ...streamEvent } = event;
+        sendWs(ws, streamEvent);
+        if (event.type === "done") {
+          sendWs(ws, { type: "history_updated", agentId, sessionId });
+        }
       }
-    }
+    })();
   });
 
   // Broadcast status changes to all status subscribers

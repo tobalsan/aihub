@@ -6,6 +6,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 ## Current Status
 
 - 2026-04-05 PRO-214 mobile scroll fix landed: mobile shell/content scroll is now isolated in the web UI via `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `left-nav-main` overflow isolation, chat input `flex-shrink: 0`, and mobile sidebar `100dvh` sizing across agents/chat/activity/areas/conversations.
+- 2026-04-05 PRO-212 code-quality slice landed: shared helpers now cover Discord bot flow, session file resolution, frontmatter parsing, web markdown/history/timestamp formatting, and websocket event dispatch; OpenClaw now matches the object-literal adapter pattern; session + Claude stores lazy-load via `fs.promises`; verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test` (`721/721`).
 - 2026-04-05 PRO-212 dead-code slice landed: removed unused `queueOrRun`, deprecated `HistoryMessage` aliases, redundant `config.getConfig()` / web `fetchHistory()` wrappers, the unused `gatewayConfig` arg from `getConnectorPromptsForAgent()`, and the redundant Claude `sentTurnEnd` guard. Verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test`.
 - 2026-04-05 PRO-212 DRY slice landed: shared `expandPath()` is now exported from `@aihub/shared`, shared network bind helpers live in `packages/shared/src/network.ts`, gateway now reuses `apps/gateway/src/util/paths.ts` + `apps/gateway/src/util/fs.ts`, canonical `findProjectDir()` is exported from `projects/store.ts`, `isMultiUserLoaded()` now comes from `components/registry.ts`, and web `api/types.ts` now reuses shared history/stream/taskboard/subagent types instead of re-declaring them.
 - 2026-04-04 PRO-209 multi-user auth landed: Better Auth + SQLite is now integrated behind top-level `multiUser`, with `/api/auth/*`, `/api/me`, `/api/admin/*`, per-user session/history isolation under `$AIHUB_HOME/users/<userId>/`, web login/admin pages, integration coverage for enabled/disabled modes, and docs updates across `README.md` + `docs/llms.md`.
@@ -43,6 +44,17 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
   - `pnpm typecheck`
   - `pnpm test -- apps/web`
   - `pnpm --filter @aihub/web build`
+
+### 2026-04-05: PRO-212 code-quality slice
+
+- `apps/gateway/src/discord/bot.ts`, `apps/gateway/src/sessions/files.ts`, `apps/gateway/src/util/frontmatter.ts`, `apps/web/src/lib/{format,history,markdown}.ts`
+  - Shared helpers now cover Discord bot flow, session file resolution, frontmatter parsing, web markdown/history/timestamp formatting, and websocket event dispatch.
+- `apps/gateway/src/sdk/openclaw/adapter.ts`, `apps/gateway/src/sessions/{store,claude}.ts`
+  - OpenClaw now matches the object-literal adapter pattern, and session plus Claude stores now lazy-load via `fs.promises`.
+- Verification:
+  - `pnpm lint`
+  - `pnpm typecheck`
+  - `pnpm test`
 
 ### 2026-04-05: PRO-212 dead-code cleanup slice
 

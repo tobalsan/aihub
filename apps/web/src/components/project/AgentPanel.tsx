@@ -25,6 +25,7 @@ import type {
   SubagentLogEvent,
 } from "../../api/types";
 import type { SpawnPrefill, SpawnTemplate } from "./SpawnForm";
+import { formatCreatedRelative } from "../../lib/format";
 
 const STATUS_OPTIONS = [
   "not_now",
@@ -134,24 +135,6 @@ function getFrontmatterRecord(
     return undefined;
   }
   return value as Record<string, unknown>;
-}
-
-function formatCreatedRelative(raw: string): string {
-  if (!raw) return "Created —";
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return "Created —";
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const created = new Date(date);
-  created.setHours(0, 0, 0, 0);
-
-  const days = Math.floor((today.getTime() - created.getTime()) / 86400000);
-  if (days <= 0) return "Created today";
-  if (days === 1) return "Created yesterday";
-  if (days < 14) return `Created ${days} days ago`;
-  const weeks = Math.floor(days / 7);
-  return `Created ${weeks} week${weeks === 1 ? "" : "s"} ago`;
 }
 
 function formatElapsed(raw?: string): string {

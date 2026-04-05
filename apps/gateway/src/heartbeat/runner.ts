@@ -219,7 +219,7 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
   }
 
   // Capture original updatedAt for restoration
-  const originalEntry = getSessionEntry(agentId, DEFAULT_MAIN_KEY);
+  const originalEntry = await getSessionEntry(agentId, DEFAULT_MAIN_KEY);
   const originalUpdatedAt = originalEntry?.updatedAt;
 
   // Check if main session is streaming

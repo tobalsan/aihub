@@ -1,19 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import fs from "node:fs";
+import fs from "node:fs/promises";
 
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
     default: {
       ...actual,
-      readFileSync: vi.fn(() => "{}"),
-      promises: {
-        ...actual.promises,
-        mkdir: vi.fn().mockResolvedValue(undefined),
-        writeFile: vi.fn().mockResolvedValue(undefined),
-        rename: vi.fn().mockResolvedValue(undefined),
-      },
+      readFile: vi.fn().mockResolvedValue("{}"),
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      rename: vi.fn().mockResolvedValue(undefined),
     },
   };
 });
@@ -33,7 +30,7 @@ describe("claude session store isolation", () => {
 
     await setClaudeSessionId("agent-1", "session-1", "claude-1", "model-1");
 
-    expect(vi.mocked(fs.promises.rename)).toHaveBeenCalledWith(
+    expect(vi.mocked(fs.rename)).toHaveBeenCalledWith(
       expect.stringContaining("/tmp/aihub-test/claude-sessions.json."),
       "/tmp/aihub-test/claude-sessions.json"
     );
@@ -50,7 +47,7 @@ describe("claude session store isolation", () => {
       "user-123"
     );
 
-    expect(vi.mocked(fs.promises.rename)).toHaveBeenCalledWith(
+    expect(vi.mocked(fs.rename)).toHaveBeenCalledWith(
       expect.stringContaining(
         "/tmp/aihub-test/users/user-123/claude-sessions.json."
       ),

@@ -10,8 +10,6 @@ import {
   untrack,
 } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { marked, type Tokens } from "marked";
-import DOMPurify from "dompurify";
 import {
   fetchProjects,
   fetchAreas,
@@ -54,6 +52,14 @@ import { AgentSidebar } from "./AgentSidebar";
 import { ContextPanel } from "./ContextPanel";
 import { AgentChat } from "./AgentChat";
 import { ActivityFeed } from "./ActivityFeed";
+import {
+  formatCreatedRelative,
+  formatRunRelative,
+} from "../lib/format";
+import { extractBlockText } from "../lib/history";
+import {
+  renderMarkdown as renderMarkdownHtml,
+} from "../lib/markdown";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -297,37 +303,6 @@ function getFrontmatterRecord(
   return value as Record<string, string>;
 }
 
-function formatCreatedRelative(raw?: string): string {
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return "";
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const created = new Date(date);
-  created.setHours(0, 0, 0, 0);
-
-  const days = Math.floor((today.getTime() - created.getTime()) / 86400000);
-  if (days === 0) return "Created today";
-  if (days === 1) return "Created yesterday";
-  if (days === 7) return "Created last week";
-  return `Created ${days} days ago`;
-}
-
-function formatRunRelative(raw?: string | number): string {
-  if (!raw) return "";
-  const ts = typeof raw === "number" ? raw : Date.parse(raw);
-  if (Number.isNaN(ts)) return "";
-  const diff = Date.now() - ts;
-  if (diff < 60000) return "Just now";
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
-  const hours = Math.floor(diff / 3600000);
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  if (hours < 48) return "Yesterday";
-  const days = Math.floor(diff / 86400000);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
 function normalizeHref(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === "string") return raw;
@@ -340,16 +315,6 @@ function normalizeHref(raw: unknown): string | null {
     }
   }
   return String(raw);
-}
-
-function getFilenameFromHref(raw: string): string {
-  const cleaned = raw.split(/[?#]/)[0] ?? "";
-  const last = cleaned.split("/").filter(Boolean).pop() ?? cleaned;
-  try {
-    return decodeURIComponent(last);
-  } catch {
-    return last;
-  }
 }
 
 function rewriteAttachmentUrl(raw: unknown, projectId?: string): string | null {
@@ -368,35 +333,11 @@ function rewriteAttachmentUrl(raw: unknown, projectId?: string): string | null {
 }
 
 function renderMarkdown(content: string, projectId?: string): string {
-  const stripped = content
-    .replace(/^\s*---[\s\S]*?\n---\s*\n?/, "")
-    .replace(/^\s*#\s+.+\n+/, "");
-  const renderer = new marked.Renderer();
-  renderer.link = ({ href, title, text }: Tokens.Link) => {
-    const rawHref = normalizeHref(href) ?? "";
-    const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
-    const safeTitle =
-      typeof title === "string" && title ? ` title="${title}"` : "";
-    const safeText =
-      typeof text === "string" && text.trim().length > 0
-        ? text
-        : getFilenameFromHref(rawHref || next);
-    return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${safeText}</a>`;
-  };
-  renderer.image = ({ href, title }: Tokens.Image) => {
-    const rawHref = normalizeHref(href) ?? "";
-    const next = rewriteAttachmentUrl(rawHref, projectId) ?? "";
-    const safeTitle =
-      typeof title === "string" && title ? ` title="${title}"` : "";
-    const label = getFilenameFromHref(rawHref || next);
-    return `<a href="${next}"${safeTitle} target="_blank" rel="noopener noreferrer">${label}</a>`;
-  };
-  const html = marked.parse(stripped, {
-    breaks: true,
-    async: false,
-    renderer,
-  }) as string;
-  return DOMPurify.sanitize(html, { ADD_ATTR: ["target", "rel"] });
+  return renderMarkdownHtml(content, {
+    stripFrontmatter: true,
+    stripFirstHeading: true,
+    rewriteHref: (href) => rewriteAttachmentUrl(href, projectId),
+  });
 }
 
 function stripMarkdownMeta(content: string): string {
@@ -418,20 +359,6 @@ function formatJson(args: unknown): string {
   } catch {
     return String(args);
   }
-}
-
-function extractBlockText(text: unknown): string {
-  if (typeof text === "string") return text;
-  if (text && typeof text === "object") {
-    const obj = text as Record<string, unknown>;
-    if (Array.isArray(obj.content)) {
-      return (obj.content as Array<Record<string, unknown>>)
-        .filter((c) => c?.type === "text" && typeof c.text === "string")
-        .map((c) => c.text as string)
-        .join("\n");
-    }
-  }
-  return "";
 }
 
 function getTextBlocks(blocks: ContentBlock[]): string {

@@ -163,6 +163,98 @@ export type StreamMessageOptions = {
   thinkLevel?: ThinkLevel;
 };
 
+type WsStreamEvent =
+  | {
+      type: "text";
+      data: string;
+    }
+  | {
+      type: "thinking";
+      data: string;
+    }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      arguments: unknown;
+    }
+  | {
+      type: "tool_result";
+      id: string;
+      name: string;
+      content: string;
+      isError?: boolean;
+      details?: { diff?: string };
+    }
+  | {
+      type: "tool_start";
+      toolName: string;
+    }
+  | {
+      type: "tool_end";
+      toolName: string;
+      isError?: boolean;
+    }
+  | {
+      type: "session_reset";
+      sessionId: string;
+    }
+  | {
+      type: "done";
+      meta?: DoneMeta;
+    }
+  | {
+      type: "history_updated";
+    }
+  | {
+      type: "error";
+      message: string;
+    };
+
+function dispatchWsEvent(
+  event: WsStreamEvent,
+  callbacks: Partial<StreamCallbacks & SubscriptionCallbacks>
+): void {
+  switch (event.type) {
+    case "text":
+      callbacks.onText?.(event.data);
+      break;
+    case "thinking":
+      callbacks.onThinking?.(event.data);
+      break;
+    case "tool_call":
+      callbacks.onToolCall?.(event.id, event.name, event.arguments);
+      break;
+    case "tool_result":
+      callbacks.onToolResult?.(
+        event.id,
+        event.name,
+        event.content,
+        event.isError ?? false,
+        event.details
+      );
+      break;
+    case "tool_start":
+      callbacks.onToolStart?.(event.toolName);
+      break;
+    case "tool_end":
+      callbacks.onToolEnd?.(event.toolName, event.isError ?? false);
+      break;
+    case "session_reset":
+      callbacks.onSessionReset?.(event.sessionId);
+      break;
+    case "done":
+      callbacks.onDone?.(event.meta);
+      break;
+    case "history_updated":
+      callbacks.onHistoryUpdated?.();
+      break;
+    case "error":
+      callbacks.onError?.(event.message);
+      break;
+  }
+}
+
 /**
  * Upload a file to the server
  * Returns the file path that can be used in attachments
@@ -225,42 +317,12 @@ export function streamMessage(
   };
 
   ws.onmessage = (e) => {
-    const event = JSON.parse(e.data);
-    switch (event.type) {
-      case "text":
-        onText(event.data);
-        break;
-      case "thinking":
-        callbacks?.onThinking?.(event.data);
-        break;
-      case "tool_call":
-        callbacks?.onToolCall?.(event.id, event.name, event.arguments);
-        break;
-      case "tool_result":
-        callbacks?.onToolResult?.(
-          event.id,
-          event.name,
-          event.content,
-          event.isError ?? false,
-          event.details
-        );
-        break;
-      case "tool_start":
-        callbacks?.onToolStart?.(event.toolName);
-        break;
-      case "tool_end":
-        callbacks?.onToolEnd?.(event.toolName, event.isError ?? false);
-        break;
-      case "session_reset":
-        callbacks?.onSessionReset?.(event.sessionId);
-        break;
-      case "done":
-        onDone(event.meta);
-        break;
-      case "error":
-        onError(event.message);
-        break;
-    }
+    dispatchWsEvent(JSON.parse(e.data) as WsStreamEvent, {
+      ...callbacks,
+      onText,
+      onDone,
+      onError,
+    });
   };
 
   ws.onerror = () => {
@@ -311,42 +373,7 @@ export function subscribeToSession(
   };
 
   ws.onmessage = (e) => {
-    const event = JSON.parse(e.data);
-    switch (event.type) {
-      case "text":
-        callbacks.onText?.(event.data);
-        break;
-      case "thinking":
-        callbacks.onThinking?.(event.data);
-        break;
-      case "tool_call":
-        callbacks.onToolCall?.(event.id, event.name, event.arguments);
-        break;
-      case "tool_result":
-        callbacks.onToolResult?.(
-          event.id,
-          event.name,
-          event.content,
-          event.isError ?? false,
-          event.details
-        );
-        break;
-      case "tool_start":
-        callbacks.onToolStart?.(event.toolName);
-        break;
-      case "tool_end":
-        callbacks.onToolEnd?.(event.toolName, event.isError ?? false);
-        break;
-      case "done":
-        callbacks.onDone?.();
-        break;
-      case "history_updated":
-        callbacks.onHistoryUpdated?.();
-        break;
-      case "error":
-        callbacks.onError?.(event.message);
-        break;
-    }
+    dispatchWsEvent(JSON.parse(e.data) as WsStreamEvent, callbacks);
   };
 
   ws.onerror = () => {

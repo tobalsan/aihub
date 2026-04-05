@@ -48,19 +48,19 @@ function getRunId(data?: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-export class OpenClawConnector implements SdkAdapter {
-  id = "openclaw" as const;
-  displayName = "OpenClaw";
-  capabilities = {
+export const openclawAdapter: SdkAdapter = {
+  id: "openclaw",
+  displayName: "OpenClaw",
+  capabilities: {
     queueWhileStreaming: false,
     interrupt: false,
     toolEvents: true,
     fullHistory: true,
-  };
+  },
 
   resolveDisplayModel(agent: AgentConfig) {
     return { provider: agent.model.provider ?? "openclaw", model: agent.model.model };
-  }
+  },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
     const openclaw = params.agent.openclaw as OpenClawConfig | undefined;
@@ -452,7 +452,5 @@ export class OpenClawConnector implements SdkAdapter {
         fail("OpenClaw connection closed before final response");
       });
     });
-  }
-}
-
-export const openclawAdapter = new OpenClawConnector();
+  },
+};

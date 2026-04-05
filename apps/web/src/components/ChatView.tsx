@@ -9,8 +9,6 @@ import {
   on,
 } from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import {
   streamMessage,
   getSessionKey,
@@ -30,27 +28,12 @@ import type {
   ActiveToolCall,
   ThinkLevel,
 } from "../api/types";
+import { formatTimestamp } from "../lib/format";
+import { extractBlockText } from "../lib/history";
+import { renderMarkdown } from "../lib/markdown";
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
-
-const timestampFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
-
-function formatTimestamp(timestamp: number): string {
-  return timestampFormatter.format(new Date(timestamp));
-}
-
-// Render markdown to sanitized HTML
-function renderMarkdown(content: string): string {
-  const html = marked.parse(content, { breaks: true, async: false }) as string;
-  return DOMPurify.sanitize(html);
-}
 
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
@@ -62,21 +45,6 @@ function formatJson(args: unknown): string {
   } catch {
     return String(args);
   }
-}
-
-// Extract text from content block, handling nested structures from older history
-function extractBlockText(text: unknown): string {
-  if (typeof text === "string") return text;
-  if (text && typeof text === "object") {
-    const obj = text as Record<string, unknown>;
-    if (Array.isArray(obj.content)) {
-      return (obj.content as Array<Record<string, unknown>>)
-        .filter((c) => c?.type === "text" && typeof c.text === "string")
-        .map((c) => c.text as string)
-        .join("\n");
-    }
-  }
-  return "";
 }
 
 // Collapsible block component

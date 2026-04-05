@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expandPath, type GatewayConfig } from "@aihub/shared";
 import { dirExists } from "../util/fs.js";
+import { splitFrontmatter } from "../util/frontmatter.js";
 
 const THREAD_FILE = "THREAD.md";
 const DEFAULT_CONVERSATIONS_ROOT = "~/projects/.conversations";
@@ -69,62 +70,6 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function parseFrontmatter(raw: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const lines = raw.split(/\r?\n/);
-
-  const parseScalar = (value: string): unknown => {
-    const trimmed = value.trim();
-    if (!trimmed) return "";
-    if (trimmed === "true") return true;
-    if (trimmed === "false") return false;
-    if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
-    if (/^-?\d+\.\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
-    return trimmed.replace(/^["'](.*)["']$/, "$1");
-  };
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    const match = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
-    if (!match) continue;
-
-    const [, key, rawValue] = match;
-    const value = rawValue.trim();
-    if (value !== "") {
-      result[key] = parseScalar(value);
-      continue;
-    }
-
-    const list: string[] = [];
-    let j = i + 1;
-    for (; j < lines.length; j += 1) {
-      const itemMatch = (lines[j] ?? "").match(/^\s*-\s+(.+)$/);
-      if (!itemMatch) break;
-      list.push(String(parseScalar(itemMatch[1] ?? "") ?? ""));
-    }
-    if (list.length > 0) {
-      result[key] = list;
-      i = j - 1;
-      continue;
-    }
-    result[key] = "";
-  }
-
-  return result;
-}
-
-function splitThread(raw: string): {
-  frontmatter: Record<string, unknown>;
-  content: string;
-} {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, content: raw };
-  return {
-    frontmatter: parseFrontmatter(match[1] ?? ""),
-    content: match[2] ?? "",
-  };
 }
 
 function toStringArray(value: unknown): string[] {
@@ -223,7 +168,7 @@ async function parseConversationDir(
   if (!(await fileExists(threadPath))) return null;
 
   const raw = await fs.readFile(threadPath, "utf8");
-  const { frontmatter, content } = splitThread(raw);
+  const { frontmatter, content } = splitFrontmatter(raw);
   const attachments = await listAttachments(dirPath);
   const title = extractTitle(id, frontmatter, content);
   const participants = toStringArray(frontmatter.participants);

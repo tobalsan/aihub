@@ -264,7 +264,7 @@ export const claudeAdapter: SdkAdapter = {
 
       // Look up existing Claude session for resumption (only if model matches)
       const requestedModel = params.agent.model.model;
-      const existingClaudeSessionId = getClaudeSessionId(
+      const existingClaudeSessionId = await getClaudeSessionId(
         params.agentId,
         params.sessionId,
         requestedModel,

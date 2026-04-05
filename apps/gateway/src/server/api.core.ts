@@ -245,7 +245,7 @@ api.get("/agents/:id/history", async (c) => {
   const sessionKey = c.req.query("sessionKey") ?? "main";
   const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
   const userId = await getRequestUserId(c);
-  const entry = getSessionEntry(agentId, sessionKey, userId);
+  const entry = await getSessionEntry(agentId, sessionKey, userId);
 
   if (!entry) {
     return c.json({ messages: [], view });
@@ -259,7 +259,7 @@ api.get("/agents/:id/history", async (c) => {
   // Only include thinkingLevel for OAuth agents
   const thinkingLevel =
     agent.auth?.mode === "oauth"
-      ? getSessionThinkLevel(agentId, sessionKey, userId)
+      ? await getSessionThinkLevel(agentId, sessionKey, userId)
       : undefined;
 
   return c.json({ messages, sessionId: entry.sessionId, view, thinkingLevel });

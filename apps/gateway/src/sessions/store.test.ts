@@ -1,20 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import fs from "node:fs";
+import fs from "node:fs/promises";
 
-// Mock fs before imports
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
     default: {
       ...actual,
-      readFileSync: vi.fn(() => "{}"),
-      promises: {
-        ...actual.promises,
-        mkdir: vi.fn().mockResolvedValue(undefined),
-        writeFile: vi.fn().mockResolvedValue(undefined),
-        rename: vi.fn().mockResolvedValue(undefined),
-      },
+      readFile: vi.fn().mockResolvedValue("{}"),
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      rename: vi.fn().mockResolvedValue(undefined),
     },
   };
 });
@@ -39,7 +35,7 @@ describe("restoreSessionUpdatedAt", () => {
     await restoreSessionUpdatedAt("test-agent", "main", undefined);
 
     // Should not save (no writes)
-    expect(fsMock.promises.writeFile).not.toHaveBeenCalled();
+    expect(fsMock.writeFile).not.toHaveBeenCalled();
   });
 
   it("is a no-op when session entry does not exist", async () => {
@@ -50,7 +46,7 @@ describe("restoreSessionUpdatedAt", () => {
     await restoreSessionUpdatedAt("nonexistent-agent", "main", 1000);
 
     // Save is not called because entry doesn't exist
-    expect(fsMock.promises.writeFile).not.toHaveBeenCalled();
+    expect(fsMock.writeFile).not.toHaveBeenCalled();
   });
 
   it("restores updatedAt when session entry exists", async () => {
@@ -65,7 +61,7 @@ describe("restoreSessionUpdatedAt", () => {
       },
     };
 
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(mockStore));
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockStore));
 
     const { restoreSessionUpdatedAt, getSessionEntry } = await import("./store.js");
 
@@ -73,11 +69,11 @@ describe("restoreSessionUpdatedAt", () => {
     await restoreSessionUpdatedAt("test-agent", "main", originalUpdatedAt);
 
     // Verify entry was updated in memory
-    const entry = getSessionEntry("test-agent", "main");
+    const entry = await getSessionEntry("test-agent", "main");
     expect(entry?.updatedAt).toBe(originalUpdatedAt);
 
     // Verify save was called
-    expect(vi.mocked(fs.promises.writeFile)).toHaveBeenCalled();
+    expect(vi.mocked(fs.writeFile)).toHaveBeenCalled();
   });
 
   it("does not modify sessionId when restoring updatedAt", async () => {
@@ -90,13 +86,13 @@ describe("restoreSessionUpdatedAt", () => {
       },
     };
 
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(mockStore));
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockStore));
 
     const { restoreSessionUpdatedAt, getSessionEntry } = await import("./store.js");
 
     await restoreSessionUpdatedAt("test-agent", "main", 1000);
 
-    const entry = getSessionEntry("test-agent", "main");
+    const entry = await getSessionEntry("test-agent", "main");
     expect(entry?.sessionId).toBe(originalSessionId);
   });
 });
@@ -108,10 +104,10 @@ describe("getSessionEntry", () => {
   });
 
   it("returns undefined for non-existent entry", async () => {
-    vi.mocked(fs.readFileSync).mockReturnValue("{}");
+    vi.mocked(fs.readFile).mockResolvedValue("{}");
 
     const { getSessionEntry } = await import("./store.js");
-    const entry = getSessionEntry("nonexistent", "main");
+    const entry = await getSessionEntry("nonexistent", "main");
 
     expect(entry).toBeUndefined();
   });
@@ -124,10 +120,10 @@ describe("getSessionEntry", () => {
         createdAt: 500,
       },
     };
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(mockStore));
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockStore));
 
     const { getSessionEntry } = await import("./store.js");
-    const entry = getSessionEntry("test-agent", "main");
+    const entry = await getSessionEntry("test-agent", "main");
 
     expect(entry).toEqual({
       sessionId: "test-session",
@@ -152,7 +148,7 @@ describe("session store isolation", () => {
       message: "hello",
     });
 
-    expect(vi.mocked(fs.promises.rename)).toHaveBeenCalledWith(
+    expect(vi.mocked(fs.rename)).toHaveBeenCalledWith(
       expect.stringContaining("/tmp/aihub-test/sessions.json."),
       "/tmp/aihub-test/sessions.json"
     );
@@ -168,7 +164,7 @@ describe("session store isolation", () => {
       message: "hello",
     });
 
-    expect(vi.mocked(fs.promises.rename)).toHaveBeenCalledWith(
+    expect(vi.mocked(fs.rename)).toHaveBeenCalledWith(
       expect.stringContaining("/tmp/aihub-test/users/user-123/sessions.json."),
       "/tmp/aihub-test/users/user-123/sessions.json"
     );

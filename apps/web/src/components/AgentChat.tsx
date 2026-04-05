@@ -26,13 +26,13 @@ import {
   uploadFiles,
 } from "../api/client";
 import type {
-  ContentBlock,
   FullHistoryMessage,
   FullToolResultMessage,
   SubagentLogEvent,
   SubagentStatus,
   FileAttachment,
 } from "../api/types";
+import { extractBlockText, getTextBlocks } from "../lib/history";
 
 type AgentChatProps = {
   agentId: string | null;
@@ -130,27 +130,6 @@ function formatJson(args: unknown): string {
 function renderMarkdown(content: string): string {
   const html = marked.parse(content, { breaks: true, async: false }) as string;
   return DOMPurify.sanitize(html);
-}
-
-function extractBlockText(text: unknown): string {
-  if (typeof text === "string") return text;
-  if (text && typeof text === "object") {
-    const obj = text as Record<string, unknown>;
-    if (Array.isArray(obj.content)) {
-      return (obj.content as Array<Record<string, unknown>>)
-        .filter((c) => c?.type === "text" && typeof c.text === "string")
-        .map((c) => c.text as string)
-        .join("\n");
-    }
-  }
-  return "";
-}
-
-function getTextBlocks(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b) => b.type === "text")
-    .map((b) => extractBlockText((b as { text: unknown }).text))
-    .join("\n");
 }
 
 function parseJsonRecord(text: string): Record<string, unknown> | null {

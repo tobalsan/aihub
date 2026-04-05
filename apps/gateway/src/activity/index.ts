@@ -146,7 +146,7 @@ export async function getRecentActivity(
 
   const agents = getActiveAgents();
   for (const agent of agents) {
-    const entry = getSessionEntry(agent.id, DEFAULT_MAIN_KEY);
+    const entry = await getSessionEntry(agent.id, DEFAULT_MAIN_KEY);
     if (!entry) continue;
     const history = await getSessionHistory(agent.id, entry.sessionId);
     const last = [...history].reverse().find((msg) => msg.role === "assistant");
