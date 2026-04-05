@@ -25,7 +25,9 @@ export function ConversationsPage() {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [toast, setToast] = createSignal<string | null>(null);
-  const [replyStatus, setReplyStatus] = createSignal<"idle" | "submitting" | "mentions">("idle");
+  const [replyStatus, setReplyStatus] = createSignal<
+    "idle" | "submitting" | "mentions"
+  >("idle");
   const [replyError, setReplyError] = createSignal<string | null>(null);
 
   const filters = createMemo<ConversationFilters>(() => ({
@@ -35,10 +37,13 @@ export function ConversationsPage() {
   }));
 
   const [items] = createResource(filters, fetchConversations);
-  const [detail, { refetch: refetchDetail }] = createResource(selectedId, async (id) => {
-    if (!id) return null;
-    return fetchConversation(id);
-  });
+  const [detail, { refetch: refetchDetail }] = createResource(
+    selectedId,
+    async (id) => {
+      if (!id) return null;
+      return fetchConversation(id);
+    }
+  );
 
   const selectedConversation = createMemo(() => {
     const list = items() ?? [];
@@ -75,7 +80,9 @@ export function ConversationsPage() {
     } catch (error) {
       setReplyStatus("idle");
       setReplyError(
-        error instanceof Error ? error.message : "Failed to post conversation reply"
+        error instanceof Error
+          ? error.message
+          : "Failed to post conversation reply"
       );
       return false;
     }
@@ -127,7 +134,10 @@ export function ConversationsPage() {
 
       <div class="conversations-layout">
         <section class="conversations-pane conversations-list-pane">
-          <Show when={!items.loading} fallback={<div class="empty">Loading...</div>}>
+          <Show
+            when={!items.loading}
+            fallback={<div class="empty">Loading...</div>}
+          >
             <Show
               when={(items() ?? []).length > 0}
               fallback={<div class="empty">No conversations found.</div>}
@@ -142,9 +152,20 @@ export function ConversationsPage() {
         </section>
 
         <section class="conversations-pane conversations-detail-pane">
-          <Show when={selectedConversation()} fallback={<div class="empty">Select a conversation.</div>}>
-            <Show when={!detail.loading} fallback={<div class="empty">Loading thread...</div>}>
-              <Show when={detail()} fallback={<div class="empty">Failed to load conversation thread.</div>}>
+          <Show
+            when={selectedConversation()}
+            fallback={<div class="empty">Select a conversation.</div>}
+          >
+            <Show
+              when={!detail.loading}
+              fallback={<div class="empty">Loading thread...</div>}
+            >
+              <Show
+                when={detail()}
+                fallback={
+                  <div class="empty">Failed to load conversation thread.</div>
+                }
+              >
                 {(conversation) => (
                   <>
                     <ConversationThreadView conversation={conversation()} />
@@ -270,6 +291,9 @@ export function ConversationsPage() {
         .conversations-pane {
           min-height: 0;
           overflow: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          touch-action: pan-y;
         }
 
         .conversations-list-pane {

@@ -1,4 +1,11 @@
-import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { fetchActivity, fetchAgents } from "../api/client";
 import type { ActivityEvent, Agent } from "../api/types";
 
@@ -63,7 +70,10 @@ export function ActivityFeed(props: ActivityFeedProps) {
         setItems((prev) => mergeById(prev, page));
       } else {
         setItems((prev) => {
-          const deduped = mergeById(page, prev.filter((event) => !page.some((e) => e.id === event.id)));
+          const deduped = mergeById(
+            page,
+            prev.filter((event) => !page.some((e) => e.id === event.id))
+          );
           return deduped;
         });
       }
@@ -77,9 +87,11 @@ export function ActivityFeed(props: ActivityFeedProps) {
   const list = () => items();
   const isClickable = (event: ActivityEvent) =>
     (event.type === "agent_message" &&
-      (Boolean(resolveAgentId(event.actor)) || Boolean(resolveSubagentId(event)))) ||
+      (Boolean(resolveAgentId(event.actor)) ||
+        Boolean(resolveSubagentId(event)))) ||
     (event.type === "subagent_action" && Boolean(resolveSubagentId(event))) ||
-    ((event.type === "project_status" || event.type === "project_comment") && Boolean(event.projectId));
+    ((event.type === "project_status" || event.type === "project_comment") &&
+      Boolean(event.projectId));
 
   const handleItemClick = (event: ActivityEvent) => {
     if (event.type === "agent_message") {
@@ -99,7 +111,11 @@ export function ActivityFeed(props: ActivityFeedProps) {
         props.onSelectAgent(subagentId);
       }
     }
-    if ((event.type === "project_status" || event.type === "project_comment") && event.projectId && props.onOpenProject) {
+    if (
+      (event.type === "project_status" || event.type === "project_comment") &&
+      event.projectId &&
+      props.onOpenProject
+    ) {
       props.onOpenProject(event.projectId);
     }
   };
@@ -116,16 +132,27 @@ export function ActivityFeed(props: ActivityFeedProps) {
     if (!hasMore() || loading()) return;
     const target = e.currentTarget as HTMLDivElement;
     const threshold = 120;
-    if (target.scrollHeight - target.scrollTop - target.clientHeight <= threshold) {
+    if (
+      target.scrollHeight - target.scrollTop - target.clientHeight <=
+      threshold
+    ) {
       void loadPage(offset(), true);
     }
   };
 
   return (
-    <div class="activity-feed" classList={{ fullscreen: Boolean(props.fullscreen) }}>
+    <div
+      class="activity-feed"
+      classList={{ fullscreen: Boolean(props.fullscreen) }}
+    >
       <div class="activity-header">
         <Show when={props.onBack}>
-          <button class="back-btn" type="button" onClick={props.onBack} aria-label="Back">
+          <button
+            class="back-btn"
+            type="button"
+            onClick={props.onBack}
+            aria-label="Back"
+          >
             ←
           </button>
         </Show>
@@ -136,7 +163,10 @@ export function ActivityFeed(props: ActivityFeedProps) {
         </div>
       </div>
       <div class="activity-list" onScroll={handleScroll}>
-        <Show when={list().length > 0} fallback={<div class="activity-empty">No activity yet.</div>}>
+        <Show
+          when={list().length > 0}
+          fallback={<div class="activity-empty">No activity yet.</div>}
+        >
           <For each={list()}>
             {(event) =>
               isClickable(event) ? (
@@ -150,7 +180,9 @@ export function ActivityFeed(props: ActivityFeedProps) {
                     <p>
                       <strong>{event.actor}</strong> {event.action}
                     </p>
-                    <span class="activity-time">{formatRelativeTime(event.timestamp)}</span>
+                    <span class="activity-time">
+                      {formatRelativeTime(event.timestamp)}
+                    </span>
                   </div>
                 </button>
               ) : (
@@ -160,7 +192,9 @@ export function ActivityFeed(props: ActivityFeedProps) {
                     <p>
                       <strong>{event.actor}</strong> {event.action}
                     </p>
-                    <span class="activity-time">{formatRelativeTime(event.timestamp)}</span>
+                    <span class="activity-time">
+                      {formatRelativeTime(event.timestamp)}
+                    </span>
                   </div>
                 </div>
               )
@@ -237,6 +271,9 @@ export function ActivityFeed(props: ActivityFeedProps) {
         .activity-list {
           flex: 1;
           overflow-y: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          touch-action: pan-y;
           padding: 8px 0;
           scroll-behavior: smooth;
         }

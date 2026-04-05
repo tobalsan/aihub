@@ -1,8 +1,25 @@
-import { createSignal, createEffect, createResource, createMemo, For, onCleanup, Show, on } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  createResource,
+  createMemo,
+  For,
+  onCleanup,
+  Show,
+  on,
+} from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { streamMessage, getSessionKey, fetchSimpleHistory, fetchFullHistory, fetchAgent, subscribeToSession, type DoneMeta } from "../api/client";
+import {
+  streamMessage,
+  getSessionKey,
+  fetchSimpleHistory,
+  fetchFullHistory,
+  fetchAgent,
+  subscribeToSession,
+  type DoneMeta,
+} from "../api/client";
 import type {
   Message,
   HistoryViewMode,
@@ -76,13 +93,20 @@ function CollapsibleBlock(props: {
 
   return (
     <div class={`collapsible-block ${props.isError ? "error" : ""}`}>
-      <button class="collapse-header" onClick={() => setCollapsed(!collapsed())}>
+      <button
+        class="collapse-header"
+        onClick={() => setCollapsed(!collapsed())}
+      >
         <span class="collapse-icon">{collapsed() ? "▶" : "▼"}</span>
         <span class="collapse-title">{props.title}</span>
-        {collapsed() && <span class="collapse-hint">{props.content.slice(0, 50)}...</span>}
+        {collapsed() && (
+          <span class="collapse-hint">{props.content.slice(0, 50)}...</span>
+        )}
       </button>
       <Show when={!collapsed()}>
-        <div class={`collapse-content ${props.mono ? "mono" : ""}`}>{props.content}</div>
+        <div class={`collapse-content ${props.mono ? "mono" : ""}`}>
+          {props.content}
+        </div>
       </Show>
       {props.timestamp && (
         <div class="block-time">{formatTimestamp(props.timestamp)}</div>
@@ -130,7 +154,12 @@ function ContentBlocks(props: {
       <For each={props.blocks}>
         {(block) => {
           if (block.type === "text") {
-            return <div class="block-text markdown-content" innerHTML={renderMarkdown(block.text)} />;
+            return (
+              <div
+                class="block-text markdown-content"
+                innerHTML={renderMarkdown(block.text)}
+              />
+            );
           }
           if (block.type === "thinking") {
             return (
@@ -187,7 +216,13 @@ function ActiveToolIndicator(props: { tools: ActiveToolCall[] }) {
       <For each={props.tools}>
         {(tool) => (
           <div class={`active-tool ${tool.status}`}>
-            <span class="tool-icon">{tool.status === "running" ? "⟳" : tool.status === "error" ? "✗" : "✓"}</span>
+            <span class="tool-icon">
+              {tool.status === "running"
+                ? "⟳"
+                : tool.status === "error"
+                  ? "✗"
+                  : "✓"}
+            </span>
             <span class="tool-name">{tool.toolName}</span>
           </div>
         )}
@@ -205,21 +240,42 @@ export function ChatView() {
     params.view === "full" ? "full" : "simple"
   );
   const [simpleMessages, setSimpleMessages] = createSignal<Message[]>([]);
-  const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>([]);
-  const [thinkingLevel, setThinkingLevel] = createSignal<ThinkLevel | undefined>();
-  const [pendingThinkLevel, setPendingThinkLevel] = createSignal<ThinkLevel | null>(null);
+  const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>(
+    []
+  );
+  const [thinkingLevel, setThinkingLevel] = createSignal<
+    ThinkLevel | undefined
+  >();
+  const [pendingThinkLevel, setPendingThinkLevel] =
+    createSignal<ThinkLevel | null>(null);
   const [input, setInput] = createSignal("");
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [streamingThinking, setStreamingThinking] = createSignal("");
-  const [streamingThinkingAt, setStreamingThinkingAt] = createSignal<number | null>(null);
-  const [streamingToolCalls, setStreamingToolCalls] = createSignal<Array<{ id: string; name: string; arguments: unknown; status: "running" | "done" | "error"; timestamp: number }>>([]);
+  const [streamingThinkingAt, setStreamingThinkingAt] = createSignal<
+    number | null
+  >(null);
+  const [streamingToolCalls, setStreamingToolCalls] = createSignal<
+    Array<{
+      id: string;
+      name: string;
+      arguments: unknown;
+      status: "running" | "done" | "error";
+      timestamp: number;
+    }>
+  >([]);
   const [streamingText, setStreamingText] = createSignal("");
-  const [streamingTextAt, setStreamingTextAt] = createSignal<number | null>(null);
-  const [streamingStartedAt, setStreamingStartedAt] = createSignal<number | null>(null);
+  const [streamingTextAt, setStreamingTextAt] = createSignal<number | null>(
+    null
+  );
+  const [streamingStartedAt, setStreamingStartedAt] = createSignal<
+    number | null
+  >(null);
   const [activeTools, setActiveTools] = createSignal<ActiveToolCall[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
-  const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<Array<{ text: string; timestamp: number }>>([]);
+  const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<
+    Array<{ text: string; timestamp: number }>
+  >([]);
 
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -360,9 +416,10 @@ export function ChatView() {
 
   const handleViewChange = (mode: HistoryViewMode) => {
     if (mode !== viewMode()) {
-      const path = mode === "full"
-        ? `/chat/${params.agentId}/full`
-        : `/chat/${params.agentId}`;
+      const path =
+        mode === "full"
+          ? `/chat/${params.agentId}/full`
+          : `/chat/${params.agentId}`;
       navigate(path, { replace: true });
     }
   };
@@ -409,7 +466,11 @@ export function ChatView() {
     setSimpleMessages((prev) => [...prev, userMsg]);
     setFullMessages((prev) => [
       ...prev,
-      { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
+      {
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp: Date.now(),
+      },
     ]);
 
     setInput("");
@@ -422,11 +483,20 @@ export function ChatView() {
       const sdkId = currentAgent?.sdk ?? "pi";
       const trackSequentialQueue = sdkId === "claude" || sdkId === "openclaw";
       if (trackSequentialQueue) {
-        setPendingQueuedMessages((prev) => [...prev, { text, timestamp: Date.now() }]);
+        setPendingQueuedMessages((prev) => [
+          ...prev,
+          { text, timestamp: Date.now() },
+        ]);
       }
       let queuedText = "";
       let queuedThinking = "";
-      const queuedToolCalls: Array<{ id: string; name: string; arguments: unknown; status: "running" | "done" | "error"; timestamp: number }> = [];
+      const queuedToolCalls: Array<{
+        id: string;
+        name: string;
+        arguments: unknown;
+        status: "running" | "done" | "error";
+        timestamp: number;
+      }> = [];
 
       // Send queued message with minimal handlers (queue ack doesn't affect streaming state)
       const queueCleanup = streamMessage(
@@ -443,7 +513,9 @@ export function ChatView() {
           }
 
           if (trackSequentialQueue) {
-            setPendingQueuedMessages((prev) => (prev.length ? prev.slice(0, -1) : prev));
+            setPendingQueuedMessages((prev) =>
+              prev.length ? prev.slice(0, -1) : prev
+            );
           }
 
           const blocks: ContentBlock[] = [];
@@ -451,7 +523,12 @@ export function ChatView() {
             blocks.push({ type: "thinking", thinking: queuedThinking });
           }
           for (const tc of queuedToolCalls) {
-            blocks.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.arguments });
+            blocks.push({
+              type: "toolCall",
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+            });
           }
           if (queuedText) {
             blocks.push({ type: "text", text: queuedText });
@@ -460,11 +537,23 @@ export function ChatView() {
           if (queuedText || queuedThinking || queuedToolCalls.length > 0) {
             setSimpleMessages((prev) => [
               ...prev,
-              { id: crypto.randomUUID(), role: "assistant", content: queuedText, timestamp: Date.now() },
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: queuedText,
+                timestamp: Date.now(),
+              },
             ]);
             setFullMessages((prev) => [
               ...prev,
-              { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: queuedText }], timestamp: Date.now() },
+              {
+                role: "assistant",
+                content:
+                  blocks.length > 0
+                    ? blocks
+                    : [{ type: "text", text: queuedText }],
+                timestamp: Date.now(),
+              },
             ]);
           }
           if (pendingThinkLevel()) {
@@ -478,7 +567,12 @@ export function ChatView() {
           const content = `Error: ${error}`;
           setSimpleMessages((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content,
+              timestamp: Date.now(),
+            },
           ]);
           if (queueCleanup) queueCleanup();
         },
@@ -487,7 +581,13 @@ export function ChatView() {
             queuedThinking += chunk;
           },
           onToolCall: (id, name, args) => {
-            queuedToolCalls.push({ id, name, arguments: args, status: "running", timestamp: Date.now() });
+            queuedToolCalls.push({
+              id,
+              name,
+              arguments: args,
+              status: "running",
+              timestamp: Date.now(),
+            });
           },
           onToolEnd: (toolName, isError) => {
             for (const tc of queuedToolCalls) {
@@ -554,7 +654,12 @@ export function ChatView() {
           blocks.push({ type: "thinking", thinking: thinkingContent });
         }
         for (const tc of streamingToolCalls()) {
-          blocks.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.arguments });
+          blocks.push({
+            type: "toolCall",
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments,
+          });
         }
         if (content) {
           blocks.push({ type: "text", text: content });
@@ -564,11 +669,21 @@ export function ChatView() {
         if (content || thinkingContent || streamingToolCalls().length > 0) {
           setSimpleMessages((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content,
+              timestamp: Date.now(),
+            },
           ]);
           setFullMessages((prev) => [
             ...prev,
-            { role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: content }], timestamp: Date.now() },
+            {
+              role: "assistant",
+              content:
+                blocks.length > 0 ? blocks : [{ type: "text", text: content }],
+              timestamp: Date.now(),
+            },
           ]);
         }
         // Update thinkingLevel if pending was used
@@ -584,7 +699,12 @@ export function ChatView() {
         const content = `Error: ${error}`;
         setSimpleMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: "assistant", content, timestamp: Date.now() },
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content,
+            timestamp: Date.now(),
+          },
         ]);
         setFullMessages((prev) => [
           ...prev,
@@ -606,7 +726,13 @@ export function ChatView() {
         onToolCall: (id, name, args) => {
           setStreamingToolCalls((prev) => [
             ...prev,
-            { id, name, arguments: args, status: "running", timestamp: Date.now() },
+            {
+              id,
+              name,
+              arguments: args,
+              status: "running",
+              timestamp: Date.now(),
+            },
           ]);
         },
         onToolStart: (toolName) => {
@@ -655,7 +781,16 @@ export function ChatView() {
     <div class="chat-view">
       <header class="header">
         <A href="/agents" class="back-btn" aria-label="Go back">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </A>
@@ -663,7 +798,9 @@ export function ChatView() {
           <div class="agent-name">{agent()?.name ?? "Loading..."}</div>
           <div class="agent-status">
             <span class="status-dot" classList={{ active: isStreaming() }} />
-            <span class="status-text">{isStreaming() ? "thinking" : "online"}</span>
+            <span class="status-text">
+              {isStreaming() ? "thinking" : "online"}
+            </span>
           </div>
         </div>
         <A
@@ -672,7 +809,16 @@ export function ChatView() {
           aria-label="Open taskboard"
           title="Tasks (Cmd+K)"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M9 11l3 3L22 4" />
             <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
           </svg>
@@ -683,7 +829,7 @@ export function ChatView() {
             value={pendingThinkLevel() ?? thinkingLevel() ?? ""}
             onChange={(e) => {
               const val = e.currentTarget.value;
-              setPendingThinkLevel(val ? val as ThinkLevel : null);
+              setPendingThinkLevel(val ? (val as ThinkLevel) : null);
             }}
           >
             <option value="">Default</option>
@@ -718,7 +864,10 @@ export function ChatView() {
             {(msg) => (
               <div class={`message ${msg.role}`}>
                 {msg.role === "assistant" ? (
-                  <div class="content markdown-content" innerHTML={renderMarkdown(msg.content)} />
+                  <div
+                    class="content markdown-content"
+                    innerHTML={renderMarkdown(msg.content)}
+                  />
                 ) : (
                   <div class="content">{msg.content}</div>
                 )}
@@ -733,22 +882,33 @@ export function ChatView() {
             {(msg) => {
               if (msg.role === "user") {
                 const textContent = msg.content
-                  .filter((b): b is { type: "text"; text: string } => b.type === "text")
+                  .filter(
+                    (b): b is { type: "text"; text: string } =>
+                      b.type === "text"
+                  )
                   .map((b) => b.text)
                   .join("\n");
                 return (
                   <div class="message user">
                     <div class="content">{textContent}</div>
-                    <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
+                    <div class="message-time">
+                      {formatTimestamp(msg.timestamp)}
+                    </div>
                   </div>
                 );
               }
               if (msg.role === "assistant") {
                 return (
                   <div class="message assistant full-message">
-                    <ContentBlocks blocks={msg.content} timestamp={msg.timestamp} toolResultsMap={toolResultsMap()} />
+                    <ContentBlocks
+                      blocks={msg.content}
+                      timestamp={msg.timestamp}
+                      toolResultsMap={toolResultsMap()}
+                    />
                     {msg.meta && <ModelMetaDisplay meta={msg.meta} />}
-                    <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
+                    <div class="message-time">
+                      {formatTimestamp(msg.timestamp)}
+                    </div>
                   </div>
                 );
               }
@@ -762,7 +922,15 @@ export function ChatView() {
         </Show>
 
         {/* Streaming content in full mode - show blocks incrementally */}
-        <Show when={viewMode() === "full" && isStreaming() && (streamingThinking() || streamingToolCalls().length > 0 || streamingText())}>
+        <Show
+          when={
+            viewMode() === "full" &&
+            isStreaming() &&
+            (streamingThinking() ||
+              streamingToolCalls().length > 0 ||
+              streamingText())
+          }
+        >
           <div class="message assistant full-message streaming">
             <div class="content-blocks">
               {streamingThinking() && (
@@ -770,7 +938,9 @@ export function ChatView() {
                   title="Thinking"
                   content={streamingThinking()}
                   defaultCollapsed={false}
-                  timestamp={streamingThinkingAt() ?? streamingStartedAt() ?? undefined}
+                  timestamp={
+                    streamingThinkingAt() ?? streamingStartedAt() ?? undefined
+                  }
                 />
               )}
               <For each={streamingToolCalls()}>
@@ -785,40 +955,57 @@ export function ChatView() {
                 )}
               </For>
               {streamingText() && (
-                <div class="block-text markdown-content" innerHTML={renderMarkdown(streamingText())} />
+                <div
+                  class="block-text markdown-content"
+                  innerHTML={renderMarkdown(streamingText())}
+                />
               )}
             </div>
             {streamingStartedAt() && (
-              <div class="message-time">{formatTimestamp(streamingStartedAt()!)}</div>
+              <div class="message-time">
+                {formatTimestamp(streamingStartedAt()!)}
+              </div>
             )}
           </div>
         </Show>
 
         {/* Streaming content in simple mode - just text */}
-        <Show when={viewMode() === "simple" && isStreaming() && streamingText()}>
+        <Show
+          when={viewMode() === "simple" && isStreaming() && streamingText()}
+        >
           <div class="message assistant streaming">
-            <div class="content markdown-content" innerHTML={renderMarkdown(streamingText())} />
+            <div
+              class="content markdown-content"
+              innerHTML={renderMarkdown(streamingText())}
+            />
             {(streamingTextAt() || streamingStartedAt()) && (
               <div class="message-time">
-                {formatTimestamp((streamingTextAt() ?? streamingStartedAt()) as number)}
+                {formatTimestamp(
+                  (streamingTextAt() ?? streamingStartedAt()) as number
+                )}
               </div>
             )}
           </div>
         </Show>
 
         {/* Thinking dots when waiting (nothing received yet) */}
-        {isStreaming() && !streamingThinking() && streamingToolCalls().length === 0 && !streamingText() && (
-          <div class="message assistant thinking">
-            <div class="thinking-dots">
-              <span />
-              <span />
-              <span />
+        {isStreaming() &&
+          !streamingThinking() &&
+          streamingToolCalls().length === 0 &&
+          !streamingText() && (
+            <div class="message assistant thinking">
+              <div class="thinking-dots">
+                <span />
+                <span />
+                <span />
+              </div>
+              {streamingStartedAt() && (
+                <div class="message-time">
+                  {formatTimestamp(streamingStartedAt()!)}
+                </div>
+              )}
             </div>
-            {streamingStartedAt() && (
-              <div class="message-time">{formatTimestamp(streamingStartedAt()!)}</div>
-            )}
-          </div>
-        )}
+          )}
 
         {/* Keep ActiveToolIndicator for simple mode compatibility */}
         <Show when={viewMode() === "simple" && activeTools().length > 0}>
@@ -849,8 +1036,20 @@ export function ChatView() {
           disabled={!input().trim() || loading()}
           aria-label="Send message"
         >
-          <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <svg
+            class="send-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <path
+              d="M5 12h14M12 5l7 7-7 7"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -1015,6 +1214,9 @@ export function ChatView() {
         .messages {
           flex: 1;
           overflow-y: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          touch-action: pan-y;
           padding: 24px 20px;
           display: flex;
           flex-direction: column;
@@ -1393,6 +1595,7 @@ export function ChatView() {
         .input-area {
           display: flex;
           align-items: flex-end;
+          flex-shrink: 0;
           gap: 12px;
           padding: 16px 20px 24px;
           background: var(--surface-0);

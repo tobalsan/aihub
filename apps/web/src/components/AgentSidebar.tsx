@@ -26,7 +26,9 @@ type RecentProjectView = {
 
 const RECENT_PROJECTS_STORAGE_KEY = "aihub:recent-project-views";
 const RECENT_PROJECTS_MAX = 5;
-const LazySidebarAccountPanel = lazy(() => import("../auth/SidebarAccountPanel"));
+const LazySidebarAccountPanel = lazy(
+  () => import("../auth/SidebarAccountPanel")
+);
 
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
   if (Array.isArray(role)) return role.includes("admin");
@@ -168,7 +170,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
               href="/conversations"
               class="nav-link"
               classList={{
-                active: stripBase(location.pathname).startsWith("/conversations"),
+                active: stripBase(location.pathname).startsWith(
+                  "/conversations"
+                ),
               }}
             >
               <span class="nav-full">Conversations</span>
@@ -206,7 +210,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         </nav>
       </div>
       <div class="sidebar-spacer" />
-      <Show when={isComponentEnabled("projects") && recentProjects().length > 0}>
+      <Show
+        when={isComponentEnabled("projects") && recentProjects().length > 0}
+      >
         <div class="sidebar-recent">
           <div class="sidebar-recent-label">Recent</div>
           <For each={recentProjects()}>
@@ -520,7 +526,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
             position: fixed;
             top: 0;
             left: 0;
-            height: 100vh;
+            height: 100%;
+            height: 100dvh;
             z-index: 850;
             box-shadow: 12px 0 24px var(--shadow-md);
             transform: translateX(0);

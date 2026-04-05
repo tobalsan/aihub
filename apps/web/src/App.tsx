@@ -48,8 +48,8 @@ const LazyProjectDetailPage = lazy(() =>
 const LazyAuthGuard = lazy(() => import("./auth/AuthGuard"));
 const LazyLoginPage = lazy(() => import("./pages/Login"));
 const LazyAdminUsersPage = lazy(() => import("./pages/admin/Users"));
-const LazyAdminAgentsPage = lazy(() =>
-  import("./pages/admin/AgentAssignments")
+const LazyAdminAgentsPage = lazy(
+  () => import("./pages/admin/AgentAssignments")
 );
 
 const QUICK_CHAT_LAST_AGENT_KEY = "aihub:quick-chat-last-agent";
@@ -85,9 +85,8 @@ function Layout(props: { children?: JSX.Element }) {
   const [quickChatAgentId, setQuickChatAgentId] = createSignal<string | null>(
     readQuickChatAgentId()
   );
-  const [agents] = createResource(
-    canLoadQuickChatAgents,
-    async (enabled) => (enabled ? fetchAgents() : [])
+  const [agents] = createResource(canLoadQuickChatAgents, async (enabled) =>
+    enabled ? fetchAgents() : []
   );
   const quickChatAgents = createMemo(() => agents() ?? []);
   const selectedQuickChatAgent = createMemo(
@@ -380,12 +379,14 @@ function LeftNavShell(props: { children?: JSX.Element }) {
           width: 100%;
           position: relative;
           min-height: 0;
+          overscroll-behavior: contain;
         }
 
         .left-nav-main {
           flex: 1;
           min-width: 0;
           min-height: 0;
+          overflow: hidden;
         }
 
         .left-nav-shell .mobile-sidebar-toggle {

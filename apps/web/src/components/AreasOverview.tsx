@@ -1,6 +1,11 @@
 import { For, Show, createMemo, createResource, createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { createArea, fetchAreas, fetchProjects, updateArea } from "../api/client";
+import {
+  createArea,
+  fetchAreas,
+  fetchProjects,
+  updateArea,
+} from "../api/client";
 import type { Area, ProjectListItem } from "../api/types";
 import { AreaCard, STATUS_META, type AreaStats } from "./AreaCard";
 
@@ -149,7 +154,9 @@ export function AreasOverview() {
       cancelCreate();
     } catch (createErr) {
       setCreateError(
-        createErr instanceof Error ? createErr.message : "Failed to create area."
+        createErr instanceof Error
+          ? createErr.message
+          : "Failed to create area."
       );
     } finally {
       setCreateSaving(false);
@@ -199,7 +206,9 @@ export function AreasOverview() {
             <form class="area-card area-create-card" onSubmit={handleCreate}>
               <div class="area-card-top">
                 <span class="all-projects-title">New Area</span>
-                <span class="area-id-preview">ID: {createIdPreview() || "..."}</span>
+                <span class="area-id-preview">
+                  ID: {createIdPreview() || "..."}
+                </span>
               </div>
               <div class="area-create-fields">
                 <label class="area-edit-label">
@@ -208,7 +217,9 @@ export function AreasOverview() {
                     class="area-edit-input"
                     type="text"
                     value={createTitle()}
-                    onInput={(event) => setCreateTitle(event.currentTarget.value)}
+                    onInput={(event) =>
+                      setCreateTitle(event.currentTarget.value)
+                    }
                     placeholder="AIHub"
                     required
                   />
@@ -220,7 +231,9 @@ export function AreasOverview() {
                       class="area-edit-input area-edit-color"
                       type="color"
                       value={createColor()}
-                      onInput={(event) => setCreateColor(event.currentTarget.value)}
+                      onInput={(event) =>
+                        setCreateColor(event.currentTarget.value)
+                      }
                       required
                     />
                   </label>
@@ -230,7 +243,9 @@ export function AreasOverview() {
                       class="area-edit-input"
                       type="text"
                       value={createRepo()}
-                      onInput={(event) => setCreateRepo(event.currentTarget.value)}
+                      onInput={(event) =>
+                        setCreateRepo(event.currentTarget.value)
+                      }
                       placeholder="~/code/repo"
                     />
                   </label>
@@ -305,7 +320,11 @@ export function AreasOverview() {
           <h2>Create your first area</h2>
           <p>No area files found yet in `.areas/`.</p>
           <Show when={!creating()}>
-            <button class="areas-create-toggle" type="button" onClick={openCreate}>
+            <button
+              class="areas-create-toggle"
+              type="button"
+              onClick={openCreate}
+            >
               Add area
             </button>
           </Show>
@@ -316,6 +335,9 @@ export function AreasOverview() {
         .areas-page {
           height: 100%;
           overflow: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          touch-action: pan-y;
           background: var(--bg-inset);
           color: var(--text-primary);
           padding: 24px 20px 36px;
