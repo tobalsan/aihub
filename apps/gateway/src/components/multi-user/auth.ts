@@ -106,23 +106,21 @@ function buildMultiUserAuth(
               });
             }
 
-            return {
-              data: {
-                ...user,
-                approved: false,
-              },
-            };
-          },
-          after: async (user) => {
+            // First user becomes admin and is auto-approved.
+            // Must be set in `before` so the session is created with correct values;
+            // `after` hook updates bypass the session cache.
             const userCount = db
               .prepare("SELECT COUNT(*) AS count FROM user")
               .get() as { count: number };
+            const isFirstUser = userCount.count === 0;
 
-            if (userCount.count !== 1) return;
-
-            db.prepare(
-              "UPDATE user SET role = ?, approved = ? WHERE id = ?"
-            ).run("admin", 1, user.id);
+            return {
+              data: {
+                ...user,
+                approved: isFirstUser,
+                ...(isFirstUser && { role: "admin" }),
+              },
+            };
           },
         },
       },
