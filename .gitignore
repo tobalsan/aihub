@@ -11,3 +11,6 @@ apps/web/vite.config.js
 apps/web/vite.config.js.map
 apps/web/vite.config.d.ts
 apps/web/vite.config.d.ts.map
+
+# Harbor eval job artifacts (created by `harbor run` in the cwd)
+jobs/
