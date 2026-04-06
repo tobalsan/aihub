@@ -30,4 +30,10 @@ build_timeout_sec = 600.0
 cpus = 1
 memory_mb = 2048
 storage_mb = 4096
-allow_internet = false
+# allow_internet=true is required for sidecar reachability. Harbor's
+# allow_internet=false injects `network_mode: none` on `main`, which is
+# mutually exclusive with attaching to any compose network. Sandbox is
+# enforced instead via an `internal: true` bridge network in
+# environment/docker-compose.yaml — main has no route to the outside,
+# only to the fake-cloudifi-admin sidecar.
+allow_internet = true

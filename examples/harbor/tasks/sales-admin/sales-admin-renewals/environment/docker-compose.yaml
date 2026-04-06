@@ -14,6 +14,8 @@ services:
     depends_on:
       fake-cloudifi-admin:
         condition: service_healthy
+    networks:
+      - sandbox
 
   fake-cloudifi-admin:
     build:
@@ -22,3 +24,14 @@ services:
       - "8080"
     environment:
       FAKE_CLOUDIFI_FIXTURES: /fixtures
+    networks:
+      - sandbox
+
+networks:
+  sandbox:
+    # internal: true blocks egress to the host/internet while still
+    # allowing service-to-service DNS + traffic between main and the
+    # fake-cloudifi-admin sidecar. This is the sandbox boundary for
+    # this task; task.toml uses allow_internet=true because harbor's
+    # network_mode:none override is incompatible with compose networks.
+    internal: true
