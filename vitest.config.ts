@@ -26,8 +26,8 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    fileParallelism: false,
-    maxWorkers: 1,
+    fileParallelism: true,
+    maxWorkers: 4,
     minWorkers: 1,
     environmentMatchGlobs: [["apps/web/src/**/*.test.tsx", "jsdom"]],
     deps: {

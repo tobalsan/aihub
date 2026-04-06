@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 describe("subagents API", () => {
   let tmpDir: string;
   let projectsRoot: string;
+  let repoTemplateDir: string;
   let api: {
     request: (
       input: RequestInfo,
@@ -49,6 +50,25 @@ describe("subagents API", () => {
       path.join(configDir, "aihub.json"),
       JSON.stringify(config, null, 2)
     );
+
+    repoTemplateDir = path.join(tmpDir, "repo-template");
+    await fs.mkdir(repoTemplateDir, { recursive: true });
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoTemplateDir });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoTemplateDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "Test User"], {
+      cwd: repoTemplateDir,
+    });
+    await fs.writeFile(path.join(repoTemplateDir, "README.md"), "test\n");
+    await execFileAsync("git", ["add", "."], { cwd: repoTemplateDir });
+    await execFileAsync("git", ["commit", "-m", "init"], {
+      cwd: repoTemplateDir,
+    });
+    await execFileAsync("git", ["checkout", "-b", "dev"], {
+      cwd: repoTemplateDir,
+    });
+    await execFileAsync("git", ["checkout", "main"], { cwd: repoTemplateDir });
 
     vi.resetModules();
     const { clearConfigCacheForTests, loadConfig } = await import(
@@ -109,6 +129,12 @@ describe("subagents API", () => {
     );
   };
 
+  const createRepoCopy = async (name: string) => {
+    const repoDir = path.join(tmpDir, name);
+    await fs.cp(repoTemplateDir, repoDir, { recursive: true });
+    return repoDir;
+  };
+
   it("lists subagents and returns logs with cursor", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
@@ -120,19 +146,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
-    await execFileAsync("git", ["checkout", "-b", "dev"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -659,18 +673,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-ralph");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-ralph");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -763,18 +766,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-ralph-generate");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-ralph-generate");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -849,18 +841,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-ralph-missing-prompt");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-ralph-missing-prompt");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -900,18 +881,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-ralph-missing-scopes");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-ralph-missing-scopes");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -955,18 +925,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-ralph-start");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-ralph-start");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -1043,18 +1002,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-frontmatter-start");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-frontmatter-start");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -1138,18 +1086,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-coordinator-context");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-coordinator-context");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -1283,18 +1220,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-start-options");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-start-options");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -1439,18 +1365,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-worker-space-base");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-worker-space-base");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -1958,18 +1873,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-reviewer-workspaces");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-reviewer-workspaces");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2065,18 +1969,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-spawn");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-spawn");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2191,18 +2084,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-pi");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-pi");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2301,18 +2183,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-conflict-fixer");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-conflict-fixer");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2566,18 +2437,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-interrupt");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-interrupt");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2660,18 +2520,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-resume");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-resume");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2771,18 +2620,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-claude-resume");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-claude-resume");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -2886,18 +2724,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-pi-resume");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-pi-resume");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3009,18 +2836,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-resume-limit");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-resume-limit");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3072,18 +2888,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-spawn-limit");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-spawn-limit");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3134,18 +2939,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-worktree");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-worktree");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3220,18 +3014,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-area-fallback");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-area-fallback");
 
     const createAreaRes = await Promise.resolve(
       api.request("/areas", {
@@ -3312,18 +3095,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-clone");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-clone");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3400,18 +3172,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-kill-clone");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-kill-clone");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3491,18 +3252,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-kill-worktree");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-kill-worktree");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -3684,18 +3434,7 @@ describe("subagents API", () => {
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
 
-    const repoDir = path.join(tmpDir, "repo-resolve");
-    await fs.mkdir(repoDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-      cwd: repoDir,
-    });
-    await execFileAsync("git", ["config", "user.name", "Test User"], {
-      cwd: repoDir,
-    });
-    await fs.writeFile(path.join(repoDir, "README.md"), "test\n");
-    await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoDir });
+    const repoDir = await createRepoCopy("repo-resolve");
 
     const patchRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {

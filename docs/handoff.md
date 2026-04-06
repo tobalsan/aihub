@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-06 test-suite speedup landed: `apps/gateway/src/subagents/subagents.api.test.ts` now seeds one reusable git repo in `beforeAll()` and copies it per test, and `vitest.config.ts` now enables file parallelism with `maxWorkers: 4`. Full `pnpm test` now passes in `57.86s` (`95/95` files, `728/728` tests) versus pre-change measured runs at `133.51s` and the first serial-only improvement at `86.30s`.
 - 2026-04-05 PRO-214 mobile scroll fix landed: mobile shell/content scroll is now isolated in the web UI via `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `left-nav-main` overflow isolation, chat input `flex-shrink: 0`, and mobile sidebar `100dvh` sizing across agents/chat/activity/areas/conversations.
 - 2026-04-05 PRO-212 Discord bot dedupe landed: `apps/gateway/src/discord/bot.ts` now uses one shared `createConfiguredDiscordBot()` factory for both legacy per-agent bots and component-routed bots; wrappers only supply routing/agent-resolution strategy. Added component-bot coverage and verification passed with `pnpm install`, `pnpm typecheck`, `pnpm lint`, and `pnpm test` (`726/726`).
 - 2026-04-05 PRO-212 code-quality slice landed: shared helpers now cover Discord bot flow, session file resolution, frontmatter parsing, web markdown/history/timestamp formatting, and websocket event dispatch; OpenClaw now matches the object-literal adapter pattern; session + Claude stores lazy-load via `fs.promises`; verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test` (`721/721`).
@@ -33,6 +34,17 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-06: test-suite speedup
+
+- `apps/gateway/src/subagents/subagents.api.test.ts`, `vitest.config.ts`
+  - Added a seeded `repoTemplateDir` in `beforeAll()` and switched repeated subagent repo setup to `createRepoCopy()` so the heavy subagent API suite reuses the same pre-committed git fixture instead of re-running `git init/config/add/commit` for each case.
+  - Re-enabled Vitest file-level parallelism and capped the pool at `4` workers, which the full suite now passes under reliably.
+  - Combined effect: full `pnpm test` dropped from a measured `133.51s` to `57.86s` without removing assertions or coverage.
+- Verification:
+  - `pnpm test`
+  - `pnpm lint`
+  - `pnpm typecheck`
 
 ### 2026-04-05: PRO-214 mobile web scroll isolation
 
