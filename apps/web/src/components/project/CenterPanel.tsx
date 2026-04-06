@@ -197,7 +197,12 @@ export function CenterPanel(props: CenterPanelProps) {
       );
       if (!active) return;
       const updates = logResults.filter(
-        ({ logs }) => logs.ok && logs.data.events.length > 0
+        (
+          entry
+        ): entry is {
+          item: (typeof logResults)[number]["item"];
+          logs: Extract<(typeof logResults)[number]["logs"], { ok: true }>;
+        } => entry.logs.ok && entry.logs.data.events.length > 0
       );
       for (const { item, logs } of logResults) {
         if (!logs.ok) continue;

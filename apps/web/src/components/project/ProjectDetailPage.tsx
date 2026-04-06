@@ -31,6 +31,7 @@ import {
 } from "./CenterPanel";
 import { SpecEditor } from "./SpecEditor";
 import type { SpawnFormDraft, SpawnPrefill, SpawnTemplate } from "./SpawnForm";
+import { zenMode } from "../../lib/layout";
 
 type PersistedCenterView = {
   tab: CenterTab;
@@ -506,6 +507,14 @@ export function ProjectDetailPage() {
     document.title = `${current.title} · ${getBaseAppTitle()}`;
   });
 
+  createEffect(() => {
+    if (!zenMode()) return;
+    setCenterTab("chat");
+    setMergedTab("chat");
+    setMobileTab("chat");
+    setSpawnMode(null);
+  });
+
   onCleanup(() => {
     document.title = getBaseAppTitle();
   });
@@ -520,461 +529,313 @@ export function ProjectDetailPage() {
       </Show>
       <Show when={project()}>
         {(detail) => (
-          <div class="project-detail-page">
-            <header class="project-detail-breadcrumb">
-              <button
-                type="button"
-                class="project-detail-back"
-                onClick={handleBack}
-              >
-                <span aria-hidden="true">←</span>
-                <span class="project-detail-back-text">Back to Projects</span>
-              </button>
-              <span class="project-detail-breadcrumb-separator">/</span>
-              <span
-                class="project-detail-breadcrumb-area"
-                title={area()?.title ?? "Unknown area"}
-              >
-                {area()?.title ?? "Unknown area"}
-              </span>
-              <span class="project-detail-breadcrumb-separator">/</span>
-              <Show
-                when={isEditingTitle()}
-                fallback={
-                  <span
-                    class="project-detail-title"
-                    onDblClick={handleStartTitleEdit}
-                    title="Double-click to edit title"
-                  >
-                    {detail().title}
-                  </span>
-                }
-              >
-                <form
-                  class="project-detail-title-edit"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handleSaveTitle();
-                  }}
+          <div class="project-detail-page" classList={{ zen: zenMode() }}>
+            <Show when={!zenMode()}>
+              <header class="project-detail-breadcrumb">
+                <button
+                  type="button"
+                  class="project-detail-back"
+                  onClick={handleBack}
                 >
-                  <input
-                    ref={(el) => (titleInputRef = el)}
-                    class="project-detail-title-input"
-                    value={titleDraft()}
-                    onInput={(event) =>
-                      setTitleDraft(event.currentTarget.value)
-                    }
-                  />
-                  <button type="submit" class="project-detail-title-save">
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    class="project-detail-title-cancel"
-                    onClick={handleCancelTitleEdit}
+                  <span aria-hidden="true">←</span>
+                  <span class="project-detail-back-text">Back to Projects</span>
+                </button>
+                <span class="project-detail-breadcrumb-separator">/</span>
+                <span
+                  class="project-detail-breadcrumb-area"
+                  title={area()?.title ?? "Unknown area"}
+                >
+                  {area()?.title ?? "Unknown area"}
+                </span>
+                <span class="project-detail-breadcrumb-separator">/</span>
+                <Show
+                  when={isEditingTitle()}
+                  fallback={
+                    <span
+                      class="project-detail-title"
+                      onDblClick={handleStartTitleEdit}
+                      title="Double-click to edit title"
+                    >
+                      {detail().title}
+                    </span>
+                  }
+                >
+                  <form
+                    class="project-detail-title-edit"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleSaveTitle();
+                    }}
                   >
-                    Cancel
-                  </button>
-                </form>
-              </Show>
-            </header>
-            <div class="project-detail">
-              <Switch>
-                <Match when={isMobile()}>
-                  <div class="project-detail__merged project-detail__merged--mobile">
-                    <header class="project-detail-merged-tabs">
-                      <button
-                        type="button"
-                        classList={{ active: mobileTab() === "overview" }}
-                        onClick={() => setMobileTab("overview")}
-                      >
-                        Overview
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mobileTab() === "chat" }}
-                        onClick={() => {
-                          setMobileTab("chat");
-                          setCenterTab("chat");
-                        }}
-                      >
-                        Chat
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mobileTab() === "activity" }}
-                        onClick={() => {
-                          setMobileTab("activity");
-                          setCenterTab("activity");
-                        }}
-                      >
-                        Activity
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mobileTab() === "changes" }}
-                        onClick={() => {
-                          setMobileTab("changes");
-                          setCenterTab("changes");
-                        }}
-                      >
-                        Changes
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mobileTab() === "spec" }}
-                        onClick={() => setMobileTab("spec")}
-                      >
-                        Spec
-                      </button>
-                    </header>
-                    <div class="project-detail__merged-body">
-                      <Switch>
-                        <Match when={mobileTab() === "overview"}>
-                          <AgentPanel
-                            project={detail()}
-                            area={area()}
-                            areas={areas() ?? []}
-                            subagents={subagents()}
-                            onSubagentsChange={(items) => setSubagents(items)}
-                            onOpenSpawn={(input) => {
-                              setSpawnMode(input);
-                              setSpawnFormDraft({
-                                includeDefaultPrompt:
-                                  input.prefill.includeDefaultPrompt ?? true,
-                                includeRoleInstructions:
-                                  input.prefill.includeRoleInstructions ?? true,
-                                includePostRun:
-                                  input.prefill.includePostRun ?? true,
-                                includeCustomInstructions: false,
-                                customInstructions:
-                                  input.prefill.customInstructions ?? "",
-                              });
+                    <input
+                      ref={(el) => (titleInputRef = el)}
+                      class="project-detail-title-input"
+                      value={titleDraft()}
+                      onInput={(event) =>
+                        setTitleDraft(event.currentTarget.value)
+                      }
+                    />
+                    <button type="submit" class="project-detail-title-save">
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      class="project-detail-title-cancel"
+                      onClick={handleCancelTitleEdit}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                </Show>
+              </header>
+            </Show>
+            <Show
+              when={zenMode()}
+              fallback={
+                <div class="project-detail">
+                  <Switch>
+                    <Match when={isMobile()}>
+                      <div class="project-detail__merged project-detail__merged--mobile">
+                        <header class="project-detail-merged-tabs">
+                          <button
+                            type="button"
+                            classList={{ active: mobileTab() === "overview" }}
+                            onClick={() => setMobileTab("overview")}
+                          >
+                            Overview
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mobileTab() === "chat" }}
+                            onClick={() => {
                               setMobileTab("chat");
-                              setMergedTab("chat");
                               setCenterTab("chat");
                             }}
-                            onTitleChange={handleTitleChange}
-                            onStatusChange={handleStatusChange}
-                            onAreaChange={handleAreaChange}
-                            onRepoChange={handleRepoChange}
-                            selectedAgentSlug={
-                              selectedAgent()?.type === "lead"
-                                ? `lead:${selectedAgent()?.agentId ?? ""}`
-                                : (selectedAgent()?.slug ?? null)
-                            }
-                            onSelectAgent={(info) => {
-                              setMobileTab("chat");
-                              setMergedTab("chat");
-                              setCenterTab("chat");
-                              if (info.type === "lead") {
-                                setSelectedAgent({
-                                  type: "lead",
-                                  projectId: info.projectId,
-                                  agentId: info.agentId,
-                                  agentName: info.agentId,
-                                });
-                                return;
+                          >
+                            Chat
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mobileTab() === "activity" }}
+                            onClick={() => {
+                              setMobileTab("activity");
+                              setCenterTab("activity");
+                            }}
+                          >
+                            Activity
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mobileTab() === "changes" }}
+                            onClick={() => {
+                              setMobileTab("changes");
+                              setCenterTab("changes");
+                            }}
+                          >
+                            Changes
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mobileTab() === "spec" }}
+                            onClick={() => setMobileTab("spec")}
+                          >
+                            Spec
+                          </button>
+                        </header>
+                        <div class="project-detail__merged-body">
+                          <Switch>
+                            <Match when={mobileTab() === "overview"}>
+                              <AgentPanel
+                                project={detail()}
+                                area={area()}
+                                areas={areas() ?? []}
+                                subagents={subagents()}
+                                onSubagentsChange={(items) =>
+                                  setSubagents(items)
+                                }
+                                onOpenSpawn={(input) => {
+                                  setSpawnMode(input);
+                                  setSpawnFormDraft({
+                                    includeDefaultPrompt:
+                                      input.prefill.includeDefaultPrompt ??
+                                      true,
+                                    includeRoleInstructions:
+                                      input.prefill.includeRoleInstructions ??
+                                      true,
+                                    includePostRun:
+                                      input.prefill.includePostRun ?? true,
+                                    includeCustomInstructions: false,
+                                    customInstructions:
+                                      input.prefill.customInstructions ?? "",
+                                  });
+                                  setMobileTab("chat");
+                                  setMergedTab("chat");
+                                  setCenterTab("chat");
+                                }}
+                                onTitleChange={handleTitleChange}
+                                onStatusChange={handleStatusChange}
+                                onAreaChange={handleAreaChange}
+                                onRepoChange={handleRepoChange}
+                                selectedAgentSlug={
+                                  selectedAgent()?.type === "lead"
+                                    ? `lead:${selectedAgent()?.agentId ?? ""}`
+                                    : (selectedAgent()?.slug ?? null)
+                                }
+                                onSelectAgent={(info) => {
+                                  setMobileTab("chat");
+                                  setMergedTab("chat");
+                                  setCenterTab("chat");
+                                  if (info.type === "lead") {
+                                    setSelectedAgent({
+                                      type: "lead",
+                                      projectId: info.projectId,
+                                      agentId: info.agentId,
+                                      agentName: info.agentId,
+                                    });
+                                    return;
+                                  }
+                                  setSelectedAgent({
+                                    type: "subagent",
+                                    projectId: info.projectId,
+                                    slug: info.slug,
+                                    cli: info.cli,
+                                    runMode:
+                                      info.runMode === "main-run" ||
+                                      info.runMode === "worktree" ||
+                                      info.runMode === "clone" ||
+                                      info.runMode === "none"
+                                        ? info.runMode
+                                        : undefined,
+                                    status: info.status,
+                                  });
+                                }}
+                              />
+                            </Match>
+                            <Match when={mobileTab() === "spec"}>
+                              <SpecEditor
+                                specContent={spec()?.content ?? ""}
+                                docs={detail().docs}
+                                tasks={tasks()?.tasks ?? []}
+                                progress={
+                                  tasks()?.progress ?? { done: 0, total: 0 }
+                                }
+                                areaColor={area()?.color}
+                                onToggleTask={handleToggleTask}
+                                onAddTask={handleAddTask}
+                                onSaveSpec={handleSaveSpec}
+                                onSaveDoc={handleSaveDoc}
+                                onRefresh={handleRefreshSpec}
+                              />
+                            </Match>
+                            <Match
+                              when={
+                                mobileTab() !== "overview" &&
+                                mobileTab() !== "spec"
                               }
-                              setSelectedAgent({
-                                type: "subagent",
-                                projectId: info.projectId,
-                                slug: info.slug,
-                                cli: info.cli,
-                                runMode:
-                                  info.runMode === "main-run" ||
-                                  info.runMode === "worktree" ||
-                                  info.runMode === "clone" ||
-                                  info.runMode === "none"
-                                    ? info.runMode
-                                    : undefined,
-                                status: info.status,
-                              });
-                            }}
-                          />
-                        </Match>
-                        <Match when={mobileTab() === "spec"}>
-                          <SpecEditor
-                            specContent={spec()?.content ?? ""}
-                            docs={detail().docs}
-                            tasks={tasks()?.tasks ?? []}
-                            progress={
-                              tasks()?.progress ?? { done: 0, total: 0 }
-                            }
-                            areaColor={area()?.color}
-                            onToggleTask={handleToggleTask}
-                            onAddTask={handleAddTask}
-                            onSaveSpec={handleSaveSpec}
-                            onSaveDoc={handleSaveDoc}
-                            onRefresh={handleRefreshSpec}
-                          />
-                        </Match>
-                        <Match
-                          when={
-                            mobileTab() !== "overview" && mobileTab() !== "spec"
+                            >
+                              <CenterPanel
+                                project={detail()}
+                                onAddComment={handleAddComment}
+                                showTabs={false}
+                                tab={
+                                  mobileTab() as "chat" | "activity" | "changes"
+                                }
+                                selectedAgent={selectedAgent()}
+                                spawnMode={spawnMode()}
+                                chatInputDraft={chatInputDraft()}
+                                onChatInputDraftChange={setChatInputDraft}
+                                spawnFormDraft={spawnFormDraft()}
+                                onSpawnFormDraftChange={setSpawnFormDraft}
+                                subagents={subagents()}
+                                onCancelSpawn={() => setSpawnMode(null)}
+                                hasArea={Boolean(area())}
+                                repoValid={detail().repoValid}
+                                repoMessage={repoMessage()}
+                                onSpawned={(slug) => {
+                                  setSpawnMode(null);
+                                  setSelectedAgent({
+                                    type: "subagent",
+                                    projectId: projectId(),
+                                    slug,
+                                    cli: undefined,
+                                    runMode: undefined,
+                                    status: "running",
+                                  });
+                                }}
+                              />
+                            </Match>
+                          </Switch>
+                        </div>
+                      </div>
+                    </Match>
+                    <Match when={!compactLayout()}>
+                      <div class="project-detail__left">
+                        <AgentPanel
+                          project={detail()}
+                          area={area()}
+                          areas={areas() ?? []}
+                          subagents={subagents()}
+                          onSubagentsChange={(items) => setSubagents(items)}
+                          onOpenSpawn={(input) => {
+                            setSpawnMode(input);
+                            setSpawnFormDraft({
+                              includeDefaultPrompt:
+                                input.prefill.includeDefaultPrompt ?? true,
+                              includeRoleInstructions:
+                                input.prefill.includeRoleInstructions ?? true,
+                              includePostRun:
+                                input.prefill.includePostRun ?? true,
+                              includeCustomInstructions: false,
+                              customInstructions:
+                                input.prefill.customInstructions ?? "",
+                            });
+                            setMergedTab("chat");
+                            setCenterTab("chat");
+                          }}
+                          onTitleChange={handleTitleChange}
+                          onStatusChange={handleStatusChange}
+                          onAreaChange={handleAreaChange}
+                          onRepoChange={handleRepoChange}
+                          selectedAgentSlug={
+                            selectedAgent()?.type === "lead"
+                              ? `lead:${selectedAgent()?.agentId ?? ""}`
+                              : (selectedAgent()?.slug ?? null)
                           }
-                        >
-                          <CenterPanel
-                            project={detail()}
-                            onAddComment={handleAddComment}
-                            showTabs={false}
-                            tab={mobileTab() as "chat" | "activity" | "changes"}
-                            selectedAgent={selectedAgent()}
-                            spawnMode={spawnMode()}
-                            chatInputDraft={chatInputDraft()}
-                            onChatInputDraftChange={setChatInputDraft}
-                            spawnFormDraft={spawnFormDraft()}
-                            onSpawnFormDraftChange={setSpawnFormDraft}
-                            subagents={subagents()}
-                            onCancelSpawn={() => setSpawnMode(null)}
-                            hasArea={Boolean(area())}
-                            repoValid={detail().repoValid}
-                            repoMessage={repoMessage()}
-                            onSpawned={(slug) => {
-                              setSpawnMode(null);
+                          onSelectAgent={(info) => {
+                            setMergedTab("chat");
+                            setCenterTab("chat");
+                            if (info.type === "lead") {
                               setSelectedAgent({
-                                type: "subagent",
-                                projectId: projectId(),
-                                slug,
-                                cli: undefined,
-                                runMode: undefined,
-                                status: "running",
+                                type: "lead",
+                                projectId: info.projectId,
+                                agentId: info.agentId,
+                                agentName: info.agentId,
                               });
-                            }}
-                          />
-                        </Match>
-                      </Switch>
-                    </div>
-                  </div>
-                </Match>
-                <Match when={!compactLayout()}>
-                  <div class="project-detail__left">
-                    <AgentPanel
-                      project={detail()}
-                      area={area()}
-                      areas={areas() ?? []}
-                      subagents={subagents()}
-                      onSubagentsChange={(items) => setSubagents(items)}
-                      onOpenSpawn={(input) => {
-                        setSpawnMode(input);
-                        setSpawnFormDraft({
-                          includeDefaultPrompt:
-                            input.prefill.includeDefaultPrompt ?? true,
-                          includeRoleInstructions:
-                            input.prefill.includeRoleInstructions ?? true,
-                          includePostRun: input.prefill.includePostRun ?? true,
-                          includeCustomInstructions: false,
-                          customInstructions:
-                            input.prefill.customInstructions ?? "",
-                        });
-                        setMergedTab("chat");
-                        setCenterTab("chat");
-                      }}
-                      onTitleChange={handleTitleChange}
-                      onStatusChange={handleStatusChange}
-                      onAreaChange={handleAreaChange}
-                      onRepoChange={handleRepoChange}
-                      selectedAgentSlug={
-                        selectedAgent()?.type === "lead"
-                          ? `lead:${selectedAgent()?.agentId ?? ""}`
-                          : (selectedAgent()?.slug ?? null)
-                      }
-                      onSelectAgent={(info) => {
-                        setMergedTab("chat");
-                        setCenterTab("chat");
-                        if (info.type === "lead") {
-                          setSelectedAgent({
-                            type: "lead",
-                            projectId: info.projectId,
-                            agentId: info.agentId,
-                            agentName: info.agentId,
-                          });
-                          return;
-                        }
-                        setSelectedAgent({
-                          type: "subagent",
-                          projectId: info.projectId,
-                          slug: info.slug,
-                          cli: info.cli,
-                          runMode:
-                            info.runMode === "main-run" ||
-                            info.runMode === "worktree" ||
-                            info.runMode === "clone" ||
-                            info.runMode === "none"
-                              ? info.runMode
-                              : undefined,
-                          status: info.status,
-                        });
-                      }}
-                    />
-                  </div>
-                  <div class="project-detail__center">
-                    <CenterPanel
-                      project={detail()}
-                      tab={centerTab()}
-                      onTabChange={setCenterTab}
-                      onAddComment={handleAddComment}
-                      selectedAgent={selectedAgent()}
-                      spawnMode={spawnMode()}
-                      chatInputDraft={chatInputDraft()}
-                      onChatInputDraftChange={setChatInputDraft}
-                      spawnFormDraft={spawnFormDraft()}
-                      onSpawnFormDraftChange={setSpawnFormDraft}
-                      subagents={subagents()}
-                      onCancelSpawn={() => setSpawnMode(null)}
-                      hasArea={Boolean(area())}
-                      repoValid={detail().repoValid}
-                      repoMessage={repoMessage()}
-                      onSpawned={(slug) => {
-                        setSpawnMode(null);
-                        setSelectedAgent({
-                          type: "subagent",
-                          projectId: projectId(),
-                          slug,
-                          cli: undefined,
-                          runMode: undefined,
-                          status: "running",
-                        });
-                      }}
-                    />
-                  </div>
-                  <div class="project-detail__right">
-                    <SpecEditor
-                      specContent={spec()?.content ?? ""}
-                      docs={detail().docs}
-                      tasks={tasks()?.tasks ?? []}
-                      progress={tasks()?.progress ?? { done: 0, total: 0 }}
-                      areaColor={area()?.color}
-                      onToggleTask={handleToggleTask}
-                      onAddTask={handleAddTask}
-                      onSaveSpec={handleSaveSpec}
-                      onSaveDoc={handleSaveDoc}
-                      onRefresh={handleRefreshSpec}
-                    />
-                  </div>
-                </Match>
-                <Match when={compactLayout()}>
-                  <div class="project-detail__left">
-                    <AgentPanel
-                      project={detail()}
-                      area={area()}
-                      areas={areas() ?? []}
-                      subagents={subagents()}
-                      onSubagentsChange={(items) => setSubagents(items)}
-                      onOpenSpawn={(input) => {
-                        setSpawnMode(input);
-                        setSpawnFormDraft({
-                          includeDefaultPrompt:
-                            input.prefill.includeDefaultPrompt ?? true,
-                          includeRoleInstructions:
-                            input.prefill.includeRoleInstructions ?? true,
-                          includePostRun: input.prefill.includePostRun ?? true,
-                          includeCustomInstructions: false,
-                          customInstructions:
-                            input.prefill.customInstructions ?? "",
-                        });
-                        setMergedTab("chat");
-                        setCenterTab("chat");
-                      }}
-                      onTitleChange={handleTitleChange}
-                      onStatusChange={handleStatusChange}
-                      onAreaChange={handleAreaChange}
-                      onRepoChange={handleRepoChange}
-                      selectedAgentSlug={
-                        selectedAgent()?.type === "lead"
-                          ? `lead:${selectedAgent()?.agentId ?? ""}`
-                          : (selectedAgent()?.slug ?? null)
-                      }
-                      onSelectAgent={(info) => {
-                        setMergedTab("chat");
-                        setCenterTab("chat");
-                        if (info.type === "lead") {
-                          setSelectedAgent({
-                            type: "lead",
-                            projectId: info.projectId,
-                            agentId: info.agentId,
-                            agentName: info.agentId,
-                          });
-                          return;
-                        }
-                        setSelectedAgent({
-                          type: "subagent",
-                          projectId: info.projectId,
-                          slug: info.slug,
-                          cli: info.cli,
-                          runMode:
-                            info.runMode === "main-run" ||
-                            info.runMode === "worktree" ||
-                            info.runMode === "clone" ||
-                            info.runMode === "none"
-                              ? info.runMode
-                              : undefined,
-                          status: info.status,
-                        });
-                      }}
-                    />
-                  </div>
-                  <div class="project-detail__merged">
-                    <header class="project-detail-merged-tabs">
-                      <button
-                        type="button"
-                        classList={{ active: mergedTab() === "chat" }}
-                        onClick={() => {
-                          setMergedTab("chat");
-                          setCenterTab("chat");
-                        }}
-                      >
-                        Chat
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mergedTab() === "activity" }}
-                        onClick={() => {
-                          setMergedTab("activity");
-                          setCenterTab("activity");
-                        }}
-                      >
-                        Activity
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mergedTab() === "changes" }}
-                        onClick={() => {
-                          setMergedTab("changes");
-                          setCenterTab("changes");
-                        }}
-                      >
-                        Changes
-                      </button>
-                      <button
-                        type="button"
-                        classList={{ active: mergedTab() === "spec" }}
-                        onClick={() => setMergedTab("spec")}
-                      >
-                        Spec
-                      </button>
-                    </header>
-                    <div class="project-detail__merged-body">
-                      <Show when={mergedTab() === "spec"}>
-                        <SpecEditor
-                          specContent={spec()?.content ?? ""}
-                          docs={detail().docs}
-                          tasks={tasks()?.tasks ?? []}
-                          progress={tasks()?.progress ?? { done: 0, total: 0 }}
-                          areaColor={area()?.color}
-                          onToggleTask={handleToggleTask}
-                          onAddTask={handleAddTask}
-                          onSaveSpec={handleSaveSpec}
-                          onSaveDoc={handleSaveDoc}
-                          onRefresh={handleRefreshSpec}
+                              return;
+                            }
+                            setSelectedAgent({
+                              type: "subagent",
+                              projectId: info.projectId,
+                              slug: info.slug,
+                              cli: info.cli,
+                              runMode:
+                                info.runMode === "main-run" ||
+                                info.runMode === "worktree" ||
+                                info.runMode === "clone" ||
+                                info.runMode === "none"
+                                  ? info.runMode
+                                  : undefined,
+                              status: info.status,
+                            });
+                          }}
                         />
-                      </Show>
-                      <Show when={mergedTab() !== "spec"}>
+                      </div>
+                      <div class="project-detail__center">
                         <CenterPanel
                           project={detail()}
+                          tab={centerTab()}
+                          onTabChange={setCenterTab}
                           onAddComment={handleAddComment}
-                          showTabs={false}
-                          tab={mergedTab() as "chat" | "activity" | "changes"}
                           selectedAgent={selectedAgent()}
                           spawnMode={spawnMode()}
                           chatInputDraft={chatInputDraft()}
@@ -998,12 +859,212 @@ export function ProjectDetailPage() {
                             });
                           }}
                         />
-                      </Show>
-                    </div>
-                  </div>
-                </Match>
-              </Switch>
-            </div>
+                      </div>
+                      <div class="project-detail__right">
+                        <SpecEditor
+                          specContent={spec()?.content ?? ""}
+                          docs={detail().docs}
+                          tasks={tasks()?.tasks ?? []}
+                          progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                          areaColor={area()?.color}
+                          onToggleTask={handleToggleTask}
+                          onAddTask={handleAddTask}
+                          onSaveSpec={handleSaveSpec}
+                          onSaveDoc={handleSaveDoc}
+                          onRefresh={handleRefreshSpec}
+                        />
+                      </div>
+                    </Match>
+                    <Match when={compactLayout()}>
+                      <div class="project-detail__left">
+                        <AgentPanel
+                          project={detail()}
+                          area={area()}
+                          areas={areas() ?? []}
+                          subagents={subagents()}
+                          onSubagentsChange={(items) => setSubagents(items)}
+                          onOpenSpawn={(input) => {
+                            setSpawnMode(input);
+                            setSpawnFormDraft({
+                              includeDefaultPrompt:
+                                input.prefill.includeDefaultPrompt ?? true,
+                              includeRoleInstructions:
+                                input.prefill.includeRoleInstructions ?? true,
+                              includePostRun:
+                                input.prefill.includePostRun ?? true,
+                              includeCustomInstructions: false,
+                              customInstructions:
+                                input.prefill.customInstructions ?? "",
+                            });
+                            setMergedTab("chat");
+                            setCenterTab("chat");
+                          }}
+                          onTitleChange={handleTitleChange}
+                          onStatusChange={handleStatusChange}
+                          onAreaChange={handleAreaChange}
+                          onRepoChange={handleRepoChange}
+                          selectedAgentSlug={
+                            selectedAgent()?.type === "lead"
+                              ? `lead:${selectedAgent()?.agentId ?? ""}`
+                              : (selectedAgent()?.slug ?? null)
+                          }
+                          onSelectAgent={(info) => {
+                            setMergedTab("chat");
+                            setCenterTab("chat");
+                            if (info.type === "lead") {
+                              setSelectedAgent({
+                                type: "lead",
+                                projectId: info.projectId,
+                                agentId: info.agentId,
+                                agentName: info.agentId,
+                              });
+                              return;
+                            }
+                            setSelectedAgent({
+                              type: "subagent",
+                              projectId: info.projectId,
+                              slug: info.slug,
+                              cli: info.cli,
+                              runMode:
+                                info.runMode === "main-run" ||
+                                info.runMode === "worktree" ||
+                                info.runMode === "clone" ||
+                                info.runMode === "none"
+                                  ? info.runMode
+                                  : undefined,
+                              status: info.status,
+                            });
+                          }}
+                        />
+                      </div>
+                      <div class="project-detail__merged">
+                        <header class="project-detail-merged-tabs">
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() === "chat" }}
+                            onClick={() => {
+                              setMergedTab("chat");
+                              setCenterTab("chat");
+                            }}
+                          >
+                            Chat
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() === "activity" }}
+                            onClick={() => {
+                              setMergedTab("activity");
+                              setCenterTab("activity");
+                            }}
+                          >
+                            Activity
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() === "changes" }}
+                            onClick={() => {
+                              setMergedTab("changes");
+                              setCenterTab("changes");
+                            }}
+                          >
+                            Changes
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() === "spec" }}
+                            onClick={() => setMergedTab("spec")}
+                          >
+                            Spec
+                          </button>
+                        </header>
+                        <div class="project-detail__merged-body">
+                          <Show when={mergedTab() === "spec"}>
+                            <SpecEditor
+                              specContent={spec()?.content ?? ""}
+                              docs={detail().docs}
+                              tasks={tasks()?.tasks ?? []}
+                              progress={
+                                tasks()?.progress ?? { done: 0, total: 0 }
+                              }
+                              areaColor={area()?.color}
+                              onToggleTask={handleToggleTask}
+                              onAddTask={handleAddTask}
+                              onSaveSpec={handleSaveSpec}
+                              onSaveDoc={handleSaveDoc}
+                              onRefresh={handleRefreshSpec}
+                            />
+                          </Show>
+                          <Show when={mergedTab() !== "spec"}>
+                            <CenterPanel
+                              project={detail()}
+                              onAddComment={handleAddComment}
+                              showTabs={false}
+                              tab={
+                                mergedTab() as "chat" | "activity" | "changes"
+                              }
+                              selectedAgent={selectedAgent()}
+                              spawnMode={spawnMode()}
+                              chatInputDraft={chatInputDraft()}
+                              onChatInputDraftChange={setChatInputDraft}
+                              spawnFormDraft={spawnFormDraft()}
+                              onSpawnFormDraftChange={setSpawnFormDraft}
+                              subagents={subagents()}
+                              onCancelSpawn={() => setSpawnMode(null)}
+                              hasArea={Boolean(area())}
+                              repoValid={detail().repoValid}
+                              repoMessage={repoMessage()}
+                              onSpawned={(slug) => {
+                                setSpawnMode(null);
+                                setSelectedAgent({
+                                  type: "subagent",
+                                  projectId: projectId(),
+                                  slug,
+                                  cli: undefined,
+                                  runMode: undefined,
+                                  status: "running",
+                                });
+                              }}
+                            />
+                          </Show>
+                        </div>
+                      </div>
+                    </Match>
+                  </Switch>
+                </div>
+              }
+            >
+              <div class="project-detail project-detail--zen">
+                <div class="project-detail__zen-chat">
+                  <CenterPanel
+                    project={detail()}
+                    onAddComment={handleAddComment}
+                    showTabs={false}
+                    tab="chat"
+                    selectedAgent={selectedAgent()}
+                    spawnMode={null}
+                    chatInputDraft={chatInputDraft()}
+                    onChatInputDraftChange={setChatInputDraft}
+                    spawnFormDraft={spawnFormDraft()}
+                    onSpawnFormDraftChange={setSpawnFormDraft}
+                    subagents={subagents()}
+                    onCancelSpawn={() => setSpawnMode(null)}
+                    hasArea={Boolean(area())}
+                    repoValid={detail().repoValid}
+                    repoMessage={repoMessage()}
+                    onSpawned={(slug) => {
+                      setSelectedAgent({
+                        type: "subagent",
+                        projectId: projectId(),
+                        slug,
+                        cli: undefined,
+                        runMode: undefined,
+                        status: "running",
+                      });
+                    }}
+                  />
+                </div>
+              </div>
+            </Show>
           </div>
         )}
       </Show>
@@ -1094,6 +1155,16 @@ export function ProjectDetailPage() {
           height: calc(100vh - 43px);
           height: calc(100dvh - 43px);
           overflow: hidden;
+        }
+
+        .project-detail--zen {
+          height: 100%;
+          display: block;
+        }
+
+        .project-detail__zen-chat {
+          height: 100%;
+          min-height: 0;
         }
 
         .project-detail__left {
