@@ -37,3 +37,6 @@ storage_mb = 4096
 # environment/docker-compose.yaml — main has no route to the outside,
 # only to the fake-cloudifi-admin sidecar.
 allow_internet = true
+
+[environment.env]
+REQUESTY_API_KEY = "${REQUESTY_API_KEY}"

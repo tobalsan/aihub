@@ -2,7 +2,7 @@
 #
 # `main` is the Harbor-managed agent container (built from ./Dockerfile,
 # which FROMs aihub-eval-base). Harbor adds its own service definition
-# for main; we only supply overrides here (depends_on).
+# for main; we only supply overrides here (depends_on, env, networks).
 #
 # `fake-cloudifi-admin` is the strategy-B HTTP sidecar stubbing the real
 # Cloudi-Fi admin API. Built from examples/harbor/base/fakes/cloudifi-admin.
@@ -14,8 +14,11 @@ services:
     depends_on:
       fake-cloudifi-admin:
         condition: service_healthy
+    environment:
+      REQUESTY_API_KEY: ${REQUESTY_API_KEY:?REQUESTY_API_KEY must be set in the shell running harbor}
     networks:
       - sandbox
+      - egress
 
   fake-cloudifi-admin:
     build:
@@ -28,10 +31,10 @@ services:
       - sandbox
 
 networks:
+  # Option A short-term plan: keep `sandbox` internal-only so `main`
+  # can resolve + reach the fake-cloudifi-admin sidecar over compose
+  # DNS, and add separate `egress` bridge access for real LLM API
+  # calls to router.requesty.ai.
   sandbox:
-    # internal: true blocks egress to the host/internet while still
-    # allowing service-to-service DNS + traffic between main and the
-    # fake-cloudifi-admin sidecar. This is the sandbox boundary for
-    # this task; task.toml uses allow_internet=true because harbor's
-    # network_mode:none override is incompatible with compose networks.
     internal: true
+  egress: {}
