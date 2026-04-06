@@ -1,32 +1,21 @@
 {
+  "version": 2,
   "agents": [
     {
-      "id": "sales-admin",
-      "name": "Sales Admin",
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-6",
-      "thinkLevel": "medium",
-      "systemPrompt": "You are the Sales Admin agent. You help with renewals, quota analysis, renewal estimates, and ARR/MRR reporting. Use the cloudifi_admin and hiveage connectors. Always return structured JSON when asked and write artifacts to /app/out/.",
+      "id": "sally",
+      "name": "Sally",
+      "workspace": "agents/sally",
+      "sdk": "pi",
+      "model": { "provider": "requesty", "model": "novita/minimax/minimax-m2.7" },
       "connectors": {
-        "cloudifi_admin": { "enabled": true }
+        "cloudifi_admin": {
+          "username": "eval-user",
+          "password": "eval-password",
+          "adminApiBase": "http://fake-cloudifi-admin:8080",
+          "coreApiBase": "http://fake-cloudifi-admin:8080"
+        }
       }
     }
   ],
-  "connectors": {
-    "cloudifi_admin": {
-      "username": "eval-user",
-      "password": "eval-password",
-      "adminApiBase": "http://fake-cloudifi-admin:8080",
-      "coreApiBase": "http://fake-cloudifi-admin:8080"
-    }
-  },
-  "server": { "host": "127.0.0.1", "port": 0 },
-  "components": {
-    "discord": { "enabled": false },
-    "scheduler": { "enabled": false },
-    "heartbeat": { "enabled": false },
-    "amsg": { "enabled": false },
-    "conversations": { "enabled": false },
-    "projects": { "enabled": false }
-  }
+  "components": {}
 }

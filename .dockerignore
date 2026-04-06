@@ -1,0 +1,15 @@
+# Keep docker build context small.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.turbo
+**/.vite
+**/coverage
+.git
+.github
+.vscode
+.idea
+examples/harbor/jobs
+docs
+*.log
+.DS_Store
