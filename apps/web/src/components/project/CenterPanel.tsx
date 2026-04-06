@@ -418,9 +418,14 @@ export function CenterPanel(props: CenterPanelProps) {
         .center-panel {
           height: 100%;
           min-height: 0;
-          display: grid;
-          grid-template-rows: auto 1fr;
+          display: flex;
+          flex-direction: column;
           background: var(--bg-base);
+        }
+
+        .center-panel > .center-panel-body {
+          flex: 1;
+          min-height: 0;
         }
 
         .center-panel-tabs {

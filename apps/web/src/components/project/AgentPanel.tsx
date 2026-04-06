@@ -1278,13 +1278,18 @@ export function AgentPanel(props: AgentPanelProps) {
       </aside>
       <style>{`
         .agent-panel {
-          min-height: 100%;
+          height: 100%;
+          min-height: 0;
           background: var(--bg-base);
           color: var(--text-primary);
           padding: 18px 14px;
           display: grid;
           align-content: start;
           gap: 12px;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+          -webkit-overflow-scrolling: touch;
         }
 
         .agent-panel-block {

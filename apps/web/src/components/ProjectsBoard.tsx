@@ -51,7 +51,6 @@ import type {
 import { AgentSidebar } from "./AgentSidebar";
 import { ContextPanel } from "./ContextPanel";
 import { AgentChat } from "./AgentChat";
-import { ActivityFeed } from "./ActivityFeed";
 import {
   formatCreatedRelative,
   formatRunRelative,
@@ -1109,7 +1108,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
   const [mobileOverlay, setMobileOverlay] = createSignal<
-    "chat" | "feed" | null
+    "chat" | null
   >(null);
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
@@ -6658,41 +6657,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
           }
         }
 
-        .mobile-activity-btn {
-          position: fixed;
-          right: 20px;
-          bottom: 20px;
-          width: 56px;
-          height: 56px;
-          border-radius: 999px;
-          border: none;
-          background: #3b82f6;
-          color: #fff;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 12px 24px rgba(15, 23, 42, 0.4);
-          cursor: pointer;
-          z-index: 900;
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        .mobile-activity-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 16px 30px rgba(15, 23, 42, 0.5);
-        }
-
-        .mobile-activity-btn:focus-visible {
-          outline: 2px solid rgba(255, 255, 255, 0.7);
-          outline-offset: 3px;
-        }
-
-        .mobile-activity-btn svg {
-          width: 22px;
-          height: 22px;
-        }
-
-        .mobile-overlay {
+.mobile-overlay {
           position: fixed;
           inset: 0;
           z-index: 900;
@@ -6794,25 +6759,7 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
         }}
         onOpenProject={openDetail}
       />
-      <Show when={isMobile() && !mobileOverlay()}>
-        <button
-          class="mobile-activity-btn"
-          type="button"
-          onClick={() => setMobileOverlay("feed")}
-          aria-label="Open activity feed"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M8 6h12M8 12h12M8 18h12" />
-            <path d="M4 6h.01M4 12h.01M4 18h.01" />
-          </svg>
-        </button>
-      </Show>
-      <Show when={isMobile() && mobileOverlay() === "chat"}>
+<Show when={isMobile() && mobileOverlay() === "chat"}>
         <div class="mobile-overlay" role="dialog" aria-modal="true">
           <div class="mobile-overlay-panel">
             <AgentChat
@@ -6822,18 +6769,6 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
               subagentInfo={subagentInfo()}
               onBack={closeMobileOverlay}
               onOpenProject={openDetail}
-              fullscreen
-            />
-          </div>
-        </div>
-      </Show>
-      <Show when={isMobile() && mobileOverlay() === "feed"}>
-        <div class="mobile-overlay" role="dialog" aria-modal="true">
-          <div class="mobile-overlay-panel">
-            <ActivityFeed
-              onSelectAgent={handleSelectAgent}
-              onOpenProject={openDetail}
-              onBack={closeMobileOverlay}
               fullscreen
             />
           </div>

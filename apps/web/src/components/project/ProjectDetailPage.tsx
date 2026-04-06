@@ -1092,6 +1092,7 @@ export function ProjectDetailPage() {
         .project-detail {
           display: flex;
           height: calc(100vh - 43px);
+          height: calc(100dvh - 43px);
           overflow: hidden;
         }
 
@@ -1153,6 +1154,13 @@ export function ProjectDetailPage() {
         .project-detail__merged-body {
           min-height: 0;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .project-detail__merged-body > * {
+          flex: 1;
+          min-height: 0;
         }
 
         @media (max-width: 1199px) {
@@ -1244,7 +1252,8 @@ export function ProjectDetailPage() {
           .project-detail__merged,
           .project-detail__merged--mobile {
             width: 100%;
-            flex: 1 1 auto;
+            flex: 1 1 0;
+            min-height: 0;
           }
         }
 

@@ -129,7 +129,7 @@ export function QuickChatFAB(props: QuickChatFABProps) {
         @media (max-width: 768px) {
           .quick-chat-fab {
             right: 16px;
-            bottom: 88px;
+            bottom: 16px;
           }
         }
       `}</style>

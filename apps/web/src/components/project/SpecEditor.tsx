@@ -704,6 +704,8 @@ export function SpecEditor(props: SpecEditorProps) {
           min-height: 0;
           padding: 0 20px 20px;
           min-width: 0;
+          display: flex;
+          flex-direction: column;
         }
 
         .spec-editor-preview.split-view,
@@ -722,7 +724,10 @@ export function SpecEditor(props: SpecEditorProps) {
         .spec-edit-pane,
         .spec-bottom-pane {
           min-height: 0;
+          flex: 1;
           overflow: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
         }
 
         .spec-edit-pane {
