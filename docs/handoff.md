@@ -1,810 +1,370 @@
 # Hand-off
 
-Date: 2026-04-02
-Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
+Date: 2026-04-06
+Repo: `/Users/thinh/projects/.workspaces/aihub-harbor-evals-sales-admin`
+Branch: `feature/harbor-evals-sales-admin` (worktree; base commit `1fb7bd7`)
+
+## Current Effort: Harbor Evals for AIHub Migration
+
+We are porting legacy Python/LangChain CloudifAI workflows
+(`~/agents/cloud/cloudifai-workflows-to-port.md`) to full agent skills +
+connectors in this repo, TDD-style, using the Harbor framework
+(`~/agents/cloud/.firecrawl/harbor-docs-crawl.json`) as the eval harness.
+Starting with the `sales_admin` workflow family.
+
+### Decisions made
+
+- **AIHub as Installed Harbor agent** (not external shim). Three layers:
+  1. `aihub eval run` CLI (to be built) — headless, single-turn, writes
+     `result.json` + ATIF `trajectory.json`, skips HTTP server / Discord /
+     amsg / scheduler / heartbeat / multi-user / web UI.
+  2. `aihub-eval-base` Docker image — bakes the CLI, `aihub.json`, uv-managed
+     pytest, pnpm, non-root `agent` user, `AIHUB_HOME=/eval`.
+  3. Python `BaseInstalledAgent` wrapper (`examples/harbor/agents/aihub_installed.py`).
+- **Connector stubbing: Strategy B** (real connector code → fake HTTP
+  sidecar via `baseUrl` override). Most realistic/faithful to production.
+  Confirmed `cloudifi_admin` already supports `adminApiBase` / `coreApiBase`
+  config overrides — no refactor needed.
+- **ATIF emitted natively** by `aihub eval run` (skip converter phase).
+- **Deterministic clock** injection via `[verifier.env]` + `[agent.env]`
+  `EVAL_NOW=2026-04-06`.
+- **uv**, not pip, per global CLAUDE.md. Installed at build time in
+  `aihub-eval-base` via multi-stage `COPY --from=ghcr.io/astral-sh/uv:latest`
+  + `uv tool install pytest==8.4.1`, with `UV_TOOL_DIR=/opt/uv/tools`
+  `UV_TOOL_BIN_DIR=/opt/uv/bin` so `/opt/uv/bin` is on PATH for both root
+  (build) and `agent` (runtime, offline — `allow_internet = false`).
+- **Plan file**: `docs/plans/harbor-evals-for-aihub-migration.md` fully
+  rewritten (committed in `a22909b`). 8 impl tasks + 5 sales_admin eval tasks.
+
+### What's scaffolded and green (oracle path)
+
+First task: `examples/harbor/tasks/sales-admin/sales-admin-renewals/`
+- `task.toml` — allow_internet=true (forced by sidecar reachability — see below), cpus=1, mem=2048, EVAL_NOW injected.
+- `tests/test_outputs.py` — 6 assertions: eval_now check, result.json status,
+  finalMessage count=3, `cloudifi_admin.list_companies` was called, no
+  forbidden write tools, artifact rows match expected (ids 1001/1002/1003,
+  sorted by daysUntilRenewal ascending = 12/19/26).
+- `tests/test.sh` — runs pytest, writes `/logs/verifier/reward.json`.
+- `solution/solve.sh` — oracle: writes known-good `result.json` +
+  `/app/out/renewals.json` (does NOT yet call `aihub eval run`).
+- `environment/docker-compose.yaml` — main + fake-cloudifi-admin both
+  attached to a `sandbox` network with `internal: true` (no egress, but
+  service-to-service DNS works). See "Network gotcha" below.
+- Fake sidecar: `examples/harbor/base/fakes/cloudifi-admin/` — FastAPI
+  (`server.py`) implementing `/healthz`, `/auth/json`,
+  `/api/2/login/refresh`, `/companies`, `/api/2/reports/subscriptions`;
+  fixtures in `fixtures/companies.json` (8 companies, expected renewals =
+  1001 Acme/2026-04-18, 1002 Globex/2026-04-25, 1003 Initech/2026-05-02;
+  1004 Umbrella/2026-05-10 intentionally excluded to exercise the 30-day
+  filter).
+
+Oracle `harbor run` → `pass_rate = 1.0`.
+
+### Network gotcha (resolved)
+
+Harbor injects `network_mode: none` on `main` whenever `allow_internet=false`.
+That is mutually exclusive with attaching `main` to any compose network,
+so the sidecar pattern is **incompatible** with `allow_internet=false`.
+Fix: `allow_internet=true` + define an `internal: true` bridge network in
+`environment/docker-compose.yaml`. Sandboxing comes from network isolation
+rather than from `network_mode: none`. Verified inside the trial container:
+healthz/auth/companies on the sidecar all reachable; egress to
+`example.com` and `1.1.1.1` blocked.
+
+Follow-up when we wire the real LLM call: `main` will need a second
+network (default bridge) for outbound LLM API access while keeping the
+`sandbox` network internal-only. Multi-network attach on a single service
+is fine in compose.
+
+### Commits so far (atomic, on feature branch)
+
+- `c60e69b chore: ignore harbor eval job artifacts` — adds `jobs/` to `.gitignore`.
+- `a22909b docs(plans): harbor evals plan for strategy B` — plan rewrite.
+- `41d5185 feat(evals): scaffold harbor sales-admin-renewals task` — base image,
+  fake sidecar, task files, installed-agent wrapper, dataset.toml + metric.py.
+- `ed43c11 fix(evals): use internal network for sidecar reachability` —
+  task.toml `allow_internet=true`, compose `sandbox` network with
+  `internal: true`. Re-runs oracle green (pass_rate=1.0).
+
+### Spike B landed: `aihub eval run` CLI
+
+`apps/gateway/src/evals/{cli,runtime,trajectory}.ts`:
+
+- **`cli.ts`** — `aihub eval run -a <id> -i <instruction-file> [-o ...]
+  [-t ...] [-c ...] [-m ...]`. Wired into `apps/gateway/src/cli/index.ts`
+  via `registerEvalCommands`.
+- **`runtime.ts`** — `runEval()` does the same boot sequence as
+  `aihub send`: `loadConfig` → `resolveStartupConfig` →
+  `initializeConnectors` → `prepareStartupConfig(rawConfig, [])` →
+  `setLoadedConfig` → `runAgent()` with an `EventCollector` `onEvent`
+  handler. Empty component list means **no** HTTP server, Discord,
+  amsg, scheduler, heartbeat, conversations, projects, multi-user, web.
+  Aggregates the stream into `EvalResult` (status, finalMessage,
+  toolCalls with id/name/arguments/ok/durationMs/result, metrics,
+  artifacts).
+- **`trajectory.ts`** — `TrajectoryBuilder` constructs an ATIF-v1.4
+  document by ingesting the same `StreamEvent`s. Coalesces consecutive
+  `text` events into one `assistant_message` step. Token/cost metrics
+  are zero for now (`RunAgentResult.meta` doesn't expose them yet —
+  follow-up when we wire token accounting through the SDK adapters).
+- **Exit contract**: `0` on a completed runtime path even if the agent
+  errored (captured into `result.json`); non-zero only on infra errors
+  (missing instruction file, runtime crash before `runEval` returns).
+  Matches plan §2.
+- **Smoke test**: with a throwaway `aihub.json` at `$AIHUB_HOME=/tmp/...`,
+  `aihub eval run -a smoke -i instruction.md` boots through to
+  `runAgent()`, fails with `No API key for provider: anthropic`,
+  captures the error into a well-formed `result.json` + `trajectory.json`,
+  and exits 0. Live LLM smoke deferred until we have an auth path inside
+  the eval container.
+
+### Next steps
+
+1. **Fix `examples/harbor/base/aihub-eval/aihub.json`** — current schema
+   is wrong (`provider`/`model` flat instead of `model: { provider, model }`,
+   missing `workspace`). Trivial fix once we run the CLI inside the image.
+2. **Bake the CLI into `aihub-eval-base`** — the Dockerfile currently has
+   a placeholder `COPY --from=build` block. Wire it: build the gateway in
+   a builder stage, copy `dist/` + `node_modules/` into the runtime stage,
+   `ln -s /opt/aihub/cli/index.js /usr/local/bin/aihub`. Or simpler for the
+   spike: bind-mount the workspace at run time.
+3. **Add a second (external) network** to the task compose so `main` can
+   reach the LLM API while still talking to `fake-cloudifi-admin` over the
+   `internal: true` `sandbox` network.
+4. **Swap `solve.sh`** from hand-written `result.json` to a real
+   `aihub eval run --agent sales-admin --instruction-file /app/instruction.md`
+   invocation.
+5. **Iterate on the sales-admin agent prompt** until the verifier passes
+   end-to-end against the fake sidecar.
+6. Token/cost metrics: extend `RunAgentResult.meta` (or surface via
+   `agentEventBus`) and pipe into `EvalResult.metrics` + ATIF
+   `final_metrics`.
+7. Scaffold remaining 4 sales_admin tasks.
+8. Wire into CI.
 
 ## Current Status
 
-- 2026-04-06 PRO-213 subagent chat follow-up landed: project center-panel subagent chat no longer disables send/input during active CLI runs. Follow-up messages now render as optimistic queued rows, keep `Stop` visible, and flush sequentially once the active subagent leaves `running`.
-- 2026-04-06 PRO-213 Phase 3 landed: `apps/web` now virtualizes persisted rows in `AgentChat` with `@tanstack/solid-virtual`, dynamic row measurement, overscan 5, and a non-virtualized live streaming row so long threads keep smooth scroll/render behavior without regressing the existing near-bottom autoscroll rules.
-- 2026-04-06 scoped Vitest commands landed: root `package.json` now exposes `test:web`, `test:gateway`, `test:shared`, and `test:cli` via `vitest run --dir ...`, and `AGENTS.md` now tells agents to use those scripts or exact-file `pnpm exec vitest run <file>` instead of unreliable positional filters like `pnpm test -- apps/web`.
-- 2026-04-06 web markdown dedupe follow-up landed: `AgentChat`, `TaskboardOverlay`, and `ConversationThreadView` now use the shared `apps/web/src/lib/markdown.ts` helper directly; `SpecEditor` also uses it with `breaks: false` to preserve previous rendering; `ProjectsBoard` intentionally keeps its thin wrapper because it adds project-specific markdown rewrite/strip behavior on top of the shared helper.
-- 2026-04-06 test-suite speedup landed: `apps/gateway/src/subagents/subagents.api.test.ts` now seeds one reusable git repo in `beforeAll()` and copies it per test, and `vitest.config.ts` now enables file parallelism with `maxWorkers: 4`. Full `pnpm test` now passes in `57.86s` (`95/95` files, `728/728` tests) versus pre-change measured runs at `133.51s` and the first serial-only improvement at `86.30s`.
-- 2026-04-05 PRO-214 mobile scroll fix landed: mobile shell/content scroll is now isolated in the web UI via `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `left-nav-main` overflow isolation, chat input `flex-shrink: 0`, and mobile sidebar `100dvh` sizing across agents/chat/activity/areas/conversations.
-- 2026-04-05 PRO-212 Discord bot dedupe landed: `apps/gateway/src/discord/bot.ts` now uses one shared `createConfiguredDiscordBot()` factory for both legacy per-agent bots and component-routed bots; wrappers only supply routing/agent-resolution strategy. Added component-bot coverage and verification passed with `pnpm install`, `pnpm typecheck`, `pnpm lint`, and `pnpm test` (`726/726`).
-- 2026-04-05 PRO-212 code-quality slice landed: shared helpers now cover Discord bot flow, session file resolution, frontmatter parsing, web markdown/history/timestamp formatting, and websocket event dispatch; OpenClaw now matches the object-literal adapter pattern; session + Claude stores lazy-load via `fs.promises`; verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test` (`721/721`).
-- 2026-04-05 PRO-212 dead-code slice landed: removed unused `queueOrRun`, deprecated `HistoryMessage` aliases, redundant `config.getConfig()` / web `fetchHistory()` wrappers, the unused `gatewayConfig` arg from `getConnectorPromptsForAgent()`, and the redundant Claude `sentTurnEnd` guard. Verification passed with `pnpm lint`, `pnpm typecheck`, and `pnpm test`.
-- 2026-04-05 PRO-212 DRY slice landed: shared `expandPath()` is now exported from `@aihub/shared`, shared network bind helpers live in `packages/shared/src/network.ts`, gateway now reuses `apps/gateway/src/util/paths.ts` + `apps/gateway/src/util/fs.ts`, canonical `findProjectDir()` is exported from `projects/store.ts`, `isMultiUserLoaded()` now comes from `components/registry.ts`, and web `api/types.ts` now reuses shared history/stream/taskboard/subagent types instead of re-declaring them.
-- 2026-04-04 PRO-209 multi-user auth landed: Better Auth + SQLite is now integrated behind top-level `multiUser`, with `/api/auth/*`, `/api/me`, `/api/admin/*`, per-user session/history isolation under `$AIHUB_HOME/users/<userId>/`, web login/admin pages, integration coverage for enabled/disabled modes, and docs updates across `README.md` + `docs/llms.md`.
-- 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path is removed. Config/runtime/docs now only support native top-level `onecli` proxy wiring plus `$env:` config refs. Current status: Phase 3 cleanup complete; remaining follow-up is CA file existence validation in schema.
-- 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` now provides a OneCLI-aware fetch wrapper for connectors, including scoped proxy/CA env injection plus default header/timeout handling. Connector adoption is still follow-up work.
-- 2026-04-03 PRO-208 Phase 1 landed: shared config now has a native top-level `onecli` schema, and `apps/gateway/src/config/onecli.ts` adds a scoped env builder for proxy + CA wiring.
-- 2026-04-03 follow-up: `aihub send` now resolves startup config and initializes connectors before running an agent, so connector tools/system prompts are available on the standalone CLI path and connector config errors fail early there too.
-- 2026-04-03 follow-up: external connector discovery now follows symlinked connector directories too, which fixes setups that mount built connector bundles into `$AIHUB_HOME/connectors` via symlink.
-- 2026-04-03 follow-up: external connector auto-discovery now defaults to `$AIHUB_HOME/connectors` instead of hard-coding `~/.aihub/connectors`, so connector system-prompt/tool injection works when running against a custom config home.
-- 2026-04-03 PRO-206 scope 1 landed: connector definitions now support optional `systemPrompt`, gateway exposes `getConnectorPromptsForAgent()`, and both Pi/Claude adapters append enabled connector guidance into their system prompts.
-- 2026-04-03 follow-up: Pi adapter now only mounts subagent tools and appends the `Additional tools` system-prompt block when the `projects` component is actually loaded. Non-project setups no longer advertise unavailable subagent capabilities in Pi system prompt/tooling.
-- 2026-04-03 follow-up: ChatView no longer reloads history on every `isStreaming` transition. That fixes silent failed sends where the optimistic user message disappeared and no inline error remained; full-mode chat now appends error text on stream failure too.
-- 2026-04-03 follow-up: gateway now logs all agent run failures from the shared runner catch, not just Pi post-prompt `stopReason:error` failures. This covers config/model-resolution errors like missing custom provider models.
-- PRO-199 review follow-up landed on 2026-04-03: connector startup validation now emits unknown-connector warnings once from `initializeConnectors()`, and shared connector tool params are explicitly object-shaped Zod schemas to match both adapters.
-- PRO-199 gateway connector runtime integration is in place on 2026-04-03: startup discovery/validation, per-agent tool loading, and Pi/Claude adapter injection landed in `apps/gateway`.
-- PRO-199 shared connector foundation is in place on 2026-04-03: shared connector contracts, registry, loader, discovery, config schema updates, and unit coverage landed in `packages/shared`.
-- Main repo follow-up on 2026-04-02: `AgentDirectory` no longer force-refetches projects/subagents every 5s; it now refreshes from the existing file/agent websocket feed to avoid visible shell-wide UI churn.
-
+- 2026-04-06 harbor evals spike B landed: `aihub eval run` CLI in `apps/gateway/src/evals/{cli,runtime,trajectory}.ts`. Headless single-turn entrypoint reusing the same boot path as `aihub send` (loadConfig → connectors → runAgent) with an empty component list, aggregating `StreamEvent`s into `result.json` + ATIF `trajectory.json`. Smoke-tested end-to-end against a throwaway config.
+- 2026-04-06 harbor evals network fix: `sales-admin-renewals` switched to `allow_internet=true` + `internal: true` `sandbox` compose network so `main` can reach the `fake-cloudifi-admin` sidecar. Harbor's `network_mode: none` injection on `allow_internet=false` is mutually exclusive with attaching to compose networks. Oracle still green.
+- 2026-04-06 web markdown dedupe follow-up landed: `AgentChat`, `TaskboardOverlay`, `ConversationThreadView` use shared `apps/web/src/lib/markdown.ts`; `SpecEditor` uses it with `breaks: false`; `ProjectsBoard` keeps its wrapper (project-specific rewrites).
+- 2026-04-06 test-suite speedup landed: subagent API test seeds one reusable git repo in `beforeAll()` and copies per test; vitest `maxWorkers: 4`. Full `pnpm test` now `57.86s` (95/95 files, 728/728) vs `133.51s` before.
+- 2026-04-05 PRO-214 mobile scroll fix landed: `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `100dvh` mobile sidebar, `flex-shrink: 0` chat input across agents/chat/activity/areas/conversations.
+- 2026-04-05 PRO-212 Discord bot dedupe landed: shared `createConfiguredDiscordBot()` factory for legacy + component-routed bots.
+- 2026-04-05 PRO-212 code-quality slice landed: shared helpers for Discord flow, session-file resolution, frontmatter, web markdown/history/timestamp, ws dispatch; OpenClaw adapter aligned; session + Claude stores lazy-load via `fs.promises`.
+- 2026-04-05 PRO-212 dead-code slice landed: removed `queueOrRun`, deprecated `HistoryMessage` aliases, redundant `getConfig()` / web `fetchHistory()` wrappers, unused `gatewayConfig` arg, Claude `sentTurnEnd` guard.
+- 2026-04-05 PRO-212 DRY slice landed: shared `expandPath()`, network bind helpers in `packages/shared/src/network.ts`, shared `getProjectsRoot()`/`dirExists()`/`findProjectDir()`/`isMultiUserLoaded()`; web `api/types.ts` reuses shared types.
+- 2026-04-05 session-store save race fix: each save now uses a unique temp file instead of reusing one `.<pid>.tmp` path.
+- 2026-04-04 PRO-209 multi-user auth landed: Better Auth + SQLite behind top-level `multiUser`, `/api/auth/*`, `/api/me`, `/api/admin/*`, per-user session/history isolation, web login/admin pages, integration coverage.
+- 2026-04-04 PRO-208 cleanup landed: legacy `secrets.provider="onecli"` / `$secret:` vault lookup path removed. Only native top-level `onecli` proxy wiring + `$env:` refs remain.
+- 2026-04-04 PRO-208 connector slice landed: `apps/gateway/src/connectors/http-client.ts` OneCLI-aware fetch wrapper with scoped proxy/CA env, default headers/timeouts.
+- 2026-04-04 PRO-211 landed: `apm create --area <area>` with validation.
+- 2026-04-03 PRO-208 Phase 1 landed: native top-level `onecli` schema + scoped env builder.
+- 2026-04-03 follow-ups: `aihub send` initializes connectors; connector discovery follows symlinks and defaults to `$AIHUB_HOME/connectors`; Pi adapter only mounts subagent tools when `projects` loaded; ChatView no longer reloads history on every `isStreaming` transition; all agent run failures now logged from shared runner catch.
+- 2026-04-03 PRO-206 scope 1 landed: optional connector-level `systemPrompt` propagated into Pi/Claude system prompts via `getConnectorPromptsForAgent()`.
+- 2026-04-03 PRO-199 review fixes + runtime integration + shared foundation landed: connector contracts, registry, loader, external discovery, Pi/Claude tool injection, startup validation.
+- 2026-04-02 PRO-198 Phase 5 hardening: component `routePrefixes` metadata, resolved-config threading, static registry for server-side route guards.
+- 2026-04-02 PRO-198 `apm config migrate`/`validate` CLI; migration tightened to not auto-add `components.amsg`/`components.conversations` unless legacy implied.
+- 2026-04-02 PRO-198 Phase 3+4: `api.core.ts` rename, disabled-component `/api/*` guards, web capabilities store gates sidebar/routes.
+- 2026-04-02 PRO-198 Phase 2a: real component wrappers for scheduler/heartbeat/amsg/conversations owning their routes.
+- 2026-04-02 PRO-198 Phase 1: component contracts, v2 config schemas, `$env:`/`$secret:` resolution, `GET /api/capabilities`.
+- 2026-04-02 main repo: `AgentDirectory` uses ws feed (no 5s polling).
+- 2026-03-30 PRO-164 mobile responsive project detail UI landed: `<1199px` compact, `<768px` mobile tabs, touch target sizing, tablet 280px left rail.
 - PRO-198 modular architecture is integrated on `space/PRO-198`.
-- Gateway/runtime now support v2 modular components with resolved-config threading and component-declared disabled-route metadata.
-- Recent follow-up work tightened `apm config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
-- Local preview entrypoints now honor `AIHUB_HOME`, so `pnpm dev`/`pnpm dev:web` use the same config home as gateway local-config commands. Legacy `AIHUB_CONFIG` still falls back by deriving the home directory from its parent path.
-- Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
+- Local preview entrypoints honor `AIHUB_HOME`; legacy `AIHUB_CONFIG` still falls back.
+- Main server `/api` mounting delegates to the live component-mutated router.
 
-## Recent Updates (Detailed)
-
-### 2026-04-06: PRO-213 subagent chat queueing follow-up
-
-- `apps/web/src/components/AgentChat.tsx`, `apps/web/src/components/AgentChat.test.tsx`
-  - Removed the subagent send/input gate tied to `status === "running"`.
-  - Added structured client-side queued subagent messages so follow-up sends during an active run render optimistically, stay stoppable, and flush sequentially after the current run exits `running`.
-  - Updated regression coverage so subagent chat now asserts enabled textarea/send during runs plus queued-follow-up flush behavior.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm install`
-  - `pnpm exec tsc -b packages/shared --force packages/cli --force`
-  - `pnpm exec eslint apps/web/src/components/AgentChat.tsx apps/web/src/components/AgentChat.test.tsx`
-  - `pnpm exec tsc --noEmit -p apps/web/tsconfig.json`
-  - `pnpm test -- apps/web`
+## Recent Updates (Detailed — within ~2 weeks)
 
 ### 2026-04-06: test-suite speedup
 
 - `apps/gateway/src/subagents/subagents.api.test.ts`, `vitest.config.ts`
-  - Added a seeded `repoTemplateDir` in `beforeAll()` and switched repeated subagent repo setup to `createRepoCopy()` so the heavy subagent API suite reuses the same pre-committed git fixture instead of re-running `git init/config/add/commit` for each case.
-  - Re-enabled Vitest file-level parallelism and capped the pool at `4` workers, which the full suite now passes under reliably.
-  - Combined effect: full `pnpm test` dropped from a measured `133.51s` to `57.86s` without removing assertions or coverage.
-- Verification:
-  - `pnpm test`
-  - `pnpm lint`
-  - `pnpm typecheck`
+  - Seeded `repoTemplateDir` in `beforeAll()` and switched to `createRepoCopy()` so the suite reuses a pre-committed git fixture.
+  - Re-enabled file-level parallelism with `maxWorkers: 4`.
+  - `pnpm test`: 133.51s → 57.86s. No assertions removed.
+
+### 2026-04-06: web markdown dedupe follow-up
+
+- `AgentChat`, `TaskboardOverlay`, `ConversationThreadView` → shared `apps/web/src/lib/markdown.ts` directly.
+- `SpecEditor` uses it with `breaks: false` to preserve rendering.
+- `ProjectsBoard` keeps its thin wrapper (project-specific rewrite/strip).
 
 ### 2026-04-05: PRO-214 mobile web scroll isolation
 
 - `apps/web/src/App.tsx`, `apps/web/src/components/{AgentSidebar,AgentList,ChatView,ActivityFeed,AreasOverview}.tsx`, `apps/web/src/components/conversations/ConversationsPage.tsx`
-  - Added scroll isolation on the shared left-nav shell/content and all affected mobile scroll containers with `overscroll-behavior: contain`, `touch-action: pan-y`, and `-webkit-overflow-scrolling: touch`.
-  - Switched the mobile sidebar from `100vh` to `height: 100%; height: 100dvh;` to avoid browser-chrome-induced layout shift.
-  - Set chat input area `flex-shrink: 0` so the composer stays stable at small viewport heights.
-- Verification:
-  - `pnpm lint`
-  - `pnpm typecheck`
-  - `pnpm test -- apps/web`
-  - `pnpm --filter @aihub/web build`
+  - `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`.
+  - Mobile sidebar `100%` + `100dvh`.
+  - Chat input `flex-shrink: 0`.
 
 ### 2026-04-05: PRO-212 Discord bot dedupe
 
-- `apps/gateway/src/discord/bot.ts`
-  - `createDiscordBot()` and `createDiscordComponentBot()` now share one `createConfiguredDiscordBot()` factory; wrappers only supply routing and agent-resolution strategy.
-- `apps/gateway/src/discord/bot.test.ts`
-  - Added component-bot coverage for routed channel and DM handling.
-- Verification:
-  - `pnpm install`
-  - `pnpm typecheck`
-  - `pnpm lint`
-  - `pnpm test`
+- `apps/gateway/src/discord/bot.ts`: `createDiscordBot()` and `createDiscordComponentBot()` share `createConfiguredDiscordBot()`.
+- `bot.test.ts`: component-bot coverage for routed + DM handling.
 
 ### 2026-04-05: PRO-212 code-quality slice
 
-- `apps/gateway/src/discord/bot.ts`, `apps/gateway/src/sessions/files.ts`, `apps/gateway/src/util/frontmatter.ts`, `apps/web/src/lib/{format,history,markdown}.ts`
-  - Shared helpers now cover Discord bot flow, session file resolution, frontmatter parsing, web markdown/history/timestamp formatting, and websocket event dispatch.
-- `apps/gateway/src/sdk/openclaw/adapter.ts`, `apps/gateway/src/sessions/{store,claude}.ts`
-  - OpenClaw now matches the object-literal adapter pattern, and session plus Claude stores now lazy-load via `fs.promises`.
-- Verification:
-  - `pnpm lint`
-  - `pnpm typecheck`
-  - `pnpm test`
+- Shared helpers: Discord flow, session file resolution, frontmatter, web markdown/history/timestamp formatting, ws event dispatch.
+- OpenClaw matches object-literal adapter pattern; session + Claude stores lazy-load via `fs.promises`.
 
 ### 2026-04-05: PRO-212 dead-code cleanup slice
 
-- `apps/gateway/src/agents/runner.ts`, `apps/gateway/src/index.ts`
-  - Removed the unused `queueOrRun()` wrapper and the deprecated runner `HistoryMessage` alias.
-- `apps/gateway/src/config/index.ts`, `apps/gateway/src/components/conversations/index.ts`, `apps/gateway/src/components/projects/index.ts`, `apps/gateway/src/sdk/*`, `apps/gateway/src/subagents/tool_handlers.ts`
-  - Removed the redundant `getConfig()` alias and updated direct callers to use `loadConfig()`.
-- `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`
-  - Removed deprecated `fetchHistory()` and the unused web `HistoryMessage` alias.
-- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/connectors/index.test.ts`, `apps/gateway/src/__tests__/connectors.test.ts`, `apps/gateway/src/sdk/claude/adapter.ts`
-  - Dropped the unused `gatewayConfig` arg from `getConnectorPromptsForAgent()` and removed the redundant `sentTurnEnd` guard in Claude adapter.
-- Verification:
-  - `pnpm lint`
-  - `pnpm typecheck`
-  - `pnpm test`
+- Removed `queueOrRun()`, deprecated runner `HistoryMessage` alias, `config.getConfig()` / web `fetchHistory()` wrappers, unused `gatewayConfig` arg from `getConnectorPromptsForAgent()`, redundant Claude `sentTurnEnd` guard.
 
 ### 2026-04-05: PRO-212 DRY cleanup slice
 
-- `packages/shared/src/config-path.ts`, `packages/shared/src/network.ts`, `packages/shared/src/index.ts`
-  - Exported shared `expandPath()`.
-  - Added shared `pickTailnetIPv4()`, `getTailscaleIP()`, and `resolveBindHost()`.
-- `apps/gateway/src/util/paths.ts`, `apps/gateway/src/util/fs.ts`
-  - Added shared gateway `getProjectsRoot()` and `dirExists()` helpers.
-- `apps/gateway/src/{areas,conversations,projects,subagents,taskboard,server,cli}/*`
-  - Replaced local `expandPath`, `getProjectsRoot`, `dirExists`, `findProjectDir`, network helpers, and `isMultiUserLoaded` copies with shared/canonical imports.
-- `apps/web/src/api/types.ts`, `apps/web/vite.config.ts`
-  - Web API types now import shared history/stream/taskboard/subagent types from `@aihub/shared/types`.
-  - Vite config now reuses the shared bind-host helper.
-- Tests:
-  - Updated registry mocks in `admin-routes.test.ts` and `status-ws.test.ts` for the new `isMultiUserLoaded()` export.
-- Verification:
-  - `pnpm install`
-  - `pnpm typecheck`
-  - `pnpm lint`
-  - `pnpm test`
-
-### 2026-04-04: PRO-209 multi-user auth integration + docs
-
-- `apps/gateway/src/components/multi-user/*`, `apps/web/src/auth/*`, `apps/web/src/pages/admin/*`
-  - Gateway now supports optional Better Auth + SQLite multi-user mode with API/WebSocket auth guards, admin assignment APIs, and per-user file isolation.
-  - Web now exposes login, auth guard, sidebar account/logout UI, `/admin/users`, and `/admin/agents`.
-- `apps/gateway/src/components/multi-user/integration.test.ts`
-  - Added end-to-end component lifecycle coverage for enabled mode (`/api/auth/ok`, SQLite creation, `agent_assignments` table, protected-route 401s) plus disabled-mode regression coverage (no DB, core APIs still unauthenticated).
-- Docs:
-  - Updated `docs/llms.md` and `README.md` with config, auth flow, API, UI, and fresh-start notes.
-- Status:
-  - Tasks 1-8 from PRO-209 are implemented.
-  - Remaining external validation is a real Google OAuth smoke test with live credentials if needed.
-
-### 2026-04-04: PRO-208 adapter wiring + docs update
-
-- `apps/gateway/src/sdk/claude/adapter.ts`, `apps/gateway/src/sdk/pi/adapter.ts`
-  - Claude and Pi runs now apply scoped OneCLI proxy env vars and CA trust env vars from the native `onecli` config and restore prior process env after each run.
-- Docs:
-  - Updated `README.md` and `docs/llms.md` to describe native `onecli` as the primary gateway/proxy integration path, per-agent gateway tokens, CA trust wiring, adapter support, and connector HTTP client support.
-- Status:
-  - Phase 1 foundation complete.
-  - Phase 2 adapter/runtime plumbing complete.
-  - Remaining follow-up: migrate concrete connectors onto the shared HTTP client where needed, then remove the deprecated secret lookup path in Phase 3.
-
-### 2026-04-04: PRO-208 connector HTTP client factory
-
-- `apps/gateway/src/connectors/http-client.ts`
-  - Added `createHttpClient()` for connector-scoped `fetch()` calls with optional default headers and timeout handling.
-  - OneCLI-enabled clients temporarily inject proxy env vars, embed per-client gateway token into the proxy URL, propagate CA trust env vars, and restore the previous process env after each request.
-  - Serialized OneCLI-wrapped requests with a module-level env lock so concurrent connector calls do not cross-contaminate proxy env state.
-- `apps/gateway/src/connectors/__tests__/http-client.test.ts`
-  - Added coverage for plain fetch passthrough, scoped proxy env mutation/restoration, tokenized proxy URLs, CA env propagation, and header/timeout merging.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm test -- apps/gateway/src/connectors`
-  - `pnpm typecheck`
-  - `pnpm exec eslint apps/gateway/src/connectors/http-client.ts apps/gateway/src/connectors/__tests__/http-client.test.ts`
-
-### 2026-04-03: PRO-208 OneCLI Phase 1 foundation
-
-- `packages/shared/src/types.ts`, `apps/gateway/src/config/onecli.ts`
-  - Added `OnecliCaConfigSchema`, `OnecliAgentConfigSchema`, `OnecliConfigSchema`, and top-level `GatewayConfigSchema.onecli`.
-  - Added `buildOnecliEnv(config, agentId)` to derive proxy env vars plus optional CA trust env vars from resolved gateway config.
-- `apps/gateway/src/config/__tests__/onecli.test.ts`
-  - Added coverage for env builder null/enabled/token/CA cases and OneCLI schema defaults/validation.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm test -- apps/gateway/src/config`
-  - `pnpm exec vitest run apps/gateway/src/config/__tests__/onecli.test.ts apps/gateway/src/config/__tests__/secrets.test.ts apps/gateway/src/config/__tests__/index.test.ts apps/gateway/src/config/__tests__/validate.test.ts apps/gateway/src/config/config.test.ts apps/gateway/src/config/__tests__/migrate.test.ts`
-  - `pnpm typecheck`
-  - `pnpm exec eslint packages/shared/src/types.ts apps/gateway/src/config/index.ts apps/gateway/src/config/secrets.ts apps/gateway/src/config/onecli.ts apps/gateway/src/config/__tests__/onecli.test.ts`
-
-### 2026-04-03: PRO-206 connector tool knowledge injection scope 1
-
-- `packages/shared/src/connectors/types.ts`
-  - Added optional connector-level `systemPrompt` to the shared connector contract and runtime schema.
-- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/connectors/index.test.ts`
-  - Added `getConnectorPromptsForAgent()` and focused coverage for enabled/disabled/no-prompt/no-config cases.
-- `apps/gateway/src/sdk/pi/adapter.ts`, `apps/gateway/src/sdk/claude/adapter.ts`
-  - Appended enabled connector prompt guidance into both adapter system prompts alongside existing built-in prompt additions.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm test -- apps/gateway/src/connectors/index.test.ts`
-  - `pnpm test -- apps/gateway`
-  - `pnpm lint`
-  - `pnpm typecheck`
-
-### 2026-04-03: PRO-199 connector review fixes
-
-- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/config/validate.ts`
-  - Centralized connector startup validation in `initializeConnectors()` so unknown connector warnings emit once and config/secret failures still stop startup early.
-- `packages/shared/src/connectors/types.ts`
-  - Narrowed `ConnectorTool.parameters` from any Zod schema to object-shaped Zod schemas to match Pi JSON Schema conversion and Claude MCP mounting.
-- `packages/shared/src/__tests__/connectors.test.ts`, `apps/gateway/src/config/__tests__/validate.test.ts`
-  - Added schema coverage for object-only connector params and moved startup missing-secret coverage onto real external discovery instead of in-memory registry state.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm test -- packages/shared`
-  - `pnpm test -- apps/gateway`
-  - `pnpm lint`
-  - `pnpm typecheck`
-
-### 2026-04-03: PRO-199 gateway connector runtime integration
-
-- `apps/gateway/src/connectors/index.ts`, `apps/gateway/src/config/validate.ts`, `apps/gateway/src/cli/index.ts`
-  - Added gateway connector initialization with external discovery, startup validation, missing-connector warnings, and required-secret checks.
-  - Wired connector init into gateway startup after secret resolution and before component loading.
-- `apps/gateway/src/sdk/pi/adapter.ts`, `apps/gateway/src/sdk/claude/adapter.ts`, `apps/gateway/package.json`
-  - Injected connector tools into Pi custom tools and Claude MCP tool mounts.
-  - Added Zod-to-JSON-Schema conversion for Pi connector tools.
-- `apps/gateway/src/__tests__/connectors.test.ts`, `apps/gateway/src/config/__tests__/validate.test.ts`
-  - Added gateway connector loading and startup validation coverage.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm exec vitest run apps/gateway/src/__tests__/connectors.test.ts apps/gateway/src/config/__tests__/validate.test.ts`
-  - `pnpm typecheck`
-  - `pnpm lint`
-  - `pnpm build`
-  - `pnpm test -- apps/gateway`
-
-### 2026-04-03: PRO-199 shared connector foundation
-
-- `packages/shared/src/connectors/*`, `packages/shared/src/types.ts`, `packages/shared/src/index.ts`
-  - Added connector contracts plus Zod-backed runtime schemas.
-  - Added in-memory connector registry.
-  - Added config merge + tool loading helpers with tool-name namespacing.
-  - Added external connector discovery from directory subfolders with non-fatal warning logs for invalid modules.
-  - Extended shared config schemas with root-level `connectors` and per-agent `agent.connectors`.
-- `packages/shared/src/__tests__/connectors.test.ts`
-  - Added coverage for registry override behavior, config merge/load flow, validation failures, external discovery, schema acceptance, and migration behavior when `connectors` is absent.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm test`
-  - `pnpm lint`
-  - `pnpm typecheck`
-  - `pnpm build`
-
-### 2026-04-02: PRO-198 modular architecture Phase 5 hardening
-
-- `packages/shared/src/types.ts`, `apps/gateway/src/components/*`, `apps/gateway/src/components/registry.ts`
-  - Extended the shared component contract with `routePrefixes`.
-  - Added route metadata to route-owning components and exposed static registry metadata for server-side route guard construction without eager component imports.
-- `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/validate.ts`, `apps/gateway/src/cli/index.ts`
-  - Added startup preparation that resolves `$env:` / `$secret:` refs once, then stores the resolved config as the runtime config.
-  - `ComponentContext.getConfig()` now exposes resolved values during component startup/runtime.
-  - Discord component startup no longer performs ad hoc token resolution.
-- `apps/gateway/src/server/index.ts`
-  - Replaced the hardcoded disabled-component route matcher list with middleware built from static component route metadata.
-  - Kept disabled components lazy by avoiding eager component imports during server boot.
-- Tests:
-  - Added coverage for resolved runtime config and registry route metadata.
-  - Updated Discord component tests to assert resolved-config consumption.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-  - Follow-up on 2026-04-02: `README.md` now has a dedicated built-in components section with short explanations for `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`.
-- Verification:
-  - `pnpm test -- apps/gateway/src/server/component-disabled.api.test.ts` (repo-wide Vitest run: `71/71` files, `622/622` tests)
-  - `pnpm build`
-  - `pnpm lint`
-
-### 2026-04-02: PRO-198 apm config migrate/validate CLI
-
-- `packages/shared/src/config-migrate.ts`, `apps/gateway/src/config/migrate.ts`
-  - Moved the pure v1 -> v2 migration helper into `@aihub/shared` so gateway and `apm` reuse the same logic.
-- `packages/cli/src/local-config.ts`, `packages/cli/src/index.ts`
-  - Added local config path resolution with `--config` > `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), with deprecated `AIHUB_CONFIG` fallback deriving the home directory from the legacy file path.
-  - Added `apm config migrate [--dry-run]` to preview or apply migration with backup creation.
-  - Added `apm config validate` to parse current config, auto-migrate legacy v1 in-memory for validation, and print agent/component summary.
-  - Follow-up on 2026-04-02: tightened migration so it does not auto-add `components.amsg` when legacy `agent.amsg` is absent, and does not auto-add `components.conversations` by default.
-- `packages/cli/src/config.commands.test.ts`
-  - Added coverage for dry-run output, persisted migration + backup, and validate output.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`.
-- Verification:
-  - `pnpm test -- packages/cli/src/config.commands.test.ts` (repo-wide Vitest run: `71/71` files, `620/620` tests)
-  - `pnpm build`
-  - `pnpm lint`
-
-### 2026-04-04: PRO-211 apm create area validation
-
-- `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
-  - Added `ApiClient.listAreas()` for `GET /api/areas`.
-  - Added `apm create --area <area>`.
-  - Validates `--area` against current area ids before project creation and prints valid ids on error.
-- `packages/cli/src/index.create.test.ts`
-  - Added coverage for valid and invalid `apm create --area` flows.
-- Docs:
-  - Updated `README.md` and `docs/cli-apm.md`.
-
-### 2026-04-02: PRO-198 modular architecture Phase 3 + Phase 4
-
-- `apps/gateway/src/server/api.core.ts`, `apps/gateway/src/server/index.ts`, `apps/gateway/src/cli/index.ts`
-  - Renamed the core route module from `api.ts` to `api.core.ts`.
-  - Removed the temporary projects compatibility mount from the core API.
-  - Added `/api/*` disabled-component guards that return `404 { error: "component_disabled", component }` for known component route prefixes.
-- `apps/web/src/lib/capabilities.ts`, `apps/web/src/App.tsx`, `apps/web/src/components/AgentSidebar.tsx`, `apps/web/src/api/client.ts`
-  - Added a shared capabilities store fetched from `/api/capabilities` on boot.
-  - Sidebar now hides `Projects` and `Conversations` when those components are disabled.
-  - `/`, `/projects`, and `/conversations` now gate on capabilities and lazy-load component-owned route bundles only when enabled.
-- Tests:
-  - Updated API route tests to register component routes explicitly against `api.core`.
-  - Added disabled-component server coverage and sidebar/client capabilities coverage.
-
-### 2026-04-02: PRO-198 modular architecture Phase 2a simple components
-
-- `apps/gateway/src/components/scheduler/index.ts`, `apps/gateway/src/components/heartbeat/index.ts`, `apps/gateway/src/components/amsg/index.ts`, `apps/gateway/src/components/conversations/index.ts`
-  - Replaced Phase 1 stubs with real component wrappers for scheduler, heartbeat, amsg, and conversations.
-  - Scheduler now owns `/schedules` CRUD route registration.
-  - Heartbeat now owns `POST /api/agents/:id/heartbeat`.
-  - Conversations now own listing/detail/message/attachment/project-creation routes.
-- `apps/gateway/src/server/api.ts`
-  - Removed extracted scheduler, heartbeat, and conversations route handlers from the core API module.
-- `apps/gateway/src/conversations/conversations.api.test.ts`
-  - Updated the test harness to use v2 config and explicitly register loaded component routes before exercising conversation endpoints.
-- Verification:
-  - `pnpm test -- apps/gateway/src/conversations/conversations.api.test.ts` (repo ran broad vitest suite; passing)
-  - `pnpm build`
-  - `pnpm lint`
-
-### 2026-04-02: PRO-198 modular architecture Phase 1 foundation
-
-- `packages/shared/src/types.ts`, `packages/shared/src/__tests__/component-types.test.ts`, `packages/shared/src/__tests__/config-v2.test.ts`
-  - Added component contracts (`Component`, `ComponentContext`, `ValidationResult`).
-  - Added v2 config schemas for `version`, `secrets`, `components`, and capabilities response payload.
-- `apps/gateway/src/config/index.ts`, `apps/gateway/src/config/secrets.ts`, `apps/gateway/src/config/migrate.ts`, `apps/gateway/src/config/validate.ts`
-  - Added legacy v1 -> v2 runtime migration with warnings.
-  - Added `$env:` and `$secret:` resolution helpers.
-  - Added startup validation for duplicate agent ids, component config validity, agent references, and summary logging.
-- `apps/gateway/src/components/*`, `apps/gateway/src/components/registry.ts`
-  - Added lazy component registry and Phase 1 stub components for `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, `projects`.
-  - Moved project watcher ownership out of `server/index.ts` into the projects component stub.
-- `apps/gateway/src/server/api.ts`, `apps/gateway/src/server/capabilities.api.test.ts`, `apps/gateway/src/cli/index.ts`
-  - Added `GET /api/capabilities`.
-  - CLI now loads components, validates startup, registers routes, starts components in order, and stops them in reverse order.
-- Verification:
-  - `pnpm test -- packages/shared/src/__tests__/component-types.test.ts` (repo runs broad vitest suite; passed)
-  - `pnpm build`
-  - `pnpm lint`
-
-### 2026-03-30: PRO-164 mobile responsive project detail UI
-
-- `apps/web/src/components/project/ProjectDetailPage.tsx`
-  - Added local `isMobile` breakpoint state at `768px` and lowered compact layout activation to `1199px`.
-  - Added mobile-only single-column tabs: `Overview`, `Chat`, `Activity`, `Changes`, `Spec`.
-  - Moved `AgentPanel` into the mobile `Overview` tab and kept desktop/tablet split behavior intact.
-  - Added mobile breadcrumb truncation/scroll handling and touch-target sizing.
-  - Added tablet rule for a fixed `280px` left rail between `769px` and `1199px`.
-- `apps/web/src/components/project/AgentPanel.tsx`
-  - Increased mobile agent row padding and action button size for touch use.
-- Tests:
-  - Updated `apps/web/src/components/project/ProjectDetailPage.test.tsx` with deterministic breakpoint mocking and mobile layout coverage.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`
-- Verification:
-  - `pnpm test -- apps/web/src/components/project/ProjectDetailPage.test.tsx`
-  - `pnpm build`
-  - `pnpm lint`
-  - `pnpm typecheck`
-
-### 2026-03-13: SPECS checklist collapse toggle
-
-- `apps/web/src/components/project/SpecEditor.tsx`
-  - Added one lower-pane toggle that collapses/expands both Tasks and Acceptance Criteria together.
-  - Collapsed state shrinks the checklist pane to an auto-height summary row so the markdown preview/editor gets more vertical space.
-- `apps/web/src/components/project/SpecEditor.test.tsx`
-  - Added coverage for the shared collapse/expand behavior.
-- Docs:
-  - Updated `README.md` and `docs/llms.md`
-
-### 2026-03-13: Areas homepage quick-create + native color picker
-
-- `apps/web/src/components/AreasOverview.tsx`
-  - Added quick area creation from the Areas homepage via header/empty-state `Add area`.
-  - Creation happens inline as a card with slugified `id` preview from `title`, native color picker, optional repo path, and in-place area list update after success.
-- `apps/web/src/components/AreaEditForm.tsx`
-  - Replaced the color text input with `input[type="color"]`.
-- `apps/web/src/api/client.ts`
-  - Added `createArea(payload)` for `POST /api/areas`.
-- Tests:
-  - Added `apps/web/src/components/AreasOverview.test.tsx`
-  - Added `apps/web/src/components/AreaEditForm.test.tsx`
-  - Extended `apps/web/src/api/client.test.ts`
-- Docs:
-  - Updated `README.md` and `docs/llms.md`
-
-### 2026-03-10: Codex `gpt-5.4` added to run preparation + CLI model validation
-
-- `apps/web/src/components/project/SpawnForm.tsx`
-  - Added `gpt-5.4` to Codex model options in the run preparation form.
-- `apps/web/src/components/project/AgentPanel.tsx`
-  - Added `gpt-5.4` to the editable Codex model list for idle subagents.
-- `apps/web/src/components/AgentChat.tsx`
-  - Added a context window entry for `gpt-5.4`.
-- `packages/cli/src/index.ts`
-  - Added `gpt-5.4` to `apm start` Codex model validation/mapping.
-- `apps/gateway/src/server/api.ts`
-  - Added `gpt-5.4` to server-side Codex model validation for subagent/project runs.
-- `packages/cli/src/index.start.test.ts`
-  - Added CLI mapping coverage for `gpt-5.4`.
-- Docs:
-  - Updated `docs/llms.md` and `docs/cli-apm.md` Codex model lists.
-
-### 2026-03-09: PRO-162 areas overview homepage + filtered kanban
-
-- `apps/web/src/components/AreasOverview.tsx` (new)
-  - Added new homepage grid at `/` with:
-    - one card per area
-    - aggregate "All Projects" card
-    - per-status project count chips (skip zero counts)
-    - empty/loading/error states
-- `apps/web/src/components/AreaCard.tsx` (new)
-  - Added area card UI with:
-    - title link to `/projects?area=<id>`
-    - repo path display
-    - inline edit toggle
-- `apps/web/src/components/AreaEditForm.tsx` (new)
-  - Added inline edit form for `title`, `color`, `order`, `repo`.
-- `apps/web/src/App.tsx`
-  - Root route now renders Areas overview shell (`/`).
-  - Legacy kanban remains at `/projects/:id?`.
-- `apps/web/src/components/ProjectsBoard.tsx`
-  - Added `?area=<id>` query filtering.
-  - Header now shows area context and `Back to Areas` link when filtered.
-- `apps/web/src/api/client.ts`
-  - Added `updateArea(id, patch)`.
-  - `fetchProjects(area?)` now supports optional area query.
-- `apps/gateway/src/server/api.ts`, `apps/gateway/src/projects/store.ts`
-  - Added backend support for `GET /api/projects?area=<id>` filtering.
-- Tests:
-  - `apps/web/src/api/client.test.ts` coverage for area patch + project area query.
-  - `apps/gateway/src/projects/projects.api.test.ts` coverage for `?area=` filtering.
-  - Updated ProjectsBoard test mocks to include `fetchAreas`.
-- Docs:
-  - Updated `README.md` + `docs/llms.md` route/navigation notes for Areas homepage and filtered kanban.
-
-### 2026-03-09: PRO-168 active projects in right sidebar Agents tab
-
-- `apps/web/src/components/AgentDirectory.tsx`
-  - Kept `LEAD AGENTS` section unchanged.
-  - Replaced `SUBAGENTS` section with `ACTIVE PROJECTS`.
-  - Added `fetchProjects()` resource and combined it with global subagent status data.
-  - Active project criteria:
-    - at least one subagent has `status === "running"`
-  - Project rows are ordered by most recent `lastActive` timestamp.
-  - Each row now shows project id/title, status indicator (running/idle/error), and relative last-activity time.
-  - Clicking a project row calls `onOpenProject(projectId)` to navigate to project detail.
-- `apps/web/src/components/ContextPanel.tsx`
-  - Passed `onOpenProject` through to `AgentDirectory`.
-- `apps/web/src/components/AgentDirectory.test.tsx`
-  - Reworked tests to cover:
-    - lead-agent section/status still rendering
-    - active-project filtering (running only, regardless of project status)
-    - recency ordering
-    - project row click navigation callback
-
-### 2026-03-09: PRO-155 quick lead-agent access overlay
-
-- `apps/web/src/App.tsx`
-  - Added app-level quick chat state and mounting in `Layout` so it persists across route navigation.
-  - Wired `fetchAgents` default selection + localStorage persistence (`aihub:quick-chat-last-agent`).
-  - Added global Escape handling to close overlay.
-  - Added background `subscribeToSession` unread tracking for pulse indicator when overlay is closed.
-- `apps/web/src/components/QuickChatFAB.tsx`
-  - New bottom-right floating trigger (`48x48`, fixed, z-index `800`) with unread pulse/glow state.
-- `apps/web/src/components/QuickChatOverlay.tsx`
-  - New overlay panel (`~380x520` desktop, full-screen mobile at `<=768px`) with:
-    - Header avatar + lead-agent picker dropdown
-    - Minimize + close controls
-    - Embedded `AgentChat` (lead mode) reusing existing message rendering, SSE streaming, and file/image attachments.
-- Tests:
-  - Added `apps/web/src/components/QuickChatOverlay.test.tsx`
-  - Added `apps/web/src/components/QuickChatFAB.test.tsx`
-- Docs:
-  - Updated `README.md` and `docs/llms.md` navigation/features notes for the new quick chat overlay.
-- Verification:
-  - `pnpm lint`
-  - `pnpm typecheck`
-  - `pnpm test` (57 files, 552 tests passed)
-
-### 2026-03-09: Silent `apm exec` diagnostics surfaced for subagents (PRO-169)
-
-- `apps/gateway/src/subagents/index.ts`
-  - Added shell-result normalization for `exec_command`/`bash` runs.
-  - When a shell tool output payload is structurally empty (`stdout=""`, `stderr=""`, `is_error=false`) and command is known, gateway now emits a `warning` log event with:
-    - original command
-    - remediation hint (`command -v apm && apm --version`, then retry with `apm ...` or `pnpm apm ...`)
-- `packages/shared/src/projectPrompt.ts`
-  - Coordinator delegation instructions now include path-agnostic `apm` preflight guidance before template dispatch.
-- `apps/web/src/components/AgentChat.tsx`
-  - Added warning tone/icon handling for `warning` log events.
-  - Shell tool cards now show `No output captured` warning state instead of muted/blank success when output is empty.
-- `apps/web/src/components/ProjectsBoard.tsx`
-  - Applied same shell-card warning behavior + warning tone/icon mapping in project monitoring logs.
-- Tests:
-  - Added `apps/gateway/src/subagents/index.test.ts` for empty-shell diagnostic emission and non-empty guard case.
-  - Extended `apps/web/src/components/AgentChat.test.tsx` with UI assertion for empty shell output warning callout.
-  - Updated `packages/shared/src/projectPrompt.test.ts` to assert preflight instruction and no hardcoded absolute-path guidance in coordinator examples.
-- Docs:
-  - Updated `docs/llms.md` and `README.md` with preflight + shell warning behavior notes.
-- Verification:
-  - `pnpm exec prettier --write apps/gateway/src/subagents/index.ts apps/gateway/src/subagents/index.test.ts apps/web/src/components/AgentChat.tsx apps/web/src/components/AgentChat.test.tsx apps/web/src/components/ProjectsBoard.tsx`
-  - `pnpm typecheck`
-  - `pnpm lint` (passes with existing repository warnings only)
-  - `pnpm test` (56 files / 552 tests passing)
-
-### 2026-03-07: Space per-entry skip/integrate + delivery replaces (PRO-174)
-
-- `apps/gateway/src/projects/space.ts`
-  - Added `skipSpaceEntries(config, projectId, entryIds)` to mark selected `pending` queue rows as `skipped`.
-  - Added `integrateSpaceEntries(config, projectId, entryIds)` to cherry-pick only selected `pending` entries.
-  - `RecordWorkerDeliveryInput` now accepts `replaces?: string[]`.
-  - `recordWorkerDelivery` now auto-skips matching `pending` entries by `id` or `workerSlug` when `replaces` is provided.
-- `apps/gateway/src/server/api.ts`
-  - Added:
-    - `POST /api/projects/:id/space/entries/skip`
-    - `POST /api/projects/:id/space/entries/integrate`
-  - Conflict-fix resume path now passes `replaces: [entryId]` to resumed worker spawn metadata.
-- `apps/gateway/src/subagents/runner.ts`
-  - Subagent persisted config now supports `replaces`.
-  - Runner reads `replaces` from persisted config at delivery time and forwards it to `recordWorkerDelivery`.
-- Tests:
-  - `apps/gateway/src/projects/space.test.ts` adds coverage for skip selected entries, integrate selected entries, and delivery `replaces` auto-skip behavior.
-  - `apps/gateway/src/subagents/subagents.api.test.ts` asserts conflict-fix resume writes `replaces` metadata in worker config.
-  - Stabilized two Ralph loop API tests with explicit 15s test timeout.
-- Docs:
-  - Updated `README.md` and `docs/llms.md` Space API/model notes for per-entry actions + `replaces`.
-- Verification:
-  - `pnpm exec eslint apps/gateway/src/projects/space.ts apps/gateway/src/server/api.ts apps/gateway/src/subagents/runner.ts apps/gateway/src/projects/space.test.ts apps/gateway/src/subagents/subagents.api.test.ts apps/gateway/src/projects/index.ts`
-  - `pnpm typecheck`
-  - `pnpm test -- apps/gateway/src/projects/space.test.ts` (suite passes in this repo config; 537 tests green)
-
-### 2026-03-07: PRO-174 frontend rebase-on-main controls (worker-rebase-frontend)
-
-- `apps/web/src/api/client.ts`, `apps/web/src/api/types.ts`
-  - Added client methods `rebaseSpaceOntoMain(projectId)` and `fixSpaceRebaseConflict(projectId)`.
-  - Extended `ProjectSpaceState` with optional `rebaseConflict?: { baseSha: string; error: string }`.
-- `apps/web/src/components/project/ChangesView.tsx`
-  - Added `Rebase on main` action in Space dashboard (queue-present only, disabled while blocked/in-progress).
-  - Added space-level rebase conflict banner + `Fix rebase conflict` action and spawned-agent message.
-- Tests:
-  - `apps/web/src/api/client.test.ts` coverage for `/space/rebase` and `/space/rebase/fix`.
-  - `apps/web/src/components/project/ChangesView.test.tsx` coverage for rebase button, conflict render, and fix action.
-- Verification:
-  - `pnpm test -- --testTimeout=20000 apps/web/src/components/project/ChangesView.test.tsx`
-  - `pnpm test -- --testTimeout=20000 apps/web/src/api/client.test.ts`
-  - `pnpm lint`
-
-### 2026-03-04: PRO-170 resume semantics + prompt guardrails (codex/claude/pi)
-
-- `apps/gateway/src/subagents/runner.ts`
-  - Resume prompt assembly is now delta-only (`input.prompt` + optional current-turn attachment marker).
-  - Resume path no longer loads project markdown corpus or prepends project summary/workspace suffixes.
-  - Added prompt-size preflight before CLI spawn:
-    - Resume limit default: `32768` bytes (`AIHUB_SUBAGENT_RESUME_MAX_PROMPT_BYTES`).
-    - Start/spawn limit default: `262144` bytes (`AIHUB_SUBAGENT_MAX_PROMPT_BYTES`).
-  - Oversized prompt returns `ok:false` with explicit byte/limit error.
-- `apps/gateway/src/subagents/subagents.api.test.ts`
-  - Resume assertions now verify no `Let's tackle the following project:` reinjection for codex/claude.
-  - Added Pi resume coverage validating session-file reuse and no summary reinjection.
-  - Added conflict-fix resume coverage asserting conflict instruction payload and no summary reinjection.
-  - Added guardrail tests for both resume and start/spawn oversized prompt 400s.
-- Docs updated:
-  - `docs/cli-apm.md`
-  - `docs/agent_interfacing_decisions.md`
-  - `docs/agent_interfacing_specs.md`
-  - `docs/llms.md`
-- Verification:
-  - `pnpm test -- apps/gateway/src/subagents/subagents.api.test.ts` (passes; repository config runs full vitest suite under this invocation).
-
-### 2026-03-04: Inline rename Space key fix in project agent list
-
-- `apps/web/src/components/project/AgentPanel.tsx`
-  - Fixed subagent inline rename keyboard handling: pressing `Space` in the rename input now stops propagation so the parent row does not trigger subagent selection/load.
-- `apps/web/src/components/project/AgentPanel.test.tsx`
-  - Added regression test: `Space` during rename does not call `onSelectAgent` and keeps rename input active.
-- `docs/llms.md`
-  - Updated project-detail inline-rename behavior note to include Space-key handling while editing.
-
-### 2026-03-04: Space merge-to-main backend endpoint + cleanup (PRO-167)
-
-- `apps/gateway/src/projects/space.ts`
-  - Added `mergeSpaceIntoBase(config, projectId, { cleanup? })`.
-  - Merge flow validates queue terminal state (no `pending/conflict/stale_worker`), checks out base branch, runs `git merge --ff-only` with fallback `git merge --no-edit`, and pushes base branch when a remote exists.
-  - Added `cleanupSpaceWorktrees(config, projectId)` with best-effort removal of worker worktrees/branches and Space worktree/branch, then clears `space.json` queue + `integrationBlocked`.
-  - Added result types: `SpaceMergeResult`, `SpaceCleanupSummary`.
-- `apps/gateway/src/server/api.ts`
-  - Added `POST /api/projects/:id/space/merge` with body `{ cleanup?: boolean }` (default `true`).
-  - Endpoint runs merge, updates project status to `done`, records status activity, and emits README file-changed event.
-- `apps/gateway/src/projects/index.ts`
-  - Exported new Space merge/cleanup functions and types.
-- Tests:
-  - Added merge/cleanup coverage in `apps/gateway/src/projects/space.test.ts`.
-  - Added API coverage in `apps/gateway/src/server/space-merge.api.test.ts` (queue validation + successful merge/status update).
-- Docs:
-  - Updated `README.md` and `docs/llms.md` Space API/model notes for `/space/merge`.
-
-### 2026-03-04: Coordinator prompt enforces reviewer dispatch for code review
-
-- `packages/shared/src/projectPrompt.ts`
-  - Tightened coordinator role instructions: coordinator must not run code reviews directly and must dispatch a `reviewer` template run for review/verification work.
-  - Added explicit delegation bullet for review/test validation responsibilities.
-- `packages/shared/src/projectPrompt.test.ts`
-  - Added assertion covering the new coordinator instruction text.
-- `docs/llms.md`
-  - Documented the coordinator prompt constraint that review/verification should flow through `--template reviewer`.
-
-### 2026-03-04: Space conflict-fix resumes original worker (PRO-166)
-
-- `apps/gateway/src/server/api.ts`
-  - Changed `POST /api/projects/:id/space/conflicts/:entryId/fix` from spawning a new fixer run to resuming the original worker slug.
-  - Handler now aborts any lingering Space cherry-pick state, resolves current Space HEAD SHA, and sends rebase/deliver instructions to the worker.
-- `apps/gateway/src/projects/space.ts`
-  - `recordWorkerDelivery` now detects existing `conflict` entry for the same worker and updates that entry in place (`startSha/endSha/shas/status/error/staleAgainstSha`) instead of appending.
-  - Clears `integrationBlocked` when conflict re-delivery lands.
-- `apps/web/src/api/client.ts`, `apps/web/src/components/project/ChangesView.tsx`
-  - Renamed client call to `fixSpaceConflict`.
-  - Changes tab now uses resume wording (`Resuming…`, `Resumed worker: <slug>`) and no longer implies spawning a new fixer.
-- Tests:
-  - Added in-place conflict re-delivery coverage in `apps/gateway/src/projects/space.test.ts`.
-  - Updated conflict-fix API expectations in `apps/gateway/src/subagents/subagents.api.test.ts` for resume flow.
-  - Updated ChangesView client mock naming and preserved suite coverage.
-
-### 2026-03-04: Subagent post-creation model/config updates (PRO-163 Fix 4)
-
-- `apps/gateway/src/server/api.ts`, `apps/gateway/src/subagents/index.ts`
-  - Added `PATCH /api/projects/:id/subagents/:slug` for partial config updates (`name`, `model`, `reasoningEffort`, `thinking`).
-  - Resume path now reuses saved config values when these fields are omitted from follow-up spawn requests.
-- `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
-  - Added `apm rename <id> --slug <slug> [--name|--model|--reasoning-effort|--thinking]`.
-- `apps/web/src/components/project/AgentPanel.tsx`, `apps/web/src/api/client.ts`
-  - Added per-harness model selector in subagent cards (hidden while status is `running`) and PATCH persistence.
-- Tests:
-  - `apps/gateway/src/subagents/subagents.api.test.ts` (added PATCH model + PATCH name/model + resume-uses-updated-model coverage)
-  - `apps/web/src/components/project/AgentPanel.test.tsx` (added model selector visibility/update coverage)
-
-### 2026-03-03: Subagent chat remount + stale poll race hardening
-
-- `apps/web/src/components/project/CenterPanel.tsx`
-  - Chat agent selection now flows through a memoized signal (`chatSelectedAgent`) instead of recreating the chat branch with an inline IIFE.
-  - Prevents unnecessary `AgentChat` remounts when selected subagent metadata updates (e.g. status/cli sync ticks).
-- `apps/web/src/components/AgentChat.tsx`
-  - Added setup-token guards around async subagent slug resolution + polling so stale/in-flight callbacks cannot attach orphan pollers after cleanup.
-  - Chat runtime reset/setup is now keyed by stable chat identity (`lead:<id>` or `subagent:<projectId>:<slug>`) so status-only prop churn no longer tears down/recreates polling.
-  - Centralized poll interval teardown (`clearSubagentPollInterval`) to avoid duplicate poll loops and cursor resets.
-  - Reset effect no longer tracks `subagentInfo.status`, preventing unintended full chat resets on running/replied transitions.
-  - Removed temporary in-UI debug panel/logging after root cause confirmation.
-  - Kept test-only reset hook for module-global transient state to keep unit tests isolated.
-- Tests:
-  - `apps/web/src/components/AgentChat.test.tsx`
-  - `pnpm test -- apps/web/src/components/AgentChat.test.tsx` (passes; repo currently executes broad suite under this command).
-
-### 2026-03-03: Subagent chat loading flicker fix
-
-- `apps/web/src/components/AgentChat.tsx`
-  - Subagent awaiting state no longer clears on `session`/`message`/empty assistant log noise.
-  - Awaiting state now clears only on first non-empty assistant message, or explicit run-end status transition.
-  - Pending user echoes are cleared on first assistant response/run-end to avoid stale spinner state.
-  - Loading spinner now persists until meaningful subagent output arrives.
-  - Non-UI log noise is filtered from rendered chat events to prevent flashing.
-  - Batched log/pending state updates to avoid transient chat history flicker.
-- Tests:
-  - `apps/web/src/components/AgentChat.test.tsx`
-    - Added regressions for `session`/`message` events and empty assistant event handling.
-
-### 2026-03-03: Project detail stale accessor + selection override fix
-
-- `apps/web/src/components/project/ProjectDetailPage.tsx`
-  - Removed stale `<Show>` accessor usage in async `onSpawned` callbacks (`detail().id` -> `projectId()`).
-  - Saved-subagent restore no longer overrides an already-selected agent after delayed subagent list refresh.
-- `apps/web/src/components/project/CenterPanel.tsx`
-  - Chat branch no longer uses function-child `<Show>` accessors for selected/spawn mode rendering.
-  - Reduces stale accessor runtime risk and tab-state desync when opening spawn templates.
-
-### 2026-03-03: Project detail subagent realtime fallback + chat run-state fix
-
-- `apps/web/src/components/AgentChat.tsx`
-  - Subagent chat now treats `awaiting response` as running state.
-  - Prevents input/Send from re-enabling right after spawn before status refresh arrives.
-  - On successful subagent interrupt, clears local awaiting state immediately.
-- `apps/web/src/components/project/AgentPanel.tsx`
-  - Added 2s subagent list polling fallback (in addition to websocket `agent_changed` refresh).
-  - Keeps project detail agent list/status synchronized even when a ws event is missed.
-- Tests:
-  - `apps/web/src/components/AgentChat.test.tsx`
-  - `apps/web/src/components/project/AgentPanel.test.tsx`
-
-### 2026-03-03: Stop/interrupt UX + realtime status refresh
-
-- `apps/web/src/components/AgentChat.tsx`
-  - Stop button now transitions to disabled `Stopping...` while interrupt is in-flight.
-  - Added guard to prevent double interrupt clicks.
-- `apps/gateway/src/subagents/runner.ts`
-  - `interruptSubagent` now writes `interrupt_requested_at` to `state.json` immediately after `SIGTERM`.
-  - This triggers watcher-driven `agent_changed` broadcasts so UI refreshes promptly.
-- Tests:
-  - `apps/web/src/components/AgentChat.test.tsx`
-  - `apps/gateway/src/subagents/subagents.api.test.ts`
-
-### 2026-03-03: Project watcher ID mismatch fix
-
-- `apps/gateway/src/projects/watcher.ts`
-  - Watcher now normalizes folder names (`PRO-159_slug`) to canonical project IDs (`PRO-159`) before broadcasting.
-- Impact:
-  - Project detail subagent state now updates in realtime.
-  - Center chat state no longer gets stuck on running after completion.
-- Tests:
-  - `apps/gateway/src/projects/watcher.test.ts`
-  - related project-detail web tests updated and passing.
-
-### 2026-03-03: Prompt/template guardrails and docs alignment
-
-- `packages/shared/src/projectPrompt.ts`
-  - Coordinator instructions now forbid template-locked overrides unless `--allow-template-overrides` is set.
-  - Worker instructions explicitly require commit after green checks.
-  - Coordinator examples removed redundant template-locked flags.
-- `packages/shared/src/projectPrompt.test.ts` updated.
-- Docs synced: `README.md`, `docs/llms.md`.
-
-### 2026-03-03: Spawn form + chat/detail regressions fixed
-
-- `apps/web/src/components/project/SpawnForm.tsx`
-  - Worker prompt preview now uses workspace path for `clone/worktree` modes.
-- `apps/web/src/components/project/ProjectDetailPage.tsx`
-  - Center panel tab wired in controlled mode so selecting template reliably activates Chat tab.
-- `apps/web/src/components/AgentChat.tsx` + `apps/web/src/components/project/CenterPanel.tsx`
-  - Fixed long-line overflow/cropping that hid Send/Stop controls.
-- Tests updated in SpawnForm/ProjectDetail/AgentChat suites.
-
-### 2026-03-03: Realtime web subscriptions + activity/changes UX
-
-- `apps/web/src/api/client.ts`
-  - Added shared websocket subscription helper for `file_changed` and `agent_changed` with reconnect + shared lifecycle.
-- `ProjectsBoard`, `ProjectDetailPage`, `AgentPanel`, `CenterPanel`
-  - Added targeted debounced refetch behavior on relevant events.
-- `CenterPanel` activity timeline
-  - Real comments stay card-based; synthetic agent lifecycle events render as concise plain rows with relative time.
-- `ChangesView`
-  - Branch diff header now expands/collapses per-file +/- breakdown.
-  - Space commit log rows now show relative commit age.
+- Shared `expandPath()`, `pickTailnetIPv4()`, `getTailscaleIP()`, `resolveBindHost()` in `@aihub/shared`.
+- Shared gateway `getProjectsRoot()` + `dirExists()`.
+- Web `api/types.ts` reuses shared history/stream/taskboard/subagent types.
+- Registry mocks updated in `admin-routes.test.ts` + `status-ws.test.ts` for new `isMultiUserLoaded()` export.
 
 ### 2026-04-05: Session-store save race fix
 
-- `apps/gateway/src/sessions/store.ts`, `apps/gateway/src/sessions/claude.ts`
-  - Fixed async save race from the PRO-212 session-store rewrite by giving each save a unique temp file instead of reusing one `.<pid>.tmp` path per store.
-- `apps/gateway/src/sessions/store.test.ts`, `apps/gateway/src/sessions/claude.test.ts`
-  - Added concurrent-save coverage to lock in distinct temp paths for overlapping writes.
+- `apps/gateway/src/sessions/{store,claude}.ts`: each save uses a unique temp file. Added concurrent-save coverage.
 
-### 2026-03-03: Routing/sidebar and template lock fixes
+### 2026-04-04: PRO-209 multi-user auth integration + docs
 
-- `apps/web/src/App.tsx`, `ProjectsBoard.tsx`
-  - Removed duplicate left-sidebar rendering for `/projects/:id?` shell.
-- `apps/web/src/components/AgentSidebar.tsx`
-  - Recents now come from view history (`aihub:recent-project-views`) instead of project sort fields.
-- `packages/cli/src/index.ts`
-  - `apm start --template` request body now omits locked profile fields unless `--allow-template-overrides` is set.
-- `packages/cli/package.json`
-  - Added direct `@aihub/shared` dependency to fix workspace build order/resolution.
+- `apps/gateway/src/components/multi-user/*`, `apps/web/src/auth/*`, `apps/web/src/pages/admin/*`.
+- Better Auth + SQLite behind top-level `multiUser`; API/WebSocket auth guards; admin assignment APIs; per-user file isolation under `$AIHUB_HOME/users/<userId>/`.
+- Web: login, guard, sidebar account/logout, `/admin/users`, `/admin/agents`.
+- Integration tests for enabled/disabled modes.
+- Tasks 1-8 from PRO-209 implemented; remaining: real Google OAuth smoke test.
 
-## Older History (Compressed)
+### 2026-04-04: PRO-208 adapter wiring + docs update
+
+- Claude + Pi adapters apply scoped OneCLI proxy/CA env per run and restore after.
+- Phase 1 + Phase 2 complete; Phase 3 cleanup complete; legacy `secrets.provider="onecli"` path removed.
+
+### 2026-04-04: PRO-208 connector HTTP client factory
+
+- `apps/gateway/src/connectors/http-client.ts`: `createHttpClient()` with OneCLI-aware fetch, scoped proxy env, tokenized proxy URL, CA trust propagation, module-level env lock for concurrent calls.
+- Coverage in `__tests__/http-client.test.ts`.
+
+### 2026-04-04: PRO-211 apm create area validation
+
+- `ApiClient.listAreas()`, `apm create --area <area>`, validated against current ids.
+
+### 2026-04-03: PRO-208 OneCLI Phase 1 foundation
+
+- `OnecliCaConfigSchema`, `OnecliAgentConfigSchema`, `OnecliConfigSchema`, top-level `GatewayConfigSchema.onecli`.
+- `buildOnecliEnv(config, agentId)` derives proxy + CA env.
+
+### 2026-04-03: PRO-206 connector tool knowledge injection scope 1
+
+- Optional connector-level `systemPrompt` in shared contract.
+- `getConnectorPromptsForAgent()` appended to Pi + Claude system prompts.
+
+### 2026-04-03: PRO-199 connector review fixes + runtime integration + shared foundation
+
+- Shared: connector contracts, Zod runtime schemas, in-memory registry, config merge + tool loader with name namespacing, external discovery.
+- Gateway: startup discovery + validation, required-secret checks, Pi custom tools + Claude MCP mounts, Zod → JSON Schema for Pi.
+- `ConnectorTool.parameters` narrowed to object-shaped Zod.
+- Shared `connectors` + per-agent `agent.connectors` config schemas.
+
+### 2026-04-03: follow-ups
+
+- `aihub send` resolves startup config + initializes connectors before running an agent.
+- External connector discovery follows symlinks; defaults to `$AIHUB_HOME/connectors`.
+- Pi adapter only mounts subagent tools when `projects` component is loaded.
+- `ChatView` no longer reloads history on every `isStreaming` transition.
+- Gateway logs all agent run failures from shared runner catch.
+
+### 2026-04-02: PRO-198 modular architecture Phase 5 hardening
+
+- Shared `Component.routePrefixes`, static registry metadata for route guards without eager component imports.
+- Startup preparation resolves `$env:` / `$secret:` once; `ComponentContext.getConfig()` exposes resolved values.
+- Server `/api` disabled-component matcher rebuilt from static metadata.
+
+### 2026-04-02: PRO-198 `apm config migrate` / `validate` CLI
+
+- Pure v1 → v2 migration helper moved into `@aihub/shared`.
+- `apm config migrate [--dry-run]` + `apm config validate`.
+- `--config` > `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`); deprecated `AIHUB_CONFIG` fallback.
+- Migration does not auto-add `components.amsg` / `components.conversations` unless implied.
+
+### 2026-04-02: PRO-198 Phase 3 + Phase 4
+
+- `api.ts` → `api.core.ts`; removed temporary projects compat mount.
+- `/api/*` disabled-component guards → `404 { error: "component_disabled", component }`.
+- Web: capabilities store from `/api/capabilities`, sidebar + routes gate on it; `/`, `/projects`, `/conversations` lazy-load component bundles.
+
+### 2026-04-02: PRO-198 Phase 2a simple components
+
+- Real wrappers for scheduler (`/schedules` CRUD), heartbeat (`/agents/:id/heartbeat`), amsg, conversations (listing/detail/message/attachment/project-creation).
+
+### 2026-04-02: PRO-198 Phase 1 foundation
+
+- Shared component contracts + v2 config schemas.
+- v1 → v2 runtime migration with warnings; `$env:` / `$secret:` resolvers.
+- Lazy component registry + Phase 1 stubs; projects watcher moved into projects component.
+- `GET /api/capabilities`; CLI loads → validates → registers routes → starts/stops components.
+
+### 2026-03-30: PRO-164 mobile responsive project detail UI
+
+- `apps/web/src/components/project/ProjectDetailPage.tsx`: `isMobile` @ 768px; compact layout @ 1199px; mobile tabs `Overview/Chat/Activity/Changes/Spec`; `AgentPanel` in mobile Overview; breadcrumb truncation; tablet 280px left rail.
+- `AgentPanel.tsx`: mobile row padding + touch targets.
+
+## Older History (Compressed — >2 weeks old)
+
+### 2026-03-13 → 2026-03-22
+
+- SPECS checklist collapse toggle landed (one shared Tasks + Acceptance Criteria collapse).
+- Areas homepage quick-create + native color picker; `createArea()` client method.
+- Codex `gpt-5.4` added across run-prep UI, CLI validation, gateway server validation.
+
+### 2026-03-09 → 2026-03-12
+
+- PRO-162: Areas overview homepage at `/` with per-area cards, per-status counts, filtered kanban at `/projects?area=<id>`.
+- PRO-168: right sidebar `ACTIVE PROJECTS` (replaces `SUBAGENTS`), sorted by recent activity.
+- PRO-155: Quick lead-agent chat overlay (FAB + overlay) with unread pulse and persisted last-agent.
+- PRO-169: silent `apm exec` diagnostics surfaced — empty shell outputs now emit warning with remediation hint; coordinator prompt got preflight `apm` guidance.
+
+### 2026-03-07 → 2026-03-08
+
+- PRO-174 Space per-entry skip/integrate + delivery `replaces` auto-skip; conflict-fix resume path uses `replaces`.
+- PRO-174 frontend: `Rebase on main` + `Fix rebase conflict` space-level controls.
+
+### 2026-03-04 → 2026-03-06
+
+- PRO-170: resume semantics delta-only (no project corpus reinjection), resume/start prompt-size guardrails (32KB / 256KB).
+- Space merge-to-main backend + cleanup (`POST /api/projects/:id/space/merge`).
+- PRO-166: conflict-fix resumes original worker (in-place conflict entry update).
+- PRO-163 Fix 4: subagent post-creation model/config PATCH + `apm rename` + UI selector.
+- Coordinator prompt: must dispatch `reviewer` template for review work.
+- Inline rename Space-key fix in project agent list.
+
+### 2026-03-03
+
+- Subagent chat remount + stale-poll race hardening; loading flicker fix; realtime fallback polling; Stop/interrupt UX (disabled `Stopping...` + `interrupt_requested_at`).
+- Project watcher ID normalization (`PRO-159_slug` → `PRO-159`).
+- Project detail stale accessor + selection override fix.
+- Prompt/template guardrails: template-locked overrides require `--allow-template-overrides`; worker commits required.
+- Spawn form + chat/detail regressions (worktree path preview, controlled tab, long-line overflow).
+- Realtime web subscriptions for `file_changed` / `agent_changed`; activity timeline compression; branch diff per-file expand.
+- Routing/sidebar fixes; recents from view history; `apm start --template` omits locked fields unless override.
 
 ### 2026-03-02
 
-- Worker template worktrees now default to `space/<projectId>` instead of `main`; server resolves this dynamically and CLI no longer injects `main` when `--allow-template-overrides` is used.
-- Added/iterated template-based spawn flow, coordinator/worker/reviewer prompt semantics, and safer template lock behavior.
-- Landed project detail chat Stop flow (`/abort` for lead, interrupt API for subagents).
-- Added `SPECS.md` parsing/format guidance and subsection support across gateway/web/prompts.
-- Improved coordinator context injection (main repo + Space path), plus area-repo fallback in runner.
-- Continued UI polish for agent cards, center panel interactions, and prompt preview behavior.
+- Worker template worktrees default to `space/<projectId>`.
+- Template-based spawn flow + coordinator/worker/reviewer prompt semantics.
+- Project detail chat Stop flow (`/abort` lead, interrupt API subagents).
+- `SPECS.md` parsing + subsection support.
+- Coordinator context injection (main repo + Space path); area-repo fallback.
 
 ### 2026-03-01
 
-- Delivered Space-first architecture for project changes/integration (`space.ts`, queue/integrate/conflict paths, Space-aware changes API).
-- Implemented project-detail spawn templates and run-mode `none`; moved spawn prep into center panel.
-- Consolidated CLI harness set to `claude|codex|pi`; removed legacy droid/gemini paths.
-- Refined homepage shell/nav/sidebar structure and project detail left/center/right panel behavior.
-- Added light/dark theme support with global CSS vars and persisted toggle.
+- Space-first architecture (`space.ts`, queue/integrate/conflict paths, Space-aware changes API).
+- Project-detail spawn templates + run-mode `none`; spawn prep moved into center panel.
+- CLI harness set consolidated to `claude|codex|pi`.
+- Homepage shell/nav/sidebar structure; project detail left/center/right.
+- Light/dark theme with global CSS vars.
 
 ### 2026-02-28 and earlier
 
-- Built Projects API/CLI foundations, Kanban board, project detail page, spec editor, task parsing/updating, agent/subagent monitoring, activity feed/chat integration, and iterative UI/mobile polish.
-- Added supporting infra over time: areas/tasks hierarchy, multi-file project docs, attachment support, OpenClaw integration, subagent kill flow, realtime status events, soft-delete, and dev-mode runtime helpers.
+- Projects API/CLI foundations, Kanban board, project detail page, spec editor, task parsing, agent/subagent monitoring, activity feed/chat integration.
+- Supporting infra: areas/tasks hierarchy, multi-file project docs, attachments, OpenClaw integration, subagent kill flow, realtime status events, soft-delete, dev helpers.
 
 ## Known Risks / Follow-up
 
 - Vitest invocation still tends to run broad suites in this repo config; keep serial runs to avoid transient test flake.
 - Realtime correctness depends on watcher/event consistency; if stale UI appears, verify `state.json` write + websocket `agent_changed` path first.
 - Continue enforcing template-lock boundaries to prevent CLI/UI drift.
+- Harbor eval sandbox has no docker — always ask the user to run `harbor run` and share `jobs/<latest>/.../oracle.txt` output.
