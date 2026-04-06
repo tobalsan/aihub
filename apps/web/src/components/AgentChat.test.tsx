@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSignal } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { AgentChat, __resetAgentChatStateForTests } from "./AgentChat";
 
@@ -66,6 +67,7 @@ function renderLead(options?: { hidden?: boolean }) {
 function renderSubagent(status: "running" | "idle" = "idle") {
   const container = document.createElement("div");
   document.body.appendChild(container);
+  const [currentStatus, setStatus] = createSignal(status);
   const dispose = render(
     () => (
       <AgentChat
@@ -77,14 +79,14 @@ function renderSubagent(status: "running" | "idle" = "idle") {
           slug: "worker-1",
           cli: "codex",
           runMode: "clone",
-          status,
+          status: currentStatus(),
         }}
         onBack={() => {}}
       />
     ),
     container
   );
-  return { container, dispose };
+  return { container, dispose, setStatus };
 }
 
 describe("AgentChat stop/send behavior", () => {
@@ -141,7 +143,10 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
-    expect(container.querySelector(".send-btn")).toBeNull();
+    expect(container.querySelector(".send-btn")).not.toBeNull();
+    expect(
+      (container.querySelector("textarea") as HTMLTextAreaElement).disabled
+    ).toBe(false);
 
     dispose();
   });
@@ -390,6 +395,7 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
+    expect(container.querySelector(".send-btn")).not.toBeNull();
 
     dispose();
   });
@@ -408,10 +414,10 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
-    expect(container.querySelector(".send-btn")).toBeNull();
+    expect(container.querySelector(".send-btn")).not.toBeNull();
     expect(
       (container.querySelector("textarea") as HTMLTextAreaElement).disabled
-    ).toBe(true);
+    ).toBe(false);
 
     dispose();
   });
@@ -431,6 +437,42 @@ describe("AgentChat stop/send behavior", () => {
       (container.querySelector("textarea") as HTMLTextAreaElement).disabled
     ).toBe(false);
     expect(container.querySelector(".stop-btn")).not.toBeNull();
+
+    dispose();
+  });
+
+  it("queues subagent messages during active runs and flushes them when idle", async () => {
+    const { container, dispose, setStatus } = renderSubagent("running");
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "queued follow-up";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    expect(spawnSubagentMock).not.toHaveBeenCalled();
+    expect(
+      Array.from(container.querySelectorAll(".log-status")).some((node) =>
+        node.textContent?.includes("Queued")
+      )
+    ).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(container.querySelector(".stop-btn")).not.toBeNull();
+
+    setStatus("idle");
+    await tick();
+    await tick();
+
+    expect(spawnSubagentMock).toHaveBeenCalledWith("PRO-1", {
+      slug: "worker-1",
+      cli: "codex",
+      prompt: "queued follow-up",
+      mode: "clone",
+      resume: true,
+      attachments: undefined,
+    });
 
     dispose();
   });

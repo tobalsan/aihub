@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-06 PRO-213 subagent chat follow-up landed: project center-panel subagent chat no longer disables send/input during active CLI runs. Follow-up messages now render as optimistic queued rows, keep `Stop` visible, and flush sequentially once the active subagent leaves `running`.
 - 2026-04-06 PRO-213 Phase 3 landed: `apps/web` now virtualizes persisted rows in `ChatView` and `AgentChat` with `@tanstack/solid-virtual`, dynamic row measurement, overscan 5, and a non-virtualized live streaming row so long threads keep smooth scroll/render behavior without regressing the existing near-bottom autoscroll rules.
 - 2026-04-06 web markdown dedupe follow-up landed: `AgentChat`, `TaskboardOverlay`, and `ConversationThreadView` now use the shared `apps/web/src/lib/markdown.ts` helper directly; `SpecEditor` also uses it with `breaks: false` to preserve previous rendering; `ProjectsBoard` intentionally keeps its thin wrapper because it adds project-specific markdown rewrite/strip behavior on top of the shared helper.
 - 2026-04-06 test-suite speedup landed: `apps/gateway/src/subagents/subagents.api.test.ts` now seeds one reusable git repo in `beforeAll()` and copies it per test, and `vitest.config.ts` now enables file parallelism with `maxWorkers: 4`. Full `pnpm test` now passes in `57.86s` (`95/95` files, `728/728` tests) versus pre-change measured runs at `133.51s` and the first serial-only improvement at `86.30s`.
@@ -36,6 +37,21 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
 ## Recent Updates (Detailed)
+
+### 2026-04-06: PRO-213 subagent chat queueing follow-up
+
+- `apps/web/src/components/AgentChat.tsx`, `apps/web/src/components/AgentChat.test.tsx`
+  - Removed the subagent send/input gate tied to `status === "running"`.
+  - Added structured client-side queued subagent messages so follow-up sends during an active run render optimistically, stay stoppable, and flush sequentially after the current run exits `running`.
+  - Updated regression coverage so subagent chat now asserts enabled textarea/send during runs plus queued-follow-up flush behavior.
+- Docs:
+  - Updated `README.md` and `docs/llms.md`.
+- Verification:
+  - `pnpm install`
+  - `pnpm exec tsc -b packages/shared --force packages/cli --force`
+  - `pnpm exec eslint apps/web/src/components/AgentChat.tsx apps/web/src/components/AgentChat.test.tsx`
+  - `pnpm exec tsc --noEmit -p apps/web/tsconfig.json`
+  - `pnpm test -- apps/web`
 
 ### 2026-04-06: test-suite speedup
 
