@@ -8,138 +8,295 @@ Branch: `feature/harbor-evals-sales-admin` (worktree; base commit `1fb7bd7`)
 
 We are porting legacy Python/LangChain CloudifAI workflows
 (`~/agents/cloud/cloudifai-workflows-to-port.md`) to full agent skills +
-connectors in this repo, TDD-style, using the Harbor framework
-(`~/agents/cloud/.firecrawl/harbor-docs-crawl.json`) as the eval harness.
-Starting with the `sales_admin` workflow family.
+connectors in this repo, TDD-style, using the Harbor framework as the
+eval harness. Starting with the `sales_admin` workflow family.
 
-### Decisions made
+**Plan**: `docs/plans/harbor-evals-for-aihub-migration.md` (8 impl tasks
++ 5 sales_admin eval tasks; Option C migration section appended at
+lines 620-1409).
 
-- **AIHub as Installed Harbor agent** (not external shim). Three layers:
-  1. `aihub eval run` CLI (to be built) — headless, single-turn, writes
-     `result.json` + ATIF `trajectory.json`, skips HTTP server / Discord /
-     amsg / scheduler / heartbeat / multi-user / web UI.
-  2. `aihub-eval-base` Docker image — bakes the CLI, `aihub.json`, uv-managed
-     pytest, pnpm, non-root `agent` user, `AIHUB_HOME=/eval`.
-  3. Python `BaseInstalledAgent` wrapper (`examples/harbor/agents/aihub_installed.py`).
+### Status: real `aihub eval run` end-to-end green ✅
+
+```bash
+cd examples/harbor && yes | REQUESTY_API_KEY="$REQUESTY_API_KEY" \
+  harbor run -p tasks/sales-admin/sales-admin-renewals -a oracle
+```
+
+→ `pass_rate = 1.0`, ~52s, 7/7 verifier pytest assertions pass.
+
+This exercises the **full** stack: real `aihub eval run` CLI → real
+Sally agent (vendored prod workspace) → real `requesty` custom provider
+(Minimax-m2.7) → real `cloudifi-admin` connector → fake HTTP sidecar →
+real verifier. No oracle JSON anymore.
+
+Latest known-good job: `examples/harbor/jobs/2026-04-06__20-59-16/`.
+
+### Architectural decisions (locked in)
+
+- **AIHub as Installed Harbor agent**, three layers:
+  1. `aihub eval run` CLI — headless, single-turn, writes `result.json`
+     + ATIF `trajectory.json`. Skips HTTP server / Discord / amsg /
+     scheduler / heartbeat / multi-user / web UI by passing an empty
+     component list to `prepareStartupConfig`.
+  2. `aihub-eval-base` Docker image — multi-stage build from repo root;
+     bakes CLI via `pnpm deploy --prod`, vendored Sally workspace, real
+     compiled connectors, uv-managed pytest, non-root `agent` user.
+  3. Solve script (`solution/solve.sh`) calls the CLI directly; no
+     Python wrapper agent needed for harbor's oracle path.
 - **Connector stubbing: Strategy B** (real connector code → fake HTTP
-  sidecar via `baseUrl` override). Most realistic/faithful to production.
-  Confirmed `cloudifi_admin` already supports `adminApiBase` / `coreApiBase`
-  config overrides — no refactor needed.
-- **ATIF emitted natively** by `aihub eval run` (skip converter phase).
-- **Deterministic clock** injection via `[verifier.env]` + `[agent.env]`
-  `EVAL_NOW=2026-04-06`.
-- **uv**, not pip, per global CLAUDE.md. Installed at build time in
-  `aihub-eval-base` via multi-stage `COPY --from=ghcr.io/astral-sh/uv:latest`
-  + `uv tool install pytest==8.4.1`, with `UV_TOOL_DIR=/opt/uv/tools`
-  `UV_TOOL_BIN_DIR=/opt/uv/bin` so `/opt/uv/bin` is on PATH for both root
-  (build) and `agent` (runtime, offline — `allow_internet = false`).
-- **Plan file**: `docs/plans/harbor-evals-for-aihub-migration.md` fully
-  rewritten (committed in `a22909b`). 8 impl tasks + 5 sales_admin eval tasks.
+  sidecar via `adminApiBase`/`coreApiBase` config override). Most
+  faithful to production. `cloudifi_admin` already supported it natively.
+- **ATIF emitted natively** by `aihub eval run` (no converter phase).
+- **Deterministic clock** via `EVAL_NOW=2026-04-06`. Injected via
+  compose service env (NOT `[agent.env]`, which harbor silently ignores
+  — see EVAL_NOW gotcha below).
+- **uv, not pip**, per AGENTS.md. Installed in `aihub-eval-base` via
+  `COPY --from=ghcr.io/astral-sh/uv:latest`, `uv tool install pytest`,
+  `UV_TOOL_DIR=/opt/uv/tools` so `agent` user finds it offline.
+- **Option A vendor bridge** for sally config. Snapshot from sibling
+  `cloudihub` repo into `examples/harbor/base/aihub-eval/cloudihub-config/`.
+  Sync via `scripts/sync-cloudihub-config.sh`. Will be retired by
+  **Option C** migration once all 5 tasks are green (see plan doc).
 
-### What's scaffolded and green (oracle path)
+### Key file locations
 
-First task: `examples/harbor/tasks/sales-admin/sales-admin-renewals/`
-- `task.toml` — allow_internet=true (forced by sidecar reachability — see below), cpus=1, mem=2048, EVAL_NOW injected.
-- `tests/test_outputs.py` — 6 assertions: eval_now check, result.json status,
-  finalMessage count=3, `cloudifi_admin.list_companies` was called, no
-  forbidden write tools, artifact rows match expected (ids 1001/1002/1003,
-  sorted by daysUntilRenewal ascending = 12/19/26).
-- `tests/test.sh` — runs pytest, writes `/logs/verifier/reward.json`.
-- `solution/solve.sh` — oracle: writes known-good `result.json` +
-  `/app/out/renewals.json` (does NOT yet call `aihub eval run`).
-- `environment/docker-compose.yaml` — main + fake-cloudifi-admin both
-  attached to a `sandbox` network with `internal: true` (no egress, but
-  service-to-service DNS works). See "Network gotcha" below.
-- Fake sidecar: `examples/harbor/base/fakes/cloudifi-admin/` — FastAPI
-  (`server.py`) implementing `/healthz`, `/auth/json`,
-  `/api/2/login/refresh`, `/companies`, `/api/2/reports/subscriptions`;
-  fixtures in `fixtures/companies.json` (8 companies, expected renewals =
-  1001 Acme/2026-04-18, 1002 Globex/2026-04-25, 1003 Initech/2026-05-02;
-  1004 Umbrella/2026-05-10 intentionally excluded to exercise the 30-day
-  filter).
+```
+apps/gateway/src/evals/
+├── cli.ts          # `aihub eval run` Commander wiring
+├── runtime.ts      # runEval() — boot path + EventCollector
+└── trajectory.ts   # ATIF-v1.4 emitter
 
-Oracle `harbor run` → `pass_rate = 1.0`.
+apps/gateway/src/cli/index.ts            # registers eval commands
 
-### Network gotcha (resolved)
+examples/harbor/base/aihub-eval/
+├── Dockerfile                            # multi-stage CLI bake
+├── aihub.json                            # eval-adapted sally config
+├── README.md
+└── cloudihub-config/                     # vendored from cloudihub repo
+    ├── models.json                       # requesty custom provider
+    ├── agents/sally/                     # SOUL/IDENTITY/USER/AGENTS/.pi/SYSTEM.md
+    │   └── skills/renewal-check/         # plus skill-creator (unused here)
+    └── connectors/cloudifi-admin/        # compiled JS from aihub-connectors repo
 
-Harbor injects `network_mode: none` on `main` whenever `allow_internet=false`.
-That is mutually exclusive with attaching `main` to any compose network,
-so the sidecar pattern is **incompatible** with `allow_internet=false`.
-Fix: `allow_internet=true` + define an `internal: true` bridge network in
-`environment/docker-compose.yaml`. Sandboxing comes from network isolation
-rather than from `network_mode: none`. Verified inside the trial container:
-healthz/auth/companies on the sidecar all reachable; egress to
-`example.com` and `1.1.1.1` blocked.
+examples/harbor/base/fakes/cloudifi-admin/
+├── Dockerfile
+├── server.py                             # FastAPI stub
+└── fixtures/companies.json               # 8 companies, 3 in 30-day window
 
-Follow-up when we wire the real LLM call: `main` will need a second
-network (default bridge) for outbound LLM API access while keeping the
-`sandbox` network internal-only. Multi-network attach on a single service
-is fine in compose.
+examples/harbor/tasks/sales-admin/sales-admin-renewals/
+├── task.toml                             # allow_internet=true, REQUESTY_API_KEY passthrough
+├── instruction.md                        # task spec given to the agent
+├── solution/
+│   ├── solve.sh                          # calls `aihub eval run -a sally`
+│   └── instruction.md                    # COPY of ../instruction.md (not symlink)
+├── environment/
+│   ├── Dockerfile                        # FROM aihub-eval-base:local
+│   └── docker-compose.yaml               # sandbox + egress networks, env passthrough
+└── tests/
+    ├── test_outputs.py                   # 7 pytest assertions
+    └── test.sh                           # writes /logs/verifier/reward.json
 
-### Commits so far (atomic, on feature branch)
+scripts/sync-cloudihub-config.sh          # rsync from $CLOUDIHUB_CONFIG_DIR
+.dockerignore                              # excludes node_modules, dist, *.tsbuildinfo
+```
 
-- `c60e69b chore: ignore harbor eval job artifacts` — adds `jobs/` to `.gitignore`.
-- `a22909b docs(plans): harbor evals plan for strategy B` — plan rewrite.
-- `41d5185 feat(evals): scaffold harbor sales-admin-renewals task` — base image,
-  fake sidecar, task files, installed-agent wrapper, dataset.toml + metric.py.
-- `ed43c11 fix(evals): use internal network for sidecar reachability` —
-  task.toml `allow_internet=true`, compose `sandbox` network with
-  `internal: true`. Re-runs oracle green (pass_rate=1.0).
+### Network architecture
 
-### Spike B landed: `aihub eval run` CLI
+Harbor injects `network_mode: none` on `main` whenever
+`allow_internet=false`, which is mutually exclusive with attaching to
+any compose network. So we use:
 
-`apps/gateway/src/evals/{cli,runtime,trajectory}.ts`:
+- `allow_internet=true` in task.toml (with explanatory comment block)
+- Two networks in `environment/docker-compose.yaml`:
+  - `sandbox` — `internal: true`, attached to both `main` and
+    `fake-cloudifi-admin`. Service-DNS works, no host/internet egress.
+  - `egress` — default bridge, attached only to `main`. Lets the LLM
+    API call (`router.requesty.ai`) reach the host network.
+- `fake-cloudifi-admin` is on `sandbox` only — sidecar can't exfiltrate.
 
-- **`cli.ts`** — `aihub eval run -a <id> -i <instruction-file> [-o ...]
-  [-t ...] [-c ...] [-m ...]`. Wired into `apps/gateway/src/cli/index.ts`
-  via `registerEvalCommands`.
-- **`runtime.ts`** — `runEval()` does the same boot sequence as
-  `aihub send`: `loadConfig` → `resolveStartupConfig` →
-  `initializeConnectors` → `prepareStartupConfig(rawConfig, [])` →
-  `setLoadedConfig` → `runAgent()` with an `EventCollector` `onEvent`
-  handler. Empty component list means **no** HTTP server, Discord,
-  amsg, scheduler, heartbeat, conversations, projects, multi-user, web.
-  Aggregates the stream into `EvalResult` (status, finalMessage,
-  toolCalls with id/name/arguments/ok/durationMs/result, metrics,
-  artifacts).
-- **`trajectory.ts`** — `TrajectoryBuilder` constructs an ATIF-v1.4
-  document by ingesting the same `StreamEvent`s. Coalesces consecutive
-  `text` events into one `assistant_message` step. Token/cost metrics
-  are zero for now (`RunAgentResult.meta` doesn't expose them yet —
-  follow-up when we wire token accounting through the SDK adapters).
-- **Exit contract**: `0` on a completed runtime path even if the agent
-  errored (captured into `result.json`); non-zero only on infra errors
-  (missing instruction file, runtime crash before `runEval` returns).
-  Matches plan §2.
-- **Smoke tests** (host, not container):
-  1. **Infra path**: throwaway `aihub.json` with anthropic provider →
-     fails with `No API key for provider: anthropic`, captured into
-     `result.json.error`, exit 0. Confirms the runtime carve-out.
-  2. **Live LLM (no tools)**: `google/gemini-2.5-flash`,
-     `auth.mode: "api_key"`, `GEMINI_API_KEY` from env. Instruction
-     `"Reply with the single word: pong"` → `result.json.finalMessage:
-     "pong"`, `status: completed`, `durationMs: 1653`. Trajectory has
-     user/thinking/assistant_message steps.
-  3. **Live LLM with tool use**: same agent, instruction `"Run the
-     bash command \`echo hello-from-tool\` and tell me the exact
-     output..."` → `toolCalls[0]` = `{ name: "bash", arguments:
-     { command: "echo hello-from-tool" }, ok: true, durationMs: 5,
-     result: "hello-from-tool\n" }`, `finalMessage` quotes the exact
-     output. End-to-end agent loop, tool dispatch, result pairing,
-     and timing all validated.
+### Env var flow (REQUESTY_API_KEY + EVAL_NOW)
 
-### Next steps
+- **REQUESTY_API_KEY**: declared in `task.toml [environment.env]`
+  (harbor's host-env passthrough whitelist). Resolved via
+  `${REQUESTY_API_KEY:?...}` in compose service env. Fails fast if the
+  shell running harbor doesn't have it set.
+- **EVAL_NOW**: hardcoded `"2026-04-06"` directly in compose service
+  env (not host-derived). NOT in `[agent.env]` — see gotcha below.
 
-1. **DONE — Fix `examples/harbor/base/aihub-eval/aihub.json`**.
-2. **DONE — Bake the CLI into `aihub-eval-base`**.
-3. **DONE — Add a second (external) network** so `main` can reach the LLM API while still talking to `fake-cloudifi-admin` over the `internal: true` `sandbox` network.
-4. **DONE — Swap `solve.sh`** to real `aihub eval run`.
-5. **EVAL_NOW env propagation gap** — Sally ran `echo "$EVAL_NOW"` from inside her bash tool and got `not set`. The `agent.env` in `task.toml` sets it but it's not flowing through to subprocesses spawned by the agent. Worth investigating; didn't block this run because `instruction.md` hardcoded the date.
-6. **Token/cost metrics still 0** in `result.json.metrics` and `trajectory.json.final_metrics` — needs `RunAgentResult.meta` extension in the SDK adapter.
-7. **`solution/instruction.md` is a duplicate** of `instruction.md` at the task root. Symlink failed to survive `docker compose cp`. Add a CI check that they're identical, or use a build step. Address as part of Option C migration cleanup.
-8. **Scaffold remaining 4 sales-admin tasks**: quota analysis, renewal estimates, ARR/MRR report, plus a 5th TBD.
-9. **Sally's renewal-check skill could be tightened** for eval determinism: she initially wrote 4 companies including Umbrella Retail (+34 days) before self-correcting. The skill's day-window definition is ambiguous (`30 days` vs `+30 days inclusive`). Tighten the skill copy to remove ambiguity.
-10. **CI wiring** for harbor evals (deferred until Option C migration).
+### EVAL_NOW gotcha (root-caused, fixed)
+
+Harbor's `TaskConfig.agent` Pydantic model
+(`harbor/models/task/config.py:77-83`) has **no `env` field**.
+`[agent.env]` in task.toml is **silently ignored** at parse time. Only
+`[verifier.env]` is honored — that's why the verifier's
+`test_eval_now_is_fixed` passed even when the agent saw `EVAL_NOW=not set`.
+
+Fix applied: declare `EVAL_NOW` in `services.main.environment` of
+`environment/docker-compose.yaml`. Compose service env propagates
+naturally to all subprocesses (`solve.sh` → `aihub eval run` → Node →
+pi-coding-agent bash tool).
+
+Verified post-fix: Sally's `bash` tool now sees `EVAL_NOW=2026-04-06`
+in `examples/harbor/jobs/2026-04-06__20-59-16/` agent result.
+
+Not a pi/bash-tool sanitization bug — pi `bash` tool already passes
+`process.env` through cleanly
+(`pi-coding-agent/dist/core/tools/bash.js:42-47`).
+
+### Other gotchas hit & fixed
+
+1. **Stale `tsconfig.tsbuildinfo`** in docker context made tsc skip
+   `.d.ts` emission for "unchanged" files → added `**/*.tsbuildinfo`
+   to `.dockerignore`.
+2. **`auth.mode: "api_key"`** branch in pi SDK adapter
+   (`apps/gateway/src/sdk/pi/adapter.ts:215`) only checks pi-ai's
+   builtin env map, which has no `requesty` entry. Removed `auth`
+   field entirely; default branch reads custom provider config from
+   `models.json`.
+3. **`components: {discord: {enabled: false}}`** still zod-validates
+   `discord.token` as required. Use `components: {}` (matches prod).
+4. **Connector module resolution**: `cloudifi-admin/index.js` does
+   `import { z } from "zod"`. Node walks up from `/eval/connectors/...`
+   looking for `node_modules/zod`. We `ln -s /opt/aihub/node_modules
+   /eval/node_modules` so connectors resolve against the gateway's
+   flat deps tree.
+5. **`solution/instruction.md` symlink** to `../instruction.md` does
+   NOT survive `docker compose cp` (symlinks copied as-is, target
+   doesn't exist in container). Use a real file copy. Duplication
+   noted as a follow-up.
+6. **Agent id mismatch**: original verifier expected
+   `result["agent"] == "sales-admin"`. Vendored agent is `sally`. Test
+   updated. (Sally IS the sales-admin agent; the task name vs agent
+   id distinction is intentional.)
+
+### Commits on feature branch (oldest → newest)
+
+```
+c60e69b chore: ignore harbor eval job artifacts
+a22909b docs(plans): harbor evals plan for strategy B
+41d5185 feat(evals): scaffold harbor sales-admin-renewals task
+ed43c11 fix(evals): use internal network for sidecar reachability
+479d151 feat(evals): aihub eval run headless CLI
+2b74f8d docs(handoff): harbor evals C+B progress
+d6efb52 docs(handoff): record live LLM smoke results
+85eb2f7 feat(evals): vendor sally cloudihub config
+23a5d7a feat(evals): add egress net + requesty key passthrough
+e0b25ba docs(plans): option C migration to cloudihub
+a9b4e2a feat(evals): bake aihub CLI into eval base image
+a63adf1 feat(evals): vendor cloudifi-admin connector
+5e3dc4e feat(evals): solve.sh runs real aihub eval run
+e182631 fix(evals): propagate EVAL_NOW via compose env
+```
+
+Base commit on `main`: `1fb7bd7`.
+
+### How to reproduce a green run
+
+```bash
+cd /Users/thinh/projects/.workspaces/aihub-harbor-evals-sales-admin
+
+# 1. (one-time) build the eval base image
+docker build -t aihub-eval-base:local \
+  -f examples/harbor/base/aihub-eval/Dockerfile .
+
+# 2. (one-time per cloudihub change) sync the vendored sally config
+bash scripts/sync-cloudihub-config.sh
+
+# 3. run the task. REQUESTY_API_KEY must be in the shell.
+export REQUESTY_API_KEY=...   # from secrets manager
+cd examples/harbor
+yes | harbor run -p tasks/sales-admin/sales-admin-renewals -a oracle
+```
+
+Expected: `Mean: 1.000`, `pass_rate = 1.0`, ~52s.
+
+### What Sally actually does in a green run
+
+From `jobs/2026-04-06__20-59-16/sales-admin-renewals__*/agent/result.json`:
+
+1. Reads her own `renewal-check` skill from
+   `/eval/agents/sally/skills/renewal-check/SKILL.md`
+2. Verifies `EVAL_NOW=2026-04-06` via bash
+3. Calls `cloudifi_admin.list_companies(extraFields: true)` against
+   `http://fake-cloudifi-admin:8080`
+4. Filters to billingDate within +30 days of EVAL_NOW
+5. Writes `/app/out/renewals.json` (sorted ascending by daysUntilRenewal)
+6. Returns `"Found 3 companies with renewals in the next 30 days."`
+
+Note: in the previous run (`__20-52-47`, before EVAL_NOW fix), Sally
+initially wrote 4 companies including Umbrella Retail (+34 days) before
+self-correcting. Skill copy ambiguity — see follow-up #5.
+
+### Follow-ups (prioritized)
+
+1. **Tighten Sally's `renewal-check` skill** for eval determinism. The
+   "30 days" window is ambiguous (`<= today + 30` vs `< today + 31`
+   vs `<= today + 30 inclusive of both ends`). Sally currently figures
+   it out via reasoning + self-correction, which costs latency and is
+   non-deterministic. Edit
+   `examples/harbor/base/aihub-eval/cloudihub-config/agents/sally/skills/renewal-check/SKILL.md`
+   to spell out the inclusive/exclusive boundary and preferred
+   computation. Then sync upstream to cloudihub (the vendor direction
+   reverses for prompt fixes during Option A — remember to copy
+   changes back to `~/code/algodyn/cloudihub/config/agents/sally/`).
+2. **Token/cost metrics plumbing**. `result.json.metrics.{inputTokens,
+   outputTokens, costUsd}` and ATIF `final_metrics.{input_tokens,
+   output_tokens, cost_usd}` are all 0. Pi adapter's `RunAgentResult`
+   doesn't surface usage. Need to extend the SDK adapter contract
+   (`apps/gateway/src/sdk/types.ts` `RunAgentResult.meta`) to include
+   token counts + cost, then thread them through `runtime.ts` → both
+   `EvalResult` and `TrajectoryBuilder`.
+3. **Scaffold remaining 4 sales-admin tasks**:
+   - `sales-admin-quota-analysis` — uses `cloudifi_admin.get_quota_usage`
+   - `sales-admin-renewal-estimates` — TBD
+   - `sales-admin-arr-report` — TBD
+   - 5th task TBD
+   Pattern: copy `sales-admin-renewals/` as a template, swap
+   `instruction.md`, `tests/test_outputs.py`, expected fixture rows,
+   keep compose/Dockerfile/task.toml structure identical. The fake
+   sidecar already implements quota endpoints — see
+   `examples/harbor/base/fakes/cloudifi-admin/server.py`.
+4. **`solution/instruction.md` duplication cleanup**. Currently a
+   verbatim copy of `instruction.md` at the task root because
+   symlinks don't survive `docker compose cp`. Options:
+   (a) pre-build hook copies one to the other; (b) CI check that they
+   match; (c) only keep the one in `solution/` and have harbor read
+   it from there (would require harbor task schema understanding).
+   Defer to Option C migration.
+5. **Option C migration trigger**. Exit criteria spelled out in plan
+   doc lines ~640-680. The two big remaining gates: (a) all 5 tasks
+   green with real CLI, (b) token/cost metrics plumbed. Once those
+   land, execute the 7-step migration sequence (plan doc lines
+   ~1000-1100).
+6. **CI wiring** for harbor evals. Deferred to Option C — runs in
+   cloudihub CI, not aihub CI. aihub CI gets a minimal smoke task
+   under `examples/harbor/tasks/smoke/` that just exercises the CLI.
+7. **Upstream Sally's skill fix** to `~/code/algodyn/cloudihub/config/agents/sally/skills/renewal-check/SKILL.md`
+   after follow-up #1 lands. Until Option C migration completes, the
+   sync direction during Option A is **cloudihub → aihub vendor**.
+   Prompt fixes made in the vendor must be hand-copied back. The sync
+   script overwrites in the cloudihub→vendor direction.
+8. **(Optional) `aihub-connectors` snapshot freshness check**. We
+   vendored compiled JS from `~/code/aihub-connectors/dist/cloudifi-admin/`.
+   Sync script does NOT cover that source — it pulls from
+   `~/code/algodyn/cloudihub/config/connectors/cloudifi-admin/` which
+   is itself a symlink to the aihub-connectors dist. The chain works
+   because the sync script resolves the symlink target, but it's
+   worth noting that connector bug fixes upstream require rebuilding
+   `aihub-connectors` AND re-running the sync script.
+
+### Continuation prompt for next session
+
+Start by reading:
+1. This handoff section (you're in it)
+2. `docs/plans/harbor-evals-for-aihub-migration.md` (especially the
+   Option C migration section appended at lines 620-1409)
+3. `examples/harbor/jobs/2026-04-06__20-59-16/sales-admin-renewals__*/agent/result.json`
+   to see what a successful Sally run looks like
+
+Then pick a follow-up from the list above. Default suggested order:
+#1 (skill tightening, fast win) → #3 (scaffold next task) → #2 (token
+metrics) → #4-#7 cleanup → #5 Option C migration.
 
 ## Current Status
 
