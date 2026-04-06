@@ -196,11 +196,17 @@ export function CenterPanel(props: CenterPanelProps) {
         }))
       );
       if (!active) return;
-      const updates = logResults.filter(
-        ({ logs }) => logs.ok && logs.data.events.length > 0
+      const successfulLogResults = logResults.filter(
+        (
+          result
+        ): result is typeof result & {
+          logs: Extract<typeof result.logs, { ok: true }>;
+        } => result.logs.ok
       );
-      for (const { item, logs } of logResults) {
-        if (!logs.ok) continue;
+      const updates = successfulLogResults.filter(
+        ({ logs }) => logs.data.events.length > 0
+      );
+      for (const { item, logs } of successfulLogResults) {
         cursorBySlug[item.slug] = logs.data.cursor;
       }
       if (updates.length === 0) return;

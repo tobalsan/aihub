@@ -1122,7 +1122,7 @@ export function AgentChat(props: AgentChatProps) {
     string,
     { index: number; name: string; args: Record<string, unknown> }
   >();
-  const SCROLL_THRESHOLD = 40;
+  const SCROLL_THRESHOLD = 100;
 
   let streamCleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
@@ -1132,9 +1132,11 @@ export function AgentChat(props: AgentChatProps) {
   let activeChatIdentity: string | null = null;
   let pendingLeadHistoryRefresh = false;
   let skipNextLeadHistoryRefresh = false;
+  let rootRef: HTMLDivElement | undefined;
   let logPaneRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+  let wasRunning = false;
 
   const clearSubagentPollInterval = () => {
     if (pollInterval !== null) {
@@ -1226,10 +1228,6 @@ export function AgentChat(props: AgentChatProps) {
     });
   };
 
-  onMount(() => {
-    resizeTextarea(input());
-  });
-
   const isSupportedImage = (file: File) => {
     if (supportedImageTypes.has(file.type)) return true;
     const ext = file.name.toLowerCase().split(".").pop();
@@ -1263,6 +1261,52 @@ export function AgentChat(props: AgentChatProps) {
     const height = Math.min(lines * lineHeight + 24, maxHeight + 24);
     textareaRef.style.height = `${height}px`;
   };
+
+  const isChatActive = () => {
+    if (!rootRef || !rootRef.isConnected) return false;
+    if (rootRef.closest('[aria-hidden="true"]')) return false;
+    return true;
+  };
+
+  const focusInput = () => {
+    window.setTimeout(() => {
+      if (!textareaRef || textareaRef.disabled || !isChatActive()) return;
+      textareaRef.focus();
+    }, 0);
+  };
+
+  onMount(() => {
+    resizeTextarea(input());
+    focusInput();
+
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
+      if (!isChatActive() || event.defaultPrevented) return;
+
+      if (event.key === "Escape") {
+        if (!isRunning()) return;
+        event.preventDefault();
+        void handleStop();
+        return;
+      }
+
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "k"
+      ) {
+        const canStartNewSession =
+          (props.agentType === "lead" && Boolean(props.agentId)) ||
+          (props.agentType === "subagent" && canSendSubagent());
+        if (!canStartNewSession) return;
+        event.preventDefault();
+        void handleSend("/new");
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleGlobalKeyDown));
+  });
 
   const checkIsAtBottom = () => {
     if (!logPaneRef) return true;
@@ -1658,6 +1702,7 @@ export function AgentChat(props: AgentChatProps) {
     if (textareaRef) {
       resizeTextarea("");
     }
+    focusInput();
 
     if (props.agentType === "lead" && props.agentId) {
       setupLead();
@@ -1687,7 +1732,12 @@ export function AgentChat(props: AgentChatProps) {
   });
 
   createEffect(() => {
-    if (!isRunning()) setStopping(false);
+    const running = isRunning();
+    if (!running) {
+      setStopping(false);
+      if (wasRunning) focusInput();
+    }
+    wasRunning = running;
   });
 
   createEffect(() => {
@@ -1735,6 +1785,7 @@ export function AgentChat(props: AgentChatProps) {
       setPendingFiles([]);
       resizeTextarea("");
       scrollToBottom(true);
+      focusInput();
 
       let attachments: FileAttachment[] | undefined;
       if (currentPending.length > 0) {
@@ -1824,6 +1875,7 @@ export function AgentChat(props: AgentChatProps) {
     setError("");
     resizeTextarea("");
     scrollToBottom(true);
+    focusInput();
 
     let fileAttachments: FileAttachment[] = [];
     if (currentPendingFiles.length > 0 && !isAbort) {
@@ -2101,6 +2153,7 @@ export function AgentChat(props: AgentChatProps) {
   return (
     <div
       class="agent-chat"
+      ref={rootRef}
       classList={{ fullscreen: Boolean(props.fullscreen) }}
     >
       <Show when={props.showHeader !== false}>

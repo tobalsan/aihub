@@ -5,6 +5,7 @@ import {
   createMemo,
   For,
   onCleanup,
+  onMount,
   Show,
   on,
 } from "solid-js";
@@ -27,6 +28,7 @@ import type {
   ModelMeta,
   ActiveToolCall,
   ThinkLevel,
+  TextBlock,
 } from "../api/types";
 import { formatTimestamp } from "../lib/format";
 import { extractBlockText } from "../lib/history";
@@ -105,8 +107,8 @@ function CollapsibleBlock(props: {
 // Render a tool result inline
 function ToolResultDisplay(props: { result: FullToolResultMessage }) {
   const textContent = props.result.content
-    .filter((b) => b.type === "text")
-    .map((b) => extractBlockText((b as { text: unknown }).text))
+    .filter((b): b is TextBlock => b.type === "text")
+    .map((b) => extractBlockText(b.text))
     .join("\n");
 
   return (
@@ -264,12 +266,14 @@ export function ChatView() {
     PendingQueuedMessage[]
   >([]);
 
+  let rootRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
   let skipNextHistoryRefresh = false;
+  let wasStreaming = false;
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -287,7 +291,13 @@ export function ChatView() {
   });
 
   const [isAtBottom, setIsAtBottom] = createSignal(true);
-  const SCROLL_THRESHOLD = 40;
+  const SCROLL_THRESHOLD = 100;
+
+  const isChatActive = () => {
+    if (!rootRef || !rootRef.isConnected) return false;
+    if (rootRef.closest('[aria-hidden="true"]')) return false;
+    return true;
+  };
 
   const checkIsAtBottom = () => {
     if (!messagesContainerRef) return true;
@@ -301,7 +311,8 @@ export function ChatView() {
 
   const scrollToBottom = (force = false) => {
     if (force || isAtBottom()) {
-      messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef?.scrollIntoView({ behavior: force ? "smooth" : "auto" });
+      if (force) setIsAtBottom(true);
     }
   };
 
@@ -311,6 +322,13 @@ export function ChatView() {
     const lineHeight = 22;
     const maxHeight = lineHeight * 10;
     textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, maxHeight)}px`;
+  };
+
+  const focusInput = () => {
+    window.setTimeout(() => {
+      if (!textareaRef || textareaRef.disabled || !isChatActive()) return;
+      textareaRef.focus();
+    }, 0);
   };
 
   // Load history based on view mode
@@ -409,6 +427,48 @@ export function ChatView() {
     scrollToBottom();
   });
 
+  createEffect(() => {
+    const streaming = isStreaming();
+    if (!streaming && wasStreaming) {
+      focusInput();
+    }
+    wasStreaming = streaming;
+  });
+
+  createEffect(
+    on([() => params.agentId, viewMode], () => {
+      focusInput();
+    })
+  );
+
+  onMount(() => {
+    focusInput();
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
+      if (!isChatActive() || event.defaultPrevented) return;
+
+      if (event.key === "Escape") {
+        if (!isStreaming()) return;
+        event.preventDefault();
+        handleSend("/abort");
+        return;
+      }
+
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "k"
+      ) {
+        if (loading()) return;
+        event.preventDefault();
+        handleSend("/new");
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleGlobalKeyDown));
+  });
+
   onCleanup(() => {
     cleanup?.();
     subscriptionCleanup?.();
@@ -473,8 +533,8 @@ export function ChatView() {
   const hasStreamingContent = () =>
     streamingText() || streamingThinking() || streamingToolCalls().length > 0;
 
-  const handleSend = () => {
-    const text = input().trim();
+  const handleSend = (overrideText?: string) => {
+    const text = (overrideText ?? input()).trim();
     if (!text || loading()) return;
 
     const levelToSend = pendingThinkLevel() ?? thinkingLevel();
@@ -510,6 +570,7 @@ export function ChatView() {
     if (textareaRef) textareaRef.style.height = "auto";
     scrollToBottom(true);
     setIsAtBottom(true);
+    focusInput();
 
     // If streaming in queue mode, send message without interrupting current stream
     if (isStreaming() && queueMode === "queue") {
@@ -841,7 +902,7 @@ export function ChatView() {
   };
 
   return (
-    <div class="chat-view">
+    <div class="chat-view" ref={rootRef}>
       <header class="header">
         <A href="/agents" class="back-btn" aria-label="Go back">
           <svg
@@ -954,8 +1015,7 @@ export function ChatView() {
               if (msg.role === "user") {
                 const textContent = msg.content
                   .filter(
-                    (b): b is { type: "text"; text: string } =>
-                      b.type === "text"
+                    (b): b is TextBlock => b.type === "text"
                   )
                   .map((b) => b.text)
                   .join("\n");
@@ -1107,7 +1167,7 @@ export function ChatView() {
         </div>
         <button
           class="send-btn"
-          onClick={handleSend}
+          onClick={() => handleSend()}
           disabled={!input().trim() || loading()}
           aria-label="Send message"
         >

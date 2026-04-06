@@ -45,8 +45,9 @@ vi.mock("../api/client", () => ({
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function renderLead() {
+function renderLead(options?: { hidden?: boolean }) {
   const container = document.createElement("div");
+  if (options?.hidden) container.setAttribute("aria-hidden", "true");
   document.body.appendChild(container);
   const dispose = render(
     () => (
@@ -141,6 +142,57 @@ describe("AgentChat stop/send behavior", () => {
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
     expect(container.querySelector(".send-btn")).toBeNull();
+
+    dispose();
+  });
+
+  it("focuses the textarea on mount", async () => {
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
+    expect(document.activeElement).toBe(
+      container.querySelector("textarea") as HTMLTextAreaElement
+    );
+
+    dispose();
+  });
+
+  it("starts a new session on Cmd+K", async () => {
+    const { dispose } = renderLead();
+    await tick();
+    await tick();
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", metaKey: true })
+    );
+    await tick();
+
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      "lead-1",
+      "/new",
+      "main",
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Object),
+      expect.anything()
+    );
+
+    dispose();
+  });
+
+  it("ignores global shortcuts while hidden", async () => {
+    const { dispose } = renderLead({ hidden: true });
+    await tick();
+    await tick();
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", metaKey: true })
+    );
+    await tick();
+
+    expect(streamMessageMock).not.toHaveBeenCalled();
 
     dispose();
   });
@@ -583,6 +635,106 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
 
     expect(container.querySelector(".stop-btn")).not.toBeNull();
+
+    dispose();
+  });
+
+  it("does not auto-scroll lead logs while reading older output", async () => {
+    let onText: ((text: string) => void) | undefined;
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        handleText: (text: string) => void
+      ) => {
+        onText = handleText;
+        return () => {};
+      }
+    );
+    const { container, dispose } = renderLead();
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    const logPane = container.querySelector(".log-pane") as HTMLDivElement;
+    let scrollTop = 200;
+    Object.defineProperty(logPane, "scrollHeight", {
+      configurable: true,
+      get: () => 1000,
+    });
+    Object.defineProperty(logPane, "clientHeight", {
+      configurable: true,
+      get: () => 500,
+    });
+    Object.defineProperty(logPane, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+
+    logPane.dispatchEvent(new Event("scroll"));
+    onText?.("reply");
+    await tick();
+
+    expect(scrollTop).toBe(200);
+
+    dispose();
+  });
+
+  it("resumes lead auto-scroll when the reader returns near the bottom", async () => {
+    let onText: ((text: string) => void) | undefined;
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        handleText: (text: string) => void
+      ) => {
+        onText = handleText;
+        return () => {};
+      }
+    );
+    const { container, dispose } = renderLead();
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    const logPane = container.querySelector(".log-pane") as HTMLDivElement;
+    let scrollTop = 405;
+    Object.defineProperty(logPane, "scrollHeight", {
+      configurable: true,
+      get: () => 1000,
+    });
+    Object.defineProperty(logPane, "clientHeight", {
+      configurable: true,
+      get: () => 500,
+    });
+    Object.defineProperty(logPane, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+
+    logPane.dispatchEvent(new Event("scroll"));
+    onText?.("reply");
+    await tick();
+
+    expect(scrollTop).toBe(1000);
 
     dispose();
   });
