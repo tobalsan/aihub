@@ -1,0 +1,24 @@
+# Multi-container environment for sales-admin-renewals.
+#
+# `main` is the Harbor-managed agent container (built from ./Dockerfile,
+# which FROMs aihub-eval-base). Harbor adds its own service definition
+# for main; we only supply overrides here (depends_on).
+#
+# `fake-cloudifi-admin` is the strategy-B HTTP sidecar stubbing the real
+# Cloudi-Fi admin API. Built from examples/harbor/base/fakes/cloudifi-admin.
+# Share this definition by copy-paste across tasks for now; consolidate
+# into a reusable fragment once we have >3 tasks using it.
+
+services:
+  main:
+    depends_on:
+      fake-cloudifi-admin:
+        condition: service_healthy
+
+  fake-cloudifi-admin:
+    build:
+      context: ../../../../base/fakes/cloudifi-admin
+    expose:
+      - "8080"
+    environment:
+      FAKE_CLOUDIFI_FIXTURES: /fixtures

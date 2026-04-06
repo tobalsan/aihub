@@ -1,0 +1,33 @@
+schema_version = "1.1"
+
+[task]
+name = "aihub/sales-admin-renewals"
+description = "List customer companies with renewals in the next 30 days"
+authors = [{ name = "AIHub evals", email = "evals@aihub.local" }]
+keywords = ["sales-admin", "cloudifi-admin", "deterministic"]
+
+[metadata]
+wave = 0
+category = "sales-admin"
+aihub_agent = "sales-admin"
+difficulty_explanation = "Read-only, deterministic filter + sort over fixture data"
+
+[verifier]
+timeout_sec = 120.0
+
+[verifier.env]
+EVAL_NOW = "2026-04-06"
+
+[agent]
+timeout_sec = 300.0
+user = "agent"
+
+[agent.env]
+EVAL_NOW = "2026-04-06"
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 4096
+allow_internet = false

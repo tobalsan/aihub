@@ -1,0 +1,85 @@
+{
+  "hydra:totalItems": 8,
+  "hydra:member": [
+    {
+      "id": 1001,
+      "name": "Acme WiFi Ltd",
+      "billingDate": "2026-04-18",
+      "maxUsers": 500,
+      "maxLocations": 12,
+      "country": { "code": "FR", "name": "France" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1002,
+      "name": "Globex Hospitality",
+      "billingDate": "2026-04-25",
+      "maxUsers": 2000,
+      "maxLocations": 50,
+      "country": { "code": "GB", "name": "United Kingdom" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1003,
+      "name": "Initech Offices",
+      "billingDate": "2026-05-02",
+      "maxUsers": 300,
+      "maxLocations": 4,
+      "country": { "code": "US", "name": "United States" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1004,
+      "name": "Umbrella Retail",
+      "billingDate": "2026-05-10",
+      "maxUsers": 1200,
+      "maxLocations": 30,
+      "country": { "code": "DE", "name": "Germany" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1005,
+      "name": "Hooli Spaces",
+      "billingDate": "2026-06-15",
+      "maxUsers": 800,
+      "maxLocations": 20,
+      "country": { "code": "US", "name": "United States" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1006,
+      "name": "Pied Piper Hotels",
+      "billingDate": "2026-07-01",
+      "maxUsers": 150,
+      "maxLocations": 3,
+      "country": { "code": "US", "name": "United States" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1007,
+      "name": "Wayne Coworks",
+      "billingDate": "2026-09-22",
+      "maxUsers": 600,
+      "maxLocations": 8,
+      "country": { "code": "US", "name": "United States" },
+      "deletedAt": null,
+      "options": 0
+    },
+    {
+      "id": 1008,
+      "name": "Stark Venues",
+      "billingDate": "2026-11-30",
+      "maxUsers": 3000,
+      "maxLocations": 40,
+      "country": { "code": "US", "name": "United States" },
+      "deletedAt": null,
+      "options": 0
+    }
+  ]
+}
