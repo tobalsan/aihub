@@ -14,12 +14,13 @@ if [[ ! -d "$CLOUDIHUB_CONFIG_DIR" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$CLOUDIHUB_CONFIG_DIR/models.json" || ! -f "$CLOUDIHUB_CONFIG_DIR/agents/sally/AGENTS.md" ]]; then
-  echo "error: expected $CLOUDIHUB_CONFIG_DIR/models.json and $CLOUDIHUB_CONFIG_DIR/agents/sally/AGENTS.md" >&2
+if [[ ! -f "$CLOUDIHUB_CONFIG_DIR/models.json" || ! -f "$CLOUDIHUB_CONFIG_DIR/agents/sally/AGENTS.md" || ! -d "$CLOUDIHUB_CONFIG_DIR/connectors/cloudifi-admin" ]]; then
+  echo "error: expected models.json + agents/sally/AGENTS.md + connectors/cloudifi-admin/ under $CLOUDIHUB_CONFIG_DIR" >&2
   exit 1
 fi
 
-mkdir -p "$dest_dir/agents/sally"
+mkdir -p "$dest_dir/agents/sally" "$dest_dir/connectors/cloudifi-admin"
 rsync -av --delete "$CLOUDIHUB_CONFIG_DIR/models.json" "$dest_dir/models.json"
 rsync -av --delete --exclude=memory/ "$CLOUDIHUB_CONFIG_DIR/agents/sally/" "$dest_dir/agents/sally/"
+rsync -av --delete --exclude=__tests__/ "$CLOUDIHUB_CONFIG_DIR/connectors/cloudifi-admin/" "$dest_dir/connectors/cloudifi-admin/"
 git -C "$repo_root" status --short examples/harbor/base/aihub-eval/cloudihub-config/
