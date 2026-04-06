@@ -1,17 +1,11 @@
 import { For, Show } from "solid-js";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import { getConversationAttachmentUrl } from "../../api/client";
 import type { ConversationDetail } from "../../api/types";
+import { renderMarkdown } from "../../lib/markdown";
 
 type ConversationThreadViewProps = {
   conversation: ConversationDetail;
 };
-
-function renderMarkdown(content: string): string {
-  const html = marked.parse(content, { breaks: true, async: false }) as string;
-  return DOMPurify.sanitize(html);
-}
 
 export function ConversationThreadView(props: ConversationThreadViewProps) {
   const shouldFallback = () =>

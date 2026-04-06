@@ -8,8 +8,6 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import { getMaxContextTokens } from "@aihub/shared/model-context";
 import type { ContextEstimate } from "@aihub/shared/types";
 import {
@@ -33,6 +31,7 @@ import type {
   FileAttachment,
 } from "../api/types";
 import { extractBlockText, getTextBlocks } from "../lib/history";
+import { renderMarkdown } from "../lib/markdown";
 
 type AgentChatProps = {
   agentId: string | null;
@@ -125,11 +124,6 @@ function formatJson(args: unknown): string {
   } catch {
     return String(args);
   }
-}
-
-function renderMarkdown(content: string): string {
-  const html = marked.parse(content, { breaks: true, async: false }) as string;
-  return DOMPurify.sanitize(html);
 }
 
 function parseJsonRecord(text: string): Record<string, unknown> | null {

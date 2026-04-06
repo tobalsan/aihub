@@ -1,16 +1,10 @@
 import { createSignal, createEffect, createMemo, onCleanup, Show, For } from "solid-js";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import { fetchTaskboard, fetchTaskboardItem } from "../api/client";
 import type { TodoItem, ProjectItem, TaskboardItemResponse } from "../api/types";
+import { renderMarkdown } from "../lib/markdown";
 
 type TaskboardItem = TodoItem | ProjectItem;
 type NavigableItem = { type: "todo" | "project"; item: TaskboardItem };
-
-function renderMarkdown(content: string): string {
-  const html = marked.parse(content, { breaks: true, async: false }) as string;
-  return DOMPurify.sanitize(html);
-}
 
 function extractId(id: string): string {
   const match = id.match(/(PER|PRO)-\d+/);

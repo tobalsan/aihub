@@ -2,6 +2,7 @@ import { marked, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 
 type RenderMarkdownOptions = {
+  breaks?: boolean;
   stripFrontmatter?: boolean;
   stripFirstHeading?: boolean;
   rewriteHref?: (href: string) => string | null;
@@ -79,7 +80,7 @@ export function renderMarkdown(
       stripFirstHeading: options?.stripFirstHeading,
     }),
     {
-      breaks: true,
+      breaks: options?.breaks ?? true,
       async: false,
       renderer,
     }

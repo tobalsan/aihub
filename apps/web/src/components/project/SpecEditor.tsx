@@ -1,7 +1,6 @@
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import type { Task } from "../../api/types";
+import { renderMarkdown } from "../../lib/markdown";
 import { ProgressBar } from "./ProgressBar";
 import { TaskCheckbox } from "./TaskCheckbox";
 
@@ -166,11 +165,6 @@ function stripSection(content: string, heading: string): string {
   return next.trim();
 }
 
-function renderMarkdown(content: string): string {
-  const html = marked.parse(content, { async: false }) as string;
-  return DOMPurify.sanitize(html);
-}
-
 export function SpecEditor(props: SpecEditorProps) {
   const markdownDocs = createMemo<MarkdownDoc[]>(() => {
     const entries = Object.entries(props.docs ?? {})
@@ -306,10 +300,12 @@ export function SpecEditor(props: SpecEditorProps) {
   });
 
   const documentHtml = createMemo(() => {
-    if (!viewingSpec()) return renderMarkdown(activeContent());
+    if (!viewingSpec()) {
+      return renderMarkdown(activeContent(), { breaks: false });
+    }
     const withoutTasks = stripSection(activeContent(), "Tasks");
     const withoutAcceptance = stripSection(withoutTasks, "Acceptance Criteria");
-    return renderMarkdown(withoutAcceptance);
+    return renderMarkdown(withoutAcceptance, { breaks: false });
   });
 
   const startEditingDoc = () => {
