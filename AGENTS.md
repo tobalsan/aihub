@@ -9,4 +9,4 @@ After a code update, make sure to keep documentation up to date, mainly:
 - @`./README.md` is for humans.
 - @`./docs/handoff.md` is to keep track of the codebase progress.
 
-Tests: `pnpm test -- <path>` (run `pnpm install` if `node_modules` missing). Run tests serially (one command at a time); parallel runs can cause transient `ENOENT` in subagent runner tests.
+Tests: use scoped scripts for package-level runs: `pnpm test:web`, `pnpm test:gateway`, `pnpm test:shared`, `pnpm test:cli`. For single tests, use an exact file path: `pnpm exec vitest run <path-to-test-file>`. Avoid `pnpm test -- <path>` here; positional Vitest filters are unreliable in this repo. Run tests serially (one command at a time); parallel runs can cause transient `ENOENT` in subagent runner tests. Run `pnpm install` if `node_modules` is missing.
