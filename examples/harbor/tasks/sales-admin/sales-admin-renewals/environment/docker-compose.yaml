@@ -16,6 +16,10 @@ services:
         condition: service_healthy
     environment:
       REQUESTY_API_KEY: ${REQUESTY_API_KEY:?REQUESTY_API_KEY must be set in the shell running harbor}
+      # EVAL_NOW lives here (not [agent.env] in task.toml) because harbor's
+      # task schema does not support [agent.env]. Setting it on the compose
+      # service makes it globally inherited by all subprocesses in `main`.
+      EVAL_NOW: "2026-04-06"
     networks:
       - sandbox
       - egress

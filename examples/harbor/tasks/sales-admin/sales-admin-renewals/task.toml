@@ -21,9 +21,10 @@ EVAL_NOW = "2026-04-06"
 [agent]
 timeout_sec = 300.0
 user = "agent"
-
-[agent.env]
-EVAL_NOW = "2026-04-06"
+# Note: harbor's task schema does NOT support [agent.env]. EVAL_NOW for
+# the agent is injected via environment/docker-compose.yaml (service env),
+# where it propagates to all subprocesses. Verifier env is separate and
+# lives under [verifier.env] above.
 
 [environment]
 build_timeout_sec = 600.0

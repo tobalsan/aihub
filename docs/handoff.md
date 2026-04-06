@@ -130,30 +130,20 @@ is fine in compose.
 
 ### Next steps
 
-1. **Fix `examples/harbor/base/aihub-eval/aihub.json`** — current schema
-   is wrong (`provider`/`model` flat instead of `model: { provider, model }`,
-   missing `workspace`). Trivial fix once we run the CLI inside the image.
-2. **Bake the CLI into `aihub-eval-base`** — the Dockerfile currently has
-   a placeholder `COPY --from=build` block. Wire it: build the gateway in
-   a builder stage, copy `dist/` + `node_modules/` into the runtime stage,
-   `ln -s /opt/aihub/cli/index.js /usr/local/bin/aihub`. Or simpler for the
-   spike: bind-mount the workspace at run time.
-3. **Add a second (external) network** to the task compose so `main` can
-   reach the LLM API while still talking to `fake-cloudifi-admin` over the
-   `internal: true` `sandbox` network.
-4. **Swap `solve.sh`** from hand-written `result.json` to a real
-   `aihub eval run --agent sales-admin --instruction-file /app/instruction.md`
-   invocation.
-5. **Iterate on the sales-admin agent prompt** until the verifier passes
-   end-to-end against the fake sidecar.
-6. Token/cost metrics: extend `RunAgentResult.meta` (or surface via
-   `agentEventBus`) and pipe into `EvalResult.metrics` + ATIF
-   `final_metrics`.
-7. Scaffold remaining 4 sales_admin tasks.
-8. Wire into CI.
+1. **DONE — Fix `examples/harbor/base/aihub-eval/aihub.json`**.
+2. **DONE — Bake the CLI into `aihub-eval-base`**.
+3. **DONE — Add a second (external) network** so `main` can reach the LLM API while still talking to `fake-cloudifi-admin` over the `internal: true` `sandbox` network.
+4. **DONE — Swap `solve.sh`** to real `aihub eval run`.
+5. **EVAL_NOW env propagation gap** — Sally ran `echo "$EVAL_NOW"` from inside her bash tool and got `not set`. The `agent.env` in `task.toml` sets it but it's not flowing through to subprocesses spawned by the agent. Worth investigating; didn't block this run because `instruction.md` hardcoded the date.
+6. **Token/cost metrics still 0** in `result.json.metrics` and `trajectory.json.final_metrics` — needs `RunAgentResult.meta` extension in the SDK adapter.
+7. **`solution/instruction.md` is a duplicate** of `instruction.md` at the task root. Symlink failed to survive `docker compose cp`. Add a CI check that they're identical, or use a build step. Address as part of Option C migration cleanup.
+8. **Scaffold remaining 4 sales-admin tasks**: quota analysis, renewal estimates, ARR/MRR report, plus a 5th TBD.
+9. **Sally's renewal-check skill could be tightened** for eval determinism: she initially wrote 4 companies including Umbrella Retail (+34 days) before self-correcting. The skill's day-window definition is ambiguous (`30 days` vs `+30 days inclusive`). Tighten the skill copy to remove ambiguity.
+10. **CI wiring** for harbor evals (deferred until Option C migration).
 
 ## Current Status
 
+- 2026-04-06 harbor evals milestone: real `aihub eval run` end-to-end green via `harbor run -p tasks/sales-admin/sales-admin-renewals -a oracle`; Sally agent loaded from vendored `examples/harbor/base/aihub-eval/cloudihub-config/agents/sally/`; custom `requesty` provider resolved from vendored `models.json`; real `cloudifi-admin` connector (vendored from `aihub-connectors`) calling fake sidecar at `http://fake-cloudifi-admin:8080`; live LLM via Minimax-m2.7 over requesty; 7/7 verifier pytest assertions pass; pass_rate=1.0; ~52s; latest job dir: `examples/harbor/jobs/2026-04-06__20-52-47/`
 - 2026-04-06 harbor evals spike B landed: `aihub eval run` CLI in `apps/gateway/src/evals/{cli,runtime,trajectory}.ts`. Headless single-turn entrypoint reusing the same boot path as `aihub send` (loadConfig → connectors → runAgent) with an empty component list, aggregating `StreamEvent`s into `result.json` + ATIF `trajectory.json`. Smoke-tested end-to-end against a throwaway config.
 - 2026-04-06 harbor evals network fix: `sales-admin-renewals` switched to `allow_internet=true` + `internal: true` `sandbox` compose network so `main` can reach the `fake-cloudifi-admin` sidecar. Harbor's `network_mode: none` injection on `allow_internet=false` is mutually exclusive with attaching to compose networks. Oracle still green.
 - 2026-04-06 web markdown dedupe follow-up landed: `AgentChat`, `TaskboardOverlay`, `ConversationThreadView` use shared `apps/web/src/lib/markdown.ts`; `SpecEditor` uses it with `breaks: false`; `ProjectsBoard` keeps its wrapper (project-specific rewrites).
