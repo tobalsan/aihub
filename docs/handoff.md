@@ -111,12 +111,22 @@ is fine in compose.
   errored (captured into `result.json`); non-zero only on infra errors
   (missing instruction file, runtime crash before `runEval` returns).
   Matches plan §2.
-- **Smoke test**: with a throwaway `aihub.json` at `$AIHUB_HOME=/tmp/...`,
-  `aihub eval run -a smoke -i instruction.md` boots through to
-  `runAgent()`, fails with `No API key for provider: anthropic`,
-  captures the error into a well-formed `result.json` + `trajectory.json`,
-  and exits 0. Live LLM smoke deferred until we have an auth path inside
-  the eval container.
+- **Smoke tests** (host, not container):
+  1. **Infra path**: throwaway `aihub.json` with anthropic provider →
+     fails with `No API key for provider: anthropic`, captured into
+     `result.json.error`, exit 0. Confirms the runtime carve-out.
+  2. **Live LLM (no tools)**: `google/gemini-2.5-flash`,
+     `auth.mode: "api_key"`, `GEMINI_API_KEY` from env. Instruction
+     `"Reply with the single word: pong"` → `result.json.finalMessage:
+     "pong"`, `status: completed`, `durationMs: 1653`. Trajectory has
+     user/thinking/assistant_message steps.
+  3. **Live LLM with tool use**: same agent, instruction `"Run the
+     bash command \`echo hello-from-tool\` and tell me the exact
+     output..."` → `toolCalls[0]` = `{ name: "bash", arguments:
+     { command: "echo hello-from-tool" }, ok: true, durationMs: 5,
+     result: "hello-from-tool\n" }`, `finalMessage` quotes the exact
+     output. End-to-end agent loop, tool dispatch, result pairing,
+     and timing all validated.
 
 ### Next steps
 
