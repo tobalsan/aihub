@@ -21,7 +21,8 @@ aihub/
 
 Core TypeScript/Node.js application. Exports:
 
-- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`
+- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub eval run`
+- **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + connectors + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution

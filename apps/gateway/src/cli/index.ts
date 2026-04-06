@@ -17,6 +17,7 @@ import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
+import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type Component, type UiConfig } from "@aihub/shared";
 import { loadComponents } from "../components/registry.js";
 import {
@@ -440,6 +441,7 @@ program
   });
 
 registerSubagentCommands(program);
+registerEvalCommands(program);
 
 // Auth commands
 const authCmd = program
