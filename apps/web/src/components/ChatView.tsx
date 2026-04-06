@@ -5,15 +5,10 @@ import {
   createMemo,
   For,
   onCleanup,
-  onMount,
   Show,
   on,
 } from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
-import {
-  createVirtualizer,
-  measureElement as measureVirtualElement,
-} from "@tanstack/solid-virtual";
 import {
   streamMessage,
   getSessionKey,
@@ -32,35 +27,13 @@ import type {
   ModelMeta,
   ActiveToolCall,
   ThinkLevel,
-  TextBlock,
 } from "../api/types";
 import { formatTimestamp } from "../lib/format";
 import { extractBlockText } from "../lib/history";
-import { toggleZenMode, zenMode } from "../lib/layout";
 import { renderMarkdown } from "../lib/markdown";
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
-const VIRTUAL_MESSAGE_OVERSCAN = 5;
-
-type UiMessage = Message & {
-  clientId?: string;
-  pending?: boolean;
-  queued?: boolean;
-};
-
-type UiFullHistoryMessage = FullHistoryMessage & {
-  clientId?: string;
-  pending?: boolean;
-  queued?: boolean;
-};
-
-type PendingQueuedMessage = {
-  clientId: string;
-  text: string;
-  timestamp: number;
-  queued: boolean;
-};
 
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
@@ -74,86 +47,6 @@ function formatJson(args: unknown): string {
   }
 }
 
-function countLines(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  return trimmed.split(/\r?\n/).length;
-}
-
-function countChanges(text: string): number {
-  return text.split(/\r?\n/).filter((line) => /^[+-](?![+-])/.test(line))
-    .length;
-}
-
-function formatMeasure(value: number, unit: string): string {
-  if (value <= 0) return `No ${unit}`;
-  return `${value} ${unit}${value === 1 ? "" : "s"}`;
-}
-
-function zenShortcutLabel(): string {
-  if (
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.platform)
-  ) {
-    return "Cmd+Shift+Z";
-  }
-  return "Ctrl+Shift+Z";
-}
-
-function summarizeToolCall(
-  name: string,
-  args: Record<string, unknown>,
-  outputText: string,
-  diffText: string
-): string {
-  const toolKey = name.toLowerCase();
-  if (toolKey === "read") {
-    const path =
-      typeof args.path === "string"
-        ? args.path
-        : typeof args.file_path === "string"
-          ? args.file_path
-          : "file";
-    return `Read ${path} · ${formatMeasure(countLines(outputText), "line")}`;
-  }
-  if (toolKey === "bash" || toolKey === "exec_command") {
-    const command =
-      typeof args.cmd === "string"
-        ? args.cmd
-        : typeof args.command === "string"
-          ? args.command
-          : "";
-    const params =
-      typeof args.args === "string"
-        ? args.args
-        : typeof args.description === "string"
-          ? args.description
-          : "";
-    const label = [command, params].filter((part) => part.trim()).join(" ");
-    const output = outputText.trim()
-      ? formatMeasure(countLines(outputText), "line")
-      : "No output";
-    return `Bash ${label || name} · ${output}`;
-  }
-  if (toolKey === "write" || toolKey === "apply_patch") {
-    const path =
-      typeof args.path === "string"
-        ? args.path
-        : typeof args.file_path === "string"
-          ? args.file_path
-          : "file";
-    const content = typeof args.content === "string" ? args.content : "";
-    const changes = diffText ? countChanges(diffText) : countLines(content);
-    return `Edit ${path} · ${formatMeasure(changes, diffText ? "change" : "line")}`;
-  }
-  const output = outputText.trim()
-    ? formatMeasure(countLines(outputText), "line")
-    : diffText
-      ? formatMeasure(countChanges(diffText), "change")
-      : "Details";
-  return `${name || "Tool"} · ${output}`;
-}
-
 // Collapsible block component
 function CollapsibleBlock(props: {
   title: string;
@@ -162,7 +55,6 @@ function CollapsibleBlock(props: {
   isError?: boolean;
   mono?: boolean;
   timestamp?: number;
-  summary?: string;
 }) {
   const shouldCollapse = props.defaultCollapsed ?? isLongContent(props.content);
   const [collapsed, setCollapsed] = createSignal(shouldCollapse);
@@ -175,9 +67,9 @@ function CollapsibleBlock(props: {
       >
         <span class="collapse-icon">{collapsed() ? "▶" : "▼"}</span>
         <span class="collapse-title">{props.title}</span>
-        <Show when={collapsed() && props.summary}>
-          <span class="collapse-hint">{props.summary}</span>
-        </Show>
+        {collapsed() && (
+          <span class="collapse-hint">{props.content.slice(0, 50)}...</span>
+        )}
       </button>
       <Show when={!collapsed()}>
         <div class={`collapse-content ${props.mono ? "mono" : ""}`}>
@@ -186,6 +78,34 @@ function CollapsibleBlock(props: {
       </Show>
       {props.timestamp && (
         <div class="block-time">{formatTimestamp(props.timestamp)}</div>
+      )}
+    </div>
+  );
+}
+
+// Render a tool result inline
+function ToolResultDisplay(props: { result: FullToolResultMessage }) {
+  const textContent = props.result.content
+    .filter((b) => b.type === "text")
+    .map((b) => extractBlockText((b as { text: unknown }).text))
+    .join("\n");
+
+  return (
+    <div class={`tool-result-inline ${props.result.isError ? "error" : ""}`}>
+      <CollapsibleBlock
+        title={`${props.result.isError ? "✗" : "✓"} ${props.result.toolName}`}
+        content={textContent || "(no output)"}
+        defaultCollapsed={isLongContent(textContent)}
+        isError={props.result.isError}
+        mono={true}
+      />
+      {props.result.details?.diff && (
+        <CollapsibleBlock
+          title="Diff"
+          content={props.result.details.diff}
+          defaultCollapsed={true}
+          mono={true}
+        />
       )}
     </div>
   );
@@ -220,45 +140,18 @@ function ContentBlocks(props: {
             );
           }
           if (block.type === "toolCall") {
-            const result = props.toolResultsMap?.get(block.id);
             const argsStr = formatJson(block.arguments);
-            const outputText = result
-              ? result.content
-                  .filter(
-                    (item: {
-                      type: string;
-                      text?: string;
-                    }): item is {
-                      type: "text";
-                      text: string;
-                    } => item.type === "text"
-                  )
-                  .map((item: { type: "text"; text: string }) =>
-                    extractBlockText(item.text)
-                  )
-                  .join("\n")
-              : "";
-            const diffText = result?.details?.diff ?? "";
-            const details = [argsStr, outputText, diffText]
-              .map((part) => part.trim())
-              .filter(Boolean)
-              .join("\n\n");
-            const summary = summarizeToolCall(
-              block.name ?? "",
-              (block.arguments as Record<string, unknown>) ?? {},
-              outputText,
-              diffText
-            );
+            const result = props.toolResultsMap?.get(block.id);
             return (
               <div class="tool-call-group">
                 <CollapsibleBlock
-                  title={summary}
-                  content={details || "(no output)"}
-                  defaultCollapsed={true}
+                  title={`Tool: ${block.name}`}
+                  content={argsStr}
+                  defaultCollapsed={isLongContent(argsStr)}
                   mono={true}
                   timestamp={props.timestamp}
-                  summary={summary}
                 />
+                {result && <ToolResultDisplay result={result} />}
               </div>
             );
           }
@@ -314,8 +207,8 @@ export function ChatView() {
   const viewMode = createMemo<HistoryViewMode>(() =>
     params.view === "full" ? "full" : "simple"
   );
-  const [simpleMessages, setSimpleMessages] = createSignal<UiMessage[]>([]);
-  const [fullMessages, setFullMessages] = createSignal<UiFullHistoryMessage[]>(
+  const [simpleMessages, setSimpleMessages] = createSignal<Message[]>([]);
+  const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>(
     []
   );
   const [thinkingLevel, setThinkingLevel] = createSignal<
@@ -349,63 +242,14 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
   const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<
-    PendingQueuedMessage[]
+    Array<{ text: string; timestamp: number }>
   >([]);
 
-  let rootRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
-  let skipNextHistoryRefresh = false;
-  let wasStreaming = false;
-
-  const historyVirtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
-    get count() {
-      return viewMode() === "simple"
-        ? simpleMessages().length
-        : fullMessages().length;
-    },
-    getScrollElement: () => messagesContainerRef ?? null,
-    initialRect: { width: 0, height: 720 },
-    estimateSize: (index) => {
-      if (viewMode() === "simple") return 96;
-      const message = fullMessages()[index];
-      if (!message) return 160;
-      if (message.role === "assistant") return 220;
-      return 112;
-    },
-    measureElement: (element, entry, instance) => {
-      const size = measureVirtualElement(element, entry, instance);
-      if (size > 0) return size;
-      const index = Number(element.dataset.index ?? 0);
-      return instance.options.estimateSize(index);
-    },
-    overscan: VIRTUAL_MESSAGE_OVERSCAN,
-    gap: 16,
-    getItemKey: (index) => {
-      if (viewMode() === "simple") {
-        const msg = simpleMessages()[index];
-        if (!msg) return `simple:${index}`;
-        return `simple:${msg.clientId ?? msg.id}`;
-      }
-      const msg = fullMessages()[index];
-      if (!msg) return `full:${index}`;
-      return `full:${msg.clientId ?? `${msg.role}:${msg.timestamp}:${index}`}`;
-    },
-  });
-  const historyVirtualRows = createMemo(() => historyVirtualizer.getVirtualItems());
-  const historyPaddingTop = createMemo(
-    () => historyVirtualRows()[0]?.start ?? 0
-  );
-  const historyPaddingBottom = createMemo(() => {
-    const rows = historyVirtualRows();
-    const last = rows[rows.length - 1];
-    return last
-      ? Math.max(0, historyVirtualizer.getTotalSize() - last.end)
-      : 0;
-  });
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -422,104 +266,8 @@ export function ChatView() {
     return map;
   });
 
-  const renderSimpleMessage = (
-    message: UiMessage,
-    index: number,
-    measure = false
-  ) => (
-    <div
-      class="message-virtual-row"
-      data-index={measure ? index : undefined}
-      ref={measure ? (el) => historyVirtualizer.measureElement(el) : undefined}
-    >
-      <div
-        class={`message ${message.role}`}
-        classList={{
-          pending: !!message.pending,
-          queued: !!message.queued,
-        }}
-      >
-        {message.role === "assistant" ? (
-          <div
-            class="content markdown-content"
-            innerHTML={renderMarkdown(message.content)}
-          />
-        ) : (
-          <div class="content">{message.content}</div>
-        )}
-        <Show when={message.role === "user" && (message.pending || message.queued)}>
-          <div class="message-status">
-            {message.queued ? "Queued" : "Sending..."}
-          </div>
-        </Show>
-        <div class="message-time">{formatTimestamp(message.timestamp)}</div>
-      </div>
-    </div>
-  );
-
-  const renderFullMessage = (
-    message: UiFullHistoryMessage,
-    index: number,
-    measure = false
-  ) => (
-    <div
-      class="message-virtual-row"
-      data-index={measure ? index : undefined}
-      ref={measure ? (el) => historyVirtualizer.measureElement(el) : undefined}
-    >
-      {(() => {
-        if (message.role === "user") {
-          const textContent = message.content
-            .filter((b: ContentBlock): b is TextBlock => b.type === "text")
-            .map((b: TextBlock) => b.text)
-            .join("\n");
-          return (
-            <div
-              class="message user"
-              classList={{
-                pending: !!message.pending,
-                queued: !!message.queued,
-              }}
-            >
-              <div class="content">{textContent}</div>
-              <Show when={message.pending || message.queued}>
-                <div class="message-status">
-                  {message.queued ? "Queued" : "Sending..."}
-                </div>
-              </Show>
-              <div class="message-time">{formatTimestamp(message.timestamp)}</div>
-            </div>
-          );
-        }
-        if (message.role === "assistant") {
-          return (
-            <div class="message assistant full-message">
-              <ContentBlocks
-                blocks={message.content}
-                timestamp={message.timestamp}
-                toolResultsMap={toolResultsMap()}
-              />
-              {message.meta && <ModelMetaDisplay meta={message.meta} />}
-              <div class="message-time">{formatTimestamp(message.timestamp)}</div>
-            </div>
-          );
-        }
-        if (message.role === "toolResult") {
-          return null;
-        }
-        return null;
-      })()}
-    </div>
-  );
-
   const [isAtBottom, setIsAtBottom] = createSignal(true);
-  const SCROLL_THRESHOLD = 100;
-
-  const isChatActive = () => {
-    if (!rootRef || !rootRef.isConnected) return false;
-    if (rootRef.closest('[aria-hidden="true"]')) return false;
-    return true;
-  };
+  const SCROLL_THRESHOLD = 40;
 
   const checkIsAtBottom = () => {
     if (!messagesContainerRef) return true;
@@ -533,8 +281,7 @@ export function ChatView() {
 
   const scrollToBottom = (force = false) => {
     if (force || isAtBottom()) {
-      messagesEndRef?.scrollIntoView({ behavior: force ? "smooth" : "auto" });
-      if (force) setIsAtBottom(true);
+      messagesEndRef?.scrollIntoView({ behavior: "smooth" });
     }
   };
 
@@ -544,13 +291,6 @@ export function ChatView() {
     const lineHeight = 22;
     const maxHeight = lineHeight * 10;
     textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, maxHeight)}px`;
-  };
-
-  const focusInput = () => {
-    window.setTimeout(() => {
-      if (!textareaRef || textareaRef.disabled || !isChatActive()) return;
-      textareaRef.focus();
-    }, 0);
   };
 
   // Load history based on view mode
@@ -566,9 +306,6 @@ export function ChatView() {
               role: "user" as const,
               content: [{ type: "text" as const, text: msg.text }],
               timestamp: msg.timestamp,
-              clientId: msg.clientId,
-              pending: !msg.queued,
-              queued: msg.queued,
             })),
           ]
         : res.messages;
@@ -587,13 +324,10 @@ export function ChatView() {
         ? [
             ...base,
             ...pending.map((msg) => ({
-              id: msg.clientId,
+              id: crypto.randomUUID(),
               role: "user" as const,
               content: msg.text,
               timestamp: msg.timestamp,
-              clientId: msg.clientId,
-              pending: !msg.queued,
-              queued: msg.queued,
             })),
           ]
         : base;
@@ -621,22 +355,16 @@ export function ChatView() {
     subscriptionCleanup?.();
     subscriptionCleanup = subscribeToSession(agentId, key, {
       onHistoryUpdated: () => {
-        if (isStreaming()) {
-          setPendingHistoryRefresh(true);
-          return;
-        }
-
-        if (skipNextHistoryRefresh) {
-          skipNextHistoryRefresh = false;
+        // Refetch history when background run completes
+        if (!isStreaming()) {
+          if (pendingQueuedMessages().length > 0) {
+            setPendingQueuedMessages((prev) => prev.slice(1));
+          }
+          loadHistory(viewMode());
           setPendingHistoryRefresh(false);
-          return;
+        } else {
+          setPendingHistoryRefresh(true);
         }
-
-        if (pendingQueuedMessages().length > 0) {
-          setPendingQueuedMessages((prev) => prev.slice(1));
-        }
-        void loadHistory(viewMode());
-        setPendingHistoryRefresh(false);
       },
     });
   });
@@ -649,52 +377,9 @@ export function ChatView() {
     scrollToBottom();
   });
 
-  createEffect(() => {
-    const streaming = isStreaming();
-    if (!streaming && wasStreaming) {
-      focusInput();
-    }
-    wasStreaming = streaming;
-  });
-
-  createEffect(
-    on([() => params.agentId, viewMode], () => {
-      focusInput();
-    })
-  );
-
-  onMount(() => {
-    focusInput();
-    const handleGlobalKeyDown = (event: KeyboardEvent) => {
-      if (!isChatActive() || event.defaultPrevented) return;
-
-      if (event.key === "Escape") {
-        if (!isStreaming()) return;
-        event.preventDefault();
-        handleSend("/abort");
-        return;
-      }
-
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        !event.shiftKey &&
-        !event.altKey &&
-        event.key.toLowerCase() === "k"
-      ) {
-        if (loading()) return;
-        event.preventDefault();
-        handleSend("/new");
-      }
-    };
-
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleGlobalKeyDown));
-  });
-
   onCleanup(() => {
     cleanup?.();
     subscriptionCleanup?.();
-    skipNextHistoryRefresh = false;
   });
 
   const handleViewChange = (mode: HistoryViewMode) => {
@@ -719,61 +404,32 @@ export function ChatView() {
     setStreamingStartedAt(null);
   };
 
-  const updateUserMessageState = (
-    clientId: string,
-    patch: Pick<UiMessage, "pending" | "queued">
-  ) => {
-    setSimpleMessages((prev) =>
-      prev.map((msg) =>
-        msg.clientId === clientId
-          ? { ...msg, pending: patch.pending, queued: patch.queued }
-          : msg
-      )
-    );
-    setFullMessages((prev) =>
-      prev.map((msg) =>
-        msg.clientId === clientId
-          ? { ...msg, pending: patch.pending, queued: patch.queued }
-          : msg
-      )
-    );
-  };
-
   const maybeRefreshHistory = () => {
-    if (!pendingHistoryRefresh()) return;
-    if (skipNextHistoryRefresh) {
-      skipNextHistoryRefresh = false;
-      setPendingHistoryRefresh(false);
-      return;
-    }
     if (pendingQueuedMessages().length > 0) return;
-    void loadHistory(viewMode());
-    setPendingHistoryRefresh(false);
+    if (pendingHistoryRefresh()) {
+      loadHistory(viewMode());
+      setPendingHistoryRefresh(false);
+    }
   };
 
   // Check if stream has any content (used to guard against wiping real stream)
   const hasStreamingContent = () =>
     streamingText() || streamingThinking() || streamingToolCalls().length > 0;
 
-  const handleSend = (overrideText?: string) => {
-    const text = (overrideText ?? input()).trim();
+  const handleSend = () => {
+    const text = input().trim();
     if (!text || loading()) return;
 
     const levelToSend = pendingThinkLevel() ?? thinkingLevel();
     const currentAgent = agent();
     const queueMode = currentAgent?.queueMode ?? "queue";
-    const clientId = crypto.randomUUID();
-    const timestamp = Date.now();
 
     // Add user message to both views
-    const userMsg: UiMessage = {
-      id: clientId,
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
       role: "user",
       content: text,
-      timestamp,
-      clientId,
-      pending: true,
-      queued: false,
+      timestamp: Date.now(),
     };
     setSimpleMessages((prev) => [...prev, userMsg]);
     setFullMessages((prev) => [
@@ -781,10 +437,7 @@ export function ChatView() {
       {
         role: "user",
         content: [{ type: "text", text }],
-        timestamp,
-        clientId,
-        pending: true,
-        queued: false,
+        timestamp: Date.now(),
       },
     ]);
 
@@ -792,7 +445,6 @@ export function ChatView() {
     if (textareaRef) textareaRef.style.height = "auto";
     scrollToBottom(true);
     setIsAtBottom(true);
-    focusInput();
 
     // If streaming in queue mode, send message without interrupting current stream
     if (isStreaming() && queueMode === "queue") {
@@ -801,7 +453,7 @@ export function ChatView() {
       if (trackSequentialQueue) {
         setPendingQueuedMessages((prev) => [
           ...prev,
-          { clientId, text, timestamp, queued: false },
+          { text, timestamp: Date.now() },
         ]);
       }
       let queuedText = "";
@@ -820,27 +472,17 @@ export function ChatView() {
         text,
         sessionKey(),
         (chunk) => {
-          updateUserMessageState(clientId, { pending: false, queued: false });
           queuedText += chunk;
         },
         (meta?: DoneMeta) => {
           if (meta?.queued) {
-            updateUserMessageState(clientId, { pending: false, queued: true });
-            if (trackSequentialQueue) {
-              setPendingQueuedMessages((prev) =>
-                prev.map((msg) =>
-                  msg.clientId === clientId ? { ...msg, queued: true } : msg
-                )
-              );
-            }
             if (queueCleanup) queueCleanup();
             return;
           }
 
-          updateUserMessageState(clientId, { pending: false, queued: false });
           if (trackSequentialQueue) {
             setPendingQueuedMessages((prev) =>
-              prev.filter((msg) => msg.clientId !== clientId)
+              prev.length ? prev.slice(0, -1) : prev
             );
           }
 
@@ -890,12 +532,6 @@ export function ChatView() {
           if (queueCleanup) queueCleanup();
         },
         (error) => {
-          updateUserMessageState(clientId, { pending: false, queued: false });
-          if (trackSequentialQueue) {
-            setPendingQueuedMessages((prev) =>
-              prev.filter((msg) => msg.clientId !== clientId)
-            );
-          }
           const content = `Error: ${error}`;
           setSimpleMessages((prev) => [
             ...prev,
@@ -910,11 +546,9 @@ export function ChatView() {
         },
         {
           onThinking: (chunk) => {
-            updateUserMessageState(clientId, { pending: false, queued: false });
             queuedThinking += chunk;
           },
           onToolCall: (id, name, args) => {
-            updateUserMessageState(clientId, { pending: false, queued: false });
             queuedToolCalls.push({
               id,
               name,
@@ -936,7 +570,6 @@ export function ChatView() {
             setFullMessages([]);
             resetStreamingState();
             setPendingQueuedMessages([]);
-            skipNextHistoryRefresh = false;
             if (cleanup) {
               cleanup();
               cleanup = null;
@@ -962,22 +595,18 @@ export function ChatView() {
     setStreamingText("");
     setStreamingTextAt(null);
     setActiveTools([]);
-    skipNextHistoryRefresh = true;
 
     cleanup = streamMessage(
       params.agentId,
       text,
       sessionKey(),
       (chunk) => {
-        updateUserMessageState(clientId, { pending: false, queued: false });
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
       },
       (meta?: DoneMeta) => {
         // Queued ack arrived unexpectedly - reset state only if no real stream content
         if (meta?.queued) {
-          updateUserMessageState(clientId, { pending: false, queued: true });
-          skipNextHistoryRefresh = false;
           if (!hasStreamingContent()) {
             resetStreamingState();
             cleanup = null;
@@ -985,7 +614,6 @@ export function ChatView() {
           return;
         }
 
-        updateUserMessageState(clientId, { pending: false, queued: false });
         // Add assistant message - build content blocks from streaming state
         const content = streamingText();
         const blocks: ContentBlock[] = [];
@@ -1036,8 +664,6 @@ export function ChatView() {
         maybeRefreshHistory();
       },
       (error) => {
-        updateUserMessageState(clientId, { pending: false, queued: false });
-        skipNextHistoryRefresh = false;
         const content = `Error: ${error}`;
         setSimpleMessages((prev) => [
           ...prev,
@@ -1062,12 +688,10 @@ export function ChatView() {
       },
       {
         onThinking: (chunk) => {
-          updateUserMessageState(clientId, { pending: false, queued: false });
           setStreamingThinking((prev) => prev + chunk);
           if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
         },
         onToolCall: (id, name, args) => {
-          updateUserMessageState(clientId, { pending: false, queued: false });
           setStreamingToolCalls((prev) => [
             ...prev,
             {
@@ -1080,7 +704,6 @@ export function ChatView() {
           ]);
         },
         onToolStart: (toolName) => {
-          updateUserMessageState(clientId, { pending: false, queued: false });
           setActiveTools((prev) => [
             ...prev,
             { id: crypto.randomUUID(), toolName, status: "running" },
@@ -1109,7 +732,6 @@ export function ChatView() {
           setSimpleMessages([]);
           setFullMessages([]);
           setPendingQueuedMessages([]);
-          skipNextHistoryRefresh = false;
         },
       },
       levelToSend ? { thinkLevel: levelToSend } : undefined
@@ -1124,7 +746,7 @@ export function ChatView() {
   };
 
   return (
-    <div class="chat-view" ref={rootRef}>
+    <div class="chat-view">
       <header class="header">
         <A href="/agents" class="back-btn" aria-label="Go back">
           <svg
@@ -1147,18 +769,8 @@ export function ChatView() {
             <span class="status-text">
               {isStreaming() ? "thinking" : "online"}
             </span>
-            <span class="session-chip">{sessionKey()}</span>
           </div>
         </div>
-        <button
-          class="zen-btn"
-          type="button"
-          onClick={toggleZenMode}
-          aria-label={zenMode() ? "Exit zen mode" : "Enter zen mode"}
-          title={`Zen (${zenShortcutLabel()})`}
-        >
-          {zenMode() ? "Exit Zen" : "Zen"}
-        </button>
         <A
           class="taskboard-btn"
           href="/projects"
@@ -1216,65 +828,65 @@ export function ChatView() {
 
       <div class="messages" ref={messagesContainerRef} onScroll={handleScroll}>
         <Show when={viewMode() === "simple"}>
-          <Show
-            when={historyVirtualRows().length > 0 || simpleMessages().length > 1}
-            fallback={
-              <For each={simpleMessages()}>
-                {(message, index) => renderSimpleMessage(message, index())}
-              </For>
-            }
-          >
-            <div
-              class="messages-virtual-space"
-              style={{
-                "padding-top": `${historyPaddingTop()}px`,
-                "padding-bottom": `${historyPaddingBottom()}px`,
-              }}
-            >
-              <For each={historyVirtualRows()}>
-                {(virtualRow) => {
-                  const msg = createMemo(
-                    () => simpleMessages()[virtualRow.index]
-                  );
-                  return (
-                    <Show when={msg()}>
-                      {(message) => renderSimpleMessage(message(), virtualRow.index, true)}
-                    </Show>
-                  );
-                }}
-              </For>
-            </div>
-          </Show>
+          <For each={simpleMessages()}>
+            {(msg) => (
+              <div class={`message ${msg.role}`}>
+                {msg.role === "assistant" ? (
+                  <div
+                    class="content markdown-content"
+                    innerHTML={renderMarkdown(msg.content)}
+                  />
+                ) : (
+                  <div class="content">{msg.content}</div>
+                )}
+                <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
+              </div>
+            )}
+          </For>
         </Show>
 
         <Show when={viewMode() === "full"}>
-          <Show
-            when={historyVirtualRows().length > 0 || fullMessages().length > 1}
-            fallback={
-              <For each={fullMessages()}>
-                {(message, index) => renderFullMessage(message, index())}
-              </For>
-            }
-          >
-            <div
-              class="messages-virtual-space"
-              style={{
-                "padding-top": `${historyPaddingTop()}px`,
-                "padding-bottom": `${historyPaddingBottom()}px`,
-              }}
-            >
-              <For each={historyVirtualRows()}>
-                {(virtualRow) => {
-                  const msg = createMemo(() => fullMessages()[virtualRow.index]);
-                  return (
-                    <Show when={msg()}>
-                      {(message) => renderFullMessage(message(), virtualRow.index, true)}
-                    </Show>
-                  );
-                }}
-              </For>
-            </div>
-          </Show>
+          <For each={fullMessages()}>
+            {(msg) => {
+              if (msg.role === "user") {
+                const textContent = msg.content
+                  .filter(
+                    (b): b is { type: "text"; text: string } =>
+                      b.type === "text"
+                  )
+                  .map((b) => b.text)
+                  .join("\n");
+                return (
+                  <div class="message user">
+                    <div class="content">{textContent}</div>
+                    <div class="message-time">
+                      {formatTimestamp(msg.timestamp)}
+                    </div>
+                  </div>
+                );
+              }
+              if (msg.role === "assistant") {
+                return (
+                  <div class="message assistant full-message">
+                    <ContentBlocks
+                      blocks={msg.content}
+                      timestamp={msg.timestamp}
+                      toolResultsMap={toolResultsMap()}
+                    />
+                    {msg.meta && <ModelMetaDisplay meta={msg.meta} />}
+                    <div class="message-time">
+                      {formatTimestamp(msg.timestamp)}
+                    </div>
+                  </div>
+                );
+              }
+              // Skip toolResult messages - they are now rendered inline with their tool calls
+              if (msg.role === "toolResult") {
+                return null;
+              }
+              return null;
+            }}
+          </For>
         </Show>
 
         {/* Streaming content in full mode - show blocks incrementally */}
@@ -1311,9 +923,10 @@ export function ChatView() {
                 )}
               </For>
               {streamingText() && (
-                <pre class="block-text block-text-streaming">
-                  {streamingText()}
-                </pre>
+                <div
+                  class="block-text markdown-content"
+                  innerHTML={renderMarkdown(streamingText())}
+                />
               )}
             </div>
             {streamingStartedAt() && (
@@ -1329,7 +942,10 @@ export function ChatView() {
           when={viewMode() === "simple" && isStreaming() && streamingText()}
         >
           <div class="message assistant streaming">
-            <pre class="content content-plain">{streamingText()}</pre>
+            <div
+              class="content markdown-content"
+              innerHTML={renderMarkdown(streamingText())}
+            />
             {(streamingTextAt() || streamingStartedAt()) && (
               <div class="message-time">
                 {formatTimestamp(
@@ -1384,7 +1000,7 @@ export function ChatView() {
         </div>
         <button
           class="send-btn"
-          onClick={() => handleSend()}
+          onClick={handleSend}
           disabled={!input().trim() || loading()}
           aria-label="Send message"
         >
@@ -1519,17 +1135,6 @@ export function ChatView() {
           color: var(--text-muted);
         }
 
-        .session-chip {
-          display: none;
-          align-items: center;
-          padding: 2px 8px;
-          border-radius: 999px;
-          border: 1px solid var(--surface-2);
-          background: var(--surface-1);
-          font-size: 11px;
-          color: var(--text-secondary);
-        }
-
         .think-dropdown {
           background: var(--surface-1);
           color: var(--text-primary);
@@ -1574,22 +1179,6 @@ export function ChatView() {
           color: var(--text-primary);
         }
 
-        .zen-btn {
-          border: 1px solid var(--surface-2);
-          background: var(--surface-1);
-          color: var(--text-secondary);
-          border-radius: var(--radius-sm);
-          padding: 6px 10px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .zen-btn:hover {
-          color: var(--text-primary);
-          background: var(--surface-3);
-        }
-
         .messages {
           flex: 1;
           overflow-y: auto;
@@ -1602,16 +1191,6 @@ export function ChatView() {
           gap: 16px;
         }
 
-        .messages-virtual-space {
-          width: 100%;
-          flex: none;
-        }
-
-        .message-virtual-row {
-          width: 100%;
-          display: flex;
-        }
-
         .messages::-webkit-scrollbar {
           width: 6px;
         }
@@ -1622,19 +1201,14 @@ export function ChatView() {
         }
 
         .message {
-          max-width: 100%;
-          width: min(100%, 920px);
-          padding: 10px 14px;
-          border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+          max-width: 85%;
+          padding: 12px 16px;
+          border-radius: var(--radius-md);
           line-height: 1.5;
           white-space: pre-wrap;
           word-wrap: break-word;
           font-size: 15px;
           animation: message-in 0.3s ease-out;
-          align-self: flex-start;
-          background: var(--surface-1);
-          border: 1px solid color-mix(in srgb, var(--surface-2) 80%, transparent);
-          border-left-width: 3px;
         }
 
         @keyframes message-in {
@@ -1643,14 +1217,18 @@ export function ChatView() {
         }
 
         .message.user {
-          color: var(--text-primary);
-          background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
-          border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
+          align-self: flex-end;
+          background: var(--user-bg);
+          color: #fff;
+          border-bottom-right-radius: 6px;
         }
 
         .message.assistant {
+          align-self: flex-start;
+          background: var(--surface-1);
           color: var(--text-primary);
-          border-left-color: transparent;
+          border: 1px solid var(--surface-2);
+          border-bottom-left-radius: 6px;
         }
 
         .message.full-message {
@@ -1674,13 +1252,10 @@ export function ChatView() {
           font-size: 11px;
           color: var(--text-muted);
           text-align: right;
-          opacity: 0;
-          transition: opacity 0.12s ease;
         }
 
-        .message:hover .message-time,
-        .message:focus-within .message-time {
-          opacity: 1;
+        .message.user .message-time {
+          color: rgba(255, 255, 255, 0.7);
         }
 
         .message.streaming .content::after {
@@ -1699,20 +1274,6 @@ export function ChatView() {
 
         .message.thinking {
           padding: 16px 20px;
-        }
-
-        .message.pending {
-          opacity: 0.85;
-        }
-
-        .message.queued {
-          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-        }
-
-        .message-status {
-          margin-top: 6px;
-          font-size: 11px;
-          color: var(--text-muted);
         }
 
         .thinking-dots {
@@ -1775,8 +1336,6 @@ export function ChatView() {
         .collapse-title {
           font-weight: 500;
           color: var(--text-primary);
-          min-width: 0;
-          flex: 0 1 auto;
         }
 
         .collapse-hint {
@@ -1809,13 +1368,6 @@ export function ChatView() {
           font-size: 11px;
           color: var(--text-muted);
           text-align: right;
-          opacity: 0;
-          transition: opacity 0.12s ease;
-        }
-
-        .collapsible-block:hover .block-time,
-        .collapsible-block:focus-within .block-time {
-          opacity: 1;
         }
 
         /* Content blocks */
@@ -1832,17 +1384,18 @@ export function ChatView() {
           gap: 4px;
         }
 
-        .block-text {
-          white-space: pre-wrap;
+        .tool-result-inline {
+          margin-left: 12px;
+          border-left: 2px solid var(--surface-3);
+          padding-left: 8px;
         }
 
-        .block-text-streaming,
-        .content-plain {
-          margin: 0;
+        .tool-result-inline.error {
+          border-left-color: var(--error);
+        }
+
+        .block-text {
           white-space: pre-wrap;
-          word-break: break-word;
-          overflow-wrap: anywhere;
-          font-family: 'SF Mono', 'Consolas', monospace;
         }
 
         /* Markdown content */
@@ -2028,32 +1581,6 @@ export function ChatView() {
         .input-wrapper:focus-within {
           border-color: var(--accent);
           box-shadow: 0 0 0 3px var(--accent-glow);
-        }
-
-        .app.zen-mode .chat-view .header {
-          gap: 10px;
-          padding: 12px 16px;
-        }
-
-        .app.zen-mode .chat-view .back-btn,
-        .app.zen-mode .chat-view .taskboard-btn,
-        .app.zen-mode .chat-view .think-dropdown,
-        .app.zen-mode .chat-view .view-toggle,
-        .app.zen-mode .chat-view .status-text {
-          display: none;
-        }
-
-        .app.zen-mode .chat-view .session-chip {
-          display: inline-flex;
-        }
-
-        .app.zen-mode .chat-view .messages {
-          padding: 16px;
-        }
-
-        .app.zen-mode .chat-view .input-area {
-          padding-left: 16px;
-          padding-right: 16px;
         }
 
         .input {
