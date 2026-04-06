@@ -7,6 +7,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
 } from "solid-js";
 import {
   createVirtualizer,
@@ -880,13 +881,37 @@ function SubagentRunCard(props: {
 function CollapsibleLogLine(props: {
   item: LogItem;
   summaryText: string;
-  expanded: boolean;
+  collapsibleKey: string;
+  initialExpanded: boolean;
   onToggle: (next: boolean) => void;
+  onMeasure: (element: HTMLDivElement) => void;
 }) {
   let detailsRef: HTMLDetailsElement | undefined;
+  const [open, setOpen] = createSignal(props.initialExpanded);
+  let lastCollapsibleKey = props.collapsibleKey;
+
+  createEffect(() => {
+    const nextKey = props.collapsibleKey;
+    if (nextKey === lastCollapsibleKey) return;
+    lastCollapsibleKey = nextKey;
+    setOpen(props.initialExpanded);
+  });
+
+  const measureRow = () => {
+    if (!detailsRef) return;
+    const row = detailsRef.closest(".log-virtual-row");
+    if (!(row instanceof HTMLDivElement)) return;
+    queueMicrotask(() => {
+      if (row.isConnected) props.onMeasure(row);
+    });
+  };
+
   const toggleHandler = () => {
     if (!detailsRef) return;
-    props.onToggle(detailsRef.open);
+    const next = detailsRef.open;
+    setOpen(next);
+    props.onToggle(next);
+    measureRow();
   };
 
   onMount(() => {
@@ -902,7 +927,7 @@ function CollapsibleLogLine(props: {
     <details
       class={`log-line ${props.item.tone} collapsible${props.item.systemCallout ? " system-callout" : ""}`}
       classList={{ pending: !!props.item.pending, queued: !!props.item.queued }}
-      open={props.expanded}
+      open={open()}
       ref={detailsRef}
     >
       <summary class="log-summary">
@@ -928,8 +953,9 @@ function CollapsibleLogLine(props: {
 function renderLogItem(
   item: LogItem,
   collapsibleKey?: string,
-  expanded?: boolean,
-  onToggle?: (next: boolean) => void
+  initialExpanded?: boolean,
+  onToggle?: (next: boolean) => void,
+  onMeasure?: (element: HTMLDivElement) => void
 ) {
   const useMarkdown = item.tone === "assistant" || item.tone === "user";
   if (item.collapsible) {
@@ -938,13 +964,20 @@ function renderLogItem(
       item.title ??
       item.body.split("\n")[0] ??
       "Details";
-    if (collapsibleKey && typeof expanded === "boolean" && onToggle) {
+    if (
+      collapsibleKey &&
+      typeof initialExpanded === "boolean" &&
+      onToggle &&
+      onMeasure
+    ) {
       return (
         <CollapsibleLogLine
           item={item}
           summaryText={summaryText}
-          expanded={expanded}
+          collapsibleKey={collapsibleKey}
+          initialExpanded={initialExpanded}
           onToggle={onToggle}
+          onMeasure={onMeasure}
         />
       );
     }
@@ -2471,8 +2504,9 @@ export function AgentChat(props: AgentChatProps) {
     return renderLogItem(
       rendered.item,
       rendered.collapsibleKey,
-      expandedCollapsibles().has(rendered.collapsibleKey),
-      (next) => setCollapsibleOpen(rendered.collapsibleKey, next)
+      untrack(() => expandedCollapsibles().has(rendered.collapsibleKey)),
+      (next) => setCollapsibleOpen(rendered.collapsibleKey, next),
+      (element) => logVirtualizer.measureElement(element)
     );
   };
 
@@ -3124,7 +3158,6 @@ export function AgentChat(props: AgentChatProps) {
         .log-line.assistant {
           color: var(--text-primary);
           padding: 10px 12px;
-          border-left-color: rgba(148, 163, 184, 0.35);
         }
 
         .log-line.live {

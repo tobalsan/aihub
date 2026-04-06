@@ -1625,7 +1625,7 @@ export function ChatView() {
 
         .message.assistant {
           color: var(--text-primary);
-          border-left-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+          border-left-color: transparent;
         }
 
         .message.full-message {

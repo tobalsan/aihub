@@ -705,6 +705,47 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("keeps collapsible tool rows open after toggling", async () => {
+    fetchSubagentLogsMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        cursor: 1,
+        events: [
+          {
+            type: "tool_call",
+            tool: { id: "t1", name: "exec_command" },
+            text: JSON.stringify({ cmd: "git status" }),
+          },
+          {
+            type: "tool_output",
+            tool: { id: "t1", name: "exec_command" },
+            text: "line 1\nline 2\nline 3",
+          },
+        ],
+      },
+    });
+
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+    await tick();
+    await tick();
+
+    const details = container.querySelector(
+      ".log-line.collapsible"
+    ) as HTMLDetailsElement | null;
+    const summary = details?.querySelector("summary") as HTMLElement | null;
+    expect(details).not.toBeNull();
+    expect(summary).not.toBeNull();
+    expect(details?.open).toBe(false);
+
+    summary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    expect(details?.open).toBe(true);
+
+    dispose();
+  });
+
   it("shows Stop while lead agent is streaming", async () => {
     const { container, dispose } = renderLead();
     await tick();
