@@ -1788,29 +1788,20 @@ export function AgentChat(props: AgentChatProps) {
 
     if (!props.agentId) return;
 
-    // Upload files first, then send message with paths
     const currentPendingFiles = pendingFiles();
-    let fileAttachments: FileAttachment[] = [];
-    if (currentPendingFiles.length > 0 && !isAbort) {
-      try {
-        fileAttachments = await uploadFiles(
-          currentPendingFiles.map((p) => p.file)
-        );
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to upload files");
-        return;
-      }
-    }
-
-    // Build log message with file attachments
-    let logBody = text;
-    if (fileAttachments.length > 0) {
-      const fileList = fileAttachments.map((f) => `📎 ${f.path}`).join("\n");
-      logBody = text ? `${text}\n\n${fileList}` : fileList;
-    }
-
     const clientId = crypto.randomUUID();
     const isQueuedLeadSend = aihubStreaming() && !isAbort;
+    const optimisticAttachmentList =
+      currentPendingFiles.length > 0
+        ? currentPendingFiles
+            .map((item) => `📎 ${item.name} (uploading...)`)
+            .join("\n")
+        : "";
+    let logBody = optimisticAttachmentList
+      ? text
+        ? `${text}\n\n${optimisticAttachmentList}`
+        : optimisticAttachmentList
+      : text;
 
     if (!isAbort) {
       setPendingAihubUserMessages((prev) => [
@@ -1833,6 +1824,31 @@ export function AgentChat(props: AgentChatProps) {
     setError("");
     resizeTextarea("");
     scrollToBottom(true);
+
+    let fileAttachments: FileAttachment[] = [];
+    if (currentPendingFiles.length > 0 && !isAbort) {
+      try {
+        fileAttachments = await uploadFiles(
+          currentPendingFiles.map((p) => p.file)
+        );
+        const fileList = fileAttachments.map((f) => `📎 ${f.path}`).join("\n");
+        logBody = text ? `${text}\n\n${fileList}` : fileList;
+        setAihubLogs((prev) =>
+          prev.map((item) =>
+            item.clientId === clientId ? { ...item, body: logBody } : item
+          )
+        );
+        updatePendingAihubUserMessage(clientId, (item) => ({
+          ...item,
+          body: logBody,
+        }));
+      } catch (err) {
+        updateAihubUserLogState(clientId, { pending: false, queued: false });
+        updatePendingAihubUserMessage(clientId, () => null);
+        setError(err instanceof Error ? err.message : "Failed to upload files");
+        return;
+      }
+    }
 
     if (isQueuedLeadSend) {
       let queuedText = "";
