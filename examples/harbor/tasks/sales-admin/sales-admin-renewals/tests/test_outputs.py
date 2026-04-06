@@ -54,7 +54,7 @@ def test_eval_now_is_fixed():
 def test_result_file_exists_and_completed():
     result = _load_json(RESULT_PATH)
     assert result["status"] == "completed", result
-    assert result["agent"] == "sales-admin"
+    assert result["agent"] == "sally"
 
 
 def test_result_final_message_reports_three():
