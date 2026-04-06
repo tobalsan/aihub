@@ -32,6 +32,7 @@ import type {
   FileAttachment,
 } from "../api/types";
 import { extractBlockText, getTextBlocks } from "../lib/history";
+import { toggleZenMode, zenMode } from "../lib/layout";
 import { renderMarkdown } from "../lib/markdown";
 
 type AgentChatProps = {
@@ -81,6 +82,70 @@ type LogItem = {
   pending?: boolean;
   queued?: boolean;
 };
+
+function countLines(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\r?\n/).length;
+}
+
+function countChanges(text: string): number {
+  return text.split(/\r?\n/).filter((line) => /^[+-](?![+-])/.test(line))
+    .length;
+}
+
+function formatMeasure(value: number, unit: string): string {
+  if (value <= 0) return `No ${unit}`;
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
+}
+
+function summarizeToolLabel(
+  toolName: string,
+  args: Record<string, unknown> | null,
+  body: string,
+  diff?: string
+): string {
+  const key = toolName.trim().toLowerCase();
+  if (key === "read") {
+    const path =
+      typeof args?.path === "string"
+        ? args.path
+        : typeof args?.file_path === "string"
+          ? args.file_path
+          : "file";
+    return `Read ${path} · ${formatMeasure(countLines(body), "line")}`;
+  }
+  if (key === "exec_command" || key === "bash") {
+    const command =
+      typeof args?.cmd === "string"
+        ? args.cmd
+        : typeof args?.command === "string"
+          ? args.command
+          : "";
+    const output = body.trim()
+      ? formatMeasure(countLines(body), "line")
+      : "No output";
+    return `Bash ${command || toolName} · ${output}`;
+  }
+  if (key === "write" || key === "apply_patch") {
+    const path =
+      typeof args?.path === "string"
+        ? args.path
+        : typeof args?.file_path === "string"
+          ? args.file_path
+          : "file";
+    const amount = diff ? countChanges(diff) : countLines(body);
+    return `Edit ${path} · ${formatMeasure(amount, diff ? "change" : "line")}`;
+  }
+  if (key === "skill") {
+    return `Skill · ${formatMeasure(countLines(body), "line")}`;
+  }
+  return `${toolName || "Tool"} · ${
+    diff
+      ? formatMeasure(countChanges(diff), "change")
+      : formatMeasure(countLines(body), "line")
+  }`;
+}
 
 // Local UI state for file attachments (before upload)
 type PendingFile = {
@@ -272,18 +337,17 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
           const toolKey = toolName.toLowerCase();
           const args = block.arguments as Record<string, unknown>;
           if (toolKey === "read") {
-            const path =
-              typeof args?.path === "string"
-                ? args.path
-                : typeof args?.file_path === "string"
-                  ? args.file_path
-                  : "";
             const output = toolResults.get(block.id);
             const body = output ? getTextBlocks(output.content) : "";
             entries.push({
               tone: "muted",
               icon: "read",
-              title: `read ${path}`.trim(),
+              title: summarizeToolLabel(
+                "read",
+                args,
+                body,
+                output?.details?.diff
+              ),
               body,
               collapsible: true,
             });
@@ -291,20 +355,17 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             continue;
           }
           if (toolKey === "bash") {
-            const command =
-              typeof args?.command === "string" ? args.command : "";
-            const params = typeof args?.args === "string" ? args.args : "";
-            const description =
-              typeof args?.description === "string" ? args.description : "";
             const output = toolResults.get(block.id);
             const body = output ? getTextBlocks(output.content) : "";
-            const summary = ["Bash", command, params, description]
-              .filter((part) => part.trim())
-              .join(" ");
             entries.push({
               tone: "muted",
               icon: "bash",
-              title: summary,
+              title: summarizeToolLabel(
+                toolKey,
+                args,
+                body,
+                output?.details?.diff
+              ),
               body,
               collapsible: true,
             });
@@ -312,18 +373,12 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             continue;
           }
           if (toolKey === "write") {
-            const path =
-              typeof args?.path === "string"
-                ? args.path
-                : typeof args?.file_path === "string"
-                  ? args.file_path
-                  : "";
             const content =
               typeof args?.content === "string" ? args.content : "";
             entries.push({
               tone: "muted",
               icon: "write",
-              title: `write ${path}`.trim(),
+              title: summarizeToolLabel(toolKey, args, content),
               body: content,
               collapsible: true,
             });
@@ -336,7 +391,11 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
             entries.push({
               tone: "muted",
               icon: "tool",
-              title: "Skill",
+              title: summarizeToolLabel(
+                "skill",
+                null,
+                body || formatJson(block.arguments)
+              ),
               body: body || formatJson(block.arguments),
               collapsible: true,
             });
@@ -385,7 +444,12 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
           entries.push({
             tone: "muted",
             icon: "tool",
-            title: `Tool: ${toolName}`,
+            title: summarizeToolLabel(
+              toolName,
+              args,
+              outputText || formatJson(block.arguments),
+              output?.details?.diff
+            ),
             body: outputText || formatJson(block.arguments),
             collapsible: true,
           });
@@ -401,7 +465,7 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
         entries.push({
           tone: "muted",
           icon: "output",
-          title: "Tool output",
+          title: `Result · ${formatMeasure(countLines(text), "line")}`,
           body: text,
           collapsible: text.length > 80,
         });
@@ -410,7 +474,10 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
         entries.push({
           tone: "muted",
           icon: "diff",
-          title: "Diff",
+          title: `Diff · ${formatMeasure(
+            countChanges(msg.details.diff),
+            "change"
+          )}`,
           body: msg.details.diff,
           collapsible: true,
         });
@@ -654,14 +721,17 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
           entries.push({
             tone: "warning",
             icon: "warning",
-            title: summary || "Bash",
+            title:
+              summarizeToolLabel(toolKey, args, outputText || warningText) ||
+              summary ||
+              "Bash",
             body: warningText || defaultWarning,
           });
         } else {
           entries.push({
             tone: "muted",
             icon: "bash",
-            title: summary || "Bash",
+            title: summarizeToolLabel(toolKey, args, output?.text ?? ""),
             body: output?.text ?? "",
             collapsible: true,
           });
@@ -673,7 +743,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
         entries.push({
           tone: "muted",
           icon: "tool",
-          title: "Skill",
+          title: summarizeToolLabel(
+            "skill",
+            null,
+            output?.text ?? event.text ?? ""
+          ),
           body: output?.text ?? event.text ?? "",
           collapsible: true,
         });
@@ -684,7 +758,11 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       entries.push({
         tone: "muted",
         icon: "tool",
-        title: toolName ? `Tool: ${toolName}` : "Tool",
+        title: summarizeToolLabel(
+          toolName || "Tool",
+          args,
+          output?.text ?? event.text ?? ""
+        ),
         body: output?.text ?? event.text ?? "",
         collapsible: true,
       });
@@ -705,7 +783,7 @@ function buildCliLogs(events: SubagentLogEvent[]): LogItem[] {
       entries.push({
         tone: "muted",
         icon: "diff",
-        title: "Diff",
+        title: `Diff · ${formatMeasure(countChanges(event.text ?? ""), "change")}`,
         body: event.text ?? "",
         collapsible: true,
       });
@@ -803,12 +881,13 @@ function CollapsibleLogLine(props: {
   return (
     <details
       class={`log-line ${props.item.tone} collapsible${props.item.systemCallout ? " system-callout" : ""}`}
+      classList={{ pending: !!props.item.pending, queued: !!props.item.queued }}
       open={props.expanded}
       ref={detailsRef}
     >
       <summary class="log-summary">
         {logIcon(props.item.icon)}
-        <span>{props.summaryText}</span>
+        <span class="log-summary-text">{props.summaryText}</span>
       </summary>
       {props.item.tone === "assistant" || props.item.tone === "user" ? (
         <div
@@ -852,11 +931,12 @@ function renderLogItem(
     return (
       <details
         class={`log-line ${item.tone} collapsible${item.systemCallout ? " system-callout" : ""}`}
+        classList={{ pending: !!item.pending, queued: !!item.queued }}
         open={false}
       >
         <summary class="log-summary">
           {logIcon(item.icon)}
-          <span>{summaryText}</span>
+          <span class="log-summary-text">{summaryText}</span>
         </summary>
         <pre class="log-text">
           {item.body.length > 0 ? item.body : "Empty content"}
@@ -2149,20 +2229,31 @@ export function AgentChat(props: AgentChatProps) {
     const items = props.agentType === "lead" ? aihubLogItems() : cliLogItems();
     return items.some((item) => item.subagentRun);
   });
+  const headerSessionLabel = createMemo(() => {
+    if (props.agentType === "lead" && props.agentId) {
+      return sessionKey();
+    }
+    if (props.subagentInfo?.slug) return props.subagentInfo.slug;
+    return "session";
+  });
+  const showHeader = createMemo(() => props.showHeader !== false || zenMode());
 
   return (
     <div
       class="agent-chat"
       ref={rootRef}
-      classList={{ fullscreen: Boolean(props.fullscreen) }}
+      classList={{ fullscreen: Boolean(props.fullscreen), zen: zenMode() }}
     >
-      <Show when={props.showHeader !== false}>
+      <Show when={showHeader()}>
         <div class="chat-header">
-          <button class="back-btn" type="button" onClick={props.onBack}>
-            ←
-          </button>
+          <Show when={props.showHeader !== false}>
+            <button class="back-btn" type="button" onClick={props.onBack}>
+              ←
+            </button>
+          </Show>
           <div class="chat-title-row">
             <h3>{props.agentName ?? "Select an agent"}</h3>
+            <span class="chat-session-chip">{headerSessionLabel()}</span>
             <Show when={props.agentType === "subagent" && props.subagentInfo}>
               <button
                 class="open-project-btn"
@@ -2187,6 +2278,14 @@ export function AgentChat(props: AgentChatProps) {
               </button>
             </Show>
           </div>
+          <button
+            class="zen-toggle-btn"
+            type="button"
+            onClick={toggleZenMode}
+            aria-label={zenMode() ? "Exit zen mode" : "Enter zen mode"}
+          >
+            {zenMode() ? "Exit Zen" : "Zen"}
+          </button>
           <Show when={props.agentType === "subagent" && props.subagentInfo}>
             <button
               class="archive-btn"
@@ -2562,6 +2661,18 @@ export function AgentChat(props: AgentChatProps) {
           align-items: center;
           gap: 6px;
           min-width: 0;
+          flex: 1;
+        }
+
+        .chat-session-chip {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--border-default);
+          background: rgba(255, 255, 255, 0.03);
+          font-size: 11px;
+          color: var(--text-secondary);
         }
 
         .back-btn {
@@ -2599,7 +2710,6 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .chat-header .open-project-btn:hover { color: #d4dbe5; }
-        .chat-header .archive-btn { margin-left: auto; }
         .chat-header .archive-btn:hover { color: #f6c454; }
 
         .chat-header .kill-btn {
@@ -2614,6 +2724,23 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .chat-header .kill-btn:hover { color: #e53935; }
+
+        .zen-toggle-btn {
+          border: 1px solid var(--border-default);
+          background: transparent;
+          color: var(--text-secondary);
+          border-radius: 999px;
+          padding: 5px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          margin-left: auto;
+        }
+
+        .zen-toggle-btn:hover {
+          color: var(--text-primary);
+          border-color: var(--text-tertiary);
+        }
 
         /* ── Messages area ── */
 
@@ -2675,7 +2802,7 @@ export function AgentChat(props: AgentChatProps) {
           background: transparent;
           border: none;
           border-radius: 0;
-          padding: 16px 20px;
+          padding: 12px 16px;
           overflow: auto;
           display: flex;
           flex-direction: column;
@@ -2692,11 +2819,12 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           gap: 10px;
           align-items: flex-start;
-          padding: 10px 12px;
-          border-radius: 6px;
-          background: transparent;
+          padding: 9px 12px;
+          border-radius: 0 8px 8px 0;
+          background: rgba(255, 255, 255, 0.015);
           min-width: 0;
           max-width: 100%;
+          border-left: 2px solid transparent;
         }
 
         .log-line + .log-line {
@@ -2706,10 +2834,10 @@ export function AgentChat(props: AgentChatProps) {
         /* ── User messages — subtle green left accent ── */
 
         .log-line.user {
-          color: var(--tone-user);
-          background: rgba(45, 212, 191, 0.04);
-          border-left: 2px solid rgba(45, 212, 191, 0.4);
-          border-radius: 0 6px 6px 0;
+          color: var(--text-primary);
+          background: rgba(59, 130, 246, 0.05);
+          border-left-color: rgba(59, 130, 246, 0.55);
+          border-radius: 0 8px 8px 0;
           padding-left: 14px;
           margin: 8px 0 4px;
         }
@@ -2735,6 +2863,7 @@ export function AgentChat(props: AgentChatProps) {
         .log-line.assistant {
           color: var(--text-primary);
           padding: 10px 12px;
+          border-left-color: rgba(148, 163, 184, 0.35);
         }
 
         .log-line.live {
@@ -2780,7 +2909,7 @@ export function AgentChat(props: AgentChatProps) {
         .log-line.collapsible {
           padding: 0;
           display: block;
-          border-radius: 6px;
+          border-radius: 0 8px 8px 0;
         }
 
         .log-line.collapsible + .log-line,
@@ -2792,7 +2921,7 @@ export function AgentChat(props: AgentChatProps) {
           display: flex;
           align-items: center;
           gap: 8px;
-          padding: 5px 12px;
+          padding: 6px 12px;
           cursor: pointer;
           list-style: none;
           width: 100%;
@@ -2804,6 +2933,7 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .log-summary span {
+          flex: 1;
           min-width: 0;
           overflow-wrap: anywhere;
           word-break: break-word;
@@ -2824,7 +2954,7 @@ export function AgentChat(props: AgentChatProps) {
 
         .log-line.collapsible .log-text {
           background: rgba(255, 255, 255, 0.02);
-          border-radius: 0 0 6px 6px;
+          border-radius: 0 0 8px 8px;
           border-top: 1px solid rgba(255, 255, 255, 0.05);
           /* Align expanded tool output with tool-call label text (after chevron+icon). */
           padding: 10px 12px 10px 36px;
@@ -2885,6 +3015,14 @@ export function AgentChat(props: AgentChatProps) {
         .log-status {
           font-size: 11px;
           color: var(--text-muted);
+        }
+
+        .log-line.pending {
+          opacity: 0.82;
+        }
+
+        .log-line.queued {
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, #3b82f6 35%, transparent);
         }
 
         .log-title {
@@ -3287,6 +3425,17 @@ export function AgentChat(props: AgentChatProps) {
 
         .agent-chat.fullscreen .chat-input {
           padding-bottom: 20px;
+        }
+
+        .agent-chat.zen .chat-header {
+          padding: 12px 16px;
+        }
+
+        .agent-chat.zen .chat-header .back-btn,
+        .agent-chat.zen .chat-header .open-project-btn,
+        .agent-chat.zen .chat-header .archive-btn,
+        .agent-chat.zen .chat-header .kill-btn {
+          display: none;
         }
 
         .log-empty {

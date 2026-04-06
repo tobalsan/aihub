@@ -32,6 +32,7 @@ import type {
 } from "../api/types";
 import { formatTimestamp } from "../lib/format";
 import { extractBlockText } from "../lib/history";
+import { toggleZenMode, zenMode } from "../lib/layout";
 import { renderMarkdown } from "../lib/markdown";
 
 // Threshold for auto-collapsing content
@@ -68,6 +69,86 @@ function formatJson(args: unknown): string {
   }
 }
 
+function countLines(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\r?\n/).length;
+}
+
+function countChanges(text: string): number {
+  return text.split(/\r?\n/).filter((line) => /^[+-](?![+-])/.test(line))
+    .length;
+}
+
+function formatMeasure(value: number, unit: string): string {
+  if (value <= 0) return `No ${unit}`;
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
+}
+
+function zenShortcutLabel(): string {
+  if (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform)
+  ) {
+    return "Cmd+Shift+Z";
+  }
+  return "Ctrl+Shift+Z";
+}
+
+function summarizeToolCall(
+  name: string,
+  args: Record<string, unknown>,
+  outputText: string,
+  diffText: string
+): string {
+  const toolKey = name.toLowerCase();
+  if (toolKey === "read") {
+    const path =
+      typeof args.path === "string"
+        ? args.path
+        : typeof args.file_path === "string"
+          ? args.file_path
+          : "file";
+    return `Read ${path} · ${formatMeasure(countLines(outputText), "line")}`;
+  }
+  if (toolKey === "bash" || toolKey === "exec_command") {
+    const command =
+      typeof args.cmd === "string"
+        ? args.cmd
+        : typeof args.command === "string"
+          ? args.command
+          : "";
+    const params =
+      typeof args.args === "string"
+        ? args.args
+        : typeof args.description === "string"
+          ? args.description
+          : "";
+    const label = [command, params].filter((part) => part.trim()).join(" ");
+    const output = outputText.trim()
+      ? formatMeasure(countLines(outputText), "line")
+      : "No output";
+    return `Bash ${label || name} · ${output}`;
+  }
+  if (toolKey === "write" || toolKey === "apply_patch") {
+    const path =
+      typeof args.path === "string"
+        ? args.path
+        : typeof args.file_path === "string"
+          ? args.file_path
+          : "file";
+    const content = typeof args.content === "string" ? args.content : "";
+    const changes = diffText ? countChanges(diffText) : countLines(content);
+    return `Edit ${path} · ${formatMeasure(changes, diffText ? "change" : "line")}`;
+  }
+  const output = outputText.trim()
+    ? formatMeasure(countLines(outputText), "line")
+    : diffText
+      ? formatMeasure(countChanges(diffText), "change")
+      : "Details";
+  return `${name || "Tool"} · ${output}`;
+}
+
 // Collapsible block component
 function CollapsibleBlock(props: {
   title: string;
@@ -76,6 +157,7 @@ function CollapsibleBlock(props: {
   isError?: boolean;
   mono?: boolean;
   timestamp?: number;
+  summary?: string;
 }) {
   const shouldCollapse = props.defaultCollapsed ?? isLongContent(props.content);
   const [collapsed, setCollapsed] = createSignal(shouldCollapse);
@@ -88,9 +170,9 @@ function CollapsibleBlock(props: {
       >
         <span class="collapse-icon">{collapsed() ? "▶" : "▼"}</span>
         <span class="collapse-title">{props.title}</span>
-        {collapsed() && (
-          <span class="collapse-hint">{props.content.slice(0, 50)}...</span>
-        )}
+        <Show when={collapsed() && props.summary}>
+          <span class="collapse-hint">{props.summary}</span>
+        </Show>
       </button>
       <Show when={!collapsed()}>
         <div class={`collapse-content ${props.mono ? "mono" : ""}`}>
@@ -99,34 +181,6 @@ function CollapsibleBlock(props: {
       </Show>
       {props.timestamp && (
         <div class="block-time">{formatTimestamp(props.timestamp)}</div>
-      )}
-    </div>
-  );
-}
-
-// Render a tool result inline
-function ToolResultDisplay(props: { result: FullToolResultMessage }) {
-  const textContent = props.result.content
-    .filter((b): b is TextBlock => b.type === "text")
-    .map((b) => extractBlockText(b.text))
-    .join("\n");
-
-  return (
-    <div class={`tool-result-inline ${props.result.isError ? "error" : ""}`}>
-      <CollapsibleBlock
-        title={`${props.result.isError ? "✗" : "✓"} ${props.result.toolName}`}
-        content={textContent || "(no output)"}
-        defaultCollapsed={isLongContent(textContent)}
-        isError={props.result.isError}
-        mono={true}
-      />
-      {props.result.details?.diff && (
-        <CollapsibleBlock
-          title="Diff"
-          content={props.result.details.diff}
-          defaultCollapsed={true}
-          mono={true}
-        />
       )}
     </div>
   );
@@ -161,18 +215,38 @@ function ContentBlocks(props: {
             );
           }
           if (block.type === "toolCall") {
-            const argsStr = formatJson(block.arguments);
             const result = props.toolResultsMap?.get(block.id);
+            const argsStr = formatJson(block.arguments);
+            const outputText = result
+              ? result.content
+                  .filter(
+                    (item): item is { type: "text"; text: string } =>
+                      item.type === "text"
+                  )
+                  .map((item) => extractBlockText(item.text))
+                  .join("\n")
+              : "";
+            const diffText = result?.details?.diff ?? "";
+            const details = [argsStr, outputText, diffText]
+              .map((part) => part.trim())
+              .filter(Boolean)
+              .join("\n\n");
+            const summary = summarizeToolCall(
+              block.name ?? "",
+              (block.arguments as Record<string, unknown>) ?? {},
+              outputText,
+              diffText
+            );
             return (
               <div class="tool-call-group">
                 <CollapsibleBlock
-                  title={`Tool: ${block.name}`}
-                  content={argsStr}
-                  defaultCollapsed={isLongContent(argsStr)}
+                  title={summary}
+                  content={details || "(no output)"}
+                  defaultCollapsed={true}
                   mono={true}
                   timestamp={props.timestamp}
+                  summary={summary}
                 />
-                {result && <ToolResultDisplay result={result} />}
               </div>
             );
           }
@@ -925,8 +999,18 @@ export function ChatView() {
             <span class="status-text">
               {isStreaming() ? "thinking" : "online"}
             </span>
+            <span class="session-chip">{sessionKey()}</span>
           </div>
         </div>
+        <button
+          class="zen-btn"
+          type="button"
+          onClick={toggleZenMode}
+          aria-label={zenMode() ? "Exit zen mode" : "Enter zen mode"}
+          title={`Zen (${zenShortcutLabel()})`}
+        >
+          {zenMode() ? "Exit Zen" : "Zen"}
+        </button>
         <A
           class="taskboard-btn"
           href="/projects"
@@ -1302,6 +1386,17 @@ export function ChatView() {
           color: var(--text-muted);
         }
 
+        .session-chip {
+          display: none;
+          align-items: center;
+          padding: 2px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--surface-2);
+          background: var(--surface-1);
+          font-size: 11px;
+          color: var(--text-secondary);
+        }
+
         .think-dropdown {
           background: var(--surface-1);
           color: var(--text-primary);
@@ -1346,6 +1441,22 @@ export function ChatView() {
           color: var(--text-primary);
         }
 
+        .zen-btn {
+          border: 1px solid var(--surface-2);
+          background: var(--surface-1);
+          color: var(--text-secondary);
+          border-radius: var(--radius-sm);
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .zen-btn:hover {
+          color: var(--text-primary);
+          background: var(--surface-3);
+        }
+
         .messages {
           flex: 1;
           overflow-y: auto;
@@ -1368,14 +1479,19 @@ export function ChatView() {
         }
 
         .message {
-          max-width: 85%;
-          padding: 12px 16px;
-          border-radius: var(--radius-md);
+          max-width: 100%;
+          width: min(100%, 920px);
+          padding: 10px 14px;
+          border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
           line-height: 1.5;
           white-space: pre-wrap;
           word-wrap: break-word;
           font-size: 15px;
           animation: message-in 0.3s ease-out;
+          align-self: flex-start;
+          background: var(--surface-1);
+          border: 1px solid color-mix(in srgb, var(--surface-2) 80%, transparent);
+          border-left-width: 3px;
         }
 
         @keyframes message-in {
@@ -1384,18 +1500,14 @@ export function ChatView() {
         }
 
         .message.user {
-          align-self: flex-end;
-          background: var(--user-bg);
-          color: #fff;
-          border-bottom-right-radius: 6px;
+          color: var(--text-primary);
+          background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+          border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
         }
 
         .message.assistant {
-          align-self: flex-start;
-          background: var(--surface-1);
           color: var(--text-primary);
-          border: 1px solid var(--surface-2);
-          border-bottom-left-radius: 6px;
+          border-left-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
         }
 
         .message.full-message {
@@ -1419,10 +1531,13 @@ export function ChatView() {
           font-size: 11px;
           color: var(--text-muted);
           text-align: right;
+          opacity: 0;
+          transition: opacity 0.12s ease;
         }
 
-        .message.user .message-time {
-          color: rgba(255, 255, 255, 0.7);
+        .message:hover .message-time,
+        .message:focus-within .message-time {
+          opacity: 1;
         }
 
         .message.streaming .content::after {
@@ -1517,6 +1632,8 @@ export function ChatView() {
         .collapse-title {
           font-weight: 500;
           color: var(--text-primary);
+          min-width: 0;
+          flex: 0 1 auto;
         }
 
         .collapse-hint {
@@ -1549,6 +1666,13 @@ export function ChatView() {
           font-size: 11px;
           color: var(--text-muted);
           text-align: right;
+          opacity: 0;
+          transition: opacity 0.12s ease;
+        }
+
+        .collapsible-block:hover .block-time,
+        .collapsible-block:focus-within .block-time {
+          opacity: 1;
         }
 
         /* Content blocks */
@@ -1563,16 +1687,6 @@ export function ChatView() {
           display: flex;
           flex-direction: column;
           gap: 4px;
-        }
-
-        .tool-result-inline {
-          margin-left: 12px;
-          border-left: 2px solid var(--surface-3);
-          padding-left: 8px;
-        }
-
-        .tool-result-inline.error {
-          border-left-color: var(--error);
         }
 
         .block-text {
@@ -1771,6 +1885,32 @@ export function ChatView() {
         .input-wrapper:focus-within {
           border-color: var(--accent);
           box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .app.zen-mode .chat-view .header {
+          gap: 10px;
+          padding: 12px 16px;
+        }
+
+        .app.zen-mode .chat-view .back-btn,
+        .app.zen-mode .chat-view .taskboard-btn,
+        .app.zen-mode .chat-view .think-dropdown,
+        .app.zen-mode .chat-view .view-toggle,
+        .app.zen-mode .chat-view .status-text {
+          display: none;
+        }
+
+        .app.zen-mode .chat-view .session-chip {
+          display: inline-flex;
+        }
+
+        .app.zen-mode .chat-view .messages {
+          padding: 16px;
+        }
+
+        .app.zen-mode .chat-view .input-area {
+          padding-left: 16px;
+          padding-right: 16px;
         }
 
         .input {

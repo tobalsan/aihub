@@ -24,6 +24,13 @@ import {
   isComponentEnabled,
   loadCapabilities,
 } from "./lib/capabilities";
+import {
+  sidebarCollapsed,
+  setSidebarCollapsedPersistent,
+  toggleSidebarCollapsed,
+  toggleZenMode,
+  zenMode,
+} from "./lib/layout";
 
 const LazyAreasOverview = lazy(() =>
   import("./components/AreasOverview").then((mod) => ({
@@ -177,10 +184,31 @@ function Layout(props: { children?: JSX.Element }) {
     onCleanup(cleanup);
   });
 
+  createEffect(() => {
+    if (isLoginPage()) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "b" && !event.shiftKey) {
+        event.preventDefault();
+        toggleSidebarCollapsed();
+        return;
+      }
+      if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        toggleZenMode();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
   return (
     <>
       <Show when={capabilitiesReady()} fallback={<AppBootSplash />}>
-        <div class="app">{props.children}</div>
+        <div class="app" classList={{ "zen-mode": zenMode() }}>
+          {props.children}
+        </div>
       </Show>
       <Show when={canLoadQuickChatAgents() && !isOnChatPage()}>
         <QuickChatOverlay
@@ -214,6 +242,10 @@ function Layout(props: { children?: JSX.Element }) {
           display: flex;
           flex-direction: column;
           width: 100%;
+        }
+
+        .app.zen-mode {
+          background: var(--bg-base);
         }
       `}</style>
     </>
@@ -318,10 +350,6 @@ function AreasOverviewRouteShell() {
 }
 
 function LeftNavShell(props: { children?: JSX.Element }) {
-  const SIDEBAR_KEY = "aihub:sidebar-collapsed";
-  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(
-    localStorage.getItem(SIDEBAR_KEY) === "true"
-  );
   const [isMobile, setIsMobile] = createSignal(false);
 
   onMount(() => {
@@ -339,26 +367,22 @@ function LeftNavShell(props: { children?: JSX.Element }) {
   });
 
   createEffect(() => {
-    if (isMobile()) setSidebarCollapsed(true);
+    if (isMobile()) setSidebarCollapsedPersistent(true);
   });
 
   return (
-    <div class="left-nav-shell">
-      <AgentSidebar
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() =>
-          setSidebarCollapsed((prev) => {
-            const next = !prev;
-            localStorage.setItem(SIDEBAR_KEY, String(next));
-            return next;
-          })
-        }
-      />
-      <Show when={isMobile()}>
+    <div class="left-nav-shell" classList={{ "zen-mode": zenMode() }}>
+      <Show when={!zenMode()}>
+        <AgentSidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebarCollapsed}
+        />
+      </Show>
+      <Show when={isMobile() && !zenMode()}>
         <button
           class="mobile-sidebar-toggle"
           type="button"
-          onClick={() => setSidebarCollapsed((prev) => !prev)}
+          onClick={toggleSidebarCollapsed}
           aria-label="Toggle sidebar"
         >
           <svg
@@ -387,6 +411,10 @@ function LeftNavShell(props: { children?: JSX.Element }) {
           min-width: 0;
           min-height: 0;
           overflow: hidden;
+        }
+
+        .left-nav-shell.zen-mode .left-nav-main {
+          width: 100%;
         }
 
         .left-nav-shell .mobile-sidebar-toggle {
