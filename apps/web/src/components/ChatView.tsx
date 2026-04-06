@@ -233,7 +233,9 @@ function ContentBlocks(props: {
                       text: string;
                     } => item.type === "text"
                   )
-                  .map((item) => extractBlockText(item.text))
+                  .map((item: { type: "text"; text: string }) =>
+                    extractBlockText(item.text)
+                  )
                   .join("\n")
               : "";
             const diffText = result?.details?.diff ?? "";
@@ -392,6 +394,17 @@ export function ChatView() {
       if (!msg) return `full:${index}`;
       return `full:${msg.clientId ?? `${msg.role}:${msg.timestamp}:${index}`}`;
     },
+  });
+  const historyVirtualRows = createMemo(() => historyVirtualizer.getVirtualItems());
+  const historyPaddingTop = createMemo(
+    () => historyVirtualRows()[0]?.start ?? 0
+  );
+  const historyPaddingBottom = createMemo(() => {
+    const rows = historyVirtualRows();
+    const last = rows[rows.length - 1];
+    return last
+      ? Math.max(0, historyVirtualizer.getTotalSize() - last.end)
+      : 0;
   });
 
   const sessionKey = () => getSessionKey(params.agentId);
@@ -1115,9 +1128,12 @@ export function ChatView() {
         <Show when={viewMode() === "simple"}>
           <div
             class="messages-virtual-space"
-            style={{ height: `${historyVirtualizer.getTotalSize()}px` }}
+            style={{
+              "padding-top": `${historyPaddingTop()}px`,
+              "padding-bottom": `${historyPaddingBottom()}px`,
+            }}
           >
-            <For each={historyVirtualizer.getVirtualItems()}>
+            <For each={historyVirtualRows()}>
               {(virtualRow) => {
                 const msg = simpleMessages()[virtualRow.index];
                 if (!msg) return null;
@@ -1126,7 +1142,6 @@ export function ChatView() {
                     class="message-virtual-row"
                     data-index={virtualRow.index}
                     ref={(el) => historyVirtualizer.measureElement(el)}
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
                     <div
                       class={`message ${msg.role}`}
@@ -1166,9 +1181,12 @@ export function ChatView() {
         <Show when={viewMode() === "full"}>
           <div
             class="messages-virtual-space"
-            style={{ height: `${historyVirtualizer.getTotalSize()}px` }}
+            style={{
+              "padding-top": `${historyPaddingTop()}px`,
+              "padding-bottom": `${historyPaddingBottom()}px`,
+            }}
           >
-            <For each={historyVirtualizer.getVirtualItems()}>
+            <For each={historyVirtualRows()}>
               {(virtualRow) => {
                 const msg = fullMessages()[virtualRow.index];
                 if (!msg) return null;
@@ -1177,7 +1195,6 @@ export function ChatView() {
                     class="message-virtual-row"
                     data-index={virtualRow.index}
                     ref={(el) => historyVirtualizer.measureElement(el)}
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
                     {(() => {
                       if (msg.role === "user") {
@@ -1186,7 +1203,7 @@ export function ChatView() {
                             (b: ContentBlock): b is TextBlock =>
                               b.type === "text"
                           )
-                          .map((b) => b.text)
+                          .map((b: TextBlock) => b.text)
                           .join("\n");
                         return (
                           <div
@@ -1561,15 +1578,11 @@ export function ChatView() {
         }
 
         .messages-virtual-space {
-          position: relative;
           width: 100%;
           flex: none;
         }
 
         .message-virtual-row {
-          position: absolute;
-          top: 0;
-          left: 0;
           width: 100%;
           display: flex;
         }

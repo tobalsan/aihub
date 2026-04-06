@@ -2305,6 +2305,13 @@ export function AgentChat(props: AgentChatProps) {
     const items = props.agentType === "lead" ? aihubLogItems() : cliLogItems();
     return items.some((item) => item.subagentRun);
   });
+  const virtualRows = createMemo(() => logVirtualizer.getVirtualItems());
+  const virtualPaddingTop = createMemo(() => virtualRows()[0]?.start ?? 0);
+  const virtualPaddingBottom = createMemo(() => {
+    const rows = virtualRows();
+    const last = rows[rows.length - 1];
+    return last ? Math.max(0, logVirtualizer.getTotalSize() - last.end) : 0;
+  });
   const headerSessionLabel = createMemo(() => {
     if (props.agentType === "lead" && props.agentId) {
       return sessionKey();
@@ -2481,7 +2488,7 @@ export function AgentChat(props: AgentChatProps) {
               fallback={<div class="log-empty">No messages yet.</div>}
             >
               <Show
-                when={logVirtualizer.getVirtualItems().length > 0}
+                when={virtualRows().length > 0}
                 fallback={
                   <For each={leadRenderedLogItems()}>
                     {renderRenderedLogItem}
@@ -2490,9 +2497,12 @@ export function AgentChat(props: AgentChatProps) {
               >
                 <div
                   class="log-virtual-space"
-                  style={{ height: `${logVirtualizer.getTotalSize()}px` }}
+                  style={{
+                    "padding-top": `${virtualPaddingTop()}px`,
+                    "padding-bottom": `${virtualPaddingBottom()}px`,
+                  }}
                 >
-                  <For each={logVirtualizer.getVirtualItems()}>
+                  <For each={virtualRows()}>
                     {(virtualRow) => {
                       const rendered = leadRenderedLogItems()[virtualRow.index];
                       if (!rendered) return null;
@@ -2501,9 +2511,6 @@ export function AgentChat(props: AgentChatProps) {
                           class="log-virtual-row"
                           data-index={virtualRow.index}
                           ref={(el) => logVirtualizer.measureElement(el)}
-                          style={{
-                            transform: `translateY(${virtualRow.start}px)`,
-                          }}
                         >
                           {renderRenderedLogItem(rendered)}
                         </div>
@@ -2551,7 +2558,7 @@ export function AgentChat(props: AgentChatProps) {
               fallback={<div class="log-empty">No logs yet.</div>}
             >
               <Show
-                when={logVirtualizer.getVirtualItems().length > 0}
+                when={virtualRows().length > 0}
                 fallback={
                   <For each={cliRenderedLogItems()}>
                     {renderRenderedLogItem}
@@ -2560,9 +2567,12 @@ export function AgentChat(props: AgentChatProps) {
               >
                 <div
                   class="log-virtual-space"
-                  style={{ height: `${logVirtualizer.getTotalSize()}px` }}
+                  style={{
+                    "padding-top": `${virtualPaddingTop()}px`,
+                    "padding-bottom": `${virtualPaddingBottom()}px`,
+                  }}
                 >
-                  <For each={logVirtualizer.getVirtualItems()}>
+                  <For each={virtualRows()}>
                     {(virtualRow) => {
                       const rendered = cliRenderedLogItems()[virtualRow.index];
                       if (!rendered) return null;
@@ -2571,9 +2581,6 @@ export function AgentChat(props: AgentChatProps) {
                           class="log-virtual-row"
                           data-index={virtualRow.index}
                           ref={(el) => logVirtualizer.measureElement(el)}
-                          style={{
-                            transform: `translateY(${virtualRow.start}px)`,
-                          }}
                         >
                           {renderRenderedLogItem(rendered)}
                         </div>
@@ -2925,15 +2932,11 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         .log-virtual-space {
-          position: relative;
           width: 100%;
           flex: none;
         }
 
         .log-virtual-row {
-          position: absolute;
-          top: 0;
-          left: 0;
           width: 100%;
         }
 

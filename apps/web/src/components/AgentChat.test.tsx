@@ -416,6 +416,25 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("keeps lead input enabled while a run is active", async () => {
+    const { container, dispose } = renderLead();
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    expect(
+      (container.querySelector("textarea") as HTMLTextAreaElement).disabled
+    ).toBe(false);
+    expect(container.querySelector(".stop-btn")).not.toBeNull();
+
+    dispose();
+  });
+
   it("keeps loading spinner through session events until real response arrives", async () => {
     vi.useFakeTimers();
     fetchSubagentLogsMock
