@@ -8,6 +8,10 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import {
+  createVirtualizer,
+  measureElement as measureVirtualElement,
+} from "@tanstack/solid-virtual";
 import { getMaxContextTokens } from "@aihub/shared/model-context";
 import type { ContextEstimate } from "@aihub/shared/types";
 import {
@@ -81,6 +85,12 @@ type LogItem = {
   clientId?: string;
   pending?: boolean;
   queued?: boolean;
+};
+
+type RenderedLogItem = {
+  item: LogItem;
+  collapsibleKey: string;
+  virtualKey: string | number;
 };
 
 function countLines(text: string): number {
@@ -166,6 +176,7 @@ type PendingAihubUserMessage = {
 };
 const subagentTransientState = new Map<string, SubagentTransientUiState>();
 const activeSubagentPollIntervals = new Map<string, number>();
+const VIRTUAL_LOG_OVERSCAN = 5;
 
 export function __resetAgentChatStateForTests(): void {
   subagentTransientState.clear();
@@ -2225,6 +2236,71 @@ export function AgentChat(props: AgentChatProps) {
     return [...cliLogs(), ...pending.map((text) => ({ type: "user", text }))];
   });
   const cliLogItems = createMemo(() => buildCliLogs(cliDisplayEvents()));
+  const leadRenderedLogItems = createMemo<RenderedLogItem[]>(() =>
+    aihubLogItems().map((item, index) => {
+      const collapsibleKey = item.subagentRun
+        ? `subagent:${item.subagentRun.toolUseId}`
+        : `lead-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
+      return {
+        item,
+        collapsibleKey,
+        virtualKey: item.subagentRun
+          ? `lead:subagent:${item.subagentRun.toolUseId}`
+          : item.clientId
+            ? `lead:client:${item.clientId}`
+            : `lead:${item.tone}:${item.title ?? item.summaryPreview ?? item.body.slice(0, 40)}:${item.body.length}:${index}`,
+      };
+    })
+  );
+  const cliRenderedLogItems = createMemo<RenderedLogItem[]>(() =>
+    cliLogItems().map((item, index) => {
+      const collapsibleKey = item.subagentRun
+        ? `subagent:${item.subagentRun.toolUseId}`
+        : `cli-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
+      return {
+        item,
+        collapsibleKey,
+        virtualKey: item.subagentRun
+          ? `cli:subagent:${item.subagentRun.toolUseId}`
+          : item.clientId
+            ? `cli:client:${item.clientId}`
+            : `cli:${item.tone}:${item.title ?? item.summaryPreview ?? item.body.slice(0, 40)}:${item.body.length}:${index}`,
+      };
+    })
+  );
+  const activeRenderedLogItems = createMemo<RenderedLogItem[]>(() => {
+    if (props.agentType === "lead") return leadRenderedLogItems();
+    if (props.agentType === "subagent") return cliRenderedLogItems();
+    return [];
+  });
+  const logVirtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
+    get count() {
+      return activeRenderedLogItems().length;
+    },
+    getScrollElement: () => logPaneRef ?? null,
+    initialRect: { width: 0, height: 720 },
+    estimateSize: (index) => {
+      const rendered = activeRenderedLogItems()[index];
+      if (!rendered) return 72;
+      if (rendered.item.subagentRun) return 120;
+      if (rendered.item.collapsible) return 52;
+      if (rendered.item.tone === "assistant") return 120;
+      if (rendered.item.tone === "user") return 88;
+      return 60;
+    },
+    measureElement: (element, entry, instance) => {
+      const size = measureVirtualElement(element, entry, instance);
+      if (size > 0) return size;
+      const index = Number(element.dataset.index ?? 0);
+      return instance.options.estimateSize(index);
+    },
+    overscan: VIRTUAL_LOG_OVERSCAN,
+    gap: 2,
+    getItemKey: (index) => {
+      const rendered = activeRenderedLogItems()[index];
+      return rendered ? rendered.virtualKey : index;
+    },
+  });
   const hasSubagentRuns = createMemo(() => {
     const items = props.agentType === "lead" ? aihubLogItems() : cliLogItems();
     return items.some((item) => item.subagentRun);
@@ -2237,6 +2313,25 @@ export function AgentChat(props: AgentChatProps) {
     return "session";
   });
   const showHeader = createMemo(() => props.showHeader !== false || zenMode());
+  const renderRenderedLogItem = (rendered: RenderedLogItem) => {
+    if (rendered.item.subagentRun) {
+      const id = rendered.item.subagentRun.toolUseId;
+      return (
+        <SubagentRunCard
+          item={rendered.item}
+          showNested={showSubagents()}
+          expanded={expandedSubagentCards().has(id)}
+          onToggle={() => toggleSubagentCard(id)}
+        />
+      );
+    }
+    return renderLogItem(
+      rendered.item,
+      rendered.collapsibleKey,
+      expandedCollapsibles().has(rendered.collapsibleKey),
+      (next) => setCollapsibleOpen(rendered.collapsibleKey, next)
+    );
+  };
 
   return (
     <div
@@ -2385,30 +2480,38 @@ export function AgentChat(props: AgentChatProps) {
               when={aihubLogItems().length > 0}
               fallback={<div class="log-empty">No messages yet.</div>}
             >
-              <For each={aihubLogItems()}>
-                {(item) => {
-                  const key = item.subagentRun
-                    ? `subagent:${item.subagentRun.toolUseId}`
-                    : `lead-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
-                  if (item.subagentRun) {
-                    const id = item.subagentRun.toolUseId;
-                    return (
-                      <SubagentRunCard
-                        item={item}
-                        showNested={showSubagents()}
-                        expanded={expandedSubagentCards().has(id)}
-                        onToggle={() => toggleSubagentCard(id)}
-                      />
-                    );
-                  }
-                  return renderLogItem(
-                    item,
-                    key,
-                    expandedCollapsibles().has(key),
-                    (next) => setCollapsibleOpen(key, next)
-                  );
-                }}
-              </For>
+              <Show
+                when={logVirtualizer.getVirtualItems().length > 0}
+                fallback={
+                  <For each={leadRenderedLogItems()}>
+                    {renderRenderedLogItem}
+                  </For>
+                }
+              >
+                <div
+                  class="log-virtual-space"
+                  style={{ height: `${logVirtualizer.getTotalSize()}px` }}
+                >
+                  <For each={logVirtualizer.getVirtualItems()}>
+                    {(virtualRow) => {
+                      const rendered = leadRenderedLogItems()[virtualRow.index];
+                      if (!rendered) return null;
+                      return (
+                        <div
+                          class="log-virtual-row"
+                          data-index={virtualRow.index}
+                          ref={(el) => logVirtualizer.measureElement(el)}
+                          style={{
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          {renderRenderedLogItem(rendered)}
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
+              </Show>
             </Show>
             <Show when={aihubLive()}>
               <div class="log-line assistant live">
@@ -2447,30 +2550,38 @@ export function AgentChat(props: AgentChatProps) {
               when={cliLogItems().length > 0}
               fallback={<div class="log-empty">No logs yet.</div>}
             >
-              <For each={cliLogItems()}>
-                {(item) => {
-                  const key = item.subagentRun
-                    ? `subagent:${item.subagentRun.toolUseId}`
-                    : `cli-collapsible:${item.summaryPreview ?? item.title ?? item.body.slice(0, 80)}:${item.body.length}`;
-                  if (item.subagentRun) {
-                    const id = item.subagentRun.toolUseId;
-                    return (
-                      <SubagentRunCard
-                        item={item}
-                        showNested={showSubagents()}
-                        expanded={expandedSubagentCards().has(id)}
-                        onToggle={() => toggleSubagentCard(id)}
-                      />
-                    );
-                  }
-                  return renderLogItem(
-                    item,
-                    key,
-                    expandedCollapsibles().has(key),
-                    (next) => setCollapsibleOpen(key, next)
-                  );
-                }}
-              </For>
+              <Show
+                when={logVirtualizer.getVirtualItems().length > 0}
+                fallback={
+                  <For each={cliRenderedLogItems()}>
+                    {renderRenderedLogItem}
+                  </For>
+                }
+              >
+                <div
+                  class="log-virtual-space"
+                  style={{ height: `${logVirtualizer.getTotalSize()}px` }}
+                >
+                  <For each={logVirtualizer.getVirtualItems()}>
+                    {(virtualRow) => {
+                      const rendered = cliRenderedLogItems()[virtualRow.index];
+                      if (!rendered) return null;
+                      return (
+                        <div
+                          class="log-virtual-row"
+                          data-index={virtualRow.index}
+                          ref={(el) => logVirtualizer.measureElement(el)}
+                          style={{
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          {renderRenderedLogItem(rendered)}
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
+              </Show>
             </Show>
             <Show
               when={
@@ -2811,6 +2922,19 @@ export function AgentChat(props: AgentChatProps) {
           min-height: 0;
           min-width: 0;
           max-width: 100%;
+        }
+
+        .log-virtual-space {
+          position: relative;
+          width: 100%;
+          flex: none;
+        }
+
+        .log-virtual-row {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
         }
 
         /* ── Log lines — flat, full-width ── */

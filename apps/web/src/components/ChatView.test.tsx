@@ -253,4 +253,24 @@ describe("ChatView interaction polish", () => {
 
     dispose();
   });
+
+  it("virtualizes long histories", async () => {
+    fetchSimpleHistoryMock.mockResolvedValue({
+      messages: Array.from({ length: 50 }, (_, index) => ({
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `message ${index}`,
+        timestamp: index + 1,
+      })),
+    });
+
+    const { container, dispose } = renderChatView();
+    await tick();
+    await tick();
+
+    expect(
+      container.querySelectorAll(".message-virtual-row").length
+    ).toBeLessThan(50);
+
+    dispose();
+  });
 });

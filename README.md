@@ -9,6 +9,7 @@ Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, CLI, and 
 - Multi-agent orchestration spaces
 - Project management with Kanban boards
 - Direct chat with CLI agents
+- Virtualized long-thread web chat with smart near-bottom autoscroll
 - Specs and task management
 - Activity feed
 - File-based by default; optional SQLite only for multi-user auth

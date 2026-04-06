@@ -229,6 +229,26 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("virtualizes long lead histories", async () => {
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: Array.from({ length: 50 }, (_, index) => ({
+        role: "user",
+        timestamp: index + 1,
+        content: [{ type: "text", text: `message ${index}` }],
+      })),
+    });
+
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
+    expect(container.querySelectorAll(".log-virtual-row").length).toBeLessThan(
+      50
+    );
+
+    dispose();
+  });
+
   it("shows lead context warning at 80% or higher", async () => {
     fetchFullHistoryMock.mockResolvedValue({
       messages: [
@@ -612,6 +632,7 @@ describe("AgentChat stop/send behavior", () => {
     });
 
     const { container, dispose } = renderSubagent("idle");
+    await tick();
     await tick();
     await tick();
 

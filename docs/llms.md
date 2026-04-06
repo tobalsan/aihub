@@ -46,6 +46,7 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
+- `ChatView` and project `AgentChat` virtualize persisted history/log rows with `@tanstack/solid-virtual` (variable-height measurement, overscan 5) while leaving the live streaming row outside the virtualized region
 - ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; full-mode chat also renders transport/run errors inline
 - Projects board shell uses split sidebars:
   - Left sidebar: AIHub logo + primary nav (`Chats` always; `Projects`/`Conversations` only when enabled by `/api/capabilities`)

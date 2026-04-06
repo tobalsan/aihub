@@ -5,6 +5,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 ## Current Status
 
+- 2026-04-06 PRO-213 Phase 3 landed: `apps/web` now virtualizes persisted rows in `ChatView` and `AgentChat` with `@tanstack/solid-virtual`, dynamic row measurement, overscan 5, and a non-virtualized live streaming row so long threads keep smooth scroll/render behavior without regressing the existing near-bottom autoscroll rules.
 - 2026-04-06 web markdown dedupe follow-up landed: `AgentChat`, `TaskboardOverlay`, and `ConversationThreadView` now use the shared `apps/web/src/lib/markdown.ts` helper directly; `SpecEditor` also uses it with `breaks: false` to preserve previous rendering; `ProjectsBoard` intentionally keeps its thin wrapper because it adds project-specific markdown rewrite/strip behavior on top of the shared helper.
 - 2026-04-06 test-suite speedup landed: `apps/gateway/src/subagents/subagents.api.test.ts` now seeds one reusable git repo in `beforeAll()` and copies it per test, and `vitest.config.ts` now enables file parallelism with `maxWorkers: 4`. Full `pnpm test` now passes in `57.86s` (`95/95` files, `728/728` tests) versus pre-change measured runs at `133.51s` and the first serial-only improvement at `86.30s`.
 - 2026-04-05 PRO-214 mobile scroll fix landed: mobile shell/content scroll is now isolated in the web UI via `overscroll-behavior: contain`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`, `left-nav-main` overflow isolation, chat input `flex-shrink: 0`, and mobile sidebar `100dvh` sizing across agents/chat/activity/areas/conversations.
