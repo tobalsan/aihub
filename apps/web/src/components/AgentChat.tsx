@@ -169,6 +169,7 @@ type PendingCliUserMessage = {
   id: string;
   text: string;
   body: string;
+  pending: boolean;
   queued: boolean;
   uploading: boolean;
   attachments?: FileAttachment[];
@@ -1380,6 +1381,21 @@ export function AgentChat(props: AgentChatProps) {
     }
   };
 
+  const handleFileDragOver = (event: Event) => {
+    const dragEvent = event as DragEvent;
+    if (!canAttach()) return;
+    dragEvent.preventDefault();
+  };
+
+  const handleFileDrop = (event: Event) => {
+    const dragEvent = event as DragEvent;
+    if (!canAttach()) return;
+    dragEvent.preventDefault();
+    const files = dragEvent.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    addPendingFiles(files);
+  };
+
   const removePendingFile = (id: string) => {
     setPendingFiles((prev) => prev.filter((item) => item.id !== id));
   };
@@ -1436,7 +1452,13 @@ export function AgentChat(props: AgentChatProps) {
     };
 
     window.addEventListener("keydown", handleGlobalKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleGlobalKeyDown));
+    rootRef?.addEventListener("dragover", handleFileDragOver, true);
+    rootRef?.addEventListener("drop", handleFileDrop, true);
+    onCleanup(() => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+      rootRef?.removeEventListener("dragover", handleFileDragOver, true);
+      rootRef?.removeEventListener("drop", handleFileDrop, true);
+    });
   });
 
   const checkIsAtBottom = () => {
@@ -1802,7 +1824,9 @@ export function AgentChat(props: AgentChatProps) {
             }
           }
           if (sawResponse) {
-            const activePendingIndex = remaining.findIndex((item) => !item.queued);
+            const activePendingIndex = remaining.findIndex(
+              (item) => item.pending && !item.queued
+            );
             if (activePendingIndex !== -1) {
               remaining = [
                 ...remaining.slice(0, activePendingIndex),
@@ -1974,7 +1998,7 @@ export function AgentChat(props: AgentChatProps) {
     if (message.queued) {
       updatePendingCliUserMessage(
         message.id,
-        (item) => ({ ...item, queued: false }),
+        (item) => ({ ...item, pending: true, queued: false }),
         true
       );
     } else {
@@ -1993,6 +2017,12 @@ export function AgentChat(props: AgentChatProps) {
         setError(res.error);
         updatePendingCliUserMessage(message.id, () => null, false);
         setSubagentAwaitingResponse(false);
+      } else {
+        updatePendingCliUserMessage(
+          message.id,
+          (item) => ({ ...item, pending: false, queued: false }),
+          true
+        );
       }
       setSubagentSending(false);
     });
@@ -2034,6 +2064,7 @@ export function AgentChat(props: AgentChatProps) {
         id: clientId,
         text,
         body: logBody,
+        pending: !shouldQueue,
         queued: shouldQueue,
         uploading: currentPending.length > 0,
       };
@@ -2397,7 +2428,7 @@ export function AgentChat(props: AgentChatProps) {
       tone: "user",
       body: item.body,
       clientId: item.id,
-      pending: !item.queued,
+      pending: item.pending,
       queued: item.queued,
     }))
   );
@@ -2405,6 +2436,9 @@ export function AgentChat(props: AgentChatProps) {
     ...buildCliLogs(cliDisplayEvents()),
     ...queuedCliLogItems(),
   ]);
+  const hasPendingCliIndicator = createMemo(() =>
+    pendingCliUserMessages().some((item) => item.pending || item.queued)
+  );
   const leadRenderedLogItems = createMemo<RenderedLogItem[]>(() =>
     aihubLogItems().map((item, index) => {
       const collapsibleKey = item.subagentRun
@@ -2621,20 +2655,7 @@ export function AgentChat(props: AgentChatProps) {
         </div>
       </Show>
 
-      <div
-        class="chat-messages"
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!canAttach()) return;
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (!canAttach()) return;
-          const files = e.dataTransfer?.files;
-          if (!files || files.length === 0) return;
-          addPendingFiles(files);
-        }}
-      >
+      <div class="chat-messages">
         <Show when={!props.agentName}>
           <div class="chat-empty">Select an agent to chat</div>
         </Show>
@@ -2674,16 +2695,21 @@ export function AgentChat(props: AgentChatProps) {
                 >
                   <For each={virtualRows()}>
                     {(virtualRow) => {
-                      const rendered = leadRenderedLogItems()[virtualRow.index];
-                      if (!rendered) return null;
+                      const rendered = createMemo(
+                        () => leadRenderedLogItems()[virtualRow.index]
+                      );
                       return (
-                        <div
-                          class="log-virtual-row"
-                          data-index={virtualRow.index}
-                          ref={(el) => logVirtualizer.measureElement(el)}
-                        >
-                          {renderRenderedLogItem(rendered)}
-                        </div>
+                        <Show when={rendered()}>
+                          {(item) => (
+                            <div
+                              class="log-virtual-row"
+                              data-index={virtualRow.index}
+                              ref={(el) => logVirtualizer.measureElement(el)}
+                            >
+                              {renderRenderedLogItem(item())}
+                            </div>
+                          )}
+                        </Show>
                       );
                     }}
                   </For>
@@ -2744,16 +2770,21 @@ export function AgentChat(props: AgentChatProps) {
                 >
                   <For each={virtualRows()}>
                     {(virtualRow) => {
-                      const rendered = cliRenderedLogItems()[virtualRow.index];
-                      if (!rendered) return null;
+                      const rendered = createMemo(
+                        () => cliRenderedLogItems()[virtualRow.index]
+                      );
                       return (
-                        <div
-                          class="log-virtual-row"
-                          data-index={virtualRow.index}
-                          ref={(el) => logVirtualizer.measureElement(el)}
-                        >
-                          {renderRenderedLogItem(rendered)}
-                        </div>
+                        <Show when={rendered()}>
+                          {(item) => (
+                            <div
+                              class="log-virtual-row"
+                              data-index={virtualRow.index}
+                              ref={(el) => logVirtualizer.measureElement(el)}
+                            >
+                              {renderRenderedLogItem(item())}
+                            </div>
+                          )}
+                        </Show>
                       );
                     }}
                   </For>
@@ -2762,7 +2793,7 @@ export function AgentChat(props: AgentChatProps) {
             </Show>
             <Show
               when={
-                pendingCliUserMessages().length > 0 ||
+                hasPendingCliIndicator() ||
                 subagentSending() ||
                 subagentAwaitingResponse()
               }

@@ -422,6 +422,96 @@ export function ChatView() {
     return map;
   });
 
+  const renderSimpleMessage = (
+    message: UiMessage,
+    index: number,
+    measure = false
+  ) => (
+    <div
+      class="message-virtual-row"
+      data-index={measure ? index : undefined}
+      ref={measure ? (el) => historyVirtualizer.measureElement(el) : undefined}
+    >
+      <div
+        class={`message ${message.role}`}
+        classList={{
+          pending: !!message.pending,
+          queued: !!message.queued,
+        }}
+      >
+        {message.role === "assistant" ? (
+          <div
+            class="content markdown-content"
+            innerHTML={renderMarkdown(message.content)}
+          />
+        ) : (
+          <div class="content">{message.content}</div>
+        )}
+        <Show when={message.role === "user" && (message.pending || message.queued)}>
+          <div class="message-status">
+            {message.queued ? "Queued" : "Sending..."}
+          </div>
+        </Show>
+        <div class="message-time">{formatTimestamp(message.timestamp)}</div>
+      </div>
+    </div>
+  );
+
+  const renderFullMessage = (
+    message: UiFullHistoryMessage,
+    index: number,
+    measure = false
+  ) => (
+    <div
+      class="message-virtual-row"
+      data-index={measure ? index : undefined}
+      ref={measure ? (el) => historyVirtualizer.measureElement(el) : undefined}
+    >
+      {(() => {
+        if (message.role === "user") {
+          const textContent = message.content
+            .filter((b: ContentBlock): b is TextBlock => b.type === "text")
+            .map((b: TextBlock) => b.text)
+            .join("\n");
+          return (
+            <div
+              class="message user"
+              classList={{
+                pending: !!message.pending,
+                queued: !!message.queued,
+              }}
+            >
+              <div class="content">{textContent}</div>
+              <Show when={message.pending || message.queued}>
+                <div class="message-status">
+                  {message.queued ? "Queued" : "Sending..."}
+                </div>
+              </Show>
+              <div class="message-time">{formatTimestamp(message.timestamp)}</div>
+            </div>
+          );
+        }
+        if (message.role === "assistant") {
+          return (
+            <div class="message assistant full-message">
+              <ContentBlocks
+                blocks={message.content}
+                timestamp={message.timestamp}
+                toolResultsMap={toolResultsMap()}
+              />
+              {message.meta && <ModelMetaDisplay meta={message.meta} />}
+              <div class="message-time">{formatTimestamp(message.timestamp)}</div>
+            </div>
+          );
+        }
+        if (message.role === "toolResult") {
+          return null;
+        }
+        return null;
+      })()}
+    </div>
+  );
+
   const [isAtBottom, setIsAtBottom] = createSignal(true);
   const SCROLL_THRESHOLD = 100;
 
@@ -1126,130 +1216,65 @@ export function ChatView() {
 
       <div class="messages" ref={messagesContainerRef} onScroll={handleScroll}>
         <Show when={viewMode() === "simple"}>
-          <div
-            class="messages-virtual-space"
-            style={{
-              "padding-top": `${historyPaddingTop()}px`,
-              "padding-bottom": `${historyPaddingBottom()}px`,
-            }}
+          <Show
+            when={historyVirtualRows().length > 0 || simpleMessages().length > 1}
+            fallback={
+              <For each={simpleMessages()}>
+                {(message, index) => renderSimpleMessage(message, index())}
+              </For>
+            }
           >
-            <For each={historyVirtualRows()}>
-              {(virtualRow) => {
-                const msg = simpleMessages()[virtualRow.index];
-                if (!msg) return null;
-                return (
-                  <div
-                    class="message-virtual-row"
-                    data-index={virtualRow.index}
-                    ref={(el) => historyVirtualizer.measureElement(el)}
-                  >
-                    <div
-                      class={`message ${msg.role}`}
-                      classList={{
-                        pending: !!msg.pending,
-                        queued: !!msg.queued,
-                      }}
-                    >
-                      {msg.role === "assistant" ? (
-                        <div
-                          class="content markdown-content"
-                          innerHTML={renderMarkdown(msg.content)}
-                        />
-                      ) : (
-                        <div class="content">{msg.content}</div>
-                      )}
-                      <Show
-                        when={
-                          msg.role === "user" && (msg.pending || msg.queued)
-                        }
-                      >
-                        <div class="message-status">
-                          {msg.queued ? "Queued" : "Sending..."}
-                        </div>
-                      </Show>
-                      <div class="message-time">
-                        {formatTimestamp(msg.timestamp)}
-                      </div>
-                    </div>
-                  </div>
-                );
+            <div
+              class="messages-virtual-space"
+              style={{
+                "padding-top": `${historyPaddingTop()}px`,
+                "padding-bottom": `${historyPaddingBottom()}px`,
               }}
-            </For>
-          </div>
+            >
+              <For each={historyVirtualRows()}>
+                {(virtualRow) => {
+                  const msg = createMemo(
+                    () => simpleMessages()[virtualRow.index]
+                  );
+                  return (
+                    <Show when={msg()}>
+                      {(message) => renderSimpleMessage(message(), virtualRow.index, true)}
+                    </Show>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
         </Show>
 
         <Show when={viewMode() === "full"}>
-          <div
-            class="messages-virtual-space"
-            style={{
-              "padding-top": `${historyPaddingTop()}px`,
-              "padding-bottom": `${historyPaddingBottom()}px`,
-            }}
+          <Show
+            when={historyVirtualRows().length > 0 || fullMessages().length > 1}
+            fallback={
+              <For each={fullMessages()}>
+                {(message, index) => renderFullMessage(message, index())}
+              </For>
+            }
           >
-            <For each={historyVirtualRows()}>
-              {(virtualRow) => {
-                const msg = fullMessages()[virtualRow.index];
-                if (!msg) return null;
-                return (
-                  <div
-                    class="message-virtual-row"
-                    data-index={virtualRow.index}
-                    ref={(el) => historyVirtualizer.measureElement(el)}
-                  >
-                    {(() => {
-                      if (msg.role === "user") {
-                        const textContent = msg.content
-                          .filter(
-                            (b: ContentBlock): b is TextBlock =>
-                              b.type === "text"
-                          )
-                          .map((b: TextBlock) => b.text)
-                          .join("\n");
-                        return (
-                          <div
-                            class="message user"
-                            classList={{
-                              pending: !!msg.pending,
-                              queued: !!msg.queued,
-                            }}
-                          >
-                            <div class="content">{textContent}</div>
-                            <Show when={msg.pending || msg.queued}>
-                              <div class="message-status">
-                                {msg.queued ? "Queued" : "Sending..."}
-                              </div>
-                            </Show>
-                            <div class="message-time">
-                              {formatTimestamp(msg.timestamp)}
-                            </div>
-                          </div>
-                        );
-                      }
-                      if (msg.role === "assistant") {
-                        return (
-                          <div class="message assistant full-message">
-                            <ContentBlocks
-                              blocks={msg.content}
-                              timestamp={msg.timestamp}
-                              toolResultsMap={toolResultsMap()}
-                            />
-                            {msg.meta && <ModelMetaDisplay meta={msg.meta} />}
-                            <div class="message-time">
-                              {formatTimestamp(msg.timestamp)}
-                            </div>
-                          </div>
-                        );
-                      }
-                      if (msg.role === "toolResult") {
-                        return null;
-                      }
-                      return null;
-                    })()}
-                  </div>
-                );
+            <div
+              class="messages-virtual-space"
+              style={{
+                "padding-top": `${historyPaddingTop()}px`,
+                "padding-bottom": `${historyPaddingBottom()}px`,
               }}
-            </For>
-          </div>
+            >
+              <For each={historyVirtualRows()}>
+                {(virtualRow) => {
+                  const msg = createMemo(() => fullMessages()[virtualRow.index]);
+                  return (
+                    <Show when={msg()}>
+                      {(message) => renderFullMessage(message(), virtualRow.index, true)}
+                    </Show>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
         </Show>
 
         {/* Streaming content in full mode - show blocks incrementally */}

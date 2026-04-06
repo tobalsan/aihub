@@ -254,6 +254,42 @@ describe("ChatView interaction polish", () => {
     dispose();
   });
 
+  it("clears Sending status on first stream chunk", async () => {
+    let onText: ((text: string) => void) | undefined;
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        handleText: (text: string) => void
+      ) => {
+        onText = handleText;
+        return () => {};
+      }
+    );
+
+    const { container, dispose } = renderChatView();
+    await tick();
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    await tick();
+
+    expect(container.textContent).toContain("Sending...");
+
+    onText?.("reply");
+    await tick();
+
+    expect(container.textContent).not.toContain("Sending...");
+
+    dispose();
+  });
+
   it("virtualizes long histories", async () => {
     fetchSimpleHistoryMock.mockResolvedValue({
       messages: Array.from({ length: 50 }, (_, index) => ({

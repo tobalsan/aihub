@@ -441,6 +441,40 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("clears lead Sending status on first stream chunk", async () => {
+    let onText: ((text: string) => void) | undefined;
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        handleText: (text: string) => void
+      ) => {
+        onText = handleText;
+        return () => {};
+      }
+    );
+    const { container, dispose } = renderLead();
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    await tick();
+
+    expect(container.textContent).toContain("Sending...");
+
+    onText?.("reply");
+    await tick();
+
+    expect(container.textContent).not.toContain("Sending...");
+
+    dispose();
+  });
+
   it("queues subagent messages during active runs and flushes them when idle", async () => {
     const { container, dispose, setStatus } = renderSubagent("running");
     await tick();
@@ -473,6 +507,65 @@ describe("AgentChat stop/send behavior", () => {
       resume: true,
       attachments: undefined,
     });
+
+    dispose();
+  });
+
+  it("clears subagent Sending status after spawn succeeds", async () => {
+    let resolveSpawn: (() => void) | undefined;
+    spawnSubagentMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSpawn = () =>
+            resolve({
+              ok: true,
+              data: { slug: "worker-1" },
+            });
+        })
+    );
+    const { container, dispose } = renderSubagent("idle");
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+
+    expect(container.textContent).toContain("Sending...");
+
+    resolveSpawn?.();
+    await tick();
+
+    expect(container.textContent).not.toContain("Sending...");
+    expect(container.textContent).toContain("hello");
+
+    dispose();
+  });
+
+  it("adds pending files when dropped on the chat log pane", async () => {
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
+    const logPane = container.querySelector(".log-pane") as HTMLDivElement;
+    const file = new File(["image"], "diagram.png", { type: "image/png" });
+    const dropEvent = new Event("drop", {
+      bubbles: true,
+      cancelable: true,
+    }) as DragEvent;
+    Object.defineProperty(dropEvent, "dataTransfer", {
+      value: { files: [file] },
+    });
+
+    logPane.dispatchEvent(dropEvent);
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".attachment-name")?.textContent).toContain(
+      "diagram.png"
+    );
 
     dispose();
   });
