@@ -35,6 +35,25 @@ import { renderMarkdown } from "../lib/markdown";
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
 
+type UiMessage = Message & {
+  clientId?: string;
+  pending?: boolean;
+  queued?: boolean;
+};
+
+type UiFullHistoryMessage = FullHistoryMessage & {
+  clientId?: string;
+  pending?: boolean;
+  queued?: boolean;
+};
+
+type PendingQueuedMessage = {
+  clientId: string;
+  text: string;
+  timestamp: number;
+  queued: boolean;
+};
+
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
 }
@@ -207,8 +226,8 @@ export function ChatView() {
   const viewMode = createMemo<HistoryViewMode>(() =>
     params.view === "full" ? "full" : "simple"
   );
-  const [simpleMessages, setSimpleMessages] = createSignal<Message[]>([]);
-  const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>(
+  const [simpleMessages, setSimpleMessages] = createSignal<UiMessage[]>([]);
+  const [fullMessages, setFullMessages] = createSignal<UiFullHistoryMessage[]>(
     []
   );
   const [thinkingLevel, setThinkingLevel] = createSignal<
@@ -242,7 +261,7 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
   const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<
-    Array<{ text: string; timestamp: number }>
+    PendingQueuedMessage[]
   >([]);
 
   let messagesEndRef: HTMLDivElement | undefined;
@@ -250,6 +269,7 @@ export function ChatView() {
   let textareaRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
+  let skipNextHistoryRefresh = false;
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -306,6 +326,9 @@ export function ChatView() {
               role: "user" as const,
               content: [{ type: "text" as const, text: msg.text }],
               timestamp: msg.timestamp,
+              clientId: msg.clientId,
+              pending: !msg.queued,
+              queued: msg.queued,
             })),
           ]
         : res.messages;
@@ -324,10 +347,13 @@ export function ChatView() {
         ? [
             ...base,
             ...pending.map((msg) => ({
-              id: crypto.randomUUID(),
+              id: msg.clientId,
               role: "user" as const,
               content: msg.text,
               timestamp: msg.timestamp,
+              clientId: msg.clientId,
+              pending: !msg.queued,
+              queued: msg.queued,
             })),
           ]
         : base;
@@ -355,16 +381,22 @@ export function ChatView() {
     subscriptionCleanup?.();
     subscriptionCleanup = subscribeToSession(agentId, key, {
       onHistoryUpdated: () => {
-        // Refetch history when background run completes
-        if (!isStreaming()) {
-          if (pendingQueuedMessages().length > 0) {
-            setPendingQueuedMessages((prev) => prev.slice(1));
-          }
-          loadHistory(viewMode());
-          setPendingHistoryRefresh(false);
-        } else {
+        if (isStreaming()) {
           setPendingHistoryRefresh(true);
+          return;
         }
+
+        if (skipNextHistoryRefresh) {
+          skipNextHistoryRefresh = false;
+          setPendingHistoryRefresh(false);
+          return;
+        }
+
+        if (pendingQueuedMessages().length > 0) {
+          setPendingQueuedMessages((prev) => prev.slice(1));
+        }
+        void loadHistory(viewMode());
+        setPendingHistoryRefresh(false);
       },
     });
   });
@@ -380,6 +412,7 @@ export function ChatView() {
   onCleanup(() => {
     cleanup?.();
     subscriptionCleanup?.();
+    skipNextHistoryRefresh = false;
   });
 
   const handleViewChange = (mode: HistoryViewMode) => {
@@ -404,12 +437,36 @@ export function ChatView() {
     setStreamingStartedAt(null);
   };
 
+  const updateUserMessageState = (
+    clientId: string,
+    patch: Pick<UiMessage, "pending" | "queued">
+  ) => {
+    setSimpleMessages((prev) =>
+      prev.map((msg) =>
+        msg.clientId === clientId
+          ? { ...msg, pending: patch.pending, queued: patch.queued }
+          : msg
+      )
+    );
+    setFullMessages((prev) =>
+      prev.map((msg) =>
+        msg.clientId === clientId
+          ? { ...msg, pending: patch.pending, queued: patch.queued }
+          : msg
+      )
+    );
+  };
+
   const maybeRefreshHistory = () => {
-    if (pendingQueuedMessages().length > 0) return;
-    if (pendingHistoryRefresh()) {
-      loadHistory(viewMode());
+    if (!pendingHistoryRefresh()) return;
+    if (skipNextHistoryRefresh) {
+      skipNextHistoryRefresh = false;
       setPendingHistoryRefresh(false);
+      return;
     }
+    if (pendingQueuedMessages().length > 0) return;
+    void loadHistory(viewMode());
+    setPendingHistoryRefresh(false);
   };
 
   // Check if stream has any content (used to guard against wiping real stream)
@@ -423,13 +480,18 @@ export function ChatView() {
     const levelToSend = pendingThinkLevel() ?? thinkingLevel();
     const currentAgent = agent();
     const queueMode = currentAgent?.queueMode ?? "queue";
+    const clientId = crypto.randomUUID();
+    const timestamp = Date.now();
 
     // Add user message to both views
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
+    const userMsg: UiMessage = {
+      id: clientId,
       role: "user",
       content: text,
-      timestamp: Date.now(),
+      timestamp,
+      clientId,
+      pending: true,
+      queued: false,
     };
     setSimpleMessages((prev) => [...prev, userMsg]);
     setFullMessages((prev) => [
@@ -437,7 +499,10 @@ export function ChatView() {
       {
         role: "user",
         content: [{ type: "text", text }],
-        timestamp: Date.now(),
+        timestamp,
+        clientId,
+        pending: true,
+        queued: false,
       },
     ]);
 
@@ -453,7 +518,7 @@ export function ChatView() {
       if (trackSequentialQueue) {
         setPendingQueuedMessages((prev) => [
           ...prev,
-          { text, timestamp: Date.now() },
+          { clientId, text, timestamp, queued: false },
         ]);
       }
       let queuedText = "";
@@ -472,17 +537,27 @@ export function ChatView() {
         text,
         sessionKey(),
         (chunk) => {
+          updateUserMessageState(clientId, { pending: false, queued: false });
           queuedText += chunk;
         },
         (meta?: DoneMeta) => {
           if (meta?.queued) {
+            updateUserMessageState(clientId, { pending: false, queued: true });
+            if (trackSequentialQueue) {
+              setPendingQueuedMessages((prev) =>
+                prev.map((msg) =>
+                  msg.clientId === clientId ? { ...msg, queued: true } : msg
+                )
+              );
+            }
             if (queueCleanup) queueCleanup();
             return;
           }
 
+          updateUserMessageState(clientId, { pending: false, queued: false });
           if (trackSequentialQueue) {
             setPendingQueuedMessages((prev) =>
-              prev.length ? prev.slice(0, -1) : prev
+              prev.filter((msg) => msg.clientId !== clientId)
             );
           }
 
@@ -532,6 +607,12 @@ export function ChatView() {
           if (queueCleanup) queueCleanup();
         },
         (error) => {
+          updateUserMessageState(clientId, { pending: false, queued: false });
+          if (trackSequentialQueue) {
+            setPendingQueuedMessages((prev) =>
+              prev.filter((msg) => msg.clientId !== clientId)
+            );
+          }
           const content = `Error: ${error}`;
           setSimpleMessages((prev) => [
             ...prev,
@@ -546,9 +627,11 @@ export function ChatView() {
         },
         {
           onThinking: (chunk) => {
+            updateUserMessageState(clientId, { pending: false, queued: false });
             queuedThinking += chunk;
           },
           onToolCall: (id, name, args) => {
+            updateUserMessageState(clientId, { pending: false, queued: false });
             queuedToolCalls.push({
               id,
               name,
@@ -570,6 +653,7 @@ export function ChatView() {
             setFullMessages([]);
             resetStreamingState();
             setPendingQueuedMessages([]);
+            skipNextHistoryRefresh = false;
             if (cleanup) {
               cleanup();
               cleanup = null;
@@ -595,18 +679,22 @@ export function ChatView() {
     setStreamingText("");
     setStreamingTextAt(null);
     setActiveTools([]);
+    skipNextHistoryRefresh = true;
 
     cleanup = streamMessage(
       params.agentId,
       text,
       sessionKey(),
       (chunk) => {
+        updateUserMessageState(clientId, { pending: false, queued: false });
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
       },
       (meta?: DoneMeta) => {
         // Queued ack arrived unexpectedly - reset state only if no real stream content
         if (meta?.queued) {
+          updateUserMessageState(clientId, { pending: false, queued: true });
+          skipNextHistoryRefresh = false;
           if (!hasStreamingContent()) {
             resetStreamingState();
             cleanup = null;
@@ -614,6 +702,7 @@ export function ChatView() {
           return;
         }
 
+        updateUserMessageState(clientId, { pending: false, queued: false });
         // Add assistant message - build content blocks from streaming state
         const content = streamingText();
         const blocks: ContentBlock[] = [];
@@ -664,6 +753,8 @@ export function ChatView() {
         maybeRefreshHistory();
       },
       (error) => {
+        updateUserMessageState(clientId, { pending: false, queued: false });
+        skipNextHistoryRefresh = false;
         const content = `Error: ${error}`;
         setSimpleMessages((prev) => [
           ...prev,
@@ -688,10 +779,12 @@ export function ChatView() {
       },
       {
         onThinking: (chunk) => {
+          updateUserMessageState(clientId, { pending: false, queued: false });
           setStreamingThinking((prev) => prev + chunk);
           if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
         },
         onToolCall: (id, name, args) => {
+          updateUserMessageState(clientId, { pending: false, queued: false });
           setStreamingToolCalls((prev) => [
             ...prev,
             {
@@ -704,6 +797,7 @@ export function ChatView() {
           ]);
         },
         onToolStart: (toolName) => {
+          updateUserMessageState(clientId, { pending: false, queued: false });
           setActiveTools((prev) => [
             ...prev,
             { id: crypto.randomUUID(), toolName, status: "running" },
@@ -732,6 +826,7 @@ export function ChatView() {
           setSimpleMessages([]);
           setFullMessages([]);
           setPendingQueuedMessages([]);
+          skipNextHistoryRefresh = false;
         },
       },
       levelToSend ? { thinkLevel: levelToSend } : undefined
@@ -830,7 +925,10 @@ export function ChatView() {
         <Show when={viewMode() === "simple"}>
           <For each={simpleMessages()}>
             {(msg) => (
-              <div class={`message ${msg.role}`}>
+              <div
+                class={`message ${msg.role}`}
+                classList={{ pending: !!msg.pending, queued: !!msg.queued }}
+              >
                 {msg.role === "assistant" ? (
                   <div
                     class="content markdown-content"
@@ -839,6 +937,11 @@ export function ChatView() {
                 ) : (
                   <div class="content">{msg.content}</div>
                 )}
+                <Show when={msg.role === "user" && (msg.pending || msg.queued)}>
+                  <div class="message-status">
+                    {msg.queued ? "Queued" : "Sending..."}
+                  </div>
+                </Show>
                 <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
               </div>
             )}
@@ -857,8 +960,16 @@ export function ChatView() {
                   .map((b) => b.text)
                   .join("\n");
                 return (
-                  <div class="message user">
+                  <div
+                    class="message user"
+                    classList={{ pending: !!msg.pending, queued: !!msg.queued }}
+                  >
                     <div class="content">{textContent}</div>
+                    <Show when={msg.pending || msg.queued}>
+                      <div class="message-status">
+                        {msg.queued ? "Queued" : "Sending..."}
+                      </div>
+                    </Show>
                     <div class="message-time">
                       {formatTimestamp(msg.timestamp)}
                     </div>
@@ -923,10 +1034,9 @@ export function ChatView() {
                 )}
               </For>
               {streamingText() && (
-                <div
-                  class="block-text markdown-content"
-                  innerHTML={renderMarkdown(streamingText())}
-                />
+                <pre class="block-text block-text-streaming">
+                  {streamingText()}
+                </pre>
               )}
             </div>
             {streamingStartedAt() && (
@@ -942,10 +1052,7 @@ export function ChatView() {
           when={viewMode() === "simple" && isStreaming() && streamingText()}
         >
           <div class="message assistant streaming">
-            <div
-              class="content markdown-content"
-              innerHTML={renderMarkdown(streamingText())}
-            />
+            <pre class="content content-plain">{streamingText()}</pre>
             {(streamingTextAt() || streamingStartedAt()) && (
               <div class="message-time">
                 {formatTimestamp(
@@ -1276,6 +1383,20 @@ export function ChatView() {
           padding: 16px 20px;
         }
 
+        .message.pending {
+          opacity: 0.85;
+        }
+
+        .message.queued {
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+        }
+
+        .message-status {
+          margin-top: 6px;
+          font-size: 11px;
+          color: var(--text-muted);
+        }
+
         .thinking-dots {
           display: flex;
           gap: 6px;
@@ -1396,6 +1517,15 @@ export function ChatView() {
 
         .block-text {
           white-space: pre-wrap;
+        }
+
+        .block-text-streaming,
+        .content-plain {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          font-family: 'SF Mono', 'Consolas', monospace;
         }
 
         /* Markdown content */

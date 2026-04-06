@@ -21,6 +21,7 @@ import {
   spawnSubagent,
   streamMessage,
   subscribeToSession,
+  type DoneMeta,
   uploadFiles,
 } from "../api/client";
 import type {
@@ -76,6 +77,9 @@ type LogItem = {
   collapsible?: boolean;
   systemCallout?: boolean;
   subagentRun?: SubagentRunInfo;
+  clientId?: string;
+  pending?: boolean;
+  queued?: boolean;
 };
 
 // Local UI state for file attachments (before upload)
@@ -88,6 +92,12 @@ type PendingFile = {
 type SubagentTransientUiState = {
   awaiting: boolean;
   pending: string[];
+};
+type PendingAihubUserMessage = {
+  id: string;
+  text: string;
+  body: string;
+  queued: boolean;
 };
 const subagentTransientState = new Map<string, SubagentTransientUiState>();
 const activeSubagentPollIntervals = new Map<string, number>();
@@ -857,6 +867,7 @@ function renderLogItem(
   return (
     <div
       class={`log-line ${item.tone}${item.systemCallout ? " system-callout" : ""}`}
+      classList={{ pending: !!item.pending, queued: !!item.queued }}
     >
       {logIcon(item.icon)}
       <div class="log-stack">
@@ -869,6 +880,9 @@ function renderLogItem(
         ) : (
           <pre class="log-text">{item.body}</pre>
         )}
+        <Show when={item.pending || item.queued}>
+          <div class="log-status">{item.queued ? "Queued" : "Sending..."}</div>
+        </Show>
       </div>
     </div>
   );
@@ -1037,17 +1051,17 @@ function extractCliUserTexts(events: SubagentLogEvent[]): string[] {
 
 function mergePendingAihubMessages(
   messages: FullHistoryMessage[],
-  pending: string[]
-): { merged: LogItem[]; remaining: string[] } {
+  pending: PendingAihubUserMessage[]
+): { merged: LogItem[]; remaining: PendingAihubUserMessage[] } {
   if (pending.length === 0)
     return { merged: buildAihubLogs(messages), remaining: [] };
   const historyUsers = extractUserTexts(messages);
   let cursor = 0;
-  const remaining: string[] = [];
-  for (const text of pending) {
-    const idx = historyUsers.indexOf(text, cursor);
+  const remaining: PendingAihubUserMessage[] = [];
+  for (const item of pending) {
+    const idx = historyUsers.indexOf(item.text, cursor);
     if (idx === -1) {
-      remaining.push(text);
+      remaining.push(item);
     } else {
       cursor = idx + 1;
     }
@@ -1057,7 +1071,13 @@ function mergePendingAihubMessages(
     remaining.length > 0
       ? [
           ...base,
-          ...remaining.map((text) => ({ tone: "user" as const, body: text })),
+          ...remaining.map((item) => ({
+            tone: "user" as const,
+            body: item.body,
+            clientId: item.id,
+            pending: !item.queued,
+            queued: item.queued,
+          })),
         ]
       : base;
   return { merged, remaining };
@@ -1075,7 +1095,7 @@ export function AgentChat(props: AgentChatProps) {
     FullHistoryMessage[]
   >([]);
   const [pendingAihubUserMessages, setPendingAihubUserMessages] = createSignal<
-    string[]
+    PendingAihubUserMessage[]
   >([]);
   const [cliLogs, setCliLogs] = createSignal<SubagentLogEvent[]>([]);
   const [cliCursor, setCliCursor] = createSignal(0);
@@ -1110,6 +1130,8 @@ export function AgentChat(props: AgentChatProps) {
   let pollStateKey: string | null = null;
   let subagentSetupToken = 0;
   let activeChatIdentity: string | null = null;
+  let pendingLeadHistoryRefresh = false;
+  let skipNextLeadHistoryRefresh = false;
   let logPaneRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
@@ -1138,6 +1160,8 @@ export function AgentChat(props: AgentChatProps) {
     }
     clearSubagentPollInterval();
     subagentSetupToken += 1;
+    pendingLeadHistoryRefresh = false;
+    skipNextLeadHistoryRefresh = false;
   };
 
   const sessionKey = createMemo(() =>
@@ -1145,7 +1169,7 @@ export function AgentChat(props: AgentChatProps) {
   );
   const cliTokens = new Set(["claude", "codex", "pi"]);
   const canSendLead = createMemo(
-    () => props.agentType === "lead" && props.agentId && !aihubStreaming()
+    () => props.agentType === "lead" && Boolean(props.agentId)
   );
   const canSendSubagent = createMemo(
     () =>
@@ -1260,6 +1284,47 @@ export function AgentChat(props: AgentChatProps) {
 
   const markAihubStreaming = () => {
     if (aihubPending()) setAihubPending(false);
+  };
+
+  const updateAihubUserLogState = (
+    clientId: string,
+    patch: Pick<LogItem, "pending" | "queued">
+  ) => {
+    setAihubLogs((prev) =>
+      prev.map((item) =>
+        item.clientId === clientId
+          ? { ...item, pending: patch.pending, queued: patch.queued }
+          : item
+      )
+    );
+  };
+
+  const updatePendingAihubUserMessage = (
+    clientId: string,
+    updater: (item: PendingAihubUserMessage) => PendingAihubUserMessage | null
+  ) => {
+    setPendingAihubUserMessages((prev) => {
+      const next: PendingAihubUserMessage[] = [];
+      for (const item of prev) {
+        if (item.id !== clientId) {
+          next.push(item);
+          continue;
+        }
+        const updated = updater(item);
+        if (updated) next.push(updated);
+      }
+      return next;
+    });
+  };
+
+  const maybeLoadDeferredLeadHistory = () => {
+    if (!pendingLeadHistoryRefresh) return;
+    pendingLeadHistoryRefresh = false;
+    if (skipNextLeadHistoryRefresh) {
+      skipNextLeadHistoryRefresh = false;
+      return;
+    }
+    void loadAihubHistory();
   };
 
   const resolveToolPath = (args: Record<string, unknown>) => {
@@ -1434,12 +1499,21 @@ export function AgentChat(props: AgentChatProps) {
 
   const setupLead = () => {
     if (!props.agentId) return;
-    loadAihubHistory();
+    void loadAihubHistory();
     subscriptionCleanup = subscribeToSession(props.agentId, sessionKey(), {
       onHistoryUpdated: () => {
-        if (!aihubStreaming()) {
-          loadAihubHistory();
+        if (aihubStreaming()) {
+          pendingLeadHistoryRefresh = true;
+          return;
         }
+
+        if (skipNextLeadHistoryRefresh) {
+          skipNextLeadHistoryRefresh = false;
+          pendingLeadHistoryRefresh = false;
+          return;
+        }
+
+        void loadAihubHistory();
       },
     });
   };
@@ -1712,7 +1786,7 @@ export function AgentChat(props: AgentChatProps) {
       return;
     }
 
-    if (!props.agentId || (aihubStreaming() && !isAbort)) return;
+    if (!props.agentId) return;
 
     // Upload files first, then send message with paths
     const currentPendingFiles = pendingFiles();
@@ -1735,19 +1809,105 @@ export function AgentChat(props: AgentChatProps) {
       logBody = text ? `${text}\n\n${fileList}` : fileList;
     }
 
+    const clientId = crypto.randomUUID();
+    const isQueuedLeadSend = aihubStreaming() && !isAbort;
+
     if (!isAbort) {
-      setPendingAihubUserMessages((prev) => [...prev, text]);
-      setAihubLogs((prev) => [...prev, { tone: "user", body: logBody }]);
+      setPendingAihubUserMessages((prev) => [
+        ...prev,
+        { id: clientId, text, body: logBody, queued: false },
+      ]);
+      setAihubLogs((prev) => [
+        ...prev,
+        {
+          tone: "user",
+          body: logBody,
+          clientId,
+          pending: true,
+          queued: false,
+        },
+      ]);
       setInput("");
       setPendingFiles([]);
     }
     setError("");
+    resizeTextarea("");
+    scrollToBottom(true);
+
+    if (isQueuedLeadSend) {
+      let queuedText = "";
+      let queuedThinking = "";
+      const queuedToolCalls: Array<{
+        id: string;
+        name: string;
+        arguments: unknown;
+      }> = [];
+
+      const queueCleanup = streamMessage(
+        props.agentId,
+        text,
+        sessionKey(),
+        (chunk) => {
+          updateAihubUserLogState(clientId, { pending: false, queued: false });
+          queuedText += chunk;
+        },
+        (meta?: DoneMeta) => {
+          if (meta?.queued) {
+            updateAihubUserLogState(clientId, { pending: false, queued: true });
+            updatePendingAihubUserMessage(clientId, (item) => ({
+              ...item,
+              queued: true,
+            }));
+            if (queueCleanup) queueCleanup();
+            return;
+          }
+
+          updateAihubUserLogState(clientId, { pending: false, queued: false });
+          updatePendingAihubUserMessage(clientId, () => null);
+
+          if (queuedText || queuedThinking || queuedToolCalls.length > 0) {
+            setAihubLogs((prev) => [
+              ...prev,
+              { tone: "assistant", body: queuedText },
+            ]);
+          }
+
+          if (queueCleanup) queueCleanup();
+        },
+        (err) => {
+          updateAihubUserLogState(clientId, { pending: false, queued: false });
+          updatePendingAihubUserMessage(clientId, () => null);
+          setError(err);
+          if (queueCleanup) queueCleanup();
+        },
+        {
+          onThinking: (chunk) => {
+            updateAihubUserLogState(clientId, {
+              pending: false,
+              queued: false,
+            });
+            queuedThinking += chunk;
+          },
+          onToolCall: (id, name, args) => {
+            updateAihubUserLogState(clientId, {
+              pending: false,
+              queued: false,
+            });
+            queuedToolCalls.push({ id, name, arguments: args });
+          },
+        },
+        {
+          attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
+        }
+      );
+      return;
+    }
+
     setAihubLive("");
     setAihubStreaming(true);
     setAihubPending(true);
     streamingToolCalls.clear();
-    resizeTextarea("");
-    scrollToBottom(true);
+    skipNextLeadHistoryRefresh = true;
 
     streamCleanup?.();
     streamCleanup = streamMessage(
@@ -1756,6 +1916,7 @@ export function AgentChat(props: AgentChatProps) {
       sessionKey(),
       (chunk) => {
         markAihubStreaming();
+        updateAihubUserLogState(clientId, { pending: false, queued: false });
         setAihubLive((prev) => prev + chunk);
       },
       () => {
@@ -1770,28 +1931,33 @@ export function AgentChat(props: AgentChatProps) {
         setAihubLive("");
         setAihubPending(false);
         streamingToolCalls.clear();
-        setPendingAihubUserMessages((prev) => {
-          const idx = prev.indexOf(text);
-          if (idx === -1) return prev;
-          return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
-        });
+        updateAihubUserLogState(clientId, { pending: false, queued: false });
+        updatePendingAihubUserMessage(clientId, () => null);
+        maybeLoadDeferredLeadHistory();
       },
       (err) => {
         setError(err);
         setAihubStreaming(false);
         setAihubPending(false);
         streamingToolCalls.clear();
+        skipNextLeadHistoryRefresh = false;
+        updateAihubUserLogState(clientId, { pending: false, queued: false });
+        updatePendingAihubUserMessage(clientId, () => null);
+        maybeLoadDeferredLeadHistory();
       },
       {
         onThinking: (_chunk) => {
           markAihubStreaming();
+          updateAihubUserLogState(clientId, { pending: false, queued: false });
         },
         onToolCall: (id, name, args) => {
           markAihubStreaming();
+          updateAihubUserLogState(clientId, { pending: false, queued: false });
           appendStreamingToolCall(id, name, args);
         },
         onToolResult: (id, _name, content, _isError, details) => {
           markAihubStreaming();
+          updateAihubUserLogState(clientId, { pending: false, queued: false });
           updateStreamingToolResult(id, content, details);
         },
         onSessionReset: () => {
@@ -1801,6 +1967,8 @@ export function AgentChat(props: AgentChatProps) {
           setAihubPending(false);
           setPendingAihubUserMessages([]);
           streamingToolCalls.clear();
+          pendingLeadHistoryRefresh = false;
+          skipNextLeadHistoryRefresh = false;
         },
       },
       { attachments: fileAttachments.length > 0 ? fileAttachments : undefined }
@@ -2228,27 +2396,52 @@ export function AgentChat(props: AgentChatProps) {
             }}
           />
           <Show
-            when={isRunning()}
+            when={props.agentType === "lead"}
             fallback={
-              <button
-                type="button"
-                class="send-btn"
-                disabled={!canSendLead() && !canSendSubagent()}
-                onClick={() => void handleSend()}
+              <Show
+                when={isRunning()}
+                fallback={
+                  <button
+                    type="button"
+                    class="send-btn"
+                    disabled={!canSendLead() && !canSendSubagent()}
+                    onClick={() => void handleSend()}
+                  >
+                    Send
+                  </button>
+                }
               >
-                Send
-              </button>
+                <button
+                  type="button"
+                  class="stop-btn"
+                  classList={{ stopping: stopping() }}
+                  disabled={stopping()}
+                  onClick={() => void handleStop()}
+                >
+                  {stopping() ? "Stopping..." : "Stop"}
+                </button>
+              </Show>
             }
           >
             <button
               type="button"
-              class="stop-btn"
-              classList={{ stopping: stopping() }}
-              disabled={stopping()}
-              onClick={() => void handleStop()}
+              class="send-btn"
+              disabled={!canSendLead() || !input().trim()}
+              onClick={() => void handleSend()}
             >
-              {stopping() ? "Stopping..." : "Stop"}
+              Send
             </button>
+            <Show when={isRunning()}>
+              <button
+                type="button"
+                class="stop-btn"
+                classList={{ stopping: stopping() }}
+                disabled={stopping()}
+                onClick={() => void handleStop()}
+              >
+                {stopping() ? "Stopping..." : "Stop"}
+              </button>
+            </Show>
           </Show>
         </div>
         <Show when={contextUsageDisplay()}>
@@ -2460,6 +2653,14 @@ export function AgentChat(props: AgentChatProps) {
           border-top: none;
         }
 
+        .log-line.user.pending {
+          opacity: 0.82;
+        }
+
+        .log-line.user.queued {
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--subagent-border) 45%, transparent);
+        }
+
         /* ── Assistant messages — clean, no background ── */
 
         .log-line.assistant {
@@ -2610,6 +2811,11 @@ export function AgentChat(props: AgentChatProps) {
           gap: 4px;
           min-width: 0;
           flex: 1;
+        }
+
+        .log-status {
+          font-size: 11px;
+          color: var(--text-muted);
         }
 
         .log-title {
