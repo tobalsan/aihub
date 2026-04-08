@@ -28,11 +28,11 @@ from harbor.models.agent.context import AgentContext
 class AIHubInstalledAgent(BaseInstalledAgent):
     """
     Minimal wrapper. `aihub_agent` is the agent id (as defined in the eval
-    container's aihub.json) to evaluate; defaults to "sales-admin" and can
+    container's aihub.json) to evaluate; defaults to "sally" and can
     be overridden via task.toml [metadata] or agent kwargs.
     """
 
-    DEFAULT_AIHUB_AGENT = "sales-admin"
+    DEFAULT_AIHUB_AGENT = "sally"
     INSTRUCTION_PATH = "/app/instruction.md"
     RESULT_PATH = "/logs/agent/result.json"
     TRAJECTORY_PATH = "/logs/agent/trajectory.json"
@@ -94,8 +94,8 @@ class AIHubInstalledAgent(BaseInstalledAgent):
     def _resolve_agent_id(self, context: AgentContext) -> str:
         # task.toml [metadata] can set aihub_agent to target a different
         # agent from the default. Harbor passes metadata through on
-        # AgentContext.task_metadata (field name subject to Harbor's API).
-        metadata = getattr(context, "task_metadata", None) or {}
+        # AgentContext.metadata.
+        metadata = getattr(context, "metadata", None) or {}
         if isinstance(metadata, dict):
             value = metadata.get("aihub_agent")
             if isinstance(value, str) and value:

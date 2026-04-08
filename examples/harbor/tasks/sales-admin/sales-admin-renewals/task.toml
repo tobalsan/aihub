@@ -9,7 +9,7 @@ keywords = ["sales-admin", "cloudifi-admin", "deterministic"]
 [metadata]
 wave = 0
 category = "sales-admin"
-aihub_agent = "sales-admin"
+aihub_agent = "sally"
 difficulty_explanation = "Read-only, deterministic filter + sort over fixture data"
 
 [verifier]

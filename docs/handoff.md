@@ -18,11 +18,10 @@ Two tasks scaffolded, both green with deterministic `harbor run -a oracle`:
 
 | Task | Status | Last job |
 |---|---|---|
-| `sales-admin-renewals` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-39-03/` |
+| `sales-admin-renewals` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-50-42/` |
 | `sales-admin-quota-analysis` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-39-46/` |
 
-**Remaining gap**: the installed-agent path still needs validation via
-`harbor run -a aihub-installed` (see below).
+Installed-agent path now validated via Harbor custom import path.
 
 ### Deviations from plan (must fix)
 
@@ -55,7 +54,11 @@ harbor run -p tasks/sales-admin/sales-admin-renewals -a aihub-installed
 We never built this. Currently the only way to run the real agent is through
 the oracle path, which conflates oracle and agent runs.
 
-**Fix**: create `examples/harbor/agents/aihub_installed.py` (~40 lines per plan).
+**Status**: fixed and validated in this workspace.
+
+**Fix**: `examples/harbor/agents/aihub_installed.py` now reads
+`AgentContext.metadata`, defaults to `sally`, and task metadata also points to
+`sally`, matching `examples/harbor/base/aihub-eval/aihub.json`.
 
 ### Architectural decisions (locked in)
 
@@ -122,7 +125,7 @@ examples/harbor/
 4. **`components: {discord: {enabled: false}}`** still zod-validates `discord.token`. Use `components: {}`.
 5. **Connector module resolution** — `cloudifi-admin/index.js` imports `zod`. Symlink `/opt/aihub/node_modules` → `/eval/node_modules`.
 6. **`solution/instruction.md` symlink** doesn't survive `docker compose cp`. Use real file copy.
-7. **Agent id mismatch** — verifier expected `sales-admin`, vendored agent is `sally`.
+7. **Agent id mismatch** — fixed. Installed-agent wrapper default + task metadata now use `sally`, matching the vendored eval config.
 
 ### How to reproduce a green run
 
@@ -130,12 +133,18 @@ examples/harbor/
 # 1. (one-time) build the eval base image
 docker build -t aihub-eval-base:local -f examples/harbor/base/aihub-eval/Dockerfile .
 
-# 2. run. REQUESTY_API_KEY must be in the shell.
+# 2. oracle path
 cd examples/harbor
 yes | REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run -p tasks/sales-admin/sales-admin-quota-analysis -a oracle
+
+# 3. installed-agent path
+REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run --yes \
+  -p tasks/sales-admin/sales-admin-renewals \
+  --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent \
+  --env docker
 ```
 
-Expected: `Mean: 1.000`, `pass_rate = 1.0`.
+Expected: `Mean: 1.000`, `pass_rate = 1.0` for both.
 
 ### What Sally does in a green quota-analysis run
 
@@ -150,28 +159,17 @@ Expected rows: 1002 Globex (93%), 1001 Acme (82%), 1004 Umbrella (82%).
 
 ### Next steps (prioritized)
 
-1. **Validate installed-agent path** — run with `-a aihub-installed`
-   to confirm the full stack works through Harbor's agent interface.
-
-2. **Create `BaseInstalledAgent` wrapper** — `examples/harbor/agents/aihub_installed.py`.
-   ~40 lines per plan Task 2. Enables `harbor run -a aihub-installed` for real agent evals.
-   This is exit criteria #3: "at least one task passes end-to-end with the real `aihub eval run`."
-
-3. **Confirm wrapper state vs docs** — repo currently contains
-   `examples/harbor/agents/aihub_installed.py`; reconcile docs/plan tracking
-   and validate it matches the intended pattern before closing the task.
-
-4. **Scaffold remaining 3 sales-admin tasks**:
+1. **Scaffold remaining 3 sales-admin tasks**:
    - `sales-admin-renewal-estimate-preview`
    - `sales-admin-arr-mrr-report`
    - `sales-admin-tool-selection`
    Pattern: copy quota-analysis as template, swap instruction/fixtures/verifier.
 
-5. **Token/cost metrics plumbing** — exit criteria #4. `result.json.metrics` and ATIF
+2. **Token/cost metrics plumbing** — exit criteria #4. `result.json.metrics` and ATIF
    `final_metrics` are all 0. Need to extend `RunAgentResult.meta` → thread through
    `runtime.ts` → both `EvalResult` and `TrajectoryBuilder`.
 
-6. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
+3. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
    See plan "Option C" section. Moves tasks + agent config ownership to cloudihub repo.
 
 ### Commits on feature branch
