@@ -1,0 +1,35 @@
+# Multi-container environment for sales-admin-quota-analysis.
+#
+# `main` is the Harbor-managed agent container (built from ./Dockerfile,
+# which FROMs aihub-eval-base). Harbor adds its own service definition
+# for main; we only supply overrides here (depends_on, env, networks).
+#
+# `fake-cloudifi-admin` is the strategy-B HTTP sidecar stubbing the real
+# Cloudi-Fi admin API. Built from examples/harbor/base/fakes/cloudifi-admin.
+
+services:
+  main:
+    depends_on:
+      fake-cloudifi-admin:
+        condition: service_healthy
+    environment:
+      REQUESTY_API_KEY: ${REQUESTY_API_KEY:?REQUESTY_API_KEY must be set in the shell running harbor}
+      EVAL_NOW: "2026-04-06"
+    networks:
+      - sandbox
+      - egress
+
+  fake-cloudifi-admin:
+    build:
+      context: ../../../../base/fakes/cloudifi-admin
+    expose:
+      - "8080"
+    environment:
+      FAKE_CLOUDIFI_FIXTURES: /fixtures
+    networks:
+      - sandbox
+
+networks:
+  sandbox:
+    internal: true
+  egress: {}
