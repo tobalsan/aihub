@@ -12,6 +12,8 @@ Check which Cloudi-Fi customer companies are approaching their renewal date, so 
 
 Run this check whenever you need to review upcoming renewals — typically at the start of each month or quarter.
 
+**Determining "today":** if the `EVAL_NOW` environment variable is set (format `YYYY-MM-DD`), use it as today's date. Otherwise use the system date. Always anchor every date computation in this skill to that single value.
+
 ---
 
 ## Process
@@ -30,24 +32,24 @@ This returns all active companies. Keep the full list — you'll filter it next.
 
 ### Step 2 — Filter by billing date
 
-From the response, look at the **`billingDate`** field on each company.
+From the response, look at the **`billingDate`** field on each company. Skip any company where `billingDate` is missing or null.
 
-A renewal is due when `billingDate` falls within your target window. Typical windows:
+A renewal is "in the next N days" when `billingDate` is on or after **today** and on or before **today + N days**. The window is **inclusive at both ends** — both today itself and the day exactly N days from today are kept; day N+1 is excluded.
 
-| Horizon | Use case |
-|---------|----------|
-| 30 days | Urgent / renewal this month |
-| 60 days | Standard follow-up window |
-| 90 days | Proactive outreach planning |
-
-Filter the companies where:
+Apply this exact filter (do not approximate with "this month" or "this quarter" — a 30-day window can straddle two calendar months):
 
 ```
-billingDate >= today
-billingDate <= today + N days
+keep company if:
+  billingDate is not null
+  AND billingDate >= today
+  AND billingDate <= today + N days        # N=30 means up to and including today+30
 ```
 
-Sort results by `billingDate` ascending so the most urgent renewals appear first.
+Common values of N: **30**, **60**, **90**. Use the value the user asked for; if unspecified, default to 30.
+
+For each kept company, compute `daysUntilRenewal = (billingDate - today).days` as a plain integer (0 means renewing today, 30 means the last day still in a 30-day window).
+
+Sort the kept companies by `daysUntilRenewal` ascending so the most urgent renewals appear first.
 
 ---
 
