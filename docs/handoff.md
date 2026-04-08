@@ -14,15 +14,15 @@ Starting with the `sales_admin` workflow family.
 
 ### Status
 
-Two tasks scaffolded, both green with `harbor run -a oracle`:
+Two tasks scaffolded, both green with deterministic `harbor run -a oracle`:
 
 | Task | Status | Last job |
 |---|---|---|
-| `sales-admin-renewals` | ✅ pass_rate=1.0 | `jobs/2026-04-06__20-59-16/` |
-| `sales-admin-quota-analysis` | ✅ pass_rate=1.0 | `jobs/2026-04-08__16-22-05/` |
+| `sales-admin-renewals` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-39-03/` |
+| `sales-admin-quota-analysis` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-39-46/` |
 
-**However**: both runs use `-a oracle` which calls `solve.sh` → `aihub eval run` (real LLM).
-This deviates from the plan in two ways (see below).
+**Remaining gap**: the installed-agent path still needs validation via
+`harbor run -a aihub-installed` (see below).
 
 ### Deviations from plan (must fix)
 
@@ -34,6 +34,9 @@ to prove the verifier is correct independently of the agent. Our `solve.sh` call
 
 This means we never validated the verifier in isolation. The oracle and agent
 paths are identical — if the verifier has a bug, both pass or both fail together.
+
+**Status**: fixed in this workspace for `sales-admin-renewals` and
+`sales-admin-quota-analysis`.
 
 **Fix**: rewrite `solve.sh` for each task to produce the expected artifact
 (e.g., `/app/out/renewals.json`, `/app/out/quota_analysis.json`) plus a minimal
@@ -147,19 +150,16 @@ Expected rows: 1002 Globex (93%), 1001 Acme (82%), 1004 Umbrella (82%).
 
 ### Next steps (prioritized)
 
-1. **Fix oracle determinism** — rewrite both `solve.sh` scripts to produce hardcoded
-   output without calling `aihub eval run`. This is the plan's exit criteria #2:
-   "oracle path must prove the verifier is correct independently of the real agent."
-   Per task, need:
-   - Hardcoded `/logs/agent/result.json` with correct status/agent/toolCalls/finalMessage
-   - Hardcoded `/app/out/{renewals,quota_analysis}.json` with expected fixture-derived rows
+1. **Validate installed-agent path** — run with `-a aihub-installed`
+   to confirm the full stack works through Harbor's agent interface.
 
 2. **Create `BaseInstalledAgent` wrapper** — `examples/harbor/agents/aihub_installed.py`.
    ~40 lines per plan Task 2. Enables `harbor run -a aihub-installed` for real agent evals.
    This is exit criteria #3: "at least one task passes end-to-end with the real `aihub eval run`."
 
-3. **Validate real agent path** — after #2, run with `-a aihub-installed` instead of `-a oracle`
-   to confirm the full stack works through Harbor's agent interface.
+3. **Confirm wrapper state vs docs** — repo currently contains
+   `examples/harbor/agents/aihub_installed.py`; reconcile docs/plan tracking
+   and validate it matches the intended pattern before closing the task.
 
 4. **Scaffold remaining 3 sales-admin tasks**:
    - `sales-admin-renewal-estimate-preview`
