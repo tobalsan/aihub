@@ -11,12 +11,16 @@ describe("/api/debug/events", () => {
   let server: ReturnType<typeof import("./index.js").startServer>;
   let port: number;
 
+  let prevDev: string | undefined;
+
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-debug-events-"));
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    prevDev = process.env.AIHUB_DEV;
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
+    process.env.AIHUB_DEV = "1";
 
     const configDir = path.join(tmpDir, ".aihub");
     await fs.mkdir(configDir, { recursive: true });
@@ -53,6 +57,8 @@ describe("/api/debug/events", () => {
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = prevUserProfile;
+    if (prevDev === undefined) delete process.env.AIHUB_DEV;
+    else process.env.AIHUB_DEV = prevDev;
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
