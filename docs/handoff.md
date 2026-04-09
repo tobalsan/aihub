@@ -140,7 +140,7 @@ yes | REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run -p tasks/sales-admin/sales
 # 3. installed-agent path
 REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run --yes \
   -p tasks/sales-admin/sales-admin-renewals \
-  --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent \
+  --agent-import-path agents.aihub_installed:AIHubInstalledAgent \
   --env docker
 ```
 

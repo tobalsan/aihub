@@ -14,3 +14,4 @@ apps/web/vite.config.d.ts.map
 
 # Harbor eval job artifacts (created by `harbor run` in the cwd)
 jobs/
+__pycache__/
