@@ -66,8 +66,10 @@ describe("subscribeToStatus reconnection", () => {
     const { subscribeToStatus } = await import("./client");
 
     const statuses: Array<{ agentId: string; status: string }> = [];
+    const onReconnect = vi.fn();
     const unsubscribe = subscribeToStatus({
       onStatus: (agentId, status) => statuses.push({ agentId, status }),
+      onReconnect,
     });
 
     expect(MockWebSocket.instances).toHaveLength(1);
@@ -91,6 +93,7 @@ describe("subscribeToStatus reconnection", () => {
     expect(statuses).toEqual([
       { agentId: "test-agent", status: "streaming" },
     ]);
+    expect(onReconnect).toHaveBeenCalledTimes(1);
 
     unsubscribe();
   });

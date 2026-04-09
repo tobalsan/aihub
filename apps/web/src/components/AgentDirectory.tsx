@@ -82,16 +82,23 @@ export function AgentDirectory(props: AgentDirectoryProps) {
     Record<string, "streaming" | "idle">
   >({});
 
-  createEffect(() => {
-    fetchAgentStatuses().then((res) => {
+  const refreshStatuses = () => {
+    void fetchAgentStatuses().then((res) => {
       setStatuses(res.statuses);
     });
+  };
+
+  createEffect(() => {
+    refreshStatuses();
   });
 
   createEffect(() => {
     const unsubscribe = subscribeToStatus({
       onStatus: (agentId, status) => {
         setStatuses((prev) => ({ ...prev, [agentId]: status }));
+      },
+      onReconnect: () => {
+        refreshStatuses();
       },
     });
     onCleanup(unsubscribe);

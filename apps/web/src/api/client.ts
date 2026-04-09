@@ -391,6 +391,7 @@ export function subscribeToSession(
 export type StatusCallbacks = {
   onStatus?: (agentId: string, status: "streaming" | "idle") => void;
   onError?: (error: string) => void;
+  onReconnect?: () => void;
 };
 
 export type FileChangeCallbacks = {
@@ -402,6 +403,7 @@ export type FileChangeCallbacks = {
 const statusSubscribers = new Set<StatusCallbacks>();
 let statusSocket: WebSocket | null = null;
 let statusReconnectTimer: number | undefined;
+let statusHasConnectedOnce = false;
 
 function clearStatusReconnectTimer(): void {
   if (statusReconnectTimer !== undefined) {
@@ -425,6 +427,7 @@ function disconnectStatusSocket(): void {
   clearStatusReconnectTimer();
   const socket = statusSocket;
   statusSocket = null;
+  statusHasConnectedOnce = false;
   if (!socket) return;
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "unsubscribeStatus" }));
@@ -446,6 +449,12 @@ function connectStatusSocket(): void {
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "subscribeStatus" }));
+    if (statusHasConnectedOnce) {
+      for (const subscriber of statusSubscribers) {
+        subscriber.onReconnect?.();
+      }
+    }
+    statusHasConnectedOnce = true;
   };
 
   ws.onmessage = (event) => {
