@@ -399,6 +399,84 @@ export type FileChangeCallbacks = {
   onError?: (error: string) => void;
 };
 
+const statusSubscribers = new Set<StatusCallbacks>();
+let statusSocket: WebSocket | null = null;
+let statusReconnectTimer: number | undefined;
+
+function clearStatusReconnectTimer(): void {
+  if (statusReconnectTimer !== undefined) {
+    window.clearTimeout(statusReconnectTimer);
+    statusReconnectTimer = undefined;
+  }
+}
+
+function scheduleStatusReconnect(): void {
+  if (statusSubscribers.size === 0) return;
+  if (statusReconnectTimer !== undefined) return;
+  statusReconnectTimer = window.setTimeout(() => {
+    statusReconnectTimer = undefined;
+    if (statusSubscribers.size > 0) {
+      connectStatusSocket();
+    }
+  }, 1000);
+}
+
+function disconnectStatusSocket(): void {
+  clearStatusReconnectTimer();
+  const socket = statusSocket;
+  statusSocket = null;
+  if (!socket) return;
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "unsubscribeStatus" }));
+  }
+  socket.close();
+}
+
+function connectStatusSocket(): void {
+  if (statusSubscribers.size === 0) return;
+  if (
+    statusSocket &&
+    (statusSocket.readyState === WebSocket.OPEN ||
+      statusSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+  const ws = new WebSocket(getWsUrl());
+  statusSocket = ws;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "subscribeStatus" }));
+  };
+
+  ws.onmessage = (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload.type === "status") {
+      for (const subscriber of statusSubscribers) {
+        subscriber.onStatus?.(payload.agentId, payload.status);
+      }
+      return;
+    }
+    if (payload.type === "error") {
+      for (const subscriber of statusSubscribers) {
+        subscriber.onError?.(payload.message);
+      }
+    }
+  };
+
+  ws.onerror = () => {
+    for (const subscriber of statusSubscribers) {
+      subscriber.onError?.("Status subscription connection error");
+    }
+  };
+
+  ws.onclose = () => {
+    if (statusSocket === ws) {
+      statusSocket = null;
+    }
+    scheduleStatusReconnect();
+  };
+}
+
 const fileChangeSubscribers = new Set<FileChangeCallbacks>();
 let fileChangeSocket: WebSocket | null = null;
 let fileChangeReconnectTimer: number | undefined;
@@ -487,30 +565,14 @@ function connectFileChangeSocket(): void {
  * Receives real-time status changes for all agents.
  */
 export function subscribeToStatus(callbacks: StatusCallbacks): () => void {
-  const ws = new WebSocket(getWsUrl());
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "subscribeStatus" }));
-  };
-
-  ws.onmessage = (e) => {
-    const event = JSON.parse(e.data);
-    if (event.type === "status") {
-      callbacks.onStatus?.(event.agentId, event.status);
-    } else if (event.type === "error") {
-      callbacks.onError?.(event.message);
-    }
-  };
-
-  ws.onerror = () => {
-    callbacks.onError?.("Status subscription connection error");
-  };
+  statusSubscribers.add(callbacks);
+  connectStatusSocket();
 
   return () => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "unsubscribeStatus" }));
+    statusSubscribers.delete(callbacks);
+    if (statusSubscribers.size === 0) {
+      disconnectStatusSocket();
     }
-    ws.close();
   };
 }
 
