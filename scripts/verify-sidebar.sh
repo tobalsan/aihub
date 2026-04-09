@@ -11,12 +11,15 @@ GATEWAY_LOG="$LOG_DIR/gateway.log"
 WEB_LOG="$LOG_DIR/web.log"
 MOCK_LOG="$LOG_DIR/mock-openclaw.log"
 BROWSER_SESSION="verify-sidebar-$$"
+TEST_PROJECT_DIR="$TMP_DIR/projects/PRO-TEST_sidebar_test"
+TEST_SESSIONS_DIR="$TEST_PROJECT_DIR/sessions"
+TEST_SESSION_DIR="$TEST_SESSIONS_DIR/worker-test"
+TEST_PROJECT_LABEL="PRO-TEST: Sidebar Test Project"
 PASS_COUNT=0
 FAIL_COUNT=0
 GATEWAY_PID=""
 WEB_PID=""
 MOCK_PID=""
-RUN_PID=""
 
 if [[ -f "$ROOT_DIR/apps/gateway/dist/cli/index.js" ]]; then
   GATEWAY_START_CMD=(pnpm aihub gateway --dev)
@@ -45,12 +48,10 @@ report_fail() {
 
 cleanup() {
   set +e
-  if [[ -n "${RUN_PID}" ]]; then kill "${RUN_PID}" 2>/dev/null; fi
   if [[ -n "${WEB_PID}" ]]; then kill "${WEB_PID}" 2>/dev/null; fi
   if [[ -n "${GATEWAY_PID}" ]]; then kill "${GATEWAY_PID}" 2>/dev/null; fi
   if [[ -n "${MOCK_PID}" ]]; then kill "${MOCK_PID}" 2>/dev/null; fi
   agent-browser --session "$BROWSER_SESSION" close >/dev/null 2>&1
-  wait "${RUN_PID:-}" 2>/dev/null
   wait "${WEB_PID:-}" 2>/dev/null
   wait "${GATEWAY_PID:-}" 2>/dev/null
   wait "${MOCK_PID:-}" 2>/dev/null
@@ -118,6 +119,23 @@ wait_for_browser_text() {
   return 1
 }
 
+wait_for_browser_text_absent() {
+  local needle=$1
+  local timeout_seconds=$2
+  local deadline=$((SECONDS + timeout_seconds))
+  local text=""
+
+  while (( SECONDS < deadline )); do
+    text=$(browser_text)
+    if [[ "$text" != *"$needle"* ]]; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  return 1
+}
+
 take_screenshot() {
   local name=$1
   agent-browser --session "$BROWSER_SESSION" screenshot "$LOG_DIR/$name.png" >/dev/null 2>&1 || true
@@ -127,7 +145,40 @@ echo "=== PRO-219 Sidebar Verification ==="
 echo "workspace: $ROOT_DIR"
 echo "tmp: $TMP_DIR"
 
-mkdir -p "$CONFIG_DIR" "$LOG_DIR" "$TMP_DIR/agents/test-agent" "$TMP_DIR/projects"
+mkdir -p \
+  "$CONFIG_DIR" \
+  "$LOG_DIR" \
+  "$TMP_DIR/agents/test-agent" \
+  "$TMP_DIR/projects" \
+  "$TEST_SESSIONS_DIR" \
+  "$TEST_SESSION_DIR"
+
+cat >"$TEST_PROJECT_DIR/README.md" <<'EOF'
+---
+id: PRO-TEST
+title: Sidebar Test Project
+---
+
+# Sidebar Test Project
+EOF
+cat >"$TEST_SESSION_DIR/config.json" <<'EOF'
+{
+  "type": "subagent",
+  "cli": "codex",
+  "name": "Worker Test"
+}
+EOF
+cat >"$TEST_SESSION_DIR/state.json" <<'EOF'
+{
+  "supervisor_pid": 0,
+  "cli": "codex"
+}
+EOF
+cat >"$TEST_SESSION_DIR/progress.json" <<'EOF'
+{
+  "last_active": "2026-04-09T00:00:00Z"
+}
+EOF
 
 GATEWAY_PORT=$(pick_port)
 WEB_PORT=$(pick_port)
@@ -145,10 +196,12 @@ cat >"$CONFIG_PATH" <<JSON
     "port": $WEB_PORT,
     "bind": "loopback"
   },
+  "projects": {
+    "root": "$TMP_DIR/projects"
+  },
   "components": {
     "projects": {
-      "enabled": true,
-      "root": "$TMP_DIR/projects"
+      "enabled": true
     }
   },
   "agents": [
@@ -279,43 +332,55 @@ echo "gateway: http://127.0.0.1:$ACTUAL_GATEWAY_PORT"
 echo "web: $UI_URL"
 
 browser_open "$UI_URL"
-if wait_for_browser_text "Test Agent" 20 && wait_for_browser_text "IDLE" 5; then
-  report_pass "sidebar shows Test Agent IDLE"
+if wait_for_browser_text "ACTIVE PROJECTS" 20 && wait_for_browser_text "No active projects" 10; then
+  report_pass "sidebar starts with no active projects"
 else
-  take_screenshot "step-1-idle"
-  report_fail "sidebar shows Test Agent IDLE"
+  take_screenshot "step-1-empty"
+  report_fail "sidebar starts with no active projects"
 fi
 
-curl -fsS -X POST "http://127.0.0.1:$ACTUAL_GATEWAY_PORT/api/agents/test-agent/messages" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Say hello from verify-sidebar"}' \
-  >"$LOG_DIR/run-response.json" &
-RUN_PID=$!
+NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-if wait_for_browser_text "WORKING" 10; then
-  report_pass "status pill changes to WORKING"
+cat >"$TEST_SESSION_DIR/state.json" <<EOF
+{
+  "supervisor_pid": $$,
+  "cli": "codex",
+  "started_at": "$NOW_ISO"
+}
+EOF
+cat >"$TEST_SESSION_DIR/progress.json" <<EOF
+{
+  "last_active": "$NOW_ISO"
+}
+EOF
+
+if wait_for_browser_text "$TEST_PROJECT_LABEL" 10 && wait_for_browser_text "RUNNING" 5; then
+  report_pass "ACTIVE PROJECTS shows running project after session appears"
 else
-  take_screenshot "step-2-working"
-  report_fail "status pill changes to WORKING"
+  take_screenshot "step-2-running-project"
+  report_fail "ACTIVE PROJECTS shows running project after session appears"
 fi
 
-wait "$RUN_PID"
-RUN_PID=""
-sleep 1
+cat >"$TEST_SESSION_DIR/state.json" <<'EOF'
+{
+  "supervisor_pid": 0,
+  "cli": "codex"
+}
+EOF
 
-if wait_for_browser_text "IDLE" 10; then
-  report_pass "status pill returns to IDLE"
+if wait_for_browser_text_absent "$TEST_PROJECT_LABEL" 10 && wait_for_browser_text "No active projects" 5; then
+  report_pass "ACTIVE PROJECTS removes project after session disappears"
 else
-  take_screenshot "step-3-idle"
-  report_fail "status pill returns to IDLE"
+  take_screenshot "step-3-project-removed"
+  report_fail "ACTIVE PROJECTS removes project after session disappears"
 fi
 
 EVENTS_JSON="$LOG_DIR/debug-events.json"
 curl -fsS "http://127.0.0.1:$ACTUAL_GATEWAY_PORT/api/debug/events" >"$EVENTS_JSON"
-if grep -q '"type":"statusChange"' "$EVENTS_JSON" && grep -q '"status":"streaming"' "$EVENTS_JSON" && grep -q '"status":"idle"' "$EVENTS_JSON"; then
-  report_pass "/api/debug/events returns status events"
+if grep -q '"type":"agentChanged"' "$EVENTS_JSON" && grep -q '"projectId":"PRO-TEST"' "$EVENTS_JSON"; then
+  report_pass "/api/debug/events returns agent_changed events"
 else
-  report_fail "/api/debug/events returns status events"
+  report_fail "/api/debug/events returns agent_changed events"
 fi
 
 echo "=== Results ==="

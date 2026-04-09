@@ -204,6 +204,7 @@ Uncommitted: `sales-admin-quota-analysis` task scaffolding + `a13ac1e` skill tig
 - `subscribeToStatus()` now uses a shared reconnecting status socket, matching the existing file-change websocket pattern; `AgentDirectory` refetches lead-agent statuses after reconnect.
 - Gateway/web websocket debug logging is available behind `DEBUG=aihub:ws` and browser `localStorage.debug=aihub:ws`.
 - `GET /api/debug/events` exposes the recent in-memory event buffer for sidebar debugging.
-- `scripts/verify-sidebar.sh` provides an end-to-end sidebar verifier against a temp AIHub home and mock OpenClaw backend.
+- `scripts/verify-sidebar.sh` now exercises the actual `ACTIVE PROJECTS` path end-to-end: it creates/removes a temp `PRO-*` session directory while the page is open, verifies the sidebar add/remove behavior, and confirms `/api/debug/events` recorded `agentChanged`.
+- `apps/gateway/src/projects/watcher.ts` now watches the projects root (bounded depth) for session changes; the previous `*/sessions` chokidar target missed nested `sessions/<slug>/state.json` updates on disk.
 - Gateway regression coverage now includes status websocket reconnect delivery and `agent_changed` emission/debounce for `sessions/*/state.json`.
 - Remaining blocker: `/api/debug/events` auth is not authorization-scoped in multi-user mode.

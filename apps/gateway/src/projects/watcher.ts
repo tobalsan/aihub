@@ -101,10 +101,10 @@ export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
     queueFileChanged(parsed.projectId, parsed.relativePath);
   });
 
-  const sessionsWatcher: FSWatcher = chokidar.watch(
-    path.join(projectsRoot, "*", "sessions"),
-    { ignoreInitial: true, depth: 2 }
-  );
+  const sessionsWatcher: FSWatcher = chokidar.watch(projectsRoot, {
+    ignoreInitial: true,
+    depth: 4,
+  });
 
   sessionsWatcher.on("all", (event, changedPath) => {
     const parsed = parseProjectPath(projectsRoot, changedPath);
