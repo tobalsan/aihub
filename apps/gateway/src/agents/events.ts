@@ -33,6 +33,24 @@ export type ProjectAgentChangedEvent = {
 };
 
 class AgentEventBus extends EventEmitter {
+  private recentEvents: Array<{
+    type: string;
+    data: unknown;
+    timestamp: number;
+  }> = [];
+  private maxRecentEvents = 50;
+
+  recordEvent(type: string, data: unknown) {
+    this.recentEvents.push({ type, data, timestamp: Date.now() });
+    if (this.recentEvents.length > this.maxRecentEvents) {
+      this.recentEvents.shift();
+    }
+  }
+
+  getRecentEvents() {
+    return [...this.recentEvents];
+  }
+
   emitStreamEvent(event: AgentStreamEvent) {
     this.emit("stream", event);
   }
@@ -43,6 +61,7 @@ class AgentEventBus extends EventEmitter {
   }
 
   emitStatusChange(event: AgentStatusChangeEvent) {
+    this.recordEvent("statusChange", event);
     this.emit("statusChange", event);
   }
 
@@ -52,6 +71,7 @@ class AgentEventBus extends EventEmitter {
   }
 
   emitFileChanged(event: ProjectFileChangedEvent) {
+    this.recordEvent("fileChanged", event);
     this.emit("fileChanged", event);
   }
 
@@ -61,6 +81,7 @@ class AgentEventBus extends EventEmitter {
   }
 
   emitAgentChanged(event: ProjectAgentChangedEvent) {
+    this.recordEvent("agentChanged", event);
     this.emit("agentChanged", event);
   }
 

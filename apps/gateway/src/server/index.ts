@@ -142,6 +142,9 @@ app.use("/api/agents/:id/*", async (c, next) => {
   const { requireAgentAccess } = await loadMultiUserMiddlewareModule();
   return requireAgentAccess("id")(c, next);
 });
+app.get("/api/debug/events", (c) =>
+  c.json({ events: agentEventBus.getRecentEvents() })
+);
 
 app.all("/api/*", async (c) => {
   const url = new URL(c.req.url);
