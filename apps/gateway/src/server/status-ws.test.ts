@@ -117,6 +117,65 @@ describe("gateway status websocket", () => {
       { type: "status", agentId: "status-agent", status: "idle" },
     ]);
   });
+
+  it("client receives events after reconnecting", async () => {
+    const ws1 = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    await new Promise<void>((resolve) => ws1.once("open", () => resolve()));
+    ws1.send(JSON.stringify({ type: "subscribeStatus" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const close1 = new Promise<void>((resolve) =>
+      ws1.once("close", () => resolve())
+    );
+    ws1.close();
+    await close1;
+
+    const ws2 = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const received: Array<{ type: string; agentId: string; status: string }> =
+      [];
+    const receivePromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
+      ws2.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as {
+          type?: string;
+          agentId?: string;
+          status?: string;
+        };
+        if (msg.type === "status") {
+          received.push({
+            type: msg.type,
+            agentId: msg.agentId ?? "",
+            status: msg.status ?? "",
+          });
+          if (received.length === 1) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => ws2.once("open", () => resolve()));
+    ws2.send(JSON.stringify({ type: "subscribeStatus" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const sessionId = `reconnect-${Date.now()}`;
+    setSessionStreaming("status-agent", sessionId, true);
+
+    await receivePromise;
+
+    const close2 = new Promise<void>((resolve) =>
+      ws2.once("close", () => resolve())
+    );
+    ws2.close();
+    await close2;
+
+    expect(received).toEqual([
+      { type: "status", agentId: "status-agent", status: "streaming" },
+    ]);
+
+    setSessionStreaming("status-agent", sessionId, false);
+  });
 });
 
 describe("gateway status websocket in multi-user mode", () => {

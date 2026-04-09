@@ -86,3 +86,67 @@ describe("project watcher file debounce", () => {
     await watcher.close();
   });
 });
+
+describe("project watcher agent_changed events", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    mockWatchers.length = 0;
+  });
+
+  it("emits agent_changed when state.json changes in sessions dir", async () => {
+    const watcher = startProjectWatcher({
+      projects: { root: "/tmp/projects" },
+    } as GatewayConfig);
+
+    const sessionsWatcher = mockWatchers[1];
+    expect(sessionsWatcher).toBeDefined();
+
+    sessionsWatcher.emitAll(
+      "change",
+      "/tmp/projects/PRO-200_test/sessions/worker-a/state.json"
+    );
+
+    vi.advanceTimersByTime(300);
+
+    expect(agentEventBus.emitAgentChanged).toHaveBeenCalledTimes(1);
+    expect(agentEventBus.emitAgentChanged).toHaveBeenCalledWith({
+      type: "agent_changed",
+      projectId: "PRO-200",
+    });
+
+    await watcher.close();
+  });
+
+  it("debounces rapid state.json changes for same project", async () => {
+    const watcher = startProjectWatcher({
+      projects: { root: "/tmp/projects" },
+    } as GatewayConfig);
+
+    const sessionsWatcher = mockWatchers[1];
+    expect(sessionsWatcher).toBeDefined();
+
+    sessionsWatcher.emitAll(
+      "change",
+      "/tmp/projects/PRO-200_test/sessions/worker-a/state.json"
+    );
+    sessionsWatcher.emitAll(
+      "change",
+      "/tmp/projects/PRO-200_test/sessions/worker-b/state.json"
+    );
+
+    vi.advanceTimersByTime(300);
+
+    expect(agentEventBus.emitAgentChanged).toHaveBeenCalledTimes(1);
+    expect(agentEventBus.emitAgentChanged).toHaveBeenCalledWith({
+      type: "agent_changed",
+      projectId: "PRO-200",
+    });
+
+    await watcher.close();
+  });
+});
