@@ -163,7 +163,7 @@ Expected rows: 1002 Globex (93%), 1001 Acme (82%), 1004 Umbrella (82%).
    - `sales-admin-renewal-estimate-preview`
    - `sales-admin-arr-mrr-report`
    - `sales-admin-tool-selection`
-   Pattern: copy quota-analysis as template, swap instruction/fixtures/verifier.
+     Pattern: copy quota-analysis as template, swap instruction/fixtures/verifier.
 
 2. **Token/cost metrics plumbing** — exit criteria #4. `result.json.metrics` and ATIF
    `final_metrics` are all 0. Need to extend `RunAgentResult.meta` → thread through
@@ -198,3 +198,12 @@ Uncommitted: `sales-admin-quota-analysis` task scaffolding + `a13ac1e` skill tig
 - `docs/llms.md` — full project architecture, config schema, API endpoints
 - `docs/plans/harbor-evals-for-aihub-migration.md` — complete eval migration plan (Option A spike + Option C long-term)
 - `pnpm test -- <path>` — run tests serially to avoid transient ENOENT flake
+
+## PRO-219: Sidebar real-time refresh
+
+- `subscribeToStatus()` now uses a shared reconnecting status socket, matching the existing file-change websocket pattern; `AgentDirectory` refetches lead-agent statuses after reconnect.
+- Gateway/web websocket debug logging is available behind `DEBUG=aihub:ws` and browser `localStorage.debug=aihub:ws`.
+- `GET /api/debug/events` exposes the recent in-memory event buffer for sidebar debugging.
+- `scripts/verify-sidebar.sh` provides an end-to-end sidebar verifier against a temp AIHub home and mock OpenClaw backend.
+- Gateway regression coverage now includes status websocket reconnect delivery and `agent_changed` emission/debounce for `sessions/*/state.json`.
+- Remaining blocker: `/api/debug/events` auth is not authorization-scoped in multi-user mode.

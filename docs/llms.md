@@ -79,6 +79,7 @@ Features:
 - Subagent shell tool cards render a warning state when exec/bash output is empty (`No output captured`) instead of appearing as blank success.
 - Project UI live refresh is event-driven via `/ws` file/agent change broadcasts: kanban refetches on any project `file_changed` event, project detail refetches on project file changes (`README.md`/`SPECS.md`/`THREAD.md`), and project subagent panels refetch immediately on `agent_changed` with a 2s polling fallback to recover from missed websocket events.
 - Right-sidebar `ACTIVE PROJECTS` refresh is also event-driven now; the old unconditional 5s subagent/project polling loop in `AgentDirectory` was removed to avoid shell-wide rerender churn.
+- `subscribeToStatus()` now mirrors `subscribeToFileChanges()`: shared `/ws` socket, 1s reconnect-on-close, and `AgentDirectory` refetches lead-agent statuses on reconnect to recover after gateway/tab/network drops.
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
 - Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
