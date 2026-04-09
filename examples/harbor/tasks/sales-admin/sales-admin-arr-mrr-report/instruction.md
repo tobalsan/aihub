@@ -5,8 +5,7 @@ You are the Sales Admin agent. Treat today's date as **2026-04-06**
 
 ## Task
 
-Generate the ARR/MRR report for **2026-Q1** and save it to
-`/app/out/arr-mrr.json`.
+Generate the ARR/MRR report for **2026-Q1**.
 
 Use `cloudifi_admin.list_companies` with `extraFields: true` to retrieve
 company billing data. For this task, each company fixture includes a
@@ -18,18 +17,17 @@ company billing data. For this task, each company fixture includes a
 
 ## Required output
 
-Write `/app/out/arr-mrr.json` with schema:
+1. **Artifact (REQUIRED)**: Use the `write` tool to create
+   `/app/out/arr-mrr.json` containing a JSON object with:
+   - `arr`: number (mrr × 12)
+   - `mrr`: number (sum of monthly rates)
+   - `by_company`: array of `{ id, name, mrr }` sorted by mrr descending
 
-```json
-{
-  "arr": 39504.0,
-  "mrr": 3292.0,
-  "by_company": [{ "id": 1008, "name": "Stark Venues", "mrr": 999.0 }]
-}
-```
+2. **Final message**: a one-sentence summary mentioning the MRR and ARR totals.
 
 ## Rules
 
-- Use `cloudifi_admin.list_companies`.
-- Do not call write tools.
-- Return only JSON in the artifact.
+- You MUST write the JSON file using the `write` tool before finishing.
+- Use `cloudifi_admin.list_companies` for data.
+- Do not call `create_invoice`, `create_estimate`, or any write endpoint
+  on cloudifi_admin.

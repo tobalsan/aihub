@@ -23,33 +23,22 @@ For this task, the pricing fields come from the company fixture:
 
 ## Required output
 
-1. **Final message**: a one-sentence summary of the form
-   `Prepared renewal estimate preview for ACME-42 Corp totaling 404.00.`
+1. **Artifact (REQUIRED)**: Use the `write` tool to create
+   `/app/out/renewal_estimate.json` containing a JSON object with:
+   - `companyId`: number
+   - `companyName`: string
+   - `billingDate`: string
+   - `lineItems`: array of objects with `type`, `description`, `quantity`,
+     `unitPrice`, `amount`
+   - `total`: sum of line-item amounts
 
-2. **Artifact**: write a JSON file to `/app/out/renewal_estimate.json`
-   with the schema:
-
-   ```json
-   {
-     "companyId": 1042,
-     "companyName": "ACME-42 Corp",
-     "billingDate": "2026-05-01",
-     "lineItems": [
-       {
-         "type": "base_subscription",
-         "description": "Business Pro base subscription",
-         "quantity": 1,
-         "unitPrice": 299.0,
-         "amount": 299.0
-       }
-     ],
-     "total": 404.0
-   }
-   ```
+2. **Final message**: a one-sentence summary mentioning the company name
+   and the total amount.
 
 ## Rules
 
-- Use only read tools.
-- Do not call `create_estimate`, `create_invoice`, or any write endpoint.
+- You MUST write the JSON file using the `write` tool before finishing.
+- Use only read-only cloudifi_admin tools for data retrieval.
+- Do not call `create_estimate`, `create_invoice`, or any write endpoint
+  on cloudifi_admin.
 - Return exact numeric amounts derived from the fixture data.
-- Return only JSON in the artifact.
