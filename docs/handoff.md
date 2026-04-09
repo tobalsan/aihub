@@ -16,9 +16,9 @@ Starting with the `sales_admin` workflow family.
 
 Two tasks scaffolded, both green with deterministic `harbor run -a oracle`:
 
-| Task | Status | Last job |
-|---|---|---|
-| `sales-admin-renewals` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-50-42/` |
+| Task                         | Status           | Last job                     |
+| ---------------------------- | ---------------- | ---------------------------- |
+| `sales-admin-renewals`       | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-50-42/` |
 | `sales-admin-quota-analysis` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-39-46/` |
 
 Installed-agent path now validated via Harbor custom import path.
@@ -157,19 +157,29 @@ Expected: `Mean: 1.000`, `pass_rate = 1.0` for both.
 
 Expected rows: 1002 Globex (93%), 1001 Acme (82%), 1004 Umbrella (82%).
 
+### Sales-admin task coverage
+
+Sales-admin Harbor dataset now lists all 5 wave-0 tasks:
+
+- `sales-admin-renewals`
+- `sales-admin-quota-analysis`
+- `sales-admin-renewal-estimate-preview`
+- `sales-admin-arr-mrr-report`
+- `sales-admin-tool-selection`
+
+New task notes:
+
+- `sales-admin-renewal-estimate-preview`: task-local fixture override for ACME-42 pricing + overage preview; verifier asserts exact line items and forbids write tools.
+- `sales-admin-arr-mrr-report`: task-local pricing fixture override for all companies; verifier asserts `/app/out/arr-mrr.json` schema, totals, and descending `by_company` sort.
+- `sales-admin-tool-selection`: routing eval over ambiguous prompts; verifier asserts exact tool-call sequence `get_quota_usage -> list_companies -> get_company_details`.
+
 ### Next steps (prioritized)
 
-1. **Scaffold remaining 3 sales-admin tasks**:
-   - `sales-admin-renewal-estimate-preview`
-   - `sales-admin-arr-mrr-report`
-   - `sales-admin-tool-selection`
-     Pattern: copy quota-analysis as template, swap instruction/fixtures/verifier.
-
-2. **Token/cost metrics plumbing** — exit criteria #4. `result.json.metrics` and ATIF
+1. **Token/cost metrics plumbing** — exit criteria #4. `result.json.metrics` and ATIF
    `final_metrics` are all 0. Need to extend `RunAgentResult.meta` → thread through
    `runtime.ts` → both `EvalResult` and `TrajectoryBuilder`.
 
-3. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
+2. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
    See plan "Option C" section. Moves tasks + agent config ownership to cloudihub repo.
 
 ### Commits on feature branch

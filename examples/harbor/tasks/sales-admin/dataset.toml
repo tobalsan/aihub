@@ -5,10 +5,12 @@ name = "aihub/sales-admin"
 description = "Sales Admin agent eval tasks (Wave 0)"
 version = "0.1.0"
 
-# Tasks are discovered by directory traversal; listing here is optional but
-# keeps the first concrete task explicit while we add more.
 tasks = [
   "sales-admin-renewals",
+  "sales-admin-quota-analysis",
+  "sales-admin-renewal-estimate-preview",
+  "sales-admin-arr-mrr-report",
+  "sales-admin-tool-selection",
 ]
 
 [[files]]

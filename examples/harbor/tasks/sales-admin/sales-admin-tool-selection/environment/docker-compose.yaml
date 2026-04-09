@@ -1,0 +1,26 @@
+services:
+  main:
+    depends_on:
+      fake-cloudifi-admin:
+        condition: service_healthy
+    environment:
+      REQUESTY_API_KEY: ${REQUESTY_API_KEY:?REQUESTY_API_KEY must be set in the shell running harbor}
+      EVAL_NOW: "2026-04-06"
+    networks:
+      - sandbox
+      - egress
+
+  fake-cloudifi-admin:
+    build:
+      context: ../../../../base/fakes/cloudifi-admin
+    expose:
+      - "8080"
+    environment:
+      FAKE_CLOUDIFI_FIXTURES: /fixtures
+    networks:
+      - sandbox
+
+networks:
+  sandbox:
+    internal: true
+  egress: {}

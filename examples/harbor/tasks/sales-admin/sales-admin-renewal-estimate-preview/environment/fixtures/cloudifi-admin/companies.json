@@ -1,0 +1,18 @@
+{
+  "hydra:totalItems": 1,
+  "hydra:member": [
+    {
+      "id": 1042,
+      "name": "ACME-42 Corp",
+      "billingDate": "2026-05-01",
+      "maxUsers": 200,
+      "maxLocations": 5,
+      "monthlyRate": 299.0,
+      "planName": "Business Pro",
+      "overagePerUser": 3.5,
+      "country": { "code": "US", "name": "United States" },
+      "deletedAt": null,
+      "options": 0
+    }
+  ]
+}
