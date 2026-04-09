@@ -493,6 +493,55 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("stays detached after a small upward scroll near the bottom", async () => {
+    let onText: ((text: string) => void) | undefined;
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        handleText: (text: string) => void
+      ) => {
+        onText = handleText;
+        return () => {};
+      }
+    );
+
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
+    const input = container.querySelector("textarea") as HTMLTextAreaElement;
+    input.value = "hello";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const sendBtn = container.querySelector(".send-btn") as HTMLButtonElement;
+    sendBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    await tick();
+
+    const logPane = container.querySelector(".log-pane") as HTMLDivElement;
+    let scrollTop = 900;
+    Object.defineProperty(logPane, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(logPane, "clientHeight", { value: 100, configurable: true });
+    Object.defineProperty(logPane, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+
+    logPane.dispatchEvent(new WheelEvent("wheel", { deltaY: -60, bubbles: true }));
+    scrollTop = 840;
+    logPane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    onText?.("reply");
+    await tick();
+
+    expect(scrollTop).toBe(840);
+
+    dispose();
+  });
+
   it("queues subagent messages during active runs and flushes them when idle", async () => {
     const { container, dispose, setStatus } = renderSubagent("running");
     await tick();

@@ -56,8 +56,22 @@ const HARNESS_REASONING = {
   pi: ["off", "low", "medium", "high", "xhigh"],
 } as const;
 
-function createSlug(cli: string): string {
-  return `${cli}-${Date.now().toString(36).slice(-6)}`;
+function slugifyName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function createSlug(name: string, existingSlugs: Set<string>): string {
+  const base = slugifyName(name) || "agent";
+  if (!existingSlugs.has(base)) return base;
+  let suffix = 2;
+  while (existingSlugs.has(`${base}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}-${suffix}`;
 }
 
 function normalizeDocFilename(key: string): string {
@@ -114,7 +128,6 @@ export function SpawnForm(props: SpawnFormProps) {
   const [addAgentCli, setAddAgentCli] = createSignal<"codex" | "claude" | "pi">(
     "codex"
   );
-  const [addAgentSlug, setAddAgentSlug] = createSignal(createSlug("codex"));
   const [addAgentName, setAddAgentName] = createSignal("");
   const [addAgentModel, setAddAgentModel] = createSignal("gpt-5.3-codex");
   const [addAgentReasoning, setAddAgentReasoning] = createSignal("high");
@@ -136,7 +149,6 @@ export function SpawnForm(props: SpawnFormProps) {
     const prefill = props.prefill;
     const nextCli = prefill.cli ?? "codex";
     setAddAgentCli(nextCli);
-    setAddAgentSlug(createSlug(nextCli));
     setAddAgentName(prefill.name ?? "");
     setAddAgentModel(prefill.model ?? HARNESS_MODELS[nextCli][0]);
     setAddAgentReasoning(prefill.reasoning ?? HARNESS_REASONING[nextCli][0]);
@@ -180,6 +192,12 @@ export function SpawnForm(props: SpawnFormProps) {
 
   const reviewerWorkspaceList = createMemo(() =>
     buildReviewerWorkspaceList(props.projectId, props.subagents)
+  );
+  const addAgentSlug = createMemo(() =>
+    createSlug(
+      addAgentName().trim() || addAgentCli(),
+      new Set(props.subagents.map((item) => item.slug))
+    )
   );
   const effectiveProjectPath = createMemo(
     () => props.project.absolutePath || props.project.path
@@ -300,7 +318,6 @@ export function SpawnForm(props: SpawnFormProps) {
       return;
     }
 
-    setAddAgentSlug(createSlug(addAgentCli()));
     props.onSpawned(result.data.slug);
   };
 
@@ -335,15 +352,14 @@ export function SpawnForm(props: SpawnFormProps) {
             <select
               class="add-agent-select"
               value={addAgentCli()}
-              onChange={(event) => {
-                const cli = event.currentTarget.value as
-                  | "codex"
-                  | "claude"
-                  | "pi";
-                setAddAgentCli(cli);
-                setAddAgentSlug(createSlug(cli));
-              }}
-            >
+                onChange={(event) => {
+                  const cli = event.currentTarget.value as
+                    | "codex"
+                    | "claude"
+                    | "pi";
+                  setAddAgentCli(cli);
+                }}
+              >
               <option value="codex">codex</option>
               <option value="claude">claude</option>
               <option value="pi">pi</option>

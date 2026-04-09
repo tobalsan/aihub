@@ -1,5 +1,6 @@
 import {
   For,
+  Index,
   Show,
   batch,
   createEffect,
@@ -1272,6 +1273,8 @@ export function AgentChat(props: AgentChatProps) {
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let wasRunning = false;
+  let lastTouchY: number | null = null;
+  let lastLogScrollTop = 0;
 
   const clearSubagentPollInterval = () => {
     if (pollInterval !== null) {
@@ -1482,20 +1485,59 @@ export function AgentChat(props: AgentChatProps) {
     onCleanup(() => observer.disconnect());
   });
 
-  const checkIsAtBottom = () => {
-    if (!logPaneRef) return true;
+  const distanceFromBottom = () => {
+    if (!logPaneRef) return 0;
     const { scrollTop, scrollHeight, clientHeight } = logPaneRef;
-    return scrollHeight - scrollTop - clientHeight <= SCROLL_THRESHOLD;
+    return scrollHeight - scrollTop - clientHeight;
+  };
+
+  const checkShouldResumeFollow = () => {
+    return distanceFromBottom() <= SCROLL_THRESHOLD;
   };
 
   const handleScroll = () => {
-    setIsAtBottom(checkIsAtBottom());
+    if (!logPaneRef) return;
+    const currentScrollTop = logPaneRef.scrollTop;
+    if (currentScrollTop < lastLogScrollTop) {
+      setIsAtBottom(false);
+    } else if (checkShouldResumeFollow()) {
+      setIsAtBottom(true);
+    } else {
+      setIsAtBottom(false);
+    }
+    lastLogScrollTop = currentScrollTop;
+  };
+
+  const handleWheel = (event: WheelEvent) => {
+    if (event.deltaY < 0) {
+      if (logPaneRef) lastLogScrollTop = logPaneRef.scrollTop;
+      setIsAtBottom(false);
+    }
+  };
+
+  const handleTouchStart = (event: TouchEvent) => {
+    if (logPaneRef) lastLogScrollTop = logPaneRef.scrollTop;
+    lastTouchY = event.touches[0]?.clientY ?? null;
+  };
+
+  const handleTouchMove = (event: TouchEvent) => {
+    const currentY = event.touches[0]?.clientY;
+    if (currentY == null) return;
+    if (lastTouchY !== null && currentY > lastTouchY) {
+      setIsAtBottom(false);
+    }
+    lastTouchY = currentY;
+  };
+
+  const handleTouchEnd = () => {
+    lastTouchY = null;
   };
 
   const scrollToBottom = (force = false) => {
     if (!logPaneRef) return;
     if (force || isAtBottom()) {
       logPaneRef.scrollTop = logPaneRef.scrollHeight;
+      lastLogScrollTop = logPaneRef.scrollTop;
       setIsAtBottom(true);
     }
   };
@@ -2699,7 +2741,15 @@ export function AgentChat(props: AgentChatProps) {
         </Show>
 
         <Show when={props.agentName && props.agentType === "lead"}>
-          <div class="log-pane" ref={logPaneRef} onScroll={handleScroll}>
+          <div
+            class="log-pane"
+            ref={logPaneRef}
+            onScroll={handleScroll}
+            onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             <Show when={hasSubagentRuns()}>
               <div class="subagent-filter-bar">
                 <button
@@ -2719,9 +2769,9 @@ export function AgentChat(props: AgentChatProps) {
               <Show
                 when={shouldVirtualizeLogs() && virtualRows().length > 0}
                 fallback={
-                  <For each={leadRenderedLogItems()}>
-                    {renderRenderedLogItem}
-                  </For>
+                  <Index each={leadRenderedLogItems()}>
+                    {(item) => <>{() => renderRenderedLogItem(item())}</>}
+                  </Index>
                 }
               >
                 <div
@@ -2774,7 +2824,15 @@ export function AgentChat(props: AgentChatProps) {
         </Show>
 
         <Show when={props.agentName && props.agentType === "subagent"}>
-          <div class="log-pane" ref={logPaneRef} onScroll={handleScroll}>
+          <div
+            class="log-pane"
+            ref={logPaneRef}
+            onScroll={handleScroll}
+            onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             <Show when={hasSubagentRuns()}>
               <div class="subagent-filter-bar">
                 <button
@@ -2794,9 +2852,9 @@ export function AgentChat(props: AgentChatProps) {
               <Show
                 when={shouldVirtualizeLogs() && virtualRows().length > 0}
                 fallback={
-                  <For each={cliRenderedLogItems()}>
-                    {renderRenderedLogItem}
-                  </For>
+                  <Index each={cliRenderedLogItems()}>
+                    {(item) => <>{() => renderRenderedLogItem(item())}</>}
+                  </Index>
                 }
               >
                 <div

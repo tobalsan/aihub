@@ -69,6 +69,7 @@ describe("SpawnForm", () => {
 
     expect(spawnSubagent).toHaveBeenCalledTimes(1);
     expect(vi.mocked(spawnSubagent).mock.calls[0]?.[1]).toMatchObject({
+      slug: "coordinator",
       cli: "claude",
       model: "opus",
       reasoningEffort: "medium",

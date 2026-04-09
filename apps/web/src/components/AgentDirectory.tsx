@@ -72,177 +72,13 @@ function getInitials(name: string): string {
 }
 
 export function AgentDirectory(props: AgentDirectoryProps) {
-  const [agents] = createResource(fetchAgents);
-  const [subagents, { refetch: refetchSubagents }] =
-    createResource(fetchAllSubagents);
-  const [projects, { refetch: refetchProjects }] = createResource(() =>
-    fetchProjects()
-  );
-  const [statuses, setStatuses] = createSignal<
-    Record<string, "streaming" | "idle">
-  >({});
-
-  const refreshStatuses = () => {
-    void fetchAgentStatuses().then((res) => {
-      setStatuses(res.statuses);
-    });
-  };
-
-  createEffect(() => {
-    refreshStatuses();
-  });
-
-  createEffect(() => {
-    const unsubscribe = subscribeToStatus({
-      onStatus: (agentId, status) => {
-        setStatuses((prev) => ({ ...prev, [agentId]: status }));
-      },
-      onReconnect: () => {
-        refreshStatuses();
-      },
-    });
-    onCleanup(unsubscribe);
-  });
-
-  createEffect(() => {
-    let refreshTimer: number | undefined;
-    const unsubscribe = subscribeToFileChanges({
-      onFileChanged: () => {
-        if (refreshTimer) window.clearTimeout(refreshTimer);
-        refreshTimer = window.setTimeout(() => {
-          void refetchProjects();
-          refreshTimer = undefined;
-        }, 500);
-      },
-      onAgentChanged: () => {
-        if (refreshTimer) window.clearTimeout(refreshTimer);
-        refreshTimer = window.setTimeout(() => {
-          void refetchSubagents();
-          void refetchProjects();
-          refreshTimer = undefined;
-        }, 500);
-      },
-    });
-    onCleanup(() => {
-      if (refreshTimer) window.clearTimeout(refreshTimer);
-      unsubscribe();
-    });
-  });
-
-  const activeProjects = createMemo<ActiveProjectItem[]>(() => {
-    const projectById = new Map(
-      (projects() ?? []).map((item) => [item.id, item])
-    );
-    const grouped = new Map<string, SubagentGlobalListItem[]>();
-    for (const item of subagents()?.items ?? []) {
-      const existing = grouped.get(item.projectId);
-      if (existing) existing.push(item);
-      else grouped.set(item.projectId, [item]);
-    }
-
-    const items: ActiveProjectItem[] = [];
-    for (const [projectId, entries] of grouped.entries()) {
-      const project = projectById.get(projectId);
-      if (!project) continue;
-      if (!entries.some((entry) => entry.status === "running")) continue;
-      const lastActiveMs = entries.reduce(
-        (latest, entry) =>
-          Math.max(latest, parseIsoTimestamp(entry.lastActive)),
-        0
-      );
-      items.push({
-        id: projectId,
-        title: project.title,
-        status: projectRunStatus(entries),
-        lastActiveMs,
-      });
-    }
-
-    return items.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
-  });
-
-  const getAgentStatus = (agentId: string) =>
-    statuses()[agentId] === "streaming" ? "running" : "idle";
-
   return (
     <div class="agent-directory">
-      <div class="agent-section">
-        <div class="section-title">LEAD AGENTS</div>
-        <Show when={agents()}>
-          <For each={agents() ?? []}>
-            {(agent) => {
-              const isRunning = () => getAgentStatus(agent.id) === "running";
-              return (
-                <button
-                  class="agent-item"
-                  type="button"
-                  classList={{ selected: props.selectedAgent() === agent.id }}
-                  onClick={() => props.onSelectAgent(agent.id)}
-                >
-                  <span
-                    class="agent-avatar"
-                    classList={{ running: isRunning() }}
-                  >
-                    {getInitials(agent.name)}
-                  </span>
-                  <span class="agent-label">{agent.name}</span>
-                  <span
-                    class="status-pill"
-                    classList={{ working: isRunning(), idle: !isRunning() }}
-                  >
-                    {isRunning() ? "WORKING" : "IDLE"}
-                  </span>
-                </button>
-              );
-            }}
-          </For>
-        </Show>
-      </div>
-
-      <div class="agent-section">
-        <div class="section-title">ACTIVE PROJECTS</div>
-        <Show
-          when={activeProjects().length > 0}
-          fallback={<div class="section-empty">No active projects</div>}
-        >
-          <For each={activeProjects()}>
-            {(item) => (
-              <button
-                class="agent-item project-item"
-                type="button"
-                onClick={() => props.onOpenProject(item.id)}
-                title={`${item.id}: ${item.title} (${item.status})`}
-              >
-                <span
-                  class="project-dot"
-                  classList={{
-                    running: item.status === "running",
-                    idle: item.status === "idle",
-                    error: item.status === "error",
-                  }}
-                  aria-hidden="true"
-                />
-                <span class="agent-label">
-                  {item.id}: {item.title}
-                </span>
-                <span class="project-time">
-                  {relativeTime(item.lastActiveMs)}
-                </span>
-                <span
-                  class="status-pill"
-                  classList={{
-                    working: item.status === "running",
-                    idle: item.status === "idle",
-                    error: item.status === "error",
-                  }}
-                >
-                  {statusLabel(item.status)}
-                </span>
-              </button>
-            )}
-          </For>
-        </Show>
-      </div>
+      <LeadAgentsSection
+        selectedAgent={props.selectedAgent}
+        onSelectAgent={props.onSelectAgent}
+      />
+      <ActiveProjectsSection onOpenProject={props.onOpenProject} />
 
       <style>{`
         .agent-directory {
@@ -387,6 +223,197 @@ export function AgentDirectory(props: AgentDirectoryProps) {
           max-width: 240px;
         }
       `}</style>
+    </div>
+  );
+}
+
+function LeadAgentsSection(props: {
+  selectedAgent: Accessor<string | null>;
+  onSelectAgent: (id: string) => void;
+}) {
+  const [agents] = createResource(fetchAgents);
+  const [statuses, setStatuses] = createSignal<
+    Record<string, "streaming" | "idle">
+  >({});
+
+  const refreshStatuses = () => {
+    void fetchAgentStatuses().then((res) => {
+      setStatuses(res.statuses);
+    });
+  };
+
+  createEffect(() => {
+    refreshStatuses();
+  });
+
+  createEffect(() => {
+    const unsubscribe = subscribeToStatus({
+      onStatus: (agentId, status) => {
+        setStatuses((prev) => ({ ...prev, [agentId]: status }));
+      },
+      onReconnect: () => {
+        refreshStatuses();
+      },
+    });
+    onCleanup(unsubscribe);
+  });
+
+  const getAgentStatus = (agentId: string) =>
+    statuses()[agentId] === "streaming" ? "running" : "idle";
+
+  return (
+    <div class="agent-section">
+      <div class="section-title">LEAD AGENTS</div>
+      <Show when={agents()}>
+        <For each={agents() ?? []}>
+          {(agent) => {
+            const isRunning = () => getAgentStatus(agent.id) === "running";
+            return (
+              <button
+                class="agent-item"
+                type="button"
+                classList={{ selected: props.selectedAgent() === agent.id }}
+                onClick={() => props.onSelectAgent(agent.id)}
+              >
+                <span class="agent-avatar" classList={{ running: isRunning() }}>
+                  {getInitials(agent.name)}
+                </span>
+                <span class="agent-label">{agent.name}</span>
+                <span
+                  class="status-pill"
+                  classList={{ working: isRunning(), idle: !isRunning() }}
+                >
+                  {isRunning() ? "WORKING" : "IDLE"}
+                </span>
+              </button>
+            );
+          }}
+        </For>
+      </Show>
+    </div>
+  );
+}
+
+function ActiveProjectsSection(props: { onOpenProject: (id: string) => void }) {
+  const [subagents, setSubagents] = createSignal<
+    Awaited<ReturnType<typeof fetchAllSubagents>> | null
+  >(null);
+  const [projects, setProjects] = createSignal<
+    Awaited<ReturnType<typeof fetchProjects>>
+  >([]);
+
+  const refreshSubagents = async () => {
+    setSubagents(await fetchAllSubagents());
+  };
+
+  const refreshProjects = async () => {
+    setProjects(await fetchProjects());
+  };
+
+  createEffect(() => {
+    void refreshSubagents();
+    void refreshProjects();
+  });
+
+  createEffect(() => {
+    let refreshTimer: number | undefined;
+    const unsubscribe = subscribeToFileChanges({
+      onFileChanged: () => {
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refreshProjects();
+          refreshTimer = undefined;
+        }, 500);
+      },
+      onAgentChanged: () => {
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refreshSubagents();
+          void refreshProjects();
+          refreshTimer = undefined;
+        }, 500);
+      },
+    });
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
+  });
+
+  const activeProjects = createMemo<ActiveProjectItem[]>(() => {
+    const projectById = new Map(
+      (projects() ?? []).map((item) => [item.id, item])
+    );
+    const grouped = new Map<string, SubagentGlobalListItem[]>();
+    for (const item of subagents()?.items ?? []) {
+      const existing = grouped.get(item.projectId);
+      if (existing) existing.push(item);
+      else grouped.set(item.projectId, [item]);
+    }
+
+    const items: ActiveProjectItem[] = [];
+    for (const [projectId, entries] of grouped.entries()) {
+      const project = projectById.get(projectId);
+      if (!project) continue;
+      if (!entries.some((entry) => entry.status === "running")) continue;
+      const lastActiveMs = entries.reduce(
+        (latest, entry) =>
+          Math.max(latest, parseIsoTimestamp(entry.lastActive)),
+        0
+      );
+      items.push({
+        id: projectId,
+        title: project.title,
+        status: projectRunStatus(entries),
+        lastActiveMs,
+      });
+    }
+
+    return items.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
+  });
+
+  return (
+    <div class="agent-section">
+      <div class="section-title">ACTIVE PROJECTS</div>
+      <Show
+        when={activeProjects().length > 0}
+        fallback={<div class="section-empty">No active projects</div>}
+      >
+        <For each={activeProjects()}>
+          {(item) => (
+            <button
+              class="agent-item project-item"
+              type="button"
+              onClick={() => props.onOpenProject(item.id)}
+              title={`${item.id}: ${item.title} (${item.status})`}
+            >
+              <span
+                class="project-dot"
+                classList={{
+                  running: item.status === "running",
+                  idle: item.status === "idle",
+                  error: item.status === "error",
+                }}
+                aria-hidden="true"
+              />
+              <span class="agent-label">
+                {item.id}: {item.title}
+              </span>
+              <span class="project-time">{relativeTime(item.lastActiveMs)}</span>
+              <span
+                class="status-pill"
+                classList={{
+                  working: item.status === "running",
+                  idle: item.status === "idle",
+                  error: item.status === "error",
+                }}
+              >
+                {statusLabel(item.status)}
+              </span>
+            </button>
+          )}
+        </For>
+      </Show>
     </div>
   );
 }

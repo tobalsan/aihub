@@ -207,6 +207,8 @@ Uncommitted: `sales-admin-quota-analysis` task scaffolding + `a13ac1e` skill tig
 - `scripts/verify-sidebar.sh` now exercises the actual `ACTIVE PROJECTS` path end-to-end: it creates/removes a temp `PRO-*` session directory while the page is open, verifies the sidebar add/remove behavior, and confirms `/api/debug/events` recorded `agentChanged`.
 - `apps/gateway/src/projects/watcher.ts` now watches the projects root (bounded depth) for session changes; the previous `*/sessions` chokidar target missed nested `sessions/<slug>/state.json` updates on disk.
 - Gateway regression coverage now includes status websocket reconnect delivery and `agent_changed` emission/debounce for `sessions/*/state.json`.
-- Follow-up UI fix on `main`: when `/projects/:id` detail overlay is open, the background `ProjectsBoard` now suspends its realtime file-change subscription and hides the background `ContextPanel`; launching subagent runs in project detail no longer causes the hidden sidebar/activity shell to flash.
+- Follow-up UI fix on `main`: the right `ContextPanel` stays visible on `/projects/:id`, and the recent-project list moved from the left nav to the bottom of that sidebar.
 - Follow-up UI fix on `main`: project-detail `AgentChat` now virtualizes only longer histories (`>=80` rows), remeasures visible rows on pane resize, and re-anchors the last row when already at bottom so tail lines do not vanish behind stale virtual padding after refresh/layout shifts.
+- Follow-up UX fix on `main`: project-detail UI spawns now derive subagent session-folder slugs from the displayed run name instead of a random harness timestamp slug.
+- Follow-up CLI fix on `main`: `apm status <projectId> --list` prints the existing project subagent session slugs (or a JSON array with `--json`) so users no longer need to inspect the `sessions/` directory manually.
 - Remaining blocker: `/api/debug/events` auth is not authorization-scoped in multi-user mode.

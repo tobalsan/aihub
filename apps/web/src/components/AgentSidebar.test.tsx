@@ -2,13 +2,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import type { ProjectListItem } from "../api/types";
 
 // matchMedia must exist before theme.ts module-level code runs
 window.matchMedia = vi.fn().mockReturnValue({ matches: false });
 
 const [pathname, setPathname] = createSignal("/projects");
-const fetchProjectsMock = vi.fn<() => Promise<ProjectListItem[]>>();
+const fetchProjectsMock = vi.fn<() => Promise<unknown[]>>();
 
 vi.mock("../api/client", () => ({
   fetchProjects: fetchProjectsMock,
@@ -119,14 +118,10 @@ describe("AgentSidebar", () => {
     dispose();
   });
 
-  it("renders recents from most recently viewed order", async () => {
+  it("does not render recents anymore", async () => {
     setCapabilitiesForTests({
       components: { projects: true, conversations: true },
     });
-    fetchProjectsMock.mockResolvedValue([
-      { id: "PRO-1", title: "One", frontmatter: {} },
-      { id: "PRO-2", title: "Two", frontmatter: {} },
-    ] as ProjectListItem[]);
     localStorage.setItem(
       "aihub:recent-project-views",
       JSON.stringify([{ id: "PRO-1", viewedAt: Date.now() - 60_000 }])
@@ -149,16 +144,12 @@ describe("AgentSidebar", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const links = Array.from(
-      container.querySelectorAll(".recent-project-link .recent-project-title")
-    ).map((node) => node.textContent?.trim());
-    expect(links).toEqual(["PRO-2: Two", "PRO-1: One"]);
+    expect(container.querySelector(".sidebar-recent")).toBeNull();
 
     const stored = JSON.parse(
       localStorage.getItem("aihub:recent-project-views") ?? "[]"
     );
-    expect(stored[0]?.id).toBe("PRO-2");
-    expect(stored[1]?.id).toBe("PRO-1");
+    expect(stored[0]?.id).toBe("PRO-1");
 
     dispose();
   });

@@ -1,5 +1,6 @@
 import {
   Accessor,
+  For,
   Show,
   createEffect,
   createMemo,
@@ -7,10 +8,12 @@ import {
   createSignal,
   onMount,
 } from "solid-js";
+import { A, useLocation } from "@solidjs/router";
 import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
 import { AgentDirectory } from "./AgentDirectory";
-import { fetchAgents, fetchAllSubagents } from "../api/client";
+import { fetchAgents, fetchAllSubagents, fetchProjects } from "../api/client";
+import { isComponentEnabled } from "../lib/capabilities";
 
 type ContextPanelProps = {
   collapsed: Accessor<boolean>;
@@ -22,12 +25,90 @@ type ContextPanelProps = {
 };
 
 type PanelMode = "agents" | "feed" | "chat";
+type RecentProjectView = {
+  id: string;
+  viewedAt: number;
+};
+
+const RECENT_PROJECTS_STORAGE_KEY = "aihub:recent-project-views";
+const RECENT_PROJECTS_MAX = 5;
+
+function relativeTime(timestampMs: number): string {
+  const ms = Date.now() - timestampMs;
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d`;
+}
+
+const basePath = import.meta.env.BASE_URL?.replace(/\/+$/, "") ?? "";
+
+function stripBase(pathname: string): string {
+  if (basePath && pathname.startsWith(basePath)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function readProjectIdFromPathname(pathname: string): string | null {
+  const match = /^\/projects\/([^/?#]+)/.exec(stripBase(pathname));
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function readRecentProjectViews(): RecentProjectView[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is RecentProjectView =>
+          !!item &&
+          typeof item === "object" &&
+          typeof item.id === "string" &&
+          item.id.length > 0 &&
+          typeof item.viewedAt === "number" &&
+          Number.isFinite(item.viewedAt)
+      )
+      .slice(0, RECENT_PROJECTS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProjectViews(items: RecentProjectView[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore localStorage failures
+  }
+}
 
 export function ContextPanel(props: ContextPanelProps) {
+  const location = useLocation();
   const [mode, setMode] = createSignal<PanelMode>("agents");
   const [agents] = createResource(fetchAgents);
   const [subagents] = createResource(fetchAllSubagents);
+  const [projects] = createResource(
+    () => isComponentEnabled("projects"),
+    async (enabled) => (enabled ? fetchProjects() : [])
+  );
+  const [recentViews, setRecentViews] = createSignal<RecentProjectView[]>(
+    readRecentProjectViews()
+  );
   const storageKey = "aihub:context-panel:mode";
+  let lastSelectedAgent: string | null | undefined;
 
   const agentType = createMemo(() => {
     const selected = props.selectedAgent();
@@ -83,9 +164,24 @@ export function ContextPanel(props: ContextPanelProps) {
   });
 
   createEffect(() => {
-    if (props.selectedAgent()) {
+    const selected = props.selectedAgent();
+    if (selected && selected !== lastSelectedAgent) {
       setMode("chat");
     }
+    lastSelectedAgent = selected;
+  });
+
+  createEffect(() => {
+    const projectId = readProjectIdFromPathname(location.pathname);
+    if (!projectId) return;
+    setRecentViews((current) => {
+      const next = [
+        { id: projectId, viewedAt: Date.now() },
+        ...current.filter((item) => item.id !== projectId),
+      ].slice(0, RECENT_PROJECTS_MAX);
+      writeRecentProjectViews(next);
+      return next;
+    });
   });
 
   onMount(() => {
@@ -174,13 +270,17 @@ export function ContextPanel(props: ContextPanelProps) {
       </div>
 
       <div class="panel-content">
-        <Show when={mode() === "agents"}>
+        <div
+          class="panel-view"
+          classList={{ hidden: mode() !== "agents" }}
+          aria-hidden={mode() !== "agents"}
+        >
           <AgentDirectory
             selectedAgent={props.selectedAgent}
             onSelectAgent={props.onSelectAgent}
             onOpenProject={props.onOpenProject}
           />
-        </Show>
+        </div>
         <Show when={mode() === "feed"}>
           <ActivityFeed
             onSelectAgent={props.onSelectAgent}
@@ -198,10 +298,44 @@ export function ContextPanel(props: ContextPanelProps) {
           />
         </Show>
       </div>
+      <Show
+        when={
+          mode() === "agents" &&
+          isComponentEnabled("projects") &&
+          recentViews().length > 0
+        }
+      >
+        <div class="panel-recent">
+          <div class="panel-recent-label">Recent</div>
+          <For each={recentViews()}>
+            {(item) => {
+              const project = (projects() ?? []).find((entry) => entry.id === item.id);
+              return (
+                <A
+                  href={`/projects/${item.id}`}
+                  class="recent-project-link"
+                  classList={{
+                    active: stripBase(location.pathname) === `/projects/${item.id}`,
+                  }}
+                >
+                  <span class="recent-project-title">
+                    {item.id}: {project?.title ?? item.id}
+                  </span>
+                  <span class="recent-project-time">
+                    {relativeTime(item.viewedAt)}
+                  </span>
+                </A>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
 
       <style>{`
         .context-panel {
-          width: 600px;
+          position: relative;
+          z-index: 30;
+          width: 480px;
           background: var(--bg-surface);
           border-left: 1px solid var(--border-default);
           display: flex;
@@ -215,7 +349,7 @@ export function ContextPanel(props: ContextPanelProps) {
         }
 
         .context-panel.collapsed:hover {
-          width: 600px;
+          width: 480px;
         }
 
         .panel-header {
@@ -279,6 +413,68 @@ export function ContextPanel(props: ContextPanelProps) {
           transition: opacity 0.2s ease;
         }
 
+        .panel-view {
+          height: 100%;
+          min-height: 0;
+        }
+
+        .panel-view.hidden {
+          display: none;
+        }
+
+        .panel-recent {
+          border-top: 1px solid var(--border-default);
+          padding: 8px 10px 10px;
+        }
+
+        .panel-recent-label {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          padding: 0 10px 6px;
+          white-space: nowrap;
+        }
+
+        .recent-project-link {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 5px 10px;
+          border-radius: 6px;
+          color: var(--text-secondary);
+          text-decoration: none;
+          font-size: 13px;
+          line-height: 1.3;
+          transition: background 0.15s ease, color 0.15s ease;
+          white-space: nowrap;
+        }
+
+        .recent-project-link:hover {
+          background: var(--bg-raised);
+          color: var(--text-primary);
+        }
+
+        .recent-project-link.active {
+          background: var(--border-default);
+          color: var(--text-primary);
+        }
+
+        .recent-project-title {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+        }
+
+        .recent-project-time {
+          flex-shrink: 0;
+          font-size: 11px;
+          color: var(--text-secondary);
+          opacity: 0.7;
+        }
+
         .collapsed-icons {
           display: none;
           flex-direction: column;
@@ -288,7 +484,8 @@ export function ContextPanel(props: ContextPanelProps) {
         }
 
         .context-panel.collapsed .panel-header,
-        .context-panel.collapsed .panel-content {
+        .context-panel.collapsed .panel-content,
+        .context-panel.collapsed .panel-recent {
           opacity: 0;
           pointer-events: none;
         }
@@ -298,7 +495,8 @@ export function ContextPanel(props: ContextPanelProps) {
         }
 
         .context-panel.collapsed:hover .panel-header,
-        .context-panel.collapsed:hover .panel-content {
+        .context-panel.collapsed:hover .panel-content,
+        .context-panel.collapsed:hover .panel-recent {
           opacity: 1;
           pointer-events: auto;
         }
@@ -314,12 +512,13 @@ export function ContextPanel(props: ContextPanelProps) {
           }
 
           .context-panel:hover {
-            width: 400px;
-            min-width: 400px;
+            width: 320px;
+            min-width: 320px;
           }
 
           .context-panel .panel-header,
-          .context-panel .panel-content {
+          .context-panel .panel-content,
+          .context-panel .panel-recent {
             opacity: 0;
             pointer-events: none;
           }
@@ -329,7 +528,8 @@ export function ContextPanel(props: ContextPanelProps) {
           }
 
           .context-panel:hover .panel-header,
-          .context-panel:hover .panel-content {
+          .context-panel:hover .panel-content,
+          .context-panel:hover .panel-recent {
             opacity: 1;
             pointer-events: auto;
           }
@@ -339,12 +539,13 @@ export function ContextPanel(props: ContextPanelProps) {
           }
 
           .app-layout.left-collapsed .context-panel:not(.collapsed) {
-            width: 400px;
-            min-width: 400px;
+            width: 320px;
+            min-width: 320px;
           }
 
           .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-header,
-          .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-content {
+          .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-content,
+          .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-recent {
             opacity: 1;
             pointer-events: auto;
           }

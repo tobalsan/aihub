@@ -91,8 +91,13 @@ export class ApiClient {
     return this.request(`/projects/${id}/start`, { method: "POST", body });
   }
 
-  listProjectSubagents(id: string) {
-    return this.request(`/projects/${id}/subagents`);
+  listProjectSubagents(
+    id: string,
+    options?: { includeArchived?: boolean }
+  ) {
+    return this.request(`/projects/${id}/subagents`, {
+      query: { includeArchived: options?.includeArchived ?? undefined },
+    });
   }
 
   spawnProjectSubagent(id: string, body: Record<string, unknown>) {

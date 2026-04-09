@@ -1,17 +1,11 @@
 import {
   Accessor,
   Suspense,
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
   Show,
   lazy,
 } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
-import { fetchProjects } from "../api/client";
 import { capabilities, isComponentEnabled } from "../lib/capabilities";
 
 type AgentSidebarProps = {
@@ -19,13 +13,6 @@ type AgentSidebarProps = {
   onToggleCollapse: () => void;
 };
 
-type RecentProjectView = {
-  id: string;
-  viewedAt: number;
-};
-
-const RECENT_PROJECTS_STORAGE_KEY = "aihub:recent-project-views";
-const RECENT_PROJECTS_MAX = 5;
 const LazySidebarAccountPanel = lazy(
   () => import("../auth/SidebarAccountPanel")
 );
@@ -33,49 +20,6 @@ const LazySidebarAccountPanel = lazy(
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
   if (Array.isArray(role)) return role.includes("admin");
   return role === "admin";
-}
-
-function relativeTime(timestampMs: number): string {
-  const ms = Date.now() - timestampMs;
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d`;
-}
-
-function readRecentProjectViews(): RecentProjectView[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (item): item is RecentProjectView =>
-          !!item &&
-          typeof item === "object" &&
-          typeof item.id === "string" &&
-          item.id.length > 0 &&
-          typeof item.viewedAt === "number" &&
-          Number.isFinite(item.viewedAt)
-      )
-      .slice(0, RECENT_PROJECTS_MAX);
-  } catch {
-    return [];
-  }
-}
-
-function writeRecentProjectViews(items: RecentProjectView[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // ignore localStorage failures
-  }
 }
 
 const basePath = import.meta.env.BASE_URL?.replace(/\/+$/, "") ?? "";
@@ -88,50 +32,8 @@ function stripBase(pathname: string): string {
   return pathname;
 }
 
-function readProjectIdFromPathname(pathname: string): string | null {
-  const match = /^\/projects\/([^/?#]+)/.exec(stripBase(pathname));
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
-}
-
 export function AgentSidebar(props: AgentSidebarProps) {
   const location = useLocation();
-  const [projects] = createResource(
-    () => isComponentEnabled("projects"),
-    async (enabled) => (enabled ? fetchProjects() : [])
-  );
-  const [recentViews, setRecentViews] = createSignal<RecentProjectView[]>(
-    readRecentProjectViews()
-  );
-
-  createEffect(() => {
-    const projectId = readProjectIdFromPathname(location.pathname);
-    if (!projectId) return;
-    setRecentViews((current) => {
-      const next = [
-        { id: projectId, viewedAt: Date.now() },
-        ...current.filter((item) => item.id !== projectId),
-      ].slice(0, RECENT_PROJECTS_MAX);
-      writeRecentProjectViews(next);
-      return next;
-    });
-  });
-
-  const recentProjects = createMemo(() => {
-    const byId = new Map((projects() ?? []).map((item) => [item.id, item]));
-    return recentViews().map((item) => {
-      const project = byId.get(item.id);
-      return {
-        id: item.id,
-        title: project?.title ?? item.id,
-        viewedAt: item.viewedAt,
-      };
-    });
-  });
 
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
@@ -209,32 +111,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
           </Show>
         </nav>
       </div>
-      <div class="sidebar-spacer" />
-      <Show
-        when={isComponentEnabled("projects") && recentProjects().length > 0}
-      >
-        <div class="sidebar-recent">
-          <div class="sidebar-recent-label">Recent</div>
-          <For each={recentProjects()}>
-            {(p) => (
-              <A
-                href={`/projects/${p.id}`}
-                class="recent-project-link"
-                classList={{
-                  active: stripBase(location.pathname) === `/projects/${p.id}`,
-                }}
-              >
-                <span class="recent-project-title">
-                  {p.id}: {p.title}
-                </span>
-                <span class="recent-project-time">
-                  {relativeTime(p.viewedAt)}
-                </span>
-              </A>
-            )}
-          </For>
-        </div>
-      </Show>
       <div class="sidebar-footer">
         <Show when={capabilities.multiUser}>
           <Suspense>
@@ -327,63 +203,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
           display: flex;
           flex-direction: column;
           gap: 16px;
-        }
-
-        .sidebar-spacer {
-          flex: 1;
-        }
-
-        .sidebar-recent {
-          padding: 8px 10px 8px;
-          border-top: 1px solid var(--border-default);
-        }
-
-        .sidebar-recent-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 0 10px 6px;
-          white-space: nowrap;
-        }
-
-        .recent-project-link {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          padding: 5px 10px;
-          border-radius: 6px;
-          color: var(--text-secondary);
-          text-decoration: none;
-          font-size: 13px;
-          line-height: 1.3;
-          transition: background 0.15s ease, color 0.15s ease;
-          white-space: nowrap;
-        }
-
-        .recent-project-link:hover {
-          background: var(--bg-raised);
-          color: var(--text-primary);
-        }
-
-        .recent-project-link.active {
-          background: var(--border-default);
-          color: var(--text-primary);
-        }
-
-        .recent-project-title {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          min-width: 0;
-        }
-
-        .recent-project-time {
-          flex-shrink: 0;
-          font-size: 11px;
-          color: var(--text-secondary);
-          opacity: 0.7;
         }
 
         .sidebar-footer {

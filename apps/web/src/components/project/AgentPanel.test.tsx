@@ -424,6 +424,46 @@ describe("AgentPanel", () => {
     vi.useRealTimers();
   });
 
+  it("preserves subagent row DOM for equivalent poll results", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetchSubagents).mockResolvedValue({
+        ok: true,
+        data: {
+          items: [
+            {
+              slug: "alpha",
+              cli: "codex",
+              model: "gpt-5.3-codex",
+              status: "idle",
+              name: "Worker Alpha",
+            },
+          ],
+        },
+      });
+
+      const { container, dispose } = setup();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const firstRow = container.querySelector(
+        ".agent-list-item.subagent"
+      ) as HTMLDivElement;
+      expect(firstRow).toBeTruthy();
+
+      await vi.advanceTimersByTimeAsync(2100);
+
+      const secondRow = container.querySelector(
+        ".agent-list-item.subagent"
+      ) as HTMLDivElement;
+      expect(secondRow).toBe(firstRow);
+
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("supports inline subagent rename", async () => {
     vi.mocked(fetchSubagents).mockResolvedValueOnce({
       ok: true,

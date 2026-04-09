@@ -983,10 +983,9 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
 
 export function ProjectsBoard(props: {
   withSidebar?: boolean;
-  suspendBackground?: boolean;
+  suspendProjectRealtime?: boolean;
 } = {}) {
   const showSidebar = () => props.withSidebar !== false;
-  const suspendBackground = () => props.suspendBackground === true;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const activeProjectId = createMemo(() => {
@@ -1122,6 +1121,7 @@ export function ProjectsBoard(props: {
   let commandInputRef: HTMLInputElement | undefined;
   let savedRepo = "";
   let repoStatusTimer: number | undefined;
+  let wasProjectRealtimeSuspended = props.suspendProjectRealtime ?? false;
 
   onMount(() => {
     const saved = localStorage.getItem(selectedAgentStorageKey);
@@ -1168,7 +1168,7 @@ export function ProjectsBoard(props: {
   });
 
   createEffect(() => {
-    if (suspendBackground()) return;
+    if (props.suspendProjectRealtime) return;
     let refreshTimer: number | undefined;
     const unsubscribe = subscribeToFileChanges({
       onFileChanged: () => {
@@ -1183,6 +1183,14 @@ export function ProjectsBoard(props: {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       unsubscribe();
     });
+  });
+
+  createEffect(() => {
+    const suspended = props.suspendProjectRealtime ?? false;
+    if (!suspended && wasProjectRealtimeSuspended) {
+      void refetch();
+    }
+    wasProjectRealtimeSuspended = suspended;
   });
 
   createEffect(() => {
@@ -6753,19 +6761,17 @@ export function ProjectsBoard(props: {
       `}</style>
         </div>
       </main>
-      <Show when={!suspendBackground()}>
-        <ContextPanel
-          collapsed={rightPanelCollapsed}
-          onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
-          selectedAgent={selectedAgent}
-          onSelectAgent={handleSelectAgent}
-          onClearSelection={() => {
-            setSelectedAgent(null);
-            if (isMobile()) setMobileOverlay(null);
-          }}
-          onOpenProject={openDetail}
-        />
-      </Show>
+      <ContextPanel
+        collapsed={rightPanelCollapsed}
+        onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
+        selectedAgent={selectedAgent}
+        onSelectAgent={handleSelectAgent}
+        onClearSelection={() => {
+          setSelectedAgent(null);
+          if (isMobile()) setMobileOverlay(null);
+        }}
+        onOpenProject={openDetail}
+      />
 <Show when={isMobile() && mobileOverlay() === "chat"}>
         <div class="mobile-overlay" role="dialog" aria-modal="true">
           <div class="mobile-overlay-panel">

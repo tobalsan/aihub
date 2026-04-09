@@ -125,6 +125,11 @@ function getFilename(path: string): string {
   return name.toUpperCase();
 }
 
+function isSessionArtifact(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  return normalized.includes("/sessions/");
+}
+
 export function ProjectDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -184,6 +189,7 @@ export function ProjectDetailPage() {
     const unsubscribe = subscribeToFileChanges({
       onFileChanged: (projectId, file) => {
         if (projectId !== id) return;
+        if (isSessionArtifact(file)) return;
         const filename = getFilename(file);
         if (filename === "SPECS.MD") {
           shouldRefreshSpec = true;

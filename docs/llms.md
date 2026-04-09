@@ -52,6 +52,7 @@ Features:
 - Projects board shell uses split sidebars:
   - Left sidebar: AIHub logo + primary nav (`Chats` always; `Projects`/`Conversations` only when enabled by `/api/capabilities`)
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
+  - Recent projects live at the bottom of the right context panel
   - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - `/` is the Areas overview homepage (grid of area cards + aggregate "All Projects" card)
 - Areas homepage includes a quick-create flow with slugified ids from title and a native color picker
@@ -60,14 +61,14 @@ Features:
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - Web app fetches `/api/capabilities` on boot; if `projects` is disabled, `/` falls back to the core agent list instead of the Areas route
 - When `/api/capabilities` reports `multiUser: true`, the app gates protected routes behind Better Auth session checks, exposes `/login`, and shows admin pages for `/admin/users` and `/admin/agents`
-- `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
-- When `/projects/:id` detail overlay is open, the background `ProjectsBoard` suspends its file-change realtime subscription and hides the right `ContextPanel`, preventing hidden sidebar/activity updates from flashing the full UI during project-detail agent runs
+- `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while the right context panel stays visible on project detail overlay
 - `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
-- Left sidebar shows last 5 recently viewed projects (from `localStorage`) above the theme toggle, with truncated titles and relative viewed timestamps
+- Right context panel shows last 5 recently viewed projects (from `localStorage`) at the bottom, with truncated titles and relative viewed timestamps
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
 - Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
+- UI-created project agents derive their session folder slug from the displayed agent name, so coordinator/worker/reviewer spawns land under stable name-based session directories instead of random ids
 - Project API responses now include `repoValid` on both project detail and project list items; it is `true` only when the resolved repo path exists on disk and contains `.git`
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
 - Project detail center-panel subagent chat follow-ups reuse the selected subagent `runMode` to preserve CLI session cwd continuity (important for Claude CLI resume by `session_id`)
@@ -584,6 +585,7 @@ Behavior:
   - Claude: `--model <model>` and `--effort <high|medium|low>`
   - Pi: `--model <id>` and `--thinking <off|low|medium|high|xhigh>`
 - Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/harness naming.
+- Project-detail UI spawn form derives the slug from the displayed run name and de-dupes against existing project subagent slugs (`coordinator`, `worker-2`, etc.).
 - `apm start` supports these fields directly:
   - `--name <run-name>`
   - `--model <id>`
@@ -603,6 +605,7 @@ Behavior:
   - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, `mode=clone`, `baseBranch=main`, includes `true/true/true`
   - If harness is overridden to PI (`--agent pi`), effort defaults are translated to `thinking` and normalized for PI.
 - Locked fields can be overridden only with `--allow-template-overrides`.
+- `apm status <projectId> --list` prints the existing project subagent session slugs (including archived runs); `--json` returns the slug array.
 
 ## Single-Agent Mode
 

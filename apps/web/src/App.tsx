@@ -313,7 +313,7 @@ function ProjectsRouteShell() {
         <div class="projects-route-shell">
           <LazyProjectsBoard
             withSidebar={false}
-            suspendBackground={showDetail()}
+            suspendProjectRealtime={showDetail()}
           />
           <Show when={showDetail()}>
             <div class="projects-route-detail-layer">
@@ -328,8 +328,20 @@ function ProjectsRouteShell() {
 
             .projects-route-detail-layer {
               position: absolute;
-              inset: 0;
+              inset: 0 480px 0 0;
               z-index: 20;
+            }
+
+            @media (max-width: 1399px) {
+              .projects-route-detail-layer {
+                inset: 0 50px 0 0;
+              }
+            }
+
+            @media (max-width: 768px) {
+              .projects-route-detail-layer {
+                inset: 0;
+              }
             }
           `}</style>
         </div>

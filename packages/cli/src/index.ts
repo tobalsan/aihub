@@ -907,10 +907,34 @@ program
   .argument("<id>", "Project ID")
   .option("--limit <n>", "Number of messages to return", "10")
   .option("--slug <slug>", "Slug override (CLI clone/worktree)")
+  .option("--list", "List existing subagent session slugs")
   .option("-j, --json", "JSON output")
   .action(async (id, opts) => {
     try {
       const normalizedId = normalizeProjectId(id);
+      if (opts.list) {
+        const subagentsData = (await getClient().listProjectSubagents(
+          normalizedId,
+          { includeArchived: true }
+        )) as {
+          items?: Array<{ slug?: string }>;
+        };
+        const slugs = (Array.isArray(subagentsData.items)
+          ? subagentsData.items
+          : []
+        )
+          .map((item) => item.slug?.trim())
+          .filter((slug): slug is string => Boolean(slug));
+        if (opts.json) {
+          console.log(JSON.stringify(slugs, null, 2));
+          return;
+        }
+        if (slugs.length > 0) {
+          console.log(slugs.join("\n"));
+        }
+        return;
+      }
+
       const limit = Math.max(0, Number(opts.limit) || 10);
       const project = (await getClient().getProject(
         normalizedId

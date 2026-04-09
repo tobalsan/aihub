@@ -227,14 +227,14 @@ packages/
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
 - Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
-- While `/projects/:id` is open, the hidden background board suspends realtime/context-panel updates so project-detail agent runs do not flash the underlying UI
+- The right context panel stays visible on `/projects/:id`, with recent projects moved to the bottom of that sidebar
 - Project detail is mobile/tablet responsive: `<=768px` uses a single-column `Overview | Chat | Activity | Changes | Spec` tabbed view, and `769px-1199px` uses a `280px` left rail with merged center/right tabs
 - In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
-- Left sidebar `Recent` list shows the 5 most recently viewed projects from browser localStorage
+- Right context panel `Recent` list shows the 5 most recently viewed projects from browser localStorage
 - Web UI fetches `/api/capabilities` on boot, hides disabled component nav, and lazy-loads projects/conversations route bundles only when enabled
 - Intercom-style quick chat is available globally via a fixed bottom-right bubble; it opens a lead-agent overlay with agent picker, streaming chat, and image attachments
+- Project-detail UI spawns use name-based session slugs, so the generated session folder follows the displayed agent name instead of a random id
 - Project detail center-panel chat keeps `Send` available while a run is active and also shows `Stop` (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi); subagent follow-ups sent mid-run stay queued in the UI and flush after the active CLI run completes
-- Project detail `AgentChat` virtualizes only longer histories, remeasures on resize, and keeps the tail anchored so recent lines do not disappear behind stale virtual padding
 - Changes tab branch header is expandable: click branch aggregate stats to view per-file pending +/- counts (when available)
 - Space Commit Log rows show relative commit age (`now`, `1m`, `2h`, `3d`) beside author metadata
 
@@ -253,6 +253,7 @@ pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [
 pnpm apm move <id> <status>
 pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-template-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 pnpm apm rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
+pnpm apm status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
 
 # Local config CLI
 pnpm apm config migrate [--config <path>] [--dry-run]

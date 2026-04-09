@@ -118,6 +118,40 @@ function pickUniqueAgentName(
   return `${prefix} ${selected}`;
 }
 
+function areSubagentItemsEqual(
+  left: SubagentListItem,
+  right: SubagentListItem
+): boolean {
+  const leftKeys = Object.keys(left) as Array<keyof SubagentListItem>;
+  const rightKeys = Object.keys(right) as Array<keyof SubagentListItem>;
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
+}
+
+function mergeSubagentItems(
+  current: SubagentListItem[],
+  next: SubagentListItem[]
+): SubagentListItem[] {
+  const currentBySlug = new Map(current.map((item) => [item.slug, item]));
+  let changed = current.length !== next.length;
+  const merged = next.map((item) => {
+    const existing = currentBySlug.get(item.slug);
+    if (!existing) {
+      changed = true;
+      return item;
+    }
+    if (areSubagentItemsEqual(existing, item)) {
+      return existing;
+    }
+    changed = true;
+    return { ...existing, ...item };
+  });
+  return changed ? merged : current;
+}
+
 function getFrontmatterString(
   frontmatter: Record<string, unknown>,
   key: string
@@ -320,7 +354,9 @@ export function AgentPanel(props: AgentPanelProps) {
       const result = await fetchSubagents(props.project.id, true);
       if (!active) return;
       if (result.ok) {
-        props.onSubagentsChange?.(result.data.items);
+        props.onSubagentsChange?.(
+          mergeSubagentItems(props.subagents, result.data.items)
+        );
         setAgentError(null);
       } else {
         setAgentError(result.error);
@@ -406,22 +442,34 @@ export function AgentPanel(props: AgentPanelProps) {
           item.slug,
           current?.cursor ?? 0
         );
-        if (!logs.ok || cancelled) return;
+        if (!logs.ok) return null;
         const picked = pickPreviewFromEvents(logs.data.events);
-        setSubagentPreview((prev) => ({
-          ...prev,
-          [item.slug]: {
+        return {
+          slug: item.slug,
+          value: {
             text:
               picked?.text ??
-              prev[item.slug]?.text ??
+              current?.text ??
               normalizeExcerpt(taskLabel(item)) ??
               "",
-            at: picked?.at ?? item.lastActive ?? prev[item.slug]?.at,
+            at: picked?.at ?? item.lastActive ?? current?.at,
             cursor: logs.data.cursor,
           },
-        }));
+        };
       })
-    );
+    ).then((results) => {
+      if (cancelled) return;
+      setSubagentPreview((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const update of results) {
+          if (!update) continue;
+          next[update.slug] = update.value;
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+    });
     onCleanup(() => {
       cancelled = true;
     });
@@ -773,7 +821,9 @@ export function AgentPanel(props: AgentPanelProps) {
   const refreshSubagents = async () => {
     const refresh = await fetchSubagents(props.project.id, true);
     if (refresh.ok) {
-      props.onSubagentsChange?.(refresh.data.items);
+      props.onSubagentsChange?.(
+        mergeSubagentItems(props.subagents, refresh.data.items)
+      );
       return true;
     }
     setAgentError(refresh.error);

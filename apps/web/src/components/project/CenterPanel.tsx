@@ -175,6 +175,7 @@ export function CenterPanel(props: CenterPanelProps) {
   ];
 
   createEffect(() => {
+    if (tab() !== "activity") return;
     const projectId = props.project.id;
     if (!projectId) return;
     setLogBySlug({});

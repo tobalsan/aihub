@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ProjectDetailPage } from "./ProjectDetailPage";
-import { fetchProject, updateProject } from "../../api/client";
+import {
+  fetchProject,
+  subscribeToFileChanges,
+  updateProject,
+} from "../../api/client";
 
 const navigateMock = vi.fn();
 
@@ -47,7 +51,9 @@ vi.mock("../../api/client", () => ({
     ok: true,
     data: { cursor: 0, events: [] },
   })),
-  subscribeToFileChanges: vi.fn(() => () => {}),
+  subscribeToFileChanges: vi.fn(
+    () => () => {}
+  ),
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "alpha" } })),
 }));
 
@@ -79,6 +85,11 @@ function mockMatchMedia({
 }
 
 describe("ProjectDetailPage", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.clearAllMocks();
+  });
+
   it("navigates to /projects when Back to Projects is clicked", async () => {
     navigateMock.mockReset();
     mockMatchMedia();
@@ -264,6 +275,33 @@ describe("ProjectDetailPage", () => {
     expect(styles).toContain(
       ".project-detail__merged-body {\n          min-height: 0;\n          overflow: hidden;"
     );
+
+    dispose();
+  });
+
+  it("ignores session file changes for project refetch", async () => {
+    mockMatchMedia();
+    vi.mocked(fetchProject).mockClear();
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const initialCalls = vi.mocked(fetchProject).mock.calls.length;
+    const callbacks = vi.mocked(subscribeToFileChanges).mock.calls[0]?.[0];
+    expect(callbacks?.onFileChanged).toBeTypeOf("function");
+
+    callbacks?.onFileChanged?.(
+      "PRO-1",
+      "PRO-1_alpha-project/sessions/coordinator/session.jsonl"
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(vi.mocked(fetchProject).mock.calls.length).toBe(initialCalls);
 
     dispose();
   });
