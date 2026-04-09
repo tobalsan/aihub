@@ -90,9 +90,7 @@ describe("subscribeToStatus reconnection", () => {
       status: "streaming",
     });
 
-    expect(statuses).toEqual([
-      { agentId: "test-agent", status: "streaming" },
-    ]);
+    expect(statuses).toEqual([{ agentId: "test-agent", status: "streaming" }]);
     expect(onReconnect).toHaveBeenCalledTimes(1);
 
     unsubscribe();

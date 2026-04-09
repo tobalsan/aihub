@@ -45,7 +45,8 @@ import type {
 const API_BASE = "/api";
 const SESSION_KEY_PREFIX = "aihub:sessionKey:";
 const DEFAULT_SESSION_KEY = "main";
-const wsDebug = () => globalThis.localStorage?.getItem("debug")?.includes("aihub:ws");
+const wsDebug = () =>
+  globalThis.localStorage?.getItem("debug")?.includes("aihub:ws");
 
 function fetch(input: RequestInfo | URL, init?: RequestInit) {
   return globalThis.fetch(input, { ...init, credentials: "include" });
