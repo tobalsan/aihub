@@ -9,7 +9,9 @@ Build a renewal estimate preview for company **ACME-42 Corp** for the
 next billing period.
 
 1. Use `cloudifi_admin.list_companies` or
-   `cloudifi_admin.get_company_details` to find the company record.
+   `cloudifi_admin.get_company_details` with `extraFields: true` to find
+   the company record, because pricing fields are only present in the
+   extra-fields payload.
 2. Use `cloudifi_admin.get_quota_usage` with a date range of
    `"2026-04-01"` to `"2026-04-06"` to get current usage.
 3. Compute the preview line items:

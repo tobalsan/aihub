@@ -46,11 +46,23 @@ def test_result_file_exists_and_completed():
     assert result["agent"] == "sally"
 
 
+def test_result_final_message():
+    result = _load_json(RESULT_PATH)
+    msg = result.get("finalMessage", "").lower()
+    assert "acme-42" in msg
+    assert "404.00" in result.get("finalMessage", "")
+
+
 def test_required_tools_were_called():
     result = _load_json(RESULT_PATH)
     tool_names = [t["name"] for t in result.get("toolCalls", [])]
     assert "cloudifi_admin.list_companies" in tool_names or "cloudifi_admin.get_company_details" in tool_names
     assert "cloudifi_admin.get_quota_usage" in tool_names
+
+
+def test_result_artifacts_contains_preview_path():
+    result = _load_json(RESULT_PATH)
+    assert result.get("artifacts") == ["/app/out/renewal_estimate.json"]
 
 
 def test_no_write_tools_called():

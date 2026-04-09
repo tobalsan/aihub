@@ -33,6 +33,14 @@ def test_result_file_exists_and_completed():
     assert result["agent"] == "sally"
 
 
+def test_result_final_message():
+    result = _load_json(RESULT_PATH)
+    msg = result.get("finalMessage", "").lower()
+    assert "quota usage" in msg
+    assert "renewals" in msg
+    assert "company 1001" in msg
+
+
 def test_expected_tools_were_selected_in_order():
     result = _load_json(RESULT_PATH)
     tool_names = [t["name"] for t in result.get("toolCalls", [])]

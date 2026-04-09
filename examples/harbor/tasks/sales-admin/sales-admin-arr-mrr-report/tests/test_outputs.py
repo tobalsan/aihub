@@ -43,10 +43,23 @@ def test_result_file_exists_and_completed():
     assert result["agent"] == "sally"
 
 
+def test_result_final_message():
+    result = _load_json(RESULT_PATH)
+    msg = result.get("finalMessage", "").lower()
+    assert "arr/mrr report" in msg
+    assert "3292.00" in result.get("finalMessage", "")
+    assert "39504.00" in result.get("finalMessage", "")
+
+
 def test_list_companies_was_called():
     result = _load_json(RESULT_PATH)
     tool_names = [t["name"] for t in result.get("toolCalls", [])]
     assert "cloudifi_admin.list_companies" in tool_names, tool_names
+
+
+def test_result_artifacts_contains_report_path():
+    result = _load_json(RESULT_PATH)
+    assert result.get("artifacts") == ["/app/out/arr-mrr.json"]
 
 
 def test_no_write_tools_called():

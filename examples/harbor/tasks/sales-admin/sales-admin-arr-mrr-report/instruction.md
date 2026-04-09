@@ -8,8 +8,9 @@ You are the Sales Admin agent. Treat today's date as **2026-04-06**
 Generate the ARR/MRR report for **2026-Q1** and save it to
 `/app/out/arr-mrr.json`.
 
-Use `cloudifi_admin.list_companies` to retrieve company billing data.
-For this task, each company fixture includes a `monthlyRate`.
+Use `cloudifi_admin.list_companies` with `extraFields: true` to retrieve
+company billing data. For this task, each company fixture includes a
+`monthlyRate` that is only available in the extra-fields payload.
 
 - `mrr` = sum of all company `monthlyRate` values
 - `arr` = `mrr * 12`
