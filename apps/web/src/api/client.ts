@@ -45,6 +45,7 @@ import type {
 const API_BASE = "/api";
 const SESSION_KEY_PREFIX = "aihub:sessionKey:";
 const DEFAULT_SESSION_KEY = "main";
+const wsDebug = () => globalThis.localStorage?.getItem("debug")?.includes("aihub:ws");
 
 function fetch(input: RequestInfo | URL, init?: RequestInit) {
   return globalThis.fetch(input, { ...init, credentials: "include" });
@@ -460,6 +461,9 @@ function connectStatusSocket(): void {
   ws.onmessage = (event) => {
     const payload = JSON.parse(event.data);
     if (payload.type === "status") {
+      if (wsDebug()) {
+        console.log("[ws] status received:", payload.agentId, payload.status);
+      }
       for (const subscriber of statusSubscribers) {
         subscriber.onStatus?.(payload.agentId, payload.status);
       }
@@ -481,6 +485,9 @@ function connectStatusSocket(): void {
   ws.onclose = () => {
     if (statusSocket === ws) {
       statusSocket = null;
+    }
+    if (wsDebug()) {
+      console.log("[ws] status socket closed, scheduling reconnect");
     }
     scheduleStatusReconnect();
   };
@@ -536,6 +543,9 @@ function connectFileChangeSocket(): void {
 
   ws.onmessage = (event) => {
     const payload = JSON.parse(event.data);
+    if (wsDebug()) {
+      console.log("[ws] file event received:", payload.type, payload.projectId);
+    }
     if (payload.type === "file_changed") {
       for (const subscriber of fileChangeSubscribers) {
         subscriber.onFileChanged?.(payload.projectId, payload.file);

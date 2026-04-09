@@ -29,6 +29,7 @@ type RequestAuthContext =
   import("../components/multi-user/middleware.js").RequestAuthContext;
 
 const app = new Hono();
+const wsDebug = process.env.DEBUG?.includes("aihub:ws");
 
 type ComponentRouteMatcher = {
   component: string;
@@ -373,6 +374,11 @@ function setupEventBroadcast() {
 
   // Broadcast status changes to all status subscribers
   agentEventBus.onStatusChange((event) => {
+    if (wsDebug) {
+      console.log(
+        `[ws] statusChange: ${event.agentId} -> ${event.status} (${statusSubscribers.size} subscribers)`
+      );
+    }
     const statusMessage = {
       type: "status" as const,
       agentId: event.agentId,
@@ -397,12 +403,22 @@ function setupEventBroadcast() {
   });
 
   agentEventBus.onFileChanged((event) => {
+    if (wsDebug) {
+      console.log(
+        `[ws] fileChanged: ${event.projectId}/${event.file} (${connectedClients.size} clients)`
+      );
+    }
     for (const ws of connectedClients) {
       sendWs(ws, event);
     }
   });
 
   agentEventBus.onAgentChanged((event) => {
+    if (wsDebug) {
+      console.log(
+        `[ws] agentChanged: ${event.projectId} (${connectedClients.size} clients)`
+      );
+    }
     for (const ws of connectedClients) {
       sendWs(ws, event);
     }
