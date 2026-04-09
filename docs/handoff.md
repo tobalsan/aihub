@@ -1,8 +1,8 @@
 # Hand-off
 
-Date: 2026-04-08
-Repo: `/Users/thinh/projects/.workspaces/aihub-harbor-evals-sales-admin`
-Branch: `feature/harbor-evals-sales-admin` (worktree; base commit `1fb7bd7`)
+Date: 2026-04-09
+Repo: `/Users/thinh/projects/.workspaces/PRO-220/_space`
+Branch: `space/PRO-220`
 
 ## Current Effort: Harbor Evals for AIHub Migration
 
@@ -14,51 +14,37 @@ Starting with the `sales_admin` workflow family.
 
 ### Status
 
-Two tasks scaffolded, both green with deterministic `harbor run -a oracle`:
+All 5 wave-0 tasks scaffolded. Oracle + real-agent paths both green:
 
-| Task                         | Status           | Last job                     |
-| ---------------------------- | ---------------- | ---------------------------- |
-| `sales-admin-renewals`       | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-50-42/` |
-| `sales-admin-quota-analysis` | ✅ pass_rate=1.0 | `jobs/2026-04-08__17-39-46/` |
+| Task                                 | Oracle | Real agent | Notes                     |
+| ------------------------------------ | ------ | ---------- | ------------------------- |
+| `sales-admin-renewals`               | 7/7 ✅  | 1.0 ✅     | pre-existing               |
+| `sales-admin-quota-analysis`         | 8/8 ✅  | 1.0 ✅     | pre-existing               |
+| `sales-admin-renewal-estimate-preview` | 8/8 ✅ | 1.0 ✅    | commit `bd4c86f`           |
+| `sales-admin-arr-mrr-report`         | 9/9 ✅  | 1.0 ✅     | commit `bd4c86f`           |
+| `sales-admin-tool-selection`         | 7/7 ✅  | 1.0 ✅     | commit `bd4c86f`           |
 
-Installed-agent path now validated via Harbor custom import path.
+### Deviations from plan (all resolved)
 
-### Deviations from plan (must fix)
+#### 1. Oracle is not deterministic — FIXED
 
-#### 1. Oracle is not deterministic
+All 5 `solve.sh` scripts now write static JSON. No LLM calls in the oracle path.
 
-Per plan, `solution/solve.sh` should **write the expected output directly** (no LLM)
-to prove the verifier is correct independently of the agent. Our `solve.sh` calls
-`aihub eval run --agent sally`, which invokes a real LLM via requesty/Minimax-m2.7.
+#### 2. Missing `BaseInstalledAgent` wrapper — FIXED
 
-This means we never validated the verifier in isolation. The oracle and agent
-paths are identical — if the verifier has a bug, both pass or both fail together.
+`examples/harbor/agents/aihub_installed.py` implemented and validated across all 5 tasks.
 
-**Status**: fixed in this workspace for `sales-admin-renewals` and
-`sales-admin-quota-analysis`.
+#### 3. Verifiers overfitted to oracle exact values — FIXED (commit `bd4c86f`)
 
-**Fix**: rewrite `solve.sh` for each task to produce the expected artifact
-(e.g., `/app/out/renewals.json`, `/app/out/quota_analysis.json`) plus a minimal
-`/logs/agent/result.json` with hardcoded tool calls and final message. No `aihub eval run`.
+Original verifiers asserted exact field names (`type: "user_overage"`), exact tool-call
+sequences, and exact `finalMessage` substrings. Real LLM output varies in formatting.
 
-#### 2. Missing `BaseInstalledAgent` wrapper
-
-Per plan Task 2, `examples/harbor/agents/aihub_installed.py` should be a
-`BaseInstalledAgent` subclass that calls `aihub eval run` via `exec_as_agent`.
-This lets Harbor invoke the real agent with:
-
-```bash
-harbor run -p tasks/sales-admin/sales-admin-renewals -a aihub-installed
-```
-
-We never built this. Currently the only way to run the real agent is through
-the oracle path, which conflates oracle and agent runs.
-
-**Status**: fixed and validated in this workspace.
-
-**Fix**: `examples/harbor/agents/aihub_installed.py` now reads
-`AgentContext.metadata`, defaults to `sally`, and task metadata also points to
-`sally`, matching `examples/harbor/base/aihub-eval/aihub.json`.
+**Fix**: Verifiers now check semantic correctness:
+- Correct numeric totals and per-company values (within tolerance)
+- Required tools present (not exact sequence)
+- Forbidden tools absent
+- Artifact fallback: reads from file if agent wrote it, else parses JSON from `finalMessage`
+- Instructions updated to explicitly require `write` tool for artifact files
 
 ### Architectural decisions (locked in)
 
@@ -70,6 +56,7 @@ the oracle path, which conflates oracle and agent runs.
 - **ATIF emitted natively** by `aihub eval run` (no converter phase).
 - **Deterministic clock** via `EVAL_NOW=2026-04-06` in compose service env (NOT `[agent.env]` — harbor silently ignores it).
 - **uv, not pip**, per AGENTS.md.
+- **Verifiers check semantics, not exact strings** — real LLM output varies in field names, descriptions, tool arg formats. Assert numeric values, required tool presence, and forbidden tool absence.
 - **Option A vendor bridge** for sally config. Snapshot from cloudihub repo into `examples/harbor/base/aihub-eval/cloudihub-config/`. Will be retired by Option C migration.
 
 ### Key file locations
@@ -169,9 +156,9 @@ Sales-admin Harbor dataset now lists all 5 wave-0 tasks:
 
 New task notes:
 
-- `sales-admin-renewal-estimate-preview`: task-local fixture override for ACME-42 pricing + overage preview; verifier asserts exact line items and forbids write tools.
-- `sales-admin-arr-mrr-report`: task-local pricing fixture override for all companies; verifier asserts `/app/out/arr-mrr.json` schema, totals, and descending `by_company` sort.
-- `sales-admin-tool-selection`: routing eval over ambiguous prompts; verifier asserts exact tool-call sequence `get_quota_usage -> list_companies -> get_company_details`.
+- `sales-admin-renewal-estimate-preview`: task-local fixture override for ACME-42 pricing + overage preview; verifier checks correct amounts (299 + 105 = 404), company ID, total matches line items, forbids write tools on cloudifi_admin.
+- `sales-admin-arr-mrr-report`: task-local pricing fixture override for all companies; verifier checks MRR/ARR totals, company IDs in descending MRR order, per-company values, ARR = MRR × 12 invariant.
+- `sales-admin-tool-selection`: routing eval over ambiguous prompts; verifier checks required tools present in correct order (get_quota_usage before list_companies before get_company_details), allows extra calls (e.g. retries), forbids write tools.
 
 ### Next steps (prioritized)
 
@@ -179,29 +166,28 @@ New task notes:
    `final_metrics` are all 0. Need to extend `RunAgentResult.meta` → thread through
    `runtime.ts` → both `EvalResult` and `TrajectoryBuilder`.
 
-2. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
+2. **Runtime artifact tracking** — `EvalResult.artifacts` is hardcoded to `[]`.
+   Should detect `write` tool calls that target `/app/out/*` and populate the field.
+   Currently verifiers work around this via `finalMessage` JSON parsing fallback.
+
+3. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
    See plan "Option C" section. Moves tasks + agent config ownership to cloudihub repo.
 
-### Commits on feature branch
+4. **Multi-trial reliability** — run each task with `--n-attempts 3` to confirm
+   pass rate is consistently 1.0 (not a lucky single run).
+
+### Commits on space/PRO-220 branch
 
 ```
-c60e69b chore: ignore harbor eval job artifacts
-a22909b docs(plans): harbor evals plan for strategy B
-41d5185 feat(evals): scaffold harbor sales-admin-renewals task
-ed43c11 fix(evals): use internal network for sidecar reachability
-479d151 feat(evals): aihub eval run headless CLI
-2b74f8d docs(handoff): harbor evals C+B progress
-d6efb52 docs(handoff): record live LLM smoke results
-85eb2f7 feat(evals): vendor sally cloudihub config
-23a5d7a feat(evals): add egress net + requesty key passthrough
-e0b25ba docs(plans): option C migration to cloudihub
-a9b4e2a feat(evals): bake aihub CLI into eval base image
-a63adf1 feat(evals): vendor cloudifi-admin connector
-5e3dc4e feat(evals): solve.sh runs real aihub eval run
-e182631 fix(evals): propagate EVAL_NOW via compose env
+bd4c86f fix(evals): make verifiers robust for real agent runs
+c9c1c25 fix(evals): tighten sales-admin task checks
+1cf6e04 feat(evals): add sales-admin harbor tasks
+38cbe1d fix(evals): fix agent import path + add __init__.py
+27a1c7a fix(evals): align installed agent metadata lookup and default agent id
+446bb98 fix(evals): make harbor oracles deterministic
 ```
 
-Uncommitted: `sales-admin-quota-analysis` task scaffolding + `a13ac1e` skill tightening.
+(+ earlier commits from the feature branch merged into this workspace)
 
 ## Repository context (for new sessions)
 
