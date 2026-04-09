@@ -981,8 +981,12 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
   return aTime - bTime;
 }
 
-export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
+export function ProjectsBoard(props: {
+  withSidebar?: boolean;
+  suspendBackground?: boolean;
+} = {}) {
   const showSidebar = () => props.withSidebar !== false;
+  const suspendBackground = () => props.suspendBackground === true;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const activeProjectId = createMemo(() => {
@@ -1163,7 +1167,8 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
     }
   });
 
-  onMount(() => {
+  createEffect(() => {
+    if (suspendBackground()) return;
     let refreshTimer: number | undefined;
     const unsubscribe = subscribeToFileChanges({
       onFileChanged: () => {
@@ -6748,17 +6753,19 @@ export function ProjectsBoard(props: { withSidebar?: boolean } = {}) {
       `}</style>
         </div>
       </main>
-      <ContextPanel
-        collapsed={rightPanelCollapsed}
-        onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
-        selectedAgent={selectedAgent}
-        onSelectAgent={handleSelectAgent}
-        onClearSelection={() => {
-          setSelectedAgent(null);
-          if (isMobile()) setMobileOverlay(null);
-        }}
-        onOpenProject={openDetail}
-      />
+      <Show when={!suspendBackground()}>
+        <ContextPanel
+          collapsed={rightPanelCollapsed}
+          onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
+          selectedAgent={selectedAgent}
+          onSelectAgent={handleSelectAgent}
+          onClearSelection={() => {
+            setSelectedAgent(null);
+            if (isMobile()) setMobileOverlay(null);
+          }}
+          onOpenProject={openDetail}
+        />
+      </Show>
 <Show when={isMobile() && mobileOverlay() === "chat"}>
         <div class="mobile-overlay" role="dialog" aria-modal="true">
           <div class="mobile-overlay-panel">

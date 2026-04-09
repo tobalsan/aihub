@@ -145,4 +145,25 @@ describe("ProjectsBoard realtime refresh", () => {
 
     dispose();
   });
+
+  it("suspends background realtime refresh while detail overlay is open", async () => {
+    const api = await import("../api/client");
+    const fetchProjects = vi.mocked(api.fetchProjects);
+    const subscribeToFileChanges = vi.mocked(api.subscribeToFileChanges);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => <ProjectsBoard suspendBackground withSidebar={false} />,
+      container
+    );
+
+    await vi.runAllTimersAsync();
+
+    expect(fetchProjects.mock.calls.length).toBeGreaterThan(0);
+    expect(subscribeToFileChanges).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("ACTIVE PROJECTS");
+
+    dispose();
+  });
 });

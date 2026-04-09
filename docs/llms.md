@@ -47,7 +47,7 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
-- Project `AgentChat` virtualizes persisted history/log rows with `@tanstack/solid-virtual` (variable-height measurement, overscan 5) while leaving the live streaming row outside the virtualized region
+- Project `AgentChat` virtualizes only larger persisted history/log lists (`>=80` rows) with `@tanstack/solid-virtual`, remeasures visible rows on pane resize, and keeps the bottom row anchored while the live streaming row stays outside the virtualized region
 - ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; full-mode chat also renders transport/run errors inline
 - Projects board shell uses split sidebars:
   - Left sidebar: AIHub logo + primary nav (`Chats` always; `Projects`/`Conversations` only when enabled by `/api/capabilities`)
@@ -61,6 +61,7 @@ Features:
 - Web app fetches `/api/capabilities` on boot; if `projects` is disabled, `/` falls back to the core agent list instead of the Areas route
 - When `/api/capabilities` reports `multiUser: true`, the app gates protected routes behind Better Auth session checks, exposes `/login`, and shows admin pages for `/admin/users` and `/admin/agents`
 - `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while preserving the sidebar in project detail overlay
+- When `/projects/:id` detail overlay is open, the background `ProjectsBoard` suspends its file-change realtime subscription and hides the right `ContextPanel`, preventing hidden sidebar/activity updates from flashing the full UI during project-detail agent runs
 - `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
 - Left sidebar shows last 5 recently viewed projects (from `localStorage`) above the theme toggle, with truncated titles and relative viewed timestamps
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled

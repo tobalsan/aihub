@@ -311,7 +311,10 @@ function ProjectsRouteShell() {
     <LeftNavShell>
       <Suspense>
         <div class="projects-route-shell">
-          <LazyProjectsBoard withSidebar={false} />
+          <LazyProjectsBoard
+            withSidebar={false}
+            suspendBackground={showDetail()}
+          />
           <Show when={showDetail()}>
             <div class="projects-route-detail-layer">
               <LazyProjectDetailPage />

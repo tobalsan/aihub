@@ -188,6 +188,7 @@ type PendingAihubUserMessage = {
 const subagentTransientState = new Map<string, SubagentTransientUiState>();
 const activeSubagentPollIntervals = new Map<string, number>();
 const VIRTUAL_LOG_OVERSCAN = 5;
+const VIRTUAL_LOG_MIN_COUNT = 80;
 
 export function __resetAgentChatStateForTests(): void {
   subagentTransientState.clear();
@@ -1461,6 +1462,26 @@ export function AgentChat(props: AgentChatProps) {
     });
   });
 
+  onMount(() => {
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => {
+      if (!logPaneRef || !shouldVirtualizeLogs()) return;
+      const rows = logPaneRef.querySelectorAll<HTMLDivElement>(".log-virtual-row");
+      rows.forEach((row) => logVirtualizer.measureElement(row));
+      if (!isAtBottom()) return;
+      const lastIndex = activeRenderedLogItems().length - 1;
+      if (lastIndex >= 0) {
+        queueMicrotask(() => {
+          if (logPaneRef?.isConnected) {
+            logVirtualizer.scrollToIndex(lastIndex, { align: "end" });
+          }
+        });
+      }
+    });
+    if (logPaneRef) observer.observe(logPaneRef);
+    onCleanup(() => observer.disconnect());
+  });
+
   const checkIsAtBottom = () => {
     if (!logPaneRef) return true;
     const { scrollTop, scrollHeight, clientHeight } = logPaneRef;
@@ -1944,6 +1965,18 @@ export function AgentChat(props: AgentChatProps) {
     pendingCliUserMessages();
     aihubPending();
     scrollToBottom();
+  });
+
+  createEffect(() => {
+    if (!shouldVirtualizeLogs() || !isAtBottom()) return;
+    if (activeRenderedLogItems().length === 0 || virtualRows().length === 0) {
+      return;
+    }
+    const lastIndex = activeRenderedLogItems().length - 1;
+    queueMicrotask(() => {
+      if (!logPaneRef?.isConnected || !isAtBottom()) return;
+      logVirtualizer.scrollToIndex(lastIndex, { align: "end" });
+    });
   });
 
   createEffect(() => {
@@ -2476,6 +2509,9 @@ export function AgentChat(props: AgentChatProps) {
     if (props.agentType === "subagent") return cliRenderedLogItems();
     return [];
   });
+  const shouldVirtualizeLogs = createMemo(
+    () => activeRenderedLogItems().length >= VIRTUAL_LOG_MIN_COUNT
+  );
   const logVirtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
       return activeRenderedLogItems().length;
@@ -2508,7 +2544,9 @@ export function AgentChat(props: AgentChatProps) {
     const items = props.agentType === "lead" ? aihubLogItems() : cliLogItems();
     return items.some((item) => item.subagentRun);
   });
-  const virtualRows = createMemo(() => logVirtualizer.getVirtualItems());
+  const virtualRows = createMemo(() =>
+    shouldVirtualizeLogs() ? logVirtualizer.getVirtualItems() : []
+  );
   const virtualPaddingTop = createMemo(() => virtualRows()[0]?.start ?? 0);
   const virtualPaddingBottom = createMemo(() => {
     const rows = virtualRows();
@@ -2679,7 +2717,7 @@ export function AgentChat(props: AgentChatProps) {
               fallback={<div class="log-empty">No messages yet.</div>}
             >
               <Show
-                when={virtualRows().length > 0}
+                when={shouldVirtualizeLogs() && virtualRows().length > 0}
                 fallback={
                   <For each={leadRenderedLogItems()}>
                     {renderRenderedLogItem}
@@ -2754,7 +2792,7 @@ export function AgentChat(props: AgentChatProps) {
               fallback={<div class="log-empty">No logs yet.</div>}
             >
               <Show
-                when={virtualRows().length > 0}
+                when={shouldVirtualizeLogs() && virtualRows().length > 0}
                 fallback={
                   <For each={cliRenderedLogItems()}>
                     {renderRenderedLogItem}

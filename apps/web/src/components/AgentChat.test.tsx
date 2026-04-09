@@ -234,7 +234,7 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
-  it("virtualizes long lead histories", async () => {
+  it("renders shorter lead histories without virtualization", async () => {
     fetchFullHistoryMock.mockResolvedValue({
       messages: Array.from({ length: 50 }, (_, index) => ({
         role: "user",
@@ -247,8 +247,26 @@ describe("AgentChat stop/send behavior", () => {
     await tick();
     await tick();
 
+    expect(container.querySelectorAll(".log-virtual-row")).toHaveLength(0);
+
+    dispose();
+  });
+
+  it("virtualizes long lead histories", async () => {
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: Array.from({ length: 200 }, (_, index) => ({
+        role: "user",
+        timestamp: index + 1,
+        content: [{ type: "text", text: `message ${index}` }],
+      })),
+    });
+
+    const { container, dispose } = renderLead();
+    await tick();
+    await tick();
+
     expect(container.querySelectorAll(".log-virtual-row").length).toBeLessThan(
-      50
+      200
     );
 
     dispose();
