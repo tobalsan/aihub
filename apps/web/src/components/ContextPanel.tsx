@@ -28,6 +28,7 @@ type PanelMode = "agents" | "feed" | "chat";
 type RecentProjectView = {
   id: string;
   viewedAt: number;
+  title?: string;
 };
 
 const RECENT_PROJECTS_STORAGE_KEY = "aihub:recent-project-views";
@@ -78,7 +79,8 @@ function readRecentProjectViews(): RecentProjectView[] {
           typeof item.id === "string" &&
           item.id.length > 0 &&
           typeof item.viewedAt === "number" &&
-          Number.isFinite(item.viewedAt)
+          Number.isFinite(item.viewedAt) &&
+          (item.title === undefined || typeof item.title === "string")
       )
       .slice(0, RECENT_PROJECTS_MAX);
   } catch {
@@ -109,6 +111,13 @@ export function ContextPanel(props: ContextPanelProps) {
   );
   const storageKey = "aihub:context-panel:mode";
   let lastSelectedAgent: string | null | undefined;
+  const projectTitleById = createMemo(() => {
+    const map = new Map<string, string>();
+    for (const project of projects() ?? []) {
+      map.set(project.id, project.title);
+    }
+    return map;
+  });
 
   const agentType = createMemo(() => {
     const selected = props.selectedAgent();
@@ -174,13 +183,36 @@ export function ContextPanel(props: ContextPanelProps) {
   createEffect(() => {
     const projectId = readProjectIdFromPathname(location.pathname);
     if (!projectId) return;
+    const projectTitle = projectTitleById().get(projectId);
     setRecentViews((current) => {
       const next = [
-        { id: projectId, viewedAt: Date.now() },
+        {
+          id: projectId,
+          viewedAt: Date.now(),
+          title:
+            projectTitle ??
+            current.find((item) => item.id === projectId)?.title,
+        },
         ...current.filter((item) => item.id !== projectId),
       ].slice(0, RECENT_PROJECTS_MAX);
       writeRecentProjectViews(next);
       return next;
+    });
+  });
+
+  createEffect(() => {
+    const titles = projectTitleById();
+    if (titles.size === 0) return;
+    setRecentViews((current) => {
+      let changed = false;
+      const next = current.map((item) => {
+        const title = titles.get(item.id);
+        if (!title || item.title === title) return item;
+        changed = true;
+        return { ...item, title };
+      });
+      if (changed) writeRecentProjectViews(next);
+      return changed ? next : current;
     });
   });
 
@@ -309,7 +341,6 @@ export function ContextPanel(props: ContextPanelProps) {
           <div class="panel-recent-label">Recent</div>
           <For each={recentViews()}>
             {(item) => {
-              const project = (projects() ?? []).find((entry) => entry.id === item.id);
               return (
                 <A
                   href={`/projects/${item.id}`}
@@ -319,7 +350,7 @@ export function ContextPanel(props: ContextPanelProps) {
                   }}
                 >
                   <span class="recent-project-title">
-                    {item.id}: {project?.title ?? item.id}
+                    {item.id}: {item.title ?? item.id}
                   </span>
                   <span class="recent-project-time">
                     {relativeTime(item.viewedAt)}
