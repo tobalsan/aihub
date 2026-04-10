@@ -59,6 +59,15 @@ const LazyAdminAgentsPage = lazy(
   () => import("./pages/admin/AgentAssignments")
 );
 
+const basePath = import.meta.env.BASE_URL?.replace(/\/+$/, "") ?? "";
+
+function stripBase(pathname: string): string {
+  if (basePath && pathname.startsWith(basePath)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
 const QUICK_CHAT_LAST_AGENT_KEY = "aihub:quick-chat-last-agent";
 
 function readQuickChatAgentId(): string | null {
@@ -79,7 +88,7 @@ function pickDefaultQuickAgentId(agents: Agent[]): string | null {
 
 function Layout(props: { children?: JSX.Element }) {
   const location = useLocation();
-  const isLoginPage = createMemo(() => location.pathname.startsWith("/login"));
+  const isLoginPage = createMemo(() => stripBase(location.pathname).startsWith("/login"));
   const canLoadQuickChatAgents = createMemo(
     () =>
       capabilitiesReady() &&
@@ -157,11 +166,10 @@ function Layout(props: { children?: JSX.Element }) {
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
-  const isOnChatPage = createMemo(
-    () =>
-      location.pathname.startsWith("/chat/") ||
-      location.pathname.startsWith("/agents")
-  );
+  const isOnChatPage = createMemo(() => {
+    const p = stripBase(location.pathname);
+    return p.startsWith("/chat/") || p.startsWith("/agents");
+  });
 
   createEffect(() => {
     if (quickChatOpen()) setQuickChatHasUnread(false);
