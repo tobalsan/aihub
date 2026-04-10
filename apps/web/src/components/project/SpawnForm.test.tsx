@@ -21,7 +21,7 @@ const project: ProjectDetail = {
 };
 
 describe("SpawnForm", () => {
-  it("applies coordinator prefill including none mode", async () => {
+  it("applies lead prefill including none mode", async () => {
     const onSpawned = vi.fn();
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -30,7 +30,7 @@ describe("SpawnForm", () => {
         <SpawnForm
           projectId={project.id}
           project={project}
-          template="coordinator"
+          template="lead"
           prefill={{
             name: "Coordinator",
             cli: "claude",
@@ -39,6 +39,8 @@ describe("SpawnForm", () => {
             runMode: "none",
             includeDefaultPrompt: true,
             includePostRun: false,
+            agentId: "agent-1",
+            agentName: "My Lead",
           }}
           subagents={[]}
           onSpawned={onSpawned}
@@ -48,17 +50,10 @@ describe("SpawnForm", () => {
       container
     );
 
-    const selectValues = Array.from(
-      container.querySelectorAll(".add-agent-select")
-    ).map((item) => (item as HTMLSelectElement).value);
-
-    expect(
-      (container.querySelector(".add-agent-input") as HTMLInputElement).value
-    ).toBe("Coordinator");
-    expect(selectValues[0]).toBe("claude");
-    expect(selectValues[1]).toBe("opus");
-    expect(selectValues[2]).toBe("medium");
-    expect(selectValues[3]).toBe("none");
+    // Lead template hides the form grid, so no select elements
+    expect(container.querySelectorAll(".add-agent-select").length).toBe(0);
+    expect(container.querySelector(".spawn-form-grid")).toBeNull();
+    expect(container.textContent).toContain("Lead Agent: My Lead");
 
     const submit = container.querySelector(
       ".add-agent-submit"
@@ -75,13 +70,46 @@ describe("SpawnForm", () => {
       reasoningEffort: "medium",
       mode: "none",
       name: "Coordinator",
+      agentId: "agent-1",
     });
     expect(onSpawned).toHaveBeenCalledWith("worker-1");
 
     dispose();
   });
 
-  it("builds reviewer workspace section from active worker subagents", async () => {
+  it("hides form grid for lead template", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SpawnForm
+          projectId={project.id}
+          project={project}
+          template="lead"
+          prefill={{
+            agentId: "agent-1",
+            agentName: "Test Agent",
+            cli: "claude",
+            model: "opus",
+            reasoning: "medium",
+            runMode: "none",
+          }}
+          subagents={[]}
+          onSpawned={() => {}}
+          onCancel={() => {}}
+        />
+      ),
+      container
+    );
+
+    expect(container.querySelector(".spawn-form-grid")).toBeNull();
+    expect(container.querySelector(".add-agent-input")).toBeNull();
+    expect(container.textContent).toContain("Lead Agent: Test Agent");
+
+    dispose();
+  });
+
+  it("spawns custom template with subagents context", async () => {
     vi.mocked(spawnSubagent).mockClear();
     const subagents: SubagentListItem[] = [
       {
@@ -90,20 +118,6 @@ describe("SpawnForm", () => {
         cli: "codex",
         status: "running",
         runMode: "clone",
-      },
-      {
-        slug: "worker-main",
-        name: "Worker Main",
-        cli: "codex",
-        status: "running",
-        runMode: "main-run",
-      },
-      {
-        slug: "worker-beta",
-        name: "Worker Beta",
-        cli: "claude",
-        status: "idle",
-        runMode: "worktree",
       },
       {
         slug: "observer",
@@ -121,9 +135,9 @@ describe("SpawnForm", () => {
         <SpawnForm
           projectId={project.id}
           project={project}
-          template="reviewer"
+          template="custom"
           prefill={{
-            name: "Reviewer Delta",
+            name: "Agent Delta",
             cli: "codex",
             model: "gpt-5.3-codex",
             reasoning: "medium",
@@ -147,15 +161,8 @@ describe("SpawnForm", () => {
 
     const payload = vi.mocked(spawnSubagent).mock.calls[0]?.[1];
     expect(payload?.mode).toBe("none");
-    expect(payload?.prompt).toContain("## Your Role: Reviewer");
-    expect(payload?.prompt).toContain("## Active Worker Workspaces");
-    expect(payload?.prompt).toContain(
-      "~/projects/.workspaces/PRO-149/worker-alpha/"
-    );
-    expect(payload?.prompt).toContain(
-      "~/projects/.workspaces/PRO-149/worker-beta/"
-    );
-    expect(payload?.prompt).not.toContain("worker-main");
+    expect(payload?.prompt).toContain("## Your Role");
+    expect(payload?.template).toBe("custom");
 
     dispose();
   });
@@ -176,7 +183,7 @@ describe("SpawnForm", () => {
         <SpawnForm
           projectId={projectWithRepo.id}
           project={projectWithRepo}
-          template="worker"
+          template="custom"
           prefill={{
             cli: "codex",
             model: "gpt-5.3-codex",
@@ -319,7 +326,7 @@ describe("SpawnForm", () => {
     dispose();
   });
 
-  it("updates worker preview when role instructions toggle changes", async () => {
+  it("updates custom preview when role instructions toggle changes", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(
@@ -327,7 +334,7 @@ describe("SpawnForm", () => {
         <SpawnForm
           projectId={project.id}
           project={project}
-          template="worker"
+          template="custom"
           prefill={{}}
           subagents={[]}
           onSpawned={() => {}}
@@ -338,7 +345,7 @@ describe("SpawnForm", () => {
     );
 
     const preview = container.querySelector(".add-agent-preview pre");
-    expect(preview?.textContent).toContain("## Your Role: Worker");
+    expect(preview?.textContent).toContain("## Your Role");
 
     const roleToggle = container.querySelector(
       ".role-instructions-toggle"
@@ -347,7 +354,7 @@ describe("SpawnForm", () => {
     roleToggle.dispatchEvent(new Event("input", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(preview?.textContent).not.toContain("## Your Role: Worker");
+    expect(preview?.textContent).not.toContain("## Your Role");
 
     dispose();
   });

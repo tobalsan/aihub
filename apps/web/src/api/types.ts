@@ -242,6 +242,7 @@ export type SubagentListItem = {
   lastError?: string;
   archived?: boolean;
   iterations?: number;
+  agentId?: string;
 };
 
 export type SubagentLogEvent = {

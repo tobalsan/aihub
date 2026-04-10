@@ -4,7 +4,7 @@ import type { PromptRole } from "@aihub/shared/projectPrompt";
 import { spawnSubagent } from "../../api/client";
 import type { ProjectDetail, SubagentListItem } from "../../api/types";
 
-export type SpawnTemplate = "coordinator" | "worker" | "reviewer" | "custom";
+export type SpawnTemplate = "lead" | "custom";
 
 export type SpawnPrefill = {
   name?: string;
@@ -16,6 +16,8 @@ export type SpawnPrefill = {
   includeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;
   includePostRun?: boolean;
+  agentId?: string;
+  agentName?: string;
 };
 
 export type SpawnFormDraft = {
@@ -87,9 +89,7 @@ function getFrontmatterString(
 }
 
 function mapTemplateToPromptRole(template: SpawnTemplate): PromptRole {
-  if (template === "coordinator") return "coordinator";
-  if (template === "worker") return "worker";
-  if (template === "reviewer") return "reviewer";
+  if (template === "lead") return "coordinator";
   return "legacy";
 }
 
@@ -221,7 +221,10 @@ export function SpawnForm(props: SpawnFormProps) {
 
   const effectiveRepoPath = createMemo(() => {
     const repoPath = getFrontmatterString(props.project.frontmatter, "repo").trim();
-    if (props.template !== "worker") {
+    if (props.template !== "custom") {
+      return repoPath;
+    }
+    if (!repoPath) {
       return repoPath;
     }
     const mode = modeForPrompt();
@@ -296,6 +299,7 @@ export function SpawnForm(props: SpawnFormProps) {
     const slug = addAgentSlug();
     const prompt = preparedPrompt();
     const promptRole = mapTemplateToPromptRole(props.template);
+    const isLead = props.template === "lead";
     const result = await spawnSubagent(props.projectId, {
       slug,
       cli: addAgentCli(),
@@ -310,6 +314,7 @@ export function SpawnForm(props: SpawnFormProps) {
       reasoningEffort: addAgentCli() === "pi" ? undefined : addAgentReasoning(),
       thinking: addAgentCli() === "pi" ? addAgentReasoning() : undefined,
       mode: resolvedMode(),
+      ...(isLead && props.prefill.agentId ? { agentId: props.prefill.agentId } : {}),
     });
     setAddingAgent(false);
 
@@ -336,6 +341,12 @@ export function SpawnForm(props: SpawnFormProps) {
           void submitAddAgent();
         }}
       >
+        <Show when={props.template === "lead" && props.prefill.agentName}>
+          <div class="spawn-form-lead-header">
+            Lead Agent: {props.prefill.agentName}
+          </div>
+        </Show>
+        <Show when={props.template === "custom"}>
         <div class="spawn-form-grid">
           <label class="add-agent-label wide">
             Agent name (optional)
@@ -418,6 +429,7 @@ export function SpawnForm(props: SpawnFormProps) {
             </select>
           </label>
         </div>
+        </Show>
         <div class="add-agent-checklist">
           <label class="add-agent-check">
             <input
@@ -538,6 +550,13 @@ export function SpawnForm(props: SpawnFormProps) {
           color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.04em;
+        }
+
+        .spawn-form-lead-header {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-primary);
+          padding: 4px 0;
         }
 
         .add-agent-form {

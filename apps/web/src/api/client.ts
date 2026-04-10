@@ -1393,12 +1393,32 @@ export async function commitProjectChanges(
   return (await res.json()) as CommitResult;
 }
 
+export type AgentInfo = { id: string; name: string };
+export type SubagentTemplateInfo = {
+  name: string;
+  description?: string;
+  harness: string;
+  model: string;
+  reasoning: string;
+  type: string;
+  runMode: string;
+};
+
+export async function fetchSpawnOptions(): Promise<{
+  agents: AgentInfo[];
+  subagentTemplates: SubagentTemplateInfo[];
+}> {
+  const res = await fetch(`${API_BASE}/config/spawn-options`);
+  if (!res.ok) return { agents: [], subagentTemplates: [] };
+  return res.json();
+}
+
 export type SpawnSubagentInput = {
   slug: string;
   cli: string;
   name?: string;
   prompt: string;
-  template?: "coordinator" | "worker" | "reviewer" | "custom";
+  template?: "lead" | "custom";
   promptRole?: "coordinator" | "worker" | "reviewer" | "legacy";
   includeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;
@@ -1410,6 +1430,7 @@ export type SpawnSubagentInput = {
   baseBranch?: string;
   resume?: boolean;
   attachments?: FileAttachment[];
+  agentId?: string;
 };
 
 export type SpawnSubagentResult =
@@ -1699,7 +1720,7 @@ export type StartProjectRunResult =
 export type StartProjectRunInput = {
   customPrompt?: string;
   runAgent?: string;
-  template?: "coordinator" | "worker" | "reviewer" | "custom";
+  template?: "lead" | "custom";
   promptRole?: "coordinator" | "worker" | "reviewer" | "legacy";
   includeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;

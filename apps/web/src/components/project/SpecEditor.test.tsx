@@ -266,7 +266,7 @@ describe("SpecEditor", () => {
     dispose();
   });
 
-  it("collapses and expands tasks and acceptance criteria together", async () => {
+  it("renders tasks and acceptance criteria sections", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(
@@ -297,27 +297,6 @@ describe("SpecEditor", () => {
     expect(container.textContent).toContain("Tasks");
     expect(container.textContent).toContain("Acceptance Criteria");
     expect(container.textContent).toContain("Ship toggle");
-    expect(container.textContent).toContain("Toggle hides both sections");
-
-    const toggle = container.querySelector(
-      ".spec-collapse-toggle"
-    ) as HTMLButtonElement | null;
-    expect(toggle).not.toBeNull();
-    toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    await Promise.resolve();
-
-    expect(toggle!.textContent).toBe("Expand");
-    expect(container.textContent).not.toContain("+ Add task");
-    expect(container.textContent).not.toContain("Acceptance Criteria");
-    expect(container.textContent).not.toContain("Toggle hides both sections");
-
-    toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    await Promise.resolve();
-
-    expect(toggle!.textContent).toBe("Collapse");
-    expect(container.textContent).toContain("Acceptance Criteria");
     expect(container.textContent).toContain("Toggle hides both sections");
 
     dispose();

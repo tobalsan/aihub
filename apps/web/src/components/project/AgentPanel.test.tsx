@@ -6,6 +6,7 @@ import type { ProjectDetail, SubagentListItem } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import {
   fetchSimpleHistory,
+  fetchSpawnOptions,
   renameSubagent,
   fetchSubagentLogs,
   fetchSubagents,
@@ -18,6 +19,13 @@ vi.mock("../../api/client", () => ({
     data: { cursor: 0, events: [] },
   })),
   fetchSimpleHistory: vi.fn(async () => ({ messages: [] })),
+  fetchSpawnOptions: vi.fn(async () => ({
+    agents: [
+      { id: "agent-claude", name: "Claude Lead" },
+      { id: "agent-codex", name: "Codex Lead" },
+    ],
+    subagentTemplates: [],
+  })),
   subscribeToFileChanges: vi.fn(() => () => {}),
   archiveSubagent: vi.fn(async () => ({
     ok: true,
@@ -129,7 +137,7 @@ describe("AgentPanel", () => {
     dispose();
   });
 
-  it("opens template menu and emits worker prefill", async () => {
+  it("opens template menu and emits lead agent prefill", async () => {
     vi.mocked(fetchSubagents).mockResolvedValue({
       ok: true,
       data: {
@@ -143,7 +151,6 @@ describe("AgentPanel", () => {
         ],
       },
     });
-    const randSpy = vi.spyOn(Math, "random").mockReturnValue(0.1);
     const onOpenSpawn = vi.fn();
 
     const { container, dispose } = setup({ onOpenSpawn });
@@ -153,32 +160,36 @@ describe("AgentPanel", () => {
     ) as HTMLButtonElement;
     openButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const workerOption = Array.from(
+    // Wait for fetchSpawnOptions to resolve
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const leadOption = Array.from(
       container.querySelectorAll(".template-option")
-    ).find((item) => item.textContent?.includes("Worker")) as HTMLButtonElement;
-    workerOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    ).find((item) => item.textContent?.includes("Claude Lead")) as HTMLButtonElement;
+    expect(leadOption).toBeTruthy();
+    leadOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(onOpenSpawn).toHaveBeenCalledTimes(1);
     const payload = onOpenSpawn.mock.calls[0]?.[0];
-    expect(payload.template).toBe("worker");
+    expect(payload.template).toBe("lead");
     expect(payload.prefill).toMatchObject({
-      cli: "codex",
-      model: "gpt-5.4",
+      agentId: "agent-claude",
+      agentName: "Claude Lead",
+      cli: "claude",
+      model: "opus",
       reasoning: "medium",
-      runMode: "clone",
+      runMode: "none",
       includeDefaultPrompt: true,
       includeRoleInstructions: true,
-      includePostRun: true,
+      includePostRun: false,
     });
-    expect(payload.prefill.name).not.toBe("Worker Alpha");
 
     expect(container.querySelector(".template-menu")).toBeNull();
 
-    randSpy.mockRestore();
     dispose();
   });
 
-  it("shows all four template options", async () => {
+  it("shows dynamic agent options and custom", async () => {
     vi.mocked(fetchSubagents).mockResolvedValue({
       ok: true,
       data: { items: [] },
@@ -192,9 +203,8 @@ describe("AgentPanel", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     const text = container.textContent ?? "";
-    expect(text).toContain("Coordinator");
-    expect(text).toContain("Worker");
-    expect(text).toContain("Reviewer");
+    expect(text).toContain("Claude Lead");
+    expect(text).toContain("Codex Lead");
     expect(text).toContain("Custom");
 
     dispose();

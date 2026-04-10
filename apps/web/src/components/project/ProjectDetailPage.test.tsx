@@ -55,6 +55,10 @@ vi.mock("../../api/client", () => ({
     () => () => {}
   ),
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "alpha" } })),
+  fetchSpawnOptions: vi.fn(async () => ({
+    agents: [{ id: "agent-1", name: "Lead Agent" }],
+    subagentTemplates: [],
+  })),
 }));
 
 function mockMatchMedia({
@@ -193,10 +197,13 @@ describe("ProjectDetailPage", () => {
     ) as HTMLButtonElement;
     addButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const workerOption = Array.from(
+    // Wait for fetchSpawnOptions to resolve
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const leadOption = Array.from(
       container.querySelectorAll(".template-option")
-    ).find((item) => item.textContent?.includes("Worker")) as HTMLButtonElement;
-    workerOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    ).find((item) => item.textContent?.includes("Lead Agent")) as HTMLButtonElement;
+    leadOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 

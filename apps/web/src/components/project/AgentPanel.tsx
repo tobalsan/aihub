@@ -11,12 +11,14 @@ import {
   archiveSubagent,
   unarchiveSubagent,
   fetchSimpleHistory,
+  fetchSpawnOptions,
   fetchSubagentLogs,
   fetchSubagents,
   killSubagent,
   renameSubagent,
   subscribeToFileChanges,
 } from "../../api/client";
+import type { AgentInfo } from "../../api/client";
 import type {
   Area,
   ProjectDetail,
@@ -235,6 +237,7 @@ export function AgentPanel(props: AgentPanelProps) {
   const [repoDraft, setRepoDraft] = createSignal("");
   const [savingRepo, setSavingRepo] = createSignal(false);
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
+  const [spawnAgents, setSpawnAgents] = createSignal<AgentInfo[]>([]);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
   const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
@@ -553,7 +556,7 @@ export function AgentPanel(props: AgentPanelProps) {
   });
   const renderSubagentCard = (item: SubagentListItem) => {
     const indicator = statusIndicator(item.status);
-    const agentMeta = formatAgentMeta(item.cli, item.model);
+    const agentMeta = item.agentId ? item.name ?? item.agentId : formatAgentMeta(item.cli, item.model);
     return (
       <div
         class="agent-list-item subagent"
@@ -1008,7 +1011,12 @@ export function AgentPanel(props: AgentPanelProps) {
               onClick={(event) => {
                 if (!props.project.repoValid) return;
                 event.stopPropagation();
-                setTemplateMenuOpen((open) => !open);
+                setTemplateMenuOpen((open) => {
+                  if (!open) {
+                    void fetchSpawnOptions().then((opts) => setSpawnAgents(opts.agents));
+                  }
+                  return !open;
+                });
               }}
             >
               + Create new agent
@@ -1020,69 +1028,32 @@ export function AgentPanel(props: AgentPanelProps) {
             </Show>
             <Show when={templateMenuOpen()}>
               <div class="template-menu">
-                <button
-                  type="button"
-                  class="template-option"
-                  onClick={() =>
-                    openTemplate("coordinator", {
-                      name: "Coordinator",
-                      cli: "claude",
-                      model: "opus",
-                      reasoning: "medium",
-                      runMode: "none",
-                      includeDefaultPrompt: true,
-                      includeRoleInstructions: true,
-                      includePostRun: false,
-                    })
-                  }
-                >
-                  <span class="template-title">Coordinator</span>
-                  <span class="template-description">
-                    Orchestrates tasks, doesn&apos;t write code
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  class="template-option"
-                  onClick={() =>
-                    openTemplate("worker", {
-                      name: pickUniqueAgentName("Worker", props.subagents),
-                      cli: "codex",
-                      model: "gpt-5.4",
-                      reasoning: "medium",
-                      runMode: "clone",
-                      includeDefaultPrompt: true,
-                      includeRoleInstructions: true,
-                      includePostRun: true,
-                    })
-                  }
-                >
-                  <span class="template-title">Worker</span>
-                  <span class="template-description">
-                    Implements code in isolated workspace
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  class="template-option"
-                  onClick={() =>
-                    openTemplate("reviewer", {
-                      name: pickUniqueAgentName("Reviewer", props.subagents),
-                      cli: "codex",
-                      model: "gpt-5.4",
-                      reasoning: "high",
-                      runMode: "none",
-                      includeDefaultPrompt: true,
-                      includeRoleInstructions: true,
-                      includePostRun: true,
-                    })
-                  }
-                >
-                  <span class="template-title">Reviewer</span>
-                  <span class="template-description">
-                    Reviews worker output, runs tests
-                  </span>
-                </button>
+                <For each={spawnAgents()}>
+                  {(agent) => (
+                    <button
+                      type="button"
+                      class="template-option"
+                      onClick={() =>
+                        openTemplate("lead", {
+                          agentId: agent.id,
+                          agentName: agent.name,
+                          cli: "claude",
+                          model: "opus",
+                          reasoning: "medium",
+                          runMode: "none",
+                          includeDefaultPrompt: true,
+                          includeRoleInstructions: true,
+                          includePostRun: false,
+                        })
+                      }
+                    >
+                      <span class="template-title">{agent.name}</span>
+                      <span class="template-description">
+                        Launch lead agent session
+                      </span>
+                    </button>
+                  )}
+                </For>
                 <button
                   type="button"
                   class="template-option"
