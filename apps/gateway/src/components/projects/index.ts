@@ -24,7 +24,7 @@ import {
 } from "@aihub/shared";
 import { z } from "zod";
 import { agentEventBus } from "../../agents/events.js";
-import { getActiveAgents, getAgent, loadConfig, isAgentActive } from "../../config/index.js";
+import { getActiveAgents, getAgent, getSubagentTemplates, loadConfig, isAgentActive } from "../../config/index.js";
 import {
   getRecentActivity,
   recordCommentActivity,
@@ -567,6 +567,30 @@ export function registerProjectRoutes(app: Hono): void {
       }
     }
 
+    // Subagent template resolution (takes precedence over legacy template)
+    const subagentTemplateName = startInput.subagentTemplate;
+    if (subagentTemplateName) {
+      const match = getSubagentTemplates().find(
+        (t) => t.name.toLowerCase() === subagentTemplateName.toLowerCase()
+      );
+      if (!match) {
+        return c.json(
+          { error: `Unknown subagent template: ${subagentTemplateName}` },
+          400
+        );
+      }
+      if (!hasText(startInput.runAgent))
+        startInput.runAgent = `cli:${match.harness}`;
+      if (!hasText(startInput.model)) startInput.model = match.model;
+      if (!hasText(startInput.reasoningEffort))
+        startInput.reasoningEffort = match.reasoning;
+      if (!hasText(startInput.runMode)) startInput.runMode = match.runMode;
+      if (!hasText(startInput.promptRole)) {
+        startInput.promptRole = match.type as PromptRole;
+      }
+      if (!hasText(startInput.name)) startInput.name = match.name;
+    }
+
     const config = getProjectsConfig();
     const projectResult = await getProject(config, id);
     if (!projectResult.ok) {
@@ -786,6 +810,7 @@ export function registerProjectRoutes(app: Hono): void {
       customPrompt: mergedCustomPrompt || undefined,
       runAgentLabel,
       workerWorkspaces: reviewerWorkspaces,
+      subagentTypes: getSubagentTemplates(),
       owner:
         typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,
       includeDefaultPrompt: startInput.includeDefaultPrompt,
@@ -934,6 +959,12 @@ export function registerProjectRoutes(app: Hono): void {
     }
 
     return c.json({ ok: true, type: "cli", slug, runMode });
+  });
+
+  app.get("/config/spawn-options", (c) => {
+    const agents = getActiveAgents().map((a) => ({ id: a.id, name: a.name }));
+    const subagentTemplates = getSubagentTemplates();
+    return c.json({ agents, subagentTemplates });
   });
 
   app.get("/projects", async (c) => {
@@ -1461,6 +1492,68 @@ export function registerProjectRoutes(app: Hono): void {
             typeof attachment.mimeType === "string"
         )
       : undefined;
+
+    // Lead agent session: route to runAgent instead of spawnSubagent
+    const agentId =
+      typeof body.agentId === "string" && body.agentId.trim()
+        ? body.agentId.trim()
+        : undefined;
+    if (agentId) {
+      if (!prompt) {
+        return c.json({ error: "Missing required field: prompt" }, 400);
+      }
+      const agent = getAgent(agentId);
+      if (!agent || !isAgentActive(agentId)) {
+        return c.json({ error: "Agent not found" }, 404);
+      }
+      const config = getProjectsConfig();
+      const projectResult = await getProject(config, id);
+      if (!projectResult.ok) {
+        return c.json({ error: projectResult.error }, 404);
+      }
+      const project = projectResult.data;
+      const frontmatter = project.frontmatter ?? {};
+      const sessionKeys =
+        typeof frontmatter.sessionKeys === "object" &&
+        frontmatter.sessionKeys !== null
+          ? (frontmatter.sessionKeys as Record<string, string>)
+          : {};
+      const sessionKey =
+        sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
+
+      // Build coordinator prompt with subagent types
+      const coordinatorPrompt = buildRolePrompt({
+        role: "coordinator",
+        title: project.title,
+        status:
+          typeof frontmatter.status === "string" ? frontmatter.status : "",
+        path: (project.absolutePath || project.path).replace(/\/$/, ""),
+        content: prompt,
+        specsPath: "",
+        projectId: project.id,
+        subagentTypes: getSubagentTemplates(),
+      });
+
+      import("../../agents/index.js")
+        .then(({ runAgent }) =>
+          runAgent({
+            agentId: agent.id,
+            message: coordinatorPrompt,
+            sessionKey,
+          })
+        )
+        .catch((err) => {
+          console.error(
+            `[projects:${project.id}] lead agent session failed:`,
+            err
+          );
+        });
+
+      return c.json(
+        { ok: true, type: "aihub", agentId: agent.id, sessionKey },
+        201
+      );
+    }
 
     if (!slug || !cli || !prompt) {
       return c.json({ error: "Missing required fields" }, 400);
@@ -2257,6 +2350,7 @@ const projectsComponent: Component = {
   requiredSecrets: [],
   routePrefixes: [
     "/api/areas",
+    "/api/config",
     "/api/projects",
     "/api/subagents",
     "/api/activity",

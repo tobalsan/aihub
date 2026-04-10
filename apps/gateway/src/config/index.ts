@@ -6,6 +6,7 @@ import {
   resolveConfigPath,
   resolveHomeDir,
   type GatewayConfig,
+  type SubagentConfig,
 } from "@aihub/shared";
 import { migrateConfigV1toV2 } from "./migrate.js";
 
@@ -117,6 +118,11 @@ export function getActiveAgents() {
   const agents = loadConfig().agents;
   if (!singleAgentId) return agents;
   return agents.filter((a) => a.id === singleAgentId);
+}
+
+export function getSubagentTemplates(): SubagentConfig[] {
+  const cfg = loadConfig();
+  return cfg.subagents ?? [];
 }
 
 export function resolveWorkspaceDir(workspaceDir: string): string {
