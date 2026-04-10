@@ -1,0 +1,10 @@
+schema_version = "1.1"
+
+[task]
+instructions = "instruction.md"
+
+[agent]
+user = "agent"
+
+[metadata]
+aihub_agent = "smoke"

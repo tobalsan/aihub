@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "agents": [
+    {
+      "id": "smoke",
+      "name": "Smoke",
+      "workspace": "agents/smoke",
+      "sdk": "claude",
+      "model": { "provider": "requesty", "model": "anthropic/claude-sonnet-4-20250514" }
+    }
+  ],
+  "components": {}
+}
