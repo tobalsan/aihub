@@ -83,17 +83,17 @@ describe("role-based project prompts", () => {
     expect(out).toContain("other relevant project markdown files");
     expect(out).toContain("Use `apm start` with templates for delegation:");
     expect(out).toContain("Preflight first: `command -v apm && apm --version`");
-    expect(out).toContain("--template worker --slug worker-<task> --name");
-    expect(out).toContain("--template reviewer --slug reviewer-<scope> --name");
+    expect(out).toContain("--subagent Worker --slug worker-<task>");
+    expect(out).toContain("--subagent Reviewer --slug reviewer-<scope>");
     expect(out).not.toContain("cd /");
     expect(out).not.toContain("/Users/");
     expect(out).toContain(
       "You do NOT run code reviews yourself. Always dispatch a Reviewer agent for review work."
     );
-    expect(out).toContain("Agent names are auto-generated");
+    expect(out).toContain("Agent names use the subagent config name as prefix");
     expect(out).toContain('Use `--name "..."` to override.');
     expect(out).toContain(
-      "When using `--template`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`."
+      "When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`."
     );
     expect(out).toContain(
       "Do not merge/cherry-pick directly from coordinator/reviewer runs."
@@ -150,6 +150,36 @@ describe("role-based project prompts", () => {
     expect(out).toContain(
       "update each commit's status in `space.json` to `integrated` or `skipped` as appropriate."
     );
+  });
+
+  it("includes subagent types section in coordinator prompt", () => {
+    const result = buildCoordinatorPrompt({
+      ...baseInput,
+      role: "coordinator",
+      subagentTypes: [
+        {
+          name: "Worker",
+          description: "Implements code",
+          harness: "codex",
+          model: "gpt-5.4",
+          reasoning: "medium",
+          type: "worker",
+          runMode: "clone",
+        },
+      ],
+    });
+    expect(result).toContain("## Available Subagent Types");
+    expect(result).toContain("**Worker** (codex / gpt-5.4");
+    expect(result).toContain("--subagent Worker");
+  });
+
+  it("omits subagent types section when none configured", () => {
+    const result = buildCoordinatorPrompt({
+      ...baseInput,
+      role: "coordinator",
+      subagentTypes: [],
+    });
+    expect(result).not.toContain("## Available Subagent Types");
   });
 
   it("builds worker prompt with implementation repo and no move-to-review", () => {

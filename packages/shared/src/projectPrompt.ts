@@ -56,6 +56,7 @@ export type RolePromptInput = {
   content?: string;
   projectFiles?: readonly string[];
   workerWorkspaces?: WorkerWorkspaceRef[];
+  subagentTypes?: Array<{ name: string; description?: string; harness: string; model: string; reasoning: string; type: string; runMode: string }>;
   includeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;
   includePostRun?: boolean;
@@ -298,6 +299,19 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
         postRunNotifyCloudBlock(),
       ].join("\n")
     : "";
+  const subagentTypesBlock =
+    includeRole && input.subagentTypes && input.subagentTypes.length > 0
+      ? [
+          "## Available Subagent Types",
+          "",
+          "The following subagent types are configured and can be spawned via `apm start`:",
+          "",
+          ...input.subagentTypes.map(
+            (s) =>
+              `- **${s.name}** (${s.harness} / ${s.model}, reasoning: ${s.reasoning}, mode: ${s.runMode})${s.description ? `: ${s.description}` : ""}\n  → \`apm start ${projectId} --subagent ${s.name} --custom-prompt "..."\``
+          ),
+        ].join("\n")
+      : "";
   return joinPromptParts([
     includeDefault ? roleDefaultPrompt(input, false) : "",
     repoBlock,
@@ -314,10 +328,10 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- When delegating implementation, keep workers on dedicated worktrees/workspaces; do not send them to the main repo unless the task explicitly requires it.",
           "Use `apm start` with templates for delegation:",
           "- Preflight first: `command -v apm && apm --version`",
-          '- Worker: `apm start <project_id> --template worker --slug worker-<task> --name "Worker <Name>" --custom-prompt "Implement <task>; update SPECS.md status."`',
-          '- Reviewer: `apm start <project_id> --template reviewer --slug reviewer-<scope> --name "Reviewer <Name>" --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
-          '- Agent names are auto-generated (e.g. "Worker Sage") when using templates. Use `--name "..."` to override.',
-          "- When using `--template`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`.",
+          '- Worker: `apm start <project_id> --subagent Worker --slug worker-<task> --custom-prompt "Implement <task>; update SPECS.md status."`',
+          '- Reviewer: `apm start <project_id> --subagent Reviewer --slug reviewer-<scope> --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
+          '- Agent names use the subagent config name as prefix (e.g. "Worker Sage"). Use `--name "..."` to override.',
+          "- When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`.",
           "- Do not merge/cherry-pick directly from coordinator/reviewer runs. Integration must go through Space queue and explicit Integrate Now.",
           "## Agent Management Rules",
           "- Monitor agents with `apm status <project-id> --slug <agent>`.",
@@ -340,6 +354,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- Optional `###` subsections are supported in both sections.",
         ].join("\n")
       : "",
+    subagentTypesBlock,
     postRun,
     input.customPrompt,
   ]);

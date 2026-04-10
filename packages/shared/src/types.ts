@@ -403,6 +403,17 @@ export const ComponentsConfigSchema = z
   .optional();
 export type ComponentsConfig = z.infer<typeof ComponentsConfigSchema>;
 
+export const SubagentConfigSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  harness: z.enum(["codex", "claude", "pi"]),
+  model: z.string(),
+  reasoning: z.string(),
+  type: z.enum(["worker", "reviewer"]),
+  runMode: z.enum(["clone", "main", "worktree", "none"]),
+});
+export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
@@ -434,6 +445,7 @@ export const GatewayConfigSchema = z.object({
   ui: UiConfigSchema.optional(),
   taskboard: TaskboardConfigSchema.optional(),
   projects: ProjectsConfigSchema.optional(),
+  subagents: z.array(SubagentConfigSchema).optional().default([]),
   env: z.record(z.string(), z.string()).optional(), // Env vars to set (only if not already set)
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
@@ -720,6 +732,7 @@ export const StartProjectRunRequestSchema = z.object({
   includeDefaultPrompt: z.boolean().optional(),
   includeRoleInstructions: z.boolean().optional(),
   includePostRun: z.boolean().optional(),
+  subagentTemplate: z.string().optional(),
   allowTemplateOverrides: z.boolean().optional(),
   runMode: z.string().optional(),
   baseBranch: z.string().optional(),
