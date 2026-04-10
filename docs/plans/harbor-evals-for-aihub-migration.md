@@ -910,7 +910,7 @@ Task environment images in `cloudihub` should:
 Default local-dev shape:
 
 ```bash
-docker compose -f harbor/tasks/sales-admin/sales-admin-renewals/environment/docker-compose.yaml up --build
+docker compose -f eval/harbor/tasks/sales-admin/sales-admin-renewals/environment/docker-compose.yaml up --build
 ```
 
 The source of truth for prompts and skills remains `config/agents/sally/**`, not a copied eval-only snapshot.
@@ -1167,7 +1167,7 @@ On every PR, run Harbor against the pinned `aihub-eval-base` tag.
 Command shape:
 
 ```bash
-harbor run harbor/tasks/sales-admin/*
+harbor run eval/harbor/tasks/sales-admin/*
 ```
 
 Or equivalent explicit loop if Harbor prefers one task path at a time.
@@ -1235,7 +1235,7 @@ Outcome:
 
 Scope:
 
-- add `harbor/tasks/sales-admin/sales-admin-renewals/` by copying the proven task from `aihub`
+- add `eval/harbor/tasks/sales-admin/sales-admin-renewals/` by copying the proven task from `aihub`
 - update task Dockerfile to use the published base image tag
 - update compose to bind-mount `../../../config` into `/eval`
 - update any task-local paths in `task.toml`, verifier scripts, and compose files
@@ -1257,7 +1257,7 @@ volumes:
 Acceptance proof:
 
 ```bash
-harbor run -p harbor/tasks/sales-admin/sales-admin-renewals --agent-import-path cloudihub_agents.aihub_installed:AIHubInstalledAgent --env docker
+harbor run -p eval/harbor/tasks/sales-admin/sales-admin-renewals --agent-import-path eval.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:
@@ -1276,7 +1276,7 @@ Scope:
 Acceptance proof:
 
 ```bash
-harbor run -p harbor/tasks/sales-admin --agent-import-path cloudihub_agents.aihub_installed:AIHubInstalledAgent --env docker
+harbor run -p eval/harbor/tasks/sales-admin --agent-import-path eval.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:

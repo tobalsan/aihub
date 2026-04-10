@@ -78,13 +78,12 @@ examples/harbor/
 
 **cloudihub repo** (product-specific tasks):
 ```
-cloudihub_agents/
-└── aihub_installed.py          # wrapper with DEFAULT_AIHUB_AGENT = "sally"
-
-harbor/
-├── config/aihub.json           # eval-adapted sally config (fake sidecar URLs)
-├── fakes/cloudifi-admin/       # FastAPI stub + fixtures
-└── tasks/sales-admin/          # 5 tasks + dataset.toml + metric.py
+eval/
+└── harbor/
+    ├── agents/aihub_installed.py   # wrapper with DEFAULT_AIHUB_AGENT = "sally"
+    ├── config/aihub.json           # eval-adapted sally config (fake sidecar URLs)
+    ├── fakes/cloudifi-admin/       # FastAPI stub + fixtures
+    └── tasks/sales-admin/          # 5 tasks + dataset.toml + metric.py
 ```
 
 ### Network architecture
@@ -120,8 +119,8 @@ docker build -t aihub-eval-base:local -f examples/harbor/base/aihub-eval/Dockerf
 # 2. run from cloudihub repo root (harbor/ dir)
 cd ..
 REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run --yes \
-  -p harbor/tasks/sales-admin/sales-admin-renewals \
-  --agent-import-path cloudihub_agents.aihub_installed:AIHubInstalledAgent \
+  -p eval/harbor/tasks/sales-admin/sales-admin-renewals \
+  --agent-import-path eval.harbor.agents.aihub_installed:AIHubInstalledAgent \
   --env docker
 ```
 
