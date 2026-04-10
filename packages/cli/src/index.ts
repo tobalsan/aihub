@@ -3,9 +3,7 @@ import { Command } from "commander";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import {
-  START_TEMPLATE_PROFILES,
   type GatewayConfig,
-  type StartTemplate,
   type StartPromptRole as SharedStartPromptRole,
 } from "@aihub/shared";
 import { ApiClient } from "./client.js";
@@ -140,25 +138,6 @@ function mapSubagentStatus(
 }
 
 type StartPromptRole = SharedStartPromptRole;
-type StartHarness = "codex" | "claude" | "pi";
-
-const START_HARNESS_MODELS: Record<StartHarness, readonly string[]> = {
-  codex: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
-  claude: ["opus", "sonnet", "haiku"],
-  pi: [
-    "qwen3.5-plus",
-    "qwen3-max-2026-01-23",
-    "MiniMax-M2.5",
-    "glm-5",
-    "kimi-k2.5",
-  ],
-};
-
-const START_HARNESS_EFFORTS: Record<StartHarness, readonly string[]> = {
-  codex: ["xhigh", "high", "medium", "low"],
-  claude: ["high", "medium", "low"],
-  pi: ["off", "low", "medium", "high", "xhigh"],
-};
 
 type StartCommandOpts = {
   agent?: string;
@@ -170,7 +149,7 @@ type StartCommandOpts = {
   branch?: string;
   slug?: string;
   customPrompt?: string;
-  template?: string;
+  subagent?: string;
   promptRole?: string;
   allowTemplateOverrides?: boolean;
   includeDefaultPrompt?: boolean;
@@ -180,16 +159,6 @@ type StartCommandOpts = {
   includePostRun?: boolean;
   excludePostRun?: boolean;
 };
-
-function toStartTemplate(value: string | undefined): StartTemplate | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "coordinator") return "coordinator";
-  if (normalized === "worker") return "worker";
-  if (normalized === "reviewer") return "reviewer";
-  if (normalized === "custom") return "custom";
-  return undefined;
-}
 
 function toStartPromptRole(
   value: string | undefined
@@ -203,67 +172,37 @@ function toStartPromptRole(
   return undefined;
 }
 
-function toStartHarness(value: unknown): StartHarness | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "cli:codex") return "codex";
-  if (normalized === "cli:claude") return "claude";
-  if (normalized === "cli:pi") return "pi";
-  return undefined;
-}
-
 export function buildStartRequestBody(opts: StartCommandOpts): {
   body: Record<string, unknown>;
   errors: string[];
 } {
   const body: Record<string, unknown> = {};
   const errors: string[] = [];
-  let selectedTemplate: StartTemplate | undefined;
+  const hasSubagent =
+    typeof opts.subagent === "string" && opts.subagent.trim().length > 0;
   const allowTemplateOverrides = opts.allowTemplateOverrides === true;
 
-  if (typeof opts.template === "string" && opts.template.trim()) {
-    const template = toStartTemplate(opts.template);
-    if (!template) {
-      errors.push(
-        "Invalid --template value. Use coordinator|worker|reviewer|custom."
-      );
-    } else {
-      selectedTemplate = template;
-      body.template = template;
-      if (allowTemplateOverrides) {
-        const defaults = START_TEMPLATE_PROFILES[template];
-        body.promptRole = defaults.promptRole;
-        body.runAgent = defaults.runAgent;
-        body.model = defaults.model;
-        body.reasoningEffort = defaults.reasoningEffort;
-        body.runMode = defaults.runMode;
-        if (template !== "worker") {
-          body.baseBranch = defaults.baseBranch;
-        }
-        body.includeDefaultPrompt = defaults.includeDefaultPrompt;
-        body.includeRoleInstructions = defaults.includeRoleInstructions;
-        body.includePostRun = defaults.includePostRun;
-        body.allowTemplateOverrides = true;
-      }
-    }
-  }
+  if (hasSubagent) {
+    body.subagentTemplate = opts.subagent!.trim();
 
-  if (selectedTemplate && !allowTemplateOverrides) {
-    const hasLockedOverrides =
-      (typeof opts.agent === "string" && opts.agent.trim().length > 0) ||
-      (typeof opts.model === "string" && opts.model.trim().length > 0) ||
-      (typeof opts.reasoningEffort === "string" &&
-        opts.reasoningEffort.trim().length > 0) ||
-      (typeof opts.thinking === "string" && opts.thinking.trim().length > 0) ||
-      (typeof opts.mode === "string" && opts.mode.trim().length > 0) ||
-      (typeof opts.branch === "string" && opts.branch.trim().length > 0) ||
-      (typeof opts.promptRole === "string" &&
-        opts.promptRole.trim().length > 0);
-    if (hasLockedOverrides) {
-      errors.push(
-        "Template profile locked. Use --allow-template-overrides to override."
-      );
-      return { body, errors };
+    if (!allowTemplateOverrides) {
+      const hasLockedOverrides =
+        (typeof opts.agent === "string" && opts.agent.trim().length > 0) ||
+        (typeof opts.model === "string" && opts.model.trim().length > 0) ||
+        (typeof opts.reasoningEffort === "string" &&
+          opts.reasoningEffort.trim().length > 0) ||
+        (typeof opts.thinking === "string" &&
+          opts.thinking.trim().length > 0) ||
+        (typeof opts.mode === "string" && opts.mode.trim().length > 0) ||
+        (typeof opts.branch === "string" && opts.branch.trim().length > 0) ||
+        (typeof opts.promptRole === "string" &&
+          opts.promptRole.trim().length > 0);
+      if (hasLockedOverrides) {
+        errors.push(
+          "Subagent profile locked. Use --allow-template-overrides to override."
+        );
+        return { body, errors };
+      }
     }
   }
 
@@ -293,57 +232,8 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
     body.slug = opts.slug.trim();
   }
 
-  if (allowTemplateOverrides && selectedTemplate) {
+  if (allowTemplateOverrides && hasSubagent) {
     body.allowTemplateOverrides = true;
-  }
-
-  if (selectedTemplate && typeof body.runAgent === "string") {
-    const harness = toStartHarness(body.runAgent);
-    const hasExplicitModel =
-      typeof opts.model === "string" && opts.model.trim().length > 0;
-    const hasExplicitReasoning =
-      typeof opts.reasoningEffort === "string" &&
-      opts.reasoningEffort.trim().length > 0;
-    const hasExplicitThinking =
-      typeof opts.thinking === "string" && opts.thinking.trim().length > 0;
-
-    if (harness && !hasExplicitModel) {
-      const allowedModels = START_HARNESS_MODELS[harness];
-      const model = typeof body.model === "string" ? body.model.trim() : "";
-      if (!allowedModels.includes(model)) {
-        body.model = allowedModels[0];
-      }
-    }
-
-    if (harness === "pi") {
-      if (!hasExplicitThinking) {
-        const allowedThinking = START_HARNESS_EFFORTS.pi;
-        const current =
-          typeof body.reasoningEffort === "string"
-            ? body.reasoningEffort.trim()
-            : typeof body.thinking === "string"
-              ? body.thinking.trim()
-              : "";
-        body.thinking = allowedThinking.includes(current)
-          ? current
-          : allowedThinking[0];
-      }
-      if (!hasExplicitReasoning) delete body.reasoningEffort;
-    } else if (harness === "codex" || harness === "claude") {
-      if (!hasExplicitReasoning) {
-        const allowedReasoning = START_HARNESS_EFFORTS[harness];
-        const current =
-          typeof body.reasoningEffort === "string"
-            ? body.reasoningEffort.trim()
-            : typeof body.thinking === "string"
-              ? body.thinking.trim()
-              : "";
-        body.reasoningEffort = allowedReasoning.includes(current)
-          ? current
-          : allowedReasoning[0];
-      }
-      if (!hasExplicitThinking) delete body.thinking;
-    }
   }
 
   if (typeof opts.promptRole === "string" && opts.promptRole.trim()) {
@@ -1125,8 +1015,8 @@ program
   .option("--branch <branch>", "Base branch for clone/worktree")
   .option("--slug <slug>", "Slug override (clone/worktree)")
   .option(
-    "--template <template>",
-    "Prompt template (coordinator|worker|reviewer|custom)"
+    "--subagent <name>",
+    "Subagent template name from aihub.json config (e.g. Worker, Reviewer)"
   )
   .option(
     "--prompt-role <role>",

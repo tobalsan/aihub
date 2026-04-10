@@ -2,49 +2,49 @@ import { describe, expect, it } from "vitest";
 import { buildStartRequestBody } from "./index.js";
 
 describe("apm start request body mapping", () => {
-  it("sends template-only profile by default (server applies defaults)", () => {
+  it("sends subagentTemplate when --subagent is provided (server applies defaults)", () => {
     const { body, errors } = buildStartRequestBody({
-      template: "worker",
+      subagent: "Worker",
     });
 
     expect(errors).toEqual([]);
     expect(body).toEqual({
-      template: "worker",
+      subagentTemplate: "Worker",
     });
   });
 
-  it("allows non-locked fields with template (slug/name/custom prompt flow)", () => {
+  it("allows non-locked fields with subagent (slug/name/custom prompt flow)", () => {
     const { body, errors } = buildStartRequestBody({
-      template: "worker",
+      subagent: "Worker",
       slug: "worker-sidebar-recent",
       name: "Worker Sidebar Recent",
     });
 
     expect(errors).toEqual([]);
     expect(body).toEqual({
-      template: "worker",
+      subagentTemplate: "Worker",
       slug: "worker-sidebar-recent",
       name: "Worker Sidebar Recent",
     });
   });
 
-  it("rejects locked template overrides without escape hatch", () => {
+  it("rejects locked subagent overrides without escape hatch", () => {
     const { body, errors } = buildStartRequestBody({
-      template: "coordinator",
+      subagent: "Coordinator",
       agent: "codex",
     });
 
     expect(body).toEqual({
-      template: "coordinator",
+      subagentTemplate: "Coordinator",
     });
     expect(errors).toEqual([
-      "Template profile locked. Use --allow-template-overrides to override.",
+      "Subagent profile locked. Use --allow-template-overrides to override.",
     ]);
   });
 
-  it("lets explicit options override template defaults with escape hatch", () => {
+  it("lets explicit options override subagent defaults with escape hatch", () => {
     const { body, errors } = buildStartRequestBody({
-      template: "coordinator",
+      subagent: "Coordinator",
       allowTemplateOverrides: true,
       agent: "codex",
       model: "gpt-5.2",
@@ -55,7 +55,7 @@ describe("apm start request body mapping", () => {
 
     expect(errors).toEqual([]);
     expect(body).toMatchObject({
-      template: "coordinator",
+      subagentTemplate: "Coordinator",
       allowTemplateOverrides: true,
       runAgent: "cli:codex",
       model: "gpt-5.2",
@@ -78,58 +78,19 @@ describe("apm start request body mapping", () => {
     });
   });
 
-  it("maps template reasoning default to thinking when agent is pi", () => {
+  it("passes subagent and agent to server without local resolution", () => {
     const { body, errors } = buildStartRequestBody({
-      template: "coordinator",
+      subagent: "Worker",
       allowTemplateOverrides: true,
       agent: "pi",
     });
 
     expect(errors).toEqual([]);
     expect(body).toMatchObject({
-      template: "coordinator",
+      subagentTemplate: "Worker",
+      allowTemplateOverrides: true,
       runAgent: "cli:pi",
-      runMode: "none",
-      model: "qwen3.5-plus",
-      thinking: "medium",
     });
-    expect(body).not.toHaveProperty("reasoningEffort");
-  });
-
-  it("keeps worker template base branch server-resolved with escape hatch", () => {
-    const { body, errors } = buildStartRequestBody({
-      template: "worker",
-      allowTemplateOverrides: true,
-    });
-
-    expect(errors).toEqual([]);
-    expect(body).toMatchObject({
-      template: "worker",
-      allowTemplateOverrides: true,
-      runAgent: "cli:codex",
-      model: "gpt-5.4",
-      reasoningEffort: "medium",
-      runMode: "worktree",
-    });
-    expect(body).not.toHaveProperty("baseBranch");
-  });
-
-  it("normalizes model and effort when agent override changes harness", () => {
-    const { body, errors } = buildStartRequestBody({
-      template: "custom",
-      allowTemplateOverrides: true,
-      agent: "claude",
-    });
-
-    expect(errors).toEqual([]);
-    expect(body).toMatchObject({
-      template: "custom",
-      runMode: "clone",
-      runAgent: "cli:claude",
-      model: "opus",
-      reasoningEffort: "high",
-    });
-    expect(body).not.toHaveProperty("thinking");
   });
 
   it("maps include/exclude toggles with exclude precedence", () => {
@@ -148,16 +109,28 @@ describe("apm start request body mapping", () => {
     });
   });
 
-  it("returns validation errors for invalid template values", () => {
+  it("returns validation error for invalid prompt-role", () => {
     const { body, errors } = buildStartRequestBody({
-      template: "bad",
       promptRole: "also-bad",
     });
 
     expect(body).toEqual({});
     expect(errors).toEqual([
-      "Invalid --template value. Use coordinator|worker|reviewer|custom.",
       "Invalid --prompt-role value. Use coordinator|worker|reviewer|legacy.",
     ]);
+  });
+
+  it("works without --subagent (plain start)", () => {
+    const { body, errors } = buildStartRequestBody({
+      agent: "codex",
+      model: "gpt-5.4",
+    });
+
+    expect(errors).toEqual([]);
+    expect(body).toEqual({
+      runAgent: "cli:codex",
+      model: "gpt-5.4",
+    });
+    expect(body).not.toHaveProperty("subagentTemplate");
   });
 });
