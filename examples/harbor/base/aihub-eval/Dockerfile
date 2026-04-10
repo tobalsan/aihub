@@ -1,6 +1,8 @@
-# Base image every Harbor task FROMs.
-# Bakes the aihub CLI and the vendored Sally config so `aihub eval run`
-# works headlessly inside the trial container.
+# Vendor-neutral base image every Harbor task FROMs.
+# Bakes the aihub CLI so `aihub eval run` works headlessly inside the
+# trial container.  Agent config (aihub.json, models.json, agents/,
+# connectors/) is NOT included — consuming repos provide it via
+# bind-mount or COPY in their task Dockerfile.
 #
 # Built once per dev loop from the repo root (context must be the
 # monorepo root so the builder stage can access packages/ + apps/):
@@ -76,22 +78,21 @@ RUN useradd --create-home --shell /bin/bash agent
 
 # Install the baked aihub CLI from the builder stage.
 COPY --from=builder /out /opt/aihub
-RUN chmod +x /opt/aihub/dist/cli/index.js \
+# pnpm deploy preserves source file modes (often 0600 for workspace
+# packages), so the non-root `agent` user cannot read package.json /
+# dist files.  Make the whole tree world-readable.
+RUN chmod -R a+rX /opt/aihub \
+    && chmod +x /opt/aihub/dist/cli/index.js \
     && ln -s /opt/aihub/dist/cli/index.js /usr/local/bin/aihub
 
-# AIHUB_HOME for the eval container. aihub.json + models.json +
-# vendored agents/sally workspace all live here.
+# AIHUB_HOME for the eval container. Consuming repos bind-mount or
+# COPY their own aihub.json, models.json, agents/, connectors/ into
+# /eval at task-image build time or via docker-compose volumes.
 ENV AIHUB_HOME=/eval
 RUN mkdir -p /eval /logs/agent /logs/verifier /app/out
 
-# Eval-adapted aihub.json (sally agent pointed at fake connectors)
+# Placeholder aihub.json — consuming repos override this.
 COPY examples/harbor/base/aihub-eval/aihub.json /eval/aihub.json
-# Vendored snapshot of cloudihub config (see Option A in
-# docs/plans/harbor-evals-for-aihub-migration.md; kept in sync via
-# scripts/sync-cloudihub-config.sh).
-COPY examples/harbor/base/aihub-eval/cloudihub-config/models.json /eval/models.json
-COPY examples/harbor/base/aihub-eval/cloudihub-config/agents /eval/agents
-COPY examples/harbor/base/aihub-eval/cloudihub-config/connectors /eval/connectors
 
 # External connectors loaded from /eval/connectors/*/index.js walk up
 # looking for node_modules. Point them at the gateway's flat deps tree

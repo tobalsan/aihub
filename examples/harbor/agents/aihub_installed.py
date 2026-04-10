@@ -1,18 +1,17 @@
 """
 Harbor installed-agent wrapper for AIHub.
 
-Drops into Harbor via `--agent-import-path`. Expects the container to be
-built from `examples/harbor/base/aihub-eval` (directly or via FROM), which
-bakes the `aihub` CLI and a minimal `aihub.json`.
+Generic, vendor-neutral reference implementation. Drops into Harbor via
+`--agent-import-path`. Expects the container to be built FROM
+`aihub-eval-base`, which bakes the `aihub` CLI.
 
 The wrapper does not boot AIHub itself — it only shells out to
 `aihub eval run` inside the container. All agent behavior lives in the
 AIHub runtime; Harbor just orchestrates trials and reads the output
 contract (`/logs/agent/result.json` + `/logs/agent/trajectory.json`).
 
-To register this with Harbor, drop it on Harbor's agent search path (see
-Harbor's "Integrating your own agent" docs) or reference it as a local
-module when invoking `harbor run`.
+Blueprint repos should copy this file and set DEFAULT_AIHUB_AGENT to
+their own agent id, or set `aihub_agent` in task.toml [metadata].
 """
 from __future__ import annotations
 
@@ -28,11 +27,11 @@ from harbor.models.agent.context import AgentContext
 class AIHubInstalledAgent(BaseInstalledAgent):
     """
     Minimal wrapper. `aihub_agent` is the agent id (as defined in the eval
-    container's aihub.json) to evaluate; defaults to "sally" and can
-    be overridden via task.toml [metadata] or agent kwargs.
+    container's aihub.json) to evaluate. Set via task.toml [metadata]
+    aihub_agent, or override DEFAULT_AIHUB_AGENT in a subclass.
     """
 
-    DEFAULT_AIHUB_AGENT = "sally"
+    DEFAULT_AIHUB_AGENT: str | None = None
     INSTRUCTION_PATH = "/app/instruction.md"
     RESULT_PATH = "/logs/agent/result.json"
     TRAJECTORY_PATH = "/logs/agent/trajectory.json"
@@ -100,4 +99,9 @@ class AIHubInstalledAgent(BaseInstalledAgent):
             value = metadata.get("aihub_agent")
             if isinstance(value, str) and value:
                 return value
+        if self.DEFAULT_AIHUB_AGENT is None:
+            raise ValueError(
+                "No agent id configured. Set aihub_agent in task.toml "
+                "[metadata] or override DEFAULT_AIHUB_AGENT in a subclass."
+            )
         return self.DEFAULT_AIHUB_AGENT

@@ -1,21 +1,5 @@
 {
   "version": 2,
-  "agents": [
-    {
-      "id": "sally",
-      "name": "Sally",
-      "workspace": "agents/sally",
-      "sdk": "pi",
-      "model": { "provider": "requesty", "model": "novita/minimax/minimax-m2.7" },
-      "connectors": {
-        "cloudifi_admin": {
-          "username": "eval-user",
-          "password": "eval-password",
-          "adminApiBase": "http://fake-cloudifi-admin:8080",
-          "coreApiBase": "http://fake-cloudifi-admin:8080"
-        }
-      }
-    }
-  ],
+  "agents": [],
   "components": {}
 }

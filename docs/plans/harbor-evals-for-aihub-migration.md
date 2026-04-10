@@ -2,7 +2,7 @@
 
 Date: 2026-04-06
 Owner: Cloud
-Status: direction agreed — starting with sales-admin-renewals
+Status: Option C active — aihub owns eval engine, blueprint repos own tasks
 
 ## Goal
 
@@ -617,10 +617,13 @@ That gives us the thing we currently lack: a clean, repeatable way to prove the 
 5. Add baseline-vs-migrated comparison script
 6. Decide whether to make ATIF export native or adapter-based
 
-## Option C — Migration to cloudihub Ownership
+## Option C — Migration to cloudihub Ownership (ACTIVE)
 
-Option A is the right spike shape: keep all four Harbor task layers in `aihub` until the runtime contract is proven.
-Option C is the medium-term ownership model once the spike is green.
+> **Option A (spike) is retired.** Option C is now the active ownership model.
+> Migration completed 2026-04-10.
+
+Option A was the spike shape: all four Harbor task layers colocated in `aihub`.
+Option C is the active ownership model now that the spike is proven.
 The split is simple:
 
 1. **AIHub owns the eval engine**
@@ -1254,7 +1257,7 @@ volumes:
 Acceptance proof:
 
 ```bash
-harbor run -p harbor/tasks/sales-admin/sales-admin-renewals --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
+harbor run -p harbor/tasks/sales-admin/sales-admin-renewals --agent-import-path cloudihub_agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:
@@ -1273,7 +1276,7 @@ Scope:
 Acceptance proof:
 
 ```bash
-harbor run -p harbor/tasks/sales-admin --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
+harbor run -p harbor/tasks/sales-admin --agent-import-path cloudihub_agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:

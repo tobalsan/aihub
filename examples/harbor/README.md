@@ -1,38 +1,44 @@
-# Harbor eval tasks for AIHub
+# Harbor eval engine for AIHub
 
-This directory contains [Harbor](https://www.harborframework.com/) tasks used to eval AIHub agents during the CloudifAI → AIHub migration.
+Vendor-neutral [Harbor](https://www.harborframework.com/) eval infrastructure for AIHub agents.
 
 See `docs/plans/harbor-evals-for-aihub-migration.md` for the full design.
 
-## Layout
+## What lives here
 
 ```
 base/
-  aihub-eval/          # base Docker image every task FROMs
-  fakes/               # shared fake HTTP sidecars per connector
+  aihub-eval/          # base Docker image every task FROMs (runtime only, no agent config)
 agents/
-  aihub_installed.py   # Harbor BaseInstalledAgent wrapper
+  aihub_installed.py   # generic Harbor BaseInstalledAgent reference wrapper
 tasks/
-  sales-admin/         # Wave 0 dataset (sales_admin workflows)
+  smoke/               # minimal contract test for the eval CLI
 ```
 
-## Running locally
+This directory provides the **eval engine** — the runtime, base image, and agent wrapper. Product-specific content (tasks, fake sidecars, agent config) lives in the blueprint repo that consumes these artifacts.
+
+## Running the smoke task
 
 Prerequisites: [Harbor](https://www.harborframework.com/docs/getting-started) installed, Docker running.
 
 ```bash
-# Build the base image once
-docker build -t aihub-eval-base:local examples/harbor/base/aihub-eval
+# Build the base image (from repo root)
+docker build -t aihub-eval-base:local \
+  -f examples/harbor/base/aihub-eval/Dockerfile .
 
-# Run the sales-admin dataset
+# Run the smoke task
 harbor run \
-  -p examples/harbor/tasks/sales-admin \
-  -a aihub-installed \
+  -p examples/harbor/tasks/smoke \
+  --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent \
   --env docker
 ```
 
-## Connector stubbing
+## For blueprint repos
 
-Tasks run real connector code against fake HTTP sidecars (strategy B).
-Each connector gets one shared fake under `base/fakes/<connector>/`; tasks
-override specific fixtures in `tasks/<task>/environment/fixtures/<connector>/`.
+Blueprint repos (e.g. cloudihub) consume the base image and provide their own:
+- Agent config (`aihub.json`, `models.json`, `agents/`, `connectors/`)
+- Fake HTTP sidecars for connector stubbing
+- Harbor tasks, datasets, and verifiers
+- Product-specific agent wrapper with a default agent id
+
+See the plan doc for the full Option C ownership model.

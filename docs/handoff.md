@@ -57,10 +57,11 @@ sequences, and exact `finalMessage` substrings. Real LLM output varies in format
 - **Deterministic clock** via `EVAL_NOW=2026-04-06` in compose service env (NOT `[agent.env]` — harbor silently ignores it).
 - **uv, not pip**, per AGENTS.md.
 - **Verifiers check semantics, not exact strings** — real LLM output varies in field names, descriptions, tool arg formats. Assert numeric values, required tool presence, and forbidden tool absence.
-- **Option A vendor bridge** for sally config. Snapshot from cloudihub repo into `examples/harbor/base/aihub-eval/cloudihub-config/`. Will be retired by Option C migration.
+- **Option C ownership split** (2026-04-10): aihub owns the eval engine (CLI, base image, smoke task); cloudihub owns product-specific tasks, fake sidecars, and agent config. The vendored `cloudihub-config/` and `sync-cloudihub-config.sh` have been removed.
 
-### Key file locations
+### Key file locations (post Option C migration)
 
+**aihub repo** (eval engine — vendor-neutral):
 ```
 apps/gateway/src/evals/
 ├── cli.ts          # `aihub eval run` Commander wiring
@@ -68,27 +69,22 @@ apps/gateway/src/evals/
 └── trajectory.ts   # ATIF-v1.4 emitter
 
 examples/harbor/
-├── agents/                          # (MISSING — needs aihub_installed.py)
-├── base/
-│   ├── aihub-eval/
-│   │   ├── Dockerfile                # multi-stage CLI bake
-│   │   ├── aihub.json                # eval-adapted sally config
-│   │   └── cloudihub-config/         # vendored from cloudihub repo
-│   │       ├── models.json           # requesty custom provider
-│   │       ├── agents/sally/         # SOUL/IDENTITY/USER/AGENTS/.pi/SYSTEM.md + skills
-│   │       └── connectors/cloudifi-admin/  # compiled JS from aihub-connectors
-│   └── fakes/cloudifi-admin/
-│       ├── Dockerfile
-│       ├── server.py                 # FastAPI stub (auth + companies + quota endpoints)
-│       └── fixtures/{companies,quota_report}.json
-└── tasks/sales-admin/
-    ├── sales-admin-renewals/
-    │   ├── task.toml
-    │   ├── instruction.md
-    │   ├── solution/{solve.sh, instruction.md}
-    │   ├── environment/{Dockerfile, docker-compose.yaml}
-    │   └── tests/{test.sh, test_outputs.py}
-    └── sales-admin-quota-analysis/   # same structure
+├── agents/aihub_installed.py   # generic reference wrapper (no default agent)
+├── base/aihub-eval/
+│   ├── Dockerfile              # multi-stage CLI bake (no agent config)
+│   └── aihub.json              # empty shell, overridden by consuming repos
+└── tasks/smoke/                # vendor-neutral CLI contract test
+```
+
+**cloudihub repo** (product-specific tasks):
+```
+cloudihub_agents/
+└── aihub_installed.py          # wrapper with DEFAULT_AIHUB_AGENT = "sally"
+
+harbor/
+├── config/aihub.json           # eval-adapted sally config (fake sidecar URLs)
+├── fakes/cloudifi-admin/       # FastAPI stub + fixtures
+└── tasks/sales-admin/          # 5 tasks + dataset.toml + metric.py
 ```
 
 ### Network architecture
@@ -117,21 +113,19 @@ examples/harbor/
 ### How to reproduce a green run
 
 ```bash
-# 1. (one-time) build the eval base image
+# 1. (one-time) build the eval base image from the aihub (platform/) repo root
+cd platform
 docker build -t aihub-eval-base:local -f examples/harbor/base/aihub-eval/Dockerfile .
 
-# 2. oracle path
-cd examples/harbor
-yes | REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run -p tasks/sales-admin/sales-admin-quota-analysis -a oracle
-
-# 3. installed-agent path
+# 2. run from cloudihub repo root (harbor/ dir)
+cd ..
 REQUESTY_API_KEY="$REQUESTY_API_KEY" harbor run --yes \
-  -p tasks/sales-admin/sales-admin-renewals \
-  --agent-import-path agents.aihub_installed:AIHubInstalledAgent \
+  -p harbor/tasks/sales-admin/sales-admin-renewals \
+  --agent-import-path cloudihub_agents.aihub_installed:AIHubInstalledAgent \
   --env docker
 ```
 
-Expected: `Mean: 1.000`, `pass_rate = 1.0` for both.
+Expected: `Mean: 1.000`, `pass_rate = 1.0`.
 
 ### What Sally does in a green quota-analysis run
 
@@ -170,8 +164,7 @@ New task notes:
    Should detect `write` tool calls that target `/app/out/*` and populate the field.
    Currently verifiers work around this via `finalMessage` JSON parsing fallback.
 
-3. **Option C migration** — after all 5 tasks green + metrics plumbed + CLI stable for 2 weeks.
-   See plan "Option C" section. Moves tasks + agent config ownership to cloudihub repo.
+3. ~~**Option C migration**~~ — **Done** (2026-04-10). Tasks + fakes + agent config now live in cloudihub repo.
 
 4. **Multi-trial reliability** — run each task with `--n-attempts 3` to confirm
    pass rate is consistently 1.0 (not a lucky single run).

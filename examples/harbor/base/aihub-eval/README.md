@@ -1,30 +1,29 @@
 # aihub-eval-base
 
-Base Docker image shared by every Harbor task under `examples/harbor/tasks/`.
+Vendor-neutral base Docker image shared by every Harbor task.
 
 ## What it provides
 
-- Node 20 + pnpm
+- Node 20 + the `aihub` CLI (built from source)
+- Python 3 + pytest (via uv)
 - Non-root `agent` user (matches `task.toml [agent].user = "agent"`)
-- `AIHUB_HOME=/eval` with a minimal `aihub.json` defining the agents that get evaluated
+- `AIHUB_HOME=/eval` with a placeholder `aihub.json`
 - `/logs/agent/`, `/logs/verifier/`, `/app/out/` preconfigured with correct ownership
 
-## What it does NOT provide (yet)
+## What consuming repos must provide
 
-- The actual `aihub` CLI binary. This PR scaffolds the directory + config;
-  the `aihub eval run` CLI itself is Task 1 of the plan and lands in a
-  follow-up commit. Once it exists, uncomment the install lines in the
-  Dockerfile and rebuild.
+The base image does **not** include agent config. Blueprint repos must
+supply their own `aihub.json`, `models.json`, `agents/`, and
+`connectors/` into `/eval` — either via `COPY` in the task Dockerfile
+or via bind-mount in `docker-compose.yaml`.
 
 ## Build
 
+From the monorepo root (context must include `packages/` + `apps/`):
+
 ```bash
-docker build -t aihub-eval-base:local examples/harbor/base/aihub-eval
+docker build -t aihub-eval-base:local \
+  -f examples/harbor/base/aihub-eval/Dockerfile .
 ```
 
-## aihub.json
-
-The baked `aihub.json` points every connector at eval-only hostnames
-(`fake-cloudifi-admin`, `fake-hiveage`, …). Tasks provide those hostnames
-via `environment/docker-compose.yaml` sidecars. No real external services
-are ever contacted from inside an eval container.
+Task images then: `FROM aihub-eval-base:local`
