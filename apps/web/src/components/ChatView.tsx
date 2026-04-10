@@ -220,6 +220,8 @@ export function ChatView() {
   const [pendingThinkLevel, setPendingThinkLevel] =
     createSignal<ThinkLevel | null>(null);
   const [input, setInput] = createSignal("");
+  const [stopping, setStopping] = createSignal(false);
+  const [showInterrupted, setShowInterrupted] = createSignal(false);
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [streamingThinking, setStreamingThinking] = createSignal("");
   const [streamingThinkingAt, setStreamingThinkingAt] = createSignal<
@@ -253,6 +255,7 @@ export function ChatView() {
   let textareaRef: HTMLTextAreaElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
+  let aborted = false;
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -470,6 +473,14 @@ export function ChatView() {
     const text = input().trim();
     if (!text || loading()) return;
 
+    // Treat /stop as an interrupt
+    if (text === "/stop") {
+      setInput("");
+      if (textareaRef) textareaRef.style.height = "auto";
+      handleStop();
+      return;
+    }
+
     const levelToSend = pendingThinkLevel() ?? thinkingLevel();
     const currentAgent = agent();
     const queueMode = currentAgent?.queueMode ?? "queue";
@@ -481,6 +492,7 @@ export function ChatView() {
       content: text,
       timestamp: Date.now(),
     };
+    setShowInterrupted(false);
     setSimpleMessages((prev) => [...prev, userMsg]);
     setFullMessages((prev) => [
       ...prev,
@@ -664,6 +676,15 @@ export function ChatView() {
           return;
         }
 
+        // If aborted, discard streamed content and show system message
+        if (aborted || meta?.aborted) {
+          aborted = false;
+          resetStreamingState();
+          cleanup = null;
+          maybeRefreshHistory();
+          return;
+        }
+
         // Add assistant message - build content blocks from streaming state
         const content = streamingText();
         const blocks: ContentBlock[] = [];
@@ -793,6 +814,38 @@ export function ChatView() {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleStop = () => {
+    if (stopping() || !isStreaming()) return;
+    setStopping(true);
+    aborted = true;
+
+    // Close current stream
+    if (cleanup) {
+      cleanup();
+      cleanup = null;
+    }
+
+    // Send /abort to server to cancel the running agent turn
+    const abortCleanup = streamMessage(
+      params.agentId,
+      "/abort",
+      sessionKey(),
+      () => {},
+      () => {
+        if (abortCleanup) abortCleanup();
+        setStopping(false);
+      },
+      () => {
+        if (abortCleanup) abortCleanup();
+        setStopping(false);
+      }
+    );
+
+    // Discard any streamed content and show "Interrupted"
+    resetStreamingState();
+    setShowInterrupted(true);
   };
 
   return (
@@ -1032,6 +1085,12 @@ export function ChatView() {
           <ActiveToolIndicator tools={activeTools()} />
         </Show>
 
+        <Show when={showInterrupted()}>
+          <div class="message interrupted">
+            <div class="content">Interrupted</div>
+          </div>
+        </Show>
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -1050,28 +1109,45 @@ export function ChatView() {
             rows={1}
           />
         </div>
-        <button
-          class="send-btn"
-          onClick={handleSend}
-          disabled={!input().trim() || loading()}
-          aria-label="Send message"
+        <Show
+          when={isStreaming()}
+          fallback={
+            <button
+              class="send-btn"
+              onClick={handleSend}
+              disabled={!input().trim() || loading()}
+              aria-label="Send message"
+            >
+              <svg
+                class="send-icon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M5 12h14M12 5l7 7-7 7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          }
         >
-          <svg
-            class="send-icon"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
+          <button
+            class="stop-btn"
+            classList={{ stopping: stopping() }}
+            disabled={stopping()}
+            onClick={handleStop}
+            aria-label="Stop"
           >
-            <path
-              d="M5 12h14M12 5l7 7-7 7"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+        </Show>
       </div>
 
       <style>{`
@@ -1696,6 +1772,47 @@ export function ChatView() {
 
         .send-btn:not(:disabled):hover .send-icon {
           transform: translateX(2px);
+        }
+
+        .stop-btn {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          background: #d32f2f;
+          border: none;
+          color: #fff;
+          cursor: pointer;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 4px 16px rgba(211, 47, 47, 0.4);
+        }
+
+        .stop-btn:hover:not(:disabled) {
+          background: #c62828;
+          transform: scale(1.05);
+        }
+
+        .stop-btn:active:not(:disabled) {
+          transform: scale(0.95);
+        }
+
+        .stop-btn.stopping {
+          background: #f57c00;
+          cursor: not-allowed;
+        }
+
+        .message.interrupted {
+          text-align: center;
+          padding: 8px 20px;
+        }
+
+        .message.interrupted .content {
+          color: var(--text-muted);
+          font-size: 0.85em;
+          font-style: italic;
         }
       `}</style>
     </div>
