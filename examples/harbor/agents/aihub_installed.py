@@ -1,7 +1,7 @@
 """
 Harbor installed-agent wrapper for AIHub.
 
-Drops into Harbor as `--agent aihub-installed`. Expects the container to be
+Drops into Harbor via `--agent-import-path`. Expects the container to be
 built from `examples/harbor/base/aihub-eval` (directly or via FROM), which
 bakes the `aihub` CLI and a minimal `aihub.json`.
 

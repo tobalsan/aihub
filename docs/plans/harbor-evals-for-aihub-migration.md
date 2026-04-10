@@ -455,7 +455,7 @@ The fake issues a JWT with `exp` set far in the future so the connector's token 
 
 `examples/harbor/tasks/sales-admin/dataset.toml` + `metric.py`:
 - `metric.py` reads `rewards.jsonl`, emits `{ "pass_rate": float, "mean_reward": float, "per_task": { ... } }`
-- Enables `harbor run -p examples/harbor/tasks/sales-admin -a aihub-installed` → single-line summary comparable across model/prompt sweeps
+- Enables `harbor run -p examples/harbor/tasks/sales-admin --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent` → single-line summary comparable across model/prompt sweeps
 
 ## Task 7 — Remaining sales_admin tasks
 
@@ -783,7 +783,7 @@ Minimum proof command shape:
 ```bash
 harbor run \
   -p examples/harbor/tasks/sales-admin/sales-admin-renewals \
-  -a aihub-installed \
+  --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent \
   --env docker
 ```
 
@@ -1133,7 +1133,7 @@ What it runs:
 Example command shape:
 
 ```bash
-harbor run -p examples/harbor/tasks/smoke -a aihub-installed --env docker
+harbor run -p examples/harbor/tasks/smoke --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 What this proves:
@@ -1221,7 +1221,7 @@ Scope:
 Acceptance proof:
 
 ```bash
-harbor run -p examples/harbor/tasks/smoke -a aihub-installed --env docker
+harbor run -p examples/harbor/tasks/smoke --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:
@@ -1254,7 +1254,7 @@ volumes:
 Acceptance proof:
 
 ```bash
-harbor run -p harbor/tasks/sales-admin/sales-admin-renewals -a aihub-installed --env docker
+harbor run -p harbor/tasks/sales-admin/sales-admin-renewals --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:
@@ -1273,7 +1273,7 @@ Scope:
 Acceptance proof:
 
 ```bash
-harbor run -p harbor/tasks/sales-admin -a aihub-installed --env docker
+harbor run -p harbor/tasks/sales-admin --agent-import-path examples.harbor.agents.aihub_installed:AIHubInstalledAgent --env docker
 ```
 
 Outcome:
