@@ -207,7 +207,6 @@ export function SpecEditor(props: SpecEditorProps) {
   const [addingTask, setAddingTask] = createSignal(false);
   const [newTaskTitle, setNewTaskTitle] = createSignal("");
   const [newTaskDesc, setNewTaskDesc] = createSignal("");
-  const [checklistCollapsed, setChecklistCollapsed] = createSignal(false);
   const [optimisticCheckedByOrder, setOptimisticCheckedByOrder] = createSignal<
     Record<number, boolean>
   >({});
@@ -399,33 +398,8 @@ export function SpecEditor(props: SpecEditorProps) {
     setAddingTask(false);
   };
 
-  const acceptanceSummary = createMemo(() => {
-    const total = acceptanceItems().length;
-    if (total === 0) return "No acceptance criteria";
-    const done = acceptanceItems().filter((item) => item.checked).length;
-    return `${done}/${total} acceptance criteria`;
-  });
-
   const specChecklistPane = () => (
     <div class="spec-bottom-pane">
-      <div class="spec-bottom-pane-header">
-        <div class="spec-bottom-pane-summary">
-          <span>
-            {displayedProgress().done}/{displayedProgress().total} tasks
-          </span>
-          <span>{acceptanceSummary()}</span>
-        </div>
-        <button
-          type="button"
-          class="spec-collapse-toggle"
-          onClick={() => setChecklistCollapsed((current) => !current)}
-          aria-expanded={!checklistCollapsed()}
-        >
-          {checklistCollapsed() ? "Expand" : "Collapse"}
-        </button>
-      </div>
-
-      <Show when={!checklistCollapsed()}>
       <section class="spec-section">
         <h3>Tasks</h3>
         <ProgressBar
@@ -567,7 +541,6 @@ export function SpecEditor(props: SpecEditorProps) {
           </For>
         </section>
       </Show>
-      </Show>
     </div>
   );
 
@@ -604,10 +577,10 @@ export function SpecEditor(props: SpecEditorProps) {
             class="spec-editor-edit"
             classList={{
               "split-view": viewingSpec(),
-              "collapsed-checklist": viewingSpec() && checklistCollapsed(),
             }}
           >
-            <div class="spec-edit-pane">
+            <Show when={!viewingSpec()}>
+              <div class="spec-edit-pane">
                 <textarea
                   ref={(el) => (editorRef = el)}
                   class="spec-textarea"
@@ -628,27 +601,65 @@ export function SpecEditor(props: SpecEditorProps) {
                   }}
                 />
               </div>
-              <Show when={viewingSpec()}>{specChecklistPane()}</Show>
-            </div>
+            </Show>
+            <Show when={viewingSpec()}>
+              <div class="spec-unified-scroll">
+                <div class="spec-edit-pane">
+                  <textarea
+                    ref={(el) => (editorRef = el)}
+                    class="spec-textarea"
+                    value={draft()}
+                    onInput={(e) => setDraft(e.currentTarget.value)}
+                    onBlur={() => void saveDraft()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setEditingDocKey(null);
+                        setDraft("");
+                        return;
+                      }
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        void saveDraft();
+                      }
+                    }}
+                  />
+                </div>
+                {specChecklistPane()}
+              </div>
+            </Show>
+          </div>
           }
         >
           <div
             class="spec-editor-preview"
             classList={{
               "split-view": viewingSpec(),
-              "collapsed-checklist": viewingSpec() && checklistCollapsed(),
             }}
           >
-            <div class="spec-doc-pane">
-              <article
-                class="spec-doc markdown"
-                innerHTML={documentHtml()}
-                aria-label="Spec markdown preview"
-                onDblClick={startEditingDoc}
-                title="Double-click to edit"
-              />
-            </div>
-            <Show when={viewingSpec()}>{specChecklistPane()}</Show>
+            <Show when={!viewingSpec()}>
+              <div class="spec-doc-pane">
+                <article
+                  class="spec-doc markdown"
+                  innerHTML={documentHtml()}
+                  aria-label="Spec markdown preview"
+                  onDblClick={startEditingDoc}
+                  title="Double-click to edit"
+                />
+              </div>
+            </Show>
+            <Show when={viewingSpec()}>
+              <div class="spec-unified-scroll">
+                <article
+                  class="spec-doc markdown"
+                  innerHTML={documentHtml()}
+                  aria-label="Spec markdown preview"
+                  onDblClick={startEditingDoc}
+                  title="Double-click to edit"
+                />
+                {specChecklistPane()}
+              </div>
+            </Show>
           </div>
         </Show>
       </section>
@@ -706,24 +717,39 @@ export function SpecEditor(props: SpecEditorProps) {
 
         .spec-editor-preview.split-view,
         .spec-editor-edit.split-view {
-          display: grid;
-          grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+          display: flex;
+          flex-direction: column;
+        }
+
+        .spec-unified-scroll {
+          flex: 1;
+          min-height: 0;
+          overflow: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          display: flex;
+          flex-direction: column;
           gap: 12px;
         }
 
-        .spec-editor-preview.collapsed-checklist,
-        .spec-editor-edit.collapsed-checklist {
-          grid-template-rows: minmax(0, 1fr) auto;
+        .spec-unified-scroll > .spec-edit-pane,
+        .spec-unified-scroll > .spec-bottom-pane {
+          flex: 0 0 auto;
+          overflow: visible;
         }
 
         .spec-doc-pane,
-        .spec-edit-pane,
-        .spec-bottom-pane {
+        .spec-edit-pane {
           min-height: 0;
           flex: 1;
           overflow: auto;
           overscroll-behavior: contain;
           -webkit-overflow-scrolling: touch;
+        }
+
+        .spec-bottom-pane {
+          min-height: 0;
+          flex: 0 0 auto;
         }
 
         .spec-edit-pane {
@@ -736,36 +762,6 @@ export function SpecEditor(props: SpecEditorProps) {
           display: grid;
           gap: 10px;
           align-content: start;
-        }
-
-        .spec-bottom-pane-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          border: 1px solid var(--border-subtle);
-          border-radius: 12px;
-          padding: 10px 14px;
-          background: var(--bg-inset);
-        }
-
-        .spec-bottom-pane-summary {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          font-size: 12px;
-          color: var(--text-secondary);
-        }
-
-        .spec-collapse-toggle {
-          border: 1px solid var(--border-subtle);
-          border-radius: 999px;
-          background: transparent;
-          color: var(--text-primary);
-          padding: 5px 10px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
         }
 
         .spec-doc-pane > * {
@@ -1084,6 +1080,11 @@ export function SpecEditor(props: SpecEditorProps) {
           line-height: 1.6;
           font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
           font-size: 12px;
+        }
+
+        .spec-unified-scroll > .spec-edit-pane > .spec-textarea {
+          min-height: 400px;
+          height: auto;
         }
       `}</style>
     </>
