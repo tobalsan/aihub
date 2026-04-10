@@ -153,6 +153,7 @@ export async function appendSessionMeta(
 export type TurnBuffer = {
   userText: string | null;
   userTimestamp: number;
+  userFlushed: boolean;
   thinkingText: string;
   assistantText: string;
   toolCalls: Array<{ id: string; name: string; args: unknown }>;
@@ -179,6 +180,7 @@ export function createTurnBuffer(): TurnBuffer {
   return {
     userText: null,
     userTimestamp: Date.now(),
+    userFlushed: false,
     thinkingText: "",
     assistantText: "",
     toolCalls: [],
@@ -200,8 +202,8 @@ export async function flushTurnBuffer(
   buffer: TurnBuffer,
   userId?: string
 ): Promise<void> {
-  // 1. User message
-  if (buffer.userText) {
+  // 1. User message (skip if already eagerly flushed)
+  if (buffer.userText && !buffer.userFlushed) {
     await appendRawEntry(
       agentId,
       sessionId,
@@ -262,6 +264,31 @@ export async function flushTurnBuffer(
       userId
     );
   }
+}
+
+/**
+ * Eagerly persist the user message from a turn buffer so it appears in
+ * history immediately (before the agent run finishes). Sets `userFlushed`
+ * so `flushTurnBuffer` won't duplicate it.
+ */
+export async function flushUserMessage(
+  agentId: string,
+  sessionId: string,
+  buffer: TurnBuffer,
+  userId?: string
+): Promise<void> {
+  if (!buffer.userText || buffer.userFlushed) return;
+  await appendRawEntry(
+    agentId,
+    sessionId,
+    {
+      role: "user",
+      content: [{ type: "text", text: buffer.userText }],
+      timestamp: buffer.userTimestamp,
+    },
+    userId
+  );
+  buffer.userFlushed = true;
 }
 
 /**

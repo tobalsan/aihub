@@ -48,6 +48,7 @@ import {
   bufferHistoryEvent,
   type TurnBuffer,
   flushTurnBuffer,
+  flushUserMessage,
   getSimpleHistory as getCanonicalSimpleHistory,
   getFullHistory as getCanonicalFullHistory,
   hasCanonicalHistory,
@@ -464,6 +465,8 @@ export async function runAgent(
     bufferHistoryEvent(buffer, event);
     if (!currentTurn) {
       currentTurn = buffer;
+      // Eagerly persist so history includes the user message mid-run
+      void flushUserMessage(params.agentId, sessionId, buffer, params.userId);
     } else {
       enqueuePendingUserMessage(
         params.agentId,

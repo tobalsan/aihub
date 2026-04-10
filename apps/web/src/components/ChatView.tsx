@@ -15,7 +15,9 @@ import {
   fetchSimpleHistory,
   fetchFullHistory,
   fetchAgent,
+  fetchAgentStatuses,
   subscribeToSession,
+  subscribeToStatus,
   type DoneMeta,
 } from "../api/client";
 import type {
@@ -369,6 +371,52 @@ export function ChatView() {
     });
   });
 
+  // On mount, check if the agent is already running (e.g. after page refresh)
+  // and subscribe to status changes to track when runs start/finish.
+  let statusCleanup: (() => void) | null = null;
+  createEffect(() => {
+    const agentId = params.agentId;
+    if (!agentId) return;
+
+    statusCleanup?.();
+
+    // Check current status immediately
+    fetchAgentStatuses().then((res) => {
+      if (res.statuses[agentId] === "streaming" && !isStreaming()) {
+        setIsStreaming(true);
+        setStreamingStartedAt(Date.now());
+      }
+    }).catch(() => {/* ignore */});
+
+    // Subscribe to real-time status changes
+    statusCleanup = subscribeToStatus({
+      onStatus: (id, status) => {
+        if (id !== agentId) return;
+        if (status === "streaming" && !isStreaming()) {
+          setIsStreaming(true);
+          setStreamingStartedAt(Date.now());
+        } else if (status === "idle" && isStreaming() && !cleanup) {
+          // Agent went idle and we're not the ones streaming (no active cleanup)
+          // This means a background/reconnected run finished
+          resetStreamingState();
+          loadHistory(viewMode());
+        }
+      },
+      onReconnect: () => {
+        // Re-check status after reconnect
+        fetchAgentStatuses().then((res) => {
+          if (res.statuses[agentId] === "streaming" && !isStreaming()) {
+            setIsStreaming(true);
+            setStreamingStartedAt(Date.now());
+          } else if (res.statuses[agentId] !== "streaming" && isStreaming() && !cleanup) {
+            resetStreamingState();
+            loadHistory(viewMode());
+          }
+        }).catch(() => {/* ignore */});
+      },
+    });
+  });
+
   createEffect(() => {
     simpleMessages();
     fullMessages();
@@ -380,6 +428,7 @@ export function ChatView() {
   onCleanup(() => {
     cleanup?.();
     subscriptionCleanup?.();
+    statusCleanup?.();
   });
 
   const handleViewChange = (mode: HistoryViewMode) => {
