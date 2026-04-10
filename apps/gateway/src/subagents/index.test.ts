@@ -44,7 +44,7 @@ describe("getSubagentLogs shell diagnostics", () => {
         type: "tool_execution_start",
         toolCallId: "t1",
         toolName: "exec_command",
-        args: { cmd: "apm start PRO-1 --template worker" },
+        args: { cmd: "apm start PRO-1 --subagent Worker" },
       },
       {
         type: "tool_execution_end",
@@ -62,7 +62,7 @@ describe("getSubagentLogs shell diagnostics", () => {
     const warning = out.data.events.find((event) => event.type === "warning");
     expect(warning).toBeTruthy();
     expect(warning?.text).toContain(
-      "No output captured for shell command: apm start PRO-1 --template worker"
+      "No output captured for shell command: apm start PRO-1 --subagent Worker"
     );
     expect(warning?.text).toContain("command -v apm && apm --version");
   });

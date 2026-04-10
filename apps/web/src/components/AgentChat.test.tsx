@@ -841,7 +841,7 @@ describe("AgentChat stop/send behavior", () => {
           {
             type: "tool_call",
             tool: { id: "t1", name: "exec_command" },
-            text: JSON.stringify({ cmd: "apm start PRO-1 --template worker" }),
+            text: JSON.stringify({ cmd: "apm start PRO-1 --subagent Worker" }),
           },
           {
             type: "tool_output",
@@ -860,7 +860,7 @@ describe("AgentChat stop/send behavior", () => {
     const warning = container.querySelector(".log-line.warning");
     expect(warning).not.toBeNull();
     expect(warning?.textContent).toContain("No output captured.");
-    expect(warning?.textContent).toContain("apm start PRO-1 --template worker");
+    expect(warning?.textContent).toContain("apm start PRO-1 --subagent Worker");
 
     dispose();
   });
