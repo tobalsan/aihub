@@ -151,7 +151,7 @@ type StartCommandOpts = {
   customPrompt?: string;
   subagent?: string;
   promptRole?: string;
-  allowTemplateOverrides?: boolean;
+  allowOverrides?: boolean;
   includeDefaultPrompt?: boolean;
   excludeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;
@@ -180,12 +180,12 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
   const errors: string[] = [];
   const hasSubagent =
     typeof opts.subagent === "string" && opts.subagent.trim().length > 0;
-  const allowTemplateOverrides = opts.allowTemplateOverrides === true;
+  const allowOverrides = opts.allowOverrides === true;
 
   if (hasSubagent) {
     body.subagentTemplate = opts.subagent!.trim();
 
-    if (!allowTemplateOverrides) {
+    if (!allowOverrides) {
       const hasLockedOverrides =
         (typeof opts.agent === "string" && opts.agent.trim().length > 0) ||
         (typeof opts.model === "string" && opts.model.trim().length > 0) ||
@@ -199,7 +199,7 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
           opts.promptRole.trim().length > 0);
       if (hasLockedOverrides) {
         errors.push(
-          "Subagent profile locked. Use --allow-template-overrides to override."
+          "Subagent profile locked. Use --allow-overrides to override."
         );
         return { body, errors };
       }
@@ -230,10 +230,6 @@ export function buildStartRequestBody(opts: StartCommandOpts): {
   }
   if (typeof opts.slug === "string" && opts.slug.trim()) {
     body.slug = opts.slug.trim();
-  }
-
-  if (allowTemplateOverrides && hasSubagent) {
-    body.allowTemplateOverrides = true;
   }
 
   if (typeof opts.promptRole === "string" && opts.promptRole.trim()) {
@@ -1023,8 +1019,8 @@ program
     "Prompt role override (coordinator|worker|reviewer|legacy)"
   )
   .option(
-    "--allow-template-overrides",
-    "Allow overriding locked template profile fields"
+    "--allow-overrides",
+    "Allow overriding locked subagent profile fields"
   )
   .option(
     "--include-default-prompt",

@@ -38,14 +38,14 @@ describe("apm start request body mapping", () => {
       subagentTemplate: "Coordinator",
     });
     expect(errors).toEqual([
-      "Subagent profile locked. Use --allow-template-overrides to override.",
+      "Subagent profile locked. Use --allow-overrides to override.",
     ]);
   });
 
   it("lets explicit options override subagent defaults with escape hatch", () => {
     const { body, errors } = buildStartRequestBody({
       subagent: "Coordinator",
-      allowTemplateOverrides: true,
+      allowOverrides: true,
       agent: "codex",
       model: "gpt-5.2",
       promptRole: "reviewer",
@@ -56,13 +56,13 @@ describe("apm start request body mapping", () => {
     expect(errors).toEqual([]);
     expect(body).toMatchObject({
       subagentTemplate: "Coordinator",
-      allowTemplateOverrides: true,
       runAgent: "cli:codex",
       model: "gpt-5.2",
       promptRole: "reviewer",
       runMode: "worktree",
       includePostRun: true,
     });
+    expect(body).not.toHaveProperty("allowOverrides");
   });
 
   it("accepts gpt-5.4 for codex runs", () => {
@@ -81,16 +81,16 @@ describe("apm start request body mapping", () => {
   it("passes subagent and agent to server without local resolution", () => {
     const { body, errors } = buildStartRequestBody({
       subagent: "Worker",
-      allowTemplateOverrides: true,
+      allowOverrides: true,
       agent: "pi",
     });
 
     expect(errors).toEqual([]);
     expect(body).toMatchObject({
       subagentTemplate: "Worker",
-      allowTemplateOverrides: true,
       runAgent: "cli:pi",
     });
+    expect(body).not.toHaveProperty("allowOverrides");
   });
 
   it("maps include/exclude toggles with exclude precedence", () => {

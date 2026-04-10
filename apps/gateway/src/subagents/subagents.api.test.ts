@@ -1115,8 +1115,7 @@ describe("subagents API", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           runAgent: "cli:codex",
-          template: "coordinator",
-          allowTemplateOverrides: true,
+          promptRole: "coordinator",
           model: "gpt-5.3-codex",
           slug: "coord-check",
         }),
@@ -1300,7 +1299,7 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
-  it("auto-generates template name on /projects/:id/start when omitted", async () => {
+  it("auto-generates run name from name prefix and slug on /projects/:id/start", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -1329,8 +1328,11 @@ describe("subagents API", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            template: "reviewer",
+            runAgent: "cli:codex",
+            model: "gpt-5.3-codex",
+            runMode: "none",
             slug: "reviewer-foo-bar",
+            name: "Reviewer Foo Bar",
           }),
         })
       );
@@ -1395,7 +1397,10 @@ describe("subagents API", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            template: "worker",
+            runAgent: "cli:codex",
+            model: "gpt-5.3-codex",
+            runMode: "worktree",
+            baseBranch: `space/${created.id}`,
             slug: "worker-space-base",
           }),
         })
@@ -1439,7 +1444,7 @@ describe("subagents API", () => {
     }
   }, 15000);
 
-  it("auto-generates worker name from slug on /projects/:id/subagents", async () => {
+  it("uses explicit name on /projects/:id/subagents", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -1468,11 +1473,11 @@ describe("subagents API", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            template: "worker",
             slug: "worker-model-resume",
             cli: "codex",
             prompt: "implement",
             mode: "none",
+            name: "Worker Model Resume",
           }),
         })
       );
@@ -1496,7 +1501,7 @@ describe("subagents API", () => {
     }
   });
 
-  it("derives template name from slug words and caps at three words", async () => {
+  it("uses explicit name on /projects/:id/start", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -1525,8 +1530,11 @@ describe("subagents API", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            template: "reviewer",
+            runAgent: "cli:codex",
+            model: "gpt-5.3-codex",
+            runMode: "none",
             slug: "reviewer-api-scope-extra",
+            name: "Reviewer Api Scope",
           }),
         })
       );
@@ -1550,7 +1558,7 @@ describe("subagents API", () => {
     }
   });
 
-  it("keeps explicit template name instead of auto-generating", async () => {
+  it("keeps explicit name instead of auto-generating", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -1579,7 +1587,9 @@ describe("subagents API", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            template: "reviewer",
+            runAgent: "cli:codex",
+            model: "gpt-5.3-codex",
+            runMode: "none",
             slug: "reviewer-manual",
             name: "Reviewer Manual",
           }),
@@ -1784,34 +1794,7 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
-  it("rejects locked template overrides on /projects/:id/start", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Template Lock Reject" }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const startRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          template: "reviewer",
-          runMode: "worktree",
-        }),
-      })
-    );
-    expect(startRes.status).toBe(400);
-    const payload = await startRes.json();
-    expect(payload.error).toContain("Template profile locked");
-    expect(payload.error).toContain("--allow-template-overrides");
-  });
-
-  it("allows template overrides on /projects/:id/start with escape hatch", async () => {
+  it("allows explicit field overrides on /projects/:id/start", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -1839,9 +1822,10 @@ describe("subagents API", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          template: "reviewer",
-          allowTemplateOverrides: true,
+          runAgent: "cli:codex",
           promptRole: "legacy",
+          runMode: "none",
+          model: "gpt-5.3-codex",
           slug: "reviewer-legacy",
         }),
       })
@@ -1929,7 +1913,10 @@ describe("subagents API", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          template: "reviewer",
+          runAgent: "cli:codex",
+          model: "gpt-5.3-codex",
+          promptRole: "reviewer",
+          runMode: "none",
           slug: "reviewer-check",
         }),
       })

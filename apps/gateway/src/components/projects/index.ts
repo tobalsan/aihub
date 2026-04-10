@@ -15,11 +15,9 @@ import {
   UpdateProjectRequestSchema,
   buildRolePrompt,
   normalizeProjectStatus,
-  START_TEMPLATE_PROFILES,
   type Component,
   type GatewayConfig,
   type PromptRole,
-  type StartTemplate,
   type UpdateProjectRequest,
 } from "@aihub/shared";
 import { z } from "zod";
@@ -245,35 +243,6 @@ function normalizeCliRunMode(value: string): CliRunMode {
   return "clone";
 }
 
-function mapTemplateToPromptRole(
-  template?: StartTemplate,
-  explicitRole?: PromptRole
-): PromptRole {
-  if (explicitRole) return explicitRole;
-  if (template === "coordinator") return "coordinator";
-  if (template === "worker") return "worker";
-  if (template === "reviewer") return "reviewer";
-  return "legacy";
-}
-
-function templateRoleLabel(
-  template: StartTemplate
-): "Coordinator" | "Worker" | "Reviewer" | "Custom" {
-  if (template === "coordinator") return "Coordinator";
-  if (template === "worker") return "Worker";
-  if (template === "reviewer") return "Reviewer";
-  return "Custom";
-}
-
-function resolveTemplateBaseBranch(
-  projectId: string,
-  template: StartTemplate,
-  profileBaseBranch: string
-): string {
-  if (template === "worker") return `space/${projectId}`;
-  return profileBaseBranch;
-}
-
 function slugToName(slug: string): string {
   return slug
     .split("-")
@@ -284,25 +253,25 @@ function slugToName(slug: string): string {
     .join(" ");
 }
 
-function resolveTemplateRunName(
-  template: StartTemplate | undefined,
+function resolveRunName(
+  prefix: string | undefined,
   slug: string | undefined,
   explicitName: string | undefined
 ): string | undefined {
   const requestedName = hasText(explicitName) ? explicitName.trim() : undefined;
-  if (!template || requestedName) return requestedName;
+  if (requestedName) return requestedName;
+  if (!prefix) return undefined;
 
-  const roleLabel = templateRoleLabel(template);
-  if (!hasText(slug)) return roleLabel;
+  if (!hasText(slug)) return prefix;
 
   const words = slugToName(slug)
     .split(" ")
     .filter((part) => part.length > 0);
-  if (words.length === 0) return roleLabel;
-  if (words[0].toLowerCase() === roleLabel.toLowerCase()) {
+  if (words.length === 0) return prefix;
+  if (words[0].toLowerCase() === prefix.toLowerCase()) {
     words.shift();
   }
-  return words.length > 0 ? `${roleLabel} ${words.join(" ")}` : roleLabel;
+  return words.length > 0 ? `${prefix} ${words.join(" ")}` : prefix;
 }
 
 function resolveCliSpawnOptions(
@@ -517,57 +486,11 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: parsed.error.message }, 400);
     }
     const startInput = { ...parsed.data };
-    const template = startInput.template;
-    const allowTemplateOverrides = startInput.allowTemplateOverrides === true;
-    if (template && !allowTemplateOverrides) {
-      const hasLockedOverrides =
-        hasText(startInput.runAgent) ||
-        hasText(startInput.model) ||
-        hasText(startInput.reasoningEffort) ||
-        hasText(startInput.thinking) ||
-        hasText(startInput.runMode) ||
-        hasText(startInput.baseBranch) ||
-        hasText(startInput.promptRole);
-      if (hasLockedOverrides) {
-        return c.json(
-          {
-            error:
-              "Template profile locked. Use --allow-template-overrides to override.",
-          },
-          400
-        );
-      }
-    }
-    if (template) {
-      const profile = START_TEMPLATE_PROFILES[template];
-      if (!hasText(startInput.runAgent)) startInput.runAgent = profile.runAgent;
-      if (!hasText(startInput.model)) startInput.model = profile.model;
-      if (!hasText(startInput.reasoningEffort)) {
-        startInput.reasoningEffort = profile.reasoningEffort;
-      }
-      if (!hasText(startInput.runMode)) startInput.runMode = profile.runMode;
-      if (!hasText(startInput.baseBranch)) {
-        startInput.baseBranch = resolveTemplateBaseBranch(
-          id,
-          template,
-          profile.baseBranch
-        );
-      }
-      if (!hasText(startInput.promptRole)) {
-        startInput.promptRole = profile.promptRole;
-      }
-      if (typeof startInput.includeDefaultPrompt !== "boolean") {
-        startInput.includeDefaultPrompt = profile.includeDefaultPrompt;
-      }
-      if (typeof startInput.includeRoleInstructions !== "boolean") {
-        startInput.includeRoleInstructions = profile.includeRoleInstructions;
-      }
-      if (typeof startInput.includePostRun !== "boolean") {
-        startInput.includePostRun = profile.includePostRun;
-      }
-    }
+    const userExplicitName = hasText(startInput.name)
+      ? startInput.name.trim()
+      : undefined;
 
-    // Subagent template resolution (takes precedence over legacy template)
+    // Subagent template resolution
     const subagentTemplateName = startInput.subagentTemplate;
     if (subagentTemplateName) {
       const match = getSubagentTemplates().find(
@@ -744,8 +667,7 @@ export function registerProjectRoutes(app: Hono): void {
       }
     }
 
-    const explicitRole = startInput.promptRole;
-    const promptRole = mapTemplateToPromptRole(template, explicitRole);
+    const promptRole: PromptRole = startInput.promptRole ?? "legacy";
     const specsPath = promptRole === "legacy" ? readmePath : specsPathForRole;
     const coordinatorWorkspaceContext =
       promptRole === "coordinator"
@@ -929,10 +851,13 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: "Slug required" }, 400);
     }
     const baseBranchValue = baseBranch ?? "main";
-    const resolvedName = resolveTemplateRunName(
-      template,
+    const namePrefix = hasText(startInput.name)
+      ? startInput.name.trim()
+      : undefined;
+    const resolvedName = resolveRunName(
+      namePrefix,
       slugValue,
-      requestedName
+      userExplicitName
     );
 
     const result = await spawnSubagent(config, {
@@ -1468,13 +1393,6 @@ export function registerProjectRoutes(app: Hono): void {
     const baseBranch =
       typeof body.baseBranch === "string" ? body.baseBranch : undefined;
     const resume = typeof body.resume === "boolean" ? body.resume : undefined;
-    const template =
-      body.template === "coordinator" ||
-      body.template === "worker" ||
-      body.template === "reviewer" ||
-      body.template === "custom"
-        ? (body.template as StartTemplate)
-        : undefined;
     const attachments = Array.isArray(body.attachments)
       ? (
           body.attachments as Array<{
@@ -1597,7 +1515,7 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: resolvedCliOptions.error }, 400);
     }
     if (!resolvedName) {
-      resolvedName = resolveTemplateRunName(template, slug, name);
+      resolvedName = resolveRunName(name, slug, name);
     }
     const result = await spawnSubagent(config, {
       projectId: id,
@@ -2010,23 +1928,26 @@ export function registerProjectRoutes(app: Hono): void {
         return c.json({ error: "Space rebase conflict not found" }, 409);
       }
 
-      const reviewerProfile = START_TEMPLATE_PROFILES.reviewer;
-      const reviewerRunAgent = normalizeRunAgent(reviewerProfile.runAgent);
+      const reviewerConfig = getSubagentTemplates().find(t => t.type === "reviewer");
+      if (!reviewerConfig) {
+        return c.json({ error: "No reviewer subagent configured" }, 400);
+      }
+      const reviewerRunAgent = normalizeRunAgent(`cli:${reviewerConfig.harness}`);
       if (
         !reviewerRunAgent ||
         reviewerRunAgent.type !== "cli" ||
         !isSupportedSubagentCli(reviewerRunAgent.id)
       ) {
         return c.json(
-          { error: "Reviewer template runAgent is missing or unsupported" },
+          { error: "Reviewer subagent harness is missing or unsupported" },
           400
         );
       }
 
       const resolvedCliOptions = resolveCliSpawnOptions(
         reviewerRunAgent.id,
-        reviewerProfile.model,
-        reviewerProfile.reasoningEffort,
+        reviewerConfig.model,
+        reviewerConfig.reasoning,
         undefined
       );
       if (!resolvedCliOptions.ok) {
@@ -2054,7 +1975,7 @@ export function registerProjectRoutes(app: Hono): void {
         projectId: id,
         slug,
         cli: reviewerRunAgent.id,
-        name: resolveTemplateRunName("reviewer", slug, undefined),
+        name: resolveRunName(reviewerConfig.name, slug, undefined),
         prompt,
         model: resolvedCliOptions.data.model,
         reasoningEffort: resolvedCliOptions.data.reasoningEffort,
