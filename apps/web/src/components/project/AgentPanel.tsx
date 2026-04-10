@@ -16,7 +16,6 @@ import {
   killSubagent,
   renameSubagent,
   subscribeToFileChanges,
-  updateSubagent,
 } from "../../api/client";
 import type {
   Area,
@@ -62,17 +61,6 @@ const AGENT_NAMES = [
   "Terra",
 ] as const;
 
-const MODEL_OPTIONS: Record<string, readonly string[]> = {
-  claude: ["opus", "sonnet", "haiku"],
-  codex: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"],
-  pi: [
-    "qwen3.5-plus",
-    "qwen3-max-2026-01-23",
-    "MiniMax-M2.5",
-    "glm-5",
-    "kimi-k2.5",
-  ],
-};
 
 type AgentPanelProps = {
   project: ProjectDetail;
@@ -248,12 +236,6 @@ export function AgentPanel(props: AgentPanelProps) {
   const [savingRepo, setSavingRepo] = createSignal(false);
   const [templateMenuOpen, setTemplateMenuOpen] = createSignal(false);
   const [busyActionSlug, setBusyActionSlug] = createSignal<string | null>(null);
-  const [busyModelSlug, setBusyModelSlug] = createSignal<string | null>(null);
-  const [modelMenuSlug, setModelMenuSlug] = createSignal<string | null>(null);
-  const [modelMenuPosition, setModelMenuPosition] = createSignal<{
-    left: number;
-    top: number;
-  } | null>(null);
   const [agentError, setAgentError] = createSignal<string | null>(null);
   const [editingNameSlug, setEditingNameSlug] = createSignal<string | null>(
     null
@@ -337,10 +319,6 @@ export function AgentPanel(props: AgentPanelProps) {
       }
       if (templateMenuOpen() && !templateMenuRef?.contains(target ?? null)) {
         setTemplateMenuOpen(false);
-      }
-      if (modelMenuSlug() && !targetElement?.closest(".agent-meta-wrap")) {
-        setModelMenuSlug(null);
-        setModelMenuPosition(null);
       }
     };
 
@@ -576,14 +554,6 @@ export function AgentPanel(props: AgentPanelProps) {
   const renderSubagentCard = (item: SubagentListItem) => {
     const indicator = statusIndicator(item.status);
     const agentMeta = formatAgentMeta(item.cli, item.model);
-    const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
-    const currentModel = trimOptional(item.model);
-    const modelOptions =
-      currentModel && !options.includes(currentModel)
-        ? [currentModel, ...options]
-        : [...options];
-    const selectedModel = currentModel || modelOptions[0] || "";
-    const canEditModel = item.status !== "running" && modelOptions.length > 0;
     return (
       <div
         class="agent-list-item subagent"
@@ -656,7 +626,7 @@ export function AgentPanel(props: AgentPanelProps) {
                   type="button"
                   class="agent-name-btn"
                   disabled={savingNameSlug() === item.slug}
-                  onClick={(event) => {
+                  ondblclick={(event) => {
                     event.stopPropagation();
                     beginRenameSubagent(item);
                   }}
@@ -667,82 +637,7 @@ export function AgentPanel(props: AgentPanelProps) {
                 </button>
               </Show>
               <Show when={agentMeta}>
-                <span class="agent-meta-wrap">
-                  <span
-                    class="agent-meta"
-                    classList={{ editable: canEditModel }}
-                    role={canEditModel ? "button" : undefined}
-                    tabIndex={canEditModel ? 0 : undefined}
-                    title={canEditModel ? "Change model" : undefined}
-                    onClick={(event) => {
-                      if (!canEditModel) return;
-                      event.stopPropagation();
-                      const target = event.currentTarget;
-                      const rect = target.getBoundingClientRect();
-                      setModelMenuSlug((current) => {
-                        const isClosing = current === item.slug;
-                        setModelMenuPosition(
-                          isClosing
-                            ? null
-                            : { left: rect.left, top: rect.bottom + 4 }
-                        );
-                        return isClosing ? null : item.slug;
-                      });
-                    }}
-                    onKeyDown={(event) => {
-                      if (!canEditModel) return;
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      const target = event.currentTarget;
-                      const rect = target.getBoundingClientRect();
-                      setModelMenuSlug((current) => {
-                        const isClosing = current === item.slug;
-                        setModelMenuPosition(
-                          isClosing
-                            ? null
-                            : { left: rect.left, top: rect.bottom + 4 }
-                        );
-                        return isClosing ? null : item.slug;
-                      });
-                    }}
-                  >
-                    {agentMeta}
-                  </span>
-                  <Show when={canEditModel && modelMenuSlug() === item.slug}>
-                    <div
-                      class="agent-model-popup"
-                      style={
-                        modelMenuPosition()
-                          ? {
-                              left: `${modelMenuPosition()!.left}px`,
-                              top: `${modelMenuPosition()!.top}px`,
-                            }
-                          : undefined
-                      }
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <For each={modelOptions}>
-                        {(value) => (
-                          <button
-                            type="button"
-                            class="agent-model-option"
-                            classList={{ selected: value === selectedModel }}
-                            disabled={busyModelSlug() === item.slug}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setModelMenuSlug(null);
-                              setModelMenuPosition(null);
-                              void handleModelUpdate(item, value);
-                            }}
-                          >
-                            {value}
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </span>
+                <span class="agent-meta">{agentMeta}</span>
               </Show>
             </span>
             <span class="agent-elapsed">{elapsedLabel(previewAt(item))}</span>
@@ -796,27 +691,6 @@ export function AgentPanel(props: AgentPanelProps) {
       </div>
     );
   };
-
-  createEffect(() => {
-    const openSlug = modelMenuSlug();
-    if (!openSlug) return;
-    const item = props.subagents.find((entry) => entry.slug === openSlug);
-    if (!item) {
-      setModelMenuSlug(null);
-      setModelMenuPosition(null);
-      return;
-    }
-    const options = MODEL_OPTIONS[item.cli ?? ""] ?? [];
-    const currentModel = trimOptional(item.model);
-    const modelOptions =
-      currentModel && !options.includes(currentModel)
-        ? [currentModel, ...options]
-        : options;
-    if (item.status === "running" || modelOptions.length === 0) {
-      setModelMenuSlug(null);
-      setModelMenuPosition(null);
-    }
-  });
 
   const refreshSubagents = async () => {
     const refresh = await fetchSubagents(props.project.id, true);
@@ -922,41 +796,6 @@ export function AgentPanel(props: AgentPanelProps) {
     );
   };
 
-  const setLocalSubagentPatch = (
-    slug: string,
-    patch: Partial<SubagentListItem>
-  ) => {
-    props.onSubagentsChange?.(
-      props.subagents.map((entry) =>
-        entry.slug === slug ? { ...entry, ...patch } : entry
-      )
-    );
-  };
-
-  const handleModelUpdate = async (
-    item: SubagentListItem,
-    nextModel: string
-  ) => {
-    const model = nextModel.trim();
-    const previousModel = trimOptional(item.model);
-    if (!model || model === previousModel || busyModelSlug()) return;
-    setBusyModelSlug(item.slug);
-    setAgentError(null);
-    setLocalSubagentPatch(item.slug, { model });
-    const result = await updateSubagent(props.project.id, item.slug, { model });
-    setBusyModelSlug(null);
-    if (!result.ok) {
-      setLocalSubagentPatch(item.slug, { model: previousModel || undefined });
-      setAgentError(result.error);
-      return;
-    }
-    setLocalSubagentPatch(item.slug, {
-      name: result.data.name,
-      model: result.data.model,
-      reasoningEffort: result.data.reasoningEffort,
-      thinking: result.data.thinking,
-    });
-  };
 
   return (
     <>
