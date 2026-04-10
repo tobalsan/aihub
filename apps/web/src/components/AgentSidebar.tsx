@@ -199,6 +199,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         }
 
         .sidebar-content {
+          flex: 1;
           padding: 8px 10px 14px;
           display: flex;
           flex-direction: column;
