@@ -513,7 +513,9 @@ export function SpawnForm(props: SpawnFormProps) {
           <summary>Final prompt preview</summary>
           <pre>{preparedPrompt() || "(empty)"}</pre>
         </details>
-        <div class="add-agent-cli-preview">{cliPreview()}</div>
+        <Show when={props.template === "custom"}>
+          <div class="add-agent-cli-preview">{cliPreview()}</div>
+        </Show>
         <div class="add-agent-actions">
           <button
             type="button"
