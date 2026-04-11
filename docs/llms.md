@@ -279,6 +279,7 @@ $AIHUB_HOME/
 - Connector tool parameter schemas are object-only Zod schemas.
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
 - Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.
+- Pi lead agents override the Pi SDK default system prompt with AIHub-specific gateway guidance while preserving SDK-appended project context, connector guidance, skills, date, and working directory sections.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
 - When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.

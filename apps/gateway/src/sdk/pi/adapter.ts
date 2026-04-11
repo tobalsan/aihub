@@ -32,6 +32,15 @@ import { getLoadedComponents } from "../../components/registry.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 let piEnvLock: Promise<void> = Promise.resolve();
+const AIHUB_PI_SYSTEM_PROMPT = `You are an AI agent running inside AIHub, a self-hosted multi-agent gateway. AIHub provides a unified interface to orchestrate AI agents across multiple surfaces including web UI, CLI, Discord, scheduled jobs, and agent-to-agent messaging. Your role is determined by your configuration — you may operate as a coordinator planning and delegating work, a worker implementing tasks, a reviewer verifying quality, or a general-purpose assistant.
+
+Available tools:
+\${toolsList}
+
+In addition to the tools above, you may have access to other custom tools provided by connectors or project configuration.
+
+Guidelines:
+\${guidelines}`;
 
 async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
@@ -293,6 +302,7 @@ export const piAdapter: SdkAdapter = {
         cwd: params.workspaceDir,
         agentDir: CONFIG_DIR,
         settingsManager,
+        systemPromptOverride: () => AIHUB_PI_SYSTEM_PROMPT,
         appendSystemPrompt: allAppendedPrompts,
         additionalSkillPaths: [workspaceSkillsDir],
         agentsFilesOverride: () => ({
