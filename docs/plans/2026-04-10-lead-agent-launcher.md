@@ -1,5 +1,7 @@
 # Lead Agent Launcher & Subagent Config Implementation Plan
 
+> Historical plan. Current docs use `--subagent` / `--allow-overrides`; any `--template` references below are implementation-history only.
+>
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Replace hardcoded agent templates with config-driven subagent types and lead agent launching from project details.

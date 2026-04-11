@@ -119,8 +119,9 @@ Options:
 - `--mode <mode>`: `main-run|clone|worktree|none`. Defaults to `clone`.
 - `--branch <branch>`: base branch for worktree. Defaults to `main`.
 - `--slug <slug>`: slug override for worktree. Defaults to auto-slug.
-- `--template <template>`: prompt template (`coordinator|worker|reviewer|custom`); also applies UI template defaults for `runAgent`, `model`, reasoning/thinking level, and prompt include toggles.
+- `--subagent <name>`: resolve a named subagent config from `aihub.json` and apply its locked defaults.
 - `--prompt-role <role>`: prompt role override (`coordinator|worker|reviewer|legacy`).
+- `--allow-overrides`: allow explicit overrides for fields locked by `--subagent`.
 - `--include-default-prompt`: force-enable default project prompt context.
 - `--exclude-default-prompt`: force-disable default project prompt context.
 - `--include-role-instructions`: force-enable role instruction block.
@@ -130,16 +131,12 @@ Options:
 - `--custom-prompt <prompt>`: one-off prompt (use `-` for stdin).
 - `-j, --json`: JSON output.
 
-Template default mapping (`--template`) mirrors the UI preparation form:
+Subagent config mapping (`--subagent`) comes from the top-level `subagents` array in `aihub.json`.
+Each config can define `name`, `description`, `harness`, `model`, `reasoning`, `type`, and `runMode`.
+The web spawn form and `apm start --subagent <name>` both resolve through that same config source.
 
-- `coordinator`: `runAgent=cli:claude`, `model=opus`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:false`
-- `worker`: `runAgent=cli:codex`, `model=gpt-5.4`, `reasoningEffort=medium`, includes = `default:true`, `role:true`, `postRun:true`
-- `reviewer`: `runAgent=cli:codex`, `model=gpt-5.4`, `reasoningEffort=high`, includes = `default:true`, `role:true`, `postRun:true`
-- `custom`: `runAgent=cli:codex`, `model=gpt-5.3-codex`, `reasoningEffort=xhigh`, includes = `default:true`, `role:true`, `postRun:true`
-- Codex model options for prepared runs: `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`
-- If `--agent pi` overrides the template harness, the template effort is translated to `thinking` (and model/level are normalized to valid PI defaults when needed).
-
-Any explicit flag (`--agent`, `--model`, `--include-*`, `--exclude-*`) overrides template defaults.
+Any explicit locked-field override requires `--allow-overrides`.
+Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions.
 
 ### `apm ralph <id>`
 
@@ -272,12 +269,14 @@ apm start PRO-19 --custom-prompt "Focus on the rollout plan."
 # Start a run with per-run config
 apm start PRO-19 --agent codex --mode worktree --branch main --slug my-run
 
-# Start a worker template run (CLI equivalent of UI Add Agent template)
-# Default base branch is space/PRO-19 unless overridden with --branch.
-apm start PRO-19 --agent codex --template worker --mode worktree --slug worker-task-a
+# Start a config-defined Worker subagent run
+apm start PRO-19 --subagent Worker --slug worker-task-a
 
-# Start a reviewer/verifier template run
-apm start PRO-19 --agent claude --template reviewer --mode worktree --branch main --slug verifier-task-a
+# Start a config-defined Reviewer subagent run
+apm start PRO-19 --subagent Reviewer --slug reviewer-task-a
+
+# Start a lead-agent run on a configured AIHub agent
+apm start PRO-19 --agent aihub:cloud --custom-prompt "Plan the rollout."
 
 # Resume with a follow-up message
 apm resume PRO-19 --message "Continue from where you left off."

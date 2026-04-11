@@ -111,10 +111,11 @@ Replace hardcoded agent templates (Coordinator/Worker/Reviewer/Custom) in the pr
   - `pnpm exec vitest run apps/web/src/components/project/SpawnForm.test.tsx apps/gateway/src/subagents/subagents.api.test.ts`
   - `pnpm build`
   - `pnpm typecheck`
-- The `apm` skill docs (`~/.claude/skills/apm`) still reference `--template` in examples — should be updated to `--subagent`.
+- Repo docs were updated to reflect config-driven `--subagent` invocation, project-scoped lead sessions, and the latest lead-session UI fixes.
+- The external `apm` skill docs (`~/.claude/skills/apm`) may still reference old `--template` examples.
 
 ## Next Steps
 
-1. **Update apm skill docs** — Replace stale `--template` / template-default wording with `--subagent` and config-driven behavior.
-2. **Optional extra coverage** — Add targeted gateway/web tests for lead reset/remove endpoints and lead-status rendering if desired.
+1. **Optional extra coverage** — Add targeted gateway/web tests for lead reset/remove endpoints and lead-status rendering if desired.
+2. **External docs cleanup** — Update the separate `apm` skill docs if you want all non-repo docs aligned too.
 3. **PR creation** — Branch `feat/lead-agent-launcher-ui` is ready for PR against `main`.

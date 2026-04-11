@@ -66,10 +66,13 @@ Features:
 - Right context panel shows last 5 recently viewed projects (from `localStorage`) at the bottom, with truncated titles and relative viewed timestamps
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
-- Project-detail lead-agent launches persist per-project `sessionKeys`; the UI now binds the opened chat to the returned project session key instead of falling back to the agent's global `main` session
-- Project-detail lead-agent rows support reset/remove actions: reset rotates to a fresh project-scoped session key, remove clears the project `sessionKeys` entry entirely
+- Project-detail lead-agent launches persist per-project `sessionKeys`; the UI binds the opened chat to the exact returned project session key instead of the agent's global `main` session
+- Project-detail lead-agent rows support reset/remove actions: remove clears the project `sessionKeys` entry, and reset clears the bound session state then reuses the canonical `project:<id>:<agentId>` key
+- Lead-agent reset immediately clears visible chat history without a page reload because lead chat identity now keys on `agentId + sessionKey + sessionNonce`
+- Project-detail left-panel lead status dots now reflect real runtime state via `fetchAgentStatuses()` + `subscribeToStatus()` instead of a hardcoded online indicator
+- Lead-agent spawn form hides the irrelevant CLI command preview; only custom subagent spawns show CLI preview
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
-- Project detail spawn flow supports lead-agent launch plus template-based subagent prep in the center panel
+- Project detail spawn flow supports lead-agent launch plus config-driven subagent prep in the center panel
 - UI-created project agents derive their session folder slug from the displayed agent name, so coordinator/worker/reviewer spawns land under stable name-based session directories instead of random ids
 - Project API responses now include `repoValid` on both project detail and project list items; it is `true` only when the resolved repo path exists on disk and contains `.git`
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)
@@ -97,10 +100,10 @@ Features:
 - Changes tab branch diff header (`Branch: ... → ...` with aggregate +/- stats) is clickable when pending branch diff files exist, and toggles a compact per-file +/- breakdown list
 - Space Commit Log rows include relative elapsed commit time (`now`, `1m`, `2h`, `3d`) next to author metadata
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
-- Coordinator template default prompt includes a preflight (`command -v apm && apm --version`), concise `apm start --template <worker|reviewer>` delegation examples, explicit `apm status`/`apm resume` monitoring rules with a foreground poll-loop example, required project status moves (`in_progress` on dispatch, `review` when ready), Space-branch-only integration discipline including `space.json` commit-state updates on manual integration, and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
-- Coordinator template prompt explicitly forbids self-performing code review; review/verification must be delegated via `--template reviewer`
-- Coordinator delegation guidance forbids adding template-locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-template-overrides` is explicitly set
-- Worker template prompt explicitly requires committing implementation after checks are green
+- Coordinator prompt includes a preflight (`command -v apm && apm --version`), concise `apm start --subagent <name>` delegation examples, explicit `apm status`/`apm resume` monitoring rules with a foreground poll-loop example, required project status moves (`in_progress` on dispatch, `review` when ready), Space-branch-only integration discipline including `space.json` commit-state updates on manual integration, and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
+- Coordinator prompt explicitly forbids self-performing code review; review/verification must be delegated to a reviewer subagent
+- Coordinator delegation guidance forbids adding locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-overrides` is explicitly set
+- Worker prompt explicitly requires committing implementation after checks are green
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
@@ -590,24 +593,21 @@ Behavior:
 - Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/harness naming.
 - Project-detail UI spawn form derives the slug from the displayed run name and de-dupes against existing project subagent slugs (`coordinator`, `worker-2`, etc.).
 - `apm start` supports these fields directly:
+  - `--agent <cli|aihub:id>`
+  - `--subagent <name>`
   - `--name <run-name>`
   - `--model <id>`
   - `--reasoning-effort <level>`
   - `--thinking <level>`
-  - `--template <coordinator|worker|reviewer|custom>`
   - `--prompt-role <coordinator|worker|reviewer|legacy>`
-  - `--allow-template-overrides`
+  - `--allow-overrides`
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
-- `apm start --template` sends template-only by default; server applies locked template profile defaults for run agent/model/reasoning(or thinking)/runMode/baseBranch/prompt includes.
-- If `--allow-template-overrides` is set, CLI also sends profile defaults client-side and allows explicit override flags.
-  - `coordinator`: `cli:claude`, `opus`, effort `medium`, `mode=none`, includes `true/true/false`
-  - `worker`: `cli:codex`, `gpt-5.4`, effort `medium`, `mode=worktree`, `baseBranch=space/<projectId>`, includes `true/true/true`
-  - `reviewer`: `cli:codex`, `gpt-5.4`, effort `high`, `mode=none`, includes `true/true/true`
-  - `custom`: `cli:codex`, `gpt-5.3-codex`, effort `xhigh`, `mode=clone`, `baseBranch=main`, includes `true/true/true`
-  - If harness is overridden to PI (`--agent pi`), effort defaults are translated to `thinking` and normalized for PI.
-- Locked fields can be overridden only with `--allow-template-overrides`.
+- `apm start --subagent <name>` sends the selected config subagent name; server resolves harness/model/reasoning/runMode/type from `aihub.json`.
+- If `--allow-overrides` is set, CLI also sends the resolved defaults client-side and allows explicit override flags.
+- Locked fields can be overridden only with `--allow-overrides`.
+- Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions keyed as `project:<projectId>:<agentId>`.
 - `apm status <projectId> --list` prints the existing project subagent session slugs (including archived runs); `--json` returns the slug array.
 
 ## Single-Agent Mode

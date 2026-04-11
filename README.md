@@ -251,7 +251,7 @@ pnpm apm create --title "My Project" [description] [--specs <text>|-] [--domain 
 pnpm apm get <id>
 pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm apm move <id> <status>
-pnpm apm start <id> [--agent <cli|aihub:id>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--template <coordinator|worker|reviewer|custom>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-template-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
+pnpm apm start <id> [--agent <cli|aihub:id>] [--subagent <name>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 pnpm apm rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
 pnpm apm status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
 
@@ -262,9 +262,10 @@ pnpm apm config validate [--config <path>]
 # Note: v1 -> v2 migration only adds component entries when legacy config explicitly implied them.
 # It no longer auto-adds `components.amsg` or `components.conversations` just because agents exist.
 
-# `--template` applies locked profile defaults for runAgent/model/reasoning(or thinking)/mode/baseBranch/prompt role (resolved server-side by default).
-# Override locked fields only with `--allow-template-overrides`.
-# Template defaults: coordinator mode=none, worker mode=worktree (base=`space/<projectId>`), reviewer mode=none.
+# `--subagent <name>` resolves a config-defined subagent from `aihub.json`.
+# The server applies that subagent's locked defaults for harness/model/reasoning/runMode/type.
+# Override locked fields only with `--allow-overrides`.
+# Lead agents launch with `--agent aihub:<id>` and use project-scoped sessions.
 
 # Override API URL (highest precedence)
 AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
@@ -329,16 +330,17 @@ Project subagent CLIs:
 
 Project detail parses `SPECS.md` with a specific markdown shape for `## Tasks` and `## Acceptance Criteria`.
 Both sections now support optional `###` subgroup headings for organization.
-The Coordinator spawn template prompt also reminds agents to use this parse-safe format when updating `SPECS.md`.
+The coordinator prompt also reminds agents to use this parse-safe format when updating `SPECS.md`.
 Coordinator prompts now include:
 
 - Canonical main repository path (not worker clone/worktree paths).
 - Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
-- `apm` delegation preflight (`command -v apm && apm --version`) before `apm start --template ...`.
-- `apm start --template` delegation examples that avoid template-locked flags unless `--allow-template-overrides` is set.
+- Available config-defined subagent types from `aihub.json`.
+- `apm` delegation preflight (`command -v apm && apm --version`) before `apm start --subagent ...`.
+- `apm start --subagent <name>` delegation examples that avoid locked flags unless `--allow-overrides` is set.
   Shell tool cards show a warning callout (`No output captured`) when exec/bash output is structurally empty.
   Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
-  Worker template prompts explicitly require committing implementation once checks pass.
+  Worker prompts explicitly require committing implementation once checks pass.
 
 Repo resolution for subagent/ralph runner modes (`clone`/`worktree`/`main-run`) now falls back to the project area's `repo` when project `frontmatter.repo` is unset.
 
