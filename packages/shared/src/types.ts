@@ -445,7 +445,7 @@ export const GatewayConfigSchema = z.object({
   ui: UiConfigSchema.optional(),
   taskboard: TaskboardConfigSchema.optional(),
   projects: ProjectsConfigSchema.optional(),
-  subagents: z.array(SubagentConfigSchema).optional().default([]),
+  subagents: z.array(SubagentConfigSchema).optional(),
   env: z.record(z.string(), z.string()).optional(), // Env vars to set (only if not already set)
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
