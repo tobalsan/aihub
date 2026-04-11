@@ -96,20 +96,25 @@ Replace hardcoded agent templates (Coordinator/Worker/Reviewer/Custom) in the pr
 
 ## Current State
 
-- All tests pass: shared (47), cli (19), gateway (527), web (164)
-- Build passes: `pnpm build` succeeds
-- **Manual bug found after prior handoff**: lead-agent launch still looked broken in UI. Root cause was session-key mismatch: gateway started lead runs on `project:<id>:<agentId>` but the web chat still opened the lead agent on `main`, so the user saw nothing while the launched lead session continued in the background and could still spawn reviewer workers. The lead-launch route also failed to persist `frontmatter.sessionKeys`, so the lead session did not reliably appear in the project agent list.
-- **Fixed in current worktree**: lead launch now persists `sessionKeys`, emits a project file-change event, returns `{ slug, agentId, sessionKey }`, and the project-detail UI now selects the launched lead agent with that exact `sessionKey` instead of treating it like a CLI subagent.
-- **Follow-up fix**: lead sessions now support sidebar actions. `DELETE /api/projects/:id/lead-sessions/:agentId` removes the project lead-session binding, and `POST /api/projects/:id/lead-sessions/:agentId/reset` rotates that lead session to a fresh project-scoped session key so chat history resets without requiring manual file edits.
-- The `apm` skill docs (`~/.claude/skills/apm`) still reference `--template` in examples — should be updated to `--subagent`
+- Lead-agent launch from project details works end-to-end.
+- Project lead sessions now persist in `frontmatter.sessionKeys` and the project UI binds chat to the returned project-scoped `sessionKey`.
+- OpenClaw project invocations now override configured `openclaw.sessionKey` only when runtime `sessionKey` starts with `project:`. `/chat` and FAB keep current config-driven behavior.
+- Lead sessions now support sidebar actions:
+  - `DELETE /api/projects/:id/lead-sessions/:agentId` removes the project lead-session binding
+  - `POST /api/projects/:id/lead-sessions/:agentId/reset` clears the existing bound session state and starts fresh on the canonical `project:<id>:<agentId>` key
+- Reset now refreshes visible lead chat immediately in the project UI; no page reload needed.
+- Project left-panel lead status dot now reflects real lead-agent runtime state via `fetchAgentStatuses()` + `subscribeToStatus()`.
+- Lead spawn form no longer shows the irrelevant CLI command preview.
+- Validation now passing after these follow-up fixes:
+  - `pnpm exec vitest run apps/gateway/src/sdk/openclaw/adapter.test.ts`
+  - `pnpm exec vitest run apps/web/src/components/AgentChat.test.tsx apps/web/src/components/project/ProjectDetailPage.test.tsx`
+  - `pnpm exec vitest run apps/web/src/components/project/SpawnForm.test.tsx apps/gateway/src/subagents/subagents.api.test.ts`
+  - `pnpm build`
+  - `pnpm typecheck`
+- The `apm` skill docs (`~/.claude/skills/apm`) still reference `--template` in examples — should be updated to `--subagent`.
 
 ## Next Steps
 
-1. **Manual testing** — User needs to rebuild (`pnpm build`) and test launching Cloud on PRO-221 again to verify the `0bdefc2` fix works end-to-end
-2. **Update apm skill docs** — The apm skill at `~/.claude/skills/apm` still shows `--template worker` examples. Update to `--subagent Worker`. Also update the "Template Defaults" section to reflect config-driven behavior.
-3. **Update docs/llms.md** — Per CLAUDE.md instructions, documentation should be kept up to date with code changes
-4. **Edge cases to verify**:
-   - What happens when `subagents` array is empty in config? (Coordinator prompt should omit the Available Subagent Types section — tested)
-   - What happens when the only agent (Cloud/openclaw) is down? (Should get error from `runAgent`)
-   - Concurrent lead agent sessions on same project — does sessionKey collision cause issues?
-5. **PR creation** — Branch `feat/lead-agent-launcher-ui` is ready for PR against `main` once manual testing passes
+1. **Update apm skill docs** — Replace stale `--template` / template-default wording with `--subagent` and config-driven behavior.
+2. **Optional extra coverage** — Add targeted gateway/web tests for lead reset/remove endpoints and lead-status rendering if desired.
+3. **PR creation** — Branch `feat/lead-agent-launcher-ui` is ready for PR against `main`.
