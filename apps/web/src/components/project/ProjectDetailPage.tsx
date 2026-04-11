@@ -405,6 +405,8 @@ export function ProjectDetailPage() {
         projectId: current.id,
         agentId: savedView.agent.agentId,
         agentName: savedView.agent.agentId,
+        sessionKey: sessionKeys[savedView.agent.agentId],
+        sessionNonce: 0,
       });
       return;
     }
@@ -418,6 +420,8 @@ export function ProjectDetailPage() {
           projectId: current.id,
           agentId: leadAgentId,
           agentName: leadAgentId,
+          sessionKey: sessionKeys?.[leadAgentId],
+          sessionNonce: 0,
         });
       }
       return;
@@ -432,6 +436,8 @@ export function ProjectDetailPage() {
       projectId: current.id,
       agentId: leadAgentId,
       agentName: leadAgentId,
+      sessionKey: sessionKeys?.[leadAgentId],
+      sessionNonce: 0,
     });
   });
 
@@ -470,6 +476,24 @@ export function ProjectDetailPage() {
 
   createEffect(() => {
     const selected = selectedAgent();
+    if (selected?.type === "lead" && selected.agentId) {
+      const current = project();
+      const sessionKeys = current
+        ? getFrontmatterRecord(current.frontmatter, "sessionKeys")
+        : undefined;
+      const nextSessionKey =
+        sessionKeys && typeof sessionKeys[selected.agentId] === "string"
+          ? (sessionKeys[selected.agentId] as string)
+          : undefined;
+      if (!nextSessionKey) {
+        setSelectedAgent(null);
+        return;
+      }
+      if (selected.sessionKey !== nextSessionKey) {
+        setSelectedAgent({ ...selected, sessionKey: nextSessionKey });
+      }
+      return;
+    }
     if (!selected || selected.type !== "subagent" || !selected.slug) return;
     const item = subagents().find((entry) => entry.slug === selected.slug);
     if (!item) return;
@@ -682,6 +706,22 @@ export function ProjectDetailPage() {
                                 onStatusChange={handleStatusChange}
                                 onAreaChange={handleAreaChange}
                                 onRepoChange={handleRepoChange}
+                                onLeadSessionRemoved={() => {
+                                  setSelectedAgent(null);
+                                }}
+                                onLeadSessionReset={({
+                                  agentId,
+                                  sessionKey,
+                                }) => {
+                                  setSelectedAgent({
+                                    type: "lead",
+                                    projectId: projectId(),
+                                    agentId,
+                                    agentName: agentId,
+                                    sessionKey,
+                                    sessionNonce: Date.now(),
+                                  });
+                                }}
                                 selectedAgentSlug={
                                   selectedAgent()?.type === "lead"
                                     ? `lead:${selectedAgent()?.agentId ?? ""}`
@@ -696,7 +736,9 @@ export function ProjectDetailPage() {
                                       type: "lead",
                                       projectId: info.projectId,
                                       agentId: info.agentId,
-                                      agentName: info.agentId,
+                                      agentName: info.agentName ?? info.agentId,
+                                      sessionKey: info.sessionKey,
+                                      sessionNonce: 0,
                                     });
                                     return;
                                   }
@@ -757,12 +799,29 @@ export function ProjectDetailPage() {
                                 hasArea={Boolean(area())}
                                 repoValid={detail().repoValid}
                                 repoMessage={repoMessage()}
-                                onSpawned={(slug) => {
+                                onSpawned={(result) => {
+                                  const leadAgentName =
+                                    spawnMode()?.prefill.agentName;
                                   setSpawnMode(null);
+                                  if (
+                                    result.type === "lead" &&
+                                    result.agentId
+                                  ) {
+                                    setSelectedAgent({
+                                      type: "lead",
+                                      projectId: projectId(),
+                                      agentId: result.agentId,
+                                      agentName:
+                                        leadAgentName ?? result.agentId,
+                                      sessionKey: result.sessionKey,
+                                      sessionNonce: 0,
+                                    });
+                                    return;
+                                  }
                                   setSelectedAgent({
                                     type: "subagent",
                                     projectId: projectId(),
-                                    slug,
+                                    slug: result.slug,
                                     cli: undefined,
                                     runMode: undefined,
                                     status: "running",
@@ -802,6 +861,19 @@ export function ProjectDetailPage() {
                           onStatusChange={handleStatusChange}
                           onAreaChange={handleAreaChange}
                           onRepoChange={handleRepoChange}
+                          onLeadSessionRemoved={() => {
+                            setSelectedAgent(null);
+                          }}
+                          onLeadSessionReset={({ agentId, sessionKey }) => {
+                            setSelectedAgent({
+                              type: "lead",
+                              projectId: projectId(),
+                              agentId,
+                              agentName: agentId,
+                              sessionKey,
+                              sessionNonce: Date.now(),
+                            });
+                          }}
                           selectedAgentSlug={
                             selectedAgent()?.type === "lead"
                               ? `lead:${selectedAgent()?.agentId ?? ""}`
@@ -815,7 +887,9 @@ export function ProjectDetailPage() {
                                 type: "lead",
                                 projectId: info.projectId,
                                 agentId: info.agentId,
-                                agentName: info.agentId,
+                                agentName: info.agentName ?? info.agentId,
+                                sessionKey: info.sessionKey,
+                                sessionNonce: 0,
                               });
                               return;
                             }
@@ -853,12 +927,25 @@ export function ProjectDetailPage() {
                           hasArea={Boolean(area())}
                           repoValid={detail().repoValid}
                           repoMessage={repoMessage()}
-                          onSpawned={(slug) => {
+                          onSpawned={(result) => {
+                            const leadAgentName =
+                              spawnMode()?.prefill.agentName;
                             setSpawnMode(null);
+                            if (result.type === "lead" && result.agentId) {
+                              setSelectedAgent({
+                                type: "lead",
+                                projectId: projectId(),
+                                agentId: result.agentId,
+                                agentName: leadAgentName ?? result.agentId,
+                                sessionKey: result.sessionKey,
+                                sessionNonce: 0,
+                              });
+                              return;
+                            }
                             setSelectedAgent({
                               type: "subagent",
                               projectId: projectId(),
-                              slug,
+                              slug: result.slug,
                               cli: undefined,
                               runMode: undefined,
                               status: "running",
@@ -909,6 +996,19 @@ export function ProjectDetailPage() {
                           onStatusChange={handleStatusChange}
                           onAreaChange={handleAreaChange}
                           onRepoChange={handleRepoChange}
+                          onLeadSessionRemoved={() => {
+                            setSelectedAgent(null);
+                          }}
+                          onLeadSessionReset={({ agentId, sessionKey }) => {
+                            setSelectedAgent({
+                              type: "lead",
+                              projectId: projectId(),
+                              agentId,
+                              agentName: agentId,
+                              sessionKey,
+                              sessionNonce: Date.now(),
+                            });
+                          }}
                           selectedAgentSlug={
                             selectedAgent()?.type === "lead"
                               ? `lead:${selectedAgent()?.agentId ?? ""}`
@@ -922,7 +1022,9 @@ export function ProjectDetailPage() {
                                 type: "lead",
                                 projectId: info.projectId,
                                 agentId: info.agentId,
-                                agentName: info.agentId,
+                                agentName: info.agentName ?? info.agentId,
+                                sessionKey: info.sessionKey,
+                                sessionNonce: 0,
                               });
                               return;
                             }
@@ -1019,12 +1121,25 @@ export function ProjectDetailPage() {
                               hasArea={Boolean(area())}
                               repoValid={detail().repoValid}
                               repoMessage={repoMessage()}
-                              onSpawned={(slug) => {
+                              onSpawned={(result) => {
+                                const leadAgentName =
+                                  spawnMode()?.prefill.agentName;
                                 setSpawnMode(null);
+                                if (result.type === "lead" && result.agentId) {
+                                  setSelectedAgent({
+                                    type: "lead",
+                                    projectId: projectId(),
+                                    agentId: result.agentId,
+                                    agentName: leadAgentName ?? result.agentId,
+                                    sessionKey: result.sessionKey,
+                                    sessionNonce: 0,
+                                  });
+                                  return;
+                                }
                                 setSelectedAgent({
                                   type: "subagent",
                                   projectId: projectId(),
-                                  slug,
+                                  slug: result.slug,
                                   cli: undefined,
                                   runMode: undefined,
                                   status: "running",
@@ -1057,11 +1172,23 @@ export function ProjectDetailPage() {
                     hasArea={Boolean(area())}
                     repoValid={detail().repoValid}
                     repoMessage={repoMessage()}
-                    onSpawned={(slug) => {
+                    onSpawned={(result) => {
+                      if (result.type === "lead" && result.agentId) {
+                        setSelectedAgent({
+                          type: "lead",
+                          projectId: projectId(),
+                          agentId: result.agentId,
+                          agentName:
+                            spawnMode()?.prefill.agentName ?? result.agentId,
+                          sessionKey: result.sessionKey,
+                          sessionNonce: 0,
+                        });
+                        return;
+                      }
                       setSelectedAgent({
                         type: "subagent",
                         projectId: projectId(),
-                        slug,
+                        slug: result.slug,
                         cli: undefined,
                         runMode: undefined,
                         status: "running",

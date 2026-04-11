@@ -72,7 +72,12 @@ describe("SpawnForm", () => {
     // Lead agents don't send cli/model/slug — gateway handles those
     expect(callArgs?.cli).toBe("");
     expect(callArgs?.slug).toBe("");
-    expect(onSpawned).toHaveBeenCalledWith("worker-1");
+    expect(onSpawned).toHaveBeenCalledWith({
+      type: "lead",
+      slug: "worker-1",
+      agentId: "agent-1",
+      sessionKey: undefined,
+    });
 
     dispose();
   });

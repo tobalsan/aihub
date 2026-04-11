@@ -198,6 +198,21 @@ export async function getSessionEntry(
   return getStoreState(userId).store[`${agentId}:${sessionKey}`];
 }
 
+export async function clearSessionEntry(
+  agentId: string,
+  sessionKey: string,
+  userId?: string
+): Promise<SessionEntry | undefined> {
+  await ensureLoaded(userId);
+  const state = getStoreState(userId);
+  const key = `${agentId}:${sessionKey}`;
+  const entry = state.store[key];
+  if (!entry) return undefined;
+  delete state.store[key];
+  await save(userId);
+  return entry;
+}
+
 /**
  * Look up createdAt timestamp for a sessionId (searches all entries)
  * Returns undefined if not found

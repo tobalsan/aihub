@@ -1434,7 +1434,10 @@ export type SpawnSubagentInput = {
 };
 
 export type SpawnSubagentResult =
-  | { ok: true; data: { slug: string } }
+  | {
+      ok: true;
+      data: { slug: string; agentId?: string; sessionKey?: string };
+    }
   | { ok: false; error: string };
 
 export async function spawnSubagent(
@@ -1452,7 +1455,11 @@ export async function spawnSubagent(
       .catch(() => ({ error: "Failed to spawn subagent" }));
     return { ok: false, error: data.error ?? "Failed to spawn subagent" };
   }
-  const data = (await res.json()) as { slug: string };
+  const data = (await res.json()) as {
+    slug: string;
+    agentId?: string;
+    sessionKey?: string;
+  };
   return { ok: true, data };
 }
 
@@ -1582,6 +1589,44 @@ export async function killSubagent(
   }
   const data = (await res.json()) as { slug: string };
   return { ok: true, data };
+}
+
+export type LeadSessionResult =
+  | { ok: true; data: { ok: true; agentId: string; sessionKey?: string } }
+  | { ok: false; error: string };
+
+export async function removeLeadSession(
+  projectId: string,
+  agentId: string
+): Promise<LeadSessionResult> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/lead-sessions/${encodeURIComponent(agentId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to remove lead session" }));
+    return { ok: false, error: data.error ?? "Failed to remove lead session" };
+  }
+  return { ok: true, data: await res.json() };
+}
+
+export async function resetLeadSession(
+  projectId: string,
+  agentId: string
+): Promise<LeadSessionResult> {
+  const res = await fetch(
+    `${API_BASE}/projects/${projectId}/lead-sessions/${encodeURIComponent(agentId)}/reset`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to reset lead session" }));
+    return { ok: false, error: data.error ?? "Failed to reset lead session" };
+  }
+  return { ok: true, data: await res.json() };
 }
 
 export type ArchiveSubagentResult =

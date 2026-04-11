@@ -10,13 +10,17 @@ import {
 import {
   archiveSubagent,
   unarchiveSubagent,
+  fetchAgentStatuses,
   fetchSimpleHistory,
   fetchSpawnOptions,
   fetchSubagentLogs,
   fetchSubagents,
   killSubagent,
+  removeLeadSession,
   renameSubagent,
+  resetLeadSession,
   subscribeToFileChanges,
+  subscribeToStatus,
 } from "../../api/client";
 import type { AgentInfo } from "../../api/client";
 import type {
@@ -78,12 +82,16 @@ type AgentPanelProps = {
   onSelectAgent: (info: {
     type: "lead" | "subagent";
     agentId?: string;
+    agentName?: string;
+    sessionKey?: string;
     slug?: string;
     cli?: string;
     runMode?: string;
     status?: string;
     projectId: string;
   }) => void;
+  onLeadSessionRemoved?: (agentId: string) => void;
+  onLeadSessionReset?: (info: { agentId: string; sessionKey: string }) => void;
   onTitleChange: (title: string) => Promise<void> | void;
   onStatusChange: (status: string) => Promise<void> | void;
   onAreaChange: (area: string) => Promise<void> | void;
@@ -253,6 +261,9 @@ export function AgentPanel(props: AgentPanelProps) {
   }>({
     text: "No messages yet",
   });
+  const [leadStatuses, setLeadStatuses] = createSignal<
+    Record<string, "streaming" | "idle">
+  >({});
   const [subagentPreview, setSubagentPreview] = createSignal<
     Record<string, { text: string; at?: string; cursor: number }>
   >({});
@@ -351,6 +362,21 @@ export function AgentPanel(props: AgentPanelProps) {
         void loadSubagents();
       },
     });
+    const refreshLeadStatuses = () => {
+      void fetchAgentStatuses().then((res) => {
+        if (!active) return;
+        setLeadStatuses(res.statuses);
+      });
+    };
+    refreshLeadStatuses();
+    const unsubscribeStatus = subscribeToStatus({
+      onStatus: (agentId, status) => {
+        setLeadStatuses((prev) => ({ ...prev, [agentId]: status }));
+      },
+      onReconnect: () => {
+        refreshLeadStatuses();
+      },
+    });
     const subagentPollTimer = window.setInterval(() => {
       void loadSubagents();
     }, 2000);
@@ -363,6 +389,7 @@ export function AgentPanel(props: AgentPanelProps) {
       window.clearInterval(subagentPollTimer);
       window.clearInterval(tickTimer);
       unsubscribeFileChanges();
+      unsubscribeStatus();
       document.removeEventListener("click", onDocumentClick);
       if (copiedTimer) window.clearTimeout(copiedTimer);
     });
@@ -714,13 +741,53 @@ export function AgentPanel(props: AgentPanelProps) {
     props.onSelectAgent({
       type: "lead",
       agentId: leadId,
+      agentName: leadId,
+      sessionKey: leadSessionKey(),
       projectId: props.project.id,
     });
+  };
+
+  const handleRemoveLeadSession = async () => {
+    const agentId = leadAgentId();
+    if (!agentId || busyActionSlug()) return;
+    if (!window.confirm(`Remove lead session ${agentId}?`)) return;
+    setBusyActionSlug(`lead:${agentId}`);
+    setAgentError(null);
+    const result = await removeLeadSession(props.project.id, agentId);
+    setBusyActionSlug(null);
+    if (!result.ok) {
+      setAgentError(result.error);
+      return;
+    }
+    props.onLeadSessionRemoved?.(agentId);
+  };
+
+  const handleResetLeadSession = async () => {
+    const agentId = leadAgentId();
+    if (!agentId || busyActionSlug()) return;
+    if (!window.confirm(`Reset lead session ${agentId}? This starts a fresh chat.`)) return;
+    setBusyActionSlug(`lead:${agentId}`);
+    setAgentError(null);
+    const result = await resetLeadSession(props.project.id, agentId);
+    setBusyActionSlug(null);
+    if (!result.ok) {
+      setAgentError(result.error);
+      return;
+    }
+    if (result.data.sessionKey) {
+      props.onLeadSessionReset?.({ agentId, sessionKey: result.data.sessionKey });
+    }
   };
 
   const openTemplate = (template: SpawnTemplate, prefill: SpawnPrefill) => {
     props.onOpenSpawn({ template, prefill });
     setTemplateMenuOpen(false);
+  };
+
+  const leadStatusTone = () => {
+    const leadId = leadAgentId();
+    if (!leadId) return "idle" as const;
+    return leadStatuses()[leadId] === "streaming" ? "running" : "idle";
   };
 
   const handleArchiveSubagent = async (item: SubagentListItem) => {
@@ -1068,19 +1135,33 @@ export function AgentPanel(props: AgentPanelProps) {
           <div class="agent-list">
             <Show when={leadAgentId()}>
               {(leadId) => (
-                <button
-                  type="button"
-                  class="agent-list-item lead"
+                <div
+                  class="agent-list-item lead subagent"
                   classList={{ selected: selectedLeadId() === leadId() }}
+                  role="button"
+                  tabIndex={0}
                   onClick={() =>
                     props.onSelectAgent({
                       type: "lead",
                       agentId: leadId(),
+                      agentName: leadId(),
+                      sessionKey: leadSessionKey(),
                       projectId: props.project.id,
                     })
                   }
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    props.onSelectAgent({
+                      type: "lead",
+                      agentId: leadId(),
+                      agentName: leadId(),
+                      sessionKey: leadSessionKey(),
+                      projectId: props.project.id,
+                    });
+                  }}
                 >
-                  <span class="agent-status running">●</span>
+                  <span class={`agent-status ${leadStatusTone()}`}>●</span>
                   <span class="agent-list-main">
                     <span class="agent-list-head">
                       <span class="agent-title">
@@ -1092,7 +1173,40 @@ export function AgentPanel(props: AgentPanelProps) {
                     </span>
                     <span class="agent-task">{leadPreview().text}</span>
                   </span>
-                </button>
+                  <div class="agent-row-actions">
+                    <button
+                      type="button"
+                      class="agent-row-action archive"
+                      title={`Reset ${leadId()} session`}
+                      aria-label={`Reset ${leadId()} session`}
+                      disabled={Boolean(busyActionSlug())}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleResetLeadSession();
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12a9 9 0 11-3-6.7" />
+                        <path d="M21 3v6h-6" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="agent-row-action kill"
+                      title={`Remove ${leadId()} session`}
+                      aria-label={`Remove ${leadId()} session`}
+                      disabled={Boolean(busyActionSlug())}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleRemoveLeadSession();
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               )}
             </Show>
             <For each={groupedSubagents().activeAgents}>

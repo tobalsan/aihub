@@ -272,6 +272,58 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("reloads lead history when sessionKey changes", async () => {
+    fetchFullHistoryMock
+      .mockResolvedValueOnce({
+        messages: [
+          {
+            role: "user",
+            timestamp: 1,
+            content: [{ type: "text", text: "old history" }],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ messages: [] });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [sessionKey, setSessionKey] = createSignal("project:PRO-1:lead");
+    const dispose = render(
+      () => (
+        <AgentChat
+          agentId="lead-1"
+          agentName="Lead"
+          sessionKey={sessionKey()}
+          agentType="lead"
+          onBack={() => {}}
+        />
+      ),
+      container
+    );
+
+    await tick();
+    await tick();
+    expect(container.textContent).toContain("old history");
+
+    setSessionKey("project:PRO-1:lead:new");
+    await tick();
+    await tick();
+
+    expect(fetchFullHistoryMock).toHaveBeenNthCalledWith(
+      1,
+      "lead-1",
+      "project:PRO-1:lead"
+    );
+    expect(fetchFullHistoryMock).toHaveBeenNthCalledWith(
+      2,
+      "lead-1",
+      "project:PRO-1:lead:new"
+    );
+    expect(container.textContent).not.toContain("old history");
+
+    dispose();
+  });
+
   it("shows lead context warning at 80% or higher", async () => {
     fetchFullHistoryMock.mockResolvedValue({
       messages: [

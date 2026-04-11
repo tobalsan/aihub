@@ -141,6 +141,23 @@ export function clearSessionHandle(agentId: string, sessionId: string) {
   }
 }
 
+export function deleteSession(agentId: string, sessionId: string): boolean {
+  const key = `${agentId}:${sessionId}`;
+  const session = sessions.get(key);
+  if (!session) return false;
+  const wasStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
+  session.abortController?.abort();
+  sessions.delete(key);
+  const isNowStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
+  if (wasStreaming !== isNowStreaming) {
+    agentEventBus.emitStatusChange({
+      agentId,
+      status: isNowStreaming ? "streaming" : "idle",
+    });
+  }
+  return true;
+}
+
 export function getAllSessionsForAgent(agentId: string): AgentSession[] {
   const result: AgentSession[] = [];
   for (const [key, session] of sessions) {

@@ -44,6 +44,8 @@ import { renderMarkdown } from "../lib/markdown";
 type AgentChatProps = {
   agentId: string | null;
   agentName: string | null;
+  sessionKey?: string | null;
+  sessionNonce?: number | null;
   agentType: "lead" | "subagent" | null;
   subagentInfo?: {
     projectId: string;
@@ -1304,9 +1306,10 @@ export function AgentChat(props: AgentChatProps) {
     skipNextLeadHistoryRefresh = false;
   };
 
-  const sessionKey = createMemo(() =>
-    props.agentId ? getSessionKey(props.agentId) : "main"
-  );
+  const sessionKey = createMemo(() => {
+    if (props.sessionKey) return props.sessionKey;
+    return props.agentId ? getSessionKey(props.agentId) : "main";
+  });
   const cliTokens = new Set(["claude", "codex", "pi"]);
   const canSendLead = createMemo(
     () => props.agentType === "lead" && Boolean(props.agentId)
@@ -1945,7 +1948,7 @@ export function AgentChat(props: AgentChatProps) {
   createEffect(() => {
     const nextIdentity =
       props.agentType === "lead"
-        ? `lead:${props.agentId ?? ""}`
+        ? `lead:${props.agentId ?? ""}:${props.sessionKey ?? ""}:${props.sessionNonce ?? ""}`
         : `subagent:${props.subagentInfo?.projectId ?? ""}:${props.subagentInfo?.slug ?? ""}`;
     if (nextIdentity === activeChatIdentity) return;
     const isAgentSwitch = activeChatIdentity !== null;

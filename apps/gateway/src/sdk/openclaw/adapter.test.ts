@@ -266,6 +266,56 @@ describe("openclaw adapter", () => {
     });
   }, 15000);
 
+  it("uses project session key over configured openclaw.sessionKey", async () => {
+    wss = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => wss!.once("listening", () => resolve()));
+    const port = (wss.address() as AddressInfo).port;
+
+    const token = "token-project";
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+        if (msg.type !== "req") return;
+        const method = msg.method as string | undefined;
+        const params = msg.params as Record<string, unknown> | undefined;
+        if (method === "connect") {
+          ws.send(JSON.stringify({ type: "res", id: msg.id, ok: true, payload: { type: "hello-ok" } }));
+          return;
+        }
+        if (method === "chat.history" || method === "chat.send") {
+          expect(params?.sessionKey).toBe("project:PRO-221:cloud");
+        }
+        if (method === "chat.send") {
+          ws.send(JSON.stringify({ type: "res", id: msg.id, ok: true, payload: { runId: "run-1" } }));
+          ws.send(
+            JSON.stringify({
+              type: "event",
+              event: "chat",
+              payload: { state: "final", message: "ok", runId: "run-1" },
+            })
+          );
+        }
+      });
+    });
+
+    const agent = createAgent(`ws://127.0.0.1:${port}`, token, {
+      sessionKey: "custom",
+      sessionMode: "dedicated",
+    });
+    await openclawAdapter.run({
+      agentId: agent.id,
+      agent,
+      sessionId: "s-123",
+      sessionKey: "project:PRO-221:cloud",
+      message: "ping",
+      workspaceDir: "/tmp",
+      onEvent: () => undefined,
+      onHistoryEvent: () => undefined,
+      abortSignal: new AbortController().signal,
+    });
+  });
+
   it("prefers explicit openclaw.sessionKey over sessionMode", async () => {
     wss = new WebSocketServer({ port: 0 });
     await new Promise<void>((resolve) => wss!.once("listening", () => resolve()));

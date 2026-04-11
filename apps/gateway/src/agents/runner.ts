@@ -524,7 +524,7 @@ export async function runAgent(
       agent,
       userId: params.userId,
       sessionId,
-      sessionKey: params.sessionKey,
+      sessionKey,
       message,
       attachments: params.attachments,
       workspaceDir,
@@ -649,7 +649,7 @@ export async function runAgent(
           userId: params.userId,
           message: pendingMsg,
           sessionId,
-          sessionKey: params.sessionKey,
+          sessionKey,
           thinkLevel: params.thinkLevel,
           source: params.source,
           // onEvent omitted - events go to agentEventBus only

@@ -36,7 +36,12 @@ export type SpawnFormProps = {
   subagents: SubagentListItem[];
   draft?: SpawnFormDraft;
   onDraftChange?: (draft: SpawnFormDraft) => void;
-  onSpawned: (slug: string) => void;
+  onSpawned: (result: {
+    type: "lead" | "subagent";
+    slug: string;
+    agentId?: string;
+    sessionKey?: string;
+  }) => void;
   onCancel: () => void;
 };
 
@@ -333,7 +338,12 @@ export function SpawnForm(props: SpawnFormProps) {
       return;
     }
 
-    props.onSpawned(result.data.slug);
+    props.onSpawned({
+      type: isLead ? "lead" : "subagent",
+      slug: result.data.slug,
+      agentId: result.data.agentId ?? props.prefill.agentId,
+      sessionKey: result.data.sessionKey,
+    });
   };
 
   return (

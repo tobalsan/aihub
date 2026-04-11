@@ -48,6 +48,10 @@ function getRunId(data?: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+function isProjectSessionKey(value: string | undefined): boolean {
+  return typeof value === "string" && value.startsWith("project:");
+}
+
 export const openclawAdapter: SdkAdapter = {
   id: "openclaw",
   displayName: "OpenClaw",
@@ -72,7 +76,9 @@ export const openclawAdapter: SdkAdapter = {
       process.env.OPENCLAW_DEBUG === "1" || process.env.OPENCLAW_DEBUG === "true";
     const gatewayUrl = openclaw.gatewayUrl ?? DEFAULT_GATEWAY_URL;
     let sessionKey: string;
-    if (openclaw.sessionKey) {
+    if (isProjectSessionKey(params.sessionKey)) {
+      sessionKey = params.sessionKey!;
+    } else if (openclaw.sessionKey) {
       sessionKey = openclaw.sessionKey;
     } else if (openclaw.sessionMode === "fixed") {
       sessionKey = params.sessionKey ?? "main";

@@ -31,6 +31,8 @@ export type SelectedProjectAgent = {
   type: "lead" | "subagent";
   agentId?: string;
   agentName?: string;
+  sessionKey?: string;
+  sessionNonce?: number;
   slug?: string;
   cli?: string;
   runMode?: "main-run" | "worktree" | "clone" | "none";
@@ -51,7 +53,12 @@ type CenterPanelProps = {
   spawnFormDraft?: SpawnFormDraft;
   onSpawnFormDraftChange?: (draft: SpawnFormDraft) => void;
   subagents?: SubagentListItem[];
-  onSpawned?: (slug: string) => void;
+  onSpawned?: (result: {
+    type: "lead" | "subagent";
+    slug: string;
+    agentId?: string;
+    sessionKey?: string;
+  }) => void;
   onCancelSpawn?: () => void;
   onTabChange?: (tab: CenterTab) => void;
   hasArea?: boolean;
@@ -277,7 +284,7 @@ export function CenterPanel(props: CenterPanelProps) {
                     subagents={props.subagents ?? []}
                     draft={props.spawnFormDraft}
                     onDraftChange={props.onSpawnFormDraftChange}
-                    onSpawned={(slug) => props.onSpawned?.(slug)}
+                    onSpawned={(result) => props.onSpawned?.(result)}
                     onCancel={() => props.onCancelSpawn?.()}
                   />
                 </Show>
@@ -296,6 +303,16 @@ export function CenterPanel(props: CenterPanelProps) {
                         chatSelectedAgent()!.agentId ??
                         null)
                       : `${chatSelectedAgent()!.projectId}/${chatSelectedAgent()!.cli ?? chatSelectedAgent()!.slug ?? "agent"}`
+                  }
+                  sessionKey={
+                    chatSelectedAgent()!.type === "lead"
+                      ? (chatSelectedAgent()!.sessionKey ?? null)
+                      : null
+                  }
+                  sessionNonce={
+                    chatSelectedAgent()!.type === "lead"
+                      ? (chatSelectedAgent()!.sessionNonce ?? null)
+                      : null
                   }
                   subagentInfo={
                     chatSelectedAgent()!.type === "subagent" &&

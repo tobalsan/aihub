@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ProjectDetailPage } from "./ProjectDetailPage";
 import {
+  fetchAgentStatuses,
   fetchProject,
   subscribeToFileChanges,
+  subscribeToStatus,
   updateProject,
 } from "../../api/client";
 
@@ -54,6 +56,8 @@ vi.mock("../../api/client", () => ({
   subscribeToFileChanges: vi.fn(
     () => () => {}
   ),
+  fetchAgentStatuses: vi.fn(async () => ({ statuses: {} })),
+  subscribeToStatus: vi.fn(() => () => {}),
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "alpha" } })),
   fetchSpawnOptions: vi.fn(async () => ({
     agents: [{ id: "agent-1", name: "Lead Agent" }],
@@ -92,6 +96,8 @@ describe("ProjectDetailPage", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     vi.clearAllMocks();
+    vi.mocked(fetchAgentStatuses).mockResolvedValue({ statuses: {} });
+    vi.mocked(subscribeToStatus).mockImplementation(() => () => {});
   });
 
   it("navigates to /projects when Back to Projects is clicked", async () => {

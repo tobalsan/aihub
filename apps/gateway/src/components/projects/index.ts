@@ -96,6 +96,9 @@ import {
 } from "../../subagents/runner.js";
 import { getTaskboardItem, scanTaskboard } from "../../taskboard/index.js";
 import { parseMarkdownFile } from "../../taskboard/parser.js";
+import { deleteSession } from "../../agents/sessions.js";
+import { clearSessionEntry, clearClaudeSessionId } from "../../sessions/index.js";
+import { invalidateResolvedHistoryFile } from "../../history/store.js";
 
 const execFileAsync = promisify(execFile);
 const registeredApps = new WeakSet<object>();
@@ -396,6 +399,18 @@ function attachmentContentType(name: string): string {
   if (ext === ".svg") return "image/svg+xml";
   if (ext === ".pdf") return "application/pdf";
   return "application/octet-stream";
+}
+
+async function clearLeadSessionState(
+  agentId: string,
+  sessionKey: string,
+  userId?: string
+): Promise<void> {
+  const cleared = await clearSessionEntry(agentId, sessionKey, userId);
+  if (!cleared) return;
+  deleteSession(agentId, cleared.sessionId);
+  await clearClaudeSessionId(agentId, cleared.sessionId, userId);
+  invalidateResolvedHistoryFile(agentId, cleared.sessionId, userId);
 }
 
 function isUploadedFile(
@@ -1343,6 +1358,65 @@ export function registerProjectRoutes(app: Hono): void {
     return c.json(result.data);
   });
 
+  app.delete("/projects/:id/lead-sessions/:agentId", async (c) => {
+    const id = c.req.param("id");
+    const agentId = c.req.param("agentId");
+    const config = getProjectsConfig();
+    const projectResult = await getProject(config, id);
+    if (!projectResult.ok) {
+      return c.json({ error: projectResult.error }, 404);
+    }
+    const project = projectResult.data;
+    const frontmatter = project.frontmatter ?? {};
+    const sessionKeys =
+      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+        ? { ...(frontmatter.sessionKeys as Record<string, string>) }
+        : {};
+    const sessionKey = sessionKeys[agentId];
+    if (!sessionKey) {
+      return c.json({ error: "Lead session not found" }, 404);
+    }
+    delete sessionKeys[agentId];
+    await clearLeadSessionState(agentId, sessionKey);
+    const updateResult = await updateProject(config, id, {
+      sessionKeys: Object.keys(sessionKeys).length > 0 ? sessionKeys : null,
+    });
+    if (!updateResult.ok) {
+      return c.json({ error: updateResult.error }, 400);
+    }
+    emitProjectFileChanged(id, projectDirNameFromPath(project.path), "README.md");
+    return c.json({ ok: true, agentId });
+  });
+
+  app.post("/projects/:id/lead-sessions/:agentId/reset", async (c) => {
+    const id = c.req.param("id");
+    const agentId = c.req.param("agentId");
+    const config = getProjectsConfig();
+    const projectResult = await getProject(config, id);
+    if (!projectResult.ok) {
+      return c.json({ error: projectResult.error }, 404);
+    }
+    const project = projectResult.data;
+    const frontmatter = project.frontmatter ?? {};
+    const sessionKeys =
+      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+        ? { ...(frontmatter.sessionKeys as Record<string, string>) }
+        : {};
+    const sessionKey = sessionKeys[agentId];
+    if (!sessionKey) {
+      return c.json({ error: "Lead session not found" }, 404);
+    }
+    await clearLeadSessionState(agentId, sessionKey);
+    const nextSessionKey = `project:${id}:${agentId}`;
+    sessionKeys[agentId] = nextSessionKey;
+    const updateResult = await updateProject(config, id, { sessionKeys });
+    if (!updateResult.ok) {
+      return c.json({ error: updateResult.error }, 400);
+    }
+    emitProjectFileChanged(id, projectDirNameFromPath(project.path), "README.md");
+    return c.json({ ok: true, agentId, sessionKey: nextSessionKey });
+  });
+
   app.get("/subagents", async (c) => {
     const config = getProjectsConfig();
     const items = await listAllSubagents(config);
@@ -1435,6 +1509,16 @@ export function registerProjectRoutes(app: Hono): void {
           : {};
       const sessionKey =
         sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
+      const normalizedStatus = normalizeProjectStatus(
+        typeof frontmatter.status === "string" ? frontmatter.status : ""
+      );
+      const updates: Partial<UpdateProjectRequest> = {};
+      if (!sessionKeys[agent.id]) {
+        updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
+      }
+      if (normalizedStatus === "todo") {
+        updates.status = "in_progress";
+      }
 
       // Read project docs for prompt context
       const basePath = (project.absolutePath || project.path).replace(
@@ -1514,7 +1598,16 @@ export function registerProjectRoutes(app: Hono): void {
           );
         });
 
-      return c.json({ slug: leadSlug }, 201);
+      if (Object.keys(updates).length > 0) {
+        await updateProject(config, project.id, updates);
+        emitProjectFileChanged(
+          project.id,
+          projectDirNameFromPath(project.path),
+          "README.md"
+        );
+      }
+
+      return c.json({ slug: leadSlug, agentId: agent.id, sessionKey }, 201);
     }
 
     if (!slug || !cli || !prompt) {
