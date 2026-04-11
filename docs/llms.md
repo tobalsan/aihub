@@ -66,8 +66,10 @@ Features:
 - Right context panel shows last 5 recently viewed projects (from `localStorage`) at the bottom, with truncated titles and relative viewed timestamps
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
+- Project-detail lead-agent launches persist per-project `sessionKeys`; the UI now binds the opened chat to the returned project session key instead of falling back to the agent's global `main` session
+- Project-detail lead-agent rows support reset/remove actions: reset rotates to a fresh project-scoped session key, remove clears the project `sessionKeys` entry entirely
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
-- Project detail spawn flow supports template-based subagent prep in center panel (`Coordinator`, `Worker`, `Reviewer`, `Custom`)
+- Project detail spawn flow supports lead-agent launch plus template-based subagent prep in the center panel
 - UI-created project agents derive their session folder slug from the displayed agent name, so coordinator/worker/reviewer spawns land under stable name-based session directories instead of random ids
 - Project API responses now include `repoValid` on both project detail and project list items; it is `true` only when the resolved repo path exists on disk and contains `.git`
 - Project subagent run modes: `clone`, `worktree`, `main-run`, `none` (`none` runs without creating a workspace)

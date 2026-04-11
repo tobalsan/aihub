@@ -98,7 +98,9 @@ Replace hardcoded agent templates (Coordinator/Worker/Reviewer/Custom) in the pr
 
 - All tests pass: shared (47), cli (19), gateway (527), web (164)
 - Build passes: `pnpm build` succeeds
-- **Not yet manually verified**: The user reported that clicking "Cloud" to launch a lead agent did nothing. The `0bdefc2` commit fixes the root causes (double-wrapped prompt, missing project context, response format mismatch), but the user has not yet retested after that fix.
+- **Manual bug found after prior handoff**: lead-agent launch still looked broken in UI. Root cause was session-key mismatch: gateway started lead runs on `project:<id>:<agentId>` but the web chat still opened the lead agent on `main`, so the user saw nothing while the launched lead session continued in the background and could still spawn reviewer workers. The lead-launch route also failed to persist `frontmatter.sessionKeys`, so the lead session did not reliably appear in the project agent list.
+- **Fixed in current worktree**: lead launch now persists `sessionKeys`, emits a project file-change event, returns `{ slug, agentId, sessionKey }`, and the project-detail UI now selects the launched lead agent with that exact `sessionKey` instead of treating it like a CLI subagent.
+- **Follow-up fix**: lead sessions now support sidebar actions. `DELETE /api/projects/:id/lead-sessions/:agentId` removes the project lead-session binding, and `POST /api/projects/:id/lead-sessions/:agentId/reset` rotates that lead session to a fresh project-scoped session key so chat history resets without requiring manual file edits.
 - The `apm` skill docs (`~/.claude/skills/apm`) still reference `--template` in examples — should be updated to `--subagent`
 
 ## Next Steps
