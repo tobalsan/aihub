@@ -296,26 +296,36 @@ export function SpawnForm(props: SpawnFormProps) {
     setAddingAgent(true);
     setAgentError(null);
 
-    const slug = addAgentSlug();
-    const prompt = preparedPrompt();
-    const promptRole = mapTemplateToPromptRole(props.template);
-    const isLead = props.template === "lead";
-    const result = await spawnSubagent(props.projectId, {
-      slug,
-      cli: addAgentCli(),
-      name: addAgentName().trim() || undefined,
-      prompt,
-      template: props.template,
-      promptRole,
-      includeDefaultPrompt: includeDefaultPrompt(),
-      includeRoleInstructions: includeRoleInstructions(),
-      includePostRun: includePostRun(),
-      model: addAgentModel(),
-      reasoningEffort: addAgentCli() === "pi" ? undefined : addAgentReasoning(),
-      thinking: addAgentCli() === "pi" ? addAgentReasoning() : undefined,
-      mode: resolvedMode(),
-      ...(isLead && props.prefill.agentId ? { agentId: props.prefill.agentId } : {}),
-    });
+    const isLead = props.template === "lead" && !!props.prefill.agentId;
+
+    const result = isLead
+      ? await spawnSubagent(props.projectId, {
+          slug: "",
+          cli: "",
+          prompt: includeCustomInstructions()
+            ? addAgentCustomInstructions().trim()
+            : "",
+          agentId: props.prefill.agentId!,
+          includeDefaultPrompt: includeDefaultPrompt(),
+          includeRoleInstructions: includeRoleInstructions(),
+          includePostRun: includePostRun(),
+        })
+      : await spawnSubagent(props.projectId, {
+          slug: addAgentSlug(),
+          cli: addAgentCli(),
+          name: addAgentName().trim() || undefined,
+          prompt: preparedPrompt(),
+          template: props.template,
+          promptRole: mapTemplateToPromptRole(props.template),
+          includeDefaultPrompt: includeDefaultPrompt(),
+          includeRoleInstructions: includeRoleInstructions(),
+          includePostRun: includePostRun(),
+          model: addAgentModel(),
+          reasoningEffort:
+            addAgentCli() === "pi" ? undefined : addAgentReasoning(),
+          thinking: addAgentCli() === "pi" ? addAgentReasoning() : undefined,
+          mode: resolvedMode(),
+        });
     setAddingAgent(false);
 
     if (!result.ok) {

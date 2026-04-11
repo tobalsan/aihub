@@ -63,15 +63,15 @@ describe("SpawnForm", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(spawnSubagent).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(spawnSubagent).mock.calls[0]?.[1]).toMatchObject({
-      slug: "coordinator",
-      cli: "claude",
-      model: "opus",
-      reasoningEffort: "medium",
-      mode: "none",
-      name: "Coordinator",
+    const callArgs = vi.mocked(spawnSubagent).mock.calls[0]?.[1];
+    expect(callArgs).toMatchObject({
       agentId: "agent-1",
+      includeDefaultPrompt: true,
+      includePostRun: false,
     });
+    // Lead agents don't send cli/model/slug — gateway handles those
+    expect(callArgs?.cli).toBe("");
+    expect(callArgs?.slug).toBe("");
     expect(onSpawned).toHaveBeenCalledWith("worker-1");
 
     dispose();

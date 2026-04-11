@@ -1417,9 +1417,6 @@ export function registerProjectRoutes(app: Hono): void {
         ? body.agentId.trim()
         : undefined;
     if (agentId) {
-      if (!prompt) {
-        return c.json({ error: "Missing required field: prompt" }, 400);
-      }
       const agent = getAgent(agentId);
       if (!agent || !isAgentActive(agentId)) {
         return c.json({ error: "Agent not found" }, 404);
@@ -1439,18 +1436,68 @@ export function registerProjectRoutes(app: Hono): void {
       const sessionKey =
         sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
 
+      // Read project docs for prompt context
+      const basePath = (project.absolutePath || project.path).replace(
+        /\/$/,
+        ""
+      );
+      const docKeys = Object.keys(project.docs ?? {}).sort((a, b) => {
+        if (a === "README") return -1;
+        if (b === "README") return 1;
+        return a.localeCompare(b);
+      });
+      let fullContent = project.docs?.README ?? "";
+      for (const key of docKeys) {
+        if (key === "README") continue;
+        const docContent = project.docs?.[key];
+        if (docContent) {
+          fullContent += `\n\n## ${key}\n\n${docContent}`;
+        }
+      }
+
+      const includeDefaultPrompt =
+        typeof body.includeDefaultPrompt === "boolean"
+          ? body.includeDefaultPrompt
+          : true;
+      const includeRoleInstructions =
+        typeof body.includeRoleInstructions === "boolean"
+          ? body.includeRoleInstructions
+          : true;
+      const includePostRun =
+        typeof body.includePostRun === "boolean" ? body.includePostRun : false;
+
+      const repo =
+        typeof frontmatter.repo === "string" ? frontmatter.repo : undefined;
+      const owner =
+        typeof frontmatter.owner === "string" ? frontmatter.owner : undefined;
+      const status =
+        typeof frontmatter.status === "string" ? frontmatter.status : "";
+
       // Build coordinator prompt with subagent types
       const coordinatorPrompt = buildRolePrompt({
         role: "coordinator",
         title: project.title,
-        status:
-          typeof frontmatter.status === "string" ? frontmatter.status : "",
-        path: (project.absolutePath || project.path).replace(/\/$/, ""),
-        content: prompt,
-        specsPath: "",
+        status,
+        path: basePath,
+        content: fullContent,
+        specsPath: `${basePath}/SPECS.md`,
         projectId: project.id,
+        projectFiles: [
+          "README.md",
+          "THREAD.md",
+          ...docKeys.map((key) => `${key}.md`),
+        ],
+        repo,
+        owner,
+        runAgentLabel: agent.name,
+        customPrompt: prompt || undefined,
         subagentTypes: getSubagentTemplates(),
+        includeDefaultPrompt,
+        includeRoleInstructions,
+        includePostRun,
       });
+
+      const leadSlug = `lead-${agent.id.replace(/[^a-z0-9]/gi, "-")}`;
 
       import("../../agents/index.js")
         .then(({ runAgent }) =>
@@ -1467,10 +1514,7 @@ export function registerProjectRoutes(app: Hono): void {
           );
         });
 
-      return c.json(
-        { ok: true, type: "aihub", agentId: agent.id, sessionKey },
-        201
-      );
+      return c.json({ slug: leadSlug }, 201);
     }
 
     if (!slug || !cli || !prompt) {
