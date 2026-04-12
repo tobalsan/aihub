@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "aihub:sidebar-collapsed";
+export const RIGHT_PANEL_COLLAPSED_STORAGE_KEY = "aihub:right-panel-collapsed";
 export const ZEN_MODE_STORAGE_KEY = "aihub:zen-mode";
 
 function readStoredBoolean(key: string): boolean {
@@ -37,4 +38,17 @@ export function setZenModePersistent(value: boolean): void {
 
 export function toggleZenMode(): void {
   setZenModePersistent(!zenMode());
+}
+
+export const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(
+  readStoredBoolean(RIGHT_PANEL_COLLAPSED_STORAGE_KEY)
+);
+
+export function setRightPanelCollapsedPersistent(value: boolean): void {
+  setRightPanelCollapsed(value);
+  persistBoolean(RIGHT_PANEL_COLLAPSED_STORAGE_KEY, value);
+}
+
+export function toggleRightPanelCollapsed(): void {
+  setRightPanelCollapsedPersistent(!rightPanelCollapsed());
 }

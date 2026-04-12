@@ -5,6 +5,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  on,
   onCleanup,
   onMount,
   untrack,
@@ -59,6 +60,11 @@ import { extractBlockText } from "../lib/history";
 import {
   renderMarkdown as renderMarkdownHtml,
 } from "../lib/markdown";
+import {
+  rightPanelCollapsed,
+  setRightPanelCollapsedPersistent,
+  toggleRightPanelCollapsed,
+} from "../lib/layout";
 
 type ColumnDef = { id: string; title: string; color: string };
 
@@ -1108,7 +1114,6 @@ export function ProjectsBoard(props: {
   const [filterText, setFilterText] = createSignal("");
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
-  const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
   const [mobileOverlay, setMobileOverlay] = createSignal<
     "chat" | null
@@ -1202,14 +1207,14 @@ export function ProjectsBoard(props: {
     }
   });
 
-  createEffect(() => {
-    if (isMobile()) {
+  createEffect(on(isMobile, (mobile) => {
+    if (mobile) {
       if (showSidebar()) setSidebarCollapsed(true);
-      setRightPanelCollapsed(true);
+      setRightPanelCollapsedPersistent(true);
       return;
     }
     if (mobileOverlay()) setMobileOverlay(null);
-  });
+  }, { defer: true }));
 
   createEffect(() => {
     const value = selectedAgent();
@@ -6763,7 +6768,7 @@ export function ProjectsBoard(props: {
       </main>
       <ContextPanel
         collapsed={rightPanelCollapsed}
-        onToggleCollapse={() => setRightPanelCollapsed((prev) => !prev)}
+        onToggleCollapse={toggleRightPanelCollapsed}
         selectedAgent={selectedAgent}
         onSelectAgent={handleSelectAgent}
         onClearSelection={() => {
