@@ -2432,15 +2432,13 @@ export function AgentChat(props: AgentChatProps) {
           markAihubStreaming();
           updateAihubUserLogState(clientId, { pending: false, queued: false });
         },
-        onToolCall: (id, name, args) => {
+        onToolCall: (_id, _name, _args) => {
           markAihubStreaming();
           updateAihubUserLogState(clientId, { pending: false, queued: false });
-          appendStreamingToolCall(id, name, args);
         },
-        onToolResult: (id, _name, content, _isError, details) => {
+        onToolResult: (_id, _name, _content, _isError, _details) => {
           markAihubStreaming();
           updateAihubUserLogState(clientId, { pending: false, queued: false });
-          updateStreamingToolResult(id, content, details);
         },
         onSessionReset: () => {
           setAihubLogs([]);
