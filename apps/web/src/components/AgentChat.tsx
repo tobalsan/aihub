@@ -79,7 +79,8 @@ type LogItem = {
     | "diff"
     | "system"
     | "error"
-    | "subagent";
+    | "subagent"
+    | "thinking";
   title?: string;
   summaryPreview?: string;
   body: string;
@@ -349,7 +350,19 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
     }
     if (msg.role === "assistant") {
       for (const block of msg.content) {
-        if (block.type === "text" && block.text) {
+        if (block.type === "thinking" && block.thinking) {
+          const text =
+            typeof block.thinking === "string" ? block.thinking : "";
+          if (text) {
+            entries.push({
+              tone: "muted",
+              icon: "thinking",
+              title: "Thinking",
+              body: text,
+              collapsible: true,
+            });
+          }
+        } else if (block.type === "text" && block.text) {
           const text = extractBlockText(block.text);
           if (!text) continue;
           const parsed = parseJsonRecord(text);
@@ -1133,6 +1146,20 @@ function logIcon(icon?: LogItem["icon"]) {
         stroke-width="2"
       >
         <path d="M4 5h16v10H7l-3 3V5z" />
+      </svg>
+    );
+  }
+  if (icon === "thinking") {
+    return (
+      <svg
+        class="log-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 6v6l4 2" />
       </svg>
     );
   }
@@ -2312,21 +2339,14 @@ export function AgentChat(props: AgentChatProps) {
     }
 
     if (isQueuedLeadSend) {
-      let queuedText = "";
-      let queuedThinking = "";
-      const queuedToolCalls: Array<{
-        id: string;
-        name: string;
-        arguments: unknown;
-      }> = [];
+      let queueCleanup: (() => void) | undefined;
 
-      const queueCleanup = streamMessage(
+      queueCleanup = streamMessage(
         props.agentId,
         text,
         sessionKey(),
         (chunk) => {
           updateAihubUserLogState(clientId, { pending: false, queued: false });
-          queuedText += chunk;
         },
         (meta?: DoneMeta) => {
           if (meta?.queued) {
@@ -2342,35 +2362,27 @@ export function AgentChat(props: AgentChatProps) {
           updateAihubUserLogState(clientId, { pending: false, queued: false });
           updatePendingAihubUserMessage(clientId, () => null);
 
-          if (queuedText || queuedThinking || queuedToolCalls.length > 0) {
-            setAihubLogs((prev) => [
-              ...prev,
-              { tone: "assistant", body: queuedText },
-            ]);
-          }
-
           if (queueCleanup) queueCleanup();
         },
         (err) => {
           updateAihubUserLogState(clientId, { pending: false, queued: false });
           updatePendingAihubUserMessage(clientId, () => null);
           setError(err);
+          scrollToBottom(true);
           if (queueCleanup) queueCleanup();
         },
         {
-          onThinking: (chunk) => {
+          onThinking: (_chunk) => {
             updateAihubUserLogState(clientId, {
               pending: false,
               queued: false,
             });
-            queuedThinking += chunk;
           },
-          onToolCall: (id, name, args) => {
+          onToolCall: (_id, _name, _args) => {
             updateAihubUserLogState(clientId, {
               pending: false,
               queued: false,
             });
-            queuedToolCalls.push({ id, name, arguments: args });
           },
         },
         {
@@ -2397,13 +2409,6 @@ export function AgentChat(props: AgentChatProps) {
         setAihubLive((prev) => prev + chunk);
       },
       () => {
-        const finalText = aihubLive();
-        if (finalText) {
-          setAihubLogs((prev) => [
-            ...prev,
-            { tone: "assistant", body: finalText },
-          ]);
-        }
         setAihubStreaming(false);
         setAihubLive("");
         setAihubPending(false);
@@ -2414,6 +2419,7 @@ export function AgentChat(props: AgentChatProps) {
       },
       (err) => {
         setError(err);
+        scrollToBottom(true);
         setAihubStreaming(false);
         setAihubPending(false);
         streamingToolCalls.clear();
