@@ -33,7 +33,7 @@ describe("repairOrphanedToolCalls", () => {
         role: "assistant",
         stopReason: "endTurn",
         content: [{ type: "text", text: "Hello!" }],
-      } as AgentMessage,
+      } as unknown as AgentMessage,
     ]);
     repairOrphanedToolCalls(session);
     expect(session.agent.state.messages).toHaveLength(2);
