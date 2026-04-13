@@ -29,6 +29,7 @@ import {
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
 import { getLoadedComponents } from "../../components/registry.js";
+import { repairOrphanedToolCalls } from "./session-repair.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 let piEnvLock: Promise<void> = Promise.resolve();
@@ -332,6 +333,9 @@ export const piAdapter: SdkAdapter = {
         sessionManager,
         settingsManager,
       });
+
+      // Repair orphaned tool calls from interrupted sessions
+      repairOrphanedToolCalls(agentSession);
 
       // Emit session handle for queue injection
       params.onSessionHandle?.(agentSession);

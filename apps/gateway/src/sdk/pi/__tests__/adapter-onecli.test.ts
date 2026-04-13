@@ -142,6 +142,7 @@ describe("pi adapter onecli env wiring", () => {
     } as GatewayConfig;
     const session = {
       messages: [{ role: "assistant", content: "done" }],
+      agent: { state: { messages: [] } },
       subscribe: vi.fn(() => vi.fn()),
       prompt: vi.fn(async () => undefined),
       abort: vi.fn(),
@@ -192,6 +193,7 @@ describe("pi adapter onecli env wiring", () => {
     const config = { agents: [agent] } as GatewayConfig;
     const session = {
       messages: [{ role: "assistant", content: "done" }],
+      agent: { state: { messages: [] } },
       subscribe: vi.fn(() => vi.fn()),
       prompt: vi.fn(async () => undefined),
       abort: vi.fn(),
@@ -276,6 +278,7 @@ describe("pi adapter onecli env wiring", () => {
       return {
         session: {
           messages: [{ role: "assistant", content: agentId }],
+          agent: { state: { messages: [] } },
           subscribe: vi.fn(() => vi.fn()),
           prompt: vi.fn(async () => {
             if (model.provider && agentId === firstAgent.id) {
