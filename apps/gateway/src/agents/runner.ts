@@ -52,6 +52,7 @@ import {
   getSimpleHistory as getCanonicalSimpleHistory,
   getFullHistory as getCanonicalFullHistory,
   hasCanonicalHistory,
+  readPiSessionHistory,
   backfillFromPiSession,
   backfillFromClaudeSessionIfNeeded,
   invalidateResolvedHistoryFile,
@@ -699,9 +700,27 @@ export async function getFullSessionHistory(
 
   // Try canonical history
   if (await hasCanonicalHistory(agentId, sessionId, userId)) {
-    return getCanonicalFullHistory(agentId, sessionId, userId);
+    const canonical = await getCanonicalFullHistory(
+      agentId,
+      sessionId,
+      userId
+    );
+    // If canonical is incomplete (streaming in progress), fall back to Pi
+    if (canonical.length > 0) {
+      const last = canonical[canonical.length - 1];
+      if (last.role === "user") {
+        // Turn hasn't flushed yet — canonical only has user message
+        const piHistory = await readPiSessionHistory(
+          agentId,
+          sessionId,
+          userId
+        );
+        if (piHistory.length > canonical.length) return piHistory;
+      }
+    }
+    return canonical;
   }
 
-  // No history exists
-  return [];
+  // No canonical — try Pi session directly
+  return readPiSessionHistory(agentId, sessionId, userId);
 }

@@ -801,6 +801,88 @@ export async function backfillFromPiSession(
   return true;
 }
 
+/**
+ * Read Pi session file directly as FullHistoryMessage[].
+ * Used as fallback when canonical history is incomplete (e.g. during streaming).
+ */
+export async function readPiSessionHistory(
+  agentId: string,
+  sessionId: string,
+  userId?: string
+): Promise<FullHistoryMessage[]> {
+  const piFile = await resolvePiSessionFile(agentId, sessionId, userId);
+  if (!piFile) return [];
+
+  let content: string;
+  try {
+    content = await fs.readFile(piFile, "utf-8");
+  } catch {
+    return [];
+  }
+
+  const messages: FullHistoryMessage[] = [];
+  const lines = content.trim().split("\n");
+
+  for (const line of lines) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type !== "message") continue;
+
+      const msg = entry.message as Record<string, unknown>;
+      if (!msg || !msg.role) continue;
+
+      const timestamp = (msg.timestamp as number) ?? Date.now();
+      const rawContent = msg.content as unknown[];
+
+      if (msg.role === "user") {
+        const text = extractText(rawContent);
+        if (text) {
+          messages.push({
+            role: "user",
+            content: [{ type: "text", text }],
+            timestamp,
+          });
+        }
+      } else if (msg.role === "assistant") {
+        const blocks = convertPiContent(rawContent);
+        if (blocks.length > 0) {
+          messages.push({
+            role: "assistant",
+            content: blocks,
+            timestamp,
+            meta: {
+              api: msg.api as string | undefined,
+              provider: msg.provider as string | undefined,
+              model: msg.model as string | undefined,
+              usage: msg.usage as ModelUsage | undefined,
+              stopReason: msg.stopReason as string | undefined,
+            },
+          });
+        }
+      } else if (msg.role === "toolResult") {
+        const text = extractText(rawContent);
+        const details = msg.details as Record<string, unknown> | undefined;
+        messages.push({
+          role: "toolResult",
+          toolCallId: msg.toolCallId as string,
+          toolName: msg.toolName as string,
+          content: [{ type: "text", text: text || "" }],
+          isError: (msg.isError as boolean) ?? false,
+          details: details?.diff
+            ? { diff: details.diff as string }
+            : undefined,
+          timestamp,
+        });
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  return messages;
+}
+
 export async function backfillFromClaudeSessionIfNeeded(
   agentId: string,
   sessionId: string,
