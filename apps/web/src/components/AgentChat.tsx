@@ -2406,7 +2406,6 @@ export function AgentChat(props: AgentChatProps) {
       (chunk) => {
         markAihubStreaming();
         updateAihubUserLogState(clientId, { pending: false, queued: false });
-        setAihubLive((prev) => prev + chunk);
       },
       () => {
         setAihubStreaming(false);
