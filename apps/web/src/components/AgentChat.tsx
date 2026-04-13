@@ -1803,10 +1803,20 @@ export function AgentChat(props: AgentChatProps) {
   const loadAihubHistory = async () => {
     if (!props.agentId) return;
     const res = await fetchFullHistory(props.agentId, sessionKey());
-    setAihubHistoryMessages(res.messages ?? []);
+    const rawMessages = res.messages ?? [];
+    const nextMessages = (() => {
+      if (!aihubStreaming()) return rawMessages;
+      const lastUserIndex = rawMessages.findLastIndex(
+        (message) => message.role === "user"
+      );
+      return lastUserIndex === -1
+        ? rawMessages
+        : rawMessages.slice(0, lastUserIndex + 1);
+    })();
+    setAihubHistoryMessages(nextMessages);
     const pending = pendingAihubUserMessages();
     const { merged, remaining } = mergePendingAihubMessages(
-      res.messages ?? [],
+      nextMessages,
       pending
     );
     setAihubLogs(merged);

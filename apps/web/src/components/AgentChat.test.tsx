@@ -317,6 +317,63 @@ describe("AgentChat stop/send behavior", () => {
     dispose();
   });
 
+  it("does not duplicate streamed lead text when mid-run history already has assistant output", async () => {
+    let historyCallCount = 0;
+    fetchFullHistoryMock.mockImplementation(async () => {
+      historyCallCount += 1;
+      if (historyCallCount === 1) {
+        return { messages: [] };
+      }
+      return {
+        messages: [
+          {
+            role: "user",
+            timestamp: 1,
+            content: [{ type: "text", text: "Investigate" }],
+          },
+          {
+            role: "assistant",
+            timestamp: 2,
+            content: [{ type: "text", text: "Working..." }],
+          },
+        ],
+      };
+    });
+
+    let callbacks:
+      | Parameters<typeof subscribeToSessionMock.mockImplementation>[0]
+      | undefined;
+    subscribeToSessionMock.mockImplementation(
+      (
+        _agentId: string,
+        _sessionKey: string,
+        nextCallbacks: typeof callbacks
+      ) => {
+        callbacks = nextCallbacks;
+        return () => {};
+      }
+    );
+
+    const { container, dispose } = renderLead({
+      sessionKey: "project:PRO-1:lead-1",
+      sessionNonce: Date.now(),
+    });
+
+    await tick();
+    await tick();
+
+    callbacks?.onText?.("Working...");
+    await tick();
+    await tick();
+
+    const assistantBodies = Array.from(
+      container.querySelectorAll(".log-line.assistant .log-text")
+    ).map((node) => node.textContent ?? "");
+    expect(assistantBodies).toEqual(["Working..."]);
+
+    dispose();
+  });
+
   it("reloads lead history when sessionKey changes", async () => {
     fetchFullHistoryMock
       .mockResolvedValueOnce({
