@@ -38,8 +38,15 @@ const langfuseComponent: Component = {
     const config = LangfuseComponentConfigSchema.parse(
       ctx.getConfig().components?.langfuse
     );
-    tracer = new LangfuseTracer();
-    await tracer.start(config, agentEventBus);
+    tracer = new LangfuseTracer({
+      publicKey: config.publicKey ?? process.env.LANGFUSE_PUBLIC_KEY!,
+      secretKey: config.secretKey ?? process.env.LANGFUSE_SECRET_KEY!,
+      baseUrl: config.baseUrl ?? process.env.LANGFUSE_BASE_URL,
+      flushAt: config.flushAt,
+      flushInterval: config.flushInterval,
+      debug: config.debug,
+    });
+    tracer.start(agentEventBus);
   },
   async stop() {
     await tracer?.stop();
