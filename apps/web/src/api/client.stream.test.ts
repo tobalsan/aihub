@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { streamMessage, subscribeToFileChanges } from "./client";
+import { streamMessage, subscribeToFileChanges, subscribeToSession } from "./client";
 
 type MessageEventLike = { data: string };
 
@@ -127,6 +127,42 @@ describe("streamMessage", () => {
     ws.triggerError();
 
     expect(onError).toHaveBeenCalledWith("Connection error");
+  });
+});
+
+describe("subscribeToSession", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+    vi.stubGlobal("window", { location: { protocol: "http:", host: "localhost:5173" } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reloads history once the subscription is active", () => {
+    const onHistoryUpdated = vi.fn();
+
+    const cleanup = subscribeToSession("agent-1", "project:PRO-1:lead-1", {
+      onHistoryUpdated,
+    });
+
+    const ws = MockWebSocket.instances[0];
+    expect(ws).toBeTruthy();
+
+    ws.open();
+
+    expect(ws.sent).toEqual([
+      JSON.stringify({
+        type: "subscribe",
+        agentId: "agent-1",
+        sessionKey: "project:PRO-1:lead-1",
+      }),
+    ]);
+    expect(onHistoryUpdated).toHaveBeenCalledTimes(1);
+
+    cleanup();
   });
 });
 

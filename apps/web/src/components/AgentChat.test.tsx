@@ -46,7 +46,11 @@ vi.mock("../api/client", () => ({
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function renderLead(options?: { hidden?: boolean }) {
+function renderLead(options?: {
+  hidden?: boolean;
+  sessionKey?: string;
+  sessionNonce?: number | null;
+}) {
   const container = document.createElement("div");
   if (options?.hidden) container.setAttribute("aria-hidden", "true");
   document.body.appendChild(container);
@@ -56,6 +60,8 @@ function renderLead(options?: { hidden?: boolean }) {
         agentId="lead-1"
         agentName="Lead"
         agentType="lead"
+        sessionKey={options?.sessionKey}
+        sessionNonce={options?.sessionNonce}
         onBack={() => {}}
       />
     ),
@@ -268,6 +274,45 @@ describe("AgentChat stop/send behavior", () => {
     expect(container.querySelectorAll(".log-virtual-row").length).toBeLessThan(
       200
     );
+
+    dispose();
+  });
+
+  it("shows pending spinner and live updates for a fresh lead session", async () => {
+    let callbacks:
+      | {
+          onToolCall?: (id: string, name: string, args: unknown) => void;
+          onText?: (text: string) => void;
+        }
+      | undefined;
+    subscribeToSessionMock.mockImplementation(
+      (_agentId: string, _sessionKey: string, nextCallbacks) => {
+        callbacks = nextCallbacks;
+        return () => {};
+      }
+    );
+    fetchFullHistoryMock.mockResolvedValue({ messages: [] });
+
+    const { container, dispose } = renderLead({
+      sessionKey: "project:PRO-1:lead-1",
+      sessionNonce: Date.now(),
+    });
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".log-line.pending")).not.toBeNull();
+
+    callbacks?.onToolCall?.("tool-1", "read", { path: "README.md" });
+    callbacks?.onText?.("Working...");
+    await tick();
+    await tick();
+
+    expect(fetchFullHistoryMock).toHaveBeenCalledWith(
+      "lead-1",
+      "project:PRO-1:lead-1"
+    );
+    expect(container.textContent).toContain("Working...");
+    expect(container.querySelector(".log-line.pending")).toBeNull();
 
     dispose();
   });

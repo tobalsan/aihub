@@ -372,6 +372,7 @@ export function subscribeToSession(
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "subscribe", agentId, sessionKey }));
+    callbacks.onHistoryUpdated?.();
   };
 
   ws.onmessage = (e) => {

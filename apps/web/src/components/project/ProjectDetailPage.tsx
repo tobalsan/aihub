@@ -346,6 +346,28 @@ export function ProjectDetailPage() {
     await refetchProject();
   };
 
+  const applyLeadSpawnToProject = (agentId: string, sessionKey?: string) => {
+    const current = project();
+    if (!current) return;
+    const nextSessionKey = sessionKey?.trim() || `project:${projectId()}:${agentId}`;
+    const currentFrontmatter = current.frontmatter ?? {};
+    const currentSessionKeys = getFrontmatterRecord(currentFrontmatter, "sessionKeys") ?? {};
+    mutateProject({
+      ...current,
+      frontmatter: {
+        ...currentFrontmatter,
+        sessionKeys: {
+          ...currentSessionKeys,
+          [agentId]: nextSessionKey,
+        },
+        status:
+          getFrontmatterString(currentFrontmatter, "status") === "todo"
+            ? "in_progress"
+            : currentFrontmatter.status,
+      },
+    });
+  };
+
   const handleStartTitleEdit = () => {
     const currentTitle = project()?.title ?? "";
     setTitleDraft(currentTitle);
@@ -807,6 +829,10 @@ export function ProjectDetailPage() {
                                     result.type === "lead" &&
                                     result.agentId
                                   ) {
+                                    applyLeadSpawnToProject(
+                                      result.agentId,
+                                      result.sessionKey
+                                    );
                                     setSelectedAgent({
                                       type: "lead",
                                       projectId: projectId(),
@@ -814,7 +840,7 @@ export function ProjectDetailPage() {
                                       agentName:
                                         leadAgentName ?? result.agentId,
                                       sessionKey: result.sessionKey,
-                                      sessionNonce: 0,
+                                      sessionNonce: Date.now(),
                                     });
                                     return;
                                   }
@@ -932,13 +958,17 @@ export function ProjectDetailPage() {
                               spawnMode()?.prefill.agentName;
                             setSpawnMode(null);
                             if (result.type === "lead" && result.agentId) {
+                              applyLeadSpawnToProject(
+                                result.agentId,
+                                result.sessionKey
+                              );
                               setSelectedAgent({
                                 type: "lead",
                                 projectId: projectId(),
                                 agentId: result.agentId,
                                 agentName: leadAgentName ?? result.agentId,
                                 sessionKey: result.sessionKey,
-                                sessionNonce: 0,
+                                sessionNonce: Date.now(),
                               });
                               return;
                             }
@@ -1126,13 +1156,17 @@ export function ProjectDetailPage() {
                                   spawnMode()?.prefill.agentName;
                                 setSpawnMode(null);
                                 if (result.type === "lead" && result.agentId) {
+                                  applyLeadSpawnToProject(
+                                    result.agentId,
+                                    result.sessionKey
+                                  );
                                   setSelectedAgent({
                                     type: "lead",
                                     projectId: projectId(),
                                     agentId: result.agentId,
                                     agentName: leadAgentName ?? result.agentId,
                                     sessionKey: result.sessionKey,
-                                    sessionNonce: 0,
+                                    sessionNonce: Date.now(),
                                   });
                                   return;
                                 }
@@ -1174,6 +1208,10 @@ export function ProjectDetailPage() {
                     repoMessage={repoMessage()}
                     onSpawned={(result) => {
                       if (result.type === "lead" && result.agentId) {
+                        applyLeadSpawnToProject(
+                          result.agentId,
+                          result.sessionKey
+                        );
                         setSelectedAgent({
                           type: "lead",
                           projectId: projectId(),
@@ -1181,7 +1219,7 @@ export function ProjectDetailPage() {
                           agentName:
                             spawnMode()?.prefill.agentName ?? result.agentId,
                           sessionKey: result.sessionKey,
-                          sessionNonce: 0,
+                          sessionNonce: Date.now(),
                         });
                         return;
                       }

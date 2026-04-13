@@ -67,6 +67,7 @@ Features:
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
 - Project-detail lead-agent launches persist per-project `sessionKeys`; the UI binds the opened chat to the exact returned project session key instead of the agent's global `main` session
+- Fresh project-detail lead-agent launches now show an immediate pending spinner and render subscribed text/tool activity live while the run is in progress, instead of waiting for final history reload
 - Project-detail lead-agent rows support reset/remove actions: remove clears the project `sessionKeys` entry, and reset clears the bound session state then reuses the canonical `project:<id>:<agentId>` key
 - Lead-agent reset immediately clears visible chat history without a page reload because lead chat identity now keys on `agentId + sessionKey + sessionNonce`
 - Project-detail left-panel lead status dots now reflect real runtime state via `fetchAgentStatuses()` + `subscribeToStatus()` instead of a hardcoded online indicator

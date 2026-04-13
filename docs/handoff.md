@@ -1,6 +1,6 @@
 # Hand-off
 
-Date: 2026-04-11
+Date: 2026-04-12
 Repo: AIHub monorepo
 Branch: `feat/lead-agent-launcher-ui` (based off `main` at `da6e9db`)
 Project: PRO-221 — Lead Agent Launcher & Subagent Config
@@ -112,10 +112,14 @@ Replace hardcoded agent templates (Coordinator/Worker/Reviewer/Custom) in the pr
   - `pnpm build`
   - `pnpm typecheck`
 - Repo docs were updated to reflect config-driven `--subagent` invocation, project-scoped lead sessions, and the latest lead-session UI fixes.
+- Follow-up fix: project-detail lead chat now forces one history refresh when the session subscription opens, closing a race where fast Pi SDK lead-agent runs could finish after the first empty fetch but before the websocket subscription was active.
+- Follow-up UX fix: fresh project-detail lead sessions now enter a pending state immediately, then stream subscribed text/tool activity live in the chat pane while running instead of staying blank until the final history refresh.
+- Follow-up polish: lead-agent spawn no longer emits a project file-change refresh; project detail now mutates local `sessionKeys`/status optimistically, removing the visible full-pane flash on launch.
 - The external `apm` skill docs (`~/.claude/skills/apm`) may still reference old `--template` examples.
 
 ## Next Steps
 
 1. **Optional extra coverage** — Add targeted gateway/web tests for lead reset/remove endpoints and lead-status rendering if desired.
 2. **External docs cleanup** — Update the separate `apm` skill docs if you want all non-repo docs aligned too.
+3. **Verify in browser** — Re-test a fast Pi SDK lead-agent launch from project detail; the pane should now populate after the websocket subscribe handshake even if the initial fetch races the run.
 3. **PR creation** — Branch `feat/lead-agent-launcher-ui` is ready for PR against `main`.

@@ -1811,12 +1811,52 @@ export function AgentChat(props: AgentChatProps) {
     );
     setAihubLogs(merged);
     setPendingAihubUserMessages(remaining);
+    if (!aihubStreaming()) {
+      setAihubLive("");
+      streamingToolCalls.clear();
+    }
   };
 
   const setupLead = () => {
     if (!props.agentId) return;
+    let hydratedFromStream = false;
+    const hydrateLeadHistoryFromStream = () => {
+      if (hydratedFromStream) return;
+      hydratedFromStream = true;
+      void loadAihubHistory();
+    };
+    const markLeadStreamActivity = () => {
+      setAihubStreaming(true);
+      markAihubStreaming();
+      hydrateLeadHistoryFromStream();
+    };
+
+    if (props.sessionNonce) {
+      setAihubPending(true);
+    }
+
     void loadAihubHistory();
     subscriptionCleanup = subscribeToSession(props.agentId, sessionKey(), {
+      onText: (chunk) => {
+        markLeadStreamActivity();
+        setAihubLive((prev) => prev + chunk);
+      },
+      onThinking: () => {
+        markLeadStreamActivity();
+      },
+      onToolCall: (id, name, args) => {
+        markLeadStreamActivity();
+        appendStreamingToolCall(id, name, args);
+      },
+      onToolResult: (id, _name, content, _isError, details) => {
+        markLeadStreamActivity();
+        updateStreamingToolResult(id, content, details);
+      },
+      onDone: () => {
+        setAihubStreaming(false);
+        setAihubPending(false);
+        maybeLoadDeferredLeadHistory();
+      },
       onHistoryUpdated: () => {
         if (aihubStreaming()) {
           pendingLeadHistoryRefresh = true;

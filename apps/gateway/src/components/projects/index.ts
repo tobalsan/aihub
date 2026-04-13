@@ -1600,11 +1600,6 @@ export function registerProjectRoutes(app: Hono): void {
 
       if (Object.keys(updates).length > 0) {
         await updateProject(config, project.id, updates);
-        emitProjectFileChanged(
-          project.id,
-          projectDirNameFromPath(project.path),
-          "README.md"
-        );
       }
 
       return c.json({ slug: leadSlug, agentId: agent.id, sessionKey }, 201);
