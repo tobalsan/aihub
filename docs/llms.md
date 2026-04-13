@@ -101,10 +101,10 @@ Features:
 - Changes tab branch diff header (`Branch: ... → ...` with aggregate +/- stats) is clickable when pending branch diff files exist, and toggles a compact per-file +/- breakdown list
 - Space Commit Log rows include relative elapsed commit time (`now`, `1m`, `2h`, `3d`) next to author metadata
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
-- Coordinator prompt includes a preflight (`command -v apm && apm --version`), concise `apm start --subagent <name>` delegation examples, explicit `apm status`/`apm resume` monitoring rules with a foreground poll-loop example, required project status moves (`in_progress` on dispatch, `review` when ready), Space-branch-only integration discipline including `space.json` commit-state updates on manual integration, and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
+- Coordinator prompt includes a preflight (`command -v apm && apm --version`), concise `apm start --subagent <name>` delegation examples, a reminder to choose an exact configured subagent name from the injected `## Available Subagent Types` list (or inspect AIHub config first if none are listed), explicit `apm status`/`apm resume` monitoring rules with a foreground poll-loop example, required project status moves (`in_progress` on dispatch, `review` when ready), Space-branch-only integration discipline including `space.json` commit-state updates on manual integration, and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
 - Coordinator prompt explicitly forbids self-performing code review; review/verification must be delegated to a reviewer subagent
 - Coordinator delegation guidance forbids adding locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-overrides` is explicitly set
-- Worker prompt explicitly requires committing implementation after checks are green
+- Worker prompt explicitly requires committing implementation after checks are green, and post-run comment instructions now use `--author <your name>` (the deprecated Cloud/openclaw follow-up step was removed)
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 

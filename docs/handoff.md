@@ -5,6 +5,13 @@ Repo: AIHub monorepo
 Branch: `feat/lead-agent-launcher-ui` (based off `main` at `da6e9db`)
 Project: PRO-221 — Lead Agent Launcher & Subagent Config
 
+## Follow-up Notes
+
+- Coordinator prompt wording should say configured subagents, not templates.
+- Coordinator prompt should tell lead agents to use exact configured `--subagent` names from the injected subagent list.
+- AIHub post-run comment instructions should use `--author <your name>`.
+- Deprecated Cloud/openclaw completion instruction was removed from post-run guidance.
+
 ## Original Request
 
 Replace hardcoded agent templates (Coordinator/Worker/Reviewer/Custom) in the project details agent creation UI with:

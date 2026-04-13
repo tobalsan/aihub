@@ -337,7 +337,8 @@ Coordinator prompts now include:
 - Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
 - Available config-defined subagent types from `aihub.json`.
 - `apm` delegation preflight (`command -v apm && apm --version`) before `apm start --subagent ...`.
-- `apm start --subagent <name>` delegation examples that avoid locked flags unless `--allow-overrides` is set.
+- `apm start --subagent <name>` delegation examples that avoid locked flags unless `--allow-overrides` is set, plus a reminder to choose an exact configured subagent name from `## Available Subagent Types` (or inspect AIHub config first if none are listed).
+- Post-run comment instructions use `--author <your name>`; the deprecated Cloud/openclaw follow-up step was removed.
   Shell tool cards show a warning callout (`No output captured`) when exec/bash output is structurally empty.
   Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
   Worker prompts explicitly require committing implementation once checks pass.

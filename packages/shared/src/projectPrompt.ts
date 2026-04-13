@@ -138,7 +138,7 @@ export function buildProjectStartPrompt(input: {
   }
   if (includePostRun) {
     const cliUsed = input.runAgentLabel?.trim() || "{cli_used}";
-    const postRun = `## IMPORTANT: MUST DO AFTER IMPLEMENTATION\n\n- Run the test suite after changes\n- Run linter/formatter (if any)\n- Fix any failure/error before committing\n- Once everything is green, perform atomic commit(s)\n- Add a project comment using \`apm comment <project_id> --message "<your summary>" --author "${cliUsed}"\`. Write a clear summary of what you did — use paragraphs, newlines, and bullet points as appropriate for readability (don't force everything into bullets). Use \\n for newlines in the message string.\n- Move the project to review status using \`apm move <project_id> review --agent ${cliUsed}\`\n- When done, if project owner is \`Cloud\`, also run \`openclaw system event --text "Done: <your summary>" --mode now\``;
+    const postRun = `## IMPORTANT: MUST DO AFTER IMPLEMENTATION\n\n- Run the test suite after changes\n- Run linter/formatter (if any)\n- Fix any failure/error before committing\n- Once everything is green, perform atomic commit(s)\n- Add a project comment using \`apm comment <project_id> --message "<your summary>" --author <your name>\`. Write a clear summary of what you did — use paragraphs, newlines, and bullet points as appropriate for readability (don't force everything into bullets). Use \\n for newlines in the message string.\n- Move the project to review status using \`apm move <project_id> review --agent ${cliUsed}\``;
     prompt = prompt ? `${prompt}\n\n${postRun}` : postRun;
   }
   return prompt.trim();
@@ -208,12 +208,8 @@ function postRunCommitBlock(): string {
   ].join("\n");
 }
 
-function postRunApmCommentBlock(projectId: string, agentLabel: string): string {
-  return `- Add a project comment: \`apm comment ${projectId} --message "<your summary>" --author "${agentLabel}"\``;
-}
-
-function postRunNotifyCloudBlock(): string {
-  return '- When done, if project owner is `Cloud`, also run `openclaw system event --text "Done: <your summary>" --mode now`';
+function postRunApmCommentBlock(projectId: string): string {
+  return `- Add a project comment: \`apm comment ${projectId} --message "<your summary>" --author <your name>\``;
 }
 
 function postRunUpdateCoordinatorDocsBlock(specsPath: string): string {
@@ -238,10 +234,6 @@ function reviewerWorkspaceBlock(workspaces: WorkerWorkspaceRef[]): string {
     (item) => `- ${item.name} (${item.cli || "agent"}): ${item.path}`
   );
   return ["## Active Worker Workspaces", ...lines].join("\n");
-}
-
-function runAuthorLabel(input: RolePromptInput): string {
-  return input.runAgentLabel?.trim() || "{cli_used}";
 }
 
 function runProjectId(input: RolePromptInput): string {
@@ -279,7 +271,6 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
   const includeRole = input.includeRoleInstructions !== false;
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
-  const agentLabel = runAuthorLabel(input);
   const repo = input.repo?.trim();
   const repoBlock = repo
     ? [
@@ -295,8 +286,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
         postRunUpdateCoordinatorDocsBlock(
           input.specsPath || `${input.path}/SPECS.md`
         ),
-        postRunApmCommentBlock(projectId, agentLabel),
-        postRunNotifyCloudBlock(),
+        postRunApmCommentBlock(projectId),
       ].join("\n")
     : "";
   const subagentTypesBlock =
@@ -326,12 +316,13 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "- Track progress and keep project docs updated",
           "- Verify acceptance criteria before signaling completion",
           "- When delegating implementation, keep workers on dedicated worktrees/workspaces; do not send them to the main repo unless the task explicitly requires it.",
-          "Use `apm start` with templates for delegation:",
+          "Use `apm start` with configured subagents for delegation:",
           "- Preflight first: `command -v apm && apm --version`",
           '- Worker: `apm start <project_id> --subagent Worker --slug worker-<task> --custom-prompt "Implement <task>; update SPECS.md status."`',
           '- Reviewer: `apm start <project_id> --subagent Reviewer --slug reviewer-<scope> --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
           '- Agent names use the subagent config name as prefix (e.g. "Worker Sage"). Use `--name "..."` to override.',
-          "- When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`.",
+          "- Before dispatching, pick an exact subagent name from `## Available Subagent Types` below. If none are listed, inspect the AIHub config first.",
+          "- When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-overrides`.",
           "- Do not merge/cherry-pick directly from coordinator/reviewer runs. Integration must go through Space queue and explicit Integrate Now.",
           "## Agent Management Rules",
           "- Monitor agents with `apm status <project-id> --slug <agent>`.",
@@ -365,7 +356,6 @@ export function buildWorkerPrompt(input: RolePromptInput): string {
   const includeRole = input.includeRoleInstructions !== false;
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
-  const agentLabel = runAuthorLabel(input);
   const postRun = includePostRun
     ? [
         "## IMPORTANT: MUST DO AFTER IMPLEMENTATION",
@@ -373,7 +363,7 @@ export function buildWorkerPrompt(input: RolePromptInput): string {
         postRunUpdateSpecsPrimaryBlock(
           input.specsPath || `${input.path}/SPECS.md`
         ),
-        postRunApmCommentBlock(projectId, agentLabel),
+        postRunApmCommentBlock(projectId),
       ].join("\n")
     : "";
   return joinPromptParts([
@@ -395,14 +385,13 @@ export function buildReviewerPrompt(input: RolePromptInput): string {
   const includeRole = input.includeRoleInstructions !== false;
   const includePostRun = input.includePostRun !== false;
   const projectId = runProjectId(input);
-  const agentLabel = runAuthorLabel(input);
   const postRun = includePostRun
     ? [
         "## IMPORTANT: MUST DO AFTER REVIEW",
         postRunUpdateSpecsPrimaryBlock(
           input.specsPath || `${input.path}/SPECS.md`
         ),
-        postRunApmCommentBlock(projectId, agentLabel),
+        postRunApmCommentBlock(projectId),
       ].join("\n")
     : "";
   return joinPromptParts([

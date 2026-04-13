@@ -81,7 +81,9 @@ describe("role-based project prompts", () => {
     expect(out).not.toContain("apm move PRO-151 review");
     expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
     expect(out).toContain("other relevant project markdown files");
-    expect(out).toContain("Use `apm start` with templates for delegation:");
+    expect(out).toContain(
+      "Use `apm start` with configured subagents for delegation:"
+    );
     expect(out).toContain("Preflight first: `command -v apm && apm --version`");
     expect(out).toContain("--subagent Worker --slug worker-<task>");
     expect(out).toContain("--subagent Reviewer --slug reviewer-<scope>");
@@ -93,7 +95,10 @@ describe("role-based project prompts", () => {
     expect(out).toContain("Agent names use the subagent config name as prefix");
     expect(out).toContain('Use `--name "..."` to override.');
     expect(out).toContain(
-      "When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`."
+      "Before dispatching, pick an exact subagent name from `## Available Subagent Types` below. If none are listed, inspect the AIHub config first."
+    );
+    expect(out).toContain(
+      "When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-overrides`."
     );
     expect(out).toContain(
       "Do not merge/cherry-pick directly from coordinator/reviewer runs."
@@ -179,7 +184,9 @@ describe("role-based project prompts", () => {
       role: "coordinator",
       subagentTypes: [],
     });
-    expect(result).not.toContain("## Available Subagent Types");
+    expect(result).not.toContain(
+      "The following subagent types are configured and can be spawned via `apm start`:"
+    );
   });
 
   it("builds worker prompt with implementation repo and no move-to-review", () => {
@@ -199,6 +206,9 @@ describe("role-based project prompts", () => {
     expect(out).not.toContain("apm move PRO-151 review");
     expect(out).toContain(
       "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."
+    );
+    expect(out).toContain(
+      'apm comment PRO-151 --message "<your summary>" --author <your name>'
     );
   });
 
@@ -224,6 +234,9 @@ describe("role-based project prompts", () => {
     expect(out).not.toContain("apm move PRO-151 review");
     expect(out).toContain(
       "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."
+    );
+    expect(out).toContain(
+      'apm comment PRO-151 --message "<your summary>" --author <your name>'
     );
   });
 
@@ -260,6 +273,9 @@ describe("role-based project prompts", () => {
     expect(legacyOut).toContain("## Your Role");
     expect(legacyOut).toContain("## IMPORTANT: MUST DO AFTER IMPLEMENTATION");
     expect(legacyOut).toContain("apm move <project_id> review");
+    expect(legacyOut).toContain(
+      'apm comment <project_id> --message "<your summary>" --author <your name>'
+    );
   });
 
   it("honors include flags for legacy/custom prompt mode", () => {
