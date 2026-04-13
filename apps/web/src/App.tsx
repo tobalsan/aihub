@@ -3,6 +3,7 @@ import {
   Show,
   Suspense,
   createEffect,
+  on,
   lazy,
   createMemo,
   createResource,
@@ -389,9 +390,9 @@ function LeftNavShell(props: { children?: JSX.Element }) {
     }
   });
 
-  createEffect(() => {
-    if (isMobile()) setSidebarCollapsedPersistent(true);
-  });
+  createEffect(on(isMobile, (mobile) => {
+    if (mobile) setSidebarCollapsedPersistent(true);
+  }, { defer: true }));
 
   return (
     <div class="left-nav-shell" classList={{ "zen-mode": zenMode() }}>

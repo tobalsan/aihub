@@ -41,6 +41,8 @@ vi.mock("../../api/client", () => ({
       status: "idle",
     },
   })),
+  fetchAgentStatuses: vi.fn(async () => ({ statuses: {} })),
+  subscribeToStatus: vi.fn(() => () => {}),
 }));
 
 const project: ProjectDetail = {

@@ -537,51 +537,53 @@ export function ContextPanel(props: ContextPanelProps) {
         }
 
         @media (max-width: 1399px) {
-          .context-panel {
+          /* --- Collapsed state: slim rail + hover-to-peek --- */
+          .context-panel.collapsed {
             width: 50px;
             min-width: 50px;
           }
 
-          .context-panel:hover {
+          .context-panel.collapsed:hover {
             width: 320px;
             min-width: 320px;
           }
 
-          .context-panel .panel-header,
-          .context-panel .panel-content,
-          .context-panel .panel-recent {
+          .context-panel.collapsed .panel-header,
+          .context-panel.collapsed .panel-content,
+          .context-panel.collapsed .panel-recent {
             opacity: 0;
             pointer-events: none;
           }
 
-          .context-panel .collapsed-icons {
+          .context-panel.collapsed .collapsed-icons {
             display: flex;
           }
 
-          .context-panel:hover .panel-header,
-          .context-panel:hover .panel-content,
-          .context-panel:hover .panel-recent {
+          .context-panel.collapsed:hover .panel-header,
+          .context-panel.collapsed:hover .panel-content,
+          .context-panel.collapsed:hover .panel-recent {
             opacity: 1;
             pointer-events: auto;
           }
 
-          .context-panel:hover .collapsed-icons {
+          .context-panel.collapsed:hover .collapsed-icons {
             display: none;
           }
 
-          .app-layout.left-collapsed .context-panel:not(.collapsed) {
+          /* --- Expanded (sticky) state: always visible at narrower width --- */
+          .context-panel:not(.collapsed) {
             width: 320px;
             min-width: 320px;
           }
 
-          .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-header,
-          .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-content,
-          .app-layout.left-collapsed .context-panel:not(.collapsed) .panel-recent {
+          .context-panel:not(.collapsed) .panel-header,
+          .context-panel:not(.collapsed) .panel-content,
+          .context-panel:not(.collapsed) .panel-recent {
             opacity: 1;
             pointer-events: auto;
           }
 
-          .app-layout.left-collapsed .context-panel:not(.collapsed) .collapsed-icons {
+          .context-panel:not(.collapsed) .collapsed-icons {
             display: none;
           }
         }
