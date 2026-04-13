@@ -13,7 +13,7 @@ async function main() {
       : resolve(process.env.HOME || "~", ".aihub", "aihub.json")
   );
 
-  let configuredModels = new Set<string>();
+  const configuredModels = new Set<string>();
 
   if (!fetchAll) {
     try {

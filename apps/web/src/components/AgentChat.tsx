@@ -2339,13 +2339,11 @@ export function AgentChat(props: AgentChatProps) {
     }
 
     if (isQueuedLeadSend) {
-      let queueCleanup: (() => void) | undefined;
-
-      queueCleanup = streamMessage(
+      const queueCleanup = streamMessage(
         props.agentId,
         text,
         sessionKey(),
-        (chunk) => {
+        (_chunk) => {
           updateAihubUserLogState(clientId, { pending: false, queued: false });
         },
         (meta?: DoneMeta) => {
@@ -2403,7 +2401,7 @@ export function AgentChat(props: AgentChatProps) {
       props.agentId,
       text,
       sessionKey(),
-      (chunk) => {
+      (_chunk) => {
         markAihubStreaming();
         updateAihubUserLogState(clientId, { pending: false, queued: false });
       },

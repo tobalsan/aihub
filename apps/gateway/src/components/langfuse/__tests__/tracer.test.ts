@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  AgentHistoryEvent,
   AgentStreamEvent,
   agentEventBus,
 } from "../../../agents/events.js";
@@ -11,11 +12,20 @@ const langfuseMock = vi.hoisted(() => {
     args: unknown;
     update: ReturnType<typeof vi.fn>;
     end: ReturnType<typeof vi.fn>;
+    span: ReturnType<typeof vi.fn>;
+    spans: MockSpan[];
+  };
+  type MockSpan = {
+    args: unknown;
+    update: ReturnType<typeof vi.fn>;
+    end: ReturnType<typeof vi.fn>;
   };
   type MockTrace = {
     args: unknown;
     generation: ReturnType<typeof vi.fn>;
+    span: ReturnType<typeof vi.fn>;
     generations: MockGeneration[];
+    spans: MockSpan[];
   };
   type MockLangfuse = {
     config: unknown;
@@ -27,6 +37,7 @@ const langfuseMock = vi.hoisted(() => {
   const instances: MockLangfuse[] = [];
   const traces: MockTrace[] = [];
   const generations: MockGeneration[] = [];
+  const spans: MockSpan[] = [];
 
   const Langfuse = vi.fn(function (this: MockLangfuse, config: unknown) {
     this.config = config;
@@ -34,15 +45,37 @@ const langfuseMock = vi.hoisted(() => {
       const trace: MockTrace = {
         args,
         generations: [],
+        spans: [],
         generation: vi.fn((generationArgs: unknown) => {
           const generation: MockGeneration = {
             args: generationArgs,
             update: vi.fn(),
             end: vi.fn(),
+            spans: [],
+            span: vi.fn((spanArgs: unknown) => {
+              const span: MockSpan = {
+                args: spanArgs,
+                update: vi.fn(),
+                end: vi.fn(),
+              };
+              generation.spans.push(span);
+              spans.push(span);
+              return span;
+            }),
           };
           trace.generations.push(generation);
           generations.push(generation);
           return generation;
+        }),
+        span: vi.fn((spanArgs: unknown) => {
+          const span: MockSpan = {
+            args: spanArgs,
+            update: vi.fn(),
+            end: vi.fn(),
+          };
+          trace.spans.push(span);
+          spans.push(span);
+          return span;
         }),
       };
       traces.push(trace);
@@ -53,7 +86,7 @@ const langfuseMock = vi.hoisted(() => {
     instances.push(this);
   });
 
-  return { Langfuse, generations, instances, traces };
+  return { Langfuse, generations, instances, spans, traces };
 });
 
 vi.mock("langfuse", () => ({ default: langfuseMock.Langfuse }));
@@ -73,6 +106,7 @@ describe("LangfuseTracer", () => {
     langfuseMock.instances.length = 0;
     langfuseMock.traces.length = 0;
     langfuseMock.generations.length = 0;
+    langfuseMock.spans.length = 0;
   });
 
   afterEach(() => {
@@ -106,6 +140,158 @@ describe("LangfuseTracer", () => {
       statusMessage: undefined,
     });
     expect(langfuseMock.generations[0]?.end).toHaveBeenCalledTimes(1);
+
+    await tracer.stop();
+  });
+
+  it("creates generation child spans from tool calls and results", async () => {
+    const tracer = startTracer();
+
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "running" })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "tool_call",
+        id: "tool-1",
+        name: "bash",
+        args: { cmd: "pwd" },
+        timestamp: 1,
+      })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "tool_result",
+        id: "tool-1",
+        name: "bash",
+        content: "/tmp/project",
+        isError: false,
+        timestamp: 2,
+      })
+    );
+    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
+
+    expect(langfuseMock.traces[0]?.span).not.toHaveBeenCalled();
+    expect(langfuseMock.generations[0]?.span).toHaveBeenCalledWith({
+      name: "bash",
+      input: { cmd: "pwd" },
+      metadata: { toolCallId: "tool-1" },
+    });
+    expect(langfuseMock.spans[0]?.end).toHaveBeenCalledWith({
+      output: "/tmp/project",
+      level: "DEFAULT",
+      statusMessage: undefined,
+      metadata: {
+        toolCallId: "tool-1",
+        toolName: "bash",
+        details: undefined,
+      },
+    });
+
+    await tracer.stop();
+  });
+
+  it("stores meta model and usage on the generation", async () => {
+    const tracer = startTracer();
+
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "answer" })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "meta",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        usage: {
+          input: 10,
+          output: 5,
+          cacheRead: 2,
+          totalTokens: 17,
+        },
+        stopReason: "end_turn",
+        timestamp: 3,
+      })
+    );
+    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
+
+    expect(langfuseMock.generations[0]?.update).toHaveBeenCalledWith({
+      output: "answer",
+      metadata: {
+        thinking: undefined,
+        provider: "anthropic",
+        stopReason: "end_turn",
+      },
+      level: "DEFAULT",
+      statusMessage: undefined,
+      model: "claude-sonnet-4-5",
+      usageDetails: {
+        input: 10,
+        output: 5,
+        total: 17,
+        cacheRead: 2,
+      },
+    });
+
+    await tracer.stop();
+  });
+
+  it("stores user history text as generation input", async () => {
+    const tracer = startTracer();
+
+    tracer.handleHistoryEvent(
+      historyEvent({ type: "user", text: "hello", timestamp: 1 })
+    );
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "answer" })
+    );
+    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
+
+    expect(langfuseMock.generations[0]?.args).toEqual(
+      expect.objectContaining({ input: "hello" })
+    );
+    expect(langfuseMock.generations[0]?.update).toHaveBeenCalledWith(
+      expect.objectContaining({ input: "hello" })
+    );
+
+    await tracer.stop();
+  });
+
+  it("ignores orphaned tool results", async () => {
+    const tracer = startTracer();
+
+    expect(() =>
+      tracer.handleHistoryEvent(
+        historyEvent({
+          type: "tool_result",
+          id: "missing",
+          name: "bash",
+          content: "no call",
+          isError: true,
+          timestamp: 1,
+        })
+      )
+    ).not.toThrow();
+    expect(langfuseMock.spans).toHaveLength(0);
+
+    await tracer.stop();
+  });
+
+  it("catches flushAsync errors", async () => {
+    const tracer = startTracer();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    langfuseMock.instances[0]?.flushAsync.mockRejectedValueOnce(
+      new Error("flush failed")
+    );
+
+    await expect(
+      tracer.handleStreamEvent(streamEvent({ type: "done" }))
+    ).resolves.toBeUndefined();
+
+    expect(warning).toHaveBeenCalledWith(
+      "[langfuse] flushAsync failed",
+      expect.any(Error)
+    );
+    warning.mockRestore();
 
     await tracer.stop();
   });
@@ -234,7 +420,7 @@ describe("LangfuseTracer", () => {
     expect(traceCount(tracer)).toBe(0);
   });
 
-  it("leaves runner, SDK adapters, and history store unchanged", () => {
+  it("leaves SDK adapters and history store unchanged", () => {
     const changedFiles = execFileSync(
       "git",
       [
@@ -242,7 +428,6 @@ describe("LangfuseTracer", () => {
         "--name-only",
         "HEAD",
         "--",
-        "apps/gateway/src/agents/runner.ts",
         "apps/gateway/src/sdk",
         "apps/gateway/src/history/store.ts",
       ],
@@ -262,6 +447,7 @@ function startTracer(): LangfuseTracer {
 function fakeBus(): typeof agentEventBus {
   return {
     onStreamEvent: vi.fn(() => vi.fn()),
+    onHistoryEvent: vi.fn(() => vi.fn()),
   } as unknown as typeof agentEventBus;
 }
 
@@ -279,6 +465,22 @@ function streamEvent(
     ...event,
     ...overrides,
   } as AgentStreamEvent;
+}
+
+function historyEvent(
+  event: Pick<AgentHistoryEvent, "type"> & Partial<AgentHistoryEvent>,
+  overrides: Partial<
+    Pick<AgentHistoryEvent, "agentId" | "sessionId" | "sessionKey" | "source">
+  > = {}
+): AgentHistoryEvent {
+  return {
+    agentId: "agent-1",
+    sessionId: "session-1",
+    sessionKey: "main",
+    source: "web",
+    ...event,
+    ...overrides,
+  } as AgentHistoryEvent;
 }
 
 function traceCount(tracer: LangfuseTracer): number {

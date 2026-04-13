@@ -96,6 +96,7 @@ AIHub v2 is modular. These are the built-in component IDs you can enable under `
 - `conversations`: saved conversation API/UI surface for browsing threads, attachments, and creating projects from conversations
 - `projects`: project management surface including areas, kanban, taskboard, activity feed, subagents, and Space workflows
 - `multiUser`: optional Better Auth + SQLite auth layer with per-user isolation and admin APIs
+- `langfuse`: optional tracing component for stream/history events, LLM generations, tool spans, and model usage
 
 If a component key is absent, it is disabled and not loaded.
 

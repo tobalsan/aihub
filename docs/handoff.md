@@ -7,6 +7,7 @@ Project: PRO-221 — Lead Agent Launcher & Subagent Config
 
 ## Follow-up Notes
 
+- PRO-224 adds Langfuse history-event tracing for user input, model usage, tool spans, and guarded flush/shutdown warnings.
 - Coordinator prompt wording should say configured subagents, not templates.
 - Coordinator prompt should tell lead agents to use exact configured `--subagent` names from the injected subagent list.
 - AIHub post-run comment instructions should use `--author <your name>`.

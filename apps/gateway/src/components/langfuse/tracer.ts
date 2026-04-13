@@ -1,9 +1,11 @@
-import Langfuse, {
-  type LangfuseGenerationClient,
-  type LangfuseTraceClient,
-} from "langfuse";
+import Langfuse from "langfuse";
 
-import type { agentEventBus, AgentStreamEvent } from "../../agents/events.js";
+import type {
+  AgentHistoryEvent,
+  agentEventBus,
+  AgentStreamEvent,
+} from "../../agents/events.js";
+import type { GenerationState, SpanState, TraceState } from "./types.js";
 
 const IDLE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const TRACE_IDLE_TTL_MS = 30 * 60 * 1000;
@@ -12,6 +14,15 @@ type TracedStreamEvent = Extract<
   AgentStreamEvent,
   { type: "text" | "thinking" | "done" | "error" }
 >;
+
+type TracedHistoryEvent = Extract<
+  AgentHistoryEvent,
+  { type: "tool_call" | "tool_result" | "meta" | "user" }
+>;
+
+type AgentEventBus = typeof agentEventBus;
+type GenerationUpdate = Parameters<GenerationState["generation"]["update"]>[0];
+type SpanEnd = NonNullable<Parameters<SpanState["span"]["end"]>[0]>;
 
 export type LangfuseTracerConfig = {
   publicKey: string;
@@ -22,23 +33,10 @@ export type LangfuseTracerConfig = {
   debug?: boolean;
 };
 
-export type GenerationState = {
-  generation: LangfuseGenerationClient;
-  outputBuffer: string;
-  thinkingBuffer: string;
-};
-
-export type TraceState = {
-  trace: LangfuseTraceClient;
-  currentGeneration: GenerationState | null;
-  lastActivity: number;
-};
-
-type AgentEventBus = typeof agentEventBus;
-
 export class LangfuseTracer {
   private langfuse: Langfuse | null = null;
-  private unsubscribe: (() => void) | null = null;
+  private unsubscribeStream: (() => void) | null = null;
+  private unsubscribeHistory: (() => void) | null = null;
   private idleCleanupInterval: ReturnType<typeof setInterval> | null = null;
   private readonly traces = new Map<string, TraceState>();
 
@@ -55,8 +53,11 @@ export class LangfuseTracer {
       flushInterval: this.config.flushInterval,
     });
 
-    this.unsubscribe = bus.onStreamEvent(
+    this.unsubscribeStream = bus.onStreamEvent(
       (event) => void this.handleStreamEvent(event)
+    );
+    this.unsubscribeHistory = bus.onHistoryEvent((event) =>
+      this.handleHistoryEvent(event)
     );
     this.idleCleanupInterval = setInterval(
       () => void this.cleanupIdleTraces(),
@@ -65,8 +66,10 @@ export class LangfuseTracer {
   }
 
   async stop(): Promise<void> {
-    this.unsubscribe?.();
-    this.unsubscribe = null;
+    this.unsubscribeStream?.();
+    this.unsubscribeStream = null;
+    this.unsubscribeHistory?.();
+    this.unsubscribeHistory = null;
 
     if (this.idleCleanupInterval) {
       clearInterval(this.idleCleanupInterval);
@@ -78,16 +81,16 @@ export class LangfuseTracer {
       this.traces.delete(key);
     }
 
-    if (this.langfuse) {
-      await this.langfuse.flushAsync();
-      await this.langfuse.shutdownAsync();
+    const langfuse = this.langfuse;
+    if (langfuse) {
+      await this.flushLangfuse(langfuse);
+      await this.shutdownLangfuse(langfuse);
       this.langfuse = null;
     }
   }
 
   async handleStreamEvent(event: AgentStreamEvent): Promise<void> {
     if (!this.langfuse) return;
-
     if (!isTracedStreamEvent(event)) return;
 
     const trace = this.getTrace(event);
@@ -96,28 +99,94 @@ export class LangfuseTracer {
     switch (event.type) {
       case "text": {
         const generation = this.getGeneration(trace, event);
-        generation.outputBuffer += event.data;
+        generation.output.push(event.data);
         break;
       }
       case "thinking": {
         const generation = this.getGeneration(trace, event);
-        generation.thinkingBuffer += event.data;
+        generation.thinking.push(event.data);
         break;
       }
       case "done":
         this.finalizeGeneration(trace);
-        await this.langfuse.flushAsync();
+        await this.flushLangfuse();
         break;
       case "error":
         this.finalizeGeneration(trace, event.message);
-        await this.langfuse.flushAsync();
+        await this.flushLangfuse();
         break;
       default:
         break;
     }
   }
 
-  private getTrace(event: AgentStreamEvent): TraceState {
+  handleHistoryEvent(event: AgentHistoryEvent): void {
+    if (!this.langfuse) return;
+    if (!isTracedHistoryEvent(event)) return;
+
+    const trace =
+      event.type === "tool_result"
+        ? this.traces.get(this.traceKey(event))
+        : this.getTrace(event);
+    if (!trace) return;
+
+    trace.lastActivity = Date.now();
+
+    switch (event.type) {
+      case "user":
+        this.setUserInput(trace, event.text);
+        break;
+      case "tool_call": {
+        const generation = this.getGeneration(trace, event);
+        const span = generation.generation.span({
+          name: event.name,
+          input: event.args,
+          metadata: {
+            toolCallId: event.id,
+          },
+        });
+        generation.openSpans.set(event.id, {
+          span,
+          id: event.id,
+          name: event.name,
+          input: event.args,
+          startedAt: event.timestamp,
+        });
+        break;
+      }
+      case "tool_result": {
+        const generation = trace.currentGeneration;
+        const span = generation?.openSpans.get(event.id);
+        if (!generation || !span) return;
+
+        const end: SpanEnd = {
+          output: event.content,
+          level: event.isError ? "ERROR" : "DEFAULT",
+          statusMessage: event.isError ? event.content : undefined,
+          metadata: {
+            toolCallId: event.id,
+            toolName: event.name,
+            details: event.details,
+          },
+        };
+        span.span.end(end);
+        generation.openSpans.delete(event.id);
+        break;
+      }
+      case "meta": {
+        const generation = this.getGeneration(trace, event);
+        generation.model = event.model;
+        generation.provider = event.provider;
+        generation.usage = event.usage;
+        generation.stopReason = event.stopReason;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private getTrace(event: AgentStreamEvent | AgentHistoryEvent): TraceState {
     const key = this.traceKey(event);
     const existing = this.traces.get(key);
     if (existing) return existing;
@@ -136,7 +205,6 @@ export class LangfuseTracer {
     });
     const state: TraceState = {
       trace,
-      currentGeneration: null,
       lastActivity: Date.now(),
     };
     this.traces.set(key, state);
@@ -145,12 +213,13 @@ export class LangfuseTracer {
 
   private getGeneration(
     trace: TraceState,
-    event: AgentStreamEvent
+    event: AgentStreamEvent | AgentHistoryEvent
   ): GenerationState {
     if (trace.currentGeneration) return trace.currentGeneration;
 
     const generation = trace.trace.generation({
       name: "llm-turn",
+      input: trace.pendingUserInput,
       metadata: {
         source: event.source,
         sessionKey: event.sessionKey,
@@ -158,26 +227,60 @@ export class LangfuseTracer {
     });
     trace.currentGeneration = {
       generation,
-      outputBuffer: "",
-      thinkingBuffer: "",
+      openSpans: new Map(),
+      output: [],
+      thinking: [],
+      userInput: trace.pendingUserInput,
     };
+    trace.pendingUserInput = undefined;
     return trace.currentGeneration;
+  }
+
+  private setUserInput(trace: TraceState, input: string): void {
+    if (trace.currentGeneration) {
+      trace.currentGeneration.userInput = input;
+      return;
+    }
+    trace.pendingUserInput = input;
   }
 
   private finalizeGeneration(trace: TraceState, errorMessage?: string): void {
     const generation = trace.currentGeneration;
     if (!generation) return;
 
-    generation.generation.update({
-      output: generation.outputBuffer,
-      metadata: {
-        thinking: generation.thinkingBuffer || undefined,
-      },
+    this.closeOpenSpans(generation);
+
+    const thinking = generation.thinking.join("");
+    const metadata: Record<string, unknown> = {
+      thinking: thinking || undefined,
+    };
+    if (generation.provider) metadata.provider = generation.provider;
+    if (generation.stopReason) metadata.stopReason = generation.stopReason;
+
+    const update: GenerationUpdate = {
+      output: generation.output.join(""),
+      metadata,
       level: errorMessage ? "ERROR" : "DEFAULT",
       statusMessage: errorMessage,
-    });
+    };
+    if (generation.userInput !== undefined) update.input = generation.userInput;
+    if (generation.model) update.model = generation.model;
+    const usageDetails = toUsageDetails(generation.usage);
+    if (usageDetails) update.usageDetails = usageDetails;
+
+    generation.generation.update(update);
     generation.generation.end();
-    trace.currentGeneration = null;
+    trace.currentGeneration = undefined;
+  }
+
+  private closeOpenSpans(generation: GenerationState): void {
+    for (const span of generation.openSpans.values()) {
+      span.span.end({
+        level: "WARNING",
+        statusMessage: "Tool result missing",
+      });
+    }
+    generation.openSpans.clear();
   }
 
   private async cleanupIdleTraces(): Promise<void> {
@@ -193,13 +296,46 @@ export class LangfuseTracer {
     }
 
     if (removedTrace) {
-      await this.langfuse?.flushAsync();
+      await this.flushLangfuse();
     }
   }
 
-  private traceKey(event: AgentStreamEvent): string {
+  private async flushLangfuse(langfuse = this.langfuse): Promise<void> {
+    if (!langfuse) return;
+
+    try {
+      await langfuse.flushAsync();
+    } catch (error) {
+      console.warn("[langfuse] flushAsync failed", error);
+    }
+  }
+
+  private async shutdownLangfuse(langfuse: Langfuse): Promise<void> {
+    try {
+      await langfuse.shutdownAsync();
+    } catch (error) {
+      console.warn("[langfuse] shutdownAsync failed", error);
+    }
+  }
+
+  private traceKey(event: AgentStreamEvent | AgentHistoryEvent): string {
     return `${event.agentId}:${event.sessionId}`;
   }
+}
+
+function toUsageDetails(
+  usage: GenerationState["usage"]
+): Record<string, number> | undefined {
+  if (!usage) return undefined;
+
+  const details: Record<string, number> = {
+    input: usage.input,
+    output: usage.output,
+    total: usage.totalTokens,
+  };
+  if (usage.cacheRead !== undefined) details.cacheRead = usage.cacheRead;
+  if (usage.cacheWrite !== undefined) details.cacheWrite = usage.cacheWrite;
+  return details;
 }
 
 function isTracedStreamEvent(
@@ -210,5 +346,16 @@ function isTracedStreamEvent(
     event.type === "thinking" ||
     event.type === "done" ||
     event.type === "error"
+  );
+}
+
+function isTracedHistoryEvent(
+  event: AgentHistoryEvent
+): event is TracedHistoryEvent {
+  return (
+    event.type === "tool_call" ||
+    event.type === "tool_result" ||
+    event.type === "meta" ||
+    event.type === "user"
   );
 }

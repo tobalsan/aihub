@@ -1,5 +1,12 @@
+import type { ModelUsage } from "@aihub/shared";
+import type {
+  LangfuseGenerationClient,
+  LangfuseSpanClient,
+  LangfuseTraceClient,
+} from "langfuse";
+
 export type SpanState = {
-  span: unknown;
+  span: LangfuseSpanClient;
   id: string;
   name: string;
   input: unknown;
@@ -7,18 +14,21 @@ export type SpanState = {
 };
 
 export type GenerationState = {
-  generation: unknown;
+  generation: LangfuseGenerationClient;
   openSpans: Map<string, SpanState>;
   output: string[];
   thinking: string[];
   model?: string;
-  usage?: unknown;
+  provider?: string;
+  usage?: ModelUsage;
   stopReason?: string;
+  userInput?: string;
   status?: "success" | "error";
 };
 
 export type TraceState = {
-  trace: unknown;
+  trace: LangfuseTraceClient;
   currentGeneration?: GenerationState;
+  pendingUserInput?: string;
   lastActivity: number;
 };

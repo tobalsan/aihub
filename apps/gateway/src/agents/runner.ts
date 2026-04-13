@@ -38,6 +38,7 @@ import {
 import { appendSessionMeta } from "../history/store.js";
 import {
   agentEventBus,
+  type AgentHistoryEvent,
   type AgentStreamEvent,
   type RunSource,
 } from "./events.js";
@@ -502,6 +503,14 @@ export async function runAgent(
 
   // History event handler - buffers events synchronously
   const handleHistoryEvent = (event: HistoryEvent): void => {
+    agentEventBus.emitHistoryEvent({
+      ...event,
+      agentId: params.agentId,
+      sessionId,
+      sessionKey,
+      source: params.source,
+    } as AgentHistoryEvent);
+
     if (event.type === "user") {
       startTurnWithUser(event);
       return;

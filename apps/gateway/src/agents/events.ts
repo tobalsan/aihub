@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { StreamEvent } from "@aihub/shared";
+import type { HistoryEvent } from "../sdk/types.js";
 
 export type RunSource =
   | "web"
@@ -10,6 +11,13 @@ export type RunSource =
   | "heartbeat";
 
 export type AgentStreamEvent = StreamEvent & {
+  agentId: string;
+  sessionId: string;
+  sessionKey?: string;
+  source?: RunSource;
+};
+
+export type AgentHistoryEvent = HistoryEvent & {
   agentId: string;
   sessionId: string;
   sessionKey?: string;
@@ -58,6 +66,15 @@ class AgentEventBus extends EventEmitter {
   onStreamEvent(handler: (event: AgentStreamEvent) => void) {
     this.on("stream", handler);
     return () => this.off("stream", handler);
+  }
+
+  emitHistoryEvent(event: AgentHistoryEvent) {
+    this.emit("history", event);
+  }
+
+  onHistoryEvent(handler: (event: AgentHistoryEvent) => void) {
+    this.on("history", handler);
+    return () => this.off("history", handler);
   }
 
   emitStatusChange(event: AgentStatusChangeEvent) {
