@@ -22,7 +22,13 @@ import {
 } from "@aihub/shared";
 import { z } from "zod";
 import { agentEventBus } from "../../agents/events.js";
-import { getActiveAgents, getAgent, getSubagentTemplates, loadConfig, isAgentActive } from "../../config/index.js";
+import {
+  getActiveAgents,
+  getAgent,
+  getSubagentTemplates,
+  loadConfig,
+  isAgentActive,
+} from "../../config/index.js";
 import {
   getRecentActivity,
   recordCommentActivity,
@@ -97,7 +103,10 @@ import {
 import { getTaskboardItem, scanTaskboard } from "../../taskboard/index.js";
 import { parseMarkdownFile } from "../../taskboard/parser.js";
 import { deleteSession } from "../../agents/sessions.js";
-import { clearSessionEntry, clearClaudeSessionId } from "../../sessions/index.js";
+import {
+  clearSessionEntry,
+  clearClaudeSessionId,
+} from "../../sessions/index.js";
 import { invalidateResolvedHistoryFile } from "../../history/store.js";
 
 const execFileAsync = promisify(execFile);
@@ -106,7 +115,12 @@ const registeredApps = new WeakSet<object>();
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
 
-const CODEX_MODELS = ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"];
+const CODEX_MODELS = [
+  "gpt-5.4",
+  "gpt-5.3-codex",
+  "gpt-5.3-codex-spark",
+  "gpt-5.2",
+];
 const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
 const PI_MODELS = [
   "qwen3.5-plus",
@@ -545,7 +559,9 @@ export function registerProjectRoutes(app: Hono): void {
       ? startInput.runAgent.trim()
       : "";
     const frontmatterRunAgentValue =
-      typeof frontmatter.runAgent === "string" ? frontmatter.runAgent.trim() : "";
+      typeof frontmatter.runAgent === "string"
+        ? frontmatter.runAgent.trim()
+        : "";
     const resolvedRunAgentValue =
       requestedRunAgentValue || frontmatterRunAgentValue || "cli:codex";
     const normalizedRunAgentValue = resolvedRunAgentValue.includes(":")
@@ -614,7 +630,10 @@ export function registerProjectRoutes(app: Hono): void {
     }
 
     const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
-    const root = config.components?.projects?.root ?? config.projects?.root ?? "~/projects";
+    const root =
+      config.components?.projects?.root ??
+      config.projects?.root ??
+      "~/projects";
     const resolvedRoot = root.startsWith("~/")
       ? path.join(os.homedir(), root.slice(2))
       : root;
@@ -702,7 +721,9 @@ export function registerProjectRoutes(app: Hono): void {
         : "";
     const mergedCustomPrompt = [
       coordinatorWorkspaceContext,
-      typeof startInput.customPrompt === "string" ? startInput.customPrompt : "",
+      typeof startInput.customPrompt === "string"
+        ? startInput.customPrompt
+        : "",
     ]
       .map((part) => part.trim())
       .filter((part) => part.length > 0)
@@ -738,7 +759,11 @@ export function registerProjectRoutes(app: Hono): void {
       path: basePath,
       content: fullContent,
       specsPath,
-      projectFiles: ["README.md", "THREAD.md", ...docKeys.map((key) => `${key}.md`)],
+      projectFiles: [
+        "README.md",
+        "THREAD.md",
+        ...docKeys.map((key) => `${key}.md`),
+      ],
       projectId: project.id,
       repo: promptRole === "coordinator" ? mainRepoPath : implementationRepo,
       customPrompt: mergedCustomPrompt || undefined,
@@ -1366,7 +1391,8 @@ export function registerProjectRoutes(app: Hono): void {
     const project = projectResult.data;
     const frontmatter = project.frontmatter ?? {};
     const sessionKeys =
-      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+      typeof frontmatter.sessionKeys === "object" &&
+      frontmatter.sessionKeys !== null
         ? { ...(frontmatter.sessionKeys as Record<string, string>) }
         : {};
     const sessionKey = sessionKeys[agentId];
@@ -1381,7 +1407,11 @@ export function registerProjectRoutes(app: Hono): void {
     if (!updateResult.ok) {
       return c.json({ error: updateResult.error }, 400);
     }
-    emitProjectFileChanged(id, projectDirNameFromPath(project.path), "README.md");
+    emitProjectFileChanged(
+      id,
+      projectDirNameFromPath(project.path),
+      "README.md"
+    );
     return c.json({ ok: true, agentId });
   });
 
@@ -1396,7 +1426,8 @@ export function registerProjectRoutes(app: Hono): void {
     const project = projectResult.data;
     const frontmatter = project.frontmatter ?? {};
     const sessionKeys =
-      typeof frontmatter.sessionKeys === "object" && frontmatter.sessionKeys !== null
+      typeof frontmatter.sessionKeys === "object" &&
+      frontmatter.sessionKeys !== null
         ? { ...(frontmatter.sessionKeys as Record<string, string>) }
         : {};
     const sessionKey = sessionKeys[agentId];
@@ -1410,7 +1441,11 @@ export function registerProjectRoutes(app: Hono): void {
     if (!updateResult.ok) {
       return c.json({ error: updateResult.error }, 400);
     }
-    emitProjectFileChanged(id, projectDirNameFromPath(project.path), "README.md");
+    emitProjectFileChanged(
+      id,
+      projectDirNameFromPath(project.path),
+      "README.md"
+    );
     return c.json({ ok: true, agentId, sessionKey: nextSessionKey });
   });
 
@@ -1472,7 +1507,9 @@ export function registerProjectRoutes(app: Hono): void {
             filename?: unknown;
           }>
         ).filter(
-          (attachment): attachment is {
+          (
+            attachment
+          ): attachment is {
             path: string;
             mimeType: string;
             filename?: string;
@@ -1890,7 +1927,11 @@ export function registerProjectRoutes(app: Hono): void {
     const entryId = c.req.param("entryId");
     const config = getProjectsConfig();
     try {
-      const contribution = await getProjectSpaceContribution(config, id, entryId);
+      const contribution = await getProjectSpaceContribution(
+        config,
+        id,
+        entryId
+      );
       return c.json(contribution);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -2057,11 +2098,15 @@ export function registerProjectRoutes(app: Hono): void {
         return c.json({ error: "Space rebase conflict not found" }, 409);
       }
 
-      const reviewerConfig = getSubagentTemplates().find(t => t.type === "reviewer");
+      const reviewerConfig = getSubagentTemplates().find(
+        (t) => t.type === "reviewer"
+      );
       if (!reviewerConfig) {
         return c.json({ error: "No reviewer subagent configured" }, 400);
       }
-      const reviewerRunAgent = normalizeRunAgent(`cli:${reviewerConfig.harness}`);
+      const reviewerRunAgent = normalizeRunAgent(
+        `cli:${reviewerConfig.harness}`
+      );
       if (
         !reviewerRunAgent ||
         reviewerRunAgent.type !== "cli" ||
@@ -2114,7 +2159,9 @@ export function registerProjectRoutes(app: Hono): void {
         resume: true,
       });
       if (!spawned.ok) {
-        const status = spawned.error.startsWith("Project not found") ? 404 : 400;
+        const status = spawned.error.startsWith("Project not found")
+          ? 404
+          : 400;
         return c.json({ error: spawned.error }, status);
       }
 
@@ -2217,7 +2264,9 @@ export function registerProjectRoutes(app: Hono): void {
         replaces: [entryId],
       });
       if (!spawned.ok) {
-        const status = spawned.error.startsWith("Project not found") ? 404 : 400;
+        const status = spawned.error.startsWith("Project not found")
+          ? 404
+          : 400;
         return c.json({ error: spawned.error }, status);
       }
       return c.json({ entryId, slug: context.entry.workerSlug }, 201);
@@ -2283,7 +2332,11 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: parsed.error.message }, 400);
     }
     const config = getProjectsConfig();
-    const released = await releaseProjectSpaceWriteLease(config, id, parsed.data);
+    const released = await releaseProjectSpaceWriteLease(
+      config,
+      id,
+      parsed.data
+    );
     if (!released.ok) {
       const status = released.error.startsWith("Project not found")
         ? 404
@@ -2341,7 +2394,11 @@ export function registerProjectRoutes(app: Hono): void {
 
     const config = getProjectsConfig();
     try {
-      const result = await commitProjectChanges(config, id, parsed.data.message);
+      const result = await commitProjectChanges(
+        config,
+        id,
+        parsed.data.message
+      );
       if (!result.ok) {
         const status =
           result.error === "Project repo not set" ||
@@ -2381,11 +2438,19 @@ export function registerProjectRoutes(app: Hono): void {
     const companion = c.req.query("companion");
 
     if (type !== "todo" && type !== "project") {
-      return c.json({ error: "Invalid type. Must be 'todo' or 'project'" }, 400);
+      return c.json(
+        { error: "Invalid type. Must be 'todo' or 'project'" },
+        400
+      );
     }
 
     const config = getProjectsConfig();
-    const result = await getTaskboardItem(config.taskboard, type, id, companion);
+    const result = await getTaskboardItem(
+      config.taskboard,
+      type,
+      id,
+      companion
+    );
     if (!result.ok) {
       return c.json({ error: result.error }, 404);
     }
@@ -2410,7 +2475,9 @@ const projectsComponent: Component = {
     const result = ProjectsComponentConfigSchema.safeParse(raw);
     return {
       valid: result.success,
-      errors: result.success ? [] : result.error.issues.map((issue) => issue.message),
+      errors: result.success
+        ? []
+        : result.error.issues.map((issue) => issue.message),
     };
   },
   registerRoutes(app) {

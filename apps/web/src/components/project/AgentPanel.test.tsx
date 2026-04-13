@@ -166,7 +166,9 @@ describe("AgentPanel", () => {
 
     const leadOption = Array.from(
       container.querySelectorAll(".template-option")
-    ).find((item) => item.textContent?.includes("Claude Lead")) as HTMLButtonElement;
+    ).find((item) =>
+      item.textContent?.includes("Claude Lead")
+    ) as HTMLButtonElement;
     expect(leadOption).toBeTruthy();
     leadOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
@@ -244,7 +246,9 @@ describe("AgentPanel", () => {
     ) as HTMLButtonElement;
     expect(openButton.disabled).toBe(true);
     expect(openButton.title).toBe("Repo path not found: ~/code/aihub");
-    expect(container.textContent).toContain("Repo path not found: ~/code/aihub");
+    expect(container.textContent).toContain(
+      "Repo path not found: ~/code/aihub"
+    );
 
     dispose();
   });
@@ -398,7 +402,9 @@ describe("AgentPanel", () => {
     ) as HTMLButtonElement;
     renameButton.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 
-    const input = container.querySelector(".agent-name-input") as HTMLInputElement;
+    const input = container.querySelector(
+      ".agent-name-input"
+    ) as HTMLInputElement;
     expect(input).toBeTruthy();
     input.value = "Worker Renamed";
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -452,13 +458,19 @@ describe("AgentPanel", () => {
     ) as HTMLButtonElement;
     renameButton.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 
-    const input = container.querySelector(".agent-name-input") as HTMLInputElement;
+    const input = container.querySelector(
+      ".agent-name-input"
+    ) as HTMLInputElement;
     input.value = "Worker Blur";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(renameSubagent).toHaveBeenCalledWith("PRO-1", "alpha", "Worker Blur");
+    expect(renameSubagent).toHaveBeenCalledWith(
+      "PRO-1",
+      "alpha",
+      "Worker Blur"
+    );
     expect(renameSubagent).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Worker Blur");
 
@@ -490,9 +502,13 @@ describe("AgentPanel", () => {
     ) as HTMLButtonElement;
     renameButton.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 
-    const input = container.querySelector(".agent-name-input") as HTMLInputElement;
+    const input = container.querySelector(
+      ".agent-name-input"
+    ) as HTMLInputElement;
     expect(input).toBeTruthy();
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: " ", bubbles: true })
+    );
 
     expect(onSelectAgent).not.toHaveBeenCalled();
     expect(container.querySelector(".agent-name-input")).toBeTruthy();

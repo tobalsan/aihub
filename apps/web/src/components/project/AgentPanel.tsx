@@ -540,7 +540,9 @@ export function AgentPanel(props: AgentPanelProps) {
   });
   const renderSubagentCard = (item: SubagentListItem) => {
     const indicator = statusIndicator(item.status);
-    const agentMeta = item.agentId ? item.name ?? item.agentId : formatAgentMeta(item.cli, item.model);
+    const agentMeta = item.agentId
+      ? (item.name ?? item.agentId)
+      : formatAgentMeta(item.cli, item.model);
     return (
       <div
         class="agent-list-item subagent"
@@ -722,7 +724,12 @@ export function AgentPanel(props: AgentPanelProps) {
   const handleResetLeadSession = async () => {
     const agentId = leadAgentId();
     if (!agentId || busyActionSlug()) return;
-    if (!window.confirm(`Reset lead session ${agentId}? This starts a fresh chat.`)) return;
+    if (
+      !window.confirm(
+        `Reset lead session ${agentId}? This starts a fresh chat.`
+      )
+    )
+      return;
     setBusyActionSlug(`lead:${agentId}`);
     setAgentError(null);
     const result = await resetLeadSession(props.project.id, agentId);
@@ -732,7 +739,10 @@ export function AgentPanel(props: AgentPanelProps) {
       return;
     }
     if (result.data.sessionKey) {
-      props.onLeadSessionReset?.({ agentId, sessionKey: result.data.sessionKey });
+      props.onLeadSessionReset?.({
+        agentId,
+        sessionKey: result.data.sessionKey,
+      });
     }
   };
 
@@ -1036,7 +1046,9 @@ export function AgentPanel(props: AgentPanelProps) {
                 event.stopPropagation();
                 setTemplateMenuOpen((open) => {
                   if (!open) {
-                    void fetchSpawnOptions().then((opts) => setSpawnAgents(opts.agents));
+                    void fetchSpawnOptions().then((opts) =>
+                      setSpawnAgents(opts.agents)
+                    );
                   }
                   return !open;
                 });
@@ -1141,7 +1153,12 @@ export function AgentPanel(props: AgentPanelProps) {
                         void handleResetLeadSession();
                       }}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
                         <path d="M21 12a9 9 0 11-3-6.7" />
                         <path d="M21 3v6h-6" />
                       </svg>
@@ -1157,7 +1174,12 @@ export function AgentPanel(props: AgentPanelProps) {
                         void handleRemoveLeadSession();
                       }}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
                         <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" />
                       </svg>
                     </button>
