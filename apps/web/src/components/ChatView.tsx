@@ -34,6 +34,7 @@ import { formatTimestamp } from "../lib/format";
 import { extractBlockText } from "../lib/history";
 import { renderMarkdown } from "../lib/markdown";
 import { isComponentEnabled } from "../lib/capabilities";
+import { getMaxContextTokens } from "@aihub/shared/model-context";
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
@@ -249,6 +250,9 @@ export function ChatView() {
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<
     Array<{ text: string; timestamp: number }>
   >([]);
+  const [contextFullMessages, setContextFullMessages] = createSignal<
+    FullHistoryMessage[]
+  >([]);
 
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -270,6 +274,45 @@ export function ChatView() {
       }
     }
     return map;
+  });
+
+  const estimatedContextUsagePct = createMemo(() => {
+    let highestInputTokens = 0;
+    let modelName: string | undefined;
+    const messages = viewMode() === "full" ? fullMessages() : contextFullMessages();
+    for (const message of messages) {
+      if (message.role !== "assistant") continue;
+      const meta = message.meta;
+      if (meta?.model) modelName = meta.model;
+      const rawUsage = meta?.usage;
+      if (!rawUsage) continue;
+      const inputTokens =
+        (typeof rawUsage.input === "number" ? rawUsage.input : 0) +
+        (typeof rawUsage.cacheRead === "number" ? rawUsage.cacheRead : 0) +
+        (typeof rawUsage.cacheWrite === "number" ? rawUsage.cacheWrite : 0);
+      if (inputTokens > highestInputTokens) highestInputTokens = inputTokens;
+    }
+    const maxTokens = getMaxContextTokens(modelName);
+    if (maxTokens <= 0 || highestInputTokens <= 0) return 0;
+    const rawPct = (highestInputTokens / maxTokens) * 100;
+    if (rawPct > 0 && rawPct < 1) return 1;
+    return Math.max(0, Math.min(100, Math.round(rawPct)));
+  });
+
+  const contextUsageDisplay = createMemo(() => {
+    const pct = estimatedContextUsagePct();
+    if (pct > 0) {
+      return { text: `~${pct}% context used`, unavailable: false };
+    }
+    return null;
+  });
+
+  const contextWarning = createMemo(() => {
+    const pct = estimatedContextUsagePct();
+    if (pct >= 80) {
+      return `Context usage is high (~${pct}%). Consider wrapping up this conversation or creating a handoff document to continue in a new session.`;
+    }
+    return null;
   });
 
   const [isAtBottom, setIsAtBottom] = createSignal(true);
@@ -316,6 +359,7 @@ export function ChatView() {
           ]
         : res.messages;
       setFullMessages(merged);
+      setContextFullMessages(res.messages);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
     } else {
       const res = await fetchSimpleHistory(params.agentId, sessionKey());
@@ -351,6 +395,19 @@ export function ChatView() {
       if (currentAgent) void loadHistory(mode);
     })
   );
+
+  // In simple view, also fetch full history in background for context estimation
+  createEffect(() => {
+    const mode = viewMode();
+    const currentAgent = agent();
+    if (mode === "simple" && currentAgent) {
+      fetchFullHistory(params.agentId, sessionKey())
+        .then((res) => {
+          setContextFullMessages(res.messages);
+        })
+        .catch(() => {});
+    }
+  });
 
   // Subscribe to live updates for background runs
   createEffect(() => {
@@ -1150,6 +1207,17 @@ export function ChatView() {
         </Show>
       </div>
 
+      <Show when={contextUsageDisplay()}>
+        {(display) => (
+          <div class="context-usage" classList={{ unavailable: display().unavailable }}>
+            {display().text}
+          </div>
+        )}
+      </Show>
+      <Show when={contextWarning()}>
+        {(warning) => <div class="context-warning">{warning()}</div>}
+      </Show>
+
       <style>{`
         .chat-view {
           --accent: #6366f1;
@@ -1802,6 +1870,28 @@ export function ChatView() {
         .stop-btn.stopping {
           background: #f57c00;
           cursor: not-allowed;
+        }
+
+        .context-usage {
+          text-align: right;
+          color: var(--text-muted);
+          font-size: 11px;
+          padding: 0 20px 8px;
+        }
+
+        .context-usage.unavailable {
+          opacity: 0.9;
+        }
+
+        .context-warning {
+          margin: 0 20px 8px;
+          padding: 8px 10px;
+          border: 1px solid color-mix(in srgb, #ef4444 35%, transparent);
+          border-radius: 10px;
+          background: color-mix(in srgb, #ef4444 10%, transparent);
+          color: #fca5a5;
+          font-size: 12px;
+          line-height: 1.4;
         }
 
         .message.interrupted {
