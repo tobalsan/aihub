@@ -204,7 +204,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     heartbeat?: { enabled? },
     amsg?: { enabled? },
     conversations?: { enabled? },
-    projects?: { enabled?, root? }
+    projects?: { enabled?, root? },
+    langfuse?: { enabled?, baseUrl?, publicKey?, secretKey?, flushAt?, flushInterval?, debug? }
   },
   scheduler?: { enabled?, tickSeconds? },
   multiUser?: {

@@ -3,6 +3,7 @@ import {
   CapabilitiesResponseSchema,
   ComponentsConfigSchema,
   DiscordComponentConfigSchema,
+  LangfuseComponentConfigSchema,
   type Component,
   type ComponentContext,
   type ValidationResult,
@@ -33,11 +34,36 @@ describe("component config schemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it("parses and rejects langfuse component config", () => {
+    const valid = LangfuseComponentConfigSchema.parse({
+      enabled: true,
+      baseUrl: "https://cloud.langfuse.com",
+      publicKey: "$env:LANGFUSE_PUBLIC_KEY",
+      secretKey: "$env:LANGFUSE_SECRET_KEY",
+      flushAt: 15,
+      flushInterval: 10000,
+      debug: false,
+    });
+
+    const invalid = LangfuseComponentConfigSchema.safeParse({
+      enabled: true,
+      debug: "no",
+    });
+
+    expect(valid.flushAt).toBe(15);
+    expect(invalid.success).toBe(false);
+  });
+
   it("parses component map", () => {
     const result = ComponentsConfigSchema.parse({
       scheduler: { tickSeconds: 60 },
       heartbeat: { enabled: true },
       projects: { root: "~/projects" },
+      langfuse: {
+        enabled: true,
+        publicKey: "$env:LANGFUSE_PUBLIC_KEY",
+        secretKey: "$env:LANGFUSE_SECRET_KEY",
+      },
     });
 
     if (!result) {
@@ -45,6 +71,7 @@ describe("component config schemas", () => {
     }
     expect(result.scheduler?.tickSeconds).toBe(60);
     expect(result.projects?.root).toBe("~/projects");
+    expect(result.langfuse?.enabled).toBe(true);
   });
 
   it("parses capabilities response", () => {

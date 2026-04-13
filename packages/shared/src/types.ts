@@ -391,6 +391,18 @@ export type ProjectsComponentConfig = z.infer<
   typeof ProjectsComponentConfigSchema
 >;
 
+export const LangfuseComponentConfigSchema = ComponentBaseConfigSchema.extend({
+  baseUrl: z.string().optional(),
+  publicKey: z.string().optional(),
+  secretKey: z.string().optional(),
+  flushAt: z.number().optional(),
+  flushInterval: z.number().optional(),
+  debug: z.boolean().optional(),
+});
+export type LangfuseComponentConfig = z.infer<
+  typeof LangfuseComponentConfigSchema
+>;
+
 export const ComponentsConfigSchema = z
   .object({
     discord: DiscordComponentConfigSchema.optional(),
@@ -399,6 +411,7 @@ export const ComponentsConfigSchema = z
     amsg: AmsgComponentConfigSchema.optional(),
     conversations: ConversationsComponentConfigSchema.optional(),
     projects: ProjectsComponentConfigSchema.optional(),
+    langfuse: LangfuseComponentConfigSchema.optional(),
   })
   .optional();
 export type ComponentsConfig = z.infer<typeof ComponentsConfigSchema>;
