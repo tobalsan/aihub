@@ -794,62 +794,65 @@ export async function spawnSubagent(
   const ioReady = new Promise<void>((resolve) => {
     markIoReady = resolve;
   });
+  let stdoutProcessing = Promise.resolve();
 
-  child.stdout?.on("data", async (chunk: Buffer) => {
-    await ioReady;
-    try {
-      const text = chunk.toString("utf8");
-      await fs.appendFile(logsPath, text, "utf8");
-      await writeJson(progressPath, {
-        last_active: new Date().toISOString(),
-        tool_calls: 0,
-      });
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdoutProcessing = stdoutProcessing.then(async () => {
+      await ioReady;
+      try {
+        const text = chunk.toString("utf8");
+        await fs.appendFile(logsPath, text, "utf8");
+        await writeJson(progressPath, {
+          last_active: new Date().toISOString(),
+          tool_calls: 0,
+        });
 
-      const lines = text
-        .split(/\r?\n/)
-        .filter((line) => line.trim().length > 0);
-      for (const line of lines) {
-        if (cli === "codex") {
-          try {
-            const ev = JSON.parse(line) as {
-              type?: string;
-              thread_id?: string;
-            };
-            if (ev.type === "thread.started" && ev.thread_id) {
-              await persistState({ ...state, session_id: ev.thread_id });
+        const lines = text
+          .split(/\r?\n/)
+          .filter((line) => line.trim().length > 0);
+        for (const line of lines) {
+          if (cli === "codex") {
+            try {
+              const ev = JSON.parse(line) as {
+                type?: string;
+                thread_id?: string;
+              };
+              if (ev.type === "thread.started" && ev.thread_id) {
+                await persistState({ ...state, session_id: ev.thread_id });
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
+          }
+          if (cli === "claude") {
+            try {
+              const ev = JSON.parse(line) as {
+                type?: string;
+                session_id?: string;
+              };
+              if (ev.type === "system" && ev.session_id) {
+                await persistState({ ...state, session_id: ev.session_id });
+              }
+            } catch {
+              // ignore
+            }
+          }
+          if (cli === "pi") {
+            try {
+              const ev = JSON.parse(line) as { type?: string; id?: string };
+              if (ev.type === "session" && ev.id) {
+                await persistState({ ...state, session_id: ev.id });
+              }
+            } catch {
+              // ignore
+            }
           }
         }
-        if (cli === "claude") {
-          try {
-            const ev = JSON.parse(line) as {
-              type?: string;
-              session_id?: string;
-            };
-            if (ev.type === "system" && ev.session_id) {
-              await persistState({ ...state, session_id: ev.session_id });
-            }
-          } catch {
-            // ignore
-          }
-        }
-        if (cli === "pi") {
-          try {
-            const ev = JSON.parse(line) as { type?: string; id?: string };
-            if (ev.type === "session" && ev.id) {
-              await persistState({ ...state, session_id: ev.id });
-            }
-          } catch {
-            // ignore
-          }
-        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
+    });
   });
 
   child.stderr?.on("data", async (chunk: Buffer) => {
@@ -971,6 +974,7 @@ export async function spawnSubagent(
   });
 
   child.on("exit", async (code, signal) => {
+    await stdoutProcessing;
     const finishedAt = new Date().toISOString();
     const outcome: "replied" | "error" = code === 0 ? "replied" : "error";
     const exitMessage =

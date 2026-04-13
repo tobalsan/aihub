@@ -55,6 +55,12 @@ const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
       "/api/taskboard",
     ],
   },
+  langfuse: {
+    load: () =>
+      import("./langfuse/index.js").then((module) => module.langfuseComponent),
+    getConfig: (config) => config.components?.langfuse,
+    routePrefixes: [],
+  },
   multiUser: {
     load: () =>
       import("./multi-user/index.js").then(
