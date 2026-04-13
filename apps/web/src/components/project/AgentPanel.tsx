@@ -44,30 +44,6 @@ const STATUS_OPTIONS = [
   "archived",
 ];
 
-const AGENT_NAMES = [
-  "Alpha",
-  "Bravo",
-  "Cedar",
-  "Delta",
-  "Echo",
-  "Falcon",
-  "Granite",
-  "Harbor",
-  "Iris",
-  "Jade",
-  "Kite",
-  "Lark",
-  "Maple",
-  "Nova",
-  "Onyx",
-  "Pine",
-  "Quartz",
-  "Ridge",
-  "Sage",
-  "Terra",
-] as const;
-
-
 type AgentPanelProps = {
   project: ProjectDetail;
   area?: Area;
@@ -97,24 +73,6 @@ type AgentPanelProps = {
   onAreaChange: (area: string) => Promise<void> | void;
   onRepoChange: (repo: string) => Promise<void> | void;
 };
-
-function pickUniqueAgentName(
-  prefix: "Worker" | "Reviewer",
-  subagents: SubagentListItem[]
-): string {
-  const used = new Set(
-    subagents
-      .map((item) => (item.name ?? "").trim().toLowerCase())
-      .filter((name) => name.length > 0)
-  );
-  const available = AGENT_NAMES.filter(
-    (name) => !used.has(`${prefix} ${name}`.toLowerCase())
-  );
-  const pool = available.length > 0 ? available : AGENT_NAMES;
-  const selected =
-    pool[Math.floor(Math.random() * pool.length)] ?? AGENT_NAMES[0];
-  return `${prefix} ${selected}`;
-}
 
 function areSubagentItemsEqual(
   left: SubagentListItem,
@@ -324,7 +282,6 @@ export function AgentPanel(props: AgentPanelProps) {
   onMount(() => {
     const onDocumentClick = (event: MouseEvent) => {
       const target = event.target as Node | null;
-      const targetElement = target instanceof Element ? target : null;
       if (statusMenuOpen() && !statusMenuRef?.contains(target ?? null)) {
         setStatusMenuOpen(false);
       }
@@ -865,7 +822,6 @@ export function AgentPanel(props: AgentPanelProps) {
       )
     );
   };
-
 
   return (
     <>

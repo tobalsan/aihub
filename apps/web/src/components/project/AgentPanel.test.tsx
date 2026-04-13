@@ -6,7 +6,6 @@ import type { ProjectDetail, SubagentListItem } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import {
   fetchSimpleHistory,
-  fetchSpawnOptions,
   renameSubagent,
   fetchSubagentLogs,
   fetchSubagents,

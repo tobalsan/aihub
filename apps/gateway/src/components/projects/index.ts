@@ -569,9 +569,6 @@ export function registerProjectRoutes(app: Hono): void {
     let runMode: CliRunMode | undefined;
     let slug: string | undefined;
     let baseBranch: string | undefined;
-    const requestedName = hasText(startInput.name)
-      ? startInput.name.trim()
-      : undefined;
     const requestedModel = hasText(startInput.model)
       ? startInput.model.trim()
       : undefined;
