@@ -1,3 +1,5 @@
+import openRouterData from "./model-context-data.json" with { type: "json" };
+
 export const MODEL_MAX_CONTEXT: Record<string, number> = {
   opus: 200_000,
   sonnet: 200_000,
@@ -15,14 +17,36 @@ export const MODEL_MAX_CONTEXT: Record<string, number> = {
 
 export const DEFAULT_MAX_CONTEXT = 200_000;
 
+const openRouterContextMap: Record<string, number> = openRouterData as Record<string, number>;
+
 export function getMaxContextTokens(model?: string): number {
   if (!model) return DEFAULT_MAX_CONTEXT;
+
+  // 1. Exact match in OpenRouter JSON
+  if (openRouterContextMap[model] != null) {
+    return openRouterContextMap[model];
+  }
+
+  // 2. Substring match in OpenRouter JSON (handles partial model names)
   const lowerModel = model.toLowerCase();
+  let bestMatch = "";
+  let bestValue = 0;
+  for (const [key, value] of Object.entries(openRouterContextMap)) {
+    if (lowerModel.includes(key.toLowerCase()) && key.length > bestMatch.length) {
+      bestMatch = key;
+      bestValue = value;
+    }
+  }
+  if (bestMatch) return bestValue;
+
+  // 3. Existing hardcoded fallback
   const entries = Object.entries(MODEL_MAX_CONTEXT).sort(
     ([left], [right]) => right.length - left.length
   );
   for (const [key, value] of entries) {
     if (lowerModel.includes(key.toLowerCase())) return value;
   }
+
+  // 4. Default
   return DEFAULT_MAX_CONTEXT;
 }
