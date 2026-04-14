@@ -133,6 +133,24 @@ describe("container IPC schemas", () => {
       ipcDir: "/workspace/ipc",
       gatewayUrl: "http://gateway:3000",
       agentToken: "token",
+      connectorConfigs: [
+        {
+          id: "github",
+          systemPrompt: "Use GitHub tools when needed.",
+          tools: [
+            {
+              name: "github.search",
+              description: "Search repositories",
+              parameters: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                },
+              },
+            },
+          ],
+        },
+      ],
       sdkConfig: {
         sdk: "pi",
         model: { provider: "anthropic", model: "claude" },

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContainerInput } from "@aihub/shared";
 import { runAgent, sendFollowUpMessage } from "../runner.js";
 
+const proxyFetchMock = vi.hoisted(() => vi.fn());
+
 const piMock = vi.hoisted(() => {
   const subscribers: Array<(event: unknown) => void> = [];
   const setRuntimeApiKey = vi.fn();
@@ -50,6 +52,12 @@ const piMock = vi.hoisted(() => {
   };
 });
 
+vi.mock("../proxy.js", () => ({
+  proxyClient: {
+    fetch: proxyFetchMock,
+  },
+}));
+
 vi.mock("@mariozechner/pi-coding-agent", () => ({
   AuthStorage: {
     inMemory: vi.fn(() => ({
@@ -67,10 +75,15 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   SettingsManager: {
     create: vi.fn(() => ({})),
   },
-  DefaultResourceLoader: vi.fn(function (this: {
-    reload: () => Promise<void>;
-  }) {
+  DefaultResourceLoader: vi.fn(function (
+    this: {
+      reload: () => Promise<void>;
+      options?: unknown;
+    },
+    options: unknown
+  ) {
     this.reload = piMock.resourceReload;
+    this.options = options;
   }),
   createAgentSession: piMock.createAgentSession,
   createCodingTools: piMock.createCodingTools,
@@ -78,10 +91,11 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
 
 afterEach(() => {
   piMock.reset();
+  proxyFetchMock.mockReset();
 });
 
 describe("Pi runner", () => {
-  it("runs the Pi session and returns history events", async () => {
+  it("runs the Pi session, returns history events, and streams events", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
     const workspaceDir = path.join(tempDir, "workspace");
     const sessionDir = path.join(tempDir, "sessions");
@@ -124,7 +138,13 @@ describe("Pi runner", () => {
       piMock.session.messages.push(assistant);
     });
 
-    const output = await runAgent(createInput({ workspaceDir, sessionDir }));
+    const streamedEvents: unknown[] = [];
+    const output = await runAgent(
+      createInput({ workspaceDir, sessionDir }),
+      (event) => {
+        streamedEvents.push(event);
+      }
+    );
 
     expect(output.text).toBe("hello from pi");
     expect(
@@ -137,12 +157,121 @@ describe("Pi runner", () => {
       "meta",
       "turn_end",
     ]);
+    expect(
+      streamedEvents.map((event) => (event as { type: string }).type)
+    ).toEqual([
+      "assistant_text",
+      "tool_call",
+      "tool_result",
+      "meta",
+      "turn_end",
+    ]);
     expect(piMock.setRuntimeApiKey).toHaveBeenCalledWith(
       "anthropic",
       "onecli-proxy-managed"
     );
     expect(piMock.createCodingTools).toHaveBeenCalledWith(workspaceDir);
     expect(piMock.session.dispose).toHaveBeenCalledTimes(1);
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("registers connector tools from connectorConfigs", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    proxyFetchMock.mockResolvedValue(
+      Response.json({ ok: true, value: 42 }, { status: 200 })
+    );
+
+    piMock.session.prompt.mockImplementationOnce(async () => {
+      piMock.session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      });
+    });
+
+    await runAgent(
+      createInput({
+        workspaceDir,
+        sessionDir,
+        connectorConfigs: [
+          {
+            id: "github",
+            systemPrompt: "Use GitHub tools first.",
+            tools: [
+              {
+                name: "github.search",
+                description: "Search GitHub",
+                parameters: {
+                  type: "object",
+                  properties: { query: { type: "string" } },
+                  required: ["query"],
+                },
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    const createAgentSessionCalls = piMock.createAgentSession.mock
+      .calls as unknown as Array<[
+      {
+        customTools: Array<{
+          name: string;
+          execute: (_id: string, args: unknown) => Promise<unknown>;
+        }>;
+        resourceLoader: {
+          options?: {
+            agentsFilesOverride?: () => {
+              agentsFiles: Array<{ path: string; content: string }>;
+            };
+          };
+        };
+      },
+    ]>;
+    const createAgentSessionArgs = createAgentSessionCalls[0]?.[0];
+    if (!createAgentSessionArgs) {
+      throw new Error("createAgentSession was not called");
+    }
+    const connectorTool = createAgentSessionArgs.customTools.find(
+      (tool) => tool.name === "github.search"
+    );
+
+    expect(connectorTool).toBeDefined();
+
+    await connectorTool?.execute("tool-1", { query: "aihub" });
+    expect(proxyFetchMock).toHaveBeenCalledWith(
+      "http://onecli/connectors/tools",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-agent-id": "agent-1",
+        },
+        body: JSON.stringify({
+          connectorId: "github",
+          tool: "github.search",
+          args: { query: "aihub" },
+        }),
+      })
+    );
+
+    const contextFiles =
+      createAgentSessionArgs.resourceLoader.options?.agentsFilesOverride?.()
+        .agentsFiles ?? [];
+    expect(contextFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "CONNECTOR_github.md",
+          content: "Use GitHub tools first.",
+        }),
+      ])
+    );
 
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -200,6 +329,7 @@ describe("Pi runner", () => {
 function createInput(paths: {
   workspaceDir: string;
   sessionDir: string;
+  connectorConfigs?: ContainerInput["connectorConfigs"];
 }): ContainerInput {
   return {
     agentId: "agent-1",
@@ -210,6 +340,7 @@ function createInput(paths: {
     ipcDir: "/ipc",
     gatewayUrl: "http://gateway:3000",
     agentToken: "token-1",
+    connectorConfigs: paths.connectorConfigs,
     sdkConfig: {
       sdk: "pi",
       model: {

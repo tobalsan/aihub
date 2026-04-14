@@ -18,6 +18,7 @@ import {
   type AgentConfig,
   type GatewayConfig,
 } from "@aihub/shared";
+import { z } from "zod";
 import {
   clearConfigCacheForTests,
   setLoadedConfig,
@@ -25,6 +26,18 @@ import {
 import { getContainerAdapter } from "./adapter.js";
 import { validateContainerToken } from "./tokens.js";
 import type { SdkRunParams } from "../types.js";
+
+const mockGetConnectorToolsForAgent = vi.hoisted(() =>
+  vi.fn<(agent: unknown, config: unknown) => unknown[]>(() => [])
+);
+const mockGetConnectorPromptsForAgent = vi.hoisted(() =>
+  vi.fn<(agent: unknown) => unknown[]>(() => [])
+);
+
+vi.mock("../../connectors/index.js", () => ({
+  getConnectorToolsForAgent: mockGetConnectorToolsForAgent,
+  getConnectorPromptsForAgent: mockGetConnectorPromptsForAgent,
+}));
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
@@ -34,6 +47,7 @@ vi.mock("node:child_process", () => ({
 
 const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 const OUTPUT_END = "---AIHUB_OUTPUT_END---";
+const EVENT_PREFIX = "---AIHUB_EVENT---";
 
 class FakeDockerProcess extends EventEmitter {
   stdout = new PassThrough();
@@ -50,6 +64,17 @@ class FakeDockerProcess extends EventEmitter {
     this.stdout.write(
       `${OUTPUT_START}\n${JSON.stringify(output)}\n${OUTPUT_END}\n`
     );
+  }
+
+  emitStreamEvent(event: unknown, split = false): void {
+    const line = `${EVENT_PREFIX}${JSON.stringify(event)}\n`;
+    if (!split) {
+      this.stdout.write(line);
+      return;
+    }
+    const middle = Math.floor(line.length / 2);
+    this.stdout.write(line.slice(0, middle));
+    this.stdout.write(line.slice(middle));
   }
 
   finish(code: number): void {
@@ -159,6 +184,8 @@ function mockExecFile(complete = true): MockInstance {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetConnectorToolsForAgent.mockReturnValue([]);
+  mockGetConnectorPromptsForAgent.mockReturnValue([]);
   delete process.env.AIHUB_HOME;
 });
 
@@ -179,6 +206,18 @@ describe("container adapter", () => {
     process.env.AIHUB_HOME = aihubHome;
     const agent = createAgent(root);
     setConfig(agent, root);
+    mockGetConnectorToolsForAgent.mockReturnValue([
+      {
+        name: "github.search",
+        description: "Search GitHub",
+        parameters: z.object({ query: z.string() }),
+        execute: async () => ({ ok: true }),
+      },
+    ]);
+    mockGetConnectorPromptsForAgent.mockReturnValue([
+      { id: "github", prompt: "Use GitHub tools first." },
+    ]);
+
     const { processes, spy } = mockSpawn();
     mockExecFile();
     const params = createParams(agent);
@@ -216,6 +255,29 @@ describe("container adapter", () => {
         url: "http://onecli:4141",
         caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
       },
+      connectorConfigs: [
+        {
+          id: "github",
+          systemPrompt: "Use GitHub tools first.",
+          tools: [
+            {
+              name: "github.search",
+              description: "Search GitHub",
+              parameters: expect.objectContaining({
+                $ref: "#/definitions/github.searchParameters",
+                definitions: expect.objectContaining({
+                  "github.searchParameters": expect.objectContaining({
+                    type: "object",
+                    properties: expect.objectContaining({
+                      query: expect.objectContaining({ type: "string" }),
+                    }),
+                  }),
+                }),
+              }),
+            },
+          ],
+        },
+      ],
       sdkConfig: {
         sdk: "pi",
         model: { provider: "anthropic", model: "claude-sonnet" },
@@ -234,6 +296,64 @@ describe("container adapter", () => {
     expect(params.onEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "done" })
     );
+  });
+
+  it("streams history events in real time from stdout", async () => {
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root);
+    setConfig(agent, root);
+    const { processes } = mockSpawn();
+    mockExecFile();
+    const params = createParams(agent);
+
+    const run = getContainerAdapter().run(params);
+    const dockerProcess = processes[0];
+
+    dockerProcess.emitStreamEvent(
+      { type: "assistant_thinking", text: "plan", timestamp: 1 },
+      true
+    );
+    dockerProcess.emitStreamEvent({
+      type: "assistant_text",
+      text: "hello",
+      timestamp: 2,
+    });
+
+    expect(params.onHistoryEvent).toHaveBeenCalledWith({
+      type: "assistant_thinking",
+      text: "plan",
+      timestamp: 1,
+    });
+    expect(params.onEvent).toHaveBeenCalledWith({
+      type: "thinking",
+      data: "plan",
+    });
+    expect(params.onHistoryEvent).toHaveBeenCalledWith({
+      type: "assistant_text",
+      text: "hello",
+      timestamp: 2,
+    });
+    expect(params.onEvent).toHaveBeenCalledWith({
+      type: "text",
+      data: "hello",
+    });
+
+    dockerProcess.emitOutput({
+      text: "hello back",
+      history: [
+        { type: "assistant_thinking", text: "plan", timestamp: 1 },
+        { type: "assistant_text", text: "hello", timestamp: 2 },
+      ],
+    });
+    dockerProcess.finish(0);
+
+    await expect(run).resolves.toEqual({ text: "hello back", aborted: undefined });
+    expect(params.onHistoryEvent).toHaveBeenCalledTimes(2);
+    expect(params.onEvent).not.toHaveBeenCalledWith({
+      type: "text",
+      data: "hello back",
+    });
   });
 
   it("writes queued messages to the IPC input dir", async () => {

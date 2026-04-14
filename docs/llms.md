@@ -113,14 +113,15 @@ Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
 ### container/agent-runner
 
-Standalone Node 22 package for sandboxed agent containers. It reads `ContainerInput` JSON from stdin, runs Pi SDK turns inside the container, and writes `ContainerOutput` JSON to stdout between `---AIHUB_OUTPUT_START---` / `---AIHUB_OUTPUT_END---`. Debug logs must go to stderr only. It may import from `@aihub/shared` and Pi SDK packages but must not import gateway source.
+Standalone Node 22 package for sandboxed agent containers. It reads `ContainerInput` JSON from stdin, runs Pi SDK turns or Claude CLI turns (`claude --print --output-format json`) inside the container, streams incremental history events on stdout as `---AIHUB_EVENT---<json>`, and writes final `ContainerOutput` JSON between `---AIHUB_OUTPUT_START---` / `---AIHUB_OUTPUT_END---`. Debug logs must go to stderr only. It may import from `@aihub/shared` and Pi SDK packages but must not import gateway source.
 
 Container OneCLI proxy wiring:
 
 - `apps/gateway/src/agents/container.ts` injects `ONECLI_URL`, `ONECLI_CA_PATH`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, and `NODE_TLS_REJECT_UNAUTHORIZED=0` only when top-level `sandbox.onecli` is enabled.
 - Anthropic uses `ANTHROPIC_BASE_URL=<onecli url>`; OpenAI uses `OPENAI_BASE_URL=<onecli url>/v1`.
 - The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
-- `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK run and forwards IPC follow-ups to the active Pi session with `deliverAs: "steer"`.
+- `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK run and forwards IPC follow-ups to the active run (`deliverAs: "steer"` for Pi, queued follow-up text for Claude CLI one-shot).
+- Gateway `apps/gateway/src/sdk/container/adapter.ts` now serializes resolved connector metadata into `ContainerInput.connectorConfigs` (connector id, optional system prompt, tool JSON Schemas) because container runner cannot access gateway connector registry directly.
 - Connector tools inside the container should use `container/agent-runner/src/http-client.ts#createContainerHttpClient()`, which attaches an undici `ProxyAgent` and CA cert to each fetch. Without OneCLI config, it falls back to plain `fetch`.
 - Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
 

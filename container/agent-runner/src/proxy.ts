@@ -8,8 +8,11 @@ export type OnecliProxyConfig = ContainerOnecliConfig;
 
 export type ConnectorHttpClient = ContainerHttpClient;
 
+export let proxyClient: ConnectorHttpClient = createContainerHttpClient();
+
 export function configureProxy(
   onecliConfig?: OnecliProxyConfig
 ): ConnectorHttpClient {
-  return createContainerHttpClient(onecliConfig);
+  proxyClient = createContainerHttpClient(onecliConfig);
+  return proxyClient;
 }

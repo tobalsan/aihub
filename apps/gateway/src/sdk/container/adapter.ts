@@ -5,14 +5,20 @@ import os from "node:os";
 import path from "node:path";
 import type {
   AgentConfig,
+  ContainerConnectorConfig,
   ContainerInput,
   ContainerOutput,
 } from "@aihub/shared";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   buildContainerArgs,
   buildVolumeMounts,
 } from "../../agents/container.js";
 import { loadConfig } from "../../config/index.js";
+import {
+  getConnectorPromptsForAgent,
+  getConnectorToolsForAgent,
+} from "../../connectors/index.js";
 import { getDefaultSdkId, getSdkAdapter } from "../registry.js";
 import { registerContainerToken, removeContainerToken } from "./tokens.js";
 import type {
@@ -25,6 +31,7 @@ import type {
 
 const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 const OUTPUT_END = "---AIHUB_OUTPUT_END---";
+const EVENT_PREFIX = "---AIHUB_EVENT---";
 const DEFAULT_GATEWAY_URL = "http://gateway:4000";
 const DEFAULT_TIMEOUT_SECONDS = 300;
 const STOP_GRACE_MS = 10_000;
@@ -54,13 +61,11 @@ function getArgValue(args: string[], flag: string): string {
   return value;
 }
 
-function parseProtocolOutput(stdout: string): ContainerOutput | undefined {
-  const start = stdout.indexOf(OUTPUT_START);
-  if (start === -1) return undefined;
-  const outputStart = start + OUTPUT_START.length;
-  const end = stdout.indexOf(OUTPUT_END, outputStart);
-  if (end === -1) return undefined;
-  return JSON.parse(stdout.slice(outputStart, end).trim()) as ContainerOutput;
+function parseProtocolOutput(lines: string[]): ContainerOutput | undefined {
+  if (!lines.length) return undefined;
+  const payload = lines.join("\n").trim();
+  if (!payload) return undefined;
+  return JSON.parse(payload) as ContainerOutput;
 }
 
 function isContainerHandle(handle: unknown): handle is ContainerSessionHandle {
@@ -143,9 +148,49 @@ function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
 }
 
+function buildConnectorConfigs(params: SdkRunParams): ContainerConnectorConfig[] {
+  const config = loadConfig();
+  const prompts = new Map(
+    getConnectorPromptsForAgent(params.agent).map((prompt) => [
+      prompt.id,
+      prompt.prompt,
+    ])
+  );
+  const connectorConfigs = new Map<string, ContainerConnectorConfig>();
+
+  for (const [id, systemPrompt] of prompts) {
+    connectorConfigs.set(id, { id, systemPrompt, tools: [] });
+  }
+
+  for (const tool of getConnectorToolsForAgent(params.agent, config)) {
+    const connectorId = tool.name.split(".")[0] ?? tool.name;
+    const existing = connectorConfigs.get(connectorId);
+    const connectorConfig =
+      existing ??
+      ({
+        id: connectorId,
+        systemPrompt: prompts.get(connectorId),
+        tools: [],
+      } satisfies ContainerConnectorConfig);
+
+    connectorConfig.tools.push({
+      name: tool.name,
+      description: tool.description,
+      parameters: zodToJsonSchema(
+        tool.parameters,
+        `${tool.name}Parameters`
+      ) as Record<string, unknown>,
+    });
+    connectorConfigs.set(connectorId, connectorConfig);
+  }
+
+  return Array.from(connectorConfigs.values());
+}
+
 function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
   const config = loadConfig();
   const globalSandbox = config.sandbox ?? {};
+  const connectorConfigs = buildConnectorConfigs(params);
   return {
     agentId: params.agentId,
     sessionId: params.sessionId,
@@ -166,6 +211,7 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
           caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
         }
       : undefined,
+    connectorConfigs: connectorConfigs.length > 0 ? connectorConfigs : undefined,
     sdkConfig: {
       sdk: params.agent.sdk ?? getDefaultSdkId(),
       model: {
@@ -222,11 +268,14 @@ export function getContainerAdapter(): SdkAdapter {
       const handle: ContainerSessionHandle = { containerName, ipcDir };
       params.onSessionHandle?.(handle);
 
-      let stdout = "";
       let stderr = "";
       let timedOut = false;
       let aborted = false;
       let settled = false;
+      let stdoutLineBuffer = "";
+      const outputLines: string[] = [];
+      let inOutputBlock = false;
+      let sawStreamingHistory = false;
       const timeoutSeconds =
         params.agent.sandbox?.timeout ?? DEFAULT_TIMEOUT_SECONDS;
 
@@ -242,9 +291,40 @@ export function getContainerAdapter(): SdkAdapter {
           settled = true;
           cleanup();
 
+          if (stdoutLineBuffer.length > 0) {
+            const line = stdoutLineBuffer.replace(/\r$/, "");
+            if (line === OUTPUT_START) {
+              inOutputBlock = true;
+              outputLines.length = 0;
+            } else if (line === OUTPUT_END) {
+              inOutputBlock = false;
+            } else if (inOutputBlock) {
+              outputLines.push(line);
+            } else if (line.startsWith(EVENT_PREFIX)) {
+              const rawEvent = line.slice(EVENT_PREFIX.length).trim();
+              if (rawEvent) {
+                try {
+                  const event = JSON.parse(rawEvent);
+                  if (isHistoryEvent(event)) {
+                    sawStreamingHistory = true;
+                    params.onHistoryEvent(event);
+                    if (event.type === "assistant_text") {
+                      params.onEvent({ type: "text", data: event.text });
+                    }
+                    if (event.type === "assistant_thinking") {
+                      params.onEvent({ type: "thinking", data: event.text });
+                    }
+                  }
+                } catch {
+                  // ignore malformed stream event lines
+                }
+              }
+            }
+          }
+
           let output: ContainerOutput | undefined;
           try {
-            output = parseProtocolOutput(stdout);
+            output = parseProtocolOutput(outputLines);
           } catch (error) {
             reject(error);
             return;
@@ -270,9 +350,11 @@ export function getContainerAdapter(): SdkAdapter {
             return;
           }
 
-          emitHistory(params, output);
-          if (output.text) {
-            params.onEvent({ type: "text", data: output.text });
+          if (!sawStreamingHistory) {
+            emitHistory(params, output);
+            if (output.text) {
+              params.onEvent({ type: "text", data: output.text });
+            }
           }
           resolve({ text: output.text, aborted: output.aborted });
         };
@@ -290,7 +372,49 @@ export function getContainerAdapter(): SdkAdapter {
         timeoutTimer.unref?.();
 
         child.stdout?.on("data", (chunk: Buffer | string) => {
-          stdout += chunk.toString();
+          stdoutLineBuffer += chunk.toString();
+          const lines = stdoutLineBuffer.split("\n");
+          stdoutLineBuffer = lines.pop() ?? "";
+
+          for (const rawLine of lines) {
+            const line = rawLine.replace(/\r$/, "");
+            if (line === OUTPUT_START) {
+              inOutputBlock = true;
+              outputLines.length = 0;
+              continue;
+            }
+            if (line === OUTPUT_END) {
+              inOutputBlock = false;
+              continue;
+            }
+            if (inOutputBlock) {
+              outputLines.push(line);
+              continue;
+            }
+            if (!line.startsWith(EVENT_PREFIX)) {
+              continue;
+            }
+
+            const rawEvent = line.slice(EVENT_PREFIX.length).trim();
+            if (!rawEvent) continue;
+
+            try {
+              const event = JSON.parse(rawEvent);
+              if (!isHistoryEvent(event)) {
+                continue;
+              }
+              sawStreamingHistory = true;
+              params.onHistoryEvent(event);
+              if (event.type === "assistant_text") {
+                params.onEvent({ type: "text", data: event.text });
+              }
+              if (event.type === "assistant_thinking") {
+                params.onEvent({ type: "thinking", data: event.text });
+              }
+            } catch {
+              // ignore malformed stream event lines
+            }
+          }
         });
         child.stderr?.on("data", (chunk: Buffer | string) => {
           stderr += chunk.toString();

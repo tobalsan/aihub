@@ -1017,6 +1017,22 @@ export const AgentContextSchema = z
   })
   .passthrough();
 
+export const ContainerConnectorToolSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  parameters: z.record(z.unknown()),
+});
+export type ContainerConnectorTool = z.infer<typeof ContainerConnectorToolSchema>;
+
+export const ContainerConnectorConfigSchema = z.object({
+  id: z.string(),
+  systemPrompt: z.string().optional(),
+  tools: z.array(ContainerConnectorToolSchema),
+});
+export type ContainerConnectorConfig = z.infer<
+  typeof ContainerConnectorConfigSchema
+>;
+
 export const ContainerInputSchema = z.object({
   agentId: z.string(),
   sessionId: z.string(),
@@ -1037,6 +1053,7 @@ export const ContainerInputSchema = z.object({
       caPath: z.string().optional(),
     })
     .optional(),
+  connectorConfigs: z.array(ContainerConnectorConfigSchema).optional(),
   sdkConfig: z.object({
     sdk: SdkIdSchema,
     model: AgentModelConfigSchema,
