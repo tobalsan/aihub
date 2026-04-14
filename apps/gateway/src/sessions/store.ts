@@ -161,7 +161,7 @@ export async function resolveSessionId(
   }
 
   // Determine if we should create a new session
-  const isExpired = !entry || now - entry.updatedAt > idleMs;
+  const isExpired = !entry || (!sessionKey.startsWith("project:") && now - entry.updatedAt > idleMs);
   const shouldCreateNew = isReset || isExpired;
 
   let sessionId: string;
