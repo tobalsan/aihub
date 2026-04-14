@@ -7,7 +7,7 @@ import {
 } from "@aihub/shared";
 import { startIpcPoller, type IpcCleanup } from "./ipc.js";
 import { configureProxy, type ConnectorHttpClient } from "./proxy.js";
-import { runAgent } from "./runner.js";
+import { abortActiveAgent, runAgent, sendFollowUpMessage } from "./runner.js";
 
 export const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 export const OUTPUT_END = "---AIHUB_OUTPUT_END---";
@@ -41,15 +41,17 @@ export async function runAgentRunner(
   try {
     cleanup = startPoller(
       input.ipcDir,
-      (message) => {
+      async (message) => {
         writeStderr(
           `[agent-runner] Received follow-up IPC message ${JSON.stringify(
             message
           )}\n`
         );
+        await sendFollowUpMessage(message);
       },
       () => {
         writeStderr("[agent-runner] Received close IPC sentinel\n");
+        abortActiveAgent();
       }
     );
 

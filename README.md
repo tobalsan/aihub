@@ -40,7 +40,7 @@ OneCLI now uses the dedicated top-level `onecli` config section for native proxy
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
-`container/agent-runner` is the standalone package used by sandboxed Docker agent runs. It consumes shared `ContainerInput`/`ContainerOutput` schemas and keeps stdout reserved for the container protocol. The gateway container adapter spawns `docker run -i --rm`, sends input over stdin, parses sentinel-delimited output, and uses `$AIHUB_HOME/ipc/<agentId>/input/` for queued follow-ups and abort sentinels.
+`container/agent-runner` is the standalone package used by sandboxed Docker agent runs. It consumes shared `ContainerInput`/`ContainerOutput` schemas, keeps stdout reserved for the container protocol, runs Pi SDK turns inside the container, and steers IPC follow-ups into the active Pi session. The gateway container adapter spawns `docker run -i --rm`, sends input over stdin, parses sentinel-delimited output, and uses `$AIHUB_HOME/ipc/<agentId>/input/` for queued follow-ups and abort sentinels.
 
 ### Lead agents
 
