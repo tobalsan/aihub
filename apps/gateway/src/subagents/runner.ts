@@ -1360,7 +1360,14 @@ export async function interruptSubagent(
     const raw = await fs.readFile(statePath, "utf8");
     const state = JSON.parse(raw) as Record<string, unknown> & {
       supervisor_pid?: number;
+      outcome?: string;
+      finished_at?: string;
     };
+    // Don't try to interrupt a run that already completed – the PID may have
+    // been recycled by the OS and could belong to an unrelated process.
+    if (state.outcome === "done" || state.finished_at) {
+      return { ok: false, error: `Subagent not running: ${slug}` };
+    }
     if (state.supervisor_pid) {
       await writeJson(statePath, {
         ...state,

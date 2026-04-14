@@ -781,16 +781,23 @@ export async function listSubagents(
       run_mode?: string;
       worktree_path?: string;
       base_branch?: string;
+      outcome?: string;
+      finished_at?: string;
     }>(path.join(dir, "state.json"));
     const progress = await readJson<{ last_active?: string }>(
       path.join(dir, "progress.json")
     );
     const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
 
+    // A terminal state.json (outcome="done" or finished_at present) means the
+    // run completed.  Skip the PID probe to avoid false positives from PID
+    // reuse by the OS.
+    const isTerminal = state?.outcome === "done" || state?.finished_at;
+
     let status: SubagentStatus = "idle";
     if (state?.last_error && state.last_error.trim()) {
       status = "error";
-    } else if (isProcessAlive(state?.supervisor_pid)) {
+    } else if (!isTerminal && isProcessAlive(state?.supervisor_pid)) {
       status = "running";
     } else if (outcome === "error") {
       status = "error";
@@ -1032,16 +1039,20 @@ export async function listAllSubagents(
         run_mode?: string;
         worktree_path?: string;
         started_at?: string;
+        outcome?: string;
+        finished_at?: string;
       }>(path.join(dir, "state.json"));
       const progress = await readJson<{ last_active?: string }>(
         path.join(dir, "progress.json")
       );
       const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
 
+      const isTerminal = state?.outcome === "done" || state?.finished_at;
+
       let status: SubagentStatus = "idle";
       if (state?.last_error && state.last_error.trim()) {
         status = "error";
-      } else if (isProcessAlive(state?.supervisor_pid)) {
+      } else if (!isTerminal && isProcessAlive(state?.supervisor_pid)) {
         status = "running";
       } else if (outcome === "error") {
         status = "error";
