@@ -40,7 +40,7 @@ OneCLI now uses the dedicated top-level `onecli` config section for native proxy
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
 
-`container/agent-runner` is the standalone package used by sandboxed Docker agent runs. It consumes shared `ContainerInput`/`ContainerOutput` schemas, keeps stdout reserved for the container protocol, runs Pi SDK turns inside the container, and steers IPC follow-ups into the active Pi session. The gateway container adapter spawns `docker run -i --rm`, sends input over stdin, parses sentinel-delimited output, and uses `$AIHUB_HOME/ipc/<agentId>/input/` for queued follow-ups and abort sentinels.
+Agents can optionally run inside ephemeral Docker containers for filesystem, network, and credential isolation. See [Container Isolation](#container-isolation) below for setup.
 
 ### Lead agents
 
@@ -197,6 +197,138 @@ Use top-level `onecli` for native gateway/proxy config:
 - Claude and Pi agent runs now use scoped proxy env injection when native `onecli` is enabled for that agent.
 - Connectors can use `apps/gateway/src/connectors/http-client.ts` to route outbound HTTP calls through the same OneCLI gateway path.
 - Legacy `$secret:` lookup is removed. Use `$env:` for config values and top-level `onecli` for native gateway/proxy wiring.
+
+### Container Isolation
+
+Run agents inside ephemeral Docker containers for per-invocation filesystem, network, and credential isolation. Each agent invocation spawns a fresh container (`docker run -i --rm`) that reads input from stdin and writes output to stdout. The container is removed automatically when it exits.
+
+**When to use this:**
+
+- Multi-tenant deployments where agents must not share filesystems or credentials
+- Running untrusted or third-party agent code
+- Compliance requirements for credential isolation
+
+**Prerequisites:**
+
+- Docker must be installed and running on the gateway host
+- The `aihub-agent` container image must be built (see below)
+- (Optional) OneCLI proxy for credential injection and network egress control
+
+#### 1. Build the agent image
+
+From the repo root:
+
+```bash
+docker build -t aihub-agent:latest -f container/agent-runner/Dockerfile .
+```
+
+This builds a `node:22-slim` image with the agent-runner entry point. It does **not** contain any credentials — those are injected at runtime via the proxy or stripped from the input.
+
+#### 2. Enable sandbox for an agent
+
+Add a `sandbox` block to the agent config in `aihub.json`:
+
+```json
+{
+  "agents": [
+    {
+      "id": "sandboxed-agent",
+      "name": "Sandboxed Agent",
+      "workspace": "~/agents/sandboxed",
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" },
+      "sandbox": {
+        "enabled": true
+      }
+    }
+  ]
+}
+```
+
+That's the minimum. All other sandbox settings have sensible defaults.
+
+#### 3. (Optional) Configure global sandbox defaults
+
+Add a top-level `sandbox` block for network, OneCLI proxy, and mount security settings:
+
+```json
+{
+  "sandbox": {
+    "sharedDir": "~/agents/shared",
+    "network": {
+      "name": "aihub-agents",
+      "internal": true
+    },
+    "onecli": {
+      "enabled": true,
+      "url": "http://onecli:4141",
+      "caPath": "~/.config/aihub/onecli-ca.pem"
+    },
+    "mountAllowlist": {
+      "allowedRoots": ["~/agents", "~/projects"],
+      "blockedPatterns": [".ssh", ".gnupg", ".aws", ".env"]
+    }
+  }
+}
+```
+
+#### Per-agent sandbox options
+
+| Field               | Default                 | Description                                                              |
+| --------------------| ----------------------- | ------------------------------------------------------------------------ |
+| `enabled`           | `false`                 | Enable container isolation for this agent                                |
+| `image`             | `aihub-agent:latest`   | Docker image to use                                                      |
+| `network`           | From global `sandbox.network.name` | Docker network name                                             |
+| `memory`            | `2g`                    | Memory limit                                                             |
+| `cpus`              | `1`                     | CPU limit                                                                |
+| `timeout`           | `300`                   | Max seconds before the container is stopped and killed                   |
+| `workspaceWritable` | `false`                 | Allow the agent to write to its workspace mount                          |
+| `env`               | `{}`                    | Extra environment variables (secret values are automatically filtered)   |
+| `mounts`            | `[]`                    | Additional bind mounts (validated against the allowlist)                 |
+
+#### How it works
+
+When `sandbox.enabled` is `true`, the gateway replaces the normal in-process agent run with a container spawn:
+
+1. Gateway builds Docker args and bind mounts from the agent + global config
+2. Spawns `docker run -i --rm --name aihub-agent-<id>-<ts> ...`
+3. Writes a `ContainerInput` JSON payload to the container's stdin
+4. Agent-runner inside the container executes the agent turn (Pi SDK or Claude CLI)
+5. Container writes structured output to stdout between sentinel markers
+6. Gateway parses the output and routes the response to the client
+7. Container is removed on exit (`--rm`)
+
+**Follow-up messages** while a container is running are delivered via filesystem IPC — the gateway writes JSON files to a bind-mounted input directory that the agent-runner polls.
+
+**Orchestration tools** (subagent spawn, project CRUD) call back to the gateway's `/internal/tools` endpoint from inside the container.
+
+**Connector tools** are serialized into `ContainerInput.connectorConfigs` by the gateway and registered inside the container. They route outbound HTTP through the OneCLI proxy.
+
+#### Network and credential model
+
+With the default `--internal` Docker network, containers have **no direct internet access**. All outbound HTTPS (LLM API calls, connector calls) is routed through the OneCLI proxy, which injects per-host credentials. **No credentials ever exist inside the container** — no env vars, no files, no mounted configs.
+
+If you don't use OneCLI, containers can still run but will need direct network access (set `internal: false` or override the per-agent `network`).
+
+#### Security features
+
+- **Ephemeral containers**: fresh environment every invocation, no persistent state
+- **Read-only workspace**: agent identity files (SOUL.md, skills) are mounted read-only by default
+- **`.env` shadowing**: if the workspace contains a `.env` file, it is shadowed with `/dev/null` inside the container
+- **`sandbox.env` filtering**: secret-looking env vars (keys containing KEY/SECRET/TOKEN/etc., values starting with `sk-`/`ghp_`/etc.) are automatically stripped
+- **Mount allowlist**: custom mounts are validated against `sandbox.mountAllowlist.allowedRoots` and blocked if they match `blockedPatterns`
+- **Path traversal prevention**: container mount paths with `..` or non-absolute paths are rejected
+- **Unprivileged execution**: containers run as non-root (`--user <uid>:<gid>`)
+- **Orphan cleanup**: stale containers from crashed runs are cleaned on gateway startup and shutdown
+- **Graceful shutdown**: SIGTERM/SIGINT stops all running containers before the gateway exits
+
+#### Startup behavior
+
+On gateway startup, if any agent has `sandbox.enabled: true`:
+
+1. The Docker network is created (if it doesn't exist): `docker network create --internal aihub-agents`
+2. Stale containers from previous runs are removed: `docker rm -f` all `aihub-agent-*` containers
+
+On gateway shutdown (SIGTERM/SIGINT), all running sandbox containers are stopped.
 
 ## Starting the app
 
@@ -521,6 +653,7 @@ Project API details: `docs/projects_api.md`
 | `discord`          | Discord bot config ([docs](docs/discord.md))                                         |
 | `heartbeat`        | Periodic check-in config (see below)                                                 |
 | `amsg`             | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
+| `sandbox`          | Container isolation config (see [Container Isolation](#container-isolation))          |
 
 ### Gateway Options
 
