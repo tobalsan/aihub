@@ -190,29 +190,23 @@ function buildConnectorConfigs(params: SdkRunParams): ContainerConnectorConfig[]
 
 function resolveOnecliProxyUrl(
   config: GatewayConfig,
-  agentId: string,
-  sandboxOnecliUrl?: string
-): string {
-  // Top-level onecli + per-agent token
+  agentId: string
+): string | undefined {
   const onecli = config.onecli;
-  if (onecli) {
-    const agent = config.agents.find((a) => a.id === agentId);
-    const gatewayToken = agent?.onecliToken;
-    if (gatewayToken) {
-      const url = new URL(onecli.gatewayUrl);
-      url.username = "onecli";
-      url.password = gatewayToken;
-      return url.toString().replace(/\/$/, "");
-    }
-    return onecli.gatewayUrl;
+  if (!onecli?.enabled || !onecli.gatewayUrl) return undefined;
+  const agent = config.agents.find((a) => a.id === agentId);
+  const gatewayToken = agent?.onecliToken;
+  if (gatewayToken) {
+    const url = new URL(onecli.gatewayUrl);
+    url.username = "onecli";
+    url.password = gatewayToken;
+    return url.toString().replace(/\/$/, "");
   }
-  // Fallback to sandbox.onecli.url when no top-level onecli is configured
-  return sandboxOnecliUrl ?? "";
+  return onecli.gatewayUrl;
 }
 
 function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
   const config = loadConfig();
-  const globalSandbox = config.sandbox ?? {};
   const connectorConfigs = buildConnectorConfigs(params);
   return {
     agentId: params.agentId,
@@ -227,11 +221,11 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
     ipcDir: "/workspace/ipc",
     gatewayUrl: config.server?.baseUrl ?? DEFAULT_GATEWAY_URL,
     agentToken,
-    onecli: globalSandbox.onecli
+    onecli: config.onecli?.enabled && config.onecli.gatewayUrl
       ? {
-          enabled: globalSandbox.onecli.enabled ?? true,
-          url: resolveOnecliProxyUrl(config, params.agentId, globalSandbox.onecli?.url),
-          caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
+          enabled: true,
+          url: resolveOnecliProxyUrl(config, params.agentId) ?? config.onecli.gatewayUrl,
+          caPath: config.onecli.ca?.source === "file" ? "/usr/local/share/ca-certificates/onecli-ca.pem" : undefined,
         }
       : undefined,
     connectorConfigs: connectorConfigs.length > 0 ? connectorConfigs : undefined,
@@ -268,14 +262,16 @@ export function getContainerAdapter(): SdkAdapter {
         params.agent,
         globalSandbox,
         aihubHome,
-        params.userId
+        params.userId,
+        config.onecli
       );
       const args = buildContainerArgs(
         params.agent,
         globalSandbox,
         mounts,
         aihubHome,
-        params.userId
+        params.userId,
+        config.onecli
       );
       const containerName = getArgValue(args, "--name");
       const ipcDir = path.join(aihubHome, "ipc", params.agentId);

@@ -123,16 +123,18 @@ function createAgent(
 }
 
 function setConfig(agent: AgentConfig, root: string): void {
+  fs.writeFileSync(path.join(root, "onecli-ca.pem"), "cert");
   setLoadedConfig({
     agents: [agent],
     components: {},
     sandbox: {
       sharedDir: path.join(root, "shared"),
-      onecli: {
-        enabled: true,
-        url: "http://onecli:4141",
-        caPath: path.join(root, "onecli-ca.pem"),
-      },
+    },
+    onecli: {
+      enabled: true,
+      mode: "proxy",
+      gatewayUrl: "http://onecli:4141",
+      ca: { source: "file", path: path.join(root, "onecli-ca.pem") },
     },
     server: { baseUrl: "http://gateway:4000" },
   } as GatewayConfig);
@@ -447,9 +449,7 @@ describe("container adapter", () => {
         mode: "proxy",
         gatewayUrl: "http://onecli:10255",
       },
-      sandbox: {
-        onecli: { enabled: true, url: "http://onecli:10255" },
-      },
+      sandbox: {},
     } as GatewayConfig);
 
     const { processes } = mockSpawn();

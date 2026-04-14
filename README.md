@@ -245,7 +245,7 @@ That's the minimum. All other sandbox settings have sensible defaults.
 
 #### 3. (Optional) Configure global sandbox defaults
 
-Add a top-level `sandbox` block for network, OneCLI proxy, and mount security settings:
+Add a top-level `sandbox` block for network and mount security settings:
 
 ```json
 {
@@ -255,11 +255,6 @@ Add a top-level `sandbox` block for network, OneCLI proxy, and mount security se
       "name": "aihub-agents",
       "internal": true
     },
-    "onecli": {
-      "enabled": true,
-      "url": "http://onecli:4141",
-      "caPath": "~/.config/aihub/onecli-ca.pem"
-    },
     "mountAllowlist": {
       "allowedRoots": ["~/agents", "~/projects"],
       "blockedPatterns": [".ssh", ".gnupg", ".aws", ".env"]
@@ -267,6 +262,8 @@ Add a top-level `sandbox` block for network, OneCLI proxy, and mount security se
   }
 }
 ```
+
+OneCLI proxy config lives in the top-level `onecli` block (see [OneCLI](#onecli)) — the container adapter reads from there automatically. Set `onecliToken` on each sandboxed agent so the container authenticates with OneCLI.
 
 #### Per-agent sandbox options
 

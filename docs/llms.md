@@ -117,7 +117,7 @@ Standalone Node 22 package for sandboxed agent containers. It reads `ContainerIn
 
 Container OneCLI proxy wiring:
 
-- `apps/gateway/src/agents/container.ts` injects `ONECLI_URL`, `ONECLI_CA_PATH`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, and `NODE_TLS_REJECT_UNAUTHORIZED=0` only when top-level `sandbox.onecli` is enabled.
+- `apps/gateway/src/agents/container.ts` injects `ONECLI_URL`, `ONECLI_CA_PATH`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, and `NODE_TLS_REJECT_UNAUTHORIZED=0` when top-level `onecli` is configured.
 - Anthropic uses `ANTHROPIC_BASE_URL=<onecli url>`; OpenAI uses `OPENAI_BASE_URL=<onecli url>/v1`.
 - The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
 - `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK run and forwards IPC follow-ups to the active run (`deliverAs: "steer"` for Pi, queued follow-up text for Claude CLI one-shot).
@@ -230,10 +230,6 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     dashboardUrl?: string,
     gatewayUrl: string,
     ca?: { source: "file", path: string } | { source: "system" },
-    agents?: Record<string, {
-      enabled?: boolean,              // Default: true
-      gatewayToken: string
-    }>
   },
   components?: {
     discord?: { enabled?, token, channels?, dm?, historyLimit?, replyToMode? },
@@ -267,7 +263,7 @@ OneCLI notes:
 
 - Use top-level `onecli` for native gateway/proxy wiring.
 - Native OneCLI mode routes traffic through the OneCLI gateway with `HTTP_PROXY`/`HTTPS_PROXY`.
-- `onecli.agents.<id>.gatewayToken` is per-agent and should usually resolve from `$env:...`.
+- Per-agent OneCLI tokens are set via `agent.onecliToken` (usually `$env:...`).
 - `onecli.ca` controls CA trust propagation for TLS interception.
 
 ## Multi-User Mode

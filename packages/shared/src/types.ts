@@ -458,17 +458,9 @@ export const SandboxNetworkSchema = z.object({
 });
 export type SandboxNetwork = z.infer<typeof SandboxNetworkSchema>;
 
-export const SandboxOnecliSchema = z.object({
-  enabled: z.boolean().optional().default(true),
-  url: z.string(),
-  caPath: z.string().optional(),
-});
-export type SandboxOnecli = z.infer<typeof SandboxOnecliSchema>;
-
 export const GlobalSandboxConfigSchema = z.object({
   sharedDir: z.string().optional(),
   network: SandboxNetworkSchema.optional(),
-  onecli: SandboxOnecliSchema.optional(),
   mountAllowlist: MountAllowlistSchema.optional(),
 });
 export type GlobalSandboxConfig = z.infer<typeof GlobalSandboxConfigSchema>;

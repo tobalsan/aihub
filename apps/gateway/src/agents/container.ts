@@ -6,6 +6,7 @@ import type {
   AgentConfig,
   GlobalSandboxConfig,
   MountAllowlist,
+  OnecliConfig,
   SandboxMount,
 } from "@aihub/shared";
 
@@ -135,7 +136,8 @@ export function buildVolumeMounts(
   agent: AgentConfig,
   globalSandbox: GlobalSandboxConfig,
   aihubHome: string,
-  userId?: string
+  userId?: string,
+  onecli?: OnecliConfig
 ): ContainerVolumeMount[] {
   const mounts: ContainerVolumeMount[] = [];
   const sandbox = agent.sandbox;
@@ -165,8 +167,8 @@ export function buildVolumeMounts(
   addMount(mounts, path.join(home, "sessions", agent.id), "/sessions", false);
   addMount(mounts, path.join(home, "ipc", agent.id), "/workspace/ipc", false);
 
-  if (globalSandbox.onecli?.caPath) {
-    const caPath = resolveHostPath(globalSandbox.onecli.caPath);
+  if (onecli?.ca?.source === "file" && onecli.ca.path) {
+    const caPath = resolveHostPath(onecli.ca.path);
     if (fs.existsSync(caPath)) {
       addMount(mounts, caPath, CONTAINER_ONECLI_CA_PATH, true);
     }
@@ -232,11 +234,11 @@ export function buildContainerArgs(
   globalSandbox: GlobalSandboxConfig,
   mounts: ContainerVolumeMount[],
   _aihubHome: string,
-  _userId?: string
+  _userId?: string,
+  onecli?: OnecliConfig
 ): string[] {
   const sandbox = agent.sandbox;
-  const onecli =
-    globalSandbox.onecli?.enabled === false ? undefined : globalSandbox.onecli;
+  const onecliEnabled = onecli?.enabled !== false;
   const args = [
     "run",
     "-i",
@@ -264,13 +266,13 @@ export function buildContainerArgs(
 
   const env: Record<string, string> = {
     GATEWAY_URL: DEFAULT_GATEWAY_URL,
-    ...(onecli
+    ...(onecliEnabled && onecli?.gatewayUrl
       ? {
           NODE_TLS_REJECT_UNAUTHORIZED: "0",
-          ONECLI_URL: onecli.url,
+          ONECLI_URL: onecli.gatewayUrl,
           ONECLI_CA_PATH: CONTAINER_ONECLI_CA_PATH,
-          ANTHROPIC_BASE_URL: onecli.url,
-          OPENAI_BASE_URL: `${onecli.url.replace(/\/$/, "")}/v1`,
+          ANTHROPIC_BASE_URL: onecli.gatewayUrl,
+          OPENAI_BASE_URL: `${onecli.gatewayUrl.replace(/\/$/, "")}/v1`,
         }
       : {}),
     ...filterSecretEnvVars(sandbox?.env),

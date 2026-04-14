@@ -62,11 +62,11 @@ describe("buildVolumeMounts", () => {
     });
     const globalSandbox = GlobalSandboxConfigSchema.parse({
       sharedDir: shared,
-      onecli: { url: "http://onecli:4141", caPath },
       mountAllowlist: { allowedRoots: [root] },
     });
+    const onecliConfig = { enabled: true, mode: "proxy" as const, gatewayUrl: "http://onecli:4141", ca: { source: "file" as const, path: caPath } };
 
-    const mounts = buildVolumeMounts(agent, globalSandbox, aihubHome, "user-1");
+    const mounts = buildVolumeMounts(agent, globalSandbox, aihubHome, "user-1", onecliConfig);
 
     expect(mounts).toEqual(
       expect.arrayContaining<ContainerVolumeMount>([
@@ -207,8 +207,8 @@ describe("buildContainerArgs", () => {
     });
     const globalSandbox = GlobalSandboxConfigSchema.parse({
       network: { name: "aihub-agents" },
-      onecli: { url: "http://onecli:4141" },
     });
+    const onecliConfig = { enabled: true, mode: "proxy" as const, gatewayUrl: "http://onecli:4141" };
     const mounts: ContainerVolumeMount[] = [
       { source: "/host/workspace", target: "/workspace", readonly: true },
       { source: "/host/shared", target: "/shared", readonly: false },
@@ -219,7 +219,8 @@ describe("buildContainerArgs", () => {
       globalSandbox,
       mounts,
       "/aihub",
-      "user-1"
+      "user-1",
+      onecliConfig
     );
 
     expect(args.slice(0, 3)).toEqual(["run", "-i", "--rm"]);
@@ -245,7 +246,7 @@ describe("buildContainerArgs", () => {
     expect(args.at(-1)).toBe("custom-agent:latest");
   });
 
-  it("omits onecli env when global sandbox onecli is absent", () => {
+  it("omits onecli env when onecli config is absent", () => {
     vi.spyOn(Date, "now").mockReturnValue(123456);
 
     const agent = AgentConfigSchema.parse({
