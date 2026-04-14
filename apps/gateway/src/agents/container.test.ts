@@ -10,6 +10,7 @@ import {
 import {
   buildContainerArgs,
   buildVolumeMounts,
+  filterSecretEnvVars,
   validateMount,
   type ContainerVolumeMount,
 } from "./container.js";
@@ -116,6 +117,74 @@ describe("buildVolumeMounts", () => {
       target: "/workspace",
       readonly: false,
     });
+  });
+});
+
+describe("filterSecretEnvVars", () => {
+  it("filters secret keys and logs a warning for each", () => {
+    const warn = vi.fn();
+
+    const env = filterSecretEnvVars(
+      {
+        API_KEY: "safe-looking",
+        SECRET_TOKEN: "value",
+        ACCESS_KEY_ID: "abc",
+        NODE_ENV: "production",
+      },
+      warn
+    );
+
+    expect(env).toEqual({ NODE_ENV: "production" });
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(warn.mock.calls[0][0]).toContain('API_KEY');
+    expect(warn.mock.calls[1][0]).toContain('SECRET_TOKEN');
+    expect(warn.mock.calls[2][0]).toContain('ACCESS_KEY_ID');
+  });
+
+  it("passes through safe keys", () => {
+    const warn = vi.fn();
+
+    const env = filterSecretEnvVars(
+      {
+        NODE_ENV: "production",
+        DEBUG: "1",
+        CUSTOM_VAR: "value",
+      },
+      warn
+    );
+
+    expect(env).toEqual({
+      NODE_ENV: "production",
+      DEBUG: "1",
+      CUSTOM_VAR: "value",
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("filters values that look like secrets even when key looks innocent", () => {
+    const warn = vi.fn();
+
+    const env = filterSecretEnvVars(
+      {
+        CUSTOM_VAR: "sk-live-1234567890",
+        PLAINTEXT: "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=",
+        SAFE_FLAG: "true",
+      },
+      warn
+    );
+
+    expect(env).toEqual({ SAFE_FLAG: "true" });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0][0]).toContain('CUSTOM_VAR');
+    expect(warn.mock.calls[1][0]).toContain('PLAINTEXT');
+  });
+
+  it("returns empty record for undefined or empty env", () => {
+    const warn = vi.fn();
+
+    expect(filterSecretEnvVars(undefined, warn)).toEqual({});
+    expect(filterSecretEnvVars({}, warn)).toEqual({});
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

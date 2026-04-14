@@ -22,6 +22,30 @@ const DEFAULT_NETWORK = "aihub-agents";
 const DEFAULT_GATEWAY_URL = "http://gateway:4000";
 const CONTAINER_ONECLI_CA_PATH =
   "/usr/local/share/ca-certificates/onecli-ca.pem";
+const SECRET_KEY_PATTERNS = [
+  "KEY",
+  "SECRET",
+  "TOKEN",
+  "PASSWORD",
+  "PASSWD",
+  "CREDENTIAL",
+  "AUTH",
+  "PRIVATE",
+  "API_KEY",
+  "ACCESS_KEY",
+  "SECRET_KEY",
+];
+const SECRET_VALUE_PREFIXES = [
+  "sk-",
+  "pk-",
+  "ghp_",
+  "gho_",
+  "ghu_",
+  "github_pat_",
+  "xoxb-",
+  "xoxp-",
+  "xapp-",
+];
 
 function resolveHostPath(hostPath: string): string {
   if (hostPath === "~") return os.homedir();
@@ -172,6 +196,37 @@ export function buildVolumeMounts(
   return mounts;
 }
 
+export function filterSecretEnvVars(
+  env: Record<string, string> | undefined,
+  warn: (message: string) => void = console.warn
+): Record<string, string> {
+  if (!env) return {};
+
+  const filtered: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(env)) {
+    const upperKey = key.toUpperCase();
+    const lowerValue = value.toLowerCase();
+    const keyLooksSecret = SECRET_KEY_PATTERNS.some((pattern) =>
+      upperKey.includes(pattern)
+    );
+    const valueLooksBase64Secret =
+      value.length > 20 && /^[A-Za-z0-9+/=]+$/.test(value);
+    const valueLooksPrefixedSecret = SECRET_VALUE_PREFIXES.some((prefix) =>
+      lowerValue.startsWith(prefix)
+    );
+
+    if (keyLooksSecret || valueLooksBase64Secret || valueLooksPrefixedSecret) {
+      warn(`Filtered sandbox.env key "${key}" (looks like secret)`);
+      continue;
+    }
+
+    filtered[key] = value;
+  }
+
+  return filtered;
+}
+
 export function buildContainerArgs(
   agent: AgentConfig,
   globalSandbox: GlobalSandboxConfig,
@@ -218,7 +273,7 @@ export function buildContainerArgs(
           OPENAI_BASE_URL: `${onecli.url.replace(/\/$/, "")}/v1`,
         }
       : {}),
-    ...(sandbox?.env ?? {}),
+    ...filterSecretEnvVars(sandbox?.env),
   };
 
   for (const [key, value] of Object.entries(env)) {
