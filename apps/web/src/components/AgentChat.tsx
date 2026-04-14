@@ -2409,7 +2409,7 @@ export function AgentChat(props: AgentChatProps) {
         streamingToolCalls.clear();
         updateAihubUserLogState(clientId, { pending: false, queued: false });
         updatePendingAihubUserMessage(clientId, () => null);
-        maybeLoadDeferredLeadHistory();
+        void loadAihubHistory();
       },
       (err) => {
         setError(err);
@@ -2420,7 +2420,7 @@ export function AgentChat(props: AgentChatProps) {
         skipNextLeadHistoryRefresh = false;
         updateAihubUserLogState(clientId, { pending: false, queued: false });
         updatePendingAihubUserMessage(clientId, () => null);
-        maybeLoadDeferredLeadHistory();
+        void loadAihubHistory();
       },
       {
         onThinking: (_chunk) => {
