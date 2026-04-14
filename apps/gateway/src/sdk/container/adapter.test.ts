@@ -440,15 +440,12 @@ describe("container adapter", () => {
     const agent = createAgent(root);
     // Override config with top-level onecli that has per-agent token
     setLoadedConfig({
-      agents: [agent],
+      agents: [{ ...agent, onecliToken: "tok-sally-123" }],
       components: {},
       onecli: {
         enabled: true,
         mode: "proxy",
         gatewayUrl: "http://onecli:10255",
-        agents: {
-          cloud: { enabled: true, gatewayToken: "tok-sally-123" },
-        },
       },
       sandbox: {
         onecli: { enabled: true, url: "http://onecli:10255" },

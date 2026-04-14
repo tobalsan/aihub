@@ -120,13 +120,8 @@ describe("claude adapter onecli env wiring", () => {
             source: "file",
             path: "/tmp/onecli-ca.pem",
           },
-          agents: {
-            "claude-agent": {
-              enabled: true,
-              gatewayToken: "secret-token",
-            },
-          },
         },
+        agents: [{ ...makeAgent(), onecliToken: "secret-token" }],
       })
     );
 

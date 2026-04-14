@@ -182,10 +182,7 @@ Use top-level `onecli` for native gateway/proxy config:
     "gatewayUrl": "http://localhost:10255",
     "dashboardUrl": "http://localhost:10254",
     "mode": "proxy",
-    "ca": { "source": "file", "path": "~/.onecli/gateway/ca.pem" },
-    "agents": {
-      "my-agent": { "gatewayToken": "$env:ONECLI_MY_AGENT_TOKEN" }
-    }
+    "ca": { "source": "file", "path": "~/.onecli/gateway/ca.pem" }
   }
 }
 ```
@@ -193,7 +190,7 @@ Use top-level `onecli` for native gateway/proxy config:
 - `gatewayUrl` is required when `onecli` is configured.
 - `mode` currently supports only `"proxy"`.
 - `ca.source="file"` is used to propagate the same CA path to Node and Python trust env vars.
-- `agents.<id>.gatewayToken` is the per-agent proxy token source.
+- Per-agent proxy tokens are set via `onecliToken` on each agent config (see [Agent Options](#agent-options)).
 - Claude and Pi agent runs now use scoped proxy env injection when native `onecli` is enabled for that agent.
 - Connectors can use `apps/gateway/src/connectors/http-client.ts` to route outbound HTTP calls through the same OneCLI gateway path.
 - Legacy `$secret:` lookup is removed. Use `$env:` for config values and top-level `onecli` for native gateway/proxy wiring.
@@ -654,6 +651,7 @@ Project API details: `docs/projects_api.md`
 | `heartbeat`        | Periodic check-in config (see below)                                                 |
 | `amsg`             | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 | `sandbox`          | Container isolation config (see [Container Isolation](#container-isolation))          |
+| `onecliToken`      | Per-agent OneCLI proxy access token (e.g. `"$env:ONECLI_MY_AGENT_TOKEN"`)             |
 
 ### Gateway Options
 

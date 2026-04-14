@@ -43,27 +43,6 @@ describe("OneCLI env builder", () => {
     ).toBeNull();
   });
 
-  it("returns null when the agent is disabled for onecli", () => {
-    expect(
-      buildOnecliEnv(
-        makeConfig({
-          onecli: {
-            enabled: true,
-            gatewayUrl: "http://localhost:10255",
-            mode: "proxy",
-            agents: {
-              sally: {
-                enabled: false,
-                gatewayToken: "token",
-              },
-            },
-          },
-        }),
-        "sally"
-      )
-    ).toBeNull();
-  });
-
   it("returns proxy env vars when enabled", () => {
     expect(
       buildOnecliEnv(
@@ -82,27 +61,50 @@ describe("OneCLI env builder", () => {
     });
   });
 
-  it("embeds the gateway token in the proxy URL", () => {
+  it("embeds the agent onecliToken in the proxy URL", () => {
+    const config = GatewayConfigSchema.parse({
+      onecli: {
+        enabled: true,
+        gatewayUrl: "http://localhost:10255/",
+        mode: "proxy",
+      },
+      agents: [
+        {
+          id: "sally",
+          name: "Sally",
+          workspace: "~/agents/sally",
+          model: {
+            provider: "anthropic",
+            model: "claude-3-5-sonnet-20241022",
+          },
+          onecliToken: "abc123",
+        },
+      ],
+    });
+
+    expect(
+      buildOnecliEnv(config, "sally")
+    ).toEqual({
+      HTTP_PROXY: "http://onecli:abc123@localhost:10255",
+      HTTPS_PROXY: "http://onecli:abc123@localhost:10255",
+    });
+  });
+
+  it("uses bare proxy URL for agents without onecliToken", () => {
     expect(
       buildOnecliEnv(
         makeConfig({
           onecli: {
             enabled: true,
-            gatewayUrl: "http://localhost:10255/",
+            gatewayUrl: "http://localhost:10255",
             mode: "proxy",
-            agents: {
-              sally: {
-                enabled: true,
-                gatewayToken: "abc123",
-              },
-            },
           },
         }),
         "sally"
       )
     ).toEqual({
-      HTTP_PROXY: "http://onecli:abc123@localhost:10255",
-      HTTPS_PROXY: "http://onecli:abc123@localhost:10255",
+      HTTP_PROXY: "http://localhost:10255",
+      HTTPS_PROXY: "http://localhost:10255",
     });
   });
 
@@ -151,30 +153,6 @@ describe("OneCLI env builder", () => {
       HTTPS_PROXY: "http://localhost:10255",
     });
   });
-
-  it("returns proxy env for agents without a per-agent config", () => {
-    expect(
-      buildOnecliEnv(
-        makeConfig({
-          onecli: {
-            enabled: true,
-            gatewayUrl: "http://localhost:10255",
-            mode: "proxy",
-            agents: {
-              other: {
-                enabled: true,
-                gatewayToken: "other-token",
-              },
-            },
-          },
-        }),
-        "sally"
-      )
-    ).toEqual({
-      HTTP_PROXY: "http://localhost:10255",
-      HTTPS_PROXY: "http://localhost:10255",
-    });
-  });
 });
 
 describe("OneCLI config schema", () => {
@@ -186,11 +164,6 @@ describe("OneCLI config schema", () => {
       ca: {
         source: "file",
         path: "/tmp/onecli-ca.pem",
-      },
-      agents: {
-        sally: {
-          gatewayToken: "token",
-        },
       },
     });
 

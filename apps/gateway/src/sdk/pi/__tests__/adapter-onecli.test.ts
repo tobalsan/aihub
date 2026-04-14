@@ -124,7 +124,7 @@ describe("pi adapter onecli env wiring", () => {
   it("sets proxy env before session creation and restores it after the run", async () => {
     const agent = makeAgent();
     const config = {
-      agents: [agent],
+      agents: [{ ...agent, onecliToken: "token" }],
       onecli: {
         enabled: true,
         mode: "proxy",
@@ -132,11 +132,6 @@ describe("pi adapter onecli env wiring", () => {
         ca: {
           source: "file",
           path: "/tmp/onecli-ca.pem",
-        },
-        agents: {
-          [agent.id]: {
-            gatewayToken: "token",
-          },
         },
       },
     } as GatewayConfig;
@@ -232,22 +227,14 @@ describe("pi adapter onecli env wiring", () => {
   });
 
   it("serializes concurrent runs so onecli env mutations do not overlap", async () => {
-    const firstAgent = makeAgent("pi-agent-1");
-    const secondAgent = makeAgent("pi-agent-2");
+    const firstAgent = { ...makeAgent("pi-agent-1"), onecliToken: "token-1" } as AgentConfig;
+    const secondAgent = { ...makeAgent("pi-agent-2"), onecliToken: "token-2" } as AgentConfig;
     const config = {
       agents: [firstAgent, secondAgent],
       onecli: {
         enabled: true,
         mode: "proxy",
         gatewayUrl: "http://localhost:10255",
-        agents: {
-          [firstAgent.id]: {
-            gatewayToken: "token-1",
-          },
-          [secondAgent.id]: {
-            gatewayToken: "token-2",
-          },
-        },
       },
     } as GatewayConfig;
 

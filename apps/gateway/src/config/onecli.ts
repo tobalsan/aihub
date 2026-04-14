@@ -15,14 +15,14 @@ export function buildOnecliEnv(
   const onecli = config.onecli;
   if (!onecli?.enabled) return null;
 
-  const agentConfig = onecli.agents?.[agentId];
-  if (agentConfig?.enabled === false) return null;
+  const agent = config.agents.find((a) => a.id === agentId);
+  const gatewayToken = agent?.onecliToken;
 
   let proxyUrl = onecli.gatewayUrl;
-  if (agentConfig?.gatewayToken) {
+  if (gatewayToken) {
     const url = new URL(onecli.gatewayUrl);
     url.username = "onecli";
-    url.password = agentConfig.gatewayToken;
+    url.password = gatewayToken;
     proxyUrl = url.toString().replace(/\/$/, "");
   }
 

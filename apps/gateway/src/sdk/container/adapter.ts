@@ -193,14 +193,15 @@ function resolveOnecliProxyUrl(
   agentId: string,
   sandboxOnecliUrl?: string
 ): string {
-  // Top-level onecli has per-agent tokens — use it when available
+  // Top-level onecli + per-agent token
   const onecli = config.onecli;
   if (onecli) {
-    const agentConfig = onecli.agents?.[agentId];
-    if (agentConfig?.gatewayToken) {
+    const agent = config.agents.find((a) => a.id === agentId);
+    const gatewayToken = agent?.onecliToken;
+    if (gatewayToken) {
       const url = new URL(onecli.gatewayUrl);
       url.username = "onecli";
-      url.password = agentConfig.gatewayToken;
+      url.password = gatewayToken;
       return url.toString().replace(/\/$/, "");
     }
     return onecli.gatewayUrl;
