@@ -1904,6 +1904,9 @@ export function AgentChat(props: AgentChatProps) {
         }
 
         void loadAihubHistory();
+        if (!aihubStreaming() && aihubPending()) {
+          setAihubPending(false);
+        }
       },
     });
   };
@@ -2815,7 +2818,7 @@ export function AgentChat(props: AgentChatProps) {
             </Show>
             <Show
               when={aihubLogItems().length > 0}
-              fallback={<div class="log-empty">No messages yet.</div>}
+              fallback={<div class="log-empty">New session — send a message to start.</div>}
             >
               <Show
                 when={shouldVirtualizeLogs() && virtualRows().length > 0}
