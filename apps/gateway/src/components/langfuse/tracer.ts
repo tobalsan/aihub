@@ -17,7 +17,7 @@ type TracedStreamEvent = Extract<
 
 type TracedHistoryEvent = Extract<
   AgentHistoryEvent,
-  { type: "tool_call" | "tool_result" | "meta" | "user" }
+  { type: "tool_call" | "tool_result" | "meta" | "user" | "turn_end" }
 >;
 
 type AgentEventBus = typeof agentEventBus;
@@ -31,7 +31,13 @@ export type LangfuseTracerConfig = {
   flushAt?: number;
   flushInterval?: number;
   debug?: boolean;
+  environment?: string;
 };
+
+/** Derive surface from sessionKey: "project" if key starts with "project:", else "chat". */
+function toSurface(sessionKey?: string): string {
+  return sessionKey?.startsWith("project:") ? "project" : "chat";
+}
 
 export class LangfuseTracer {
   private langfuse: Langfuse | null = null;
@@ -51,6 +57,7 @@ export class LangfuseTracer {
       baseUrl: this.config.baseUrl,
       flushAt: this.config.flushAt,
       flushInterval: this.config.flushInterval,
+      environment: this.config.environment,
     });
 
     this.unsubscribeStream = bus.onStreamEvent(
@@ -78,6 +85,7 @@ export class LangfuseTracer {
 
     for (const [key, state] of this.traces) {
       this.finalizeGeneration(state);
+      this.finalizeTrace(state);
       this.traces.delete(key);
     }
 
@@ -100,6 +108,7 @@ export class LangfuseTracer {
       case "text": {
         const generation = this.getGeneration(trace, event);
         generation.output.push(event.data);
+        trace.output.push(event.data);
         break;
       }
       case "thinking": {
@@ -109,10 +118,14 @@ export class LangfuseTracer {
       }
       case "done":
         this.finalizeGeneration(trace);
+        this.finalizeTrace(trace);
+        this.removeTrace(trace, event);
         await this.flushLangfuse();
         break;
       case "error":
         this.finalizeGeneration(trace, event.message);
+        this.finalizeTrace(trace);
+        this.removeTrace(trace, event);
         await this.flushLangfuse();
         break;
       default:
@@ -135,6 +148,11 @@ export class LangfuseTracer {
     switch (event.type) {
       case "user":
         this.setUserInput(trace, event.text);
+        break;
+      case "turn_end":
+        // Finalize current generation so next text/thinking starts a fresh one.
+        // The trace stays open until "done" stream event.
+        this.finalizeGeneration(trace);
         break;
       case "tool_call": {
         const generation = this.getGeneration(trace, event);
@@ -195,17 +213,24 @@ export class LangfuseTracer {
       throw new Error("Langfuse tracer is not started");
     }
 
+    const surface = toSurface(event.sessionKey);
+    const traceName = `aihub:${surface}:${event.agentId}`;
+
     const trace = this.langfuse.trace({
-      name: event.agentId,
+      name: traceName,
       sessionId: event.sessionId,
+      input: undefined,
+      output: undefined,
       metadata: {
         source: event.source,
         sessionKey: event.sessionKey,
+        surface,
       },
     });
     const state: TraceState = {
       trace,
       lastActivity: Date.now(),
+      output: [],
     };
     this.traces.set(key, state);
     return state;
@@ -242,6 +267,8 @@ export class LangfuseTracer {
       return;
     }
     trace.pendingUserInput = input;
+    // Also set trace-level input
+    trace.trace.update({ input });
   }
 
   private finalizeGeneration(trace: TraceState, errorMessage?: string): void {
@@ -273,6 +300,21 @@ export class LangfuseTracer {
     trace.currentGeneration = undefined;
   }
 
+  private finalizeTrace(trace: TraceState): void {
+    const output = trace.output.join("");
+    trace.trace.update({
+      output: output || undefined,
+    });
+  }
+
+  private removeTrace(
+    _trace: TraceState,
+    event: AgentStreamEvent | AgentHistoryEvent
+  ): void {
+    const key = this.traceKey(event);
+    this.traces.delete(key);
+  }
+
   private closeOpenSpans(generation: GenerationState): void {
     for (const span of generation.openSpans.values()) {
       span.span.end({
@@ -291,6 +333,7 @@ export class LangfuseTracer {
       if (state.lastActivity >= cutoff) continue;
 
       this.finalizeGeneration(state);
+      this.finalizeTrace(state);
       this.traces.delete(key);
       removedTrace = true;
     }
@@ -356,6 +399,7 @@ function isTracedHistoryEvent(
     event.type === "tool_call" ||
     event.type === "tool_result" ||
     event.type === "meta" ||
-    event.type === "user"
+    event.type === "user" ||
+    event.type === "turn_end"
   );
 }

@@ -45,6 +45,7 @@ const langfuseComponent: Component = {
       flushAt: config.flushAt,
       flushInterval: config.flushInterval,
       debug: config.debug,
+      environment: config.environment ?? "dev",
     });
     tracer.start(agentEventBus);
   },

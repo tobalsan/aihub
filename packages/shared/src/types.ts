@@ -398,6 +398,7 @@ export const LangfuseComponentConfigSchema = ComponentBaseConfigSchema.extend({
   flushAt: z.number().optional(),
   flushInterval: z.number().optional(),
   debug: z.boolean().optional(),
+  environment: z.string().optional(),
 });
 export type LangfuseComponentConfig = z.infer<
   typeof LangfuseComponentConfigSchema

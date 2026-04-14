@@ -24,6 +24,7 @@ const langfuseMock = vi.hoisted(() => {
     args: unknown;
     generation: ReturnType<typeof vi.fn>;
     span: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
     generations: MockGeneration[];
     spans: MockSpan[];
   };
@@ -46,6 +47,7 @@ const langfuseMock = vi.hoisted(() => {
         args,
         generations: [],
         spans: [],
+        update: vi.fn(),
         generation: vi.fn((generationArgs: unknown) => {
           const generation: MockGeneration = {
             args: generationArgs,
@@ -97,6 +99,7 @@ const tracerConfig = {
   baseUrl: "https://langfuse.test",
   flushAt: 2,
   flushInterval: 100,
+  environment: "dev",
 };
 
 describe("LangfuseTracer", () => {
@@ -130,6 +133,7 @@ describe("LangfuseTracer", () => {
       baseUrl: "https://langfuse.test",
       flushAt: 2,
       flushInterval: 100,
+      environment: "dev",
     });
     expect(langfuseMock.traces).toHaveLength(1);
     expect(langfuseMock.traces[0]?.generation).toHaveBeenCalledTimes(1);
@@ -140,6 +144,66 @@ describe("LangfuseTracer", () => {
       statusMessage: undefined,
     });
     expect(langfuseMock.generations[0]?.end).toHaveBeenCalledTimes(1);
+
+    // Trace should have output set via finalizeTrace
+    expect(langfuseMock.traces[0]?.update).toHaveBeenCalledWith({
+      output: "Hello world",
+    });
+
+    await tracer.stop();
+  });
+
+  it("names traces as aihub:<surface>:<agentId>", async () => {
+    const tracer = startTracer();
+
+    // Chat surface (default sessionKey)
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "chat msg" }, { sessionId: "session-chat" })
+    );
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "done" }, { sessionId: "session-chat" })
+    );
+
+    expect(langfuseMock.traces[0]?.args).toEqual(
+      expect.objectContaining({ name: "aihub:chat:agent-1" })
+    );
+
+    // Project surface
+    await tracer.handleStreamEvent(
+      streamEvent(
+        { type: "text", data: "project msg" },
+        { sessionKey: "project:PRO-1:lead" }
+      )
+    );
+    await tracer.handleStreamEvent(
+      streamEvent(
+        { type: "done" },
+        { sessionKey: "project:PRO-1:lead" }
+      )
+    );
+
+    expect(langfuseMock.traces[1]?.args).toEqual(
+      expect.objectContaining({ name: "aihub:project:agent-1" })
+    );
+
+    await tracer.stop();
+  });
+
+  it("sets trace input from user history event", async () => {
+    const tracer = startTracer();
+
+    tracer.handleHistoryEvent(
+      historyEvent({ type: "user", text: "hello", timestamp: 1 })
+    );
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "answer" })
+    );
+    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
+
+    // Trace-level input should be set from user event
+    expect(langfuseMock.traces[0]?.update).toHaveBeenCalledWith({
+      input: "hello",
+    });
 
     await tracer.stop();
   });
@@ -283,9 +347,7 @@ describe("LangfuseTracer", () => {
       new Error("flush failed")
     );
 
-    await expect(
-      tracer.handleStreamEvent(streamEvent({ type: "done" }))
-    ).resolves.toBeUndefined();
+    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
 
     expect(warning).toHaveBeenCalledWith(
       "[langfuse] flushAsync failed",
@@ -341,22 +403,61 @@ describe("LangfuseTracer", () => {
     await tracer.stop();
   });
 
-  it("reuses the same trace for multiple turns in one session", async () => {
+  it("creates multiple generations for multi-turn agent loop under one trace", async () => {
     const tracer = startTracer();
 
-    await tracer.handleStreamEvent(streamEvent({ type: "text", data: "one" }));
-    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
-    await tracer.handleStreamEvent(streamEvent({ type: "text", data: "two" }));
+    // Turn 1: model calls tools (text + tool_call + tool_result + meta + turn_end)
+    tracer.handleHistoryEvent(
+      historyEvent({ type: "user", text: "fix the bug", timestamp: 1 })
+    );
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "" })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "tool_call",
+        id: "tool-1",
+        name: "bash",
+        args: { cmd: "grep bug src/" },
+        timestamp: 2,
+      })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "tool_result",
+        id: "tool-1",
+        name: "bash",
+        content: "src/main.ts:10",
+        isError: false,
+        timestamp: 3,
+      })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({ type: "turn_end", timestamp: 4 })
+    );
+
+    // Turn 2: model responds with final answer
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "Fixed the bug." })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({ type: "turn_end", timestamp: 5 })
+    );
+
+    // Entire runAgent call ends
     await tracer.handleStreamEvent(streamEvent({ type: "done" }));
 
+    // One trace, two generations
     expect(langfuseMock.traces).toHaveLength(1);
     expect(langfuseMock.traces[0]?.generation).toHaveBeenCalledTimes(2);
-    expect(langfuseMock.generations[0]?.update).toHaveBeenCalledWith(
-      expect.objectContaining({ output: "one" })
-    );
-    expect(langfuseMock.generations[1]?.update).toHaveBeenCalledWith(
-      expect.objectContaining({ output: "two" })
-    );
+    expect(langfuseMock.generations).toHaveLength(2);
+    expect(langfuseMock.generations[0]?.end).toHaveBeenCalledTimes(1);
+    expect(langfuseMock.generations[1]?.end).toHaveBeenCalledTimes(1);
+
+    // Trace gets the combined output
+    expect(langfuseMock.traces[0]?.update).toHaveBeenCalledWith({
+      output: "Fixed the bug.",
+    });
 
     await tracer.stop();
   });
@@ -418,6 +519,16 @@ describe("LangfuseTracer", () => {
 
     expect(langfuseMock.Langfuse).not.toHaveBeenCalled();
     expect(traceCount(tracer)).toBe(0);
+  });
+
+  it("passes environment to Langfuse SDK", async () => {
+    const tracer = startTracer();
+
+    expect(langfuseMock.Langfuse).toHaveBeenCalledWith(
+      expect.objectContaining({ environment: "dev" })
+    );
+
+    await tracer.stop();
   });
 
   it("leaves SDK adapters and history store unchanged", () => {

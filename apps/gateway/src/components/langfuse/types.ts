@@ -30,5 +30,6 @@ export type TraceState = {
   trace: LangfuseTraceClient;
   currentGeneration?: GenerationState;
   pendingUserInput?: string;
+  output: string[];
   lastActivity: number;
 };
