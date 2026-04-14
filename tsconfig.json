@@ -16,6 +16,7 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/cli" },
-    { "path": "apps/gateway" }
+    { "path": "apps/gateway" },
+    { "path": "container/agent-runner" }
   ]
 }

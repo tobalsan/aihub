@@ -11,6 +11,8 @@ aihub/
 ├── apps/
 │   ├── gateway/     # Node.js server, CLI, agent runtime
 │   └── web/         # Solid.js mobile-first chat UI
+├── container/
+│   └── agent-runner/ # Standalone Docker entrypoint for sandboxed agents
 ├── packages/
 │   ├── cli/         # apm CLI package (HTTP client to gateway API)
 │   └── shared/      # Zod schemas, shared types
@@ -108,6 +110,10 @@ Features:
 - Worker prompt explicitly requires committing implementation after checks are green, and post-run comment instructions now use `--author <your name>` (the deprecated Cloud/openclaw follow-up step was removed)
 
 Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
+
+### container/agent-runner
+
+Standalone Node 22 package for sandboxed agent containers. It reads `ContainerInput` JSON from stdin, runs the agent turn, and writes `ContainerOutput` JSON to stdout between `---AIHUB_OUTPUT_START---` / `---AIHUB_OUTPUT_END---`. Debug logs must go to stderr only. The current runner is a functional SDK stub; Pi/Claude SDK integration is pending. It may import from `@aihub/shared` but must not import gateway source.
 
 ### packages/shared
 

@@ -1,0 +1,162 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ContainerInput } from "@aihub/shared";
+import { callGatewayTool } from "../gateway-client.js";
+import { startIpcPoller } from "../ipc.js";
+import {
+  OUTPUT_END,
+  OUTPUT_START,
+  runAgentRunner,
+  writeProtocolOutput,
+} from "../index.js";
+
+type FetchMock = (input: URL, init?: RequestInit) => Promise<Response>;
+
+const input: ContainerInput = {
+  agentId: "agent-1",
+  sessionId: "session-1",
+  message: "hello",
+  workspaceDir: "/workspace",
+  sessionDir: "/sessions",
+  ipcDir: "/ipc",
+  gatewayUrl: "http://gateway:3000",
+  agentToken: "token-1",
+  sdkConfig: {
+    sdk: "pi",
+    model: {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    },
+  },
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("agent runner entry point", () => {
+  it("parses stdin and writes the runner output", async () => {
+    const chunks: string[] = [];
+    const runAgent = vi.fn(async () => ({ text: "stubbed" }));
+
+    await runAgentRunner({
+      readStdin: async () => JSON.stringify(input),
+      writeStdout: (chunk) => chunks.push(chunk),
+      writeStderr: () => undefined,
+      runAgent,
+      startIpcPoller: () => () => undefined,
+    });
+
+    expect(runAgent).toHaveBeenCalledWith(input);
+    expect(chunks.join("")).toBe(
+      `${OUTPUT_START}\n{"text":"stubbed"}\n${OUTPUT_END}\n`
+    );
+  });
+
+  it("formats sentinel output", () => {
+    const chunks: string[] = [];
+
+    writeProtocolOutput({ text: "hello" }, (chunk) => chunks.push(chunk));
+
+    expect(chunks).toEqual([
+      `${OUTPUT_START}\n`,
+      '{"text":"hello"}\n',
+      `${OUTPUT_END}\n`,
+    ]);
+  });
+});
+
+describe("IPC poller", () => {
+  it("reads follow-up messages and close sentinel", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-ipc-"));
+    const inputDir = path.join(tempDir, "input");
+    await fs.mkdir(inputDir);
+
+    const messages: unknown[] = [];
+    let closed = false;
+    const messageSeen = waitFor(() => messages.length === 1);
+    const closeSeen = waitFor(() => closed);
+
+    const cleanup = startIpcPoller(
+      tempDir,
+      (message) => {
+        messages.push(message);
+      },
+      () => {
+        closed = true;
+      }
+    );
+
+    try {
+      await fs.writeFile(
+        path.join(inputDir, "0001.json"),
+        JSON.stringify({ message: "follow-up" })
+      );
+      await messageSeen;
+      await fs.writeFile(path.join(inputDir, "_close"), "");
+      await closeSeen;
+    } finally {
+      cleanup();
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(messages).toEqual([{ message: "follow-up" }]);
+    expect(closed).toBe(true);
+  });
+});
+
+describe("gateway client", () => {
+  it("posts tool calls to the internal tools endpoint", async () => {
+    const fetchMock = vi.fn<FetchMock>(async () =>
+      Response.json({ ok: true, value: 42 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callGatewayTool(
+      "http://gateway:3000",
+      "token-1",
+      "subagent.status",
+      { slug: "worker" },
+      "agent-1"
+    );
+
+    expect(result).toEqual({ ok: true, value: 42 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("/internal/tools", "http://gateway:3000"),
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Agent-Id": "agent-1",
+          "X-Agent-Token": "token-1",
+        },
+        body: JSON.stringify({
+          tool: "subagent.status",
+          args: { slug: "worker" },
+          agentId: "agent-1",
+          agentToken: "token-1",
+        }),
+      })
+    );
+  });
+});
+
+function waitFor(condition: () => boolean): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      if (condition()) {
+        clearInterval(interval);
+        resolve();
+        return;
+      }
+
+      if (Date.now() - startedAt > 2000) {
+        clearInterval(interval);
+        reject(new Error("timed out waiting for condition"));
+      }
+    }, 20);
+  });
+}
