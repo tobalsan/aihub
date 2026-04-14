@@ -8,6 +8,7 @@ import type {
   ContainerConnectorConfig,
   ContainerInput,
   ContainerOutput,
+  GatewayConfig,
 } from "@aihub/shared";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
@@ -187,6 +188,27 @@ function buildConnectorConfigs(params: SdkRunParams): ContainerConnectorConfig[]
   return Array.from(connectorConfigs.values());
 }
 
+function resolveOnecliProxyUrl(
+  config: GatewayConfig,
+  agentId: string,
+  sandboxOnecliUrl?: string
+): string {
+  // Top-level onecli has per-agent tokens — use it when available
+  const onecli = config.onecli;
+  if (onecli) {
+    const agentConfig = onecli.agents?.[agentId];
+    if (agentConfig?.gatewayToken) {
+      const url = new URL(onecli.gatewayUrl);
+      url.username = "onecli";
+      url.password = agentConfig.gatewayToken;
+      return url.toString().replace(/\/$/, "");
+    }
+    return onecli.gatewayUrl;
+  }
+  // Fallback to sandbox.onecli.url when no top-level onecli is configured
+  return sandboxOnecliUrl ?? "";
+}
+
 function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
   const config = loadConfig();
   const globalSandbox = config.sandbox ?? {};
@@ -207,7 +229,7 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
     onecli: globalSandbox.onecli
       ? {
           enabled: globalSandbox.onecli.enabled ?? true,
-          url: globalSandbox.onecli.url,
+          url: resolveOnecliProxyUrl(config, params.agentId, globalSandbox.onecli?.url),
           caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
         }
       : undefined,

@@ -434,6 +434,42 @@ describe("container adapter", () => {
     await expect(run).rejects.toThrow("boom");
   });
 
+  it("embeds per-agent onecli token into proxy URL", async () => {
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root);
+    // Override config with top-level onecli that has per-agent token
+    setLoadedConfig({
+      agents: [agent],
+      components: {},
+      onecli: {
+        enabled: true,
+        mode: "proxy",
+        gatewayUrl: "http://onecli:10255",
+        agents: {
+          cloud: { enabled: true, gatewayToken: "tok-sally-123" },
+        },
+      },
+      sandbox: {
+        onecli: { enabled: true, url: "http://onecli:10255" },
+      },
+    } as GatewayConfig);
+
+    const { processes } = mockSpawn();
+    mockExecFile();
+    const params = createParams(agent);
+
+    const run = getContainerAdapter().run(params);
+    const dockerProcess = processes[0];
+    const input = JSON.parse(dockerProcess.stdinChunks.join(""));
+
+    dockerProcess.emitOutput({ text: "ok" });
+    dockerProcess.finish(0);
+
+    await expect(run).resolves.toEqual({ text: "ok", aborted: undefined });
+    expect(input.onecli.url).toBe("http://onecli:tok-sally-123@onecli:10255");
+  });
+
   it("rejects successful exits with missing sentinels", async () => {
     const root = tempDir();
     process.env.AIHUB_HOME = path.join(root, "aihub");
