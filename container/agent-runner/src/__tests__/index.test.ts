@@ -6,10 +6,12 @@ import type { ContainerInput } from "@aihub/shared";
 import { callGatewayTool } from "../gateway-client.js";
 import { startIpcPoller } from "../ipc.js";
 import {
+  EVENT_PREFIX,
   OUTPUT_END,
   OUTPUT_START,
   runAgentRunner,
   writeProtocolOutput,
+  writeStreamEvent,
 } from "../index.js";
 
 type FetchMock = (input: URL, init?: RequestInit) => Promise<Response>;
@@ -37,9 +39,12 @@ afterEach(() => {
 });
 
 describe("agent runner entry point", () => {
-  it("parses stdin and writes the runner output", async () => {
+  it("parses stdin, streams events, and writes final output", async () => {
     const chunks: string[] = [];
-    const runAgent = vi.fn(async () => ({ text: "stubbed" }));
+    const runAgent = vi.fn(async (_input, onStreamEvent) => {
+      onStreamEvent?.({ type: "assistant_text", text: "delta" });
+      return { text: "stubbed" };
+    });
 
     await runAgentRunner({
       readStdin: async () => JSON.stringify(input),
@@ -49,10 +54,22 @@ describe("agent runner entry point", () => {
       startIpcPoller: () => () => undefined,
     });
 
-    expect(runAgent).toHaveBeenCalledWith(input);
+    expect(runAgent).toHaveBeenCalledWith(input, expect.any(Function));
     expect(chunks.join("")).toBe(
-      `${OUTPUT_START}\n{"text":"stubbed"}\n${OUTPUT_END}\n`
+      `${EVENT_PREFIX}{"type":"assistant_text","text":"delta"}\n${OUTPUT_START}\n{"text":"stubbed"}\n${OUTPUT_END}\n`
     );
+  });
+
+  it("formats stream event output", () => {
+    const chunks: string[] = [];
+
+    writeStreamEvent({ type: "assistant_text", text: "hello" }, (chunk) =>
+      chunks.push(chunk)
+    );
+
+    expect(chunks).toEqual([
+      `${EVENT_PREFIX}{"type":"assistant_text","text":"hello"}\n`,
+    ]);
   });
 
   it("formats sentinel output", () => {

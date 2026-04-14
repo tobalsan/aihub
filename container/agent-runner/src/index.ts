@@ -6,19 +6,23 @@ import {
   type ContainerOutput,
 } from "@aihub/shared";
 import { startIpcPoller, type IpcCleanup } from "./ipc.js";
-import { configureProxy, type ConnectorHttpClient } from "./proxy.js";
+import { configureProxy, proxyClient } from "./proxy.js";
 import { abortActiveAgent, runAgent, sendFollowUpMessage } from "./runner.js";
 
 export const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 export const OUTPUT_END = "---AIHUB_OUTPUT_END---";
+export const EVENT_PREFIX = "---AIHUB_EVENT---";
 
-export let proxyClient: ConnectorHttpClient = configureProxy();
+export { proxyClient };
 
 type AgentRunnerDeps = {
   readStdin?: () => Promise<string>;
   writeStdout?: (chunk: string) => void;
   writeStderr?: (chunk: string) => void;
-  runAgent?: (input: ContainerInput) => Promise<ContainerOutput>;
+  runAgent?: (
+    input: ContainerInput,
+    onStreamEvent?: (event: unknown) => void
+  ) => Promise<ContainerOutput>;
   startIpcPoller?: typeof startIpcPoller;
 };
 
@@ -34,7 +38,7 @@ export async function runAgentRunner(
   const startPoller = deps.startIpcPoller ?? startIpcPoller;
 
   const input = parseInput(await read());
-  proxyClient = configureProxy(input.onecli);
+  configureProxy(input.onecli);
   configureSdkBaseUrls(input.onecli);
   let cleanup: IpcCleanup | undefined;
 
@@ -55,11 +59,22 @@ export async function runAgentRunner(
       }
     );
 
-    const output = ContainerOutputSchema.parse(await run(input));
+    const output = ContainerOutputSchema.parse(
+      await run(input, (event) => {
+        writeStreamEvent(event, writeStdout);
+      })
+    );
     writeProtocolOutput(output, writeStdout);
   } finally {
     cleanup?.();
   }
+}
+
+export function writeStreamEvent(
+  event: unknown,
+  writeStdout: (chunk: string) => void = (chunk) => process.stdout.write(chunk)
+): void {
+  writeStdout(`${EVENT_PREFIX}${JSON.stringify(event)}\n`);
 }
 
 export function writeProtocolOutput(
