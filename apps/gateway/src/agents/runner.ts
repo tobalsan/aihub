@@ -42,6 +42,7 @@ import {
   type AgentStreamEvent,
   type RunSource,
 } from "./events.js";
+import { getContainerAdapter } from "../sdk/container/adapter.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
 import {
@@ -159,7 +160,9 @@ export async function runAgent(
 
   // Resolve SDK adapter
   const sdkId = (agent.sdk ?? getDefaultSdkId()) as SdkId;
-  const adapter = getSdkAdapter(sdkId);
+  const adapter = agent.sandbox?.enabled
+    ? getContainerAdapter()
+    : getSdkAdapter(sdkId);
   const capabilities = adapter.capabilities;
 
   // Handle /abort command early - do NOT create new sessions or forward to model
@@ -378,7 +381,11 @@ export async function runAgent(
     resolvedThinkLevel =
       params.thinkLevel ??
       directiveThinkLevel ??
-      (await getSessionThinkLevel(params.agentId, resolvedSessionKey, params.userId)) ??
+      (await getSessionThinkLevel(
+        params.agentId,
+        resolvedSessionKey,
+        params.userId
+      )) ??
       agent.thinkLevel;
   } else {
     // Non-OAuth: still honor API param and config, just no directive/session

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { AgentConfigSchema } from "./types.js";
+import {
+  AgentConfigSchema,
+  ContainerInputSchema,
+  ContainerOutputSchema,
+  GatewayConfigSchema,
+} from "./types.js";
 
 describe("AgentConfigSchema openclaw model handling", () => {
   it("allows openclaw agents to omit model", () => {
@@ -63,5 +68,79 @@ describe("AgentConfigSchema openclaw model handling", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("sandbox config schemas", () => {
+  it("applies per-agent sandbox defaults", () => {
+    const result = AgentConfigSchema.parse({
+      id: "sandbox-agent",
+      name: "Sandbox Agent",
+      workspace: "~/agents/sandbox",
+      model: { provider: "anthropic", model: "claude" },
+      sandbox: {},
+    });
+
+    expect(result.sandbox).toMatchObject({
+      enabled: false,
+      image: "aihub-agent:latest",
+      memory: "2g",
+      cpus: 1,
+      timeout: 300,
+      workspaceWritable: false,
+    });
+  });
+
+  it("applies global sandbox defaults", () => {
+    const result = GatewayConfigSchema.parse({
+      agents: [
+        {
+          id: "sandbox-agent",
+          name: "Sandbox Agent",
+          workspace: "~/agents/sandbox",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      sandbox: {
+        network: {},
+        mountAllowlist: {
+          allowedRoots: ["~/agents"],
+        },
+      },
+    });
+
+    expect(result.sandbox?.network).toEqual({
+      name: "aihub-agents",
+      internal: true,
+    });
+    expect(result.sandbox?.mountAllowlist?.blockedPatterns).toEqual([
+      ".ssh",
+      ".gnupg",
+      ".aws",
+      ".env",
+    ]);
+  });
+});
+
+describe("container IPC schemas", () => {
+  it("parses container input and output", () => {
+    const input = ContainerInputSchema.parse({
+      agentId: "sandbox-agent",
+      sessionId: "session-1",
+      message: "hello",
+      workspaceDir: "/workspace",
+      sessionDir: "/sessions",
+      ipcDir: "/workspace/ipc",
+      gatewayUrl: "http://gateway:3000",
+      agentToken: "token",
+      sdkConfig: {
+        sdk: "pi",
+        model: { provider: "anthropic", model: "claude" },
+      },
+    });
+    const output = ContainerOutputSchema.parse({ text: "hello back" });
+
+    expect(input.workspaceDir).toBe("/workspace");
+    expect(output.text).toBe("hello back");
   });
 });

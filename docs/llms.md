@@ -179,8 +179,28 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     connectors?: Record<string, {
       enabled?: boolean
       // connector-specific per-agent overrides
-    }>
+    }>,
+    sandbox?: {
+      enabled?: boolean,             // Default: false
+      image?: string,                // Default: aihub-agent:latest
+      network?: string,              // Inherits top-level sandbox.network.name
+      memory?: string,               // Default: 2g
+      cpus?: number,                 // Default: 1
+      timeout?: number,              // Default: 300 seconds
+      workspaceWritable?: boolean,   // Default: false
+      env?: Record<string, string>,
+      mounts?: Array<{ host: string, container: string, readonly?: boolean }>
+    }
   }],
+  sandbox?: {
+    sharedDir?: string,
+    network?: { name?: string, internal?: boolean },  // Defaults: aihub-agents, true
+    onecli?: { enabled?: boolean, url: string, caPath?: string },
+    mountAllowlist?: {
+      allowedRoots: string[],
+      blockedPatterns?: string[]      // Default: .ssh, .gnupg, .aws, .env
+    }
+  },
   connectors?: {
     path?: string                    // external connector directory
     // connector-specific global config passthrough

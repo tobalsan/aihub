@@ -133,6 +133,26 @@ export type ConnectorsGlobalConfig = z.infer<
   typeof ConnectorsGlobalConfigSchema
 >;
 
+export const SandboxMountSchema = z.object({
+  host: z.string(),
+  container: z.string(),
+  readonly: z.boolean().optional().default(true),
+});
+export type SandboxMount = z.infer<typeof SandboxMountSchema>;
+
+export const AgentSandboxConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  image: z.string().optional().default("aihub-agent:latest"),
+  network: z.string().optional(),
+  memory: z.string().optional().default("2g"),
+  cpus: z.number().optional().default(1),
+  timeout: z.number().optional().default(300),
+  workspaceWritable: z.boolean().optional().default(false),
+  env: z.record(z.string(), z.string()).optional(),
+  mounts: z.array(SandboxMountSchema).optional(),
+});
+export type AgentSandboxConfig = z.infer<typeof AgentSandboxConfigSchema>;
+
 // Agent config
 const AgentConfigBaseSchema = z.object({
   id: z.string(),
@@ -150,6 +170,7 @@ const AgentConfigBaseSchema = z.object({
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
   connectors: z.record(z.string(), AgentConnectorConfigSchema).optional(),
   globalSkills: z.boolean().optional(), // Include ~/.agents/skills/ (default: false)
+  sandbox: AgentSandboxConfigSchema.optional(),
 });
 export const AgentConfigSchema = AgentConfigBaseSchema.superRefine(
   (value, ctx) => {
@@ -428,10 +449,41 @@ export const SubagentConfigSchema = z.object({
 });
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
+export const MountAllowlistSchema = z.object({
+  allowedRoots: z.array(z.string()),
+  blockedPatterns: z
+    .array(z.string())
+    .optional()
+    .default([".ssh", ".gnupg", ".aws", ".env"]),
+});
+export type MountAllowlist = z.infer<typeof MountAllowlistSchema>;
+
+export const SandboxNetworkSchema = z.object({
+  name: z.string().optional().default("aihub-agents"),
+  internal: z.boolean().optional().default(true),
+});
+export type SandboxNetwork = z.infer<typeof SandboxNetworkSchema>;
+
+export const SandboxOnecliSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  url: z.string(),
+  caPath: z.string().optional(),
+});
+export type SandboxOnecli = z.infer<typeof SandboxOnecliSchema>;
+
+export const GlobalSandboxConfigSchema = z.object({
+  sharedDir: z.string().optional(),
+  network: SandboxNetworkSchema.optional(),
+  onecli: SandboxOnecliSchema.optional(),
+  mountAllowlist: MountAllowlistSchema.optional(),
+});
+export type GlobalSandboxConfig = z.infer<typeof GlobalSandboxConfigSchema>;
+
 // Gateway config
 export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
+  sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
   connectors: ConnectorsGlobalConfigSchema.optional(),
   components: ComponentsConfigSchema,
@@ -762,15 +814,14 @@ export type ImageAttachment = {
   mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 };
 
+export const FileAttachmentSchema = z.object({
+  path: z.string(),
+  mimeType: z.string(),
+  filename: z.string().optional(),
+});
+
 // File attachment (file path - preferred)
-export type FileAttachment = {
-  /** Absolute file path on disk */
-  path: string;
-  /** MIME type */
-  mimeType: string;
-  /** Original filename (optional) */
-  filename?: string;
-};
+export type FileAttachment = z.infer<typeof FileAttachmentSchema>;
 
 // WebSocket protocol types
 export type WsSendMessage = {
@@ -959,6 +1010,47 @@ export type DiscordContext = {
 };
 
 export type AgentContext = DiscordContext; // Extensible for future context types
+
+export const AgentContextSchema = z
+  .object({
+    kind: z.string(),
+  })
+  .passthrough();
+
+export const ContainerInputSchema = z.object({
+  agentId: z.string(),
+  sessionId: z.string(),
+  userId: z.string().optional(),
+  message: z.string(),
+  attachments: z.array(FileAttachmentSchema).optional(),
+  workspaceDir: z.string(),
+  sessionDir: z.string(),
+  ipcDir: z.string(),
+  gatewayUrl: z.string(),
+  agentToken: z.string(),
+  thinkLevel: ThinkLevelSchema.optional(),
+  context: AgentContextSchema.optional(),
+  onecli: z
+    .object({
+      enabled: z.boolean(),
+      url: z.string(),
+      caPath: z.string().optional(),
+    })
+    .optional(),
+  sdkConfig: z.object({
+    sdk: SdkIdSchema,
+    model: AgentModelConfigSchema,
+  }),
+});
+export type ContainerInput = z.infer<typeof ContainerInputSchema>;
+
+export const ContainerOutputSchema = z.object({
+  text: z.string(),
+  aborted: z.boolean().optional(),
+  history: z.array(z.unknown()).optional(),
+  error: z.string().optional(),
+});
+export type ContainerOutput = z.infer<typeof ContainerOutputSchema>;
 
 // Heartbeat event payload (for event emission)
 export const HeartbeatStatusSchema = z.enum([

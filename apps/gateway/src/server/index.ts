@@ -12,6 +12,7 @@ import type {
   GatewayConfig,
 } from "@aihub/shared";
 import { api } from "./api.core.js";
+import { internalTools } from "./internal-tools.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import {
@@ -91,6 +92,7 @@ function isComponentEnabled(
 
 app.use("*", cors());
 app.use("*", logger());
+app.route("/internal", internalTools);
 app.use("/api/*", async (c, next) => {
   let config: GatewayConfig;
   try {
