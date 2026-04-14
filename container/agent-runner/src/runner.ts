@@ -15,7 +15,6 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { ContainerInput, ContainerOutput } from "@aihub/shared";
 import { callGatewayTool } from "./gateway-client.js";
-import { proxyClient } from "./proxy.js";
 import {
   abortClaudeAgent,
   runClaudeAgent,
@@ -421,6 +420,7 @@ function createConnectorTools(input: ContainerInput): ToolDefinition[] {
       parameters: tool.parameters as ToolDefinition["parameters"],
       execute: async (_toolCallId, params) => {
         const result = await callConnectorTool(
+          input,
           connector.id,
           tool.name,
           params,
@@ -436,24 +436,33 @@ function createConnectorTools(input: ContainerInput): ToolDefinition[] {
 }
 
 async function callConnectorTool(
+  input: ContainerInput,
   connectorId: string,
   tool: string,
   args: unknown,
   agentId: string
 ): Promise<unknown> {
-  const response = await proxyClient.fetch("http://onecli/connectors/tools", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-agent-id": agentId,
-    },
-    body: JSON.stringify({ connectorId, tool, args }),
-  });
+  const response = await fetch(
+    new URL("/connectors/tools", input.gatewayUrl),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Agent-Id": agentId,
+        "X-Agent-Token": input.agentToken,
+      },
+      body: JSON.stringify({
+        connectorId,
+        tool,
+        args,
+        agentId,
+        agentToken: input.agentToken,
+      }),
+    }
+  );
   const result = (await response.json()) as unknown;
   if (!response.ok) {
-    throw new Error(
-      `Connector tool ${tool} failed with ${response.status}`
-    );
+    throw new Error(`Connector tool ${tool} failed with ${response.status}`);
   }
   return result;
 }

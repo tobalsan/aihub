@@ -52,12 +52,6 @@ const piMock = vi.hoisted(() => {
   };
 });
 
-vi.mock("../proxy.js", () => ({
-  proxyClient: {
-    fetch: proxyFetchMock,
-  },
-}));
-
 vi.mock("@mariozechner/pi-coding-agent", () => ({
   AuthStorage: {
     inMemory: vi.fn(() => ({
@@ -92,6 +86,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
 afterEach(() => {
   piMock.reset();
   proxyFetchMock.mockReset();
+  vi.restoreAllMocks();
 });
 
 describe("Pi runner", () => {
@@ -186,6 +181,9 @@ describe("Pi runner", () => {
     proxyFetchMock.mockResolvedValue(
       Response.json({ ok: true, value: 42 }, { status: 200 })
     );
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      Response.json({ ok: true, value: 42 }, { status: 200 })
+    );
 
     piMock.session.prompt.mockImplementationOnce(async () => {
       piMock.session.messages.push({
@@ -245,18 +243,23 @@ describe("Pi runner", () => {
     expect(connectorTool).toBeDefined();
 
     await connectorTool?.execute("tool-1", { query: "aihub" });
-    expect(proxyFetchMock).toHaveBeenCalledWith(
-      "http://onecli/connectors/tools",
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: expect.stringContaining("/connectors/tools"),
+      }),
       expect.objectContaining({
         method: "POST",
-        headers: {
+        headers: expect.objectContaining({
           "content-type": "application/json",
-          "x-agent-id": "agent-1",
-        },
+          "X-Agent-Id": "agent-1",
+          "X-Agent-Token": "token-1",
+        }),
         body: JSON.stringify({
           connectorId: "github",
           tool: "github.search",
           args: { query: "aihub" },
+          agentId: "agent-1",
+          agentToken: "token-1",
         }),
       })
     );
