@@ -221,6 +221,9 @@ export async function flushTurnBuffer(
   if (buffer.thinkingText) {
     content.push({ type: "thinking", thinking: buffer.thinkingText });
   }
+  if (buffer.assistantText) {
+    content.push({ type: "text", text: buffer.assistantText });
+  }
   for (const tc of buffer.toolCalls) {
     content.push({
       type: "toolCall",
@@ -228,9 +231,6 @@ export async function flushTurnBuffer(
       name: tc.name,
       arguments: tc.args,
     });
-  }
-  if (buffer.assistantText) {
-    content.push({ type: "text", text: buffer.assistantText });
   }
 
   if (content.length > 0) {
