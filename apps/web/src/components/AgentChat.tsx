@@ -2823,9 +2823,9 @@ export function AgentChat(props: AgentChatProps) {
               <Show
                 when={shouldVirtualizeLogs() && virtualRows().length > 0}
                 fallback={
-                  <Index each={leadRenderedLogItems()}>
-                    {(item) => <>{() => renderRenderedLogItem(item())}</>}
-                  </Index>
+                  <For each={leadRenderedLogItems()}>
+                    {(item) => <>{renderRenderedLogItem(item)}</>}
+                  </For>
                 }
               >
                 <div
