@@ -1663,10 +1663,7 @@ export function AgentChat(props: AgentChatProps) {
   const maybeLoadDeferredLeadHistory = () => {
     if (!pendingLeadHistoryRefresh) return;
     pendingLeadHistoryRefresh = false;
-    if (skipNextLeadHistoryRefresh) {
-      skipNextLeadHistoryRefresh = false;
-      return;
-    }
+    skipNextLeadHistoryRefresh = false;
     void loadAihubHistory();
   };
 
