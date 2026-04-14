@@ -115,6 +115,14 @@ Proxies `/api` and `/ws` to gateway (port 4000) in dev mode.
 
 Standalone Node 22 package for sandboxed agent containers. It reads `ContainerInput` JSON from stdin, runs the agent turn, and writes `ContainerOutput` JSON to stdout between `---AIHUB_OUTPUT_START---` / `---AIHUB_OUTPUT_END---`. Debug logs must go to stderr only. The current runner is a functional SDK stub; Pi/Claude SDK integration is pending. It may import from `@aihub/shared` but must not import gateway source.
 
+Container OneCLI proxy wiring:
+
+- `apps/gateway/src/agents/container.ts` injects `ONECLI_URL`, `ONECLI_CA_PATH`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, and `NODE_TLS_REJECT_UNAUTHORIZED=0` only when top-level `sandbox.onecli` is enabled.
+- Anthropic uses `ANTHROPIC_BASE_URL=<onecli url>`; OpenAI uses `OPENAI_BASE_URL=<onecli url>/v1`.
+- The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
+- `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK stub runs.
+- Connector tools inside the container should use `container/agent-runner/src/http-client.ts#createContainerHttpClient()`, which attaches an undici `ProxyAgent` and CA cert to each fetch. Without OneCLI config, it falls back to plain `fetch`.
+
 ### packages/shared
 
 Zod schemas and TypeScript types:
@@ -319,6 +327,7 @@ $AIHUB_HOME/
 - When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
 - Connector HTTP calls can opt into `apps/gateway/src/connectors/http-client.ts`, which applies the same scoped OneCLI proxy/token/CA wiring per request.
 - Sandbox container manager helpers in `apps/gateway/src/agents/container.ts` build Docker bind mounts, shadow workspace `.env` with `/dev/null`, validate custom mounts against the sandbox allowlist/blocklist, build `docker run -i --rm` args, and provide Docker network/orphan cleanup helpers. `apps/gateway/src/sdk/container/adapter.ts` now spawns ephemeral Docker containers, writes `ContainerInput` to stdin, parses `---AIHUB_OUTPUT_START---`/`---AIHUB_OUTPUT_END---` output, queues follow-ups through `$AIHUB_HOME/ipc/<agentId>/input/*.json`, and stops/kills containers on abort or timeout.
+- Sandboxed container connector calls use `container/agent-runner/src/http-client.ts` instead of the gateway connector HTTP client, so connector HTTPS stays inside the container while credentials remain in OneCLI.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status

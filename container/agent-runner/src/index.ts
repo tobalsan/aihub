@@ -6,10 +6,13 @@ import {
   type ContainerOutput,
 } from "@aihub/shared";
 import { startIpcPoller, type IpcCleanup } from "./ipc.js";
+import { configureProxy, type ConnectorHttpClient } from "./proxy.js";
 import { runAgent } from "./runner.js";
 
 export const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 export const OUTPUT_END = "---AIHUB_OUTPUT_END---";
+
+export let proxyClient: ConnectorHttpClient = configureProxy();
 
 type AgentRunnerDeps = {
   readStdin?: () => Promise<string>;
@@ -31,6 +34,8 @@ export async function runAgentRunner(
   const startPoller = deps.startIpcPoller ?? startIpcPoller;
 
   const input = parseInput(await read());
+  proxyClient = configureProxy(input.onecli);
+  configureSdkBaseUrls(input.onecli);
   let cleanup: IpcCleanup | undefined;
 
   try {
@@ -66,6 +71,13 @@ export function writeProtocolOutput(
 
 function parseInput(raw: string): ContainerInput {
   return ContainerInputSchema.parse(JSON.parse(raw));
+}
+
+function configureSdkBaseUrls(onecli: ContainerInput["onecli"]): void {
+  if (!onecli?.enabled) return;
+
+  process.env.ANTHROPIC_BASE_URL ??= onecli.url;
+  process.env.OPENAI_BASE_URL ??= `${onecli.url.replace(/\/$/, "")}/v1`;
 }
 
 async function readStdin(): Promise<string> {

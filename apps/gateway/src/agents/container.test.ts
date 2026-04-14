@@ -175,6 +175,24 @@ describe("buildContainerArgs", () => {
     );
     expect(args.at(-1)).toBe("custom-agent:latest");
   });
+
+  it("omits onecli env when global sandbox onecli is absent", () => {
+    vi.spyOn(Date, "now").mockReturnValue(123456);
+
+    const agent = AgentConfigSchema.parse({
+      id: "cloud",
+      name: "Cloud",
+      workspace: "/workspace",
+      model: { provider: "anthropic", model: "claude" },
+      sandbox: {},
+    });
+
+    const args = buildContainerArgs(agent, {}, [], "/aihub");
+
+    expect(argValues(args, "--env")).toEqual([
+      "GATEWAY_URL=http://gateway:4000",
+    ]);
+  });
 });
 
 describe("validateMount", () => {

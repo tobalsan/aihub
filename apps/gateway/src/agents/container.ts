@@ -168,7 +168,8 @@ export function buildContainerArgs(
   _userId?: string
 ): string[] {
   const sandbox = agent.sandbox;
-  const onecliUrl = globalSandbox.onecli?.url;
+  const onecli =
+    globalSandbox.onecli?.enabled === false ? undefined : globalSandbox.onecli;
   const args = [
     "run",
     "-i",
@@ -195,14 +196,14 @@ export function buildContainerArgs(
   }
 
   const env: Record<string, string> = {
-    NODE_TLS_REJECT_UNAUTHORIZED: "0",
     GATEWAY_URL: DEFAULT_GATEWAY_URL,
-    ...(onecliUrl
+    ...(onecli
       ? {
-          ONECLI_URL: onecliUrl,
+          NODE_TLS_REJECT_UNAUTHORIZED: "0",
+          ONECLI_URL: onecli.url,
           ONECLI_CA_PATH: CONTAINER_ONECLI_CA_PATH,
-          ANTHROPIC_BASE_URL: onecliUrl,
-          OPENAI_BASE_URL: `${onecliUrl.replace(/\/$/, "")}/v1`,
+          ANTHROPIC_BASE_URL: onecli.url,
+          OPENAI_BASE_URL: `${onecli.url.replace(/\/$/, "")}/v1`,
         }
       : {}),
     ...(sandbox?.env ?? {}),
