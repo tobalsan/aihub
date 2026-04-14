@@ -26,7 +26,7 @@ Core TypeScript/Node.js application. Exports:
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + connectors + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
-- **Agent Runtime** (`src/agents/`): Pi SDK integration, session management, and sandbox container mount/argument helpers in `src/agents/container.ts`
+- **Agent Runtime** (`src/agents/`): Pi SDK integration, session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
@@ -318,7 +318,7 @@ $AIHUB_HOME/
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
 - When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
 - Connector HTTP calls can opt into `apps/gateway/src/connectors/http-client.ts`, which applies the same scoped OneCLI proxy/token/CA wiring per request.
-- Sandbox container manager helpers in `apps/gateway/src/agents/container.ts` build Docker bind mounts, shadow workspace `.env` with `/dev/null`, validate custom mounts against the sandbox allowlist/blocklist, build `docker run -i --rm` args, and provide Docker network/orphan cleanup helpers. Runtime container spawning is still owned by the container adapter follow-up.
+- Sandbox container manager helpers in `apps/gateway/src/agents/container.ts` build Docker bind mounts, shadow workspace `.env` with `/dev/null`, validate custom mounts against the sandbox allowlist/blocklist, build `docker run -i --rm` args, and provide Docker network/orphan cleanup helpers. `apps/gateway/src/sdk/container/adapter.ts` now spawns ephemeral Docker containers, writes `ContainerInput` to stdin, parses `---AIHUB_OUTPUT_START---`/`---AIHUB_OUTPUT_END---` output, queues follow-ups through `$AIHUB_HOME/ipc/<agentId>/input/*.json`, and stops/kills containers on abort or timeout.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status

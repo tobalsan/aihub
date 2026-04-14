@@ -158,7 +158,10 @@ describe("LangfuseTracer", () => {
 
     // Chat surface (default sessionKey)
     await tracer.handleStreamEvent(
-      streamEvent({ type: "text", data: "chat msg" }, { sessionId: "session-chat" })
+      streamEvent(
+        { type: "text", data: "chat msg" },
+        { sessionId: "session-chat" }
+      )
     );
     await tracer.handleStreamEvent(
       streamEvent({ type: "done" }, { sessionId: "session-chat" })
@@ -176,10 +179,7 @@ describe("LangfuseTracer", () => {
       )
     );
     await tracer.handleStreamEvent(
-      streamEvent(
-        { type: "done" },
-        { sessionKey: "project:PRO-1:lead" }
-      )
+      streamEvent({ type: "done" }, { sessionKey: "project:PRO-1:lead" })
     );
 
     expect(langfuseMock.traces[1]?.args).toEqual(
@@ -410,9 +410,7 @@ describe("LangfuseTracer", () => {
     tracer.handleHistoryEvent(
       historyEvent({ type: "user", text: "fix the bug", timestamp: 1 })
     );
-    await tracer.handleStreamEvent(
-      streamEvent({ type: "text", data: "" })
-    );
+    await tracer.handleStreamEvent(streamEvent({ type: "text", data: "" }));
     tracer.handleHistoryEvent(
       historyEvent({
         type: "tool_call",
@@ -432,17 +430,13 @@ describe("LangfuseTracer", () => {
         timestamp: 3,
       })
     );
-    tracer.handleHistoryEvent(
-      historyEvent({ type: "turn_end", timestamp: 4 })
-    );
+    tracer.handleHistoryEvent(historyEvent({ type: "turn_end", timestamp: 4 }));
 
     // Turn 2: model responds with final answer
     await tracer.handleStreamEvent(
       streamEvent({ type: "text", data: "Fixed the bug." })
     );
-    tracer.handleHistoryEvent(
-      historyEvent({ type: "turn_end", timestamp: 5 })
-    );
+    tracer.handleHistoryEvent(historyEvent({ type: "turn_end", timestamp: 5 }));
 
     // Entire runAgent call ends
     await tracer.handleStreamEvent(streamEvent({ type: "done" }));
@@ -531,7 +525,7 @@ describe("LangfuseTracer", () => {
     await tracer.stop();
   });
 
-  it("leaves SDK adapters and history store unchanged", () => {
+  it("leaves non-container SDK adapters and history store unchanged", () => {
     const changedFiles = execFileSync(
       "git",
       [
@@ -539,7 +533,9 @@ describe("LangfuseTracer", () => {
         "--name-only",
         "HEAD",
         "--",
-        "apps/gateway/src/sdk",
+        "apps/gateway/src/sdk/claude",
+        "apps/gateway/src/sdk/openclaw",
+        "apps/gateway/src/sdk/pi",
         "apps/gateway/src/history/store.ts",
       ],
       { encoding: "utf8" }
