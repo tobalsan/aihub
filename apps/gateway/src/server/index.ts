@@ -443,6 +443,22 @@ function resolveGatewayBindHost(bind?: GatewayBindMode): string {
   return host;
 }
 
+function setupGracefulShutdown(server: ReturnType<typeof serve>): void {
+  const shutdown = async () => {
+    console.log("[gateway] Graceful shutdown initiated");
+    try {
+      cleanupOrphanContainers();
+    } catch (error) {
+      console.error("[gateway] Container cleanup failed:", error);
+    }
+    server.close();
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
+
 export function startServer(port?: number, host?: string) {
   const config = loadConfig();
   const hasSandboxAgents = config.agents.some(
@@ -510,6 +526,7 @@ export function startServer(port?: number, host?: string) {
 
   // Start broadcasting events to subscribers
   setupEventBroadcast();
+  setupGracefulShutdown(server);
 
   return server;
 }
