@@ -122,6 +122,7 @@ Container OneCLI proxy wiring:
 - The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
 - `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK stub runs.
 - Connector tools inside the container should use `container/agent-runner/src/http-client.ts#createContainerHttpClient()`, which attaches an undici `ProxyAgent` and CA cert to each fetch. Without OneCLI config, it falls back to plain `fetch`.
+- Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
 
 ### packages/shared
 
@@ -327,6 +328,7 @@ $AIHUB_HOME/
 - When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
 - Connector HTTP calls can opt into `apps/gateway/src/connectors/http-client.ts`, which applies the same scoped OneCLI proxy/token/CA wiring per request.
 - Sandbox container manager helpers in `apps/gateway/src/agents/container.ts` build Docker bind mounts, shadow workspace `.env` with `/dev/null`, validate custom mounts against the sandbox allowlist/blocklist, build `docker run -i --rm` args, and provide Docker network/orphan cleanup helpers. `apps/gateway/src/sdk/container/adapter.ts` now spawns ephemeral Docker containers, writes `ContainerInput` to stdin, parses `---AIHUB_OUTPUT_START---`/`---AIHUB_OUTPUT_END---` output, queues follow-ups through `$AIHUB_HOME/ipc/<agentId>/input/*.json`, and stops/kills containers on abort or timeout.
+- `apps/gateway/src/server/internal-tools.ts` handles container-to-gateway orchestration callbacks for `subagent.spawn`, `subagent.status`, `subagent.logs`, `subagent.interrupt`, `project.create`, `project.update`, `project.comment`, and `project.get`.
 - Sandboxed container connector calls use `container/agent-runner/src/http-client.ts` instead of the gateway connector HTTP client, so connector HTTPS stays inside the container while credentials remain in OneCLI.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 

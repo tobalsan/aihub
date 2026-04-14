@@ -23,6 +23,7 @@ import {
   setLoadedConfig,
 } from "../../config/index.js";
 import { getContainerAdapter } from "./adapter.js";
+import { validateContainerToken } from "./tokens.js";
 import type { SdkRunParams } from "../types.js";
 
 vi.mock("node:child_process", () => ({
@@ -184,6 +185,9 @@ describe("container adapter", () => {
 
     const run = getContainerAdapter().run(params);
     const dockerProcess = processes[0];
+    const input = JSON.parse(dockerProcess.stdinChunks.join(""));
+    expect(validateContainerToken(input.agentToken, "cloud")).toBe(true);
+
     dockerProcess.emitOutput({ text: "hello back" });
     dockerProcess.finish(0);
 
@@ -191,7 +195,7 @@ describe("container adapter", () => {
       text: "hello back",
       aborted: undefined,
     });
-    const input = JSON.parse(dockerProcess.stdinChunks.join(""));
+    expect(validateContainerToken(input.agentToken, "cloud")).toBe(false);
 
     expect(spy).toHaveBeenCalledWith(
       "docker",

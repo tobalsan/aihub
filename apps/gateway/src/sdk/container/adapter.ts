@@ -14,6 +14,7 @@ import {
 } from "../../agents/container.js";
 import { loadConfig } from "../../config/index.js";
 import { getDefaultSdkId, getSdkAdapter } from "../registry.js";
+import { registerContainerToken, removeContainerToken } from "./tokens.js";
 import type {
   HistoryEvent,
   SdkAdapter,
@@ -142,7 +143,7 @@ function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
 }
 
-function buildInput(params: SdkRunParams): ContainerInput {
+function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
   const config = loadConfig();
   const globalSandbox = config.sandbox ?? {};
   return {
@@ -157,7 +158,7 @@ function buildInput(params: SdkRunParams): ContainerInput {
     sessionDir: "/sessions",
     ipcDir: "/workspace/ipc",
     gatewayUrl: config.server?.baseUrl ?? DEFAULT_GATEWAY_URL,
-    agentToken: randomUUID(),
+    agentToken,
     onecli: globalSandbox.onecli
       ? {
           enabled: globalSandbox.onecli.enabled ?? true,
@@ -212,7 +213,9 @@ export function getContainerAdapter(): SdkAdapter {
       const ipcInputDir = path.join(ipcDir, "input");
       fs.mkdirSync(ipcInputDir, { recursive: true });
 
-      const input = buildInput(params);
+      const agentToken = randomUUID();
+      registerContainerToken(agentToken, params.agentId, containerName);
+      const input = buildInput(params, agentToken);
       const child = childProcess.spawn("docker", args, {
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -231,6 +234,7 @@ export function getContainerAdapter(): SdkAdapter {
         const cleanup = () => {
           clearTimeout(timeoutTimer);
           params.abortSignal.removeEventListener("abort", onAbort);
+          removeContainerToken(agentToken);
         };
 
         const finish = (code: number | null) => {
