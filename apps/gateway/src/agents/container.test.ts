@@ -223,6 +223,25 @@ describe("validateMount", () => {
     ).toThrow(/not allowed/);
   });
 
+  it("rejects symlinks that escape the allowlist", () => {
+    const root = tmpDir();
+    const allowedRoot = path.join(root, "allowed");
+    const outsideRoot = path.join(root, "outside");
+    const outsidePath = path.join(outsideRoot, "secret");
+    const symlinkPath = path.join(allowedRoot, "link");
+
+    fs.mkdirSync(allowedRoot, { recursive: true });
+    fs.mkdirSync(outsidePath, { recursive: true });
+    fs.symlinkSync(outsidePath, symlinkPath);
+
+    expect(() =>
+      validateMount(
+        { host: symlinkPath, container: "/docs", readonly: true },
+        { ...allowlist, allowedRoots: [allowedRoot] }
+      )
+    ).toThrow(/not allowed/);
+  });
+
   it.each([".ssh", ".aws", ".env"])(
     "rejects blocked host path pattern %s",
     (pattern) => {

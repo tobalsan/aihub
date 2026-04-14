@@ -32,7 +32,13 @@ function resolveHostPath(hostPath: string): string {
 }
 
 function isUnderRoot(hostPath: string, root: string): boolean {
-  const relative = path.relative(resolveHostPath(root), hostPath);
+  let rootPath = resolveHostPath(root);
+  try {
+    rootPath = fs.realpathSync(rootPath);
+  } catch {
+    // Nonexistent roots are validated lexically.
+  }
+  const relative = path.relative(rootPath, hostPath);
   return (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
@@ -64,7 +70,13 @@ export function validateMount(
   mount: SandboxMount,
   allowlist: MountAllowlist
 ): void {
-  const hostPath = resolveHostPath(mount.host);
+  let hostPath = resolveHostPath(mount.host);
+
+  try {
+    hostPath = fs.realpathSync(hostPath);
+  } catch {
+    // Nonexistent paths can still be created later.
+  }
 
   if (!allowlist.allowedRoots.some((root) => isUnderRoot(hostPath, root))) {
     throw new Error(

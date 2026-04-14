@@ -13,6 +13,7 @@ import type {
 } from "@aihub/shared";
 import { api } from "./api.core.js";
 import { internalTools } from "./internal-tools.js";
+import { cleanupOrphanContainers, ensureNetwork } from "../agents/container.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import {
@@ -444,6 +445,21 @@ function resolveGatewayBindHost(bind?: GatewayBindMode): string {
 
 export function startServer(port?: number, host?: string) {
   const config = loadConfig();
+  const hasSandboxAgents = config.agents.some(
+    (agent) => agent.sandbox?.enabled
+  );
+  if (hasSandboxAgents) {
+    const networkName = config.sandbox?.network?.name ?? "aihub-agents";
+    const internal = config.sandbox?.network?.internal ?? true;
+    try {
+      ensureNetwork(networkName, internal);
+      cleanupOrphanContainers();
+      console.log("Container sandbox: network ready, orphans cleaned");
+    } catch (error) {
+      console.error("Container sandbox setup failed:", error);
+    }
+  }
+
   const resolvedPort = port ?? config.gateway?.port ?? 4000;
   // host arg > config.gateway.host > resolve from bind > default loopback
   const resolvedHost =

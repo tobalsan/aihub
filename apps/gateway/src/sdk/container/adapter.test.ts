@@ -79,7 +79,11 @@ function createAgent(
     id: "cloud",
     name: "Cloud",
     workspace,
-    model: { provider: "anthropic", model: "claude-sonnet" },
+    model: {
+      provider: "anthropic",
+      model: "claude-sonnet",
+      auth_token: "secret-token",
+    },
     sandbox: {
       enabled: true,
       image: "aihub-agent:latest",
@@ -98,7 +102,11 @@ function setConfig(agent: AgentConfig, root: string): void {
     components: {},
     sandbox: {
       sharedDir: path.join(root, "shared"),
-      onecli: { enabled: true, url: "http://onecli:4141" },
+      onecli: {
+        enabled: true,
+        url: "http://onecli:4141",
+        caPath: path.join(root, "onecli-ca.pem"),
+      },
     },
     server: { baseUrl: "http://gateway:4000" },
   } as GatewayConfig);
@@ -199,12 +207,17 @@ describe("container adapter", () => {
       sessionDir: "/sessions",
       ipcDir: "/workspace/ipc",
       gatewayUrl: "http://gateway:4000",
-      onecli: { enabled: true, url: "http://onecli:4141" },
+      onecli: {
+        enabled: true,
+        url: "http://onecli:4141",
+        caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
+      },
       sdkConfig: {
         sdk: "pi",
         model: { provider: "anthropic", model: "claude-sonnet" },
       },
     });
+    expect(input.sdkConfig.model.auth_token).toBeUndefined();
     expect(input.agentToken).toEqual(expect.any(String));
     expect(params.onSessionHandle).toHaveBeenCalledWith({
       containerName: expect.stringMatching(/^aihub-agent-cloud-/),

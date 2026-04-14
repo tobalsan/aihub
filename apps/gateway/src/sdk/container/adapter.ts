@@ -162,12 +162,15 @@ function buildInput(params: SdkRunParams): ContainerInput {
       ? {
           enabled: globalSandbox.onecli.enabled ?? true,
           url: globalSandbox.onecli.url,
-          caPath: globalSandbox.onecli.caPath,
+          caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
         }
       : undefined,
     sdkConfig: {
       sdk: params.agent.sdk ?? getDefaultSdkId(),
-      model: params.agent.model,
+      model: {
+        provider: params.agent.model.provider,
+        model: params.agent.model.model,
+      },
     },
   };
 }
