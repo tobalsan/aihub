@@ -31,6 +31,7 @@ import {
   isAbortTrigger,
 } from "../sessions/index.js";
 import { invalidateResolvedHistoryFile } from "../history/store.js";
+import { getSessionCurrentTurn, isStreaming } from "../agents/index.js";
 
 type RequestAuthContext =
   import("../components/multi-user/middleware.js").RequestAuthContext;
@@ -233,6 +234,32 @@ function handleWsConnection(
         agentId: msg.agentId,
         sessionKey: msg.sessionKey,
       });
+      const entry = await getSessionEntry(
+        msg.agentId,
+        msg.sessionKey,
+        authContext?.session.userId
+      );
+      if (entry && isStreaming(msg.agentId, entry.sessionId)) {
+        const turn = getSessionCurrentTurn(msg.agentId, entry.sessionId);
+        if (turn) {
+          sendWs(ws, {
+            type: "active_turn",
+            agentId: msg.agentId,
+            sessionId: entry.sessionId,
+            userText: turn.userFlushed ? null : turn.userText,
+            userTimestamp: turn.userTimestamp,
+            startedAt: turn.startTimestamp,
+            thinking: turn.thinkingText,
+            text: turn.assistantText,
+            toolCalls: turn.toolCalls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.args,
+              status: tc.status,
+            })),
+          });
+        }
+      }
       return;
     }
 

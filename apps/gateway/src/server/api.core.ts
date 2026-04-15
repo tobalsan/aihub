@@ -16,6 +16,8 @@ import {
   getAgentStatuses,
   getSessionHistory,
   getFullSessionHistory,
+  getSessionCurrentTurn,
+  isStreaming,
 } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
 import {
@@ -262,7 +264,36 @@ api.get("/agents/:id/history", async (c) => {
       ? await getSessionThinkLevel(agentId, sessionKey, userId)
       : undefined;
 
-  return c.json({ messages, sessionId: entry.sessionId, view, thinkingLevel });
+  const streaming = isStreaming(agentId, entry.sessionId);
+  const turn = streaming
+    ? getSessionCurrentTurn(agentId, entry.sessionId)
+    : null;
+  const activeTurn = turn
+    ? {
+        // Once the user message is persisted to canonical history, omit it
+        // from the active-turn snapshot so clients don't render it twice.
+        userText: turn.userFlushed ? null : turn.userText,
+        userTimestamp: turn.userTimestamp,
+        startedAt: turn.startTimestamp,
+        thinking: turn.thinkingText,
+        text: turn.assistantText,
+        toolCalls: turn.toolCalls.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.args,
+          status: tc.status,
+        })),
+      }
+    : null;
+
+  return c.json({
+    messages,
+    sessionId: entry.sessionId,
+    view,
+    thinkingLevel,
+    isStreaming: streaming,
+    activeTurn,
+  });
 });
 
 // POST /api/media/upload - upload a file (multipart/form-data)

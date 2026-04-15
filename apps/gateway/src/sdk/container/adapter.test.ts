@@ -351,7 +351,11 @@ describe("container adapter", () => {
     dockerProcess.finish(0);
 
     await expect(run).resolves.toEqual({ text: "hello back", aborted: undefined });
-    expect(params.onHistoryEvent).toHaveBeenCalledTimes(2);
+    // 1 synthetic user event + 2 streaming events
+    expect(params.onHistoryEvent).toHaveBeenCalledTimes(3);
+    expect(params.onHistoryEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user", text: "hello" })
+    );
     expect(params.onEvent).not.toHaveBeenCalledWith({
       type: "text",
       data: "hello back",

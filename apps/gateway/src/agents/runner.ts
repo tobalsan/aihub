@@ -22,6 +22,7 @@ import {
   enqueuePendingUserMessage,
   shiftPendingUserMessage,
   popAllPendingUserMessages,
+  setSessionCurrentTurn,
 } from "./sessions.js";
 import {
   resolveSessionId,
@@ -48,9 +49,9 @@ import type { SdkId, HistoryEvent } from "../sdk/types.js";
 import {
   createTurnBuffer,
   bufferHistoryEvent,
+  flushUserMessage,
   type TurnBuffer,
   flushTurnBuffer,
-  flushUserMessage,
   getSimpleHistory as getCanonicalSimpleHistory,
   getFullHistory as getCanonicalFullHistory,
   hasCanonicalHistory,
@@ -475,6 +476,7 @@ export async function runAgent(
     if (!currentTurn) {
       currentTurn = buffer;
       // Eagerly persist so history includes the user message mid-run
+      setSessionCurrentTurn(params.agentId, sessionId, buffer);
       void flushUserMessage(params.agentId, sessionId, buffer, params.userId);
     } else {
       enqueuePendingUserMessage(
@@ -496,7 +498,14 @@ export async function runAgent(
           text: pendingUser.text,
           timestamp: pendingUser.timestamp,
         });
+        void flushUserMessage(
+          params.agentId,
+          sessionId,
+          currentTurn,
+          params.userId
+        );
       }
+      setSessionCurrentTurn(params.agentId, sessionId, currentTurn);
     }
     return currentTurn;
   };
@@ -505,6 +514,7 @@ export async function runAgent(
     if (currentTurn) {
       completedTurns.push(currentTurn);
       currentTurn = null;
+      setSessionCurrentTurn(params.agentId, sessionId, null);
     }
   };
 
@@ -624,6 +634,7 @@ export async function runAgent(
         params.userId
       );
       currentTurn = null;
+      setSessionCurrentTurn(params.agentId, sessionId, null);
     }
     // Flush any pending user-only turns (queued but not processed)
     const pendingUsers = popAllPendingUserMessages(params.agentId, sessionId);
@@ -654,6 +665,7 @@ export async function runAgent(
     throw err;
   } finally {
     clearSessionHandle(params.agentId, sessionId);
+    setSessionCurrentTurn(params.agentId, sessionId, null);
     setSessionStreaming(params.agentId, sessionId, false);
 
     // Drain pending queue if adapter lacks native queue support

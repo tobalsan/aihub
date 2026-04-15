@@ -134,21 +134,55 @@ function isHistoryEvent(event: unknown): event is HistoryEvent {
   );
 }
 
+function forwardStreamEvent(
+  params: SdkRunParams,
+  event: HistoryEvent
+): void {
+  if (event.type === "assistant_text") {
+    params.onEvent({ type: "text", data: event.text });
+    return;
+  }
+  if (event.type === "assistant_thinking") {
+    params.onEvent({ type: "thinking", data: event.text });
+    return;
+  }
+  if (event.type === "tool_call") {
+    params.onEvent({ type: "tool_start", toolName: event.name });
+    params.onEvent({
+      type: "tool_call",
+      id: event.id,
+      name: event.name,
+      arguments: event.args,
+    });
+    return;
+  }
+  if (event.type === "tool_result") {
+    params.onEvent({
+      type: "tool_end",
+      toolName: event.name,
+      isError: event.isError,
+    });
+    params.onEvent({
+      type: "tool_result",
+      id: event.id,
+      name: event.name,
+      content: event.content,
+      isError: event.isError,
+      details: event.details,
+    });
+  }
+}
+
 function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   if (output.history?.length) {
     for (const event of output.history) {
-      if (isHistoryEvent(event)) {
+      if (isHistoryEvent(event) && event.type !== "user") {
         params.onHistoryEvent(event);
       }
     }
     return;
   }
 
-  params.onHistoryEvent({
-    type: "user",
-    text: params.message,
-    timestamp: Date.now(),
-  });
   if (output.text) {
     params.onHistoryEvent({
       type: "assistant_text",
@@ -342,6 +376,14 @@ export function getContainerAdapter(): SdkAdapter {
       const handle: ContainerSessionHandle = { containerName, ipcDir };
       params.onSessionHandle?.(handle);
 
+      // Emit user event immediately so active-turn state is populated before
+      // the container starts streaming assistant events.
+      params.onHistoryEvent({
+        type: "user",
+        text: params.message,
+        timestamp: Date.now(),
+      });
+
       let stderr = "";
       let timedOut = false;
       let aborted = false;
@@ -479,12 +521,7 @@ export function getContainerAdapter(): SdkAdapter {
               }
               sawStreamingHistory = true;
               params.onHistoryEvent(event);
-              if (event.type === "assistant_text") {
-                params.onEvent({ type: "text", data: event.text });
-              }
-              if (event.type === "assistant_thinking") {
-                params.onEvent({ type: "thinking", data: event.text });
-              }
+              forwardStreamEvent(params, event);
             } catch {
               // ignore malformed stream event lines
             }

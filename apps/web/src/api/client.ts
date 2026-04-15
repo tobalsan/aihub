@@ -76,9 +76,25 @@ export async function fetchCapabilities(): Promise<CapabilitiesResponse> {
   return res.json();
 }
 
+export type ActiveTurn = {
+  userText: string | null;
+  userTimestamp: number;
+  startedAt: number;
+  thinking: string;
+  text: string;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    arguments: unknown;
+    status: "running" | "done" | "error";
+  }>;
+};
+
 export type HistoryResponse<T> = {
   messages: T[];
   thinkingLevel?: ThinkLevel;
+  isStreaming?: boolean;
+  activeTurn?: ActiveTurn | null;
 };
 
 export async function fetchSimpleHistory(
@@ -90,7 +106,12 @@ export async function fetchSimpleHistory(
   );
   if (!res.ok) return { messages: [] };
   const data = await res.json();
-  return { messages: data.messages ?? [], thinkingLevel: data.thinkingLevel };
+  return {
+    messages: data.messages ?? [],
+    thinkingLevel: data.thinkingLevel,
+    isStreaming: data.isStreaming,
+    activeTurn: data.activeTurn ?? null,
+  };
 }
 
 export async function fetchFullHistory(
@@ -102,7 +123,12 @@ export async function fetchFullHistory(
   );
   if (!res.ok) return { messages: [] };
   const data = await res.json();
-  return { messages: data.messages ?? [], thinkingLevel: data.thinkingLevel };
+  return {
+    messages: data.messages ?? [],
+    thinkingLevel: data.thinkingLevel,
+    isStreaming: data.isStreaming,
+    activeTurn: data.activeTurn ?? null,
+  };
 }
 
 export async function sendMessage(
@@ -209,6 +235,22 @@ type WsStreamEvent =
       type: "history_updated";
     }
   | {
+      type: "active_turn";
+      agentId: string;
+      sessionId: string;
+      userText: string | null;
+      userTimestamp: number;
+      startedAt: number;
+      thinking: string;
+      text: string;
+      toolCalls: Array<{
+        id: string;
+        name: string;
+        arguments: unknown;
+        status: "running" | "done" | "error";
+      }>;
+    }
+  | {
       type: "error";
       message: string;
     };
@@ -250,6 +292,16 @@ function dispatchWsEvent(
       break;
     case "history_updated":
       callbacks.onHistoryUpdated?.();
+      break;
+    case "active_turn":
+      callbacks.onActiveTurn?.({
+        userText: event.userText,
+        userTimestamp: event.userTimestamp,
+        startedAt: event.startedAt,
+        thinking: event.thinking,
+        text: event.text,
+        toolCalls: event.toolCalls,
+      });
       break;
     case "error":
       callbacks.onError?.(event.message);
@@ -354,6 +406,7 @@ export type SubscriptionCallbacks = {
   ) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
+  onActiveTurn?: (snapshot: ActiveTurn) => void;
   onDone?: () => void;
   onHistoryUpdated?: () => void;
   onError?: (error: string) => void;

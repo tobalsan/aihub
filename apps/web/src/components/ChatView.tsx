@@ -347,20 +347,31 @@ export function ChatView() {
     setLoading(true);
     if (mode === "full") {
       const res = await fetchFullHistory(params.agentId, sessionKey());
+      const baseMessages = [...res.messages];
+      if (res.activeTurn?.userText) {
+        baseMessages.push({
+          role: "user",
+          content: [
+            { type: "text", text: res.activeTurn.userText },
+          ],
+          timestamp: res.activeTurn.userTimestamp,
+        });
+      }
       const pending = pendingQueuedMessages();
       const merged = pending.length
         ? [
-            ...res.messages,
+            ...baseMessages,
             ...pending.map((msg) => ({
               role: "user" as const,
               content: [{ type: "text" as const, text: msg.text }],
               timestamp: msg.timestamp,
             })),
           ]
-        : res.messages;
+        : baseMessages;
       setFullMessages(merged);
       setContextFullMessages(res.messages);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
+      applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     } else {
       const res = await fetchSimpleHistory(params.agentId, sessionKey());
       const base = res.messages.map((h) => ({
@@ -369,6 +380,14 @@ export function ChatView() {
         content: h.content,
         timestamp: h.timestamp,
       }));
+      if (res.activeTurn?.userText) {
+        base.push({
+          id: crypto.randomUUID(),
+          role: "user",
+          content: res.activeTurn.userText,
+          timestamp: res.activeTurn.userTimestamp,
+        });
+      }
       const pending = pendingQueuedMessages();
       const merged = pending.length
         ? [
@@ -383,8 +402,76 @@ export function ChatView() {
         : base;
       setSimpleMessages(merged);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
+      applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     }
     setLoading(false);
+  };
+
+  const applyActiveTurnSnapshot = (
+    turn: import("../api/client").ActiveTurn
+  ) => {
+    setIsStreaming(true);
+    setStreamingStartedAt(turn.startedAt ?? Date.now());
+    setStreamingThinking(turn.thinking ?? "");
+    setStreamingThinkingAt(turn.thinking ? turn.startedAt : null);
+    setStreamingText(turn.text ?? "");
+    setStreamingTextAt(turn.text ? turn.startedAt : null);
+    setStreamingToolCalls(
+      (turn.toolCalls ?? []).map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+        status: tc.status,
+        timestamp: turn.startedAt,
+      }))
+    );
+    setActiveTools(
+      (turn.toolCalls ?? []).map((tc) => ({
+        id: tc.id || crypto.randomUUID(),
+        toolName: tc.name,
+        status: tc.status,
+      }))
+    );
+    // Ensure the user message that triggered the active run is visible
+    // even before the persisted history is re-fetched.
+    if (turn.userText) {
+      const userText = turn.userText;
+      const timestamp = turn.userTimestamp;
+      setSimpleMessages((prev) =>
+        prev.some((m) => m.timestamp === timestamp && m.role === "user")
+          ? prev
+          : [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "user",
+                content: userText,
+                timestamp,
+              },
+            ]
+      );
+      setFullMessages((prev) =>
+        prev.some((m) => m.timestamp === timestamp && m.role === "user")
+          ? prev
+          : [
+              ...prev,
+              {
+                role: "user",
+                content: [{ type: "text", text: userText }],
+                timestamp,
+              },
+            ]
+      );
+    }
+  };
+
+  const applyActiveTurn = (
+    streaming: boolean,
+    turn: import("../api/client").ActiveTurn | null
+  ) => {
+    if (!streaming || !turn) return;
+    if (cleanup) return;
+    applyActiveTurnSnapshot(turn);
   };
 
   // Load history when agent is loaded or view mode changes.
@@ -417,6 +504,71 @@ export function ChatView() {
 
     subscriptionCleanup?.();
     subscriptionCleanup = subscribeToSession(agentId, key, {
+      onText: (chunk) => {
+        if (cleanup) return;
+        setStreamingText((prev) => prev + chunk);
+        if (!streamingTextAt()) setStreamingTextAt(Date.now());
+        if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
+        setIsStreaming(true);
+      },
+      onThinking: (chunk) => {
+        if (cleanup) return;
+        setStreamingThinking((prev) => prev + chunk);
+        if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
+        if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
+        setIsStreaming(true);
+      },
+      onToolCall: (id, name, args) => {
+        if (cleanup) return;
+        setStreamingToolCalls((prev) => {
+          if (prev.some((tc) => tc.id === id)) return prev;
+          return [
+            ...prev,
+            {
+              id,
+              name,
+              arguments: args,
+              status: "running",
+              timestamp: Date.now(),
+            },
+          ];
+        });
+        if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
+        setIsStreaming(true);
+      },
+      onToolStart: (toolName) => {
+        if (cleanup) return;
+        setActiveTools((prev) =>
+          prev.some((t) => t.toolName === toolName && t.status === "running")
+            ? prev
+            : [...prev, { id: crypto.randomUUID(), toolName, status: "running" }]
+        );
+      },
+      onToolEnd: (toolName, isError) => {
+        if (cleanup) return;
+        setActiveTools((prev) =>
+          prev.map((t) =>
+            t.toolName === toolName && t.status === "running"
+              ? { ...t, status: isError ? "error" : "done" }
+              : t
+          )
+        );
+        setStreamingToolCalls((prev) =>
+          prev.map((tc) =>
+            tc.name === toolName && tc.status === "running"
+              ? { ...tc, status: isError ? "error" : "done" }
+              : tc
+          )
+        );
+      },
+      onDone: () => {
+        if (cleanup) return;
+        resetStreamingState();
+      },
+      onActiveTurn: (turn) => {
+        if (cleanup) return;
+        applyActiveTurnSnapshot(turn);
+      },
       onHistoryUpdated: () => {
         // Refetch history when background run completes
         if (!isStreaming()) {

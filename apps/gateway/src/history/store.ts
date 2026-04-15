@@ -156,7 +156,12 @@ export type TurnBuffer = {
   userFlushed: boolean;
   thinkingText: string;
   assistantText: string;
-  toolCalls: Array<{ id: string; name: string; args: unknown }>;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    args: unknown;
+    status: "running" | "done" | "error";
+  }>;
   toolResults: Array<{
     id: string;
     name: string;
@@ -214,6 +219,7 @@ export async function flushTurnBuffer(
       },
       userId
     );
+    buffer.userFlushed = true;
   }
 
   // 2. Assistant message
@@ -326,12 +332,21 @@ export function bufferHistoryEvent(
         id: event.id,
         name: event.name,
         args: event.args,
+        status: "running",
       });
       break;
     case "tool_result":
       if (!buffer.assistantStarted) {
         buffer.assistantStarted = true;
         buffer.startTimestamp = event.timestamp;
+      }
+      {
+        const matching = buffer.toolCalls.find(
+          (tc) => tc.id === event.id || (!tc.id && tc.name === event.name)
+        );
+        if (matching) {
+          matching.status = event.isError ? "error" : "done";
+        }
       }
       buffer.toolResults.push({
         id: event.id,

@@ -881,13 +881,31 @@ export type WsAgentChangedEvent = {
   projectId: string;
 };
 
+export type WsActiveTurnSnapshot = {
+  type: "active_turn";
+  agentId: string;
+  sessionId: string;
+  userText: string | null;
+  userTimestamp: number;
+  startedAt: number;
+  thinking: string;
+  text: string;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    arguments: unknown;
+    status: "running" | "done" | "error";
+  }>;
+};
+
 export type WsServerMessage =
   | StreamEvent
   | WsHistoryUpdatedEvent
   | WsSessionResetEvent
   | WsStatusEvent
   | WsFileChangedEvent
-  | WsAgentChangedEvent;
+  | WsAgentChangedEvent
+  | WsActiveTurnSnapshot;
 
 // History types
 

@@ -1,4 +1,5 @@
 import { agentEventBus } from "./events.js";
+import type { TurnBuffer } from "../history/store.js";
 
 export type AgentSession = {
   agentId: string;
@@ -9,7 +10,25 @@ export type AgentSession = {
   sessionHandle?: unknown; // SDK-agnostic session handle
   pendingMessages: string[];
   pendingUserMessages: Array<{ text: string; timestamp: number }>;
+  currentTurn?: TurnBuffer | null;
 };
+
+export function setSessionCurrentTurn(
+  agentId: string,
+  sessionId: string,
+  turn: TurnBuffer | null
+) {
+  const session = getOrCreateSession(agentId, sessionId);
+  session.currentTurn = turn;
+}
+
+export function getSessionCurrentTurn(
+  agentId: string,
+  sessionId: string
+): TurnBuffer | null {
+  const session = getSession(agentId, sessionId);
+  return session?.currentTurn ?? null;
+}
 
 const sessions = new Map<string, AgentSession>();
 
