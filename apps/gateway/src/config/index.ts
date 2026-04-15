@@ -55,8 +55,8 @@ export function loadConfig(): GatewayConfig {
       os.homedir()
     );
     if (!fs.existsSync(result.onecli.ca.path)) {
-      throw new Error(
-        `[onecli] CA file not found: ${result.onecli.ca.path}. Check onecli.ca.path in your config.`
+      console.warn(
+        `[onecli] CA file not found: ${result.onecli.ca.path}. OneCLI proxy may fail until the CA is installed.`
       );
     }
   }
