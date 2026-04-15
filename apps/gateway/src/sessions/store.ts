@@ -17,7 +17,7 @@ export type SessionEntry = {
 export const DEFAULT_MAIN_KEY = "main";
 export const DEFAULT_IDLE_MINUTES = 360;
 export const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
-export const DEFAULT_ABORT_TRIGGERS = ["/abort"];
+export const DEFAULT_ABORT_TRIGGERS = ["/abort", "/stop"];
 
 /**
  * Check if message is an abort trigger.

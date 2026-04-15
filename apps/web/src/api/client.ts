@@ -145,6 +145,17 @@ export async function sendMessage(
   return res.json();
 }
 
+export async function postAbort(
+  agentId: string,
+  sessionKey: string
+): Promise<void> {
+  await fetch(`${API_BASE}/agents/${agentId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "/abort", sessionKey }),
+  });
+}
+
 function getWsUrl(): string {
   // Use Vite's proxy in dev mode, direct connection in prod
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";

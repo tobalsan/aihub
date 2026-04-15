@@ -353,6 +353,9 @@ export function getContainerAdapter(): SdkAdapter {
       const containerName = getArgValue(args, "--name");
       const ipcDir = path.join(aihubHome, "ipc", params.agentId);
       const ipcInputDir = path.join(ipcDir, "input");
+      // Wipe stale IPC files from prior container runs so they don't leak into
+      // this run's follow-up queue (e.g. old "/stop" getting delivered to new session).
+      fs.rmSync(ipcInputDir, { recursive: true, force: true });
       fs.mkdirSync(ipcInputDir, { recursive: true });
       fs.mkdirSync(path.join(aihubHome, "sessions", params.agentId), {
         recursive: true,

@@ -18,6 +18,7 @@ import {
   fetchAgentStatuses,
   subscribeToSession,
   subscribeToStatus,
+  postAbort,
   type DoneMeta,
 } from "../api/client";
 import type {
@@ -1025,8 +1026,8 @@ export function ChatView() {
     }
   };
 
-  const handleStop = () => {
-    if (stopping() || !isStreaming()) return;
+  const handleStop = async () => {
+    if (stopping() || !isStreaming() || !params.agentId) return;
     setStopping(true);
     aborted = true;
 
@@ -1036,25 +1037,15 @@ export function ChatView() {
       cleanup = null;
     }
 
-    // Send /abort to server to cancel the running agent turn
-    const abortCleanup = streamMessage(
-      params.agentId,
-      "/abort",
-      sessionKey(),
-      () => {},
-      () => {
-        if (abortCleanup) abortCleanup();
-        setStopping(false);
-      },
-      () => {
-        if (abortCleanup) abortCleanup();
-        setStopping(false);
-      }
-    );
-
     // Discard any streamed content and show "Interrupted"
     resetStreamingState();
     setShowInterrupted(true);
+
+    try {
+      await postAbort(params.agentId, sessionKey());
+    } finally {
+      setStopping(false);
+    }
   };
 
   return (
@@ -1350,7 +1341,7 @@ export function ChatView() {
             classList={{ stopping: stopping() }}
             disabled={stopping()}
             onClick={handleStop}
-            aria-label="Stop"
+            aria-label="Stop agent"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <rect x="6" y="6" width="12" height="12" rx="2" />
