@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearConfigCacheForTests,
   getConfigPath,
@@ -45,7 +45,7 @@ describe("config loading", () => {
     expect(loadConfig().agents.map((agent) => agent.id)).toEqual(["custom"]);
   });
 
-  it("throws at startup when onecli CA file path does not exist", async () => {
+  it("warns at startup when onecli CA file path does not exist", async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-onecli-ca-"));
     const configPath = path.join(tmpDir, "aihub.json");
     await fs.writeFile(
@@ -62,9 +62,12 @@ describe("config loading", () => {
     );
     process.env.AIHUB_HOME = tmpDir;
 
-    expect(() => loadConfig()).toThrow(
-      /CA file not found.*\/nonexistent\/onecli-ca\.pem/
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(() => loadConfig()).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/CA file not found.*\/nonexistent\/onecli-ca\.pem/)
     );
+    warnSpy.mockRestore();
   });
 
   it("does not throw when onecli CA file path exists", async () => {
