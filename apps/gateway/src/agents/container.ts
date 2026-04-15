@@ -9,6 +9,7 @@ import type {
   OnecliConfig,
   SandboxMount,
 } from "@aihub/shared";
+import { resolveWorkspaceDir } from "../config/index.js";
 
 export type ContainerVolumeMount = {
   source: string;
@@ -23,6 +24,14 @@ const DEFAULT_NETWORK = "aihub-agents";
 const DEFAULT_GATEWAY_URL = "http://gateway:4000";
 const CONTAINER_ONECLI_CA_PATH =
   "/usr/local/share/ca-certificates/onecli-ca.pem";
+
+export function getMountedOnecliCaPath(
+  onecli?: OnecliConfig
+): string | undefined {
+  if (onecli?.ca?.source !== "file" || !onecli.ca.path) return undefined;
+  if (!fs.existsSync(resolveHostPath(onecli.ca.path))) return undefined;
+  return CONTAINER_ONECLI_CA_PATH;
+}
 const SECRET_KEY_PATTERNS = [
   "KEY",
   "SECRET",
@@ -141,7 +150,7 @@ export function buildVolumeMounts(
 ): ContainerVolumeMount[] {
   const mounts: ContainerVolumeMount[] = [];
   const sandbox = agent.sandbox;
-  const workspace = resolveHostPath(agent.workspace);
+  const workspace = resolveWorkspaceDir(agent.workspace);
   const home = resolveHostPath(aihubHome);
 
   addMount(mounts, workspace, "/workspace", !sandbox?.workspaceWritable);

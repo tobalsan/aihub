@@ -14,6 +14,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   buildContainerArgs,
   buildVolumeMounts,
+  getMountedOnecliCaPath,
 } from "../../agents/container.js";
 import { loadConfig } from "../../config/index.js";
 import {
@@ -225,7 +226,7 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
       ? {
           enabled: true,
           url: resolveOnecliProxyUrl(config, params.agentId) ?? config.onecli.gatewayUrl,
-          caPath: config.onecli.ca?.source === "file" ? "/usr/local/share/ca-certificates/onecli-ca.pem" : undefined,
+          caPath: getMountedOnecliCaPath(config.onecli),
         }
       : undefined,
     connectorConfigs: connectorConfigs.length > 0 ? connectorConfigs : undefined,
@@ -277,6 +278,14 @@ export function getContainerAdapter(): SdkAdapter {
       const ipcDir = path.join(aihubHome, "ipc", params.agentId);
       const ipcInputDir = path.join(ipcDir, "input");
       fs.mkdirSync(ipcInputDir, { recursive: true });
+      fs.mkdirSync(path.join(aihubHome, "sessions", params.agentId), {
+        recursive: true,
+      });
+      if (params.userId) {
+        fs.mkdirSync(path.join(aihubHome, "users", params.userId), {
+          recursive: true,
+        });
+      }
 
       const agentToken = randomUUID();
       registerContainerToken(agentToken, params.agentId, containerName);
