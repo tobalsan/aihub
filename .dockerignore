@@ -1,6 +1,8 @@
 # Keep docker build context small.
 **/node_modules
 **/dist
+!packages/shared/dist
+!container/agent-runner/dist
 **/*.tsbuildinfo
 **/.turbo
 **/.vite
