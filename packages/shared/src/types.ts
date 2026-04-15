@@ -319,12 +319,19 @@ export const OnecliCaConfigSchema = z.discriminatedUnion("source", [
 ]);
 export type OnecliCaConfig = z.infer<typeof OnecliCaConfigSchema>;
 
+export const OnecliSandboxConfigSchema = z.object({
+  network: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+});
+export type OnecliSandboxConfig = z.infer<typeof OnecliSandboxConfigSchema>;
+
 export const OnecliConfigSchema = z.object({
   enabled: z.boolean().optional().default(false),
   mode: z.literal("proxy").default("proxy"),
   dashboardUrl: z.string().url().optional(),
   gatewayUrl: z.string().url(),
   ca: OnecliCaConfigSchema.optional(),
+  sandbox: OnecliSandboxConfigSchema.optional(),
 });
 export type OnecliConfig = z.infer<typeof OnecliConfigSchema>;
 

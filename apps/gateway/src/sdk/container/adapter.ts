@@ -189,6 +189,35 @@ function buildConnectorConfigs(params: SdkRunParams): ContainerConnectorConfig[]
   return Array.from(connectorConfigs.values());
 }
 
+function attachExtraNetwork(containerName: string, network: string): void {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      childProcess.execFileSync(
+        "docker",
+        ["network", "connect", network, containerName],
+        { stdio: "pipe" }
+      );
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/already exists|endpoint with name/.test(msg)) return;
+      if (/No such container/.test(msg)) {
+        // container not yet running; brief retry
+        const until = Date.now() + 100;
+        while (Date.now() < until) {
+          /* spin */
+        }
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(
+    `Failed to connect container ${containerName} to network ${network}`
+  );
+}
+
 function resolveOnecliProxyUrl(
   config: GatewayConfig,
   agentId: string
@@ -196,14 +225,18 @@ function resolveOnecliProxyUrl(
   const onecli = config.onecli;
   if (!onecli?.enabled || !onecli.gatewayUrl) return undefined;
   const agent = config.agents.find((a) => a.id === agentId);
-  const gatewayToken = agent?.onecliToken;
-  if (gatewayToken) {
-    const url = new URL(onecli.gatewayUrl);
-    url.username = "onecli";
-    url.password = gatewayToken;
-    return url.toString().replace(/\/$/, "");
+  const base = onecli.sandbox?.url ?? onecli.gatewayUrl;
+  const url = new URL(base);
+  if (!onecli.sandbox?.url) {
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+      url.hostname = "host.docker.internal";
+    }
   }
-  return onecli.gatewayUrl;
+  if (agent?.onecliToken) {
+    url.username = "onecli";
+    url.password = agent.onecliToken;
+  }
+  return url.toString().replace(/\/$/, "");
 }
 
 function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
@@ -293,6 +326,10 @@ export function getContainerAdapter(): SdkAdapter {
       const child = childProcess.spawn("docker", args, {
         stdio: ["pipe", "pipe", "pipe"],
       });
+      const extraNetwork = config.onecli?.sandbox?.network;
+      if (extraNetwork) {
+        attachExtraNetwork(containerName, extraNetwork);
+      }
       const handle: ContainerSessionHandle = { containerName, ipcDir };
       params.onSessionHandle?.(handle);
 
@@ -445,7 +482,9 @@ export function getContainerAdapter(): SdkAdapter {
           }
         });
         child.stderr?.on("data", (chunk: Buffer | string) => {
-          stderr += chunk.toString();
+          const text = chunk.toString();
+          stderr += text;
+          console.error(`[container:${params.agentId}] ${text.trimEnd()}`);
         });
         child.once("error", (error) => {
           if (settled) return;

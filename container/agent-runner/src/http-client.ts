@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import type { Dispatcher } from "undici";
-import { ProxyAgent } from "undici";
+import { EnvHttpProxyAgent, ProxyAgent, setGlobalDispatcher } from "undici";
 
 export type ContainerOnecliConfig = {
   enabled: boolean;
@@ -16,6 +16,7 @@ export function createContainerHttpClient(
   onecliConfig?: ContainerOnecliConfig
 ): ContainerHttpClient {
   const dispatcher = createDispatcher(onecliConfig);
+  installGlobalProxy(onecliConfig);
 
   return {
     async fetch(input: string | URL, init?: RequestInit): Promise<Response> {
@@ -36,6 +37,25 @@ function mergeInit(
     ...init,
     dispatcher,
   } as RequestInit & { dispatcher: Dispatcher };
+}
+
+let globalProxyInstalled = false;
+
+function installGlobalProxy(
+  onecliConfig: ContainerOnecliConfig | undefined
+): void {
+  if (globalProxyInstalled || !onecliConfig?.enabled) {
+    return;
+  }
+  const requestTls = onecliConfig.caPath
+    ? { ca: fs.readFileSync(onecliConfig.caPath, "utf8") }
+    : undefined;
+  setGlobalDispatcher(
+    new EnvHttpProxyAgent({
+      ...(requestTls ? { requestTls } : {}),
+    })
+  );
+  globalProxyInstalled = true;
 }
 
 function createDispatcher(

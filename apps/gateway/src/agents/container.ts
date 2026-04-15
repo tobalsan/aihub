@@ -177,6 +177,11 @@ export function buildVolumeMounts(
   addMount(mounts, path.join(home, "sessions", agent.id), "/sessions", false);
   addMount(mounts, path.join(home, "ipc", agent.id), "/workspace/ipc", false);
 
+  const modelsPath = path.join(home, "models.json");
+  if (fs.existsSync(modelsPath)) {
+    addMount(mounts, modelsPath, "/sessions/models.json", true);
+  }
+
   if (onecli?.ca?.source === "file" && onecli.ca.path) {
     const caPath = resolveHostPath(onecli.ca.path);
     if (fs.existsSync(caPath)) {
@@ -239,6 +244,25 @@ export function filterSecretEnvVars(
   return filtered;
 }
 
+function buildContainerOnecliProxyUrl(
+  onecli: OnecliConfig | undefined,
+  agent: AgentConfig
+): string | undefined {
+  if (!onecli?.gatewayUrl) return undefined;
+  const base = onecli.sandbox?.url ?? onecli.gatewayUrl;
+  const url = new URL(base);
+  if (!onecli.sandbox?.url) {
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+      url.hostname = "host.docker.internal";
+    }
+  }
+  if (agent.onecliToken) {
+    url.username = "onecli";
+    url.password = agent.onecliToken;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 export function buildContainerArgs(
   agent: AgentConfig,
   globalSandbox: GlobalSandboxConfig,
@@ -248,7 +272,7 @@ export function buildContainerArgs(
   onecli?: OnecliConfig
 ): string[] {
   const sandbox = agent.sandbox;
-  const onecliEnabled = onecli?.enabled !== false;
+  const onecliEnabled = onecli?.enabled !== false && !!onecli?.gatewayUrl;
   const args = [
     "run",
     "-i",
@@ -263,6 +287,8 @@ export function buildContainerArgs(
     String(sandbox?.cpus ?? DEFAULT_CPUS),
     "--network",
     sandbox?.network ?? globalSandbox.network?.name ?? DEFAULT_NETWORK,
+    "--add-host",
+    "host.docker.internal:host-gateway",
   ];
 
   for (const mount of mounts) {
@@ -274,15 +300,29 @@ export function buildContainerArgs(
     );
   }
 
+  const containerProxyUrl = onecliEnabled
+    ? buildContainerOnecliProxyUrl(onecli, agent)
+    : undefined;
+  const caMountedInContainer = onecliEnabled
+    ? getMountedOnecliCaPath(onecli)
+    : undefined;
+
   const env: Record<string, string> = {
     GATEWAY_URL: DEFAULT_GATEWAY_URL,
-    ...(onecliEnabled && onecli?.gatewayUrl
+    ...(containerProxyUrl
       ? {
-          NODE_TLS_REJECT_UNAUTHORIZED: "0",
-          ONECLI_URL: onecli.gatewayUrl,
-          ONECLI_CA_PATH: CONTAINER_ONECLI_CA_PATH,
-          ANTHROPIC_BASE_URL: onecli.gatewayUrl,
-          OPENAI_BASE_URL: `${onecli.gatewayUrl.replace(/\/$/, "")}/v1`,
+          ONECLI_URL: containerProxyUrl,
+          HTTP_PROXY: containerProxyUrl,
+          HTTPS_PROXY: containerProxyUrl,
+          NO_PROXY: "gateway,host.docker.internal,localhost,127.0.0.1",
+          ...(caMountedInContainer
+            ? {
+                NODE_EXTRA_CA_CERTS: caMountedInContainer,
+                SSL_CERT_FILE: caMountedInContainer,
+                REQUESTS_CA_BUNDLE: caMountedInContainer,
+                ONECLI_CA_PATH: caMountedInContainer,
+              }
+            : { NODE_TLS_REJECT_UNAUTHORIZED: "0" }),
         }
       : {}),
     ...filterSecretEnvVars(sandbox?.env),
