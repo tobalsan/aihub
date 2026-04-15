@@ -237,9 +237,9 @@ describe("buildContainerArgs", () => {
         "NODE_TLS_REJECT_UNAUTHORIZED=0",
         "GATEWAY_URL=http://gateway:4000",
         "ONECLI_URL=http://onecli:4141",
-        "ONECLI_CA_PATH=/usr/local/share/ca-certificates/onecli-ca.pem",
-        "ANTHROPIC_BASE_URL=http://onecli:4141",
-        "OPENAI_BASE_URL=http://onecli:4141/v1",
+        "HTTP_PROXY=http://onecli:4141",
+        "HTTPS_PROXY=http://onecli:4141",
+        "NO_PROXY=gateway,host.docker.internal,localhost,127.0.0.1",
         "CUSTOM_VAR=value",
       ])
     );

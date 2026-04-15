@@ -2,6 +2,8 @@ import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const proxyAgentMock = vi.fn();
+const envProxyAgentMock = vi.fn();
+const setGlobalDispatcherMock = vi.fn();
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -17,6 +19,8 @@ vi.mock("node:fs", async (importOriginal) => {
 
 vi.mock("undici", () => ({
   ProxyAgent: proxyAgentMock,
+  EnvHttpProxyAgent: envProxyAgentMock,
+  setGlobalDispatcher: setGlobalDispatcherMock,
 }));
 
 type FetchMock = (input: string | URL, init?: RequestInit) => Promise<Response>;

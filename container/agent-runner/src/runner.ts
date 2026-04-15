@@ -442,29 +442,35 @@ async function callConnectorTool(
   args: unknown,
   agentId: string
 ): Promise<unknown> {
-  const response = await fetch(
-    new URL("/connectors/tools", input.gatewayUrl),
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "X-Agent-Id": agentId,
-        "X-Agent-Token": input.agentToken,
-      },
-      body: JSON.stringify({
-        connectorId,
-        tool,
-        args,
-        agentId,
-        agentToken: input.agentToken,
-      }),
-    }
-  );
-  const result = (await response.json()) as unknown;
+  const url = new URL("/connectors/tools", input.gatewayUrl);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Agent-Id": agentId,
+      "X-Agent-Token": input.agentToken,
+    },
+    body: JSON.stringify({
+      connectorId,
+      tool,
+      args,
+      agentId,
+      agentToken: input.agentToken,
+    }),
+  });
+  const text = await response.text();
   if (!response.ok) {
-    throw new Error(`Connector tool ${tool} failed with ${response.status}`);
+    throw new Error(
+      `Connector tool ${tool} failed with ${response.status}: ${text.slice(0, 200)}`
+    );
   }
-  return result;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Connector tool ${tool} returned non-JSON body: ${text.slice(0, 200)}`
+    );
+  }
 }
 
 function gatewayTool(

@@ -34,8 +34,17 @@ import type {
 const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 const OUTPUT_END = "---AIHUB_OUTPUT_END---";
 const EVENT_PREFIX = "---AIHUB_EVENT---";
-const DEFAULT_GATEWAY_URL = "http://gateway:4000";
+const DEFAULT_GATEWAY_PORT = 4000;
 const DEFAULT_TIMEOUT_SECONDS = 300;
+
+function resolveContainerGatewayUrl(config: GatewayConfig): string {
+  if (config.server?.baseUrl) return config.server.baseUrl;
+  const envPort = Number(process.env.AIHUB_GATEWAY_PORT);
+  const port = Number.isFinite(envPort) && envPort > 0
+    ? envPort
+    : config.gateway?.port ?? DEFAULT_GATEWAY_PORT;
+  return `http://host.docker.internal:${port}`;
+}
 const STOP_GRACE_MS = 10_000;
 
 type ContainerSessionHandle = {
@@ -253,7 +262,7 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
     workspaceDir: "/workspace",
     sessionDir: "/sessions",
     ipcDir: "/workspace/ipc",
-    gatewayUrl: config.server?.baseUrl ?? DEFAULT_GATEWAY_URL,
+    gatewayUrl: resolveContainerGatewayUrl(config),
     agentToken,
     onecli: config.onecli?.enabled && config.onecli.gatewayUrl
       ? {

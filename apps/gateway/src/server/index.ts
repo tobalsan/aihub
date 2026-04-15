@@ -502,6 +502,7 @@ export function startServer(port?: number, host?: string) {
   }
 
   console.log(`Starting gateway server on ${resolvedHost}:${resolvedPort}`);
+  process.env.AIHUB_GATEWAY_PORT = String(resolvedPort);
 
   const server = serve({
     fetch: app.fetch,
