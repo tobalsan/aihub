@@ -14,7 +14,11 @@ import type {
 import { api } from "./api.core.js";
 import { connectorTools } from "./connector-tools.js";
 import { internalTools } from "./internal-tools.js";
-import { cleanupOrphanContainers, ensureNetwork } from "../agents/container.js";
+import {
+  cleanupOrphanContainers,
+  ensureAgentImage,
+  ensureNetwork,
+} from "../agents/container.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import {
@@ -472,6 +476,14 @@ export function startServer(port?: number, host?: string) {
     try {
       ensureNetwork(networkName, internal);
       cleanupOrphanContainers();
+      const images = new Set(
+        config.agents
+          .filter((a) => a.sandbox?.enabled)
+          .map((a) => a.sandbox?.image ?? "aihub-agent:latest")
+      );
+      for (const image of images) {
+        ensureAgentImage(image);
+      }
       console.log("Container sandbox: network ready, orphans cleaned");
     } catch (error) {
       console.error("Container sandbox setup failed:", error);

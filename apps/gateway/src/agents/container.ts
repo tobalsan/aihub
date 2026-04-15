@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AgentConfig,
   GlobalSandboxConfig,
@@ -308,6 +309,52 @@ export function ensureNetwork(networkName: string, internal: boolean): void {
       { stdio: "ignore" }
     );
   }
+}
+
+function findRepoRoot(): string | null {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 10; i++) {
+    if (fs.existsSync(path.join(dir, "container/agent-runner/Dockerfile"))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+export function ensureAgentImage(image: string): void {
+  try {
+    execFileSync("docker", ["image", "inspect", image], { stdio: "ignore" });
+    return;
+  } catch {
+    // not present — build below
+  }
+  if (image !== DEFAULT_IMAGE) {
+    throw new Error(
+      `Sandbox image ${image} not present locally; build it before starting the gateway.`
+    );
+  }
+  const repoRoot = findRepoRoot();
+  if (!repoRoot) {
+    throw new Error(
+      `Cannot locate container/agent-runner/Dockerfile to build ${image}`
+    );
+  }
+  console.log(`Container sandbox: building ${image} (first run)...`);
+  execFileSync(
+    "docker",
+    [
+      "build",
+      "-t",
+      image,
+      "-f",
+      "container/agent-runner/Dockerfile",
+      repoRoot,
+    ],
+    { stdio: "inherit" }
+  );
 }
 
 export function cleanupOrphanContainers(): void {
