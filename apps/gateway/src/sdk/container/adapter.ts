@@ -17,6 +17,7 @@ import {
   buildContainerArgs,
   buildVolumeMounts,
   CONTAINER_DATA_DIR,
+  CONTAINER_UPLOADS_DIR,
   getAgentDataDir,
   getSessionUploadsDir,
   getMountedOnecliCaPath,
@@ -463,6 +464,22 @@ function resolveOnecliProxyUrl(
   return url.toString().replace(/\/$/, "");
 }
 
+function remapAttachmentsToContainer(
+  attachments: FileAttachment[] | undefined
+): FileAttachment[] | undefined {
+  if (!attachments?.length) return attachments;
+  return attachments.map((attachment, index) => {
+    const safeName = sanitizeFilename(
+      attachment.filename ?? path.basename(attachment.path),
+      path.basename(attachment.path)
+    );
+    return {
+      ...attachment,
+      path: path.join(CONTAINER_UPLOADS_DIR, `${index + 1}-${safeName}`),
+    };
+  });
+}
+
 function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
   const config = loadConfig();
   const connectorConfigs = buildConnectorConfigs(params);
@@ -471,7 +488,7 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
     sessionId: params.sessionId,
     userId: params.userId,
     message: params.message,
-    attachments: params.attachments,
+    attachments: remapAttachmentsToContainer(params.attachments),
     thinkLevel: params.thinkLevel,
     context: params.context,
     workspaceDir: "/workspace",
