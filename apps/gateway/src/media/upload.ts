@@ -50,6 +50,27 @@ const MIME_TO_EXTENSIONS: Record<string, string[]> = {
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["xlsx"],
 };
 
+const EXTENSION_TO_MIME_TYPES: Record<string, string[]> = {
+  jpg: ["image/jpeg"],
+  jpeg: ["image/jpeg"],
+  png: ["image/png"],
+  gif: ["image/gif"],
+  webp: ["image/webp"],
+  svg: ["image/svg+xml"],
+  pdf: ["application/pdf"],
+  txt: ["text/plain"],
+  md: ["text/markdown", "text/plain"],
+  csv: ["text/csv", "text/plain", "application/vnd.ms-excel"],
+  doc: ["application/msword"],
+  docx: [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ],
+  xls: ["application/vnd.ms-excel"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+};
+
+const ALLOWED_EXTENSIONS = new Set(Object.keys(EXTENSION_TO_MIME_TYPES));
+
 export interface UploadResult {
   path: string;
   filename: string;
@@ -70,11 +91,58 @@ export class UploadTooLargeError extends Error {
   }
 }
 
+export class UploadTypeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadTypeError";
+  }
+}
+
 /**
  * Check if a MIME type is allowed for upload
  */
 export function isAllowedMimeType(mimeType: string): boolean {
   return ALLOWED_MIME_TYPES.has(mimeType);
+}
+
+function getExtension(originalFilename?: string): string | null {
+  if (!originalFilename) return null;
+  const ext = path.extname(originalFilename).slice(1).toLowerCase();
+  return ext || null;
+}
+
+export function resolveUploadMimeType(
+  mimeType: string | undefined,
+  originalFilename?: string
+): string {
+  const ext = getExtension(originalFilename);
+  if (!ext || !ALLOWED_EXTENSIONS.has(ext)) {
+    throw new UploadTypeError(
+      `Unsupported file extension: ${ext ? `.${ext}` : "(none)"}`
+    );
+  }
+
+  const allowedForExtension = EXTENSION_TO_MIME_TYPES[ext] ?? [];
+  const normalizedMimeType = (mimeType ?? "").toLowerCase();
+
+  if (
+    !normalizedMimeType ||
+    normalizedMimeType === "application/octet-stream"
+  ) {
+    return allowedForExtension[0] ?? "application/octet-stream";
+  }
+
+  if (!isAllowedMimeType(normalizedMimeType)) {
+    throw new UploadTypeError(`Unsupported file type: ${normalizedMimeType}`);
+  }
+
+  if (!allowedForExtension.includes(normalizedMimeType)) {
+    throw new UploadTypeError(
+      `File extension .${ext} does not match MIME type ${normalizedMimeType}`
+    );
+  }
+
+  return normalizedMimeType;
 }
 
 /**
@@ -87,8 +155,8 @@ function getExtensionFromMime(
   const allowedExtensions = MIME_TO_EXTENSIONS[mimeType] ?? [];
 
   if (originalFilename) {
-    const ext = path.extname(originalFilename).slice(1).toLowerCase();
-    if (allowedExtensions.includes(ext)) return ext;
+    const ext = getExtension(originalFilename);
+    if (ext && allowedExtensions.includes(ext)) return ext;
   }
 
   return allowedExtensions[0] ?? "bin";
@@ -117,7 +185,12 @@ export async function saveUploadedFile(
   mimeType: string,
   originalFilename?: string
 ): Promise<UploadResult> {
-  const ext = getExtensionFromMime(mimeType, originalFilename);
+  const resolvedMimeType = resolveUploadMimeType(mimeType, originalFilename);
+  const originalExt = getExtension(originalFilename);
+  const ext =
+    originalExt && ALLOWED_EXTENSIONS.has(originalExt)
+      ? originalExt
+      : getExtensionFromMime(resolvedMimeType, originalFilename);
   const fileId = randomUUID();
   const filename = `${fileId}.${ext}`;
   const filepath = path.join(getMediaInboundDir(), filename);
@@ -135,14 +208,14 @@ export async function saveUploadedFile(
     filename: sanitizeFilename(originalFilename, filename),
     storedFilename: filename,
     path: filepath,
-    mimeType,
+    mimeType: resolvedMimeType,
     size: buffer.length,
   });
 
   return {
     path: filepath,
     filename,
-    mimeType,
+    mimeType: resolvedMimeType,
     size: buffer.length,
   };
 }

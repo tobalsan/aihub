@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import {
   appendAttachmentContext,
   buildDocumentAttachmentContext,
+  normalizeInboundAttachments,
 } from "../attachments.js";
 
 const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
@@ -178,8 +179,9 @@ export const openclawAdapter: SdkAdapter = {
 
     // Append file paths to message - OpenClaw detects and loads them automatically
     let messageToSend = textContent;
-    if (params.attachments && params.attachments.length > 0) {
-      const filePaths = params.attachments.map((a) => a.path);
+    const attachments = await normalizeInboundAttachments(params.attachments);
+    if (attachments && attachments.length > 0) {
+      const filePaths = attachments.map((a) => a.path);
       messageToSend = `${textContent}\n\n${filePaths.join("\n")}`;
     }
 

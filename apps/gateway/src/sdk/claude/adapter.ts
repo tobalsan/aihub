@@ -1,6 +1,5 @@
 import type { AgentConfig, AgentModelConfig } from "@aihub/shared";
 import path from "node:path";
-import fs from "node:fs/promises";
 import { z } from "zod";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
@@ -27,6 +26,7 @@ import {
   appendAttachmentContext,
   buildDocumentAttachmentContext,
   isImageAttachment,
+  readInboundAttachment,
 } from "../attachments.js";
 
 // Module-level lock for serializing runs that modify env vars
@@ -247,7 +247,7 @@ export const claudeAdapter: SdkAdapter = {
         if (imageAttachments.length > 0) {
           const imageBlocks = await Promise.all(
             imageAttachments.map(async (attachment) => {
-              const buffer = await fs.readFile(attachment.path);
+              const buffer = await readInboundAttachment(attachment);
               return {
                 type: "image" as const,
                 source: {

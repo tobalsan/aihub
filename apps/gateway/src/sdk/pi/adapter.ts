@@ -34,6 +34,7 @@ import {
   appendAttachmentContext,
   buildDocumentAttachmentContext,
   isImageAttachment,
+  readInboundAttachment,
 } from "../attachments.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
@@ -376,7 +377,7 @@ export const piAdapter: SdkAdapter = {
         if (imageAttachments.length > 0) {
           images = await Promise.all(
             imageAttachments.map(async (attachment) => {
-              const buffer = await fs.readFile(attachment.path);
+              const buffer = await readInboundAttachment(attachment);
               return {
                 type: "image" as const,
                 data: buffer.toString("base64"),

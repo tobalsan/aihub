@@ -1,6 +1,8 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { FileAttachment } from "@aihub/shared";
 import { extractText } from "../media/extract.js";
+import { getMediaInboundDir } from "../media/metadata.js";
 
 export function isImageAttachment(attachment: FileAttachment): boolean {
   return attachment.mimeType.startsWith("image/");
@@ -8,6 +10,38 @@ export function isImageAttachment(attachment: FileAttachment): boolean {
 
 export function getAttachmentFilename(attachment: FileAttachment): string {
   return attachment.filename ?? path.basename(attachment.path);
+}
+
+function ensurePathWithinDir(filePath: string, dir: string): void {
+  const relative = path.relative(dir, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Attachment path is outside inbound media directory");
+  }
+}
+
+export async function normalizeInboundAttachment(
+  attachment: FileAttachment
+): Promise<FileAttachment> {
+  const [realInboundDir, realPath] = await Promise.all([
+    fs.realpath(getMediaInboundDir()),
+    fs.realpath(attachment.path),
+  ]);
+  ensurePathWithinDir(realPath, realInboundDir);
+  return { ...attachment, path: realPath };
+}
+
+export async function normalizeInboundAttachments(
+  attachments: FileAttachment[] | undefined
+): Promise<FileAttachment[] | undefined> {
+  if (!attachments?.length) return attachments;
+  return Promise.all(attachments.map(normalizeInboundAttachment));
+}
+
+export async function readInboundAttachment(
+  attachment: FileAttachment
+): Promise<Buffer> {
+  const normalized = await normalizeInboundAttachment(attachment);
+  return fs.readFile(normalized.path);
 }
 
 export async function buildDocumentAttachmentContext(
@@ -22,7 +56,8 @@ export async function buildDocumentAttachmentContext(
   for (const attachment of documents) {
     let text: string | null;
     try {
-      text = await extractText(attachment.path, attachment.mimeType);
+      const normalized = await normalizeInboundAttachment(attachment);
+      text = await extractText(normalized.path, attachment.mimeType);
     } catch {
       continue;
     }

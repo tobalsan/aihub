@@ -32,10 +32,11 @@ import {
 } from "../sessions/index.js";
 import {
   saveUploadedFile,
-  isAllowedMimeType,
+  resolveUploadMimeType,
   getAllowedMimeTypes,
   MAX_UPLOAD_SIZE_BYTES,
   UploadTooLargeError,
+  UploadTypeError,
 } from "../media/upload.js";
 import {
   getMediaInboundDir,
@@ -341,11 +342,13 @@ api.post("/media/upload", async (c) => {
       );
     }
 
-    const mimeType = file.type || "application/octet-stream";
-    if (!isAllowedMimeType(mimeType)) {
+    let mimeType: string;
+    try {
+      mimeType = resolveUploadMimeType(file.type, file.name);
+    } catch (error) {
       return c.json(
         {
-          error: `Unsupported file type: ${mimeType}`,
+          error: error instanceof Error ? error.message : "Unsupported file",
           allowedTypes: getAllowedMimeTypes(),
         },
         400
@@ -364,6 +367,12 @@ api.post("/media/upload", async (c) => {
           maxSize: MAX_UPLOAD_SIZE_BYTES,
         },
         413
+      );
+    }
+    if (err instanceof UploadTypeError) {
+      return c.json(
+        { error: err.message, allowedTypes: getAllowedMimeTypes() },
+        400
       );
     }
 

@@ -142,21 +142,12 @@ function setConfig(agent: AgentConfig, root: string): void {
 
 function createParams(agent: AgentConfig): SdkRunParams {
   const abortController = new AbortController();
-  const aihubHome =
-    process.env.AIHUB_HOME ?? path.join(path.dirname(agent.workspace), "aihub");
-  const attachmentPath = path.join(aihubHome, "media", "inbound", "upload.txt");
-  fs.mkdirSync(path.dirname(attachmentPath), { recursive: true });
-  fs.writeFileSync(attachmentPath, "uploaded");
-
   return {
     agentId: agent.id,
     agent,
     userId: "user-1",
     sessionId: "session-1",
     message: "hello",
-    attachments: [
-      { path: attachmentPath, mimeType: "text/plain", filename: "upload.txt" },
-    ],
     workspaceDir: agent.workspace,
     thinkLevel: "medium",
     onEvent: vi.fn(),

@@ -32,6 +32,7 @@ import {
 } from "../sessions/index.js";
 import { invalidateResolvedHistoryFile } from "../history/store.js";
 import { getSessionCurrentTurn, isStreaming } from "../agents/index.js";
+import { normalizeInboundAttachments } from "../sdk/attachments.js";
 
 type RequestAuthContext =
   import("../components/multi-user/middleware.js").RequestAuthContext;
@@ -291,13 +292,14 @@ function handleWsConnection(
 
       try {
         const userId = authContext?.session.userId;
+        const attachments = await normalizeInboundAttachments(msg.attachments);
         // Handle /abort - skip session resolution to avoid creating new session
         if (isAbortTrigger(msg.message)) {
           await runAgent({
             agentId: msg.agentId,
             userId,
             message: msg.message,
-            attachments: msg.attachments,
+            attachments,
             sessionId: msg.sessionId,
             sessionKey: msg.sessionKey,
             onEvent: (event) => sendWs(ws, event),
@@ -357,7 +359,7 @@ function handleWsConnection(
           agentId: msg.agentId,
           userId,
           message: msg.message,
-          attachments: msg.attachments,
+          attachments,
           sessionId: msg.sessionId ?? (resolvedSession ? undefined : "default"),
           sessionKey: resolvedSession ? undefined : (msg.sessionKey ?? "main"),
           resolvedSession,

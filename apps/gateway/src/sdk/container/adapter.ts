@@ -85,7 +85,6 @@ const historyEventTypes = new Set<HistoryEvent["type"]>([
   "assistant_file",
   "tool_call",
   "tool_result",
-  "file_output",
   "turn_end",
   "meta",
   "system_context",
@@ -306,7 +305,6 @@ async function handleFileOutputEvent(
   });
 }
 
-
 function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
   if (event.type === "assistant_text") {
     params.onEvent({ type: "text", data: event.text });
@@ -351,15 +349,6 @@ function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
       details: event.details,
     });
     return;
-  }
-  if (event.type === "file_output") {
-    params.onEvent({
-      type: "file_output",
-      fileId: event.fileId,
-      filename: event.filename,
-      mimeType: event.mimeType,
-      size: event.size,
-    });
   }
 }
 

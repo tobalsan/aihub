@@ -62,19 +62,25 @@ describe("media upload API", () => {
   });
 
   it("uploads allowed document files", async () => {
-    const mimeTypes = [
-      "application/pdf",
-      "text/plain",
-      "text/markdown",
-      "text/csv",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "application/vnd.ms-excel",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    const files = [
+      ["test.pdf", "application/pdf"],
+      ["test.txt", "text/plain"],
+      ["test.md", "text/markdown"],
+      ["test.csv", "text/csv"],
+      ["test.doc", "application/msword"],
+      [
+        "test.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ],
+      ["test.xls", "application/vnd.ms-excel"],
+      [
+        "test.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ],
     ];
 
-    for (const mimeType of mimeTypes) {
-      const file = new File([new Uint8Array([1])], "test.txt", {
+    for (const [filename, mimeType] of files) {
+      const file = new File([new Uint8Array([1])], filename, {
         type: mimeType,
       });
       const formData = new FormData();
@@ -89,6 +95,42 @@ describe("media upload API", () => {
 
       expect(res.status).toBe(200);
     }
+  });
+
+  it("rejects mismatched upload extensions", async () => {
+    const file = new File([new Uint8Array([1])], "test.pdf", {
+      type: "image/png",
+    });
+    const formData = new FormData();
+    formData.set("file", file);
+
+    const res = await Promise.resolve(
+      api.request("/media/upload", {
+        method: "POST",
+        body: formData,
+      })
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain("does not match");
+  });
+
+  it("accepts allowed extensions when browser MIME is blank", async () => {
+    const file = new File([new Uint8Array([1])], "notes.md", { type: "" });
+    const formData = new FormData();
+    formData.set("file", file);
+
+    const res = await Promise.resolve(
+      api.request("/media/upload", {
+        method: "POST",
+        body: formData,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.mimeType).toBe("text/markdown");
   });
 
   it("rejects files larger than 25MB", async () => {
@@ -126,7 +168,7 @@ describe("media upload API", () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain("Unsupported file type");
+    expect(json.error).toContain("Unsupported file");
     expect(Array.isArray(json.allowedTypes)).toBe(true);
   });
 
