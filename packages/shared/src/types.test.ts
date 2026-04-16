@@ -55,6 +55,22 @@ describe("AgentConfigSchema openclaw model handling", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts description and avatar fields", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "test-agent",
+      name: "Test Agent",
+      description: "A helpful assistant",
+      avatar: "🤖",
+      workspace: "~/agents/test",
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.description).toBe("A helpful assistant");
+      expect(result.data.avatar).toBe("🤖");
+    }
+  });
+
   it("accepts openclaw sessionMode fixed", () => {
     const result = AgentConfigSchema.safeParse({
       id: "openclaw-agent",

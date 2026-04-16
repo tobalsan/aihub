@@ -40,6 +40,10 @@ import { renderMarkdown } from "../lib/markdown";
 import { isComponentEnabled } from "../lib/capabilities";
 import { getMaxContextTokens } from "@aihub/shared/model-context";
 
+function isEmoji(str: string): boolean {
+  return /^\p{Emoji}/u.test(str) && str.length <= 4;
+}
+
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
 const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
@@ -1389,12 +1393,29 @@ export function ChatView() {
           </svg>
         </A>
         <div class="agent-info">
-          <div class="agent-name">{agent()?.name ?? "Loading..."}</div>
-          <div class="agent-status">
-            <span class="status-dot" classList={{ active: isStreaming() }} />
-            <span class="status-text">
-              {isStreaming() ? "thinking" : "online"}
-            </span>
+          <Show when={agent()?.avatar}>
+            {(avatar) => (
+              <div class="agent-avatar">
+                {isEmoji(avatar()) ? (
+                  <span class="avatar-emoji">{avatar()}</span>
+                ) : (
+                  <img src={avatar()} alt={agent()?.name} class="avatar-img" />
+                )}
+              </div>
+            )}
+          </Show>
+          <div class="agent-info-text">
+            <div class="agent-name">{agent()?.name ?? "Loading..."}</div>
+            <div class="agent-status">
+              <span class="status-dot" classList={{ active: isStreaming() }} />
+              <span class="status-text">
+                {isStreaming() ? "thinking" : "online"}
+              </span>
+              <Show when={agent()?.description}>
+                <span class="agent-description-sep">&middot;</span>
+                <span class="agent-description-inline">{agent()!.description}</span>
+              </Show>
+            </div>
           </div>
         </div>
         <Show when={isComponentEnabled("projects")}>
@@ -1863,9 +1884,53 @@ export function ChatView() {
 
         .agent-info {
           display: flex;
+          align-items: center;
+          gap: 10px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .agent-info-text {
+          display: flex;
           flex-direction: column;
           gap: 2px;
-          flex: 1;
+          min-width: 0;
+        }
+
+        .agent-avatar {
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+          background: var(--surface-1);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          overflow: hidden;
+        }
+
+        .avatar-emoji {
+          font-size: 20px;
+          line-height: 1;
+        }
+
+        .avatar-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .agent-description-sep {
+          color: var(--text-muted);
+          margin: 0 2px;
+        }
+
+        .agent-description-inline {
+          font-size: 12px;
+          color: var(--text-muted);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .agent-name {

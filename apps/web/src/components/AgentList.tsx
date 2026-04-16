@@ -9,6 +9,10 @@ function shortenPath(path: string): string {
   return path;
 }
 
+function isEmoji(str: string): boolean {
+  return /^\p{Emoji}/u.test(str) && str.length <= 4;
+}
+
 export function AgentList() {
   const [agents] = createResource(fetchAgents);
 
@@ -55,16 +59,34 @@ export function AgentList() {
           <For each={agents()}>
             {(agent) => (
               <A href={`/chat/${agent.id}`} class="agent-card">
-                <div class="agent-name">{agent.name}</div>
-                <div class="agent-meta">
-                  <span class="agent-model">
-                    {agent.model.provider}/{agent.model.model}
-                  </span>
-                  {agent.workspace && (
-                    <span class="agent-workspace">
-                      {shortenPath(agent.workspace)}
-                    </span>
-                  )}
+                <div class="agent-card-row">
+                  <Show when={agent.avatar}>
+                    {(avatar) => (
+                      <div class="agent-avatar">
+                        {isEmoji(avatar()) ? (
+                          <span class="avatar-emoji">{avatar()}</span>
+                        ) : (
+                          <img src={avatar()} alt={agent.name} class="avatar-img" />
+                        )}
+                      </div>
+                    )}
+                  </Show>
+                  <div class="agent-card-body">
+                    <div class="agent-name">{agent.name}</div>
+                    <Show when={agent.description}>
+                      <div class="agent-description">{agent.description}</div>
+                    </Show>
+                    <div class="agent-meta">
+                      <span class="agent-model">
+                        {agent.model.provider}/{agent.model.model}
+                      </span>
+                      {agent.workspace && (
+                        <span class="agent-workspace">
+                          {shortenPath(agent.workspace)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </A>
             )}
@@ -185,6 +207,49 @@ export function AgentList() {
           font-size: 12px;
           color: var(--text-muted);
           font-family: monospace;
+        }
+
+        .agent-card-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+        }
+
+        .agent-avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 10px;
+          background: var(--bg-raised);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          overflow: hidden;
+        }
+
+        .avatar-emoji {
+          font-size: 22px;
+          line-height: 1;
+        }
+
+        .avatar-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .agent-card-body {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .agent-description {
+          font-size: 13px;
+          color: var(--text-secondary);
+          margin-bottom: 4px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
       `}</style>
     </div>

@@ -127,6 +127,17 @@ api.get("/capabilities", async (c) => {
   });
 });
 
+/** Resolve avatar for API response: relative paths become /api/agents/:id/avatar */
+function resolveAvatarForApi(
+  avatar: string | undefined,
+  agentId: string
+): string | undefined {
+  if (!avatar) return undefined;
+  if (/^\p{Emoji}/u.test(avatar) && avatar.length <= 4) return avatar;
+  if (/^https?:\/\//i.test(avatar)) return avatar;
+  return `/api/agents/${agentId}/avatar`;
+}
+
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", async (c) => {
   const agents = await getVisibleAgents(c);
@@ -134,6 +145,8 @@ api.get("/agents", async (c) => {
     agents.map((a) => ({
       id: a.id,
       name: a.name,
+      description: a.description,
+      avatar: resolveAvatarForApi(a.avatar, a.id),
       model: a.model,
       sdk: a.sdk ?? "pi",
       workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
@@ -160,6 +173,8 @@ api.get("/agents/:id", (c) => {
   return c.json({
     id: agent.id,
     name: agent.name,
+    description: agent.description,
+    avatar: resolveAvatarForApi(agent.avatar, agent.id),
     model: agent.model,
     sdk: agent.sdk ?? "pi",
     workspace: agent.workspace
@@ -168,6 +183,41 @@ api.get("/agents/:id", (c) => {
     authMode: agent.auth?.mode,
     queueMode: agent.queueMode ?? "queue",
   });
+});
+
+// GET /api/agents/:id/avatar - serve avatar image from workspace
+api.get("/agents/:id/avatar", async (c) => {
+  const agentId = c.req.param("id");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId) || !agent.avatar || !agent.workspace) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const wsDir = resolveWorkspaceDir(agent.workspace);
+  const filePath = path.resolve(wsDir, agent.avatar);
+  // Prevent path traversal outside workspace
+  if (!filePath.startsWith(wsDir)) {
+    return c.json({ error: "Invalid path" }, 400);
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return c.json({ error: "Not found" }, 404);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".svg": "image/svg+xml",
+      ".webp": "image/webp",
+    };
+    const contentType = mimeMap[ext] ?? "application/octet-stream";
+    const stream = createReadStream(filePath);
+    c.header("Content-Type", contentType);
+    c.header("Cache-Control", "public, max-age=3600");
+    return c.body(Readable.toWeb(stream) as ReadableStream);
+  } catch {
+    return c.json({ error: "Not found" }, 404);
+  }
 });
 
 // GET /api/agents/:id/status - get agent status

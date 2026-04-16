@@ -60,6 +60,8 @@ export type CapabilitiesResponse = SharedCapabilitiesResponse;
 export type Agent = {
   id: string;
   name: string;
+  description?: string;
+  avatar?: string;
   sdk?: SdkId; // default "pi"
   model: {
     provider: string;

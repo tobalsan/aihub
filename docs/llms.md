@@ -177,6 +177,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
   agents: [{
     id: string,
     name: string,
+    description?: string,        // Short agent description for UI
+    avatar?: string,             // Emoji, image URL, or path relative to workspace
     workspace: string,           // Agent working directory (~ expanded)
     sdk?: "pi"|"claude"|"openclaw",  // Default: pi
     model: {

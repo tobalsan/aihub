@@ -157,6 +157,8 @@ export type AgentSandboxConfig = z.infer<typeof AgentSandboxConfigSchema>;
 const AgentConfigBaseSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string().optional(),
+  avatar: z.string().optional(), // emoji or image URL
   workspace: z.string(),
   sdk: SdkIdSchema.optional(), // default "pi"
   model: AgentModelConfigSchema.optional(),
