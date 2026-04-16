@@ -83,8 +83,7 @@ describe("createContainerHttpClient", () => {
     );
   });
 
-  it("loads the mounted CA cert for the proxy", async () => {
-    vi.mocked(fs.readFileSync).mockReturnValue("CA_CERT");
+  it("does not pass requestTls to ProxyAgent (relies on NODE_EXTRA_CA_CERTS)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<FetchMock>(async () => new Response("ok"))
@@ -98,13 +97,10 @@ describe("createContainerHttpClient", () => {
     });
     await client.fetch("https://example.com");
 
-    expect(fs.readFileSync).toHaveBeenCalledWith(
-      "/usr/local/share/ca-certificates/onecli-ca.pem",
-      "utf8"
-    );
+    // CA cert should NOT be read — NODE_EXTRA_CA_CERTS handles it
+    expect(fs.readFileSync).not.toHaveBeenCalled();
     expect(proxyAgentMock).toHaveBeenCalledWith({
       uri: "http://onecli:4141",
-      requestTls: { ca: "CA_CERT" },
     });
   });
 });

@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import type { Dispatcher } from "undici";
 import { EnvHttpProxyAgent, ProxyAgent, setGlobalDispatcher } from "undici";
 
@@ -47,14 +46,11 @@ function installGlobalProxy(
   if (globalProxyInstalled || !onecliConfig?.enabled) {
     return;
   }
-  const requestTls = onecliConfig.caPath
-    ? { ca: fs.readFileSync(onecliConfig.caPath, "utf8") }
-    : undefined;
-  setGlobalDispatcher(
-    new EnvHttpProxyAgent({
-      ...(requestTls ? { requestTls } : {}),
-    })
-  );
+  // Rely on NODE_EXTRA_CA_CERTS (set via container env) for the OneCLI CA.
+  // Passing requestTls: { ca } here would replace the system CA chain,
+  // breaking HTTPS CONNECT tunneling which needs both the OneCLI CA and
+  // standard root CAs.
+  setGlobalDispatcher(new EnvHttpProxyAgent());
   globalProxyInstalled = true;
 }
 
@@ -65,12 +61,7 @@ function createDispatcher(
     return undefined;
   }
 
-  const requestTls = onecliConfig.caPath
-    ? { ca: fs.readFileSync(onecliConfig.caPath, "utf8") }
-    : undefined;
-
   return new ProxyAgent({
     uri: onecliConfig.url.replace(/\/$/, ""),
-    ...(requestTls ? { requestTls } : {}),
   });
 }
