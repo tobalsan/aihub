@@ -1,4 +1,11 @@
-import type { StreamEvent, ModelUsage, AgentConfig, ThinkLevel, AgentContext, FileAttachment } from "@aihub/shared";
+import type {
+  StreamEvent,
+  ModelUsage,
+  AgentConfig,
+  ThinkLevel,
+  AgentContext,
+  FileAttachment,
+} from "@aihub/shared";
 
 // SDK identifiers
 export type SdkId = "pi" | "claude" | "openclaw";
@@ -16,6 +23,15 @@ export type HistoryEvent =
   | { type: "user"; text: string; timestamp: number }
   | { type: "assistant_text"; text: string; timestamp: number }
   | { type: "assistant_thinking"; text: string; timestamp: number }
+  | {
+      type: "assistant_file";
+      fileId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
+      direction: "inbound" | "outbound";
+      timestamp: number;
+    }
   | {
       type: "tool_call";
       id: string;
@@ -78,7 +94,10 @@ export type SdkAdapter = {
   id: SdkId;
   displayName: string;
   capabilities: SdkCapabilities;
-  resolveDisplayModel(agent: AgentConfig): { provider?: string; model?: string };
+  resolveDisplayModel(agent: AgentConfig): {
+    provider?: string;
+    model?: string;
+  };
   run(params: SdkRunParams): Promise<SdkRunResult>;
   queueMessage?: (handle: unknown, message: string) => Promise<void>;
   abort?: (handle: unknown) => void;

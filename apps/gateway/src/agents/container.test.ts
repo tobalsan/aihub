@@ -11,6 +11,8 @@ import {
   buildContainerArgs,
   buildVolumeMounts,
   filterSecretEnvVars,
+  getAgentDataDir,
+  getSessionUploadsDir,
   validateMount,
   type ContainerVolumeMount,
 } from "./container.js";
@@ -64,13 +66,29 @@ describe("buildVolumeMounts", () => {
       sharedDir: shared,
       mountAllowlist: { allowedRoots: [root] },
     });
-    const onecliConfig = { enabled: true, mode: "proxy" as const, gatewayUrl: "http://onecli:4141", ca: { source: "file" as const, path: caPath } };
+    const onecliConfig = {
+      enabled: true,
+      mode: "proxy" as const,
+      gatewayUrl: "http://onecli:4141",
+      ca: { source: "file" as const, path: caPath },
+    };
 
-    const mounts = buildVolumeMounts(agent, globalSandbox, aihubHome, "user-1", onecliConfig);
+    const mounts = buildVolumeMounts(
+      agent,
+      globalSandbox,
+      aihubHome,
+      "user-1",
+      onecliConfig
+    );
 
     expect(mounts).toEqual(
       expect.arrayContaining<ContainerVolumeMount>([
         { source: workspace, target: "/workspace", readonly: true },
+        {
+          source: getAgentDataDir(aihubHome, "cloud"),
+          target: "/workspace/data",
+          readonly: false,
+        },
         { source: shared, target: "/shared", readonly: false },
         {
           source: path.join(aihubHome, "users", "user-1"),
@@ -118,6 +136,42 @@ describe("buildVolumeMounts", () => {
       readonly: false,
     });
   });
+
+  it("adds a read-only uploads mount for a session", () => {
+    const root = tmpDir();
+    const workspace = path.join(root, "workspace");
+    const aihubHome = path.join(root, "aihub");
+    fs.mkdirSync(workspace, { recursive: true });
+
+    const agent = AgentConfigSchema.parse({
+      id: "agent",
+      name: "Agent",
+      workspace,
+      model: { provider: "anthropic", model: "claude" },
+    });
+
+    const mounts = buildVolumeMounts(
+      agent,
+      {},
+      aihubHome,
+      undefined,
+      undefined,
+      "session-1"
+    );
+
+    expect(mounts).toEqual(
+      expect.arrayContaining<ContainerVolumeMount>([
+        {
+          source: getSessionUploadsDir(aihubHome, "agent", "session-1"),
+          target: "/workspace/uploads",
+          readonly: true,
+        },
+      ])
+    );
+    expect(
+      fs.existsSync(getSessionUploadsDir(aihubHome, "agent", "session-1"))
+    ).toBe(true);
+  });
 });
 
 describe("filterSecretEnvVars", () => {
@@ -136,9 +190,9 @@ describe("filterSecretEnvVars", () => {
 
     expect(env).toEqual({ NODE_ENV: "production" });
     expect(warn).toHaveBeenCalledTimes(3);
-    expect(warn.mock.calls[0][0]).toContain('API_KEY');
-    expect(warn.mock.calls[1][0]).toContain('SECRET_TOKEN');
-    expect(warn.mock.calls[2][0]).toContain('ACCESS_KEY_ID');
+    expect(warn.mock.calls[0][0]).toContain("API_KEY");
+    expect(warn.mock.calls[1][0]).toContain("SECRET_TOKEN");
+    expect(warn.mock.calls[2][0]).toContain("ACCESS_KEY_ID");
   });
 
   it("passes through safe keys", () => {
@@ -175,8 +229,8 @@ describe("filterSecretEnvVars", () => {
 
     expect(env).toEqual({ SAFE_FLAG: "true" });
     expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls[0][0]).toContain('CUSTOM_VAR');
-    expect(warn.mock.calls[1][0]).toContain('PLAINTEXT');
+    expect(warn.mock.calls[0][0]).toContain("CUSTOM_VAR");
+    expect(warn.mock.calls[1][0]).toContain("PLAINTEXT");
   });
 
   it("returns empty record for undefined or empty env", () => {
@@ -208,7 +262,11 @@ describe("buildContainerArgs", () => {
     const globalSandbox = GlobalSandboxConfigSchema.parse({
       network: { name: "aihub-agents" },
     });
-    const onecliConfig = { enabled: true, mode: "proxy" as const, gatewayUrl: "http://onecli:4141" };
+    const onecliConfig = {
+      enabled: true,
+      mode: "proxy" as const,
+      gatewayUrl: "http://onecli:4141",
+    };
     const mounts: ContainerVolumeMount[] = [
       { source: "/host/workspace", target: "/workspace", readonly: true },
       { source: "/host/shared", target: "/shared", readonly: false },

@@ -1,3 +1,7 @@
+import { createReadStream } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
 import { SendMessageRequestSchema } from "@aihub/shared";
 import {
@@ -33,8 +37,15 @@ import {
   MAX_UPLOAD_SIZE_BYTES,
   UploadTooLargeError,
 } from "../media/upload.js";
+import {
+  getMediaInboundDir,
+  getMediaOutboundDir,
+  getMediaFileMetadata,
+} from "../media/metadata.js";
 
 const api = new Hono();
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type MultiUserApiDeps = {
   getForwardedAuthContext: typeof import("../components/multi-user/middleware.js").getForwardedAuthContext;
@@ -75,6 +86,18 @@ async function getVisibleAgents(c: Context) {
 
   const { getAgentFilter } = await loadMultiUserApiDeps();
   return getAgentFilter(authContext.user.id, authContext.user.role)(agents);
+}
+
+function isWithinDir(filePath: string, dir: string): boolean {
+  const relative = path.relative(dir, filePath);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function contentDispositionFilename(filename: string): string {
+  return filename.replace(/["\\\r\n]/g, "_");
 }
 
 api.get("/capabilities", async (c) => {
@@ -346,6 +369,59 @@ api.post("/media/upload", async (c) => {
 
     const message = err instanceof Error ? err.message : "Upload failed";
     return c.json({ error: message }, 500);
+  }
+});
+
+// GET /api/media/download/:id - download a registered media file
+api.get("/media/download/:id", async (c) => {
+  const fileId = c.req.param("id");
+  if (!UUID_RE.test(fileId)) {
+    return c.json({ error: "File not found" }, 404);
+  }
+
+  const metadata = await getMediaFileMetadata(fileId);
+  if (!metadata) {
+    return c.json({ error: "File not found" }, 404);
+  }
+
+  if (path.basename(metadata.storedFilename) !== metadata.storedFilename) {
+    return c.json({ error: "File not found" }, 404);
+  }
+
+  const baseDir =
+    metadata.direction === "outbound"
+      ? getMediaOutboundDir()
+      : getMediaInboundDir();
+  const candidatePath = path.join(baseDir, metadata.storedFilename);
+
+  try {
+    const [realBaseDir, realFilePath] = await Promise.all([
+      fs.realpath(baseDir),
+      fs.realpath(candidatePath),
+    ]);
+
+    if (!isWithinDir(realFilePath, realBaseDir)) {
+      return c.json({ error: "File not found" }, 404);
+    }
+
+    const stat = await fs.stat(realFilePath);
+    if (!stat.isFile()) {
+      return c.json({ error: "File not found" }, 404);
+    }
+
+    c.header("Content-Type", metadata.mimeType);
+    c.header("Content-Length", String(stat.size));
+    c.header(
+      "Content-Disposition",
+      `attachment; filename="${contentDispositionFilename(metadata.filename)}"`
+    );
+    return c.body(
+      Readable.toWeb(
+        createReadStream(realFilePath)
+      ) as unknown as ReadableStream
+    );
+  } catch {
+    return c.json({ error: "File not found" }, 404);
   }
 });
 

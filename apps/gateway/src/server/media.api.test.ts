@@ -11,6 +11,7 @@ describe("media upload API", () => {
       init?: RequestInit
     ) => Response | Promise<Response>;
   };
+  let mediaMetadata: typeof import("../media/metadata.js");
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
@@ -25,6 +26,7 @@ describe("media upload API", () => {
     vi.resetModules();
     const mod = await import("../server/api.core.js");
     api = mod.api;
+    mediaMetadata = await import("../media/metadata.js");
   });
 
   afterAll(async () => {
@@ -126,5 +128,86 @@ describe("media upload API", () => {
     const json = await res.json();
     expect(json.error).toContain("Unsupported file type");
     expect(Array.isArray(json.allowedTypes)).toBe(true);
+  });
+
+  it("downloads registered inbound files", async () => {
+    const file = new File([new Uint8Array([5, 6, 7])], "report.csv", {
+      type: "text/csv",
+    });
+    const formData = new FormData();
+    formData.set("file", file);
+
+    const uploadRes = await Promise.resolve(
+      api.request("/media/upload", {
+        method: "POST",
+        body: formData,
+      })
+    );
+    const upload = await uploadRes.json();
+    const fileId = path.basename(
+      upload.filename,
+      path.extname(upload.filename)
+    );
+
+    const res = await Promise.resolve(api.request(`/media/download/${fileId}`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/csv");
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="report.csv"'
+    );
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      new Uint8Array([5, 6, 7])
+    );
+  });
+
+  it("downloads registered outbound files", async () => {
+    await mediaMetadata.ensureMediaDirectories();
+    const fileId = "11111111-1111-4111-8111-111111111111";
+    const storedFilename = `${fileId}.txt`;
+    const filePath = path.join(
+      mediaMetadata.MEDIA_OUTBOUND_DIR,
+      storedFilename
+    );
+    await fs.writeFile(filePath, "outbound");
+    await mediaMetadata.registerMediaFile({
+      direction: "outbound",
+      fileId,
+      filename: "answer.txt",
+      storedFilename,
+      path: filePath,
+      mimeType: "text/plain",
+      size: 8,
+    });
+
+    const res = await Promise.resolve(api.request(`/media/download/${fileId}`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="answer.txt"'
+    );
+    expect(await res.text()).toBe("outbound");
+  });
+
+  it("returns 404 for invalid or unsafe download ids", async () => {
+    const invalid = await Promise.resolve(api.request("/media/download/nope"));
+    expect(invalid.status).toBe(404);
+
+    await mediaMetadata.ensureMediaDirectories();
+    const fileId = "22222222-2222-4222-8222-222222222222";
+    await mediaMetadata.registerMediaFile({
+      direction: "outbound",
+      fileId,
+      filename: "evil.txt",
+      storedFilename: "../evil.txt",
+      path: path.join(tmpDir, "evil.txt"),
+      mimeType: "text/plain",
+      size: 4,
+    });
+
+    const unsafe = await Promise.resolve(
+      api.request(`/media/download/${fileId}`)
+    );
+    expect(unsafe.status).toBe(404);
   });
 });

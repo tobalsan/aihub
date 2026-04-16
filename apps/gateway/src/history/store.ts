@@ -156,6 +156,13 @@ export type TurnBuffer = {
   userFlushed: boolean;
   thinkingText: string;
   assistantText: string;
+  fileBlocks: Array<{
+    fileId: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+    direction: "inbound" | "outbound";
+  }>;
   toolCalls: Array<{
     id: string;
     name: string;
@@ -188,6 +195,7 @@ export function createTurnBuffer(): TurnBuffer {
     userFlushed: false,
     thinkingText: "",
     assistantText: "",
+    fileBlocks: [],
     toolCalls: [],
     toolResults: [],
     startTimestamp: Date.now(),
@@ -229,6 +237,16 @@ export async function flushTurnBuffer(
   }
   if (buffer.assistantText) {
     content.push({ type: "text", text: buffer.assistantText });
+  }
+  for (const file of buffer.fileBlocks) {
+    content.push({
+      type: "file",
+      fileId: file.fileId,
+      filename: file.filename,
+      mimeType: file.mimeType,
+      size: file.size,
+      direction: file.direction,
+    });
   }
   for (const tc of buffer.toolCalls) {
     content.push({
@@ -322,6 +340,19 @@ export function bufferHistoryEvent(
         buffer.startTimestamp = event.timestamp;
       }
       buffer.thinkingText += event.text;
+      break;
+    case "assistant_file":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp;
+      }
+      buffer.fileBlocks.push({
+        fileId: event.fileId,
+        filename: event.filename,
+        mimeType: event.mimeType,
+        size: event.size,
+        direction: event.direction,
+      });
       break;
     case "tool_call":
       if (!buffer.assistantStarted) {
@@ -884,9 +915,7 @@ export async function readPiSessionHistory(
           toolName: msg.toolName as string,
           content: [{ type: "text", text: text || "" }],
           isError: (msg.isError as boolean) ?? false,
-          details: details?.diff
-            ? { diff: details.diff as string }
-            : undefined,
+          details: details?.diff ? { diff: details.diff as string } : undefined,
           timestamp,
         });
       }

@@ -142,13 +142,21 @@ function setConfig(agent: AgentConfig, root: string): void {
 
 function createParams(agent: AgentConfig): SdkRunParams {
   const abortController = new AbortController();
+  const aihubHome =
+    process.env.AIHUB_HOME ?? path.join(path.dirname(agent.workspace), "aihub");
+  const attachmentPath = path.join(aihubHome, "media", "inbound", "upload.txt");
+  fs.mkdirSync(path.dirname(attachmentPath), { recursive: true });
+  fs.writeFileSync(attachmentPath, "uploaded");
+
   return {
     agentId: agent.id,
     agent,
     userId: "user-1",
     sessionId: "session-1",
     message: "hello",
-    attachments: [{ path: "/tmp/a.txt", mimeType: "text/plain" }],
+    attachments: [
+      { path: attachmentPath, mimeType: "text/plain", filename: "upload.txt" },
+    ],
     workspaceDir: agent.workspace,
     thinkLevel: "medium",
     onEvent: vi.fn(),
@@ -350,7 +358,10 @@ describe("container adapter", () => {
     });
     dockerProcess.finish(0);
 
-    await expect(run).resolves.toEqual({ text: "hello back", aborted: undefined });
+    await expect(run).resolves.toEqual({
+      text: "hello back",
+      aborted: undefined,
+    });
     // 1 synthetic user event + 2 streaming events
     expect(params.onHistoryEvent).toHaveBeenCalledTimes(3);
     expect(params.onHistoryEvent).toHaveBeenCalledWith(
@@ -359,6 +370,83 @@ describe("container adapter", () => {
     expect(params.onEvent).not.toHaveBeenCalledWith({
       type: "text",
       data: "hello back",
+    });
+  });
+
+  it("copies file_output events to outbound media", async () => {
+    const root = tempDir();
+    const aihubHome = path.join(root, "aihub");
+    process.env.AIHUB_HOME = aihubHome;
+    const agent = createAgent(root);
+    setConfig(agent, root);
+    const { processes } = mockSpawn();
+    mockExecFile();
+    const params = createParams(agent);
+
+    const run = getContainerAdapter().run(params);
+    const dockerProcess = processes[0];
+    const dataPath = path.join(
+      aihubHome,
+      "agents",
+      "cloud",
+      "data",
+      "report.csv"
+    );
+    fs.writeFileSync(dataPath, "a,b\n1,2\n");
+
+    dockerProcess.emitStreamEvent({
+      type: "file_output",
+      path: "/workspace/data/report.csv",
+      filename: "report.csv",
+      mimeType: "text/csv",
+      size: 99,
+    });
+    dockerProcess.emitOutput({ text: "done" });
+    dockerProcess.finish(0);
+
+    await expect(run).resolves.toEqual({ text: "done", aborted: undefined });
+    expect(params.onEvent).toHaveBeenCalledWith({
+      type: "file_output",
+      fileId: expect.any(String),
+      filename: "report.csv",
+      mimeType: "text/csv",
+      size: 8,
+    });
+    expect(params.onHistoryEvent).toHaveBeenCalledWith({
+      type: "assistant_file",
+      fileId: expect.any(String),
+      filename: "report.csv",
+      mimeType: "text/csv",
+      size: 8,
+      direction: "outbound",
+      timestamp: expect.any(Number),
+    });
+
+    const event = vi
+      .mocked(params.onEvent)
+      .mock.calls.find(([value]) => value.type === "file_output")?.[0];
+    expect(event).toBeDefined();
+    if (!event || event.type !== "file_output") return;
+
+    const outboundPath = path.join(
+      aihubHome,
+      "media",
+      "outbound",
+      `${event.fileId}.csv`
+    );
+    expect(fs.readFileSync(outboundPath, "utf8")).toBe("a,b\n1,2\n");
+
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(aihubHome, "media", "metadata.json"), "utf8")
+    );
+    expect(metadata[event.fileId]).toMatchObject({
+      direction: "outbound",
+      filename: "report.csv",
+      storedFilename: `${event.fileId}.csv`,
+      mimeType: "text/csv",
+      size: 8,
+      agentId: "cloud",
+      sessionId: "session-1",
     });
   });
 

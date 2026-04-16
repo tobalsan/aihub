@@ -7,6 +7,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-198/_space`
 
 - PRO-224 adds Langfuse history-event tracing for user input, model usage, tool spans, and guarded flush/shutdown warnings.
 - PRO-225 foundation adds shared `FileBlock`/`file_output` types plus gateway media upload validation, 25MB upload cap, document text extraction helpers, and inbound/outbound metadata storage under `$AIHUB_HOME/media`.
+- PRO-225 backend download flow adds `GET /api/media/download/:id`, writable container `/workspace/data`, read-only `/workspace/uploads`, and container `file_output` handling that copies outbound files into `$AIHUB_HOME/media/outbound`, emits `file_output`, and persists assistant `FileBlock` history.
 - Coordinator prompt wording should say configured subagents, not templates.
 - Coordinator prompt should tell lead agents to use exact configured `--subagent` names from the injected subagent list.
 - AIHub post-run comment instructions should use `--author <your name>`.

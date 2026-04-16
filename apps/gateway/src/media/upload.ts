@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   ensureMediaDirectories,
+  getMediaInboundDir,
   MEDIA_INBOUND_DIR,
   registerMediaFile,
 } from "./metadata.js";
@@ -119,7 +120,7 @@ export async function saveUploadedFile(
   const ext = getExtensionFromMime(mimeType, originalFilename);
   const fileId = randomUUID();
   const filename = `${fileId}.${ext}`;
-  const filepath = path.join(MEDIA_INBOUND_DIR, filename);
+  const filepath = path.join(getMediaInboundDir(), filename);
 
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
   if (buffer.length > MAX_UPLOAD_SIZE_BYTES) {

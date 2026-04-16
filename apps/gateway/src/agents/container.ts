@@ -25,6 +25,8 @@ const DEFAULT_NETWORK = "aihub-agents";
 const DEFAULT_GATEWAY_URL = "http://gateway:4000";
 const CONTAINER_ONECLI_CA_PATH =
   "/usr/local/share/ca-certificates/onecli-ca.pem";
+export const CONTAINER_DATA_DIR = "/workspace/data";
+export const CONTAINER_UPLOADS_DIR = "/workspace/uploads";
 
 export function getMountedOnecliCaPath(
   onecli?: OnecliConfig
@@ -101,6 +103,33 @@ function addMount(
   mounts.push({ source, target, readonly });
 }
 
+function sanitizePathSegment(segment: string): string {
+  return segment.replace(/[^a-zA-Z0-9._-]/g, "_") || "default";
+}
+
+export function getAgentDataDir(aihubHome: string, agentId: string): string {
+  return path.join(
+    resolveHostPath(aihubHome),
+    "agents",
+    sanitizePathSegment(agentId),
+    "data"
+  );
+}
+
+export function getSessionUploadsDir(
+  aihubHome: string,
+  agentId: string,
+  sessionId: string
+): string {
+  return path.join(
+    resolveHostPath(aihubHome),
+    "agents",
+    sanitizePathSegment(agentId),
+    "uploads",
+    sanitizePathSegment(sessionId)
+  );
+}
+
 export function validateMount(
   mount: SandboxMount,
   allowlist: MountAllowlist
@@ -147,7 +176,8 @@ export function buildVolumeMounts(
   globalSandbox: GlobalSandboxConfig,
   aihubHome: string,
   userId?: string,
-  onecli?: OnecliConfig
+  onecli?: OnecliConfig,
+  sessionId?: string
 ): ContainerVolumeMount[] {
   const mounts: ContainerVolumeMount[] = [];
   const sandbox = agent.sandbox;
@@ -155,6 +185,16 @@ export function buildVolumeMounts(
   const home = resolveHostPath(aihubHome);
 
   addMount(mounts, workspace, "/workspace", !sandbox?.workspaceWritable);
+
+  const dataDir = getAgentDataDir(aihubHome, agent.id);
+  fs.mkdirSync(dataDir, { recursive: true });
+  addMount(mounts, dataDir, CONTAINER_DATA_DIR, false);
+
+  if (sessionId) {
+    const uploadsDir = getSessionUploadsDir(aihubHome, agent.id, sessionId);
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    addMount(mounts, uploadsDir, CONTAINER_UPLOADS_DIR, true);
+  }
 
   if (globalSandbox.sharedDir) {
     addMount(
@@ -385,14 +425,7 @@ export function ensureAgentImage(image: string): void {
   console.log(`Container sandbox: building ${image} (first run)...`);
   execFileSync(
     "docker",
-    [
-      "build",
-      "-t",
-      image,
-      "-f",
-      "container/agent-runner/Dockerfile",
-      repoRoot,
-    ],
+    ["build", "-t", image, "-f", "container/agent-runner/Dockerfile", repoRoot],
     { stdio: "inherit" }
   );
 }

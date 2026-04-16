@@ -26,7 +26,7 @@ Core TypeScript/Node.js application. Exports:
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + connectors + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
-- **Media** (`src/media/`): local upload/download foundation under `$AIHUB_HOME/media`, with inbound/outbound metadata, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
+- **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
@@ -123,6 +123,7 @@ Container OneCLI proxy wiring:
 - The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
 - `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK run and forwards IPC follow-ups to the active run (`deliverAs: "steer"` for Pi, queued follow-up text for Claude CLI one-shot).
 - Gateway `apps/gateway/src/sdk/container/adapter.ts` now serializes resolved connector metadata into `ContainerInput.connectorConfigs` (connector id, optional system prompt, tool JSON Schemas) because container runner cannot access gateway connector registry directly.
+- Container runs bind `$AIHUB_HOME/agents/<agentId>/data` to `/workspace/data` writable and session upload copies to `/workspace/uploads` read-only. `---AIHUB_EVENT---{"type":"file_output","path":"/workspace/data/..."}` copies the file to `$AIHUB_HOME/media/outbound`, registers metadata, emits `file_output`, and persists an assistant `FileBlock`.
 - Connector tools inside the container should use `container/agent-runner/src/http-client.ts#createContainerHttpClient()`, which attaches an undici `ProxyAgent` and CA cert to each fetch. Without OneCLI config, it falls back to plain `fetch`.
 - Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
 

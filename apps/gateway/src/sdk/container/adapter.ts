@@ -1,6 +1,7 @@
 import * as childProcess from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type {
@@ -8,12 +9,16 @@ import type {
   ContainerConnectorConfig,
   ContainerInput,
   ContainerOutput,
+  FileAttachment,
   GatewayConfig,
 } from "@aihub/shared";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   buildContainerArgs,
   buildVolumeMounts,
+  CONTAINER_DATA_DIR,
+  getAgentDataDir,
+  getSessionUploadsDir,
   getMountedOnecliCaPath,
 } from "../../agents/container.js";
 import { loadConfig } from "../../config/index.js";
@@ -21,6 +26,12 @@ import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
+import {
+  ensureMediaDirectories,
+  getMediaInboundDir,
+  getMediaOutboundDir,
+  registerMediaFile,
+} from "../../media/metadata.js";
 import { getDefaultSdkId, getSdkAdapter } from "../registry.js";
 import { registerContainerToken, removeContainerToken } from "./tokens.js";
 import type {
@@ -40,9 +51,10 @@ const DEFAULT_TIMEOUT_SECONDS = 300;
 function resolveContainerGatewayUrl(config: GatewayConfig): string {
   if (config.server?.baseUrl) return config.server.baseUrl;
   const envPort = Number(process.env.AIHUB_GATEWAY_PORT);
-  const port = Number.isFinite(envPort) && envPort > 0
-    ? envPort
-    : config.gateway?.port ?? DEFAULT_GATEWAY_PORT;
+  const port =
+    Number.isFinite(envPort) && envPort > 0
+      ? envPort
+      : (config.gateway?.port ?? DEFAULT_GATEWAY_PORT);
   return `http://host.docker.internal:${port}`;
 }
 const STOP_GRACE_MS = 10_000;
@@ -56,12 +68,21 @@ const historyEventTypes = new Set<HistoryEvent["type"]>([
   "user",
   "assistant_text",
   "assistant_thinking",
+  "assistant_file",
   "tool_call",
   "tool_result",
   "turn_end",
   "meta",
   "system_context",
 ]);
+
+type RawFileOutputEvent = {
+  type: "file_output";
+  path: string;
+  filename?: string;
+  mimeType?: string;
+  size?: number;
+};
 
 function getArgValue(args: string[], flag: string): string {
   const index = args.indexOf(flag);
@@ -134,16 +155,159 @@ function isHistoryEvent(event: unknown): event is HistoryEvent {
   );
 }
 
-function forwardStreamEvent(
+function isRawFileOutputEvent(event: unknown): event is RawFileOutputEvent {
+  return (
+    typeof event === "object" &&
+    event !== null &&
+    "type" in event &&
+    event.type === "file_output" &&
+    "path" in event &&
+    typeof event.path === "string"
+  );
+}
+
+function sanitizeFilename(
+  filename: string | undefined,
+  fallback: string
+): string {
+  if (!filename) return fallback;
+  const cleaned = filename
+    .replace(/\0/g, "")
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .at(-1);
+  return cleaned?.replace(/["\\\r\n]/g, "_") || fallback;
+}
+
+function resolveContainerDataFile(
+  hostDataDir: string,
+  containerPath: string
+): string {
+  const normalized = path.posix.normalize(containerPath);
+  const relative = path.posix.relative(CONTAINER_DATA_DIR, normalized);
+  if (
+    relative === "" ||
+    relative.startsWith("..") ||
+    path.posix.isAbsolute(relative)
+  ) {
+    throw new Error(`file_output path must be under ${CONTAINER_DATA_DIR}`);
+  }
+  return path.join(hostDataDir, ...relative.split("/"));
+}
+
+function ensurePathWithinDir(filePath: string, dir: string): void {
+  const relative = path.relative(dir, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Path is outside expected directory: ${filePath}`);
+  }
+}
+
+function prepareContainerUploads(
   params: SdkRunParams,
-  event: HistoryEvent
+  uploadsDir: string
 ): void {
+  fs.rmSync(uploadsDir, { recursive: true, force: true });
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
+  if (!params.attachments?.length) return;
+
+  const realInboundDir = fs.realpathSync(getMediaInboundDir());
+  params.attachments.forEach((attachment, index) => {
+    copyUploadAttachment(attachment, index, realInboundDir, uploadsDir);
+  });
+}
+
+function copyUploadAttachment(
+  attachment: FileAttachment,
+  index: number,
+  realInboundDir: string,
+  uploadsDir: string
+): void {
+  const source = fs.realpathSync(attachment.path);
+  ensurePathWithinDir(source, realInboundDir);
+  const safeName = sanitizeFilename(
+    attachment.filename ?? path.basename(source),
+    path.basename(source)
+  );
+  const target = path.join(uploadsDir, `${index + 1}-${safeName}`);
+  fs.copyFileSync(source, target);
+}
+
+async function handleFileOutputEvent(
+  params: SdkRunParams,
+  event: RawFileOutputEvent,
+  hostDataDir: string
+): Promise<void> {
+  const source = resolveContainerDataFile(hostDataDir, event.path);
+  const realDataDir = await fsPromises.realpath(hostDataDir);
+  const realSource = await fsPromises.realpath(source);
+  ensurePathWithinDir(realSource, realDataDir);
+
+  const stat = await fsPromises.stat(realSource);
+  if (!stat.isFile()) {
+    throw new Error(`file_output path is not a file: ${event.path}`);
+  }
+
+  const filename = sanitizeFilename(
+    event.filename,
+    path.basename(realSource) || "download"
+  );
+  const ext = path.extname(filename);
+  const fileId = randomUUID();
+  const storedFilename = `${fileId}${ext}`;
+  const target = path.join(getMediaOutboundDir(), storedFilename);
+  const mimeType = event.mimeType || "application/octet-stream";
+
+  await ensureMediaDirectories();
+  await fsPromises.copyFile(realSource, target);
+  const metadata = await registerMediaFile({
+    direction: "outbound",
+    fileId,
+    filename,
+    storedFilename,
+    path: target,
+    mimeType,
+    size: stat.size,
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+  });
+
+  const timestamp = Date.now();
+  params.onHistoryEvent({
+    type: "assistant_file",
+    fileId: metadata.fileId,
+    filename: metadata.filename,
+    mimeType: metadata.mimeType,
+    size: metadata.size,
+    direction: "outbound",
+    timestamp,
+  });
+  params.onEvent({
+    type: "file_output",
+    fileId: metadata.fileId,
+    filename: metadata.filename,
+    mimeType: metadata.mimeType,
+    size: metadata.size,
+  });
+}
+
+function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
   if (event.type === "assistant_text") {
     params.onEvent({ type: "text", data: event.text });
     return;
   }
   if (event.type === "assistant_thinking") {
     params.onEvent({ type: "thinking", data: event.text });
+    return;
+  }
+  if (event.type === "assistant_file") {
+    params.onEvent({
+      type: "file_output",
+      fileId: event.fileId,
+      filename: event.filename,
+      mimeType: event.mimeType,
+      size: event.size,
+    });
     return;
   }
   if (event.type === "tool_call") {
@@ -193,7 +357,9 @@ function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
 }
 
-function buildConnectorConfigs(params: SdkRunParams): ContainerConnectorConfig[] {
+function buildConnectorConfigs(
+  params: SdkRunParams
+): ContainerConnectorConfig[] {
   const config = loadConfig();
   const prompts = new Map(
     getConnectorPromptsForAgent(params.agent).map((prompt) => [
@@ -298,14 +464,18 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
     ipcDir: "/workspace/ipc",
     gatewayUrl: resolveContainerGatewayUrl(config),
     agentToken,
-    onecli: config.onecli?.enabled && config.onecli.gatewayUrl
-      ? {
-          enabled: true,
-          url: resolveOnecliProxyUrl(config, params.agentId) ?? config.onecli.gatewayUrl,
-          caPath: getMountedOnecliCaPath(config.onecli),
-        }
-      : undefined,
-    connectorConfigs: connectorConfigs.length > 0 ? connectorConfigs : undefined,
+    onecli:
+      config.onecli?.enabled && config.onecli.gatewayUrl
+        ? {
+            enabled: true,
+            url:
+              resolveOnecliProxyUrl(config, params.agentId) ??
+              config.onecli.gatewayUrl,
+            caPath: getMountedOnecliCaPath(config.onecli),
+          }
+        : undefined,
+    connectorConfigs:
+      connectorConfigs.length > 0 ? connectorConfigs : undefined,
     sdkConfig: {
       sdk: params.agent.sdk ?? getDefaultSdkId(),
       model: {
@@ -340,7 +510,8 @@ export function getContainerAdapter(): SdkAdapter {
         globalSandbox,
         aihubHome,
         params.userId,
-        config.onecli
+        config.onecli,
+        params.sessionId
       );
       const args = buildContainerArgs(
         params.agent,
@@ -353,6 +524,12 @@ export function getContainerAdapter(): SdkAdapter {
       const containerName = getArgValue(args, "--name");
       const ipcDir = path.join(aihubHome, "ipc", params.agentId);
       const ipcInputDir = path.join(ipcDir, "input");
+      const hostDataDir = getAgentDataDir(aihubHome, params.agentId);
+      const hostUploadsDir = getSessionUploadsDir(
+        aihubHome,
+        params.agentId,
+        params.sessionId
+      );
       // Wipe stale IPC files from prior container runs so they don't leak into
       // this run's follow-up queue (e.g. old "/stop" getting delivered to new session).
       fs.rmSync(ipcInputDir, { recursive: true, force: true });
@@ -365,6 +542,7 @@ export function getContainerAdapter(): SdkAdapter {
           recursive: true,
         });
       }
+      prepareContainerUploads(params, hostUploadsDir);
 
       const agentToken = randomUUID();
       registerContainerToken(agentToken, params.agentId, containerName);
@@ -395,6 +573,7 @@ export function getContainerAdapter(): SdkAdapter {
       const outputLines: string[] = [];
       let inOutputBlock = false;
       let sawStreamingHistory = false;
+      const pendingFileOutputs: Promise<void>[] = [];
       const timeoutSeconds =
         params.agent.sandbox?.timeout ?? DEFAULT_TIMEOUT_SECONDS;
 
@@ -405,7 +584,35 @@ export function getContainerAdapter(): SdkAdapter {
           removeContainerToken(agentToken);
         };
 
-        const finish = (code: number | null) => {
+        const handleProtocolEvent = (rawEvent: string): void => {
+          if (!rawEvent) return;
+
+          try {
+            const event = JSON.parse(rawEvent);
+            if (isHistoryEvent(event)) {
+              sawStreamingHistory = true;
+              params.onHistoryEvent(event);
+              forwardStreamEvent(params, event);
+              return;
+            }
+            if (isRawFileOutputEvent(event)) {
+              const task = handleFileOutputEvent(
+                params,
+                event,
+                hostDataDir
+              ).catch((error) => {
+                const message =
+                  error instanceof Error ? error.message : String(error);
+                params.onEvent({ type: "error", message });
+              });
+              pendingFileOutputs.push(task);
+            }
+          } catch {
+            // ignore malformed stream event lines
+          }
+        };
+
+        const finish = async (code: number | null) => {
           if (settled) return;
           settled = true;
           cleanup();
@@ -420,26 +627,11 @@ export function getContainerAdapter(): SdkAdapter {
             } else if (inOutputBlock) {
               outputLines.push(line);
             } else if (line.startsWith(EVENT_PREFIX)) {
-              const rawEvent = line.slice(EVENT_PREFIX.length).trim();
-              if (rawEvent) {
-                try {
-                  const event = JSON.parse(rawEvent);
-                  if (isHistoryEvent(event)) {
-                    sawStreamingHistory = true;
-                    params.onHistoryEvent(event);
-                    if (event.type === "assistant_text") {
-                      params.onEvent({ type: "text", data: event.text });
-                    }
-                    if (event.type === "assistant_thinking") {
-                      params.onEvent({ type: "thinking", data: event.text });
-                    }
-                  }
-                } catch {
-                  // ignore malformed stream event lines
-                }
-              }
+              handleProtocolEvent(line.slice(EVENT_PREFIX.length).trim());
             }
           }
+
+          await Promise.all(pendingFileOutputs);
 
           let output: ContainerOutput | undefined;
           try {
@@ -517,17 +709,7 @@ export function getContainerAdapter(): SdkAdapter {
             const rawEvent = line.slice(EVENT_PREFIX.length).trim();
             if (!rawEvent) continue;
 
-            try {
-              const event = JSON.parse(rawEvent);
-              if (!isHistoryEvent(event)) {
-                continue;
-              }
-              sawStreamingHistory = true;
-              params.onHistoryEvent(event);
-              forwardStreamEvent(params, event);
-            } catch {
-              // ignore malformed stream event lines
-            }
+            handleProtocolEvent(rawEvent);
           }
         });
         child.stderr?.on("data", (chunk: Buffer | string) => {
