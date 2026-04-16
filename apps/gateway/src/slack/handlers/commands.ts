@@ -1,0 +1,128 @@
+import type {
+  AgentConfig,
+  SlackComponentChannelConfig,
+  SlackComponentConfig,
+} from "@aihub/shared";
+import { runAgent } from "../../agents/index.js";
+import { DEFAULT_MAIN_KEY } from "../../sessions/index.js";
+
+export type SlackCommandData = {
+  channel_id: string;
+  user_id: string;
+  text?: string;
+};
+
+export type SlackCommandTarget = {
+  agent: AgentConfig;
+  config: SlackComponentConfig;
+  channelConfig?: SlackComponentChannelConfig;
+  isDm: boolean;
+};
+
+export type SlackRespond = (
+  message: string | { text: string; response_type?: "ephemeral" | "in_channel" }
+) => Promise<unknown>;
+
+function defaultSessionKey(target: SlackCommandTarget, command: SlackCommandData): string {
+  return target.isDm ? DEFAULT_MAIN_KEY : `slack:${command.channel_id}`;
+}
+
+function commandSessionKey(
+  target: SlackCommandTarget,
+  command: SlackCommandData
+): string {
+  const requested = command.text?.trim();
+  return requested || defaultSessionKey(target, command);
+}
+
+async function runControlCommand(
+  command: SlackCommandData,
+  target: SlackCommandTarget,
+  respond: SlackRespond,
+  message: "/new" | "/abort",
+  fallback: string
+): Promise<void> {
+  try {
+    const result = await runAgent({
+      agentId: target.agent.id,
+      message,
+      sessionKey: commandSessionKey(target, command),
+      thinkLevel: target.agent.thinkLevel,
+      source: "slack",
+    });
+    await respond({
+      text: result.payloads[0]?.text ?? fallback,
+      response_type: "ephemeral",
+    });
+  } catch (err) {
+    const text = err instanceof Error ? err.message : "Unknown error";
+    await respond({ text: `Error: ${text}`, response_type: "ephemeral" });
+  }
+}
+
+export function handleNewCommand(
+  command: SlackCommandData,
+  target: SlackCommandTarget,
+  respond: SlackRespond
+): Promise<void> {
+  return runControlCommand(
+    command,
+    target,
+    respond,
+    "/new",
+    "New conversation started."
+  );
+}
+
+export function handleAbortCommand(
+  command: SlackCommandData,
+  target: SlackCommandTarget,
+  respond: SlackRespond
+): Promise<void> {
+  return runControlCommand(
+    command,
+    target,
+    respond,
+    "/abort",
+    "Abort requested."
+  );
+}
+
+export async function handleHelpCommand(
+  _command: SlackCommandData,
+  target: SlackCommandTarget,
+  respond: SlackRespond
+): Promise<void> {
+  const dmEnabled = target.config.dm?.enabled === true;
+  const requireMention = target.isDm
+    ? false
+    : target.channelConfig?.requireMention ?? true;
+  const threadPolicy = target.channelConfig?.threadPolicy ?? "always";
+  const lines = [
+    `*${target.agent.name}* - Slack Commands`,
+    "",
+    "`/new [session]` - Start a new conversation",
+    "`/abort [session]` - Stop the current run",
+    "`/help` - Show this help message",
+    "`/ping` - Health check",
+    "",
+    "*Routing Policy:*",
+    `- DMs: ${dmEnabled ? "enabled" : "disabled"}`,
+    `- Requires mention: ${requireMention ? "yes" : "no"}`,
+    `- Thread policy: ${target.isDm ? "n/a" : threadPolicy}`,
+  ];
+  await respond({ text: lines.join("\n"), response_type: "ephemeral" });
+}
+
+export async function handlePingCommand(
+  _command: SlackCommandData,
+  target: SlackCommandTarget,
+  respond: SlackRespond
+): Promise<void> {
+  const sdk = target.agent.sdk ?? "pi";
+  const model = target.agent.model?.model ?? "unknown";
+  await respond({
+    text: `Bot alive. Agent: *${target.agent.name}* (${sdk}/${model})`,
+    response_type: "ephemeral",
+  });
+}

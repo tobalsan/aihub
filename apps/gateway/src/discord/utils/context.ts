@@ -1,4 +1,5 @@
 import type { AgentContext, DiscordContext, DiscordContextBlock } from "@aihub/shared";
+import { renderSlackContext } from "../../slack/utils/context.js";
 
 /**
  * Render a DiscordContextBlock into a human-readable string
@@ -49,6 +50,9 @@ export function renderDiscordContext(ctx: DiscordContext): string {
 export function renderAgentContext(ctx: AgentContext): string {
   if (ctx.kind === "discord") {
     return renderDiscordContext(ctx);
+  }
+  if (ctx.kind === "slack") {
+    return renderSlackContext(ctx);
   }
   return "";
 }

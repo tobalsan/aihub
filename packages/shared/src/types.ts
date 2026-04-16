@@ -378,6 +378,41 @@ export type DiscordComponentConfig = z.infer<
   typeof DiscordComponentConfigSchema
 >;
 
+export const SlackComponentChannelConfigSchema = z.object({
+  agent: z.string(),
+  requireMention: z.boolean().optional(),
+  threadPolicy: z.enum(["always", "never", "follow"]).optional(),
+  users: z.array(z.union([z.string(), z.number()])).optional(),
+});
+export type SlackComponentChannelConfig = z.infer<
+  typeof SlackComponentChannelConfigSchema
+>;
+
+export const SlackComponentDmConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  agent: z.string(),
+  allowFrom: z.array(z.string()).optional(),
+});
+export type SlackComponentDmConfig = z.infer<
+  typeof SlackComponentDmConfigSchema
+>;
+
+export const SlackComponentConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  token: SecretRefSchema,
+  appToken: SecretRefSchema,
+  channels: z
+    .record(z.string(), SlackComponentChannelConfigSchema)
+    .optional(),
+  dm: SlackComponentDmConfigSchema.optional(),
+  historyLimit: z.number().int().min(0).optional(),
+  clearHistoryAfterReply: z.boolean().optional(),
+  mentionPatterns: z.array(z.string()).optional(),
+  broadcastToChannel: z.string().optional(),
+  applicationId: z.string().optional(),
+});
+export type SlackComponentConfig = z.infer<typeof SlackComponentConfigSchema>;
+
 export const SchedulerComponentConfigSchema = z.object({
   enabled: z.boolean().optional(),
   tickSeconds: z.number().optional(),
@@ -429,6 +464,7 @@ export type LangfuseComponentConfig = z.infer<
 export const ComponentsConfigSchema = z
   .object({
     discord: DiscordComponentConfigSchema.optional(),
+    slack: SlackComponentConfigSchema.optional(),
     scheduler: SchedulerComponentConfigSchema.optional(),
     heartbeat: HeartbeatComponentConfigSchema.optional(),
     amsg: AmsgComponentConfigSchema.optional(),
@@ -1044,7 +1080,33 @@ export type DiscordContext = {
   blocks: DiscordContextBlock[];
 };
 
-export type AgentContext = DiscordContext; // Extensible for future context types
+export type SlackContextBlock =
+  | { type: "channel_topic"; topic: string }
+  | { type: "channel_name"; name: string }
+  | {
+      type: "thread_starter";
+      author: string;
+      content: string;
+      timestamp: number;
+    }
+  | {
+      type: "history";
+      messages: Array<{ author: string; content: string; timestamp: number }>;
+    }
+  | {
+      type: "reaction";
+      emoji: string;
+      user: string;
+      messageId: string;
+      action: "add" | "remove";
+    };
+
+export type SlackContext = {
+  kind: "slack";
+  blocks: SlackContextBlock[];
+};
+
+export type AgentContext = DiscordContext | SlackContext;
 
 export const AgentContextSchema = z
   .object({

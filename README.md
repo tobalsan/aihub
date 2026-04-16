@@ -93,6 +93,7 @@ EOF
 AIHub v2 is modular. These are the built-in component IDs you can enable under `components`:
 
 - `discord`: one shared Discord bot that routes configured channels/DMs to agents
+- `slack`: one shared Slack Socket Mode bot that routes configured channels/DMs to agents
 - `scheduler`: recurring schedule runner for interval/daily jobs
 - `heartbeat`: periodic heartbeat prompts for agents; depends on `scheduler`
 - `amsg`: background watcher that checks agent amsg inboxes and nudges agents when new messages arrive

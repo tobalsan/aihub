@@ -1,0 +1,95 @@
+import type { SlackWebClient } from "../types.js";
+import { agentEventBus } from "../../agents/index.js";
+
+const THINKING_REACTION = "thinking_face";
+
+type ThinkingEntry = {
+  unsubscribe: () => void;
+};
+
+type ThinkingMatch = {
+  sessionId?: string;
+  sessionKey?: string;
+};
+
+const activeThinking = new Map<string, ThinkingEntry>();
+
+function key(channel: string, timestamp: string): string {
+  return `${channel}:${timestamp}`;
+}
+
+export async function addThinkingReaction(
+  client: SlackWebClient,
+  channel: string,
+  timestamp: string
+): Promise<void> {
+  try {
+    await client.reactions.add({
+      channel,
+      timestamp,
+      name: THINKING_REACTION,
+    });
+  } catch {
+    // Slack may reject duplicate or unavailable reaction state.
+  }
+}
+
+export async function removeThinkingReaction(
+  client: SlackWebClient,
+  channel: string,
+  timestamp: string
+): Promise<void> {
+  try {
+    await client.reactions.remove({
+      channel,
+      timestamp,
+      name: THINKING_REACTION,
+    });
+  } catch {
+    // Reaction may already be gone or unavailable.
+  }
+}
+
+export async function startThinkingReaction(
+  client: SlackWebClient,
+  channel: string,
+  timestamp: string,
+  agentId: string,
+  match: ThinkingMatch
+): Promise<void> {
+  await addThinkingReaction(client, channel, timestamp);
+  const activeKey = key(channel, timestamp);
+  activeThinking.get(activeKey)?.unsubscribe();
+
+  const unsubscribe = agentEventBus.onStreamEvent((event) => {
+    if (event.agentId !== agentId) return;
+    if (match.sessionKey && event.sessionKey !== match.sessionKey) return;
+    if (!match.sessionKey && match.sessionId && event.sessionId !== match.sessionId) {
+      return;
+    }
+    if (event.type !== "done" && event.type !== "error") return;
+
+    stopThinkingReaction(client, channel, timestamp);
+  });
+
+  activeThinking.set(activeKey, { unsubscribe });
+}
+
+export async function stopThinkingReaction(
+  client: SlackWebClient,
+  channel: string,
+  timestamp: string
+): Promise<void> {
+  const activeKey = key(channel, timestamp);
+  const entry = activeThinking.get(activeKey);
+  entry?.unsubscribe();
+  activeThinking.delete(activeKey);
+  await removeThinkingReaction(client, channel, timestamp);
+}
+
+export function stopAllThinkingReactions(): void {
+  for (const [activeKey, entry] of activeThinking) {
+    entry.unsubscribe();
+    activeThinking.delete(activeKey);
+  }
+}

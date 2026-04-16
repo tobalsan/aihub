@@ -13,6 +13,12 @@ const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
     getConfig: (config) => config.components?.discord,
     routePrefixes: [],
   },
+  slack: {
+    load: () =>
+      import("./slack/index.js").then((module) => module.slackComponent),
+    getConfig: (config) => config.components?.slack,
+    routePrefixes: [],
+  },
   scheduler: {
     load: () =>
       import("./scheduler/index.js").then(
