@@ -26,6 +26,7 @@ Core TypeScript/Node.js application. Exports:
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + connectors + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
+- **Media** (`src/media/`): local upload/download foundation under `$AIHUB_HOME/media`, with inbound/outbound metadata, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
@@ -133,7 +134,7 @@ Zod schemas and TypeScript types:
 - Modular runtime types: `Component`, `ComponentContext`, `ValidationResult`
 - Connector framework types/loader/registry/discovery now live under `packages/shared/src/connectors`
 - Browser consumers must import browser-safe subpaths like `@aihub/shared/types`, `@aihub/shared/model-context`, and `@aihub/shared/projectPrompt` instead of the package root, which also re-exports Node-only config/connectors helpers
-- History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall), `ModelMeta`, `ModelUsage`
+- History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall/file), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
   - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
   - Coordinator prompts include the canonical repo root as read-only context and explicitly require workers to stay in dedicated worktrees/workspaces, never the main repo, unless explicitly required

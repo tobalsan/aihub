@@ -5,7 +5,12 @@ import os from "node:os";
 
 describe("media upload API", () => {
   let tmpDir: string;
-  let api: { request: (input: RequestInfo, init?: RequestInit) => Response | Promise<Response> };
+  let api: {
+    request: (
+      input: RequestInfo,
+      init?: RequestInit
+    ) => Response | Promise<Response>;
+  };
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
@@ -37,10 +42,12 @@ describe("media upload API", () => {
     const formData = new FormData();
     formData.set("file", file);
 
-    const res = await Promise.resolve(api.request("/media/upload", {
-      method: "POST",
-      body: formData,
-    }));
+    const res = await Promise.resolve(
+      api.request("/media/upload", {
+        method: "POST",
+        body: formData,
+      })
+    );
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -52,15 +59,68 @@ describe("media upload API", () => {
     expect(saved.length).toBe(data.length);
   });
 
-  it("rejects unsupported file types", async () => {
-    const file = new File([new Uint8Array([9])], "test.bin", { type: "application/x-foo" });
+  it("uploads allowed document files", async () => {
+    const mimeTypes = [
+      "application/pdf",
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ];
+
+    for (const mimeType of mimeTypes) {
+      const file = new File([new Uint8Array([1])], "test.txt", {
+        type: mimeType,
+      });
+      const formData = new FormData();
+      formData.set("file", file);
+
+      const res = await Promise.resolve(
+        api.request("/media/upload", {
+          method: "POST",
+          body: formData,
+        })
+      );
+
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("rejects files larger than 25MB", async () => {
+    const file = new File([new Uint8Array(25 * 1024 * 1024 + 1)], "big.txt", {
+      type: "text/plain",
+    });
     const formData = new FormData();
     formData.set("file", file);
 
-    const res = await Promise.resolve(api.request("/media/upload", {
-      method: "POST",
-      body: formData,
-    }));
+    const res = await Promise.resolve(
+      api.request("/media/upload", {
+        method: "POST",
+        body: formData,
+      })
+    );
+
+    expect(res.status).toBe(413);
+    const json = await res.json();
+    expect(json.error).toContain("25MB");
+  });
+
+  it("rejects unsupported file types", async () => {
+    const file = new File([new Uint8Array([9])], "test.bin", {
+      type: "application/x-foo",
+    });
+    const formData = new FormData();
+    formData.set("file", file);
+
+    const res = await Promise.resolve(
+      api.request("/media/upload", {
+        method: "POST",
+        body: formData,
+      })
+    );
 
     expect(res.status).toBe(400);
     const json = await res.json();

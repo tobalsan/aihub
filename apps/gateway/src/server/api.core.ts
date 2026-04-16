@@ -30,6 +30,8 @@ import {
   saveUploadedFile,
   isAllowedMimeType,
   getAllowedMimeTypes,
+  MAX_UPLOAD_SIZE_BYTES,
+  UploadTooLargeError,
 } from "../media/upload.js";
 
 const api = new Hono();
@@ -306,6 +308,16 @@ api.post("/media/upload", async (c) => {
       return c.json({ error: "No file provided" }, 400);
     }
 
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      return c.json(
+        {
+          error: `File exceeds the 25MB upload limit`,
+          maxSize: MAX_UPLOAD_SIZE_BYTES,
+        },
+        413
+      );
+    }
+
     const mimeType = file.type || "application/octet-stream";
     if (!isAllowedMimeType(mimeType)) {
       return c.json(
@@ -322,6 +334,16 @@ api.post("/media/upload", async (c) => {
 
     return c.json(result);
   } catch (err) {
+    if (err instanceof UploadTooLargeError) {
+      return c.json(
+        {
+          error: "File exceeds the 25MB upload limit",
+          maxSize: MAX_UPLOAD_SIZE_BYTES,
+        },
+        413
+      );
+    }
+
     const message = err instanceof Error ? err.message : "Upload failed";
     return c.json({ error: message }, 500);
   }

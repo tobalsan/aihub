@@ -12,6 +12,7 @@ Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, CLI, and 
 - Virtualized long-thread project agent chat with smart near-bottom autoscroll
 - Specs and task management
 - Activity feed
+- Local media foundation for image/document uploads and agent-created file downloads
 - File-based by default; optional SQLite only for multi-user auth
 
 ## Quick Start

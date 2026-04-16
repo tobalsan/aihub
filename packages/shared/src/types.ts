@@ -797,7 +797,16 @@ export type StreamEvent =
       type: "done";
       meta?: { durationMs: number; aborted?: boolean; queued?: boolean };
     }
+  | FileOutputEvent
   | { type: "error"; message: string };
+
+export type FileOutputEvent = {
+  type: "file_output";
+  fileId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+};
 
 // Image attachment for multimodal messages (base64 - legacy)
 export type ImageAttachment = {
@@ -934,7 +943,20 @@ export type ToolCallBlock = {
   arguments: unknown;
 };
 
-export type ContentBlock = ThinkingBlock | TextBlock | ToolCallBlock;
+export type FileBlock = {
+  type: "file";
+  fileId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  direction: "inbound" | "outbound";
+};
+
+export type ContentBlock =
+  | ThinkingBlock
+  | TextBlock
+  | ToolCallBlock
+  | FileBlock;
 
 /** Model usage info */
 export type ModelUsage = {
@@ -1033,7 +1055,9 @@ export const ContainerConnectorToolSchema = z.object({
   description: z.string(),
   parameters: z.record(z.unknown()),
 });
-export type ContainerConnectorTool = z.infer<typeof ContainerConnectorToolSchema>;
+export type ContainerConnectorTool = z.infer<
+  typeof ContainerConnectorToolSchema
+>;
 
 export const ContainerConnectorConfigSchema = z.object({
   id: z.string(),

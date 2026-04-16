@@ -1,10 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import { randomUUID } from "node:crypto";
+import {
+  ensureMediaDirectories,
+  MEDIA_INBOUND_DIR,
+  registerMediaFile,
+} from "./metadata.js";
 
-// Directory for storing inbound media files
-export const MEDIA_INBOUND_DIR = path.join(os.homedir(), ".aihub", "media", "inbound");
+export { MEDIA_INBOUND_DIR };
+
+export const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
 
 // Allowed MIME types for upload
 const ALLOWED_MIME_TYPES = new Set([
@@ -18,44 +23,30 @@ const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "text/markdown",
   "text/plain",
+  "text/csv",
   // Office formats
   "application/msword", // .doc
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
   "application/vnd.ms-excel", // .xls
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-  "application/vnd.ms-powerpoint", // .ppt
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
-  // Code/text
-  "text/csv",
-  "application/json",
-  "text/html",
-  "text/css",
-  "text/javascript",
-  "application/javascript",
 ]);
 
-// Extension mapping for common types
-const MIME_TO_EXT: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-  "application/pdf": "pdf",
-  "text/markdown": "md",
-  "text/plain": "txt",
-  "application/msword": "doc",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-  "application/vnd.ms-excel": "xls",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-  "application/vnd.ms-powerpoint": "ppt",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-  "text/csv": "csv",
-  "application/json": "json",
-  "text/html": "html",
-  "text/css": "css",
-  "text/javascript": "js",
-  "application/javascript": "js",
+const MIME_TO_EXTENSIONS: Record<string, string[]> = {
+  "image/jpeg": ["jpg", "jpeg"],
+  "image/png": ["png"],
+  "image/gif": ["gif"],
+  "image/webp": ["webp"],
+  "image/svg+xml": ["svg"],
+  "application/pdf": ["pdf"],
+  "text/markdown": ["md", "markdown"],
+  "text/plain": ["txt"],
+  "text/csv": ["csv"],
+  "application/msword": ["doc"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+    "docx",
+  ],
+  "application/vnd.ms-excel": ["xls"],
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["xlsx"],
 };
 
 export interface UploadResult {
@@ -69,6 +60,15 @@ export interface UploadError {
   error: string;
 }
 
+export class UploadTooLargeError extends Error {
+  constructor(size: number) {
+    super(
+      `File size ${size} bytes exceeds the ${MAX_UPLOAD_SIZE_BYTES} byte limit`
+    );
+    this.name = "UploadTooLargeError";
+  }
+}
+
 /**
  * Check if a MIME type is allowed for upload
  */
@@ -79,14 +79,33 @@ export function isAllowedMimeType(mimeType: string): boolean {
 /**
  * Get file extension from MIME type
  */
-function getExtensionFromMime(mimeType: string, originalFilename?: string): string {
-  // Try to get extension from original filename first
+function getExtensionFromMime(
+  mimeType: string,
+  originalFilename?: string
+): string {
+  const allowedExtensions = MIME_TO_EXTENSIONS[mimeType] ?? [];
+
   if (originalFilename) {
     const ext = path.extname(originalFilename).slice(1).toLowerCase();
-    if (ext) return ext;
+    if (allowedExtensions.includes(ext)) return ext;
   }
-  // Fall back to MIME type mapping
-  return MIME_TO_EXT[mimeType] || "bin";
+
+  return allowedExtensions[0] ?? "bin";
+}
+
+function sanitizeFilename(
+  filename: string | undefined,
+  fallback: string
+): string {
+  if (!filename) return fallback;
+
+  const cleaned = filename
+    .replace(/\0/g, "")
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .at(-1);
+
+  return cleaned || fallback;
 }
 
 /**
@@ -97,16 +116,27 @@ export async function saveUploadedFile(
   mimeType: string,
   originalFilename?: string
 ): Promise<UploadResult> {
-  // Ensure directory exists
-  await fs.mkdir(MEDIA_INBOUND_DIR, { recursive: true });
-
   const ext = getExtensionFromMime(mimeType, originalFilename);
-  const filename = `${randomUUID()}.${ext}`;
+  const fileId = randomUUID();
+  const filename = `${fileId}.${ext}`;
   const filepath = path.join(MEDIA_INBOUND_DIR, filename);
 
-  // Write file
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  if (buffer.length > MAX_UPLOAD_SIZE_BYTES) {
+    throw new UploadTooLargeError(buffer.length);
+  }
+
+  await ensureMediaDirectories();
   await fs.writeFile(filepath, buffer);
+  await registerMediaFile({
+    direction: "inbound",
+    fileId,
+    filename: sanitizeFilename(originalFilename, filename),
+    storedFilename: filename,
+    path: filepath,
+    mimeType,
+    size: buffer.length,
+  });
 
   return {
     path: filepath,

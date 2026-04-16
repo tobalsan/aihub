@@ -47,6 +47,8 @@ vi.mock("../media/upload.js", () => ({
   saveUploadedFile: vi.fn(),
   isAllowedMimeType: vi.fn(() => true),
   getAllowedMimeTypes: vi.fn(() => []),
+  MAX_UPLOAD_SIZE_BYTES: 25 * 1024 * 1024,
+  UploadTooLargeError: class UploadTooLargeError extends Error {},
 }));
 
 describe("api core session resolution", () => {
