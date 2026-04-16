@@ -21,13 +21,11 @@ import {
   type SlackCommandTarget,
   type SlackRespond,
 } from "./handlers/commands.js";
+import { matchesUserAllowlist } from "./utils/allowlist.js";
 import { splitMessage } from "./utils/chunk.js";
 import { buildSlackContext } from "./utils/context.js";
 import { clearHistory, getHistory, recordMessage } from "./utils/history.js";
-import {
-  getThreadParent,
-  resolveReplyThreadTs,
-} from "./utils/threads.js";
+import { getThreadParent, resolveReplyThreadTs } from "./utils/threads.js";
 import {
   startThinkingReaction,
   stopAllThinkingReactions,
@@ -161,25 +159,23 @@ async function handleSlackMessage(
   const result = processMessage(data, target.config, botUserId);
   const historyLimit = target.config.historyLimit ?? 20;
 
-  if (!data.bot_id) {
-    recordMessage(
-      data.channel,
-      {
-        author: data.user ?? "unknown",
-        content: data.text ?? "",
-        timestamp: slackTsToMs(data.ts),
-      },
-      50,
-      data.ts
-    );
-  }
-
   if (!result.shouldReply) {
     if (result.reason && result.reason !== "author_is_bot") {
       console.debug(`${target.logPrefix} Ignored: ${result.reason}`);
     }
     return;
   }
+
+  recordMessage(
+    data.channel,
+    {
+      author: data.user ?? "unknown",
+      content: data.text ?? "",
+      timestamp: slackTsToMs(data.ts),
+    },
+    50,
+    data.ts
+  );
 
   const content = result.normalizedContent;
   if (!content) return;
@@ -341,6 +337,13 @@ function resolveCommandTarget(
 ): SlackCommandTarget | null {
   const route = componentConfig.channels?.[command.channel_id];
   if (route) {
+    if (
+      route.users &&
+      route.users.length > 0 &&
+      !matchesUserAllowlist(command.user_id, route.users)
+    ) {
+      return null;
+    }
     const agent = agentsById.get(route.agent);
     return agent
       ? {
@@ -353,11 +356,20 @@ function resolveCommandTarget(
   }
 
   const isDm = command.channel_id.startsWith("D");
-  if (isDm && componentConfig.dm?.enabled !== false && componentConfig.dm?.agent) {
+  if (
+    isDm &&
+    componentConfig.dm?.enabled !== false &&
+    componentConfig.dm?.agent
+  ) {
+    if (
+      componentConfig.dm.allowFrom &&
+      componentConfig.dm.allowFrom.length > 0 &&
+      !matchesUserAllowlist(command.user_id, componentConfig.dm.allowFrom)
+    ) {
+      return null;
+    }
     const agent = agentsById.get(componentConfig.dm.agent);
-    return agent
-      ? { agent, config: componentConfig, isDm: true }
-      : null;
+    return agent ? { agent, config: componentConfig, isDm: true } : null;
   }
 
   if (!componentConfig.channels && fallbackAgent) {
@@ -405,9 +417,12 @@ export function createSlackBot(
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
 
-  const resolveMessageTarget = (data: MessageData): SlackMessageTarget | null => {
+  const resolveMessageTarget = (
+    data: MessageData
+  ): SlackMessageTarget | null => {
     if (data.channel_type === "im") {
-      if (!componentConfig.dm || componentConfig.dm.enabled === false) return null;
+      if (!componentConfig.dm || componentConfig.dm.enabled === false)
+        return null;
       const dmAgent = agentsById.get(componentConfig.dm.agent);
       if (!dmAgent) return null;
       return {

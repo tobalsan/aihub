@@ -1,5 +1,7 @@
 import type { AgentConfig, SlackComponentConfig } from "@aihub/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { runAgent } from "../agents/index.js";
+import { clearAllHistory, getHistory } from "./utils/history.js";
 
 type MockSlackApp = {
   config: Record<string, unknown>;
@@ -21,6 +23,17 @@ type MockSlackApp = {
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
 };
+
+type SlackMessageCallback = (args: {
+  message: Record<string, unknown>;
+  client: MockSlackApp["client"];
+}) => Promise<void>;
+
+type SlackCommandCallback = (args: {
+  command: { channel_id: string; user_id: string; text?: string };
+  ack: () => Promise<unknown>;
+  respond: (message: unknown) => Promise<unknown>;
+}) => Promise<void>;
 
 const apps: MockSlackApp[] = [];
 
@@ -63,6 +76,8 @@ vi.mock("../sessions/index.js", () => ({
   getSessionEntry: vi.fn(),
 }));
 
+const mockRunAgent = vi.mocked(runAgent);
+
 const agent: AgentConfig = {
   id: "main",
   name: "Main",
@@ -80,10 +95,29 @@ const config: SlackComponentConfig = {
   dm: { enabled: true, agent: "main" },
 };
 
+function getMessageHandler(app: MockSlackApp): SlackMessageCallback {
+  return app.message.mock.calls[0]?.[0] as SlackMessageCallback;
+}
+
+function getCommandHandler(
+  app: MockSlackApp,
+  name: "/new" | "/abort" | "/help" | "/ping"
+): SlackCommandCallback {
+  const call = app.command.mock.calls.find(
+    ([commandName]) => commandName === name
+  );
+  return call?.[1] as SlackCommandCallback;
+}
+
 describe("createSlackBot", () => {
   beforeEach(() => {
     apps.length = 0;
     vi.clearAllMocks();
+    clearAllHistory();
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 1, sessionId: "session" },
+    });
   });
 
   it("creates a Bolt Socket Mode app and registers handlers", async () => {
@@ -121,5 +155,95 @@ describe("createSlackBot", () => {
     expect(apps[0].client.auth.test).toHaveBeenCalledOnce();
     expect(apps[0].start).toHaveBeenCalledOnce();
     expect(apps[0].stop).toHaveBeenCalledOnce();
+  });
+
+  it("records history only after messages pass gating", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], {
+      ...config,
+      channels: { C1: { agent: "main" } },
+    });
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello without mention",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(getHistory("C1", 10)).toEqual([]);
+    expect(mockRunAgent).not.toHaveBeenCalled();
+
+    await messageHandler({
+      message: {
+        ts: "2.2",
+        text: "<@Ubot> hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(getHistory("C1", 10)).toEqual([
+      expect.objectContaining({ author: "U1", content: "<@Ubot> hello" }),
+    ]);
+    expect(mockRunAgent).toHaveBeenCalledOnce();
+  });
+
+  it("blocks /new for users outside channel allowlist", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    createSlackBot([agent], {
+      ...config,
+      channels: {
+        C1: { agent: "main", requireMention: false, users: ["U1"] },
+      },
+    });
+
+    const newHandler = getCommandHandler(apps[0], "/new");
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const respond = vi.fn().mockResolvedValue(undefined);
+    await newHandler({
+      command: { channel_id: "C1", user_id: "U2", text: "" },
+      ack,
+      respond,
+    });
+
+    expect(ack).toHaveBeenCalledOnce();
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith({
+      text: "No agent is configured for this Slack route.",
+      response_type: "ephemeral",
+    });
+  });
+
+  it("blocks /new for DM users outside allowFrom", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    createSlackBot([agent], {
+      ...config,
+      dm: { enabled: true, agent: "main", allowFrom: ["U1"] },
+    });
+
+    const newHandler = getCommandHandler(apps[0], "/new");
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const respond = vi.fn().mockResolvedValue(undefined);
+    await newHandler({
+      command: { channel_id: "D1", user_id: "U2", text: "" },
+      ack,
+      respond,
+    });
+
+    expect(ack).toHaveBeenCalledOnce();
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith({
+      text: "No agent is configured for this Slack route.",
+      response_type: "ephemeral",
+    });
   });
 });
