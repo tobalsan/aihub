@@ -23,6 +23,11 @@ import {
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
 import type { ConnectorTool } from "@aihub/shared";
+import {
+  appendAttachmentContext,
+  buildDocumentAttachmentContext,
+  isImageAttachment,
+} from "../attachments.js";
 
 // Module-level lock for serializing runs that modify env vars
 let claudeEnvLock: Promise<void> = Promise.resolve();
@@ -227,13 +232,18 @@ export const claudeAdapter: SdkAdapter = {
       const messageToSend = contextPreamble
         ? `${contextPreamble}\n\n${params.message}`
         : params.message;
+      const attachmentContext = await buildDocumentAttachmentContext(
+        params.attachments
+      );
+      const messageWithAttachments = appendAttachmentContext(
+        messageToSend,
+        attachmentContext
+      );
 
       // Build content with file attachments (read from disk)
-      let content: ClaudeUserContent = messageToSend;
+      let content: ClaudeUserContent = messageWithAttachments;
       if (params.attachments && params.attachments.length > 0) {
-        const imageAttachments = params.attachments.filter((a) =>
-          a.mimeType.startsWith("image/")
-        );
+        const imageAttachments = params.attachments.filter(isImageAttachment);
         if (imageAttachments.length > 0) {
           const imageBlocks = await Promise.all(
             imageAttachments.map(async (attachment) => {
@@ -249,7 +259,7 @@ export const claudeAdapter: SdkAdapter = {
             })
           );
           content = [
-            { type: "text" as const, text: messageToSend },
+            { type: "text" as const, text: messageWithAttachments },
             ...imageBlocks,
           ];
         }
@@ -259,6 +269,7 @@ export const claudeAdapter: SdkAdapter = {
       params.onHistoryEvent({
         type: "user",
         text: params.message,
+        attachments: params.attachments,
         timestamp: Date.now(),
       });
 
@@ -273,7 +284,10 @@ export const claudeAdapter: SdkAdapter = {
 
       try {
         const subagentServer = createSubagentMcpServer();
-        const connectorTools = getConnectorToolsForAgent(params.agent, loadConfig());
+        const connectorTools = getConnectorToolsForAgent(
+          params.agent,
+          loadConfig()
+        );
         const connectorPrompts = getConnectorPromptsForAgent(params.agent);
         const connectorServer =
           connectorTools.length > 0

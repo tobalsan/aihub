@@ -11,6 +11,7 @@ import {
 import { useParams, useNavigate, A } from "@solidjs/router";
 import {
   streamMessage,
+  uploadFiles,
   getSessionKey,
   fetchSimpleHistory,
   fetchFullHistory,
@@ -27,6 +28,8 @@ import type {
   FullHistoryMessage,
   FullToolResultMessage,
   ContentBlock,
+  FileAttachment,
+  FileBlock,
   ModelMeta,
   ActiveToolCall,
   ThinkLevel,
@@ -39,9 +42,109 @@ import { getMaxContextTokens } from "@aihub/shared/model-context";
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
+const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+const ACCEPTED_FILE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "application/pdf",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+].join(",");
+const SUPPORTED_FILE_TYPES = new Set(ACCEPTED_FILE_TYPES.split(","));
+const SUPPORTED_FILE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "svg",
+  "pdf",
+  "txt",
+  "md",
+  "markdown",
+  "csv",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+]);
+const FILE_INPUT_ACCEPT = [
+  ACCEPTED_FILE_TYPES,
+  ...Array.from(SUPPORTED_FILE_EXTENSIONS, (ext) => `.${ext}`),
+].join(",");
+
+type PendingFile = {
+  id: string;
+  file: File;
+  name: string;
+  mimeType: string;
+  size: number;
+  previewUrl?: string;
+};
 
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
+}
+
+function formatFileSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return "";
+  if (size < 1024) return `${size} B`;
+  const kb = size / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+}
+
+function isSupportedFile(file: File): boolean {
+  if (SUPPORTED_FILE_TYPES.has(file.type)) return true;
+  const ext = file.name.toLowerCase().split(".").pop();
+  return ext ? SUPPORTED_FILE_EXTENSIONS.has(ext) : false;
+}
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith("image/");
+}
+
+function getFileIcon(mimeType: string): string {
+  if (mimeType.startsWith("image/")) return "IMG";
+  if (mimeType === "application/pdf") return "PDF";
+  if (mimeType.includes("word")) return "DOC";
+  if (mimeType.includes("excel") || mimeType.includes("spreadsheet"))
+    return "XLS";
+  if (mimeType === "text/csv") return "CSV";
+  if (mimeType === "text/markdown") return "MD";
+  return "FILE";
+}
+
+function getAttachmentFileId(attachment: FileAttachment): string {
+  const name = attachment.path.split(/[\\/]/).pop() ?? attachment.path;
+  return name.replace(/\.[^.]+$/, "");
+}
+
+function attachmentToFileBlock(
+  attachment: FileAttachment,
+  pending?: PendingFile
+): FileBlock {
+  return {
+    type: "file",
+    fileId: getAttachmentFileId(attachment),
+    filename:
+      pending?.name ??
+      attachment.filename ??
+      attachment.path.split(/[\\/]/).pop() ??
+      "file",
+    mimeType: pending?.mimeType || attachment.mimeType,
+    size: pending?.size ?? 0,
+    direction: "inbound",
+  };
 }
 
 function formatJson(args: unknown): string {
@@ -160,9 +263,58 @@ function ContentBlocks(props: {
               </div>
             );
           }
+          if (block.type === "file") {
+            return <FileCard file={block} />;
+          }
           return null;
         }}
       </For>
+    </div>
+  );
+}
+
+function FileAttachmentList(props: { files?: FileBlock[] }) {
+  return (
+    <Show when={props.files && props.files.length > 0}>
+      <div class="message-files">
+        <For each={props.files ?? []}>
+          {(file) => (
+            <div class="message-file-pill">
+              <span class="file-icon">{getFileIcon(file.mimeType)}</span>
+              <span class="file-name" title={file.filename}>
+                {file.filename}
+              </span>
+              <Show when={formatFileSize(file.size)}>
+                {(size) => <span class="file-size">{size()}</span>}
+              </Show>
+            </div>
+          )}
+        </For>
+      </div>
+    </Show>
+  );
+}
+
+function FileCard(props: { file: FileBlock }) {
+  const href = () => `/api/media/download/${props.file.fileId}`;
+  return (
+    <div class={`file-card ${props.file.direction}`}>
+      <span class="file-icon">{getFileIcon(props.file.mimeType)}</span>
+      <div class="file-card-body">
+        <div class="file-card-name" title={props.file.filename}>
+          {props.file.filename}
+        </div>
+        <div class="file-card-meta">
+          {[props.file.mimeType, formatFileSize(props.file.size)]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+      </div>
+      <Show when={props.file.direction === "outbound"}>
+        <a class="file-download" href={href()} download>
+          Download
+        </a>
+      </Show>
     </div>
   );
 }
@@ -222,6 +374,9 @@ export function ChatView() {
   const [pendingThinkLevel, setPendingThinkLevel] =
     createSignal<ThinkLevel | null>(null);
   const [input, setInput] = createSignal("");
+  const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
+  const [uploadingFiles, setUploadingFiles] = createSignal(false);
+  const [uploadError, setUploadError] = createSignal("");
   const [stopping, setStopping] = createSignal(false);
   const [showInterrupted, setShowInterrupted] = createSignal(false);
   const [isStreaming, setIsStreaming] = createSignal(false);
@@ -239,6 +394,7 @@ export function ChatView() {
     }>
   >([]);
   const [streamingText, setStreamingText] = createSignal("");
+  const [streamingFiles, setStreamingFiles] = createSignal<FileBlock[]>([]);
   const [streamingTextAt, setStreamingTextAt] = createSignal<number | null>(
     null
   );
@@ -249,7 +405,7 @@ export function ChatView() {
   const [loading, setLoading] = createSignal(true);
   const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<
-    Array<{ text: string; timestamp: number }>
+    Array<{ text: string; timestamp: number; files?: FileBlock[] }>
   >([]);
   const [contextFullMessages, setContextFullMessages] = createSignal<
     FullHistoryMessage[]
@@ -258,6 +414,7 @@ export function ChatView() {
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
+  let fileInputRef: HTMLInputElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
   let aborted = false;
@@ -280,7 +437,8 @@ export function ChatView() {
   const estimatedContextUsagePct = createMemo(() => {
     let highestInputTokens = 0;
     let modelName: string | undefined;
-    const messages = viewMode() === "full" ? fullMessages() : contextFullMessages();
+    const messages =
+      viewMode() === "full" ? fullMessages() : contextFullMessages();
     for (const message of messages) {
       if (message.role !== "assistant") continue;
       const meta = message.meta;
@@ -343,6 +501,68 @@ export function ChatView() {
     textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, maxHeight)}px`;
   };
 
+  const revokePendingFile = (item: PendingFile) => {
+    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+  };
+
+  const clearPendingFiles = () => {
+    setPendingFiles((prev) => {
+      prev.forEach(revokePendingFile);
+      return [];
+    });
+  };
+
+  const addPendingFiles = (files: FileList | File[]) => {
+    setUploadError("");
+    const next: PendingFile[] = [];
+    for (const file of Array.from(files)) {
+      if (!isSupportedFile(file)) {
+        setUploadError(`Unsupported file type: ${file.name}`);
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        setUploadError(`File exceeds 25 MB: ${file.name}`);
+        continue;
+      }
+      next.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        file,
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        previewUrl: isImageFile(file) ? URL.createObjectURL(file) : undefined,
+      });
+    }
+    if (next.length > 0) {
+      setPendingFiles((prev) => [...prev, ...next]);
+    }
+  };
+
+  const removePendingFile = (id: string) => {
+    setPendingFiles((prev) => {
+      const removed = prev.find((item) => item.id === id);
+      if (removed) revokePendingFile(removed);
+      return prev.filter((item) => item.id !== id);
+    });
+  };
+
+  const handleFileDragOver = (event: DragEvent) => {
+    event.preventDefault();
+  };
+
+  const handleFileDrop = (event: DragEvent) => {
+    event.preventDefault();
+    if (isStreaming()) {
+      setUploadError("Wait for the current response before attaching files.");
+      return;
+    }
+    const files = event.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    addPendingFiles(files);
+  };
+
+  onCleanup(clearPendingFiles);
+
   // Load history based on view mode
   const loadHistory = async (mode: HistoryViewMode) => {
     setLoading(true);
@@ -352,9 +572,7 @@ export function ChatView() {
       if (res.activeTurn?.userText) {
         baseMessages.push({
           role: "user",
-          content: [
-            { type: "text", text: res.activeTurn.userText },
-          ],
+          content: [{ type: "text", text: res.activeTurn.userText }],
           timestamp: res.activeTurn.userTimestamp,
         });
       }
@@ -364,7 +582,10 @@ export function ChatView() {
             ...baseMessages,
             ...pending.map((msg) => ({
               role: "user" as const,
-              content: [{ type: "text" as const, text: msg.text }],
+              content: [
+                { type: "text" as const, text: msg.text },
+                ...(msg.files ?? []),
+              ],
               timestamp: msg.timestamp,
             })),
           ]
@@ -379,6 +600,7 @@ export function ChatView() {
         id: crypto.randomUUID(),
         role: h.role,
         content: h.content,
+        files: h.files,
         timestamp: h.timestamp,
       }));
       if (res.activeTurn?.userText) {
@@ -397,6 +619,7 @@ export function ChatView() {
               id: crypto.randomUUID(),
               role: "user" as const,
               content: msg.text,
+              files: msg.files,
               timestamp: msg.timestamp,
             })),
           ]
@@ -542,7 +765,10 @@ export function ChatView() {
         setActiveTools((prev) =>
           prev.some((t) => t.toolName === toolName && t.status === "running")
             ? prev
-            : [...prev, { id: crypto.randomUUID(), toolName, status: "running" }]
+            : [
+                ...prev,
+                { id: crypto.randomUUID(), toolName, status: "running" },
+              ]
         );
       },
       onToolEnd: (toolName, isError) => {
@@ -561,6 +787,15 @@ export function ChatView() {
               : tc
           )
         );
+      },
+      onFileOutput: (file) => {
+        if (cleanup) return;
+        setStreamingFiles((prev) => [
+          ...prev,
+          { type: "file", direction: "outbound", ...file },
+        ]);
+        if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
+        setIsStreaming(true);
       },
       onDone: () => {
         if (cleanup) return;
@@ -595,12 +830,16 @@ export function ChatView() {
     statusCleanup?.();
 
     // Check current status immediately
-    fetchAgentStatuses().then((res) => {
-      if (res.statuses[agentId] === "streaming" && !isStreaming()) {
-        setIsStreaming(true);
-        setStreamingStartedAt(Date.now());
-      }
-    }).catch(() => {/* ignore */});
+    fetchAgentStatuses()
+      .then((res) => {
+        if (res.statuses[agentId] === "streaming" && !isStreaming()) {
+          setIsStreaming(true);
+          setStreamingStartedAt(Date.now());
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
 
     // Subscribe to real-time status changes
     statusCleanup = subscribeToStatus({
@@ -618,15 +857,23 @@ export function ChatView() {
       },
       onReconnect: () => {
         // Re-check status after reconnect
-        fetchAgentStatuses().then((res) => {
-          if (res.statuses[agentId] === "streaming" && !isStreaming()) {
-            setIsStreaming(true);
-            setStreamingStartedAt(Date.now());
-          } else if (res.statuses[agentId] !== "streaming" && isStreaming() && !cleanup) {
-            resetStreamingState();
-            loadHistory(viewMode());
-          }
-        }).catch(() => {/* ignore */});
+        fetchAgentStatuses()
+          .then((res) => {
+            if (res.statuses[agentId] === "streaming" && !isStreaming()) {
+              setIsStreaming(true);
+              setStreamingStartedAt(Date.now());
+            } else if (
+              res.statuses[agentId] !== "streaming" &&
+              isStreaming() &&
+              !cleanup
+            ) {
+              resetStreamingState();
+              loadHistory(viewMode());
+            }
+          })
+          .catch(() => {
+            /* ignore */
+          });
       },
     });
   });
@@ -635,6 +882,7 @@ export function ChatView() {
     simpleMessages();
     fullMessages();
     streamingText();
+    streamingFiles();
     activeTools();
     scrollToBottom();
   });
@@ -661,6 +909,7 @@ export function ChatView() {
     setStreamingThinkingAt(null);
     setStreamingToolCalls([]);
     setStreamingText("");
+    setStreamingFiles([]);
     setStreamingTextAt(null);
     setActiveTools([]);
     setIsStreaming(false);
@@ -677,11 +926,20 @@ export function ChatView() {
 
   // Check if stream has any content (used to guard against wiping real stream)
   const hasStreamingContent = () =>
-    streamingText() || streamingThinking() || streamingToolCalls().length > 0;
+    streamingText() ||
+    streamingThinking() ||
+    streamingToolCalls().length > 0 ||
+    streamingFiles().length > 0;
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input().trim();
-    if (!text || loading()) return;
+    const currentPendingFiles = pendingFiles();
+    const hasFiles = currentPendingFiles.length > 0;
+    if ((!text && !hasFiles) || loading() || uploadingFiles()) return;
+    if (isStreaming() && hasFiles) {
+      setUploadError("Wait for the current response before attaching files.");
+      return;
+    }
 
     // Treat /stop as an interrupt
     if (text === "/stop") {
@@ -691,15 +949,44 @@ export function ChatView() {
       return;
     }
 
+    let attachments: FileAttachment[] | undefined;
+    let inboundFiles: FileBlock[] = [];
+    if (hasFiles) {
+      setUploadingFiles(true);
+      setUploadError("");
+      try {
+        attachments = await uploadFiles(
+          currentPendingFiles.map((item) => item.file)
+        );
+        inboundFiles = attachments.map((attachment, index) =>
+          attachmentToFileBlock(attachment, currentPendingFiles[index])
+        );
+        clearPendingFiles();
+      } catch (error) {
+        setUploadError(
+          error instanceof Error ? error.message : "File upload failed"
+        );
+        setUploadingFiles(false);
+        return;
+      }
+      setUploadingFiles(false);
+    }
+
+    const messageText = text || "Attached file(s).";
     const levelToSend = pendingThinkLevel() ?? thinkingLevel();
     const currentAgent = agent();
     const queueMode = currentAgent?.queueMode ?? "queue";
+    const streamOptions = {
+      ...(attachments?.length ? { attachments } : {}),
+      ...(levelToSend ? { thinkLevel: levelToSend } : {}),
+    };
 
     // Add user message to both views
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
-      content: text,
+      content: messageText,
+      files: inboundFiles.length > 0 ? inboundFiles : undefined,
       timestamp: Date.now(),
     };
     setShowInterrupted(false);
@@ -708,7 +995,7 @@ export function ChatView() {
       ...prev,
       {
         role: "user",
-        content: [{ type: "text", text }],
+        content: [{ type: "text", text: messageText }, ...inboundFiles],
         timestamp: Date.now(),
       },
     ]);
@@ -725,11 +1012,16 @@ export function ChatView() {
       if (trackSequentialQueue) {
         setPendingQueuedMessages((prev) => [
           ...prev,
-          { text, timestamp: Date.now() },
+          {
+            text: messageText,
+            files: inboundFiles.length > 0 ? inboundFiles : undefined,
+            timestamp: Date.now(),
+          },
         ]);
       }
       let queuedText = "";
       let queuedThinking = "";
+      const queuedFiles: FileBlock[] = [];
       const queuedToolCalls: Array<{
         id: string;
         name: string;
@@ -741,7 +1033,7 @@ export function ChatView() {
       // Send queued message with minimal handlers (queue ack doesn't affect streaming state)
       const queueCleanup = streamMessage(
         params.agentId,
-        text,
+        messageText,
         sessionKey(),
         (chunk) => {
           queuedText += chunk;
@@ -773,14 +1065,21 @@ export function ChatView() {
           if (queuedText) {
             blocks.push({ type: "text", text: queuedText });
           }
+          blocks.push(...queuedFiles);
 
-          if (queuedText || queuedThinking || queuedToolCalls.length > 0) {
+          if (
+            queuedText ||
+            queuedThinking ||
+            queuedToolCalls.length > 0 ||
+            queuedFiles.length > 0
+          ) {
             setSimpleMessages((prev) => [
               ...prev,
               {
                 id: crypto.randomUUID(),
                 role: "assistant",
                 content: queuedText,
+                files: queuedFiles.length > 0 ? queuedFiles : undefined,
                 timestamp: Date.now(),
               },
             ]);
@@ -836,19 +1135,27 @@ export function ChatView() {
               }
             }
           },
+          onFileOutput: (file) => {
+            queuedFiles.push({
+              type: "file",
+              direction: "outbound",
+              ...file,
+            });
+          },
           onSessionReset: () => {
             // Queued /new or /reset triggered - clear messages and streaming state
             setSimpleMessages([]);
             setFullMessages([]);
             resetStreamingState();
             setPendingQueuedMessages([]);
+            clearPendingFiles();
             if (cleanup) {
               cleanup();
               cleanup = null;
             }
           },
         },
-        levelToSend ? { thinkLevel: levelToSend } : undefined
+        streamOptions
       );
       return;
     }
@@ -865,12 +1172,13 @@ export function ChatView() {
     setStreamingThinkingAt(null);
     setStreamingToolCalls([]);
     setStreamingText("");
+    setStreamingFiles([]);
     setStreamingTextAt(null);
     setActiveTools([]);
 
     cleanup = streamMessage(
       params.agentId,
-      text,
+      messageText,
       sessionKey(),
       (chunk) => {
         setStreamingText((prev) => prev + chunk);
@@ -913,15 +1221,23 @@ export function ChatView() {
         if (content) {
           blocks.push({ type: "text", text: content });
         }
+        const files = streamingFiles();
+        blocks.push(...files);
 
         // Only add assistant message if there's actual content
-        if (content || thinkingContent || streamingToolCalls().length > 0) {
+        if (
+          content ||
+          thinkingContent ||
+          streamingToolCalls().length > 0 ||
+          files.length > 0
+        ) {
           setSimpleMessages((prev) => [
             ...prev,
             {
               id: crypto.randomUUID(),
               role: "assistant",
               content,
+              files: files.length > 0 ? files : undefined,
               timestamp: Date.now(),
             },
           ]);
@@ -1008,14 +1324,21 @@ export function ChatView() {
             )
           );
         },
+        onFileOutput: (file) => {
+          setStreamingFiles((prev) => [
+            ...prev,
+            { type: "file", direction: "outbound", ...file },
+          ]);
+        },
         onSessionReset: () => {
           // Clear messages when session resets (e.g., /new command)
           setSimpleMessages([]);
           setFullMessages([]);
           setPendingQueuedMessages([]);
+          clearPendingFiles();
         },
       },
-      levelToSend ? { thinkLevel: levelToSend } : undefined
+      streamOptions
     );
   };
 
@@ -1131,18 +1454,34 @@ export function ChatView() {
         </div>
       </header>
 
-      <div class="messages" ref={messagesContainerRef} onScroll={handleScroll}>
+      <div
+        class="messages"
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        onDragOver={handleFileDragOver}
+        onDrop={handleFileDrop}
+      >
         <Show when={viewMode() === "simple"}>
           <For each={simpleMessages()}>
             {(msg) => (
               <div class={`message ${msg.role}`}>
                 {msg.role === "assistant" ? (
-                  <div
-                    class="content markdown-content"
-                    innerHTML={renderMarkdown(msg.content)}
-                  />
+                  <>
+                    <Show when={msg.content}>
+                      <div
+                        class="content markdown-content"
+                        innerHTML={renderMarkdown(msg.content)}
+                      />
+                    </Show>
+                    <For each={msg.files ?? []}>
+                      {(file) => <FileCard file={file} />}
+                    </For>
+                  </>
                 ) : (
-                  <div class="content">{msg.content}</div>
+                  <>
+                    <div class="content">{msg.content}</div>
+                    <FileAttachmentList files={msg.files} />
+                  </>
                 )}
                 <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
               </div>
@@ -1163,7 +1502,14 @@ export function ChatView() {
                   .join("\n");
                 return (
                   <div class="message user">
-                    <div class="content">{textContent}</div>
+                    <Show when={textContent}>
+                      <div class="content">{textContent}</div>
+                    </Show>
+                    <FileAttachmentList
+                      files={msg.content.filter(
+                        (b): b is FileBlock => b.type === "file"
+                      )}
+                    />
                     <div class="message-time">
                       {formatTimestamp(msg.timestamp)}
                     </div>
@@ -1201,7 +1547,8 @@ export function ChatView() {
             isStreaming() &&
             (streamingThinking() ||
               streamingToolCalls().length > 0 ||
-              streamingText())
+              streamingText() ||
+              streamingFiles().length > 0)
           }
         >
           <div class="message assistant full-message streaming">
@@ -1233,6 +1580,9 @@ export function ChatView() {
                   innerHTML={renderMarkdown(streamingText())}
                 />
               )}
+              <For each={streamingFiles()}>
+                {(file) => <FileCard file={file} />}
+              </For>
             </div>
             {streamingStartedAt() && (
               <div class="message-time">
@@ -1244,13 +1594,22 @@ export function ChatView() {
 
         {/* Streaming content in simple mode - just text */}
         <Show
-          when={viewMode() === "simple" && isStreaming() && streamingText()}
+          when={
+            viewMode() === "simple" &&
+            isStreaming() &&
+            (streamingText() || streamingFiles().length > 0)
+          }
         >
           <div class="message assistant streaming">
-            <div
-              class="content markdown-content"
-              innerHTML={renderMarkdown(streamingText())}
-            />
+            <Show when={streamingText()}>
+              <div
+                class="content markdown-content"
+                innerHTML={renderMarkdown(streamingText())}
+              />
+            </Show>
+            <For each={streamingFiles()}>
+              {(file) => <FileCard file={file} />}
+            </For>
             {(streamingTextAt() || streamingStartedAt()) && (
               <div class="message-time">
                 {formatTimestamp(
@@ -1265,7 +1624,8 @@ export function ChatView() {
         {isStreaming() &&
           !streamingThinking() &&
           streamingToolCalls().length === 0 &&
-          !streamingText() && (
+          !streamingText() &&
+          streamingFiles().length === 0 && (
             <div class="message assistant thinking">
               <div class="thinking-dots">
                 <span />
@@ -1294,7 +1654,67 @@ export function ChatView() {
         <div ref={messagesEndRef} />
       </div>
 
+      <Show when={uploadError()}>
+        {(error) => <div class="upload-error">{error()}</div>}
+      </Show>
+      <Show when={pendingFiles().length > 0}>
+        <div class="pending-attachments">
+          <For each={pendingFiles()}>
+            {(item) => (
+              <div class="attachment-pill">
+                <Show when={item.previewUrl}>
+                  {(url) => <img class="attachment-thumb" src={url()} alt="" />}
+                </Show>
+                <span class="attachment-name" title={item.name}>
+                  {item.name}
+                </span>
+                <button
+                  type="button"
+                  class="attachment-remove"
+                  aria-label={`Remove ${item.name}`}
+                  disabled={uploadingFiles()}
+                  onClick={() => removePendingFile(item.id)}
+                >
+                  x
+                </button>
+              </div>
+            )}
+          </For>
+          <Show when={uploadingFiles()}>
+            <span class="uploading-label">Uploading...</span>
+          </Show>
+        </div>
+      </Show>
+
       <div class="input-area">
+        <input
+          ref={fileInputRef}
+          class="file-input"
+          type="file"
+          accept={FILE_INPUT_ACCEPT}
+          multiple
+          onChange={(e) => {
+            if (isStreaming()) return;
+            const files = e.currentTarget.files;
+            if (!files || files.length === 0) return;
+            addPendingFiles(files);
+            e.currentTarget.value = "";
+          }}
+        />
+        <button
+          type="button"
+          class="attach-btn"
+          aria-label="Attach files"
+          disabled={loading() || uploadingFiles() || isStreaming()}
+          onClick={() => fileInputRef?.click()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M16.5 6.5v9.1a4.5 4.5 0 0 1-9 0V6.3a3.3 3.3 0 0 1 6.6 0v8.8a2.1 2.1 0 1 1-4.2 0V7.2h1.6v7.9a.5.5 0 1 0 1 0V6.3a1.7 1.7 0 0 0-3.4 0v9.3a2.9 2.9 0 0 0 5.8 0V6.5h1.6z"
+            />
+          </svg>
+        </button>
         <div class="input-wrapper">
           <textarea
             ref={textareaRef}
@@ -1315,7 +1735,11 @@ export function ChatView() {
             <button
               class="send-btn"
               onClick={handleSend}
-              disabled={!input().trim() || loading()}
+              disabled={
+                (!input().trim() && pendingFiles().length === 0) ||
+                loading() ||
+                uploadingFiles()
+              }
               aria-label="Send message"
             >
               <svg
@@ -1352,7 +1776,10 @@ export function ChatView() {
 
       <Show when={contextUsageDisplay()}>
         {(display) => (
-          <div class="context-usage" classList={{ unavailable: display().unavailable }}>
+          <div
+            class="context-usage"
+            classList={{ unavailable: display().unavailable }}
+          >
             {display().text}
           </div>
         )}
@@ -1595,6 +2022,96 @@ export function ChatView() {
 
         .message.user .message-time {
           color: rgba(255, 255, 255, 0.7);
+        }
+
+        .message-files {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .message-file-pill,
+        .file-card {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          border-radius: var(--radius-sm);
+        }
+
+        .message-file-pill {
+          max-width: 260px;
+          padding: 6px 8px;
+          background: rgba(255, 255, 255, 0.14);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .file-icon {
+          flex-shrink: 0;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0;
+          color: var(--text-secondary);
+        }
+
+        .message.user .file-icon,
+        .message.user .file-size,
+        .message.user .file-name {
+          color: rgba(255, 255, 255, 0.86);
+        }
+
+        .file-name,
+        .file-card-name {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .file-name {
+          min-width: 0;
+          font-size: 12px;
+        }
+
+        .file-size {
+          flex-shrink: 0;
+          font-size: 11px;
+          color: var(--text-muted);
+        }
+
+        .file-card {
+          width: min(360px, 100%);
+          padding: 10px;
+          background: var(--surface-0);
+          border: 1px solid var(--surface-2);
+          white-space: normal;
+        }
+
+        .file-card-body {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .file-card-name {
+          color: var(--text-primary);
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .file-card-meta {
+          margin-top: 2px;
+          color: var(--text-muted);
+          font-size: 11px;
+        }
+
+        .file-download {
+          flex-shrink: 0;
+          padding: 6px 8px;
+          border-radius: var(--radius-sm);
+          background: var(--accent);
+          color: #fff;
+          font-size: 12px;
+          text-decoration: none;
         }
 
         .message.streaming .content::after {
@@ -1907,6 +2424,106 @@ export function ChatView() {
           padding: 16px 20px 24px;
           background: var(--surface-0);
           border-top: 1px solid var(--surface-2);
+        }
+
+        .file-input {
+          display: none;
+        }
+
+        .pending-attachments {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 10px 20px 0;
+          background: var(--surface-0);
+          border-top: 1px solid var(--surface-2);
+        }
+
+        .attachment-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          max-width: 240px;
+          padding: 6px 8px;
+          border-radius: var(--radius-sm);
+          background: var(--surface-1);
+          border: 1px solid var(--surface-2);
+        }
+
+        .attachment-thumb {
+          width: 24px;
+          height: 24px;
+          object-fit: cover;
+          border-radius: 4px;
+          flex-shrink: 0;
+        }
+
+        .attachment-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+
+        .attachment-remove {
+          width: 18px;
+          height: 18px;
+          border: none;
+          border-radius: 4px;
+          background: transparent;
+          color: var(--text-muted);
+          cursor: pointer;
+          line-height: 1;
+        }
+
+        .attachment-remove:hover:not(:disabled) {
+          background: var(--surface-2);
+          color: var(--text-primary);
+        }
+
+        .uploading-label,
+        .upload-error {
+          color: var(--text-muted);
+          font-size: 12px;
+        }
+
+        .upload-error {
+          padding: 8px 20px 0;
+          color: var(--error);
+          background: var(--surface-0);
+        }
+
+        .attach-btn {
+          width: 48px;
+          height: 48px;
+          border-radius: var(--radius-sm);
+          background: var(--surface-1);
+          border: 1px solid var(--surface-2);
+          color: var(--text-secondary);
+          cursor: pointer;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+        }
+
+        .attach-btn svg {
+          width: 22px;
+          height: 22px;
+        }
+
+        .attach-btn:hover:not(:disabled) {
+          background: var(--surface-2);
+          color: var(--text-primary);
+        }
+
+        .attach-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .input-wrapper {

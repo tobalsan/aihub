@@ -20,7 +20,12 @@ export type SdkCapabilities = {
 
 // History event types (canonical transcript format)
 export type HistoryEvent =
-  | { type: "user"; text: string; timestamp: number }
+  | {
+      type: "user";
+      text: string;
+      attachments?: FileAttachment[];
+      timestamp: number;
+    }
   | { type: "assistant_text"; text: string; timestamp: number }
   | { type: "assistant_thinking"; text: string; timestamp: number }
   | {
@@ -56,6 +61,14 @@ export type HistoryEvent =
       api?: string;
       usage?: ModelUsage;
       stopReason?: string;
+      timestamp: number;
+    }
+  | {
+      type: "file_output";
+      fileId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
       timestamp: number;
     }
   | {

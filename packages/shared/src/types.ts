@@ -820,6 +820,7 @@ export const FileAttachmentSchema = z.object({
   path: z.string(),
   mimeType: z.string(),
   filename: z.string().optional(),
+  size: z.number().optional(),
 });
 
 // File attachment (file path - preferred)
@@ -922,6 +923,7 @@ export type WsServerMessage =
 export type SimpleHistoryMessage = {
   role: "user" | "assistant";
   content: string;
+  files?: FileBlock[];
   timestamp: number;
 };
 

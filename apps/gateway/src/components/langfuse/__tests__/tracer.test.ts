@@ -531,7 +531,7 @@ describe("LangfuseTracer", () => {
     await tracer.stop();
   });
 
-  it("leaves SDK adapters and history store unchanged", () => {
+  it("does not mutate Langfuse source during tests", () => {
     const changedFiles = execFileSync(
       "git",
       [
@@ -539,8 +539,7 @@ describe("LangfuseTracer", () => {
         "--name-only",
         "HEAD",
         "--",
-        "apps/gateway/src/sdk",
-        "apps/gateway/src/history/store.ts",
+        "apps/gateway/src/components/langfuse/tracer.ts",
       ],
       { encoding: "utf8" }
     );

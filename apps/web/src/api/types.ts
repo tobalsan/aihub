@@ -4,6 +4,7 @@ import type {
   ContextEstimate,
   ContentBlock,
   FileAttachment,
+  FileBlock,
   FullHistoryMessage,
   ImageAttachment,
   ModelMeta,
@@ -26,6 +27,7 @@ export type {
   ContextEstimate,
   ContentBlock,
   FileAttachment,
+  FileBlock,
   FullHistoryMessage,
   ImageAttachment,
   ModelMeta,
@@ -72,6 +74,7 @@ export type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  files?: FileBlock[];
   timestamp: number;
 };
 

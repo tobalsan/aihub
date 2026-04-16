@@ -3,6 +3,10 @@ import type { AgentConfig } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
 import { renderAgentContext } from "../../discord/utils/context.js";
 import { randomUUID } from "node:crypto";
+import {
+  appendAttachmentContext,
+  buildDocumentAttachmentContext,
+} from "../attachments.js";
 
 const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
 const PROTOCOL_VERSION = 3;
@@ -15,7 +19,9 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function getPayload(msg: Record<string, unknown>): Record<string, unknown> | undefined {
+function getPayload(
+  msg: Record<string, unknown>
+): Record<string, unknown> | undefined {
   const payload = msg.payload;
   if (payload && typeof payload === "object") {
     return payload as Record<string, unknown>;
@@ -34,7 +40,12 @@ function extractMessageText(payload: Record<string, unknown>): string {
   const content = message.content;
   if (!Array.isArray(content)) return "";
   for (const block of content) {
-    if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+    if (
+      block &&
+      typeof block === "object" &&
+      "text" in block &&
+      typeof block.text === "string"
+    ) {
       return block.text;
     }
   }
@@ -63,7 +74,10 @@ export const openclawAdapter: SdkAdapter = {
   },
 
   resolveDisplayModel(agent: AgentConfig) {
-    return { provider: agent.model.provider ?? "openclaw", model: agent.model.model };
+    return {
+      provider: agent.model.provider ?? "openclaw",
+      model: agent.model.model,
+    };
   },
 
   async run(params: SdkRunParams): Promise<SdkRunResult> {
@@ -73,7 +87,8 @@ export const openclawAdapter: SdkAdapter = {
     }
 
     const debugEnabled =
-      process.env.OPENCLAW_DEBUG === "1" || process.env.OPENCLAW_DEBUG === "true";
+      process.env.OPENCLAW_DEBUG === "1" ||
+      process.env.OPENCLAW_DEBUG === "true";
     const gatewayUrl = openclaw.gatewayUrl ?? DEFAULT_GATEWAY_URL;
     let sessionKey: string;
     if (isProjectSessionKey(params.sessionKey)) {
@@ -104,7 +119,11 @@ export const openclawAdapter: SdkAdapter = {
       if (!text) return;
       assistantText += text;
       params.onEvent({ type: "text", data: text });
-      params.onHistoryEvent({ type: "assistant_text", text, timestamp: Date.now() });
+      params.onHistoryEvent({
+        type: "assistant_text",
+        text,
+        timestamp: Date.now(),
+      });
     };
 
     const pushToolId = (name: string) => {
@@ -146,9 +165,16 @@ export const openclawAdapter: SdkAdapter = {
       }
     }
 
-    const textContent = contextPreamble
+    const baseTextContent = contextPreamble
       ? `${contextPreamble}\n\n${params.message}`
       : params.message;
+    const attachmentContext = await buildDocumentAttachmentContext(
+      params.attachments
+    );
+    const textContent = appendAttachmentContext(
+      baseTextContent,
+      attachmentContext
+    );
 
     // Append file paths to message - OpenClaw detects and loads them automatically
     let messageToSend = textContent;
@@ -157,7 +183,12 @@ export const openclawAdapter: SdkAdapter = {
       messageToSend = `${textContent}\n\n${filePaths.join("\n")}`;
     }
 
-    params.onHistoryEvent({ type: "user", text: params.message, timestamp: Date.now() });
+    params.onHistoryEvent({
+      type: "user",
+      text: params.message,
+      attachments: params.attachments,
+      timestamp: Date.now(),
+    });
 
     return new Promise<SdkRunResult>((resolve, reject) => {
       const ws = new WebSocket(gatewayUrl);
@@ -234,7 +265,10 @@ export const openclawAdapter: SdkAdapter = {
         } else {
           resolve({ text: assistantText, aborted });
         }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        if (
+          ws.readyState === WebSocket.OPEN ||
+          ws.readyState === WebSocket.CONNECTING
+        ) {
           ws.close();
         }
       };
@@ -248,7 +282,10 @@ export const openclawAdapter: SdkAdapter = {
 
       params.abortSignal.addEventListener("abort", () => {
         aborted = true;
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        if (
+          ws.readyState === WebSocket.OPEN ||
+          ws.readyState === WebSocket.CONNECTING
+        ) {
           ws.close();
         }
       });
@@ -270,7 +307,10 @@ export const openclawAdapter: SdkAdapter = {
           }
           msg = JSON.parse(raw) as Record<string, unknown>;
         } catch (err) {
-          fail("OpenClaw sent invalid JSON", err instanceof Error ? err : undefined);
+          fail(
+            "OpenClaw sent invalid JSON",
+            err instanceof Error ? err : undefined
+          );
           return;
         }
 
@@ -306,7 +346,10 @@ export const openclawAdapter: SdkAdapter = {
             if (state === "delta") {
               seenDelta = true;
               // message is cumulative - only emit the new portion
-              if (message.length > assistantText.length && message.startsWith(assistantText)) {
+              if (
+                message.length > assistantText.length &&
+                message.startsWith(assistantText)
+              ) {
                 emitAssistantText(message.slice(assistantText.length));
               } else if (!assistantText) {
                 emitAssistantText(message);
@@ -338,7 +381,8 @@ export const openclawAdapter: SdkAdapter = {
             }
 
             if (state === "error") {
-              const errMessage = asString(payload.errorMessage) || message || "OpenClaw error";
+              const errMessage =
+                asString(payload.errorMessage) || message || "OpenClaw error";
               endTurn();
               fail(errMessage);
             }
@@ -357,7 +401,12 @@ export const openclawAdapter: SdkAdapter = {
             if (phase === "start") {
               const toolId = pushToolId(name);
               params.onEvent({ type: "tool_start", toolName: name });
-              params.onEvent({ type: "tool_call", id: toolId, name, arguments: args });
+              params.onEvent({
+                type: "tool_call",
+                id: toolId,
+                name,
+                arguments: args,
+              });
               params.onHistoryEvent({
                 type: "tool_call",
                 id: toolId,
@@ -376,7 +425,11 @@ export const openclawAdapter: SdkAdapter = {
                   : result === undefined
                     ? ""
                     : JSON.stringify(result);
-              params.onEvent({ type: "tool_end", toolName: name, isError: false });
+              params.onEvent({
+                type: "tool_end",
+                toolName: name,
+                isError: false,
+              });
               params.onEvent({
                 type: "tool_result",
                 id: toolId,
@@ -406,7 +459,8 @@ export const openclawAdapter: SdkAdapter = {
             }
             if (!ok) {
               const err = msg.error as Record<string, unknown> | undefined;
-              const errMessage = asString(err?.message) ?? "OpenClaw connect failed";
+              const errMessage =
+                asString(err?.message) ?? "OpenClaw connect failed";
               fail(errMessage);
               return;
             }
@@ -420,7 +474,8 @@ export const openclawAdapter: SdkAdapter = {
             }
             if (!ok) {
               const err = msg.error as Record<string, unknown> | undefined;
-              const errMessage = asString(err?.message) ?? "OpenClaw chat.send failed";
+              const errMessage =
+                asString(err?.message) ?? "OpenClaw chat.send failed";
               fail(errMessage);
               return;
             }
@@ -441,7 +496,10 @@ export const openclawAdapter: SdkAdapter = {
 
       ws.on("close", (code, reason) => {
         if (debugEnabled) {
-          console.debug("[openclaw] ws close", { code, reason: reason.toString() });
+          console.debug("[openclaw] ws close", {
+            code,
+            reason: reason.toString(),
+          });
         }
         if (settled) return;
         if (aborted) {

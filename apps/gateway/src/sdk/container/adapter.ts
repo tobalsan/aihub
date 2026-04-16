@@ -34,6 +34,10 @@ import {
 } from "../../media/metadata.js";
 import { getDefaultSdkId, getSdkAdapter } from "../registry.js";
 import { registerContainerToken, removeContainerToken } from "./tokens.js";
+import {
+  appendAttachmentContext,
+  buildDocumentAttachmentContext,
+} from "../attachments.js";
 import type {
   HistoryEvent,
   SdkAdapter,
@@ -64,6 +68,16 @@ type ContainerSessionHandle = {
   ipcDir: string;
 };
 
+function hasReadableDocumentAttachment(params: SdkRunParams): boolean {
+  return (
+    params.attachments?.some(
+      (attachment) =>
+        !attachment.mimeType.startsWith("image/") &&
+        fs.existsSync(attachment.path)
+    ) ?? false
+  );
+}
+
 const historyEventTypes = new Set<HistoryEvent["type"]>([
   "user",
   "assistant_text",
@@ -71,6 +85,7 @@ const historyEventTypes = new Set<HistoryEvent["type"]>([
   "assistant_file",
   "tool_call",
   "tool_result",
+  "file_output",
   "turn_end",
   "meta",
   "system_context",
@@ -291,6 +306,7 @@ async function handleFileOutputEvent(
   });
 }
 
+
 function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
   if (event.type === "assistant_text") {
     params.onEvent({ type: "text", data: event.text });
@@ -333,6 +349,16 @@ function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
       content: event.content,
       isError: event.isError,
       details: event.details,
+    });
+    return;
+  }
+  if (event.type === "file_output") {
+    params.onEvent({
+      type: "file_output",
+      fileId: event.fileId,
+      filename: event.filename,
+      mimeType: event.mimeType,
+      size: event.size,
     });
   }
 }
@@ -500,7 +526,7 @@ export function getContainerAdapter(): SdkAdapter {
       const sdkId = (agent.sdk ?? getDefaultSdkId()) as SdkId;
       return getSdkAdapter(sdkId).resolveDisplayModel(agent);
     },
-    run(params: SdkRunParams) {
+    async run(params: SdkRunParams) {
       const config = loadConfig();
       const globalSandbox = config.sandbox ?? {};
       const aihubHome =
@@ -546,7 +572,16 @@ export function getContainerAdapter(): SdkAdapter {
 
       const agentToken = randomUUID();
       registerContainerToken(agentToken, params.agentId, containerName);
-      const input = buildInput(params, agentToken);
+      const attachmentContext = hasReadableDocumentAttachment(params)
+        ? await buildDocumentAttachmentContext(params.attachments)
+        : "";
+      const input = buildInput(
+        {
+          ...params,
+          message: appendAttachmentContext(params.message, attachmentContext),
+        },
+        agentToken
+      );
       const child = childProcess.spawn("docker", args, {
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -562,6 +597,7 @@ export function getContainerAdapter(): SdkAdapter {
       params.onHistoryEvent({
         type: "user",
         text: params.message,
+        attachments: params.attachments,
         timestamp: Date.now(),
       });
 

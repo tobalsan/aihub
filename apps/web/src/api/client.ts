@@ -192,6 +192,12 @@ export type StreamCallbacks = {
   ) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
+  onFileOutput?: (file: {
+    fileId: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }) => void;
   onSessionReset?: (sessionId: string) => void;
   onDone: (meta?: DoneMeta) => void;
   onError: (error: string) => void;
@@ -233,6 +239,13 @@ type WsStreamEvent =
       type: "tool_end";
       toolName: string;
       isError?: boolean;
+    }
+  | {
+      type: "file_output";
+      fileId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
     }
   | {
       type: "session_reset";
@@ -295,6 +308,14 @@ function dispatchWsEvent(
     case "tool_end":
       callbacks.onToolEnd?.(event.toolName, event.isError ?? false);
       break;
+    case "file_output":
+      callbacks.onFileOutput?.({
+        fileId: event.fileId,
+        filename: event.filename,
+        mimeType: event.mimeType,
+        size: event.size,
+      });
+      break;
     case "session_reset":
       callbacks.onSessionReset?.(event.sessionId);
       break;
@@ -346,10 +367,11 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
  */
 export async function uploadFiles(files: File[]): Promise<FileAttachment[]> {
   const results = await Promise.all(files.map(uploadFile));
-  return results.map((r) => ({
+  return results.map((r, index) => ({
     path: r.path,
     mimeType: r.mimeType,
-    filename: r.filename,
+    filename: files[index]?.name ?? r.filename,
+    size: r.size,
   }));
 }
 

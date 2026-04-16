@@ -5,6 +5,8 @@ import type {
   SimpleHistoryMessage,
   ContentBlock,
   ModelUsage,
+  FileAttachment,
+  FileBlock,
 } from "@aihub/shared";
 import type { HistoryEvent } from "../sdk/types.js";
 import { CONFIG_DIR } from "../config/index.js";
@@ -12,6 +14,7 @@ import { getUserHistoryDir } from "../components/multi-user/isolation.js";
 import { getClaudeSessionIdForSession } from "../sessions/claude.js";
 import { getSessionCreatedAt } from "../sessions/store.js";
 import { resolveSessionDataFile } from "../sessions/files.js";
+import { getMediaFileMetadata } from "../media/metadata.js";
 
 const resolvedHistoryFileCache = new Map<string, string>();
 
@@ -153,16 +156,11 @@ export async function appendSessionMeta(
 export type TurnBuffer = {
   userText: string | null;
   userTimestamp: number;
+  userAttachments: FileAttachment[];
   userFlushed: boolean;
   thinkingText: string;
   assistantText: string;
-  fileBlocks: Array<{
-    fileId: string;
-    filename: string;
-    mimeType: string;
-    size: number;
-    direction: "inbound" | "outbound";
-  }>;
+  fileBlocks: FileBlock[];
   toolCalls: Array<{
     id: string;
     name: string;
@@ -192,6 +190,7 @@ export function createTurnBuffer(): TurnBuffer {
   return {
     userText: null,
     userTimestamp: Date.now(),
+    userAttachments: [],
     userFlushed: false,
     thinkingText: "",
     assistantText: "",
@@ -217,12 +216,16 @@ export async function flushTurnBuffer(
 ): Promise<void> {
   // 1. User message (skip if already eagerly flushed)
   if (buffer.userText && !buffer.userFlushed) {
+    const userContent = await buildUserContent(
+      buffer.userText,
+      buffer.userAttachments
+    );
     await appendRawEntry(
       agentId,
       sessionId,
       {
         role: "user",
-        content: [{ type: "text", text: buffer.userText }],
+        content: userContent,
         timestamp: buffer.userTimestamp,
       },
       userId
@@ -238,16 +241,7 @@ export async function flushTurnBuffer(
   if (buffer.assistantText) {
     content.push({ type: "text", text: buffer.assistantText });
   }
-  for (const file of buffer.fileBlocks) {
-    content.push({
-      type: "file",
-      fileId: file.fileId,
-      filename: file.filename,
-      mimeType: file.mimeType,
-      size: file.size,
-      direction: file.direction,
-    });
-  }
+  content.push(...buffer.fileBlocks);
   for (const tc of buffer.toolCalls) {
     content.push({
       type: "toolCall",
@@ -302,12 +296,16 @@ export async function flushUserMessage(
   userId?: string
 ): Promise<void> {
   if (!buffer.userText || buffer.userFlushed) return;
+  const content = await buildUserContent(
+    buffer.userText,
+    buffer.userAttachments
+  );
   await appendRawEntry(
     agentId,
     sessionId,
     {
       role: "user",
-      content: [{ type: "text", text: buffer.userText }],
+      content,
       timestamp: buffer.userTimestamp,
     },
     userId
@@ -326,6 +324,7 @@ export function bufferHistoryEvent(
     case "user":
       buffer.userText = event.text;
       buffer.userTimestamp = event.timestamp;
+      buffer.userAttachments = event.attachments ?? [];
       break;
     case "assistant_text":
       if (!buffer.assistantStarted) {
@@ -347,6 +346,7 @@ export function bufferHistoryEvent(
         buffer.startTimestamp = event.timestamp;
       }
       buffer.fileBlocks.push({
+        type: "file",
         fileId: event.fileId,
         filename: event.filename,
         mimeType: event.mimeType,
@@ -388,6 +388,20 @@ export function bufferHistoryEvent(
         timestamp: event.timestamp,
       });
       break;
+    case "file_output":
+      if (!buffer.assistantStarted) {
+        buffer.assistantStarted = true;
+        buffer.startTimestamp = event.timestamp ?? Date.now();
+      }
+      buffer.fileBlocks.push({
+        type: "file",
+        fileId: event.fileId,
+        filename: event.filename,
+        mimeType: event.mimeType,
+        size: event.size,
+        direction: "outbound",
+      });
+      break;
     case "turn_end":
       break;
     case "meta":
@@ -404,6 +418,47 @@ export function bufferHistoryEvent(
       };
       break;
   }
+}
+
+async function buildUserContent(
+  text: string,
+  attachments: FileAttachment[]
+): Promise<ContentBlock[]> {
+  const content: ContentBlock[] = [];
+  if (text) {
+    content.push({ type: "text", text });
+  }
+  content.push(...(await buildInboundFileBlocks(attachments)));
+  return content;
+}
+
+async function buildInboundFileBlocks(
+  attachments: FileAttachment[]
+): Promise<FileBlock[]> {
+  const blocks = await Promise.all(
+    attachments.map(async (attachment) => {
+      const fileId = getAttachmentFileId(attachment.path);
+      const metadata = fileId ? await getMediaFileMetadata(fileId) : null;
+      return {
+        type: "file" as const,
+        fileId: metadata?.fileId ?? fileId ?? attachment.path,
+        filename:
+          metadata?.filename ??
+          attachment.filename ??
+          path.basename(attachment.path),
+        mimeType: metadata?.mimeType ?? attachment.mimeType,
+        size: metadata?.size ?? 0,
+        direction: "inbound" as const,
+      };
+    })
+  );
+  return blocks;
+}
+
+function getAttachmentFileId(filePath: string): string | null {
+  const basename = path.basename(filePath);
+  const ext = path.extname(basename);
+  return ext ? basename.slice(0, -ext.length) : basename || null;
 }
 
 /**
@@ -434,10 +489,14 @@ export async function getSimpleHistory(
             )
             .map((c) => c.text)
             .join("\n");
-          if (text) {
+          const files = entry.content.filter(
+            (c): c is FileBlock => c.type === "file"
+          );
+          if (text || files.length > 0) {
             messages.push({
               role: entry.role,
               content: text,
+              files: files.length > 0 ? files : undefined,
               timestamp: entry.timestamp,
             });
           }

@@ -30,6 +30,11 @@ import {
 } from "../../connectors/index.js";
 import { getLoadedComponents } from "../../components/registry.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
+import {
+  appendAttachmentContext,
+  buildDocumentAttachmentContext,
+  isImageAttachment,
+} from "../attachments.js";
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 let piEnvLock: Promise<void> = Promise.resolve();
@@ -187,7 +192,9 @@ export const piAdapter: SdkAdapter = {
       if (!agent) {
         throw new Error(`Agent not found: ${params.agentId}`);
       }
-      const authStorage = AuthStorage.create(path.join(CONFIG_DIR, "auth.json"));
+      const authStorage = AuthStorage.create(
+        path.join(CONFIG_DIR, "auth.json")
+      );
       const modelRegistry = ModelRegistry.create(
         authStorage,
         path.join(CONFIG_DIR, "models.json")
@@ -365,9 +372,7 @@ export const piAdapter: SdkAdapter = {
       // Load images from file paths
       let images: ImageContent[] | undefined;
       if (params.attachments && params.attachments.length > 0) {
-        const imageAttachments = params.attachments.filter((a) =>
-          a.mimeType.startsWith("image/")
-        );
+        const imageAttachments = params.attachments.filter(isImageAttachment);
         if (imageAttachments.length > 0) {
           images = await Promise.all(
             imageAttachments.map(async (attachment) => {
@@ -386,11 +391,19 @@ export const piAdapter: SdkAdapter = {
       const messageToSend = contextPreamble
         ? `${contextPreamble}\n\n${params.message}`
         : params.message;
+      const attachmentContext = await buildDocumentAttachmentContext(
+        params.attachments
+      );
+      const messageWithAttachments = appendAttachmentContext(
+        messageToSend,
+        attachmentContext
+      );
 
       // Emit user message to history (without context preamble)
       params.onHistoryEvent({
         type: "user",
         text: params.message,
+        attachments: params.attachments,
         timestamp: Date.now(),
       });
 
@@ -515,7 +528,7 @@ export const piAdapter: SdkAdapter = {
 
       try {
         await agentSession.prompt(
-          messageToSend,
+          messageWithAttachments,
           images && images.length > 0 ? { images } : undefined
         );
       } finally {
@@ -545,7 +558,9 @@ export const piAdapter: SdkAdapter = {
         throw new Error(errorStr);
       }
 
-      const finalText = lastAssistant ? extractAssistantText(lastAssistant) : "";
+      const finalText = lastAssistant
+        ? extractAssistantText(lastAssistant)
+        : "";
 
       agentSession.dispose();
 
