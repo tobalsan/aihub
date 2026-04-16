@@ -27,6 +27,7 @@ import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
+import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import {
   ensureMediaDirectories,
   getMediaInboundDir,
@@ -575,6 +576,7 @@ export function getContainerAdapter(): SdkAdapter {
         });
       }
       prepareContainerUploads(params, hostUploadsDir);
+      await ensureBootstrapFiles(params.workspaceDir);
 
       const agentToken = randomUUID();
       registerContainerToken(agentToken, params.agentId, containerName);

@@ -39,6 +39,10 @@ vi.mock("../../connectors/index.js", () => ({
   getConnectorPromptsForAgent: mockGetConnectorPromptsForAgent,
 }));
 
+vi.mock("../../agents/workspace.js", () => ({
+  ensureBootstrapFiles: vi.fn(async () => undefined),
+}));
+
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
   execFile: vi.fn(),
@@ -94,6 +98,9 @@ function tempDir(): string {
   tempDirs.push(dir);
   return dir;
 }
+
+/** Flush microtask queue so the async run() reaches spawn. */
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
 function createAgent(
   root: string,
@@ -224,6 +231,7 @@ describe("container adapter", () => {
     const params = createParams(agent);
 
     const run = getContainerAdapter().run(params);
+    await tick();
     const dockerProcess = processes[0];
     const input = JSON.parse(dockerProcess.stdinChunks.join(""));
     expect(validateContainerToken(input.agentToken, "cloud")).toBe(true);
@@ -309,6 +317,7 @@ describe("container adapter", () => {
     const params = createParams(agent);
 
     const run = getContainerAdapter().run(params);
+    await tick();
     const dockerProcess = processes[0];
 
     dockerProcess.emitStreamEvent(
@@ -375,6 +384,7 @@ describe("container adapter", () => {
     const params = createParams(agent);
 
     const run = getContainerAdapter().run(params);
+    await tick();
     const dockerProcess = processes[0];
     const dataPath = path.join(
       aihubHome,
@@ -484,6 +494,7 @@ describe("container adapter", () => {
     const execSpy = mockExecFile(false);
 
     const run = getContainerAdapter().run(createParams(agent));
+    await vi.advanceTimersByTimeAsync(0);
     vi.advanceTimersByTime(1_000);
     expect(execSpy).toHaveBeenCalledWith(
       "docker",
@@ -513,6 +524,7 @@ describe("container adapter", () => {
     mockExecFile();
 
     const run = getContainerAdapter().run(createParams(agent));
+    await tick();
     processes[0].stderr.write("boom");
     processes[0].finish(1);
 
@@ -540,6 +552,7 @@ describe("container adapter", () => {
     const params = createParams(agent);
 
     const run = getContainerAdapter().run(params);
+    await tick();
     const dockerProcess = processes[0];
     const input = JSON.parse(dockerProcess.stdinChunks.join(""));
 
@@ -559,6 +572,7 @@ describe("container adapter", () => {
     mockExecFile();
 
     const run = getContainerAdapter().run(createParams(agent));
+    await tick();
     processes[0].stdout.write("plain stdout");
     processes[0].finish(0);
 
