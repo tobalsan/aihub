@@ -62,6 +62,8 @@ const BOOTSTRAP_FILENAMES = [
 
 const AIHUB_PI_SYSTEM_PROMPT = `You are an AI agent running inside an isolated AIHub container. Use the mounted workspace as your working directory. Coding tools run inside this container. Orchestration tools call back to the gateway.
 
+To share a file with the user, write it to /workspace/data/ then use the send_file tool. The file will appear as a downloadable card in the chat.
+
 Available tools:
 \${toolsList}
 
@@ -173,6 +175,7 @@ export async function runAgent(
     const customTools = [
       ...createOrchestrationTools(input),
       ...createConnectorTools(input),
+      createSendFileTool(onStreamEvent),
     ];
 
     const { session } = await createAgentSession({
@@ -433,6 +436,47 @@ function createConnectorTools(input: ContainerInput): ToolDefinition[] {
       },
     }))
   );
+}
+
+function createSendFileTool(
+  onStreamEvent?: (event: unknown) => void
+): ToolDefinition {
+  return {
+    name: "send_file",
+    label: "Send file to user",
+    description:
+      "Send a file from /workspace/data/ to the user. The file appears as a downloadable card in chat. Write the file first, then call this tool with its path.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Absolute path to the file, e.g. /workspace/data/report.csv",
+        },
+      },
+      required: ["path"],
+    } as unknown as ToolDefinition["parameters"],
+    execute: async (_toolCallId, params) => {
+      const filePath = (params as { path: string }).path;
+      if (!filePath.startsWith("/workspace/data/")) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Error: path must be inside /workspace/data/",
+            },
+          ],
+          details: undefined,
+        };
+      }
+      onStreamEvent?.({ type: "file_output", path: filePath });
+      return {
+        content: [{ type: "text", text: `File sent to user: ${filePath}` }],
+        details: undefined,
+      };
+    },
+  };
 }
 
 async function callConnectorTool(
