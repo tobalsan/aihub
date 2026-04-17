@@ -424,6 +424,7 @@ export function createSlackBot(
     if (data.channel_type === "im") {
       if (!componentConfig.dm || componentConfig.dm.enabled === false)
         return null;
+      if (!componentConfig.dm.agent) return null;
       const dmAgent = agentsById.get(componentConfig.dm.agent);
       if (!dmAgent) return null;
       return {

@@ -358,12 +358,14 @@ describe("createSlackAgentBot", () => {
       id: "a1",
       name: "Agent",
       workspace: "~/ws",
-      thinkLevel: "off",
+      model: { provider: "anthropic", model: "claude" },
+      thinkLevel: "off" as const,
+      queueMode: "queue" as const,
       slack: {
         token: "xoxb-test",
         appToken: "xapp-test",
         channels: {
-          C1: { requireMention: false },
+          C1: { agent: "a1", requireMention: false },
         },
       },
     } as AgentConfig;
@@ -411,7 +413,9 @@ describe("createSlackAgentBot", () => {
       id: "a1",
       name: "Agent",
       workspace: "~/ws",
-      thinkLevel: "off",
+      model: { provider: "anthropic", model: "claude" },
+      thinkLevel: "off" as const,
+      queueMode: "queue" as const,
       slack: {
         token: "xoxb-test",
         appToken: "xapp-test",

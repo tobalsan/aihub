@@ -391,7 +391,7 @@ export type SlackComponentChannelConfig = z.infer<
 
 export const SlackComponentDmConfigSchema = z.object({
   enabled: z.boolean().optional(),
-  agent: z.string(),
+  agent: z.string().optional(),
   allowFrom: z.array(z.string()).optional(),
 });
 export type SlackComponentDmConfig = z.infer<

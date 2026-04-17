@@ -16,7 +16,13 @@ const COMPONENT_REGISTRY: Record<string, ComponentRegistration> = {
   slack: {
     load: () =>
       import("./slack/index.js").then((module) => module.slackComponent),
-    getConfig: (config) => config.components?.slack,
+    getConfig: (config) => {
+      const hasPerAgent = config.agents?.some((a) => a.slack?.token);
+      if (config.components?.slack) {
+        return { ...config.components.slack, _perAgentFallback: hasPerAgent };
+      }
+      return hasPerAgent ? { _perAgent: true } : undefined;
+    },
     routePrefixes: [],
   },
   scheduler: {
