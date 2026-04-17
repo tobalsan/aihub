@@ -25,7 +25,7 @@ import {
 import { loadConfig } from "../../config/index.js";
 import {
   getConnectorPromptsForAgent,
-  getConnectorToolsForAgent,
+  getConnectorToolGroupsForAgent,
 } from "../../connectors/index.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import {
@@ -390,26 +390,27 @@ function buildConnectorConfigs(
     connectorConfigs.set(id, { id, systemPrompt, tools: [] });
   }
 
-  for (const tool of getConnectorToolsForAgent(params.agent, config)) {
-    const connectorId = tool.name.split(".")[0] ?? tool.name;
-    const existing = connectorConfigs.get(connectorId);
+  for (const group of getConnectorToolGroupsForAgent(params.agent, config)) {
+    const existing = connectorConfigs.get(group.connectorId);
     const connectorConfig =
       existing ??
       ({
-        id: connectorId,
-        systemPrompt: prompts.get(connectorId),
+        id: group.connectorId,
+        systemPrompt: prompts.get(group.connectorId),
         tools: [],
       } satisfies ContainerConnectorConfig);
 
-    connectorConfig.tools.push({
-      name: tool.name,
-      description: tool.description,
-      parameters: zodToJsonSchema(
-        tool.parameters,
-        `${tool.name}Parameters`
-      ) as Record<string, unknown>,
-    });
-    connectorConfigs.set(connectorId, connectorConfig);
+    for (const tool of group.tools) {
+      connectorConfig.tools.push({
+        name: tool.name,
+        description: tool.description,
+        parameters: zodToJsonSchema(
+          tool.parameters,
+          `${tool.name}Parameters`
+        ) as Record<string, unknown>,
+      });
+    }
+    connectorConfigs.set(group.connectorId, connectorConfig);
   }
 
   return Array.from(connectorConfigs.values());

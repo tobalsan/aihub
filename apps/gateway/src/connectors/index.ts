@@ -116,28 +116,40 @@ export function validateConfiguredConnectors(config: GatewayConfig): {
   return { errors, warnings };
 }
 
-export function getConnectorToolsForAgent(
+export interface ConnectorToolGroup {
+  connectorId: string;
+  tools: ConnectorTool[];
+}
+
+export function getConnectorToolGroupsForAgent(
   agentConfig: AgentConfig,
   gatewayConfig: GatewayConfig
-): ConnectorTool[] {
+): ConnectorToolGroup[] {
   const globalConnectorsConfig = toRecord(gatewayConfig.connectors);
   const agentConnectorsConfig = toRecord(agentConfig.connectors);
 
   return Object.entries(agentConnectorsConfig).flatMap(
     ([connectorId, rawAgentEntry]) => {
       const agentEntry = toRecord(rawAgentEntry);
-      if (agentEntry.enabled === false) {
-        return [];
-      }
-      if (!getConnector(connectorId)) {
-        return [];
-      }
-      return loadConnectorTools(
+      if (agentEntry.enabled === false) return [];
+      if (!getConnector(connectorId)) return [];
+      const tools = loadConnectorTools(
         connectorId,
         globalConnectorsConfig,
         agentConnectorsConfig
       );
+      if (tools.length === 0) return [];
+      return [{ connectorId, tools }];
     }
+  );
+}
+
+export function getConnectorToolsForAgent(
+  agentConfig: AgentConfig,
+  gatewayConfig: GatewayConfig
+): ConnectorTool[] {
+  return getConnectorToolGroupsForAgent(agentConfig, gatewayConfig).flatMap(
+    (g) => g.tools
   );
 }
 

@@ -80,8 +80,8 @@ export function loadConnectorTools(
 
   return connector.createTools(resolvedConfig).map((tool) => ({
     ...tool,
-    name: tool.name.startsWith(`${connectorId}.`)
+    name: tool.name.startsWith(`${connectorId}_`)
       ? tool.name
-      : `${connectorId}.${tool.name}`,
+      : `${connectorId}_${tool.name}`,
   }));
 }

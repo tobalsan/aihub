@@ -27,7 +27,7 @@ import { getContainerAdapter } from "./adapter.js";
 import { validateContainerToken } from "./tokens.js";
 import type { SdkRunParams } from "../types.js";
 
-const mockGetConnectorToolsForAgent = vi.hoisted(() =>
+const mockGetConnectorToolGroupsForAgent = vi.hoisted(() =>
   vi.fn<(agent: unknown, config: unknown) => unknown[]>(() => [])
 );
 const mockGetConnectorPromptsForAgent = vi.hoisted(() =>
@@ -35,7 +35,7 @@ const mockGetConnectorPromptsForAgent = vi.hoisted(() =>
 );
 
 vi.mock("../../connectors/index.js", () => ({
-  getConnectorToolsForAgent: mockGetConnectorToolsForAgent,
+  getConnectorToolGroupsForAgent: mockGetConnectorToolGroupsForAgent,
   getConnectorPromptsForAgent: mockGetConnectorPromptsForAgent,
 }));
 
@@ -192,7 +192,7 @@ function mockExecFile(complete = true): MockInstance {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetConnectorToolsForAgent.mockReturnValue([]);
+  mockGetConnectorToolGroupsForAgent.mockReturnValue([]);
   mockGetConnectorPromptsForAgent.mockReturnValue([]);
   delete process.env.AIHUB_HOME;
 });
@@ -214,12 +214,17 @@ describe("container adapter", () => {
     process.env.AIHUB_HOME = aihubHome;
     const agent = createAgent(root);
     setConfig(agent, root);
-    mockGetConnectorToolsForAgent.mockReturnValue([
+    mockGetConnectorToolGroupsForAgent.mockReturnValue([
       {
-        name: "github.search",
-        description: "Search GitHub",
-        parameters: z.object({ query: z.string() }),
-        execute: async () => ({ ok: true }),
+        connectorId: "github",
+        tools: [
+          {
+            name: "github_search",
+            description: "Search GitHub",
+            parameters: z.object({ query: z.string() }),
+            execute: async () => ({ ok: true }),
+          },
+        ],
       },
     ]);
     mockGetConnectorPromptsForAgent.mockReturnValue([
@@ -270,12 +275,12 @@ describe("container adapter", () => {
           systemPrompt: "Use GitHub tools first.",
           tools: [
             {
-              name: "github.search",
+              name: "github_search",
               description: "Search GitHub",
               parameters: expect.objectContaining({
-                $ref: "#/definitions/github.searchParameters",
+                $ref: "#/definitions/github_searchParameters",
                 definitions: expect.objectContaining({
-                  "github.searchParameters": expect.objectContaining({
+                  "github_searchParameters": expect.objectContaining({
                     type: "object",
                     properties: expect.objectContaining({
                       query: expect.objectContaining({ type: "string" }),

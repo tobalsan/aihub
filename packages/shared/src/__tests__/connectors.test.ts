@@ -143,7 +143,7 @@ describe("connector loader", () => {
     });
     expect(receivedConfig).toEqual(resolved);
     expect(tools).toHaveLength(1);
-    expect(tools[0]?.name).toBe("sample.ping");
+    expect(tools[0]?.name).toBe("sample_ping");
   });
 
   it("returns no tools when the connector is missing or disabled", () => {

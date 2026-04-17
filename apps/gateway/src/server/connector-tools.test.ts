@@ -12,7 +12,7 @@ const executeMock = vi.fn().mockResolvedValue({ ok: true, value: 42 });
 const mockGetConnectorToolsForAgent = vi.hoisted(() =>
   vi.fn<(agent: unknown, config: unknown) => ConnectorTool[]>(() => [
     {
-      name: "hiveage.list_invoices",
+      name: "hiveage_list_invoices",
       description: "List invoices",
       parameters: {} as never,
       execute: executeMock,
@@ -89,7 +89,7 @@ describe("POST /connectors/tools", () => {
 
     const res = await postTool(app, {
       connectorId: "hiveage",
-      tool: "hiveage.list_invoices",
+      tool: "hiveage_list_invoices",
       args: { page: 1 },
       agentId: "agent-1",
       agentToken: token,
@@ -106,7 +106,7 @@ describe("POST /connectors/tools", () => {
 
     const res = await postTool(app, {
       connectorId: "hiveage",
-      tool: "hiveage.list_invoices",
+      tool: "hiveage_list_invoices",
       args: {},
       agentId: "agent-1",
       agentToken: "bad-token",
@@ -122,7 +122,7 @@ describe("POST /connectors/tools", () => {
 
     const res = await postTool(app, {
       connectorId: "hiveage",
-      tool: "hiveage.nonexistent",
+      tool: "hiveage_nonexistent",
       args: {},
       agentId: "agent-1",
       agentToken: token,
@@ -140,7 +140,7 @@ describe("POST /connectors/tools", () => {
 
     const res = await postTool(app, {
       connectorId: "hiveage",
-      tool: "hiveage.list_invoices",
+      tool: "hiveage_list_invoices",
       args: {},
       agentId: "unknown-agent",
       agentToken: token,
@@ -157,7 +157,7 @@ describe("POST /connectors/tools", () => {
 
     const res = await postTool(app, {
       connectorId: "hiveage",
-      tool: "hiveage.list_invoices",
+      tool: "hiveage_list_invoices",
       args: {},
       agentId: "agent-1",
       agentToken: token,

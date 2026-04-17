@@ -85,7 +85,7 @@ describe("gateway connectors", () => {
     const tools = getConnectorToolsForAgent(agentConfig, gatewayConfig);
 
     expect(tools).toHaveLength(1);
-    expect(tools[0]?.name).toBe("sample.ping");
+    expect(tools[0]?.name).toBe("sample_ping");
     expect(tools[0]?.description).toBe("Ping eu");
   });
 
