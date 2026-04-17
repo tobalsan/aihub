@@ -1,6 +1,7 @@
 import { App } from "@slack/bolt";
 import type {
   AgentConfig,
+  SlackAgentConfig,
   SlackComponentChannelConfig,
   SlackComponentConfig,
 } from "@aihub/shared";
@@ -582,6 +583,260 @@ export function createSlackBot(
         textAccumulators,
         acceptsAgent: (agentId) => routedAgentIds.has(agentId),
         getBroadcastChannel: () => componentConfig.broadcastToChannel,
+        logPrefix,
+      });
+      await app.start();
+      console.log(`${logPrefix} Started Socket Mode bot`);
+    },
+    stop: async () => {
+      cleanupBroadcasts?.();
+      cleanupBroadcasts = null;
+      textAccumulators.clear();
+      stopAllThinkingReactions();
+      await app.stop();
+    },
+  };
+}
+
+export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
+  if (!agent.slack?.token || !agent.slack?.appToken) return null;
+
+  const agentSlackConfig = agent.slack as SlackAgentConfig;
+  const slackConfig = agent.slack as SlackComponentConfig;
+  const app = new App({
+    token: agentSlackConfig.token,
+    appToken: agentSlackConfig.appToken,
+    socketMode: true,
+  });
+  const client = app.client as unknown as SlackWebClient;
+  const textAccumulators = new Map<string, string>();
+  const logPrefix = `[slack:${agent.id}]`;
+  let cleanupBroadcasts: (() => void) | null = null;
+  let botUserId: string | undefined;
+
+  const resolveMessageTarget = (
+    data: MessageData
+  ): SlackMessageTarget | null => {
+    if (data.channel_type === "im") {
+      if (!agentSlackConfig.dm || agentSlackConfig.dm.enabled === false) {
+        return null;
+      }
+      if (
+        agentSlackConfig.dm.allowFrom &&
+        agentSlackConfig.dm.allowFrom.length > 0 &&
+        (!data.user ||
+          !matchesUserAllowlist(data.user, agentSlackConfig.dm.allowFrom))
+      ) {
+        return null;
+      }
+      return {
+        agent,
+        config: slackConfig,
+        isMainSession: true,
+        logPrefix,
+      };
+    }
+
+    const channels = agentSlackConfig.channels;
+    const channelConfig = channels?.[data.channel];
+    if (channels && Object.keys(channels).length > 0 && !channelConfig) {
+      return null;
+    }
+
+    return {
+      agent,
+      config: slackConfig,
+      channelConfig,
+      isMainSession: false,
+      logPrefix,
+    };
+  };
+
+  const resolveReactionTarget = (
+    data: ReactionData
+  ): SlackReactionTarget | null => {
+    const channel = data.item.channel;
+    if (!channel) return null;
+
+    const channels = agentSlackConfig.channels;
+    if (channels && Object.keys(channels).length > 0 && !channels[channel]) {
+      return null;
+    }
+
+    const reactionConfig: SlackComponentConfig = channels
+      ? slackConfig
+      : {
+          ...slackConfig,
+          channels: {
+            [channel]: {
+              agent: agent.id,
+            },
+          },
+        };
+
+    return {
+      agent,
+      config: reactionConfig,
+      logPrefix,
+    };
+  };
+
+  const resolveAgentCommandTarget = (
+    command: SlackCommandData
+  ): SlackCommandTarget | null => {
+    const channelConfig = agentSlackConfig.channels?.[command.channel_id];
+    if (channelConfig) {
+      if (
+        channelConfig.users &&
+        channelConfig.users.length > 0 &&
+        !matchesUserAllowlist(command.user_id, channelConfig.users)
+      ) {
+        return null;
+      }
+      return {
+        agent,
+        config: slackConfig,
+        channelConfig,
+        isDm: false,
+      };
+    }
+
+    const isDm = command.channel_id.startsWith("D");
+    if (isDm) {
+      if (!agentSlackConfig.dm || agentSlackConfig.dm.enabled === false) {
+        return null;
+      }
+      if (
+        agentSlackConfig.dm.allowFrom &&
+        agentSlackConfig.dm.allowFrom.length > 0 &&
+        !matchesUserAllowlist(command.user_id, agentSlackConfig.dm.allowFrom)
+      ) {
+        return null;
+      }
+      return {
+        agent,
+        config: slackConfig,
+        isDm: true,
+      };
+    }
+
+    if (!agentSlackConfig.channels) {
+      return {
+        agent,
+        config: slackConfig,
+        isDm: false,
+      };
+    }
+
+    return null;
+  };
+
+  app.message(async ({ message, client: eventClient }) => {
+    const data = toMessageData(message);
+    if (!data) return;
+    const target = resolveMessageTarget(data);
+    if (!target) return;
+    await handleSlackMessage(
+      data,
+      eventClient as unknown as SlackWebClient,
+      target,
+      botUserId
+    );
+  });
+
+  app.event("app_mention", async ({ event, client: eventClient }) => {
+    const data = toMessageData(event, true);
+    if (!data) return;
+    const target = resolveMessageTarget(data);
+    if (!target) return;
+    await handleSlackMessage(
+      data,
+      eventClient as unknown as SlackWebClient,
+      target,
+      botUserId
+    );
+  });
+
+  app.event("reaction_added", async ({ event, client: eventClient }) => {
+    const data = toReactionData(event);
+    if (!data) return;
+    const target = resolveReactionTarget(data);
+    if (!target) return;
+    await handleSlackReaction(
+      data,
+      eventClient as unknown as SlackWebClient,
+      target,
+      "add"
+    );
+  });
+
+  app.event("reaction_removed", async ({ event, client: eventClient }) => {
+    const data = toReactionData(event);
+    if (!data) return;
+    const target = resolveReactionTarget(data);
+    if (!target) return;
+    await handleSlackReaction(
+      data,
+      eventClient as unknown as SlackWebClient,
+      target,
+      "remove"
+    );
+  });
+
+  const registerCommand = (
+    name: "/new" | "/abort" | "/help" | "/ping",
+    handler: (
+      command: SlackCommandData,
+      target: SlackCommandTarget,
+      respond: SlackRespond
+    ) => Promise<void>
+  ) => {
+    app.command(name, async ({ command, ack, respond }) => {
+      await ack();
+      const target = resolveAgentCommandTarget({
+        channel_id: command.channel_id,
+        user_id: command.user_id,
+        text: command.text,
+      });
+      if (!target) {
+        await respond({
+          text: "No agent is configured for this Slack route.",
+          response_type: "ephemeral",
+        });
+        return;
+      }
+      await handler(
+        {
+          channel_id: command.channel_id,
+          user_id: command.user_id,
+          text: command.text,
+        },
+        target,
+        respond as SlackRespond
+      );
+    });
+  };
+
+  registerCommand("/new", handleNewCommand);
+  registerCommand("/abort", handleAbortCommand);
+  registerCommand("/help", handleHelpCommand);
+  registerCommand("/ping", handlePingCommand);
+
+  return {
+    app,
+    agentId: agent.id,
+    start: async () => {
+      try {
+        const auth = await client.auth?.test();
+        botUserId = auth?.user_id;
+      } catch {
+        botUserId = undefined;
+      }
+      cleanupBroadcasts = setupSlackBroadcasts({
+        client,
+        textAccumulators,
+        acceptsAgent: (agentId) => agentId === agent.id,
+        getBroadcastChannel: () => agentSlackConfig.broadcastToChannel,
         logPrefix,
       });
       await app.start();

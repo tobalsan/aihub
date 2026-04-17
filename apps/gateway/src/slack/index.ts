@@ -1,5 +1,10 @@
 import type { AgentConfig, SlackComponentConfig } from "@aihub/shared";
-import { createSlackBot, type SlackBot } from "./bot.js";
+import { getActiveAgents } from "../config/index.js";
+import {
+  createSlackAgentBot,
+  createSlackBot,
+  type SlackBot,
+} from "./bot.js";
 
 const activeBots = new Map<string, SlackBot>();
 
@@ -22,7 +27,22 @@ export async function startSlackBots(options?: StartSlackBotsOptions) {
     return;
   }
 
-  console.warn("[slack] startSlackBots requires component options");
+  const agents = getActiveAgents();
+
+  for (const agent of agents) {
+    if (!agent.slack?.token) continue;
+
+    const bot = createSlackAgentBot(agent);
+    if (!bot) continue;
+
+    try {
+      await bot.start();
+      activeBots.set(agent.id, bot);
+      console.log(`[slack] Started bot for agent: ${agent.id}`);
+    } catch (err) {
+      console.error(`[slack] Failed to start bot for agent ${agent.id}:`, err);
+    }
+  }
 }
 
 export async function stopSlackBots() {
@@ -41,4 +61,4 @@ export function getActiveBot(agentId: string): SlackBot | undefined {
   return activeBots.get(agentId);
 }
 
-export { createSlackBot, type SlackBot } from "./bot.js";
+export { createSlackAgentBot, createSlackBot, type SlackBot } from "./bot.js";
