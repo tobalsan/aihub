@@ -247,3 +247,199 @@ describe("createSlackBot", () => {
     });
   });
 });
+
+describe("createSlackAgentBot", () => {
+  beforeEach(() => {
+    apps.length = 0;
+    vi.clearAllMocks();
+    clearAllHistory();
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 1, sessionId: "session" },
+    });
+  });
+
+  it("returns null when agent has no slack config", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+    } as AgentConfig;
+
+    expect(createSlackAgentBot(localAgent)).toBeNull();
+  });
+
+  it("returns null when token is missing", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+      slack: { appToken: "xapp-test" },
+    } as AgentConfig;
+
+    expect(createSlackAgentBot(localAgent)).toBeNull();
+  });
+
+  it("returns null when appToken is missing", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+      slack: { token: "xoxb-test" },
+    } as AgentConfig;
+
+    expect(createSlackAgentBot(localAgent)).toBeNull();
+  });
+
+  it("creates a bot with agent.id as agentId (not \"slack\")", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+      slack: { token: "xoxb-test", appToken: "xapp-test" },
+    } as AgentConfig;
+
+    const bot = createSlackAgentBot(localAgent);
+
+    expect(bot).not.toBeNull();
+    expect(bot?.agentId).toBe("a1");
+    expect(apps[0].config).toEqual({
+      token: "xoxb-test",
+      appToken: "xapp-test",
+      socketMode: true,
+    });
+  });
+
+  it("routes all channels to the agent when no channels config", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+      slack: { token: "xoxb-test", appToken: "xapp-test" },
+    } as AgentConfig;
+
+    const bot = createSlackAgentBot(localAgent);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "<@Ubot> hello from random channel",
+        channel: "C999",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "a1",
+        sessionKey: "slack:C999",
+        source: "slack",
+      })
+    );
+  });
+
+  it("creates a bot with channels config for per-agent filtering", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+      slack: {
+        token: "xoxb-test",
+        appToken: "xapp-test",
+        channels: {
+          C1: { requireMention: false },
+        },
+      },
+    } as AgentConfig;
+
+    const bot = createSlackAgentBot(localAgent);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "ignored",
+        channel: "C2",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).not.toHaveBeenCalled();
+
+    await messageHandler({
+      message: {
+        ts: "2.2",
+        text: "handled",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "a1",
+        sessionKey: "slack:C1",
+        source: "slack",
+      })
+    );
+  });
+
+  it("creates a bot with DM config", async () => {
+    const { createSlackAgentBot } = await import("./bot.js");
+    const localAgent = {
+      id: "a1",
+      name: "Agent",
+      workspace: "~/ws",
+      thinkLevel: "off",
+      slack: {
+        token: "xoxb-test",
+        appToken: "xapp-test",
+        dm: { enabled: true },
+      },
+    } as AgentConfig;
+
+    const bot = createSlackAgentBot(localAgent);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello dm",
+        channel: "D1",
+        user: "U1",
+        channel_type: "im",
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "a1",
+        sessionKey: "main",
+        source: "slack",
+      })
+    );
+  });
+});
