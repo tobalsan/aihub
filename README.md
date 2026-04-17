@@ -643,6 +643,7 @@ Project API details: `docs/projects_api.md`
 | `thinkLevel`       | off, minimal, low, medium, high                                                      |
 | `queueMode`        | `queue` (inject into current run) or `interrupt` (abort & restart)                   |
 | `discord`          | Discord bot config (legacy per-agent; prefer [Channels](#channels) component config)  |
+| `slack`            | Slack bot config (per-agent token; see [Channels](#channels) section)                  |
 | `heartbeat`        | Periodic check-in config (see below)                                                 |
 | `amsg`             | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 | `sandbox`          | Container isolation config (see [Container Isolation](#container-isolation))          |
@@ -848,6 +849,41 @@ Slash commands enforce the same `users` and `allowFrom` allowlists as message ro
 - **Single-agent mode**: Omit `channels` config to route all messages to the first configured agent
 - **Broadcast**: Subscribe to agent events from other sources (web, CLI, etc.) and post to `broadcastToChannel`
 - **Reactions**: User reactions on messages trigger agent runs with reaction context
+
+#### Per-Agent Tokens
+
+Each agent can have its own Slack bot (own `token`/`appToken` pair) in the same workspace. This lets different agents appear as different bots with different names and avatars:
+
+```json
+{
+  "agents": [
+    {
+      "id": "main",
+      "name": "Main Agent",
+      "workspace": "~/agents/main",
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
+      "slack": {
+        "token": "$env:SLACK_MAIN_BOT_TOKEN",
+        "appToken": "$env:SLACK_MAIN_APP_TOKEN"
+      }
+    },
+    {
+      "id": "assistant",
+      "name": "Helper",
+      "workspace": "~/agents/helper",
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
+      "slack": {
+        "token": "$env:SLACK_HELPER_BOT_TOKEN",
+        "appToken": "$env:SLACK_HELPER_APP_TOKEN"
+      }
+    }
+  ]
+}
+```
+
+Each agent creates its own Slack app at https://api.slack.com/apps with its own bot token and Socket Mode connection. Per-agent `slack` config supports the same fields as the component config (`channels`, `dm`, `historyLimit`, etc.).
+
+**Note:** Per-agent mode and component shared-token mode can coexist — agents with `agent.slack` get their own bots, while `components.slack` creates an additional shared bot for channel-based routing.
 
 ## Heartbeat
 
