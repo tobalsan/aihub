@@ -393,6 +393,7 @@ export const SlackComponentDmConfigSchema = z.object({
   enabled: z.boolean().optional(),
   agent: z.string().optional(),
   allowFrom: z.array(z.string()).optional(),
+  threadPolicy: z.enum(["always", "never", "follow"]).optional(),
 });
 export type SlackComponentDmConfig = z.infer<
   typeof SlackComponentDmConfigSchema

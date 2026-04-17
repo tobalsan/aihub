@@ -4,6 +4,7 @@ import type {
   SlackAgentConfig,
   SlackComponentChannelConfig,
   SlackComponentConfig,
+  SlackComponentDmConfig,
 } from "@aihub/shared";
 import { agentEventBus, runAgent } from "../agents/index.js";
 import { DEFAULT_MAIN_KEY, getSessionEntry } from "../sessions/index.js";
@@ -45,6 +46,7 @@ type SlackMessageTarget = {
   agent: AgentConfig;
   config: SlackComponentConfig;
   channelConfig?: SlackComponentChannelConfig;
+  dmConfig?: SlackComponentDmConfig;
   isMainSession: boolean;
   logPrefix: string;
 };
@@ -185,7 +187,7 @@ async function handleSlackMessage(
     ? DEFAULT_MAIN_KEY
     : `slack:${data.channel}`;
   const replyThreadTs = resolveReplyThreadTs(
-    target.channelConfig?.threadPolicy,
+    target.channelConfig?.threadPolicy ?? target.dmConfig?.threadPolicy,
     data.ts,
     data.thread_ts
   );
@@ -430,6 +432,7 @@ export function createSlackBot(
       return {
         agent: dmAgent,
         config: componentConfig,
+        dmConfig: componentConfig.dm,
         isMainSession: true,
         logPrefix: `[slack:${dmAgent.id}]`,
       };
@@ -633,6 +636,7 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
       return {
         agent,
         config: slackConfig,
+        dmConfig: agentSlackConfig.dm,
         isMainSession: true,
         logPrefix,
       };
