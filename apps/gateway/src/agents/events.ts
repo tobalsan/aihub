@@ -5,6 +5,7 @@ import type { HistoryEvent } from "../sdk/types.js";
 export type RunSource =
   | "web"
   | "discord"
+  | "slack"
   | "amsg"
   | "scheduler"
   | "cli"

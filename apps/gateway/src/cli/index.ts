@@ -206,7 +206,7 @@ function printDevBanner(gatewayPort: number, uiPort: number | null) {
 ╔════════════════════════════════════════╗
 ║           DEV MODE ACTIVE              ║
 ║  Gateway: http://127.0.0.1:${gatewayPort.toString().padEnd(5)}       ║${uiLine ? `\n${uiLine}` : ""}
-║  Discord/Scheduler/Heartbeat: OFF      ║
+║  Scheduler/Heartbeat: OFF             ║
 ╚════════════════════════════════════════╝
 `);
 }
@@ -222,7 +222,7 @@ program
   .option("--agent-id <id>", "Single-agent mode: only load this agent")
   .option(
     "--dev",
-    "Dev mode: auto-find ports, disable Discord/scheduler/heartbeat/amsg"
+    "Dev mode: auto-find ports, disable scheduler/heartbeat/amsg"
   )
   .action(async (opts) => {
     try {
