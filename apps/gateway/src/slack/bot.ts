@@ -198,7 +198,8 @@ function startThinkingStreamDisplay(params: {
   let latestText: string | undefined;
 
   const setSessionId = (sessionId: string | undefined) => {
-    if (sessionId && !matchedSessionId) matchedSessionId = sessionId;
+    if (!sessionId) return;
+    matchedSessionId = sessionId;
   };
 
   const matchesRun = (event: {

@@ -463,6 +463,88 @@ describe("createSlackBot", () => {
     });
   });
 
+  it("overrides tentative session binding with runAgent sessionId", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], {
+      ...config,
+      showThinking: true,
+    });
+    await bot?.start();
+
+    apps[0].client.chat.postMessage.mockImplementation(async (message) => {
+      if (message.text === "ok") {
+        await Promise.all(
+          streamHandlers.map((handler) =>
+            handler({
+              type: "thinking",
+              data: "stale after result",
+              agentId: "main",
+              sessionId: "stale-session",
+              sessionKey: "slack:C1",
+              source: "slack",
+            })
+          )
+        );
+        await Promise.all(
+          streamHandlers.map((handler) =>
+            handler({
+              type: "thinking",
+              data: "correct after result",
+              agentId: "main",
+              sessionId: "correct-session",
+              sessionKey: "slack:C1",
+              source: "slack",
+            })
+          )
+        );
+      }
+      return { ts: message.text?.includes("Thinking") ? "thinking-ts" : "reply-ts" };
+    });
+
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      await Promise.all(
+        streamHandlers.map((handler) =>
+          handler({
+            type: "thinking",
+            data: "tentative stale",
+            agentId: params.agentId,
+            sessionId: "stale-session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        )
+      );
+      return {
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 1, sessionId: "correct-session" },
+      };
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.update).toHaveBeenCalledWith({
+      channel: "C1",
+      ts: "thinking-ts",
+      text: "_🧠 Thinking: correct after result..._",
+      mrkdwn: true,
+    });
+    expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "_🧠 Thinking: stale after result..._",
+      })
+    );
+  });
+
   it("keeps thinking message when configured", async () => {
     const { createSlackBot } = await import("./bot.js");
     const bot = createSlackBot([agent], {
