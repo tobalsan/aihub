@@ -60,6 +60,7 @@ type SlackReactionTarget = {
 
 type ThinkingStreamDisplay = {
   cleanup: () => Promise<void>;
+  setSessionId: (sessionId: string | undefined) => void;
 };
 
 const MAX_THINKING_CHARS = 500;
@@ -189,13 +190,76 @@ function startThinkingStreamDisplay(params: {
     logPrefix,
   } = params;
   let messageTs: string | undefined;
+  let matchedSessionId: string | undefined;
   let closed = false;
   let unsubscribe = () => undefined;
+  let posting = false;
+  let pendingPost: Promise<void> | null = null;
+  let latestText: string | undefined;
+
+  const setSessionId = (sessionId: string | undefined) => {
+    if (sessionId && !matchedSessionId) matchedSessionId = sessionId;
+  };
+
+  const matchesRun = (event: {
+    agentId: string;
+    sessionId: string;
+    sessionKey?: string;
+  }) => {
+    if (event.agentId !== agentId) return false;
+    if (matchedSessionId) return event.sessionId === matchedSessionId;
+    if (event.sessionKey !== sessionKey) return false;
+    matchedSessionId = event.sessionId;
+    return true;
+  };
+
+  const publishThinking = async (text: string) => {
+    latestText = text;
+    if (messageTs) {
+      await client.chat.update({ channel, ts: messageTs, text, mrkdwn: true });
+      return;
+    }
+    if (posting) {
+      await pendingPost;
+      return;
+    }
+
+    posting = true;
+    const postedText = text;
+    pendingPost = (async () => {
+      try {
+        const result = await client.chat.postMessage({
+          channel,
+          text: postedText,
+          mrkdwn: true,
+          thread_ts: threadTs,
+          unfurl_links: false,
+          unfurl_media: false,
+        });
+        messageTs = result.ts;
+        if (!closed && messageTs && latestText && latestText !== postedText) {
+          await client.chat.update({
+            channel,
+            ts: messageTs,
+            text: latestText,
+            mrkdwn: true,
+          });
+        }
+      } catch (err) {
+        console.debug(`${logPrefix} Thinking message update failed:`, err);
+      } finally {
+        posting = false;
+        pendingPost = null;
+      }
+    })();
+    await pendingPost;
+  };
 
   const cleanup = async () => {
     if (closed) return;
     closed = true;
     unsubscribe();
+    await pendingPost;
     if (!deleteOnComplete || !messageTs) return;
     try {
       await client.chat.delete({ channel, ts: messageTs });
@@ -205,24 +269,12 @@ function startThinkingStreamDisplay(params: {
   };
 
   unsubscribe = agentEventBus.onStreamEvent(async (event) => {
-    if (event.agentId !== agentId || event.sessionKey !== sessionKey) return;
+    if (!matchesRun(event)) return;
     if (event.type === "thinking") {
       if (closed) return;
       const text = formatThinkingMessage(event.data);
       try {
-        if (!messageTs) {
-          const result = await client.chat.postMessage({
-            channel,
-            text,
-            mrkdwn: true,
-            thread_ts: threadTs,
-            unfurl_links: false,
-            unfurl_media: false,
-          });
-          messageTs = result.ts;
-          return;
-        }
-        await client.chat.update({ channel, ts: messageTs, text, mrkdwn: true });
+        await publishThinking(text);
       } catch (err) {
         console.debug(`${logPrefix} Thinking message update failed:`, err);
       }
@@ -233,7 +285,7 @@ function startThinkingStreamDisplay(params: {
     }
   });
 
-  return { cleanup };
+  return { cleanup, setSessionId };
 }
 
 async function handleSlackMessage(
@@ -310,6 +362,7 @@ async function handleSlackMessage(
       source: "slack",
       context,
     });
+    thinkingDisplay?.setSessionId(agentResult.meta.sessionId);
 
     if (agentResult.meta.queued) {
       await thinkingDisplay?.cleanup();

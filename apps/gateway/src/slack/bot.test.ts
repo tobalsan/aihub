@@ -332,6 +332,18 @@ describe("createSlackBot", () => {
         streamHandlers.map((handler) =>
           handler({
             type: "thinking",
+            data: "wrong session",
+            agentId: params.agentId,
+            sessionId: "other-session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        )
+      );
+      await Promise.all(
+        streamHandlers.map((handler) =>
+          handler({
+            type: "thinking",
             data: "second thought",
             agentId: params.agentId,
             sessionId: "session",
@@ -371,9 +383,83 @@ describe("createSlackBot", () => {
       text: "_🧠 Thinking: second thought..._",
       mrkdwn: true,
     });
+    expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "_🧠 Thinking: wrong session..._",
+      })
+    );
     expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
       channel: "C1",
       ts: "reply-ts",
+    });
+  });
+
+  it("waits for pending thinking post before cleanup deletes it", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], {
+      ...config,
+      showThinking: true,
+    });
+    await bot?.start();
+
+    let resolvePost!: (value: { ts?: string }) => void;
+    const pendingPost = new Promise<{ ts?: string }>((resolve) => {
+      resolvePost = resolve;
+    });
+    apps[0].client.chat.postMessage.mockImplementationOnce(() => pendingPost);
+
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      for (const handler of streamHandlers) {
+        Promise.resolve(
+          handler({
+            type: "thinking",
+            data: "racy",
+            agentId: params.agentId,
+            sessionId: "session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        ).catch(() => undefined);
+      }
+      for (const handler of streamHandlers) {
+        Promise.resolve(
+          handler({
+            type: "done",
+            agentId: params.agentId,
+            sessionId: "session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        ).catch(() => undefined);
+      }
+      return {
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 1, sessionId: "session" },
+      };
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    const messagePromise = messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(apps[0].client.chat.delete).not.toHaveBeenCalled();
+
+    resolvePost({ ts: "thinking-ts" });
+    await messagePromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
+      channel: "C1",
+      ts: "thinking-ts",
     });
   });
 
