@@ -163,6 +163,7 @@ const AgentConfigBaseSchema = z.object({
   openclaw: OpenClawConfigSchema.optional(),
   auth: AgentAuthConfigSchema.optional(), // OAuth/API key auth config
   discord: DiscordConfigSchema.optional(),
+  slack: z.lazy(() => SlackAgentConfigSchema).optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
   amsg: AmsgConfigSchema.optional(),
@@ -412,6 +413,21 @@ export const SlackComponentConfigSchema = z.object({
   applicationId: z.string().optional(),
 });
 export type SlackComponentConfig = z.infer<typeof SlackComponentConfigSchema>;
+
+export const SlackAgentConfigSchema = z.object({
+  token: SecretRefSchema,
+  appToken: SecretRefSchema,
+  channels: z
+    .record(z.string(), SlackComponentChannelConfigSchema)
+    .optional(),
+  dm: SlackComponentDmConfigSchema.optional(),
+  historyLimit: z.number().int().min(0).optional(),
+  clearHistoryAfterReply: z.boolean().optional(),
+  mentionPatterns: z.array(z.string()).optional(),
+  broadcastToChannel: z.string().optional(),
+  applicationId: z.string().optional(),
+});
+export type SlackAgentConfig = z.infer<typeof SlackAgentConfigSchema>;
 
 export const SchedulerComponentConfigSchema = z.object({
   enabled: z.boolean().optional(),
