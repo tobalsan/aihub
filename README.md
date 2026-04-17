@@ -1,6 +1,6 @@
 # AIHub
 
-Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, CLI, and scheduled jobs.
+Multi-agent gateway for AI agents. Exposes agents via web UI, Discord, Slack, CLI, and scheduled jobs.
 
 ![Dashboard](./aihub.png)
 
@@ -615,10 +615,6 @@ Project API details: `docs/projects_api.md`
       },
       "thinkLevel": "off",
       "queueMode": "queue",
-      "discord": {
-        "token": "...",
-        "applicationId": "..."
-      },
       "amsg": { "id": "agent-1", "enabled": true }
     }
   ],
@@ -646,7 +642,7 @@ Project API details: `docs/projects_api.md`
 | `auth.mode`        | `oauth`, `api_key`, or `proxy` (Pi SDK only)                                         |
 | `thinkLevel`       | off, minimal, low, medium, high                                                      |
 | `queueMode`        | `queue` (inject into current run) or `interrupt` (abort & restart)                   |
-| `discord`          | Discord bot config ([docs](docs/discord.md))                                         |
+| `discord`          | Discord bot config (legacy per-agent; prefer [Channels](#channels) component config)  |
 | `heartbeat`        | Periodic check-in config (see below)                                                 |
 | `amsg`             | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
 | `sandbox`          | Container isolation config (see [Container Isolation](#container-isolation))          |
@@ -716,9 +712,146 @@ curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d
 }'
 ```
 
+## Channels
+
+AIHub supports Discord and Slack as messaging channels. Both are opt-in via `components` in `aihub.json`.
+
+### Discord
+
+Connect your agent to Discord with support for guilds, DMs, reactions, and slash commands.
+
+**Prerequisites:** Create a Discord application at https://discord.com/developers/applications, create a bot, enable **Message Content Intent**, copy the **Bot Token** and **Application ID**, then invite the bot with Send Messages, Read Message History, and Add Reactions permissions.
+
+**Basic setup** (bot responds when mentioned):
+
+```json
+{
+  "components": {
+    "discord": {
+      "enabled": true,
+      "token": "$env:DISCORD_BOT_TOKEN",
+      "channels": {
+        "CHANNEL_1": { "agent": "main", "requireMention": true }
+      },
+      "dm": { "enabled": true, "agent": "main" }
+    }
+  }
+}
+```
+
+See [docs/discord.md](docs/discord.md) for the full config reference including guild policies, reaction notifications, broadcast mode, per-channel settings, and slash commands.
+
+### Slack
+
+Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). Supports channel messages, DMs, thread replies, reactions, and slash commands.
+
+**Prerequisites:**
+
+1. Create a Slack app at https://api.slack.com/apps
+2. Enable **Socket Mode** and generate an **App-Level Token** (`xapp-`) with `connections:write` scope
+3. Install the app to your workspace and copy the **Bot Token** (`xoxb-`)
+4. Add bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `commands`, `im:history`, `im:read`, `im:write`, `reactions:read`, `reactions:write`, `users:read`
+5. Enable **Socket Mode** in the app settings
+
+**Basic setup** (single-agent, all channels):
+
+```json
+{
+  "components": {
+    "slack": {
+      "enabled": true,
+      "token": "$env:SLACK_BOT_TOKEN",
+      "appToken": "$env:SLACK_APP_TOKEN",
+      "channels": {
+        "C01ABCDEF": { "agent": "main" }
+      },
+      "dm": { "enabled": true, "agent": "main" }
+    }
+  }
+}
+```
+
+**Multi-channel routing** with per-channel thread policy and user allowlists:
+
+```json
+{
+  "components": {
+    "slack": {
+      "enabled": true,
+      "token": "$env:SLACK_BOT_TOKEN",
+      "appToken": "$env:SLACK_APP_TOKEN",
+      "channels": {
+        "C01ABCDEF": {
+          "agent": "main",
+          "requireMention": false,
+          "threadPolicy": "always"
+        },
+        "C02GHIJKL": {
+          "agent": "assistant",
+          "threadPolicy": "follow",
+          "users": ["U01ADMIN", "U02DEV"]
+        }
+      },
+      "dm": {
+        "enabled": true,
+        "agent": "main",
+        "allowFrom": ["U01ADMIN"]
+      },
+      "broadcastToChannel": "C03BROADCAST"
+    }
+  }
+}
+```
+
+#### Slack Config Reference
+
+| Field                              | Description                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| `token`                            | Bot token (`xoxb-`), use `$env:SLACK_BOT_TOKEN`                                      |
+| `appToken`                         | App-level token (`xapp-`), use `$env:SLACK_APP_TOKEN`                                |
+| `channels`                         | Map of channel IDs to routing config                                                 |
+| `channels.<id>.agent`              | Agent ID to route to                                                                 |
+| `channels.<id>.requireMention`     | Require @mention to trigger (default: `true`)                                        |
+| `channels.<id>.threadPolicy`       | `always` (default), `never`, or `follow`                                             |
+| `channels.<id>.users`              | Allowed Slack user IDs (empty = all allowed)                                         |
+| `dm.enabled`                       | Enable DM support                                                                    |
+| `dm.agent`                         | Agent ID for DMs                                                                     |
+| `dm.allowFrom`                     | Allowed Slack user IDs for DMs (empty = all allowed)                                 |
+| `broadcastToChannel`               | Post non-Slack agent responses to this channel                                       |
+| `historyLimit`                     | Recent messages included as context (default: 20)                                    |
+| `clearHistoryAfterReply`           | Clear history buffer after reply (default: `false`)                                  |
+| `mentionPatterns`                  | Additional regex patterns that trigger a response                                    |
+
+#### Thread Policy
+
+| Value    | Behavior                                                                   |
+| -------- | -------------------------------------------------------------------------- |
+| `always` | Always reply in a thread (default, keeps channels clean)                   |
+| `never`  | Always reply directly in channel                                           |
+| `follow` | Thread if user message was in a thread, otherwise reply in channel         |
+
+#### Slash Commands
+
+| Command          | Description                                                      |
+| ---------------- | ---------------------------------------------------------------- |
+| `/new [session]` | Start new conversation                                           |
+| `/abort`         | Stop current agent run                                           |
+| `/help`          | Show routing policy and config (ephemeral)                       |
+| `/ping`          | Health check: agent name, SDK, model (ephemeral)                 |
+
+Slash commands enforce the same `users` and `allowFrom` allowlists as message routing.
+
+#### Behavior Notes
+
+- **Typing indicator**: Adds/removes `:thinking:` reaction on user message during processing
+- **Message chunking**: Responses split at 4000 chars, preserving mrkdwn code blocks
+- **Single-agent mode**: Omit `channels` config to route all messages to the first configured agent
+- **Broadcast**: Subscribe to agent events from other sources (web, CLI, etc.) and post to `broadcastToChannel`
+- **Reactions**: User reactions on messages trigger agent runs with reaction context
+
 ## Heartbeat
 
-Periodic agent check-ins with Discord delivery for alerts.
+Periodic agent check-ins with channel delivery for alerts.
 
 ```json
 {
@@ -729,10 +862,6 @@ Periodic agent check-ins with Discord delivery for alerts.
         "every": "30m",
         "prompt": "Check on your human",
         "ackMaxChars": 300
-      },
-      "discord": {
-        "token": "...",
-        "broadcastToChannel": "123456789"
       }
     }
   ]
@@ -749,7 +878,7 @@ Periodic agent check-ins with Discord delivery for alerts.
 
 1. Agent is prompted at the interval
 2. Agent replies with `HEARTBEAT_OK` token if all is well
-3. If no token (or substantial content beyond `ackMaxChars`), the reply is delivered to Discord as an alert
+3. If no token (or substantial content beyond `ackMaxChars`), the reply is delivered to the configured channel as an alert
 4. Heartbeat runs don't affect session `updatedAt` (preserves idle timeout)
 
 ## Custom Models
