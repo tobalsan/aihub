@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",
-    "@mariozechner/pi-agent-core": "^0.64.0",
-    "@mariozechner/pi-ai": "^0.64.0",
-    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@mariozechner/pi-agent-core": "^0.67",
+    "@mariozechner/pi-ai": "^0.67",
+    "@mariozechner/pi-coding-agent": "^0.67",
     "undici": "^7.20.0"
   },
   "devDependencies": {

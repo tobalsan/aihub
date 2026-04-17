@@ -165,7 +165,7 @@ export async function runAgent(
       settingsManager,
       additionalSkillPaths: [path.join(input.workspaceDir, "skills")],
       systemPromptOverride: () => AIHUB_PI_SYSTEM_PROMPT,
-      appendSystemPrompt: orchestrationToolPrompt(),
+      appendSystemPrompt: [orchestrationToolPrompt()],
       agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
     });
     await resourceLoader.reload();

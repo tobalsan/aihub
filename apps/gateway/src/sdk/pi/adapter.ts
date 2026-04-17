@@ -295,7 +295,9 @@ export const piAdapter: SdkAdapter = {
         path: `connector:${cp.id}`,
         content: cp.prompt,
       }));
-      const allAppendedPrompts = subagentToolPrompt || undefined;
+      const allAppendedPrompts = subagentToolPrompt
+        ? [subagentToolPrompt]
+        : undefined;
 
       const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
       const settingsManager = SettingsManager.create(

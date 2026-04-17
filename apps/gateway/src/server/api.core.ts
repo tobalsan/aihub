@@ -214,7 +214,7 @@ api.get("/agents/:id/avatar", async (c) => {
     const stream = createReadStream(filePath);
     c.header("Content-Type", contentType);
     c.header("Cache-Control", "public, max-age=3600");
-    return c.body(Readable.toWeb(stream) as ReadableStream);
+    return c.body(Readable.toWeb(stream) as unknown as ReadableStream);
   } catch {
     return c.json({ error: "Not found" }, 404);
   }
