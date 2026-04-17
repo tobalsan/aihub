@@ -1,7 +1,6 @@
 import {
   SlackComponentConfigSchema,
   type Component,
-  type SlackComponentConfig,
 } from "@aihub/shared";
 import {
   startSlackBots,

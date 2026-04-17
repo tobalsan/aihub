@@ -70,7 +70,7 @@ describe("Slack command handlers", () => {
     });
   });
 
-  it("runs /abort against requested session", async () => {
+  it("runs /stop against requested session", async () => {
     const respond = vi.fn();
     await handleAbortCommand(
       { channel_id: "C1", user_id: "U1", text: "custom" },
@@ -78,7 +78,7 @@ describe("Slack command handlers", () => {
       respond
     );
     expect(mockRunAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "/abort", sessionKey: "custom" })
+      expect.objectContaining({ message: "/stop", sessionKey: "custom" })
     );
   });
 
@@ -101,6 +101,8 @@ describe("Slack command handlers", () => {
     await handlePingCommand({ channel_id: "C1", user_id: "U1" }, target, pingRespond);
 
     expect(helpRespond.mock.calls[0][0].text).toContain("/new");
+    expect(helpRespond.mock.calls[0][0].text).toContain("/stop");
+    expect(helpRespond.mock.calls[0][0].text).not.toContain("/abort");
     expect(helpRespond.mock.calls[0][0].response_type).toBe("ephemeral");
     expect(pingRespond.mock.calls[0][0].text).toContain("Main");
     expect(pingRespond.mock.calls[0][0].response_type).toBe("ephemeral");

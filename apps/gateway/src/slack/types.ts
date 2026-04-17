@@ -10,7 +10,14 @@ export type SlackWebClient = {
       thread_ts?: string;
       unfurl_links?: boolean;
       unfurl_media?: boolean;
+    }): Promise<{ ts?: string }>;
+    update(params: {
+      channel: string;
+      ts: string;
+      text: string;
+      mrkdwn?: boolean;
     }): Promise<unknown>;
+    delete(params: { channel: string; ts: string }): Promise<unknown>;
   };
   conversations: {
     info(params: {

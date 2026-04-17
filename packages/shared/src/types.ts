@@ -414,6 +414,8 @@ export const SlackComponentConfigSchema = z.object({
   mentionPatterns: z.array(z.string()).optional(),
   broadcastToChannel: z.string().optional(),
   applicationId: z.string().optional(),
+  showThinking: z.boolean().optional(),
+  deleteThinkingOnComplete: z.boolean().optional(),
 });
 export type SlackComponentConfig = z.infer<typeof SlackComponentConfigSchema>;
 
@@ -429,6 +431,8 @@ export const SlackAgentConfigSchema = z.object({
   mentionPatterns: z.array(z.string()).optional(),
   broadcastToChannel: z.string().optional(),
   applicationId: z.string().optional(),
+  showThinking: z.boolean().optional(),
+  deleteThinkingOnComplete: z.boolean().optional(),
 });
 export type SlackAgentConfig = z.infer<typeof SlackAgentConfigSchema>;
 

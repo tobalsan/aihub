@@ -39,7 +39,7 @@ async function runControlCommand(
   command: SlackCommandData,
   target: SlackCommandTarget,
   respond: SlackRespond,
-  message: "/new" | "/abort",
+  message: "/new" | "/stop",
   fallback: string
 ): Promise<void> {
   try {
@@ -83,7 +83,7 @@ export function handleAbortCommand(
     command,
     target,
     respond,
-    "/abort",
+    "/stop",
     "Abort requested."
   );
 }
@@ -102,7 +102,7 @@ export async function handleHelpCommand(
     `*${target.agent.name}* - Slack Commands`,
     "",
     "`/new [session]` - Start a new conversation",
-    "`/abort [session]` - Stop the current run",
+    "`/stop [session]` - Stop the current run",
     "`/help` - Show this help message",
     "`/ping` - Health check",
     "",

@@ -42,8 +42,11 @@ describe("buildSlackContext", () => {
 });
 
 describe("renderSlackContext", () => {
-  it("renders empty context as empty string", () => {
-    expect(renderSlackContext(buildSlackContext({}))).toBe("");
+  it("renders formatting guidance for empty context", () => {
+    const rendered = renderSlackContext(buildSlackContext({}));
+    expect(rendered).toContain("[SYSTEM CONTEXT - Slack]");
+    expect(rendered).toContain("[FORMATTING]");
+    expect(rendered).toContain("Bold: *text*");
   });
 
   it("renders Slack context blocks", () => {
@@ -59,5 +62,6 @@ describe("renderSlackContext", () => {
     expect(rendered).toContain("Channel: #dev");
     expect(rendered).toContain("Topic: shipping");
     expect(rendered).toContain("U1: hello");
+    expect(rendered).toContain("Links: <url|text>");
   });
 });

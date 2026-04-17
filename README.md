@@ -822,6 +822,8 @@ Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). 
 | `historyLimit`                     | Recent messages included as context (default: 20)                                    |
 | `clearHistoryAfterReply`           | Clear history buffer after reply (default: `false`)                                  |
 | `mentionPatterns`                  | Additional regex patterns that trigger a response                                    |
+| `showThinking`                     | Show live thinking text in a thread reply (default: `false`)                         |
+| `deleteThinkingOnComplete`         | Delete thinking text when the run completes (default: `true`)                        |
 
 #### Thread Policy
 
@@ -836,15 +838,60 @@ Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). 
 | Command          | Description                                                      |
 | ---------------- | ---------------------------------------------------------------- |
 | `/new [session]` | Start new conversation                                           |
-| `/abort`         | Stop current agent run                                           |
+| `/stop [session]` | Stop current agent run                                          |
 | `/help`          | Show routing policy and config (ephemeral)                       |
 | `/ping`          | Health check: agent name, SDK, model (ephemeral)                 |
 
 Slash commands enforce the same `users` and `allowFrom` allowlists as message routing.
+Slack uses `/stop` instead of `/abort`; both route to the same internal abort behavior.
+
+#### Slack App Manifest Commands
+
+Add these slash commands to the Slack app manifest so they appear in Slack autocomplete. Replace request URLs with any valid HTTPS URL; Socket Mode delivers commands to Bolt without requiring a public AIHub URL.
+
+```yaml
+features:
+  slash_commands:
+    - command: /new
+      description: Start a new AIHub conversation
+      usage_hint: "[session]"
+      should_escape: false
+      url: https://example.com/slack/commands
+    - command: /stop
+      description: Stop the current AIHub run
+      usage_hint: "[session]"
+      should_escape: false
+      url: https://example.com/slack/commands
+    - command: /help
+      description: Show AIHub Slack help
+      should_escape: false
+      url: https://example.com/slack/commands
+    - command: /ping
+      description: Check AIHub bot health
+      should_escape: false
+      url: https://example.com/slack/commands
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - commands
+      - im:history
+      - im:read
+      - im:write
+      - reactions:read
+      - reactions:write
+      - users:read
+settings:
+  socket_mode_enabled: true
+```
 
 #### Behavior Notes
 
 - **Typing indicator**: Adds/removes `:thinking:` reaction on user message during processing
+- **Thinking display**: When `showThinking` is true, posts live-updated `_🧠 Thinking: ..._` text in the message thread
 - **Message chunking**: Responses split at 4000 chars, preserving mrkdwn code blocks
 - **Single-agent mode**: Omit `channels` config to route all messages to the first configured agent
 - **Broadcast**: Subscribe to agent events from other sources (web, CLI, etc.) and post to `broadcastToChannel`

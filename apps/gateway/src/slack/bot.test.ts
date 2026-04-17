@@ -3,11 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runAgent } from "../agents/index.js";
 import { clearAllHistory, getHistory } from "./utils/history.js";
 
+type MockStreamEvent = {
+  type: "thinking" | "done" | "error";
+  data?: string;
+  agentId: string;
+  sessionId: string;
+  sessionKey?: string;
+  source?: string;
+};
+
 type MockSlackApp = {
   config: Record<string, unknown>;
   client: {
     auth: { test: ReturnType<typeof vi.fn> };
-    chat: { postMessage: ReturnType<typeof vi.fn> };
+    chat: {
+      postMessage: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    };
     conversations: {
       info: ReturnType<typeof vi.fn>;
       history: ReturnType<typeof vi.fn>;
@@ -36,6 +49,9 @@ type SlackCommandCallback = (args: {
 }) => Promise<void>;
 
 const apps: MockSlackApp[] = [];
+const streamHandlers = vi.hoisted(
+  () => [] as Array<(event: MockStreamEvent) => void | Promise<void>>
+);
 
 vi.mock("@slack/bolt", () => ({
   App: vi.fn((config: Record<string, unknown>) => {
@@ -43,7 +59,11 @@ vi.mock("@slack/bolt", () => ({
       config,
       client: {
         auth: { test: vi.fn().mockResolvedValue({ user_id: "Ubot" }) },
-        chat: { postMessage: vi.fn().mockResolvedValue({}) },
+        chat: {
+          postMessage: vi.fn().mockResolvedValue({ ts: "reply-ts" }),
+          update: vi.fn().mockResolvedValue({}),
+          delete: vi.fn().mockResolvedValue({}),
+        },
         conversations: {
           info: vi.fn().mockResolvedValue({ channel: { name: "general" } }),
           history: vi.fn().mockResolvedValue({ messages: [] }),
@@ -67,7 +87,13 @@ vi.mock("@slack/bolt", () => ({
 vi.mock("../agents/index.js", () => ({
   runAgent: vi.fn(),
   agentEventBus: {
-    onStreamEvent: vi.fn(() => () => undefined),
+    onStreamEvent: vi.fn((handler: (event: MockStreamEvent) => void) => {
+      streamHandlers.push(handler);
+      return () => {
+        const index = streamHandlers.indexOf(handler);
+        if (index >= 0) streamHandlers.splice(index, 1);
+      };
+    }),
   },
 }));
 
@@ -101,7 +127,7 @@ function getMessageHandler(app: MockSlackApp): SlackMessageCallback {
 
 function getCommandHandler(
   app: MockSlackApp,
-  name: "/new" | "/abort" | "/help" | "/ping"
+  name: "/new" | "/stop" | "/help" | "/ping"
 ): SlackCommandCallback {
   const call = app.command.mock.calls.find(
     ([commandName]) => commandName === name
@@ -112,6 +138,7 @@ function getCommandHandler(
 describe("createSlackBot", () => {
   beforeEach(() => {
     apps.length = 0;
+    streamHandlers.length = 0;
     vi.clearAllMocks();
     clearAllHistory();
     mockRunAgent.mockResolvedValue({
@@ -144,6 +171,11 @@ describe("createSlackBot", () => {
       expect.any(Function)
     );
     expect(apps[0].command).toHaveBeenCalledTimes(4);
+    expect(apps[0].command).toHaveBeenCalledWith("/stop", expect.any(Function));
+    expect(apps[0].command).not.toHaveBeenCalledWith(
+      "/abort",
+      expect.any(Function)
+    );
   });
 
   it("starts and stops the Bolt app", async () => {
@@ -197,6 +229,34 @@ describe("createSlackBot", () => {
     expect(mockRunAgent).toHaveBeenCalledOnce();
   });
 
+  it("converts direct replies to Slack mrkdwn", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+    mockRunAgent.mockResolvedValueOnce({
+      payloads: [{ text: "**ok** [docs](https://example.com)" }],
+      meta: { durationMs: 1, sessionId: "session" },
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "*ok* <https://example.com|docs>",
+      })
+    );
+  });
+
   it("blocks /new for users outside channel allowlist", async () => {
     const { createSlackBot } = await import("./bot.js");
     createSlackBot([agent], {
@@ -246,11 +306,166 @@ describe("createSlackBot", () => {
       response_type: "ephemeral",
     });
   });
+
+  it("streams thinking into a thread and deletes it by default", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], {
+      ...config,
+      showThinking: true,
+    });
+    await bot?.start();
+
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      await Promise.all(
+        streamHandlers.map((handler) =>
+          handler({
+            type: "thinking",
+            data: "first thought",
+            agentId: params.agentId,
+            sessionId: "session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        )
+      );
+      await Promise.all(
+        streamHandlers.map((handler) =>
+          handler({
+            type: "thinking",
+            data: "second thought",
+            agentId: params.agentId,
+            sessionId: "session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        )
+      );
+      return {
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 1, sessionId: "session" },
+      };
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C1",
+        text: "_🧠 Thinking: first thought..._",
+        thread_ts: "1.1",
+      })
+    );
+    expect(apps[0].client.chat.update).toHaveBeenCalledWith({
+      channel: "C1",
+      ts: "reply-ts",
+      text: "_🧠 Thinking: second thought..._",
+      mrkdwn: true,
+    });
+    expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
+      channel: "C1",
+      ts: "reply-ts",
+    });
+  });
+
+  it("keeps thinking message when configured", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], {
+      ...config,
+      showThinking: true,
+      deleteThinkingOnComplete: false,
+    });
+    await bot?.start();
+
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      await Promise.all(
+        streamHandlers.map((handler) =>
+          handler({
+            type: "thinking",
+            data: "keep this",
+            agentId: params.agentId,
+            sessionId: "session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        )
+      );
+      return {
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 1, sessionId: "session" },
+      };
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.delete).not.toHaveBeenCalled();
+  });
+
+  it("does not stream thinking unless showThinking is true", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      await Promise.all(
+        streamHandlers.map((handler) =>
+          handler({
+            type: "thinking",
+            data: "hidden",
+            agentId: params.agentId,
+            sessionId: "session",
+            sessionKey: params.sessionKey,
+            source: "slack",
+          })
+        )
+      );
+      return {
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 1, sessionId: "session" },
+      };
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("Thinking") })
+    );
+  });
 });
 
 describe("createSlackAgentBot", () => {
   beforeEach(() => {
     apps.length = 0;
+    streamHandlers.length = 0;
     vi.clearAllMocks();
     clearAllHistory();
     mockRunAgent.mockResolvedValue({
@@ -316,6 +531,11 @@ describe("createSlackAgentBot", () => {
       appToken: "xapp-test",
       socketMode: true,
     });
+    expect(apps[0].command).toHaveBeenCalledWith("/stop", expect.any(Function));
+    expect(apps[0].command).not.toHaveBeenCalledWith(
+      "/abort",
+      expect.any(Function)
+    );
   });
 
   it("routes all channels to the agent when no channels config", async () => {

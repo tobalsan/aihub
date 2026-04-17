@@ -27,6 +27,7 @@ import { matchesUserAllowlist } from "./utils/allowlist.js";
 import { splitMessage } from "./utils/chunk.js";
 import { buildSlackContext } from "./utils/context.js";
 import { clearHistory, getHistory, recordMessage } from "./utils/history.js";
+import { markdownToMrkdwn } from "./utils/mrkdwn.js";
 import { getThreadParent, resolveReplyThreadTs } from "./utils/threads.js";
 import {
   startThinkingReaction,
@@ -56,6 +57,12 @@ type SlackReactionTarget = {
   config: SlackComponentConfig;
   logPrefix: string;
 };
+
+type ThinkingStreamDisplay = {
+  cleanup: () => Promise<void>;
+};
+
+const MAX_THINKING_CHARS = 500;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
@@ -127,7 +134,8 @@ async function sendSlackReply(
 ): Promise<void> {
   for (const payload of payloads) {
     if (!payload.text) continue;
-    for (const chunk of splitMessage(payload.text)) {
+    const text = markdownToMrkdwn(payload.text);
+    for (const chunk of splitMessage(text)) {
       await client.chat.postMessage({
         channel,
         text: chunk,
@@ -151,6 +159,81 @@ async function sendSlackError(
     mrkdwn: true,
     thread_ts: threadTs,
   });
+}
+
+function formatThinkingMessage(text: string): string {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  const truncated =
+    normalized.length > MAX_THINKING_CHARS
+      ? normalized.slice(0, MAX_THINKING_CHARS)
+      : normalized;
+  return `_🧠 Thinking: ${truncated}..._`;
+}
+
+function startThinkingStreamDisplay(params: {
+  client: SlackWebClient;
+  channel: string;
+  threadTs: string;
+  agentId: string;
+  sessionKey: string;
+  deleteOnComplete: boolean;
+  logPrefix: string;
+}): ThinkingStreamDisplay {
+  const {
+    client,
+    channel,
+    threadTs,
+    agentId,
+    sessionKey,
+    deleteOnComplete,
+    logPrefix,
+  } = params;
+  let messageTs: string | undefined;
+  let closed = false;
+  let unsubscribe = () => undefined;
+
+  const cleanup = async () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe();
+    if (!deleteOnComplete || !messageTs) return;
+    try {
+      await client.chat.delete({ channel, ts: messageTs });
+    } catch (err) {
+      console.debug(`${logPrefix} Thinking message cleanup failed:`, err);
+    }
+  };
+
+  unsubscribe = agentEventBus.onStreamEvent(async (event) => {
+    if (event.agentId !== agentId || event.sessionKey !== sessionKey) return;
+    if (event.type === "thinking") {
+      if (closed) return;
+      const text = formatThinkingMessage(event.data);
+      try {
+        if (!messageTs) {
+          const result = await client.chat.postMessage({
+            channel,
+            text,
+            mrkdwn: true,
+            thread_ts: threadTs,
+            unfurl_links: false,
+            unfurl_media: false,
+          });
+          messageTs = result.ts;
+          return;
+        }
+        await client.chat.update({ channel, ts: messageTs, text, mrkdwn: true });
+      } catch (err) {
+        console.debug(`${logPrefix} Thinking message update failed:`, err);
+      }
+      return;
+    }
+    if (event.type === "done" || event.type === "error") {
+      await cleanup();
+    }
+  });
+
+  return { cleanup };
 }
 
 async function handleSlackMessage(
@@ -195,6 +278,17 @@ async function handleSlackMessage(
   await startThinkingReaction(client, data.channel, data.ts, target.agent.id, {
     sessionKey,
   });
+  const thinkingDisplay = target.config.showThinking
+    ? startThinkingStreamDisplay({
+        client,
+        channel: data.channel,
+        threadTs: replyThreadTs ?? data.ts,
+        agentId: target.agent.id,
+        sessionKey,
+        deleteOnComplete: target.config.deleteThinkingOnComplete !== false,
+        logPrefix: target.logPrefix,
+      })
+    : null;
 
   try {
     const [channelMeta, threadParent] = await Promise.all([
@@ -218,6 +312,7 @@ async function handleSlackMessage(
     });
 
     if (agentResult.meta.queued) {
+      await thinkingDisplay?.cleanup();
       return;
     }
 
@@ -231,10 +326,12 @@ async function handleSlackMessage(
     if (target.config.clearHistoryAfterReply === true) {
       clearHistory(data.channel);
     }
+    await thinkingDisplay?.cleanup();
     await stopThinkingReaction(client, data.channel, data.ts);
   } catch (err) {
     console.error(`${target.logPrefix} Error:`, err);
     await sendSlackError(client, data.channel, replyThreadTs);
+    await thinkingDisplay?.cleanup();
     await stopThinkingReaction(client, data.channel, data.ts);
   }
 }
@@ -312,7 +409,7 @@ function setupSlackBroadcasts(params: {
       textAccumulators.delete(accKey);
       if (!text) return;
       try {
-        for (const chunk of splitMessage(text)) {
+        for (const chunk of splitMessage(markdownToMrkdwn(text))) {
           await client.chat.postMessage({
             channel: broadcastChannel,
             text: chunk,
@@ -529,7 +626,7 @@ export function createSlackBot(
   });
 
   const registerCommand = (
-    name: "/new" | "/abort" | "/help" | "/ping",
+    name: "/new" | "/stop" | "/help" | "/ping",
     handler: (
       command: SlackCommandData,
       target: SlackCommandTarget,
@@ -568,7 +665,7 @@ export function createSlackBot(
   };
 
   registerCommand("/new", handleNewCommand);
-  registerCommand("/abort", handleAbortCommand);
+  registerCommand("/stop", handleAbortCommand);
   registerCommand("/help", handleHelpCommand);
   registerCommand("/ping", handlePingCommand);
 
@@ -789,7 +886,7 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
   });
 
   const registerCommand = (
-    name: "/new" | "/abort" | "/help" | "/ping",
+    name: "/new" | "/stop" | "/help" | "/ping",
     handler: (
       command: SlackCommandData,
       target: SlackCommandTarget,
@@ -823,7 +920,7 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
   };
 
   registerCommand("/new", handleNewCommand);
-  registerCommand("/abort", handleAbortCommand);
+  registerCommand("/stop", handleAbortCommand);
   registerCommand("/help", handleHelpCommand);
   registerCommand("/ping", handlePingCommand);
 

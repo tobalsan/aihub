@@ -1,5 +1,17 @@
 import type { SlackContext, SlackContextBlock } from "@aihub/shared";
 
+const SLACK_FORMATTING = [
+  "[FORMATTING]",
+  "This conversation is in Slack. Use Slack mrkdwn syntax:",
+  "- Bold: *text* (not **text**)",
+  "- Italic: _text_ (not *text*)",
+  "- Links: <url|text> (not [text](url))",
+  "- No markdown tables; use bullet lists instead",
+  "- No HTML",
+  "- Code blocks: use triple backticks",
+  "[END FORMATTING]",
+].join("\n");
+
 function renderBlock(block: SlackContextBlock): string {
   switch (block.type) {
     case "channel_name":
@@ -31,7 +43,7 @@ export function renderSlackContext(ctx: SlackContext): string {
     const rendered = renderBlock(block);
     if (rendered) parts.push(rendered);
   }
-  if (parts.length === 0) return "";
+  parts.push(SLACK_FORMATTING);
   return `[SYSTEM CONTEXT - Slack]\n${parts.join("\n\n")}\n[END CONTEXT]`;
 }
 
