@@ -172,7 +172,7 @@ function formatThinkingMessage(text: string): string {
   // Break into lines after sentences (.) and dashes (-)
   const formatted = truncated
     .replace(/\.\s+/g, ".\n")
-    .replace(/\-\s+/g, "- ");
+    .replace(/ - /g, "\n- ");
   return `🧠 Thinking:\n${formatted}`;
 }
 
