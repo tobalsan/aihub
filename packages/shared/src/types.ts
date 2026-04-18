@@ -82,13 +82,6 @@ export const DiscordConfigSchema = z.object({
 });
 export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
 
-// Amsg config
-export const AmsgConfigSchema = z.object({
-  id: z.string().optional(),
-  enabled: z.boolean().optional().default(true),
-});
-export type AmsgConfig = z.infer<typeof AmsgConfigSchema>;
-
 // Heartbeat config
 export const HeartbeatConfigSchema = z.object({
   every: z.string().optional(), // Duration string (e.g., "30m", "1h", "0" to disable)
@@ -168,7 +161,6 @@ const AgentConfigBaseSchema = z.object({
   slack: z.lazy(() => SlackAgentConfigSchema).optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
-  amsg: AmsgConfigSchema.optional(),
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
   connectors: z.record(z.string(), AgentConnectorConfigSchema).optional(),
@@ -338,36 +330,36 @@ export const OnecliConfigSchema = z.object({
 });
 export type OnecliConfig = z.infer<typeof OnecliConfigSchema>;
 
-export const ComponentBaseConfigSchema = z
+export const ExtensionBaseConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
   })
   .passthrough();
-export type ComponentBaseConfig = z.infer<typeof ComponentBaseConfigSchema>;
+export type ExtensionBaseConfig = z.infer<typeof ExtensionBaseConfigSchema>;
 
-export const DiscordComponentChannelConfigSchema = z.object({
+export const DiscordExtensionChannelConfigSchema = z.object({
   agent: z.string(),
   requireMention: z.boolean().optional(),
 });
-export type DiscordComponentChannelConfig = z.infer<
-  typeof DiscordComponentChannelConfigSchema
+export type DiscordExtensionChannelConfig = z.infer<
+  typeof DiscordExtensionChannelConfigSchema
 >;
 
-export const DiscordComponentDmConfigSchema = z.object({
+export const DiscordExtensionDmConfigSchema = z.object({
   enabled: z.boolean().optional(),
   agent: z.string(),
 });
-export type DiscordComponentDmConfig = z.infer<
-  typeof DiscordComponentDmConfigSchema
+export type DiscordExtensionDmConfig = z.infer<
+  typeof DiscordExtensionDmConfigSchema
 >;
 
-export const DiscordComponentConfigSchema = z.object({
+export const DiscordExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   token: SecretRefSchema,
   channels: z
-    .record(z.string(), DiscordComponentChannelConfigSchema)
+    .record(z.string(), DiscordExtensionChannelConfigSchema)
     .optional(),
-  dm: DiscordComponentDmConfigSchema.optional(),
+  dm: DiscordExtensionDmConfigSchema.optional(),
   historyLimit: z.number().int().min(0).optional(),
   replyToMode: z.enum(["off", "all", "first"]).optional(),
   applicationId: z.string().optional(),
@@ -377,38 +369,41 @@ export const DiscordComponentConfigSchema = z.object({
   broadcastToChannel: z.string().optional(),
   clearHistoryAfterReply: z.boolean().optional(),
 });
-export type DiscordComponentConfig = z.infer<
-  typeof DiscordComponentConfigSchema
+export type DiscordExtensionConfig = z.infer<
+  typeof DiscordExtensionConfigSchema
 >;
+export type DiscordComponentConfig = DiscordExtensionConfig;
 
-export const SlackComponentChannelConfigSchema = z.object({
+export const SlackExtensionChannelConfigSchema = z.object({
   agent: z.string(),
   requireMention: z.boolean().optional(),
   threadPolicy: z.enum(["always", "never", "follow"]).optional(),
   users: z.array(z.union([z.string(), z.number()])).optional(),
 });
-export type SlackComponentChannelConfig = z.infer<
-  typeof SlackComponentChannelConfigSchema
+export type SlackExtensionChannelConfig = z.infer<
+  typeof SlackExtensionChannelConfigSchema
 >;
+export type SlackComponentChannelConfig = SlackExtensionChannelConfig;
 
-export const SlackComponentDmConfigSchema = z.object({
+export const SlackExtensionDmConfigSchema = z.object({
   enabled: z.boolean().optional(),
   agent: z.string().optional(),
   allowFrom: z.array(z.string()).optional(),
   threadPolicy: z.enum(["always", "never", "follow"]).optional(),
 });
-export type SlackComponentDmConfig = z.infer<
-  typeof SlackComponentDmConfigSchema
+export type SlackExtensionDmConfig = z.infer<
+  typeof SlackExtensionDmConfigSchema
 >;
+export type SlackComponentDmConfig = SlackExtensionDmConfig;
 
-export const SlackComponentConfigSchema = z.object({
+export const SlackExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   token: SecretRefSchema,
   appToken: SecretRefSchema,
   channels: z
-    .record(z.string(), SlackComponentChannelConfigSchema)
+    .record(z.string(), SlackExtensionChannelConfigSchema)
     .optional(),
-  dm: SlackComponentDmConfigSchema.optional(),
+  dm: SlackExtensionDmConfigSchema.optional(),
   historyLimit: z.number().int().min(0).optional(),
   clearHistoryAfterReply: z.boolean().optional(),
   mentionPatterns: z.array(z.string()).optional(),
@@ -417,15 +412,16 @@ export const SlackComponentConfigSchema = z.object({
   showThinking: z.boolean().optional(),
   deleteThinkingOnComplete: z.boolean().optional(),
 });
-export type SlackComponentConfig = z.infer<typeof SlackComponentConfigSchema>;
+export type SlackExtensionConfig = z.infer<typeof SlackExtensionConfigSchema>;
+export type SlackComponentConfig = SlackExtensionConfig;
 
 export const SlackAgentConfigSchema = z.object({
   token: SecretRefSchema,
   appToken: SecretRefSchema,
   channels: z
-    .record(z.string(), SlackComponentChannelConfigSchema)
+    .record(z.string(), SlackExtensionChannelConfigSchema)
     .optional(),
-  dm: SlackComponentDmConfigSchema.optional(),
+  dm: SlackExtensionDmConfigSchema.optional(),
   historyLimit: z.number().int().min(0).optional(),
   clearHistoryAfterReply: z.boolean().optional(),
   mentionPatterns: z.array(z.string()).optional(),
@@ -436,42 +432,30 @@ export const SlackAgentConfigSchema = z.object({
 });
 export type SlackAgentConfig = z.infer<typeof SlackAgentConfigSchema>;
 
-export const SchedulerComponentConfigSchema = z.object({
+export const SchedulerExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   tickSeconds: z.number().optional(),
 });
-export type SchedulerComponentConfig = z.infer<
-  typeof SchedulerComponentConfigSchema
+export type SchedulerExtensionConfig = z.infer<
+  typeof SchedulerExtensionConfigSchema
 >;
 
-export const HeartbeatComponentConfigSchema = z.object({
+export const HeartbeatExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
 });
-export type HeartbeatComponentConfig = z.infer<
-  typeof HeartbeatComponentConfigSchema
+export type HeartbeatExtensionConfig = z.infer<
+  typeof HeartbeatExtensionConfigSchema
 >;
 
-export const AmsgComponentConfigSchema = z.object({
-  enabled: z.boolean().optional(),
-});
-export type AmsgComponentConfig = z.infer<typeof AmsgComponentConfigSchema>;
-
-export const ConversationsComponentConfigSchema = z.object({
-  enabled: z.boolean().optional(),
-});
-export type ConversationsComponentConfig = z.infer<
-  typeof ConversationsComponentConfigSchema
->;
-
-export const ProjectsComponentConfigSchema = z.object({
+export const ProjectsExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   root: z.string().optional(),
 });
-export type ProjectsComponentConfig = z.infer<
-  typeof ProjectsComponentConfigSchema
+export type ProjectsExtensionConfig = z.infer<
+  typeof ProjectsExtensionConfigSchema
 >;
 
-export const LangfuseComponentConfigSchema = ComponentBaseConfigSchema.extend({
+export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   baseUrl: z.string().optional(),
   publicKey: z.string().optional(),
   secretKey: z.string().optional(),
@@ -480,23 +464,27 @@ export const LangfuseComponentConfigSchema = ComponentBaseConfigSchema.extend({
   debug: z.boolean().optional(),
   environment: z.string().optional(),
 });
-export type LangfuseComponentConfig = z.infer<
-  typeof LangfuseComponentConfigSchema
+export type LangfuseExtensionConfig = z.infer<
+  typeof LangfuseExtensionConfigSchema
 >;
 
-export const ComponentsConfigSchema = z
+export const ExtensionsConfigSchema = z
   .object({
-    discord: DiscordComponentConfigSchema.optional(),
-    slack: SlackComponentConfigSchema.optional(),
-    scheduler: SchedulerComponentConfigSchema.optional(),
-    heartbeat: HeartbeatComponentConfigSchema.optional(),
-    amsg: AmsgComponentConfigSchema.optional(),
-    conversations: ConversationsComponentConfigSchema.optional(),
-    projects: ProjectsComponentConfigSchema.optional(),
-    langfuse: LangfuseComponentConfigSchema.optional(),
+    discord: DiscordExtensionConfigSchema.optional(),
+    slack: SlackExtensionConfigSchema.optional(),
+    scheduler: z
+      .object({
+        enabled: z.boolean().optional(),
+        tickSeconds: z.number().optional(),
+      })
+      .optional(),
+    heartbeat: HeartbeatExtensionConfigSchema.optional(),
+    projects: ProjectsExtensionConfigSchema.optional(),
+    langfuse: LangfuseExtensionConfigSchema.optional(),
+    multiUser: MultiUserConfigSchema.optional(),
   })
   .optional();
-export type ComponentsConfig = z.infer<typeof ComponentsConfigSchema>;
+export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
 
 export const SubagentConfigSchema = z.object({
   name: z.string(),
@@ -538,8 +526,7 @@ export const GatewayConfigSchema = z.object({
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
   connectors: ConnectorsGlobalConfigSchema.optional(),
-  components: ComponentsConfigSchema,
-  multiUser: MultiUserConfigSchema.optional(),
+  extensions: ExtensionsConfigSchema,
   server: z
     .object({
       host: z.string().optional(),
@@ -549,12 +536,6 @@ export const GatewayConfigSchema = z.object({
     .optional(),
   gateway: GatewayServerConfigSchema.optional(),
   sessions: SessionsConfigSchema.optional().default({}),
-  scheduler: z
-    .object({
-      enabled: z.boolean().optional().default(true),
-      tickSeconds: z.number().optional().default(60),
-    })
-    .optional(),
   web: z
     .object({
       baseUrl: z.string().optional(),
@@ -590,28 +571,94 @@ export type RunAgentResult = {
   };
 };
 
+export const DEFAULT_MAIN_KEY = "main";
+
+export type SessionEntry = {
+  sessionId: string;
+  updatedAt: number;
+  createdAt?: number;
+};
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
 }
 
-export interface ComponentContext {
-  resolveSecret(name: string): Promise<string>;
-  getAgent(id: string): AgentConfig | undefined;
-  getAgents(): AgentConfig[];
-  runAgent(params: RunAgentParams): Promise<RunAgentResult>;
-  getConfig(): GatewayConfig;
+export interface ExtensionLogger {
+  info(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  error(...args: unknown[]): void;
 }
 
-export interface Component {
+export type SubagentTemplate = SubagentConfig;
+export type HistoryMessage = SimpleHistoryMessage | FullHistoryMessage;
+
+export interface ExtensionContext {
+  // Config
+  getConfig(): GatewayConfig;
+  getDataDir(): string;
+
+  // Agent access
+  getAgent(id: string): AgentConfig | undefined;
+  getAgents(): AgentConfig[];
+  isAgentActive(id: string): boolean;
+
+  // Agent runtime state
+  isAgentStreaming(agentId: string): boolean;
+  resolveWorkspaceDir(agent: AgentConfig): string;
+
+  // Agent execution
+  runAgent(params: RunAgentParams): Promise<RunAgentResult>;
+  getSubagentTemplates(): SubagentTemplate[];
+
+  // Session management
+  resolveSessionId(
+    agentId: string,
+    sessionKey: string
+  ): Promise<SessionEntry | undefined>;
+  getSessionEntry(
+    agentId: string,
+    sessionKey: string
+  ): Promise<SessionEntry | undefined>;
+  clearSessionEntry(
+    agentId: string,
+    sessionKey: string,
+    userId?: string
+  ): Promise<SessionEntry | undefined>;
+  restoreSessionUpdatedAt(
+    agentId: string,
+    sessionKey: string,
+    timestamp: number
+  ): void;
+  deleteSession(agentId: string, sessionId: string): void;
+  invalidateHistoryCache(
+    agentId: string,
+    sessionId: string,
+    userId?: string
+  ): Promise<void>;
+  getSessionHistory(
+    agentId: string,
+    sessionId: string
+  ): Promise<HistoryMessage[]>;
+
+  // Events
+  subscribe(event: string, handler: (payload: unknown) => void): () => void;
+  emit(event: string, payload: unknown): void;
+
+  // Logging
+  logger: ExtensionLogger;
+}
+
+export interface Extension {
   id: string;
   displayName: string;
+  description: string;
   dependencies: string[];
-  requiredSecrets: string[];
+  configSchema: z.ZodTypeAny;
   routePrefixes: string[];
   validateConfig(raw: unknown): ValidationResult;
   registerRoutes(app: Hono): void;
-  start(ctx: ComponentContext): Promise<void>;
+  start(ctx: ExtensionContext): Promise<void>;
   stop(): Promise<void>;
   capabilities(): string[];
 }
@@ -645,7 +692,7 @@ const CapabilitiesUserSchema = z.object({
 
 export const CapabilitiesResponseSchema = z.object({
   version: z.number(),
-  components: z.record(z.string(), z.boolean()),
+  extensions: z.record(z.string(), z.boolean()),
   agents: z.array(z.string()),
   multiUser: z.boolean(),
   user: CapabilitiesUserSchema.optional(),
@@ -709,20 +756,6 @@ export const CreateProjectRequestSchema = z.object({
   area: z.string().optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
-
-export const CreateConversationProjectRequestSchema = z.object({
-  title: z.string().optional(),
-});
-export type CreateConversationProjectRequest = z.infer<
-  typeof CreateConversationProjectRequestSchema
->;
-
-export const PostConversationMessageRequestSchema = z.object({
-  message: z.string(),
-});
-export type PostConversationMessageRequest = z.infer<
-  typeof PostConversationMessageRequestSchema
->;
 
 export const UpdateProjectRequestSchema = z.object({
   title: z.string().optional(),
@@ -866,6 +899,66 @@ export type FileOutputEvent = {
   mimeType: string;
   size: number;
 };
+
+// History event types (canonical transcript format)
+export type HistoryEvent =
+  | {
+      type: "user";
+      text: string;
+      attachments?: FileAttachment[];
+      timestamp: number;
+    }
+  | { type: "assistant_text"; text: string; timestamp: number }
+  | { type: "assistant_thinking"; text: string; timestamp: number }
+  | {
+      type: "assistant_file";
+      fileId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
+      direction: "inbound" | "outbound";
+      timestamp: number;
+    }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      args: unknown;
+      timestamp: number;
+    }
+  | {
+      type: "tool_result";
+      id: string;
+      name: string;
+      content: string;
+      isError: boolean;
+      details?: { diff?: string };
+      timestamp: number;
+    }
+  | { type: "turn_end"; timestamp: number }
+  | {
+      type: "meta";
+      provider?: string;
+      model?: string;
+      api?: string;
+      usage?: ModelUsage;
+      stopReason?: string;
+      timestamp: number;
+    }
+  | {
+      type: "file_output";
+      fileId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
+      timestamp: number;
+    }
+  | {
+      type: "system_context";
+      context: AgentContext;
+      rendered: string;
+      timestamp: number;
+    };
 
 // Image attachment for multimodal messages (base64 - legacy)
 export type ImageAttachment = {

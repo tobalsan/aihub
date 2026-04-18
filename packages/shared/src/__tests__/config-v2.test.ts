@@ -12,14 +12,16 @@ describe("GatewayConfigSchema v2", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      scheduler: { enabled: true, tickSeconds: 60 },
+      extensions: {
+        scheduler: { enabled: true, tickSeconds: 60 },
+      },
     });
 
     expect(result.version).toBeUndefined();
-    expect(result.scheduler?.enabled).toBe(true);
+    expect(result.extensions?.scheduler?.enabled).toBe(true);
   });
 
-  it("parses v2 config with onecli and components", () => {
+  it("parses v2 config with onecli and extensions", () => {
     const result = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -34,7 +36,7 @@ describe("GatewayConfigSchema v2", () => {
         enabled: true,
         gatewayUrl: "http://localhost:10255",
       },
-      components: {
+      extensions: {
         scheduler: { enabled: true, tickSeconds: 30 },
         heartbeat: { enabled: true },
       },
@@ -42,7 +44,7 @@ describe("GatewayConfigSchema v2", () => {
 
     expect(result.version).toBe(2);
     expect(result.onecli?.gatewayUrl).toBe("http://localhost:10255");
-    expect(result.components?.scheduler?.tickSeconds).toBe(30);
+    expect(result.extensions?.scheduler?.tickSeconds).toBe(30);
   });
 
   it("allows disabled multiUser without oauth config", () => {
@@ -56,12 +58,14 @@ describe("GatewayConfigSchema v2", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      multiUser: {
-        enabled: false,
+      extensions: {
+        multiUser: {
+          enabled: false,
+        },
       },
     });
 
-    expect(result.multiUser).toEqual({ enabled: false });
+    expect(result.extensions?.multiUser).toEqual({ enabled: false });
   });
 
   it("requires oauth config when multiUser is enabled", () => {
@@ -76,9 +80,11 @@ describe("GatewayConfigSchema v2", () => {
             model: { provider: "anthropic", model: "claude" },
           },
         ],
-        multiUser: {
-          enabled: true,
-          sessionSecret: "secret",
+        extensions: {
+          multiUser: {
+            enabled: true,
+            sessionSecret: "secret",
+          },
         },
       })
     ).toThrow();

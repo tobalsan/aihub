@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   CapabilitiesResponseSchema,
-  ComponentsConfigSchema,
-  DiscordComponentConfigSchema,
-  LangfuseComponentConfigSchema,
-  type Component,
-  type ComponentContext,
+  ExtensionsConfigSchema,
+  DiscordExtensionConfigSchema,
+  LangfuseExtensionConfigSchema,
+  type Extension,
+  type ExtensionContext,
   type ValidationResult,
 } from "../types.js";
 
-describe("component config schemas", () => {
-  it("parses discord component config", () => {
-    const result = DiscordComponentConfigSchema.parse({
+describe("extension config schemas", () => {
+  it("parses discord extension config", () => {
+    const result = DiscordExtensionConfigSchema.parse({
       token: "$env:DISCORD_TOKEN",
       channels: {
         "123": { agent: "main" },
@@ -25,8 +25,8 @@ describe("component config schemas", () => {
     expect(result.dm?.agent).toBe("main");
   });
 
-  it("rejects invalid discord component config", () => {
-    const result = DiscordComponentConfigSchema.safeParse({
+  it("rejects invalid discord extension config", () => {
+    const result = DiscordExtensionConfigSchema.safeParse({
       token: "$env:DISCORD_TOKEN",
       historyLimit: -1,
     });
@@ -34,8 +34,8 @@ describe("component config schemas", () => {
     expect(result.success).toBe(false);
   });
 
-  it("parses and rejects langfuse component config", () => {
-    const valid = LangfuseComponentConfigSchema.parse({
+  it("parses and rejects langfuse extension config", () => {
+    const valid = LangfuseExtensionConfigSchema.parse({
       enabled: true,
       baseUrl: "https://cloud.langfuse.com",
       publicKey: "$env:LANGFUSE_PUBLIC_KEY",
@@ -45,7 +45,7 @@ describe("component config schemas", () => {
       debug: false,
     });
 
-    const invalid = LangfuseComponentConfigSchema.safeParse({
+    const invalid = LangfuseExtensionConfigSchema.safeParse({
       enabled: true,
       debug: "no",
     });
@@ -54,8 +54,8 @@ describe("component config schemas", () => {
     expect(invalid.success).toBe(false);
   });
 
-  it("parses component map", () => {
-    const result = ComponentsConfigSchema.parse({
+  it("parses extension map", () => {
+    const result = ExtensionsConfigSchema.parse({
       scheduler: { tickSeconds: 60 },
       heartbeat: { enabled: true },
       projects: { root: "~/projects" },
@@ -67,7 +67,7 @@ describe("component config schemas", () => {
     });
 
     if (!result) {
-      throw new Error("Expected components config");
+      throw new Error("Expected extensions config");
     }
     expect(result.scheduler?.tickSeconds).toBe(60);
     expect(result.projects?.root).toBe("~/projects");
@@ -77,22 +77,23 @@ describe("component config schemas", () => {
   it("parses capabilities response", () => {
     const result = CapabilitiesResponseSchema.parse({
       version: 2,
-      components: { scheduler: true, projects: false },
+      extensions: { scheduler: true, projects: false },
       agents: ["main"],
       multiUser: false,
     });
 
-    expect(result.components.scheduler).toBe(true);
+    expect(result.extensions.scheduler).toBe(true);
   });
 
-  it("exports component contracts", () => {
+  it("exports extension contracts", () => {
     const validation: ValidationResult = { valid: true, errors: [] };
-    const ctx = {} as ComponentContext;
-    const component: Component = {
+    const ctx = {} as ExtensionContext;
+    const extension: Extension = {
       id: "scheduler",
       displayName: "Scheduler",
+      description: "Runs schedules",
       dependencies: [],
-      requiredSecrets: [],
+      configSchema: ExtensionsConfigSchema,
       routePrefixes: ["/api/schedules"],
       validateConfig: () => validation,
       registerRoutes: () => undefined,
@@ -103,7 +104,7 @@ describe("component config schemas", () => {
       capabilities: () => ["schedules"],
     };
 
-    expect(component.validateConfig({})).toEqual(validation);
+    expect(extension.validateConfig({})).toEqual(validation);
     expect(ctx).toBeDefined();
   });
 });

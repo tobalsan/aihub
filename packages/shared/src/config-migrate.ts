@@ -1,7 +1,7 @@
 import type {
   AgentConfig,
-  ComponentsConfig,
-  DiscordComponentConfig,
+  ExtensionsConfig,
+  DiscordExtensionConfig,
   GatewayConfig,
 } from "./types.js";
 
@@ -14,11 +14,20 @@ function cloneAgent(agent: AgentConfig): AgentConfig {
   return JSON.parse(JSON.stringify(agent)) as AgentConfig;
 }
 
+type LegacyGatewayConfig = GatewayConfig & {
+  components?: ExtensionsConfig;
+  scheduler?: {
+    enabled?: boolean;
+    tickSeconds?: number;
+  };
+};
+
 export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
+  const legacy = v1 as LegacyGatewayConfig;
   const warnings: string[] = [];
-  const agents = v1.agents.map((agent) => cloneAgent(agent));
-  const components: NonNullable<ComponentsConfig> = {
-    ...v1.components,
+  const agents = legacy.agents.map((agent) => cloneAgent(agent));
+  const extensions: NonNullable<ExtensionsConfig> = {
+    ...legacy.components,
   };
 
   const discordAgents = agents.filter((agent) => agent.discord?.token);
@@ -26,7 +35,7 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
     const [firstDiscord] = discordAgents;
     const token = firstDiscord.discord?.token ?? "";
     const applicationId = firstDiscord.discord?.applicationId;
-    const channels: NonNullable<DiscordComponentConfig["channels"]> = {};
+    const channels: NonNullable<DiscordExtensionConfig["channels"]> = {};
 
     for (const agent of discordAgents) {
       const discord = agent.discord;
@@ -41,7 +50,7 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
       }
     }
 
-    components.discord = {
+    extensions.discord = {
       enabled: true,
       token,
       applicationId,
@@ -60,26 +69,22 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
   }
 
   if (agents.some((agent) => agent.heartbeat)) {
-    components.heartbeat = { enabled: true };
-    components.scheduler ??= {
-      enabled: v1.scheduler?.enabled ?? true,
-      tickSeconds: v1.scheduler?.tickSeconds ?? 60,
+    extensions.heartbeat = { enabled: true };
+    extensions.scheduler ??= {
+      enabled: legacy.scheduler?.enabled ?? true,
+      tickSeconds: legacy.scheduler?.tickSeconds ?? 60,
     };
   }
 
-  if (agents.some((agent) => agent.amsg && agent.amsg.enabled !== false)) {
-    components.amsg = { enabled: true };
-  }
-
-  if (v1.scheduler) {
-    components.scheduler = {
-      enabled: v1.scheduler.enabled,
-      tickSeconds: v1.scheduler.tickSeconds,
+  if (legacy.scheduler) {
+    extensions.scheduler = {
+      enabled: legacy.scheduler.enabled,
+      tickSeconds: legacy.scheduler.tickSeconds,
     };
   }
 
   if (v1.projects) {
-    components.projects = {
+    extensions.projects = {
       enabled: true,
       root: v1.projects.root,
     };
@@ -90,7 +95,7 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
       ...v1,
       version: 2,
       agents,
-      components,
+      extensions,
     },
     warnings,
   };

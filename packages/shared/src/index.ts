@@ -1,4 +1,6 @@
 export * from "./types.js";
+export * from "./events.js";
+export * from "./context-rendering.js";
 export * from "./model-context.js";
 export * from "./projectPrompt.js";
 export * from "./config-migrate.js";
