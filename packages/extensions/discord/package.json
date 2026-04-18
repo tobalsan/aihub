@@ -1,0 +1,14 @@
+{
+  "name": "@aihub/extension-discord",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@aihub/shared": "workspace:*",
+    "@buape/carbon": "^0.13.0",
+    "discord-api-types": "^0.37.120",
+    "hono": "^4.11.4",
+    "zod": "^3.23.8"
+  }
+}

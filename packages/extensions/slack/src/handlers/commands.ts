@@ -3,8 +3,8 @@ import type {
   SlackComponentChannelConfig,
   SlackComponentConfig,
 } from "@aihub/shared";
-import { runAgent } from "../../agents/index.js";
-import { DEFAULT_MAIN_KEY } from "../../sessions/index.js";
+import { DEFAULT_MAIN_KEY } from "@aihub/shared";
+import { getSlackContext } from "../context.js";
 
 export type SlackCommandData = {
   channel_id: string;
@@ -43,7 +43,7 @@ async function runControlCommand(
   fallback: string
 ): Promise<void> {
   try {
-    const result = await runAgent({
+    const result = await getSlackContext().runAgent({
       agentId: target.agent.id,
       message,
       sessionKey: commandSessionKey(target, command),

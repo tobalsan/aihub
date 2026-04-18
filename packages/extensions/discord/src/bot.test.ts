@@ -11,39 +11,27 @@ import type {
   AgentConfig,
   DiscordComponentConfig,
   DiscordConfig,
+  ExtensionContext,
 } from "@aihub/shared";
 
-// Mock runAgent and agentEventBus before importing bot
-vi.mock("../agents/index.js", () => {
-  const mockEventBus = new EventEmitter();
-  return {
-    runAgent: vi.fn(),
-    agentEventBus: {
-      onStreamEvent: vi.fn((handler: (event: unknown) => void) => {
-        mockEventBus.on("stream", handler);
-        return () => mockEventBus.off("stream", handler);
-      }),
-      emitStreamEvent: vi.fn((event: unknown) => {
-        mockEventBus.emit("stream", event);
-      }),
-      _emitter: mockEventBus,
-    },
-  };
+const extensionEventEmitter = new EventEmitter();
+const mockRunAgent = vi.fn();
+const mockGetSessionEntry = vi.fn(() =>
+  Promise.resolve({ sessionId: "test-session", updatedAt: Date.now() })
+);
+const mockSubscribe = vi.fn((event: string, handler: (payload: unknown) => void) => {
+  extensionEventEmitter.on(event, handler);
+  return () => extensionEventEmitter.off(event, handler);
 });
 
-// Mock heartbeat module
-const heartbeatEventEmitter = new EventEmitter();
-vi.mock("@aihub/extension-heartbeat", () => ({
-  onHeartbeatEvent: vi.fn((handler: (event: unknown) => void) => {
-    heartbeatEventEmitter.on("heartbeat", handler);
-    return () => heartbeatEventEmitter.off("heartbeat", handler);
-  }),
-}));
+const mockExtensionContext = {
+  runAgent: mockRunAgent,
+  getSessionEntry: mockGetSessionEntry,
+  subscribe: mockSubscribe,
+} as unknown as ExtensionContext;
 
-// Mock session utils
-vi.mock("../sessions/index.js", () => ({
-  getSessionEntry: vi.fn(() => ({ sessionId: "test-session", updatedAt: Date.now() })),
-  DEFAULT_MAIN_KEY: "main",
+vi.mock("./context.js", () => ({
+  getDiscordContext: vi.fn(() => mockExtensionContext),
 }));
 
 // Mock typing utils
@@ -91,14 +79,12 @@ vi.mock("./client.js", () => {
 });
 
 import { createDiscordBot, createDiscordComponentBot } from "./bot.js";
-import { runAgent } from "../agents/index.js";
 import { createCarbonClient } from "./client.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
 import { getThreadStarter } from "./utils/threads.js";
 import { recordMessage, clearHistory } from "./utils/history.js";
 
 // Type helpers
-const mockRunAgent = runAgent as ReturnType<typeof vi.fn>;
 const mockCreateCarbonClient = createCarbonClient as ReturnType<typeof vi.fn>;
 
 // Helper to capture handlers passed to createCarbonClient
@@ -1020,12 +1006,12 @@ describe("Discord heartbeat delivery", () => {
     });
 
     // Remove all heartbeat listeners before each test
-    heartbeatEventEmitter.removeAllListeners();
+    extensionEventEmitter.removeAllListeners();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    heartbeatEventEmitter.removeAllListeners();
+    extensionEventEmitter.removeAllListeners();
   });
 
   it("delivers heartbeat alert when bot is ready and gateway connected", async () => {
@@ -1041,7 +1027,7 @@ describe("Discord heartbeat delivery", () => {
     );
 
     // Emit heartbeat event with "sent" status
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "sent",
@@ -1071,7 +1057,7 @@ describe("Discord heartbeat delivery", () => {
     // Do NOT call onReady - botUserId stays undefined
 
     // Emit heartbeat event
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "sent",
@@ -1099,7 +1085,7 @@ describe("Discord heartbeat delivery", () => {
       mockClient
     );
 
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "sent",
@@ -1124,7 +1110,7 @@ describe("Discord heartbeat delivery", () => {
     );
 
     // Emit heartbeat for different agent
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "other-agent",
       status: "sent",
@@ -1149,7 +1135,7 @@ describe("Discord heartbeat delivery", () => {
     );
 
     // Emit with "ok-token" status (should not deliver)
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "ok-token",
@@ -1175,7 +1161,7 @@ describe("Discord heartbeat delivery", () => {
     // Create message longer than 2000 chars
     const longText = "A".repeat(2500);
 
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "sent",
@@ -1222,7 +1208,7 @@ describe("Discord heartbeat delivery", () => {
     await bot?.stop();
 
     // Emit heartbeat event after stop
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "sent",
@@ -1251,7 +1237,7 @@ describe("Discord heartbeat delivery", () => {
     mockClient.rest.post.mockRejectedValueOnce(new Error("Discord API error"));
 
     // Should not throw
-    heartbeatEventEmitter.emit("heartbeat", {
+    extensionEventEmitter.emit("heartbeat.event", {
       ts: Date.now(),
       agentId: "test-agent",
       status: "sent",

@@ -1,5 +1,5 @@
 import type { SlackWebClient } from "../types.js";
-import { agentEventBus } from "../../agents/index.js";
+import { getSlackContext } from "../context.js";
 
 const THINKING_REACTION = "thinking_face";
 
@@ -61,7 +61,13 @@ export async function startThinkingReaction(
   const activeKey = key(channel, timestamp);
   activeThinking.get(activeKey)?.unsubscribe();
 
-  const unsubscribe = agentEventBus.onStreamEvent((event) => {
+  const unsubscribe = getSlackContext().subscribe("agent.stream", (payload) => {
+    const event = payload as {
+      type: "done" | "error" | string;
+      agentId: string;
+      sessionId: string;
+      sessionKey?: string;
+    };
     if (event.agentId !== agentId) return;
     if (match.sessionKey && event.sessionKey !== match.sessionKey) return;
     if (!match.sessionKey && match.sessionId && event.sessionId !== match.sessionId) {

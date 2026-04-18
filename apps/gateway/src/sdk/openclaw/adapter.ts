@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import type { AgentConfig } from "@aihub/shared";
+import { renderAgentContext } from "@aihub/shared";
 import type { SdkAdapter, SdkRunParams, SdkRunResult } from "../types.js";
-import { renderAgentContext } from "../../discord/utils/context.js";
 import { randomUUID } from "node:crypto";
 import {
   appendAttachmentContext,

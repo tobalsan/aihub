@@ -11,8 +11,8 @@ import {
 } from "@buape/carbon";
 import { ApplicationCommandType, ApplicationCommandOptionType } from "discord-api-types/v10";
 import type { AgentConfig, DiscordConfig } from "@aihub/shared";
-import { runAgent } from "../../agents/index.js";
-import { DEFAULT_MAIN_KEY } from "../../sessions/index.js";
+import { DEFAULT_MAIN_KEY } from "@aihub/shared";
+import { getDiscordContext } from "../context.js";
 
 export type CommandContext = {
   agent?: AgentConfig;
@@ -84,7 +84,7 @@ export class NewCommand extends Command {
     )?.value as string) ?? defaultSessionKey;
 
     try {
-      const result = await runAgent({
+      const result = await getDiscordContext().runAgent({
         agentId: agent.id,
         message: "/new",
         sessionKey,
@@ -133,7 +133,7 @@ export class AbortCommand extends Command {
     )?.value as string) ?? defaultSessionKey;
 
     try {
-      const result = await runAgent({
+      const result = await getDiscordContext().runAgent({
         agentId: agent.id,
         message: "/abort",
         sessionKey,

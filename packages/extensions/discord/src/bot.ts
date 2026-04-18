@@ -1,14 +1,12 @@
-import type {
-  CommandInteraction,
-} from "@buape/carbon";
+import type { CommandInteraction } from "@buape/carbon";
 import type {
   AgentConfig,
+  AgentStreamEvent,
   DiscordComponentConfig,
   DiscordConfig,
+  HeartbeatEventPayload,
 } from "@aihub/shared";
-import { runAgent, agentEventBus } from "../agents/index.js";
-import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
-import { onHeartbeatEvent } from "@aihub/extension-heartbeat";
+import { DEFAULT_MAIN_KEY } from "@aihub/shared";
 import {
   createCarbonClient,
   getGatewayPlugin,
@@ -26,6 +24,7 @@ import { getThreadStarter } from "./utils/threads.js";
 import { recordMessage, getHistory, clearHistory } from "./utils/history.js";
 import { splitMessage } from "./utils/chunk.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
+import { getDiscordContext } from "./context.js";
 
 export type DiscordBot = {
   client: CarbonClient;
@@ -173,7 +172,7 @@ async function handleDiscordMessage(
       history: recentHistory.length > 0 ? recentHistory : undefined,
     });
 
-    const agentResult = await runAgent({
+    const agentResult = await getDiscordContext().runAgent({
       agentId: target.agent.id,
       message: content,
       sessionKey,
@@ -256,7 +255,7 @@ async function handleDiscordReaction(
     const action = added ? "reacted with" : "removed reaction";
     const message = `[SYSTEM] User ${data.user_id} ${action} ${formatEmoji(data.emoji)} on message ${data.message_id}`;
 
-    await runAgent({
+    await getDiscordContext().runAgent({
       agentId: target.agent.id,
       message,
       sessionKey: `discord:${data.channel_id}`,
@@ -300,74 +299,93 @@ function setupDiscordBroadcasts(params: {
   getBroadcastChannel: (agentId: string) => string | undefined;
   getBotUserId: () => string | undefined;
 }): () => void {
-  const { client, logPrefix, textAccumulators, acceptsAgent, getBroadcastChannel, getBotUserId } =
-    params;
+  const {
+    client,
+    logPrefix,
+    textAccumulators,
+    acceptsAgent,
+    getBroadcastChannel,
+    getBotUserId,
+  } = params;
 
-  const unsubscribeBroadcast = agentEventBus.onStreamEvent(async (event) => {
-    if (!acceptsAgent(event.agentId)) return;
-    if (event.source === "discord" || event.source === "heartbeat") return;
+  const unsubscribeBroadcast = getDiscordContext().subscribe(
+    "agent.stream",
+    async (payload) => {
+      const event = payload as AgentStreamEvent;
+      if (!acceptsAgent(event.agentId)) return;
+      if (event.source === "discord" || event.source === "heartbeat") return;
 
-    const broadcastChannel = getBroadcastChannel(event.agentId);
-    if (!broadcastChannel) return;
+      const broadcastChannel = getBroadcastChannel(event.agentId);
+      if (!broadcastChannel) return;
 
-    const mainEntry = await getSessionEntry(event.agentId, DEFAULT_MAIN_KEY);
-    if (!mainEntry || mainEntry.sessionId !== event.sessionId) return;
+      const mainEntry = await getDiscordContext().getSessionEntry(
+        event.agentId,
+        DEFAULT_MAIN_KEY
+      );
+      if (!mainEntry || mainEntry.sessionId !== event.sessionId) return;
 
-    const accKey = `${event.agentId}:${event.sessionId}`;
-    if (event.type === "text") {
-      const current = textAccumulators.get(accKey) ?? "";
-      textAccumulators.set(accKey, current + event.data);
-      return;
+      const accKey = `${event.agentId}:${event.sessionId}`;
+      if (event.type === "text") {
+        const current = textAccumulators.get(accKey) ?? "";
+        textAccumulators.set(accKey, current + event.data);
+        return;
+      }
+      if (event.type === "done") {
+        const text = textAccumulators.get(accKey);
+        textAccumulators.delete(accKey);
+        if (!text) return;
+        try {
+          const chunks = splitMessage(text, 2000);
+          for (const chunk of chunks) {
+            await client.rest.post(`/channels/${broadcastChannel}/messages`, {
+              body: { content: chunk },
+            });
+          }
+        } catch (err) {
+          console.error(`${logPrefix} Broadcast error:`, err);
+        }
+        return;
+      }
+      if (event.type === "error") {
+        textAccumulators.delete(accKey);
+      }
     }
-    if (event.type === "done") {
-      const text = textAccumulators.get(accKey);
-      textAccumulators.delete(accKey);
-      if (!text) return;
+  );
+
+  const unsubscribeHeartbeat = getDiscordContext().subscribe(
+    "heartbeat.event",
+    async (rawPayload) => {
+      const payload = rawPayload as HeartbeatEventPayload;
+      if (!acceptsAgent(payload.agentId)) return;
+      if (payload.status !== "sent") return;
+      if (!payload.to || !payload.alertText) return;
+
+      if (!getBotUserId()) {
+        console.warn(`${logPrefix} Heartbeat delivery skipped: bot not ready`);
+        return;
+      }
+
+      const gateway = getGatewayPlugin(client);
+      if (!gateway?.isConnected) {
+        console.warn(
+          `${logPrefix} Heartbeat delivery skipped: gateway not connected`
+        );
+        return;
+      }
+
       try {
-        const chunks = splitMessage(text, 2000);
+        const chunks = splitMessage(payload.alertText, 2000);
         for (const chunk of chunks) {
-          await client.rest.post(`/channels/${broadcastChannel}/messages`, {
+          await client.rest.post(`/channels/${payload.to}/messages`, {
             body: { content: chunk },
           });
         }
+        console.log(`${logPrefix} Heartbeat alert delivered to ${payload.to}`);
       } catch (err) {
-        console.error(`${logPrefix} Broadcast error:`, err);
+        console.error(`${logPrefix} Heartbeat delivery error:`, err);
       }
-      return;
     }
-    if (event.type === "error") {
-      textAccumulators.delete(accKey);
-    }
-  });
-
-  const unsubscribeHeartbeat = onHeartbeatEvent(async (payload) => {
-    if (!acceptsAgent(payload.agentId)) return;
-    if (payload.status !== "sent") return;
-    if (!payload.to || !payload.alertText) return;
-
-    if (!getBotUserId()) {
-      console.warn(`${logPrefix} Heartbeat delivery skipped: bot not ready`);
-      return;
-    }
-
-    const gateway = getGatewayPlugin(client);
-    if (!gateway?.isConnected) {
-      console.warn(`${logPrefix} Heartbeat delivery skipped: gateway not connected`);
-      return;
-    }
-
-    try {
-      const chunks = splitMessage(payload.alertText, 2000);
-      for (const chunk of chunks) {
-        await client.rest.post(`/channels/${payload.to}/messages`, {
-          body: { content: chunk },
-        });
-      }
-      console.log(`${logPrefix} Heartbeat alert delivered to ${payload.to}`);
-    } catch (err) {
-      console.error(`${logPrefix} Heartbeat delivery error:`, err);
-    }
-  });
+  );
 
   return () => {
     unsubscribeBroadcast();

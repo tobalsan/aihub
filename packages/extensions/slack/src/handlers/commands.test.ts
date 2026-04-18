@@ -7,13 +7,13 @@ import {
   handlePingCommand,
   type SlackCommandTarget,
 } from "./commands.js";
-import { runAgent } from "../../agents/index.js";
+import { getSlackContext } from "../context.js";
 
-vi.mock("../../agents/index.js", () => ({
-  runAgent: vi.fn(),
+vi.mock("../context.js", () => ({
+  getSlackContext: vi.fn(),
 }));
 
-const mockRunAgent = vi.mocked(runAgent);
+const mockRunAgent = vi.fn();
 
 const agent: AgentConfig = {
   id: "main",
@@ -42,6 +42,9 @@ const target: SlackCommandTarget = {
 describe("Slack command handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getSlackContext).mockReturnValue({
+      runAgent: mockRunAgent,
+    } as never);
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },

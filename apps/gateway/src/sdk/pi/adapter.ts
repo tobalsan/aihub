@@ -6,6 +6,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
+import { renderAgentContext } from "@aihub/shared";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type {
   SdkAdapter,
@@ -22,7 +23,6 @@ import {
 } from "../../agents/workspace.js";
 import { getSessionCreatedAt } from "../../sessions/store.js";
 import { resolveSessionDataFile } from "../../sessions/files.js";
-import { renderAgentContext } from "../../discord/utils/context.js";
 import { createPiSubagentTools } from "../../subagents/pi_tools.js";
 import {
   getConnectorPromptsForAgent,

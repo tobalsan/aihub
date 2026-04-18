@@ -9,9 +9,11 @@
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/cli" },
+    { "path": "../../packages/extensions/discord" },
     { "path": "../../packages/extensions/heartbeat" },
     { "path": "../../packages/extensions/langfuse" },
     { "path": "../../packages/extensions/multi-user" },
-    { "path": "../../packages/extensions/scheduler" }
+    { "path": "../../packages/extensions/scheduler" },
+    { "path": "../../packages/extensions/slack" }
   ]
 }

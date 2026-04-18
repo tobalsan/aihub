@@ -1,6 +1,6 @@
 import type { AgentConfig, SlackComponentConfig } from "@aihub/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runAgent } from "../agents/index.js";
+import { getSlackContext } from "./context.js";
 import { clearAllHistory, getHistory } from "./utils/history.js";
 
 type MockStreamEvent = {
@@ -84,25 +84,23 @@ vi.mock("@slack/bolt", () => ({
   }),
 }));
 
-vi.mock("../agents/index.js", () => ({
-  runAgent: vi.fn(),
-  agentEventBus: {
-    onStreamEvent: vi.fn((handler: (event: MockStreamEvent) => void) => {
-      streamHandlers.push(handler);
+const mockRunAgent = vi.fn();
+const mockGetSessionEntry = vi.fn();
+
+vi.mock("./context.js", () => ({
+  getSlackContext: vi.fn(() => ({
+    runAgent: mockRunAgent,
+    getSessionEntry: mockGetSessionEntry,
+    subscribe: (_event: string, handler: (payload: unknown) => void) => {
+      const wrapped = (event: MockStreamEvent) => handler(event);
+      streamHandlers.push(wrapped);
       return () => {
-        const index = streamHandlers.indexOf(handler);
+        const index = streamHandlers.indexOf(wrapped);
         if (index >= 0) streamHandlers.splice(index, 1);
       };
-    }),
-  },
+    },
+  })),
 }));
-
-vi.mock("../sessions/index.js", () => ({
-  DEFAULT_MAIN_KEY: "main",
-  getSessionEntry: vi.fn(),
-}));
-
-const mockRunAgent = vi.mocked(runAgent);
 
 const agent: AgentConfig = {
   id: "main",
@@ -141,6 +139,7 @@ describe("createSlackBot", () => {
     streamHandlers.length = 0;
     vi.clearAllMocks();
     clearAllHistory();
+    mockGetSessionEntry.mockResolvedValue(undefined);
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },
@@ -641,6 +640,7 @@ describe("createSlackAgentBot", () => {
     streamHandlers.length = 0;
     vi.clearAllMocks();
     clearAllHistory();
+    mockGetSessionEntry.mockResolvedValue(undefined);
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },

@@ -6,8 +6,8 @@ import type {
   SlackComponentConfig,
   SlackComponentDmConfig,
 } from "@aihub/shared";
-import { agentEventBus, runAgent } from "../agents/index.js";
-import { DEFAULT_MAIN_KEY, getSessionEntry } from "../sessions/index.js";
+import { DEFAULT_MAIN_KEY } from "@aihub/shared";
+import { getSlackContext } from "./context.js";
 import { processMessage, type MessageData } from "./handlers/message.js";
 import {
   formatReactionMessage,
@@ -294,7 +294,14 @@ function startThinkingStreamDisplay(params: {
     }
   };
 
-  unsubscribe = agentEventBus.onStreamEvent(async (event) => {
+  unsubscribe = getSlackContext().subscribe("agent.stream", async (payload) => {
+    const event = payload as {
+      type: "thinking" | "done" | "error";
+      data?: string;
+      agentId: string;
+      sessionId: string;
+      sessionKey?: string;
+    };
     if (!matchesRun(event)) return;
     if (event.type === "thinking") {
       if (closed) return;
@@ -381,7 +388,7 @@ async function handleSlackMessage(
       history: getHistory(data.channel, historyLimit),
     });
 
-    const agentResult = await runAgent({
+    const agentResult = await getSlackContext().runAgent({
       agentId: target.agent.id,
       message: content,
       sessionKey,
@@ -440,7 +447,7 @@ async function handleSlackReaction(
   });
 
   try {
-    await runAgent({
+    await getSlackContext().runAgent({
       agentId: target.agent.id,
       message: formatReactionMessage(data, action),
       sessionKey: `slack:${result.channel}`,
@@ -468,14 +475,24 @@ function setupSlackBroadcasts(params: {
     logPrefix,
   } = params;
 
-  return agentEventBus.onStreamEvent(async (event) => {
+  return getSlackContext().subscribe("agent.stream", async (payload) => {
+    const event = payload as {
+      type: "text" | "done" | "error";
+      data?: string;
+      agentId: string;
+      sessionId: string;
+      source?: string;
+    };
     if (!acceptsAgent(event.agentId)) return;
     if (event.source === "slack" || event.source === "heartbeat") return;
 
     const broadcastChannel = getBroadcastChannel();
     if (!broadcastChannel) return;
 
-    const mainEntry = await getSessionEntry(event.agentId, DEFAULT_MAIN_KEY);
+    const mainEntry = await getSlackContext().getSessionEntry(
+      event.agentId,
+      DEFAULT_MAIN_KEY
+    );
     if (!mainEntry || mainEntry.sessionId !== event.sessionId) return;
 
     const accKey = `${event.agentId}:${event.sessionId}`;

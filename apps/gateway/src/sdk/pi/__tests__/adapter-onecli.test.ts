@@ -15,7 +15,6 @@ const mockBuildBootstrapContextFiles = vi.fn(() => []);
 const mockGetConnectorToolsForAgent = vi.fn(() => []);
 const mockGetConnectorPromptsForAgent = vi.fn(() => []);
 const mockGetLoadedExtensions = vi.fn(() => []);
-const mockRenderAgentContext = vi.fn(() => "");
 
 vi.mock("../../agents/workspace.js", () => ({
   ensureBootstrapFiles: mockEnsureBootstrapFiles,
@@ -29,10 +28,6 @@ vi.mock("../../sessions/store.js", () => ({
 
 vi.mock("../../sessions/files.js", () => ({
   resolveSessionDataFile: vi.fn(async () => "/tmp/aihub-test/sessions/session-1.jsonl"),
-}));
-
-vi.mock("../../discord/utils/context.js", () => ({
-  renderAgentContext: mockRenderAgentContext,
 }));
 
 vi.mock("../../subagents/pi_tools.js", () => ({

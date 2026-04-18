@@ -9,13 +9,13 @@ type ExtensionRegistration = {
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   discord: {
     load: () =>
-      import("./discord/index.js").then((module) => module.discordExtension),
+      import("@aihub/extension-discord").then((module) => module.discordExtension),
     getConfig: (config) => config.extensions?.discord,
     routePrefixes: [],
   },
   slack: {
     load: () =>
-      import("./slack/index.js").then((module) => module.slackExtension),
+      import("@aihub/extension-slack").then((module) => module.slackExtension),
     getConfig: (config) => {
       const hasPerAgent = config.agents?.some((a) => a.slack?.token);
       if (config.extensions?.slack) {

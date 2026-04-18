@@ -1,5 +1,5 @@
 import type { CarbonClient } from "../client.js";
-import { agentEventBus } from "../../agents/index.js";
+import { getDiscordContext } from "../context.js";
 
 const TYPING_INTERVAL_MS = 5000; // Discord typing expires after 10s
 const QUEUED_TTL_MS = 30000; // Stop typing after 30s if queued run never completes
@@ -53,7 +53,13 @@ export function startTyping(
   }, TYPING_INTERVAL_MS);
 
   // Subscribe to done/error events
-  const unsubscribe = agentEventBus.onStreamEvent((event) => {
+  const unsubscribe = getDiscordContext().subscribe("agent.stream", (payload) => {
+    const event = payload as {
+      agentId: string;
+      sessionId?: string;
+      sessionKey?: string;
+      type: string;
+    };
     if (event.agentId !== agentId) return;
     if (sessionKey) {
       if (event.sessionKey !== sessionKey) return;
