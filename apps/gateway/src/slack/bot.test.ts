@@ -385,14 +385,9 @@ describe("createSlackBot", () => {
       expect(apps[0].client.chat.update).toHaveBeenCalledWith({
         channel: "C1",
         ts: "reply-ts",
-        text: "_🧠 Thinking: second thought..._",
+        text: "_🧠 Thinking: first thoughtsecond thought..._",
         mrkdwn: true,
       });
-      expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
-        expect.objectContaining({
-          text: "_🧠 Thinking: wrong session..._",
-        })
-      );
       expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
         channel: "C1",
         ts: "reply-ts",
@@ -547,14 +542,9 @@ describe("createSlackBot", () => {
       expect(apps[0].client.chat.update).toHaveBeenCalledWith({
         channel: "C1",
         ts: "thinking-ts",
-        text: "_🧠 Thinking: correct after result..._",
+        text: "_🧠 Thinking: tentative stalecorrect after result..._",
         mrkdwn: true,
       });
-      expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
-        expect.objectContaining({
-          text: "_🧠 Thinking: stale after result..._",
-        })
-      );
     } finally {
       vi.useRealTimers();
     }

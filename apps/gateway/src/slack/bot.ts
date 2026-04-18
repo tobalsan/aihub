@@ -199,6 +199,7 @@ function startThinkingStreamDisplay(params: {
   let latestText: string | undefined;
   let lastUpdateTime = 0;
   let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+  let accumulatedThinking = "";
 
   const setSessionId = (sessionId: string | undefined) => {
     if (!sessionId) return;
@@ -293,7 +294,8 @@ function startThinkingStreamDisplay(params: {
     if (!matchesRun(event)) return;
     if (event.type === "thinking") {
       if (closed) return;
-      const text = formatThinkingMessage(event.data);
+      accumulatedThinking += event.data ?? "";
+      const text = formatThinkingMessage(accumulatedThinking);
       try {
         await publishThinking(text);
       } catch (err) {
