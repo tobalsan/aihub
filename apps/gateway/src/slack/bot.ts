@@ -192,7 +192,7 @@ function startThinkingStreamDisplay(params: {
   let messageTs: string | undefined;
   let matchedSessionId: string | undefined;
   let closed = false;
-  let unsubscribe = () => undefined;
+  let unsubscribe: () => void = () => {};
   let posting = false;
   let pendingPost: Promise<void> | null = null;
   let latestText: string | undefined;
