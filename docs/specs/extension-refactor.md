@@ -8,9 +8,9 @@ AIHub gateway has grown monolithic. Components (discord, slack, heartbeat, sched
 
 1. ~~Remove unused features (amsg, conversations) and simplify SDK surface (remove Claude SDK adapter; keep Pi + OpenClaw)~~ ✅ **Done**
 2. ~~Rename "components" → "extensions" across the entire codebase~~ ✅ **Done**
-3. Extract all extensions into `packages/extensions/<name>/` as self-contained packages
-4. Build an extension loading mechanism modeled after the connector pattern (discovery, validation, lifecycle)
-5. Support both built-in defaults (heartbeat, scheduler) and external extensions loaded from `$AIHUB_HOME/extensions`
+3. ~~Extract all extensions into `packages/extensions/<name>/` as self-contained packages~~ ✅ **Done**
+4. ~~Build an extension loading mechanism modeled after the connector pattern (discovery, validation, lifecycle)~~ ✅ **Done**
+5. ~~Support both built-in defaults (heartbeat, scheduler) and external extensions loaded from `$AIHUB_HOME/extensions`~~ ✅ **Done**
 
 ## Non-Goals
 
@@ -521,50 +521,11 @@ function createExtensionContext(resolvedConfig: GatewayConfig, extensionId: stri
 ### ✅ Commit 3: Remove Claude SDK adapter — DONE
 ### ✅ Commit 4: Semantic rename components → extensions — DONE
 
-### Commit 5: Prepare shared contracts
-- Move `DEFAULT_MAIN_KEY`, `AgentStreamEvent`, `AgentHistoryEvent`, event name constants to `@aihub/shared`
-- Move shared context rendering utilities to `@aihub/shared` (Discord/Slack context renderers)
-- Expand `ExtensionContext` interface with subscribe/emit, logger, session management, runtime state
-- Add extension discovery module (`packages/shared/src/extensions/discovery.ts`)
-- Add `SessionEntry`, `ExtensionEvent`, `ExtensionLogger`, `UnsubscribeFn` types to `@aihub/shared`
-- Add `description`, `configSchema` to `Extension` interface
-- Remove `requiredSecrets`, `resolveSecret` from `ExtensionContext`
-
-### Commit 6: Extract easy extensions (heartbeat, scheduler, langfuse, multi-user)
-- Move to `packages/extensions/<name>/`
-- Replace gateway-internal imports with `ExtensionContext` methods + `@aihub/shared` imports
-- Update gateway to import from `@aihub/extension-<name>`
-- Move tests with extensions
-- Verify all tests pass
-
-### Commit 7: Extract medium extensions (discord, slack)
-- Move to `packages/extensions/<name>/`
-- Replace `agentEventBus` → `ctx.subscribe()`
-- Replace `onHeartbeatEvent` → `ctx.subscribe("heartbeat.event", ...)` (discord)
-- Replace `getActiveAgents` → `ctx.getAgents()`
-- Replace `getSessionEntry` → `ctx.getSessionEntry()`
-- Replace `renderSlackContext` / `renderDiscordContext` with shared utility import
-- Move tests with extensions
-- Verify all tests pass
-
-### Commit 8: Extract projects extension
-- Move `projects/`, `subagents/`, `areas/`, `activity/`, `taskboard/` into `packages/extensions/projects/`
-- Replace all gateway-internal imports with `ExtensionContext` methods + `@aihub/shared`
-- Replace `agentEventBus.emitFileChanged/emitAgentChanged` → `ctx.emit()`
-- Replace `getSubagentTemplates` → `ctx.getSubagentTemplates()`
-- Replace `getSessionHistory` → `ctx.getSessionHistory()`
-- This is the largest extraction — ~30 files, ~8000+ lines
-- Move tests with extension
-- Verify all tests pass
-
-### Commit 9: Extension loading mechanism
-- Implement built-in default detection (heartbeat, scheduler always-on)
-- Implement external extension discovery from `$AIHUB_HOME/extensions`
-- Replace hardcoded registry entries with dynamic loading
-- Add `createExtensionContext()` factory in gateway
-- Update `pnpm-workspace.yaml` to include `packages/extensions/*`
-- Update gateway startup to use new loading flow
-- Update docs
+### ✅ Commit 5: Prepare shared contracts — DONE
+### ✅ Commit 6: Extract easy extensions (heartbeat, scheduler, langfuse, multi-user) — DONE
+### ✅ Commit 7: Extract medium extensions (discord, slack) — DONE
+### ✅ Commit 8: Extract projects extension — DONE
+### ✅ Commit 9: Extension loading mechanism — DONE
 
 ---
 
