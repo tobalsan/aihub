@@ -1,14 +1,16 @@
 import type {
   StreamEvent,
-  ModelUsage,
   AgentConfig,
   ThinkLevel,
   AgentContext,
   FileAttachment,
+  HistoryEvent,
 } from "@aihub/shared";
 
+export type { HistoryEvent } from "@aihub/shared";
+
 // SDK identifiers
-export type SdkId = "pi" | "claude" | "openclaw";
+export type SdkId = "pi" | "openclaw";
 
 // SDK capabilities
 export type SdkCapabilities = {
@@ -17,66 +19,6 @@ export type SdkCapabilities = {
   toolEvents: boolean;
   fullHistory: boolean;
 };
-
-// History event types (canonical transcript format)
-export type HistoryEvent =
-  | {
-      type: "user";
-      text: string;
-      attachments?: FileAttachment[];
-      timestamp: number;
-    }
-  | { type: "assistant_text"; text: string; timestamp: number }
-  | { type: "assistant_thinking"; text: string; timestamp: number }
-  | {
-      type: "assistant_file";
-      fileId: string;
-      filename: string;
-      mimeType: string;
-      size: number;
-      direction: "inbound" | "outbound";
-      timestamp: number;
-    }
-  | {
-      type: "tool_call";
-      id: string;
-      name: string;
-      args: unknown;
-      timestamp: number;
-    }
-  | {
-      type: "tool_result";
-      id: string;
-      name: string;
-      content: string;
-      isError: boolean;
-      details?: { diff?: string };
-      timestamp: number;
-    }
-  | { type: "turn_end"; timestamp: number }
-  | {
-      type: "meta";
-      provider?: string;
-      model?: string;
-      api?: string;
-      usage?: ModelUsage;
-      stopReason?: string;
-      timestamp: number;
-    }
-  | {
-      type: "file_output";
-      fileId: string;
-      filename: string;
-      mimeType: string;
-      size: number;
-      timestamp: number;
-    }
-  | {
-      type: "system_context";
-      context: AgentContext;
-      rendered: string; // Pre-rendered preamble for injection
-      timestamp: number;
-    };
 
 // Run parameters passed to adapter
 export type SdkRunParams = {

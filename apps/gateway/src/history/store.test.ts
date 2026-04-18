@@ -33,9 +33,6 @@ vi.mock("../sessions/files.js", () => ({
   ),
 }));
 
-vi.mock("../sessions/claude.js", () => ({
-  getClaudeSessionIdForSession: vi.fn().mockResolvedValue(undefined),
-}));
 
 describe("history store isolation", () => {
   beforeEach(() => {

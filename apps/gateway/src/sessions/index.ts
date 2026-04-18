@@ -14,9 +14,3 @@ export {
   type ResolveSessionResult,
 } from "./store.js";
 
-export {
-  getClaudeSessionId,
-  getClaudeSessionIdForSession,
-  setClaudeSessionId,
-  clearClaudeSessionId,
-} from "./claude.js";

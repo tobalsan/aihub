@@ -26,7 +26,6 @@ import {
 } from "./sessions.js";
 import {
   resolveSessionId,
-  clearClaudeSessionId,
   getSessionEntry,
   isAbortTrigger,
 } from "../sessions/index.js";
@@ -57,7 +56,6 @@ import {
   hasCanonicalHistory,
   readPiSessionHistory,
   backfillFromPiSession,
-  backfillFromClaudeSessionIfNeeded,
   invalidateResolvedHistoryFile,
 } from "../history/store.js";
 
@@ -256,7 +254,6 @@ export async function runAgent(
     sessionId = params.resolvedSession.sessionId;
     if (params.resolvedSession.isNew) {
       invalidateResolvedHistoryFile(params.agentId, sessionId, params.userId);
-      await clearClaudeSessionId(params.agentId, sessionId, params.userId);
     }
   } else if (params.sessionId) {
     sessionId = params.sessionId;
@@ -269,10 +266,9 @@ export async function runAgent(
     });
     sessionId = resolved.sessionId;
     message = resolved.message;
-    // Clear Claude SDK session mapping on reset (new session via /new, /reset, or idle timeout)
+    // Invalidate cached history path on reset (new session via /new, /reset, or idle timeout)
     if (resolved.isNew) {
       invalidateResolvedHistoryFile(params.agentId, sessionId, params.userId);
-      await clearClaudeSessionId(params.agentId, sessionId, params.userId);
     }
   } else {
     sessionId = "default";
@@ -702,7 +698,6 @@ export async function getSessionHistory(
 ): Promise<SimpleHistoryMessage[]> {
   // One-time backfill from Pi session if canonical doesn't exist
   await backfillFromPiSession(agentId, sessionId, userId);
-  await backfillFromClaudeSessionIfNeeded(agentId, sessionId, userId);
 
   // Try canonical history
   if (await hasCanonicalHistory(agentId, sessionId, userId)) {
@@ -724,7 +719,6 @@ export async function getFullSessionHistory(
 ): Promise<FullHistoryMessage[]> {
   // One-time backfill from Pi session if canonical doesn't exist
   await backfillFromPiSession(agentId, sessionId, userId);
-  await backfillFromClaudeSessionIfNeeded(agentId, sessionId, userId);
 
   // Try canonical history
   if (await hasCanonicalHistory(agentId, sessionId, userId)) {
