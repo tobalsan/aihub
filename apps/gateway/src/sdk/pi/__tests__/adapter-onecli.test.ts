@@ -30,7 +30,7 @@ vi.mock("../../sessions/files.js", () => ({
   resolveSessionDataFile: vi.fn(async () => "/tmp/aihub-test/sessions/session-1.jsonl"),
 }));
 
-vi.mock("../../subagents/pi_tools.js", () => ({
+vi.mock("@aihub/extension-projects/pi-tools", () => ({
   createPiSubagentTools: vi.fn(() => []),
 }));
 

@@ -3,6 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
 
+let clearProjectsContextForTest: (() => void) | undefined;
+
 describe("projects store", () => {
   let tmpDir: string;
   let projectsRoot: string;
@@ -19,9 +21,40 @@ describe("projects store", () => {
     process.env.USERPROFILE = tmpDir;
 
     vi.resetModules();
+    const { setProjectsContext, clearProjectsContext } = await import(
+      "../context.js"
+    );
+    clearProjectsContextForTest = clearProjectsContext;
+    setProjectsContext({
+      getConfig: () => ({
+        version: 2,
+        agents: [],
+        extensions: { projects: { enabled: true, root: projectsRoot } },
+      }),
+      getDataDir: () => path.join(tmpDir, ".aihub"),
+      getAgents: () => [],
+      getAgent: () => undefined,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => tmpDir,
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: () => {},
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
   });
 
   afterEach(async () => {
+    clearProjectsContextForTest?.();
+    clearProjectsContextForTest = undefined;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

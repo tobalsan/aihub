@@ -1,7 +1,7 @@
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { GatewayConfig } from "@aihub/shared";
-import { agentEventBus } from "../agents/events.js";
+import { getProjectsContext } from "../context.js";
 import { getProjectsRoot } from "../util/paths.js";
 
 const DEBOUNCE_MS = 300;
@@ -66,7 +66,7 @@ export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
       if (!nextFiles || nextFiles.size === 0) return;
       filePayloads.delete(projectId);
       for (const nextFile of nextFiles) {
-        agentEventBus.emitFileChanged({
+        getProjectsContext().emit("file.changed", {
           type: "file_changed",
           projectId,
           file: nextFile,
@@ -81,7 +81,7 @@ export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       agentTimers.delete(projectId);
-      agentEventBus.emitAgentChanged({
+      getProjectsContext().emit("agent.changed", {
         type: "agent_changed",
         projectId,
       });

@@ -1,9 +1,10 @@
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
-import { agentEventBus } from "../agents/events.js";
+import { agentEventBus } from "../../../../../apps/gateway/src/agents/events.js";
+import { clearProjectsContext, setProjectsContext } from "../context.js";
 import { startProjectWatcher } from "./watcher.js";
 
 async function waitFor<T>(
@@ -22,7 +23,40 @@ async function waitFor<T>(
 describe("project watcher filesystem events", () => {
   let root = "";
 
+  beforeEach(() => {
+    setProjectsContext({
+      getConfig: () => ({ version: 2, agents: [], extensions: {} }),
+      getDataDir: () => os.tmpdir(),
+      getAgents: () => [],
+      getAgent: () => undefined,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => os.tmpdir(),
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: (event: string, payload: unknown) => {
+        if (event === "agent.changed") {
+          agentEventBus.emitAgentChanged(payload as never);
+          return;
+        }
+        if (event === "file.changed") {
+          agentEventBus.emitFileChanged(payload as never);
+        }
+      },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
+  });
+
   afterEach(async () => {
+    clearProjectsContext();
     if (root) {
       await fs.rm(root, { recursive: true, force: true });
       root = "";

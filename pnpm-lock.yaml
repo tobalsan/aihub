@@ -65,6 +65,9 @@ importers:
       '@aihub/extension-multi-user':
         specifier: workspace:*
         version: link:../../packages/extensions/multi-user
+      '@aihub/extension-projects':
+        specifier: workspace:*
+        version: link:../../packages/extensions/projects
       '@aihub/extension-scheduler':
         specifier: workspace:*
         version: link:../../packages/extensions/scheduler
@@ -261,6 +264,27 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+
+  packages/extensions/projects:
+    dependencies:
+      '@aihub/shared':
+        specifier: workspace:*
+        version: link:../../shared
+      '@mariozechner/pi-agent-core':
+        specifier: ^0.67
+        version: 0.67.6(zod@3.25.76)
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      hono:
+        specifier: ^4.11.4
+        version: 4.11.4
+      js-yaml:
+        specifier: ^4.1.1
+        version: 4.1.1
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
 
   packages/extensions/scheduler:
     dependencies:
@@ -5183,6 +5207,18 @@ snapshots:
       - ws
       - zod
 
+  '@mariozechner/pi-agent-core@0.67.6(zod@3.25.76)':
+    dependencies:
+      '@mariozechner/pi-ai': 0.67.6(zod@3.25.76)
+    transitivePeerDependencies:
+      - '@modelcontextprotocol/sdk'
+      - aws-crt
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+      - ws
+      - zod
+
   '@mariozechner/pi-ai@0.67.6(ws@8.19.0)(zod@3.25.76)':
     dependencies:
       '@anthropic-ai/sdk': 0.90.0(zod@3.25.76)
@@ -5222,6 +5258,30 @@ snapshots:
       proxy-agent: 6.5.0
       undici: 7.20.0
       zod-to-json-schema: 3.25.1(zod@4.3.6)
+    transitivePeerDependencies:
+      - '@modelcontextprotocol/sdk'
+      - aws-crt
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@mariozechner/pi-ai@0.67.6(zod@3.25.76)':
+    dependencies:
+      '@anthropic-ai/sdk': 0.90.0(zod@3.25.76)
+      '@aws-sdk/client-bedrock-runtime': 3.1031.0
+      '@google/genai': 1.43.0
+      '@mistralai/mistralai': 1.14.1
+      '@sinclair/typebox': 0.34.47
+      ajv: 8.17.1
+      ajv-formats: 3.0.1(ajv@8.17.1)
+      chalk: 5.6.2
+      openai: 6.26.0(zod@3.25.76)
+      partial-json: 0.1.7
+      proxy-agent: 6.5.0
+      undici: 7.20.0
+      zod-to-json-schema: 3.25.1(zod@3.25.76)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -7441,6 +7501,10 @@ snapshots:
     optionalDependencies:
       ws: 8.19.0
       zod: 4.3.6
+
+  openai@6.26.0(zod@3.25.76):
+    optionalDependencies:
+      zod: 3.25.76
 
   option@0.2.4: {}
 

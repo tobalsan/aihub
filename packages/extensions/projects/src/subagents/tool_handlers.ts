@@ -1,5 +1,5 @@
 import type { GatewayConfig } from "@aihub/shared";
-import { loadConfig } from "../config/index.js";
+import { getProjectsContext } from "../context.js";
 import { listSubagents, getSubagentLogs } from "./index.js";
 import { spawnSubagent, interruptSubagent, killSubagent, type SpawnSubagentInput } from "./runner.js";
 
@@ -23,7 +23,7 @@ export function createSubagentToolHandlers(overrides?: {
   interrupt?: typeof interruptSubagent;
   kill?: typeof killSubagent;
 }): SubagentToolHandlers {
-  const resolveConfig = overrides?.getConfig ?? loadConfig;
+  const resolveConfig = overrides?.getConfig ?? (() => getProjectsContext().getConfig());
   const spawn = overrides?.spawn ?? spawnSubagent;
   const list = overrides?.list ?? listSubagents;
   const logs = overrides?.logs ?? getSubagentLogs;

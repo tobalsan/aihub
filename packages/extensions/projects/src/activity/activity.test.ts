@@ -3,6 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
 
+let clearProjectsContextForTest: (() => void) | undefined;
+
 const agentConfig = {
   id: "test-agent",
   name: "Test Agent",
@@ -46,12 +48,38 @@ describe("activity persistence", () => {
     );
 
     vi.resetModules();
+    const { setProjectsContext, clearProjectsContext } = await import(
+      "../context.js"
+    );
+    clearProjectsContextForTest = clearProjectsContext;
+    setProjectsContext({
+      getConfig: () => config,
+      getDataDir: () => path.join(tmpDir, ".aihub"),
+      getAgents: () => [agentConfig],
+      getAgent: (id: string) => (id === agentConfig.id ? agentConfig : undefined),
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => tmpDir,
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: () => {},
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
+
     const { clearConfigCacheForTests, loadConfig } = await import(
-      "../config/index.js"
+      "../../../../../apps/gateway/src/config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadExtensions } = await import("../extensions/registry.js");
-    const mod = await import("../server/api.core.js");
+    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -60,6 +88,9 @@ describe("activity persistence", () => {
   });
 
   afterEach(async () => {
+    clearProjectsContextForTest?.();
+    clearProjectsContextForTest = undefined;
+
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;
@@ -145,9 +176,35 @@ describe("activity persistence", () => {
     expect(persisted.some((event) => event.actor === "Avery")).toBe(true);
 
     vi.resetModules();
-    const { loadConfig } = await import("../config/index.js");
-    const { loadExtensions } = await import("../extensions/registry.js");
-    const mod = await import("../server/api.core.js");
+    const { setProjectsContext } = await import("../context.js");
+    setProjectsContext({
+      getConfig: () => ({
+        version: 2,
+        agents: [agentConfig],
+        extensions: { projects: { enabled: true, root: projectsRoot } },
+      }),
+      getDataDir: () => path.join(tmpDir, ".aihub"),
+      getAgents: () => [agentConfig],
+      getAgent: (id: string) => (id === agentConfig.id ? agentConfig : undefined),
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => tmpDir,
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: () => {},
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
+    const { loadConfig } = await import("../../../../../apps/gateway/src/config/index.js");
+    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
     const api2 = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -273,9 +330,35 @@ describe("activity persistence", () => {
     expect(first.status).toBe(200);
 
     vi.resetModules();
-    const { loadConfig } = await import("../config/index.js");
-    const { loadExtensions } = await import("../extensions/registry.js");
-    const mod = await import("../server/api.core.js");
+    const { setProjectsContext } = await import("../context.js");
+    setProjectsContext({
+      getConfig: () => ({
+        version: 2,
+        agents: [agentConfig],
+        extensions: { projects: { enabled: true, root: projectsRoot } },
+      }),
+      getDataDir: () => path.join(tmpDir, ".aihub"),
+      getAgents: () => [agentConfig],
+      getAgent: (id: string) => (id === agentConfig.id ? agentConfig : undefined),
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => tmpDir,
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: () => {},
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
+    const { loadConfig } = await import("../../../../../apps/gateway/src/config/index.js");
+    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
     const api2 = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {

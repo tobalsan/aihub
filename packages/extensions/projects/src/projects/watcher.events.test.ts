@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
+import { clearProjectsContext, setProjectsContext } from "../context.js";
 
 type MockWatcher = {
   on: ReturnType<typeof vi.fn>;
@@ -31,22 +32,52 @@ vi.mock("chokidar", () => ({
   },
 }));
 
-vi.mock("../agents/events.js", () => ({
+vi.mock("../../../../../apps/gateway/src/agents/events.js", () => ({
   agentEventBus: {
     emitFileChanged: vi.fn(),
     emitAgentChanged: vi.fn(),
   },
 }));
 
-import { agentEventBus } from "../agents/events.js";
+import { agentEventBus } from "../../../../../apps/gateway/src/agents/events.js";
 import { startProjectWatcher } from "./watcher.js";
 
 describe("project watcher file debounce", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setProjectsContext({
+      getConfig: () => ({ version: 2, agents: [], extensions: {} }),
+      getDataDir: () => "/tmp",
+      getAgents: () => [],
+      getAgent: () => undefined,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => "/tmp",
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: (event: string, payload: unknown) => {
+        if (event === "file.changed") {
+          (agentEventBus.emitFileChanged as (arg: unknown) => void)(payload);
+          return;
+        }
+        if (event === "agent.changed") {
+          (agentEventBus.emitAgentChanged as (arg: unknown) => void)(payload);
+        }
+      },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
   });
 
   afterEach(() => {
+    clearProjectsContext();
     vi.useRealTimers();
     vi.clearAllMocks();
     mockWatchers.length = 0;
@@ -90,9 +121,39 @@ describe("project watcher file debounce", () => {
 describe("project watcher agent_changed events", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setProjectsContext({
+      getConfig: () => ({ version: 2, agents: [], extensions: {} }),
+      getDataDir: () => "/tmp",
+      getAgents: () => [],
+      getAgent: () => undefined,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => "/tmp",
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: (event: string, payload: unknown) => {
+        if (event === "file.changed") {
+          (agentEventBus.emitFileChanged as (arg: unknown) => void)(payload);
+          return;
+        }
+        if (event === "agent.changed") {
+          (agentEventBus.emitAgentChanged as (arg: unknown) => void)(payload);
+        }
+      },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
   });
 
   afterEach(() => {
+    clearProjectsContext();
     vi.useRealTimers();
     vi.clearAllMocks();
     mockWatchers.length = 0;

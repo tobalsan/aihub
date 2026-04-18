@@ -5,7 +5,7 @@ import {
   removeContainerToken,
 } from "../sdk/container/tokens.js";
 import { createInternalTools } from "./internal-tools.js";
-import type { SubagentToolHandlers } from "../subagents/tool_handlers.js";
+import type { SubagentToolHandlers } from "@aihub/extension-projects/tool-handlers";
 
 const registeredTokens: string[] = [];
 

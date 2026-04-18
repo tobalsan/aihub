@@ -17,6 +17,7 @@
     "@aihub/extension-heartbeat": "workspace:*",
     "@aihub/extension-langfuse": "workspace:*",
     "@aihub/extension-multi-user": "workspace:*",
+    "@aihub/extension-projects": "workspace:*",
     "@aihub/extension-scheduler": "workspace:*",
     "@aihub/extension-slack": "workspace:*",
     "@aihub/shared": "workspace:*",

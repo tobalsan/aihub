@@ -1,13 +1,14 @@
-import type { GatewayConfig } from "@aihub/shared";
-import { normalizeProjectStatus } from "@aihub/shared";
+import {
+  DEFAULT_MAIN_KEY,
+  normalizeProjectStatus,
+  type GatewayConfig,
+} from "@aihub/shared";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { listProjects } from "../projects/index.js";
-import { getActiveAgents } from "../config/index.js";
-import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
-import { getSessionHistory } from "../agents/index.js";
 import { listAllSubagents } from "../subagents/index.js";
+import { getProjectsContext } from "../context.js";
 
 type ActivityColor = "green" | "purple" | "blue" | "yellow";
 
@@ -144,17 +145,26 @@ export async function getRecentActivity(
     }
   }
 
-  const agents = getActiveAgents();
+  const agents = getProjectsContext().getAgents();
   for (const agent of agents) {
-    const entry = await getSessionEntry(agent.id, DEFAULT_MAIN_KEY);
+    const entry = await getProjectsContext().getSessionEntry(agent.id, DEFAULT_MAIN_KEY);
     if (!entry) continue;
-    const history = await getSessionHistory(agent.id, entry.sessionId);
+    const history = await getProjectsContext().getSessionHistory(agent.id, entry.sessionId);
     const last = [...history].reverse().find((msg) => msg.role === "assistant");
     if (!last || typeof last.timestamp !== "number") continue;
     const prevTs = lastAgentMessageTs.get(agent.id);
     if (prevTs === last.timestamp) continue;
     lastAgentMessageTs.set(agent.id, last.timestamp);
-    const text = truncate(last.content.trim());
+    const assistantText =
+      typeof last.content === "string"
+        ? last.content
+        : last.content
+            .map((block) => {
+              const maybeText = (block as { text?: unknown }).text;
+              return typeof maybeText === "string" ? maybeText : "";
+            })
+            .join("\n");
+    const text = truncate(assistantText.trim());
     if (!text) continue;
     events.push({
       id: `agent-${agent.id}-${last.timestamp}`,

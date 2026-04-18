@@ -9,7 +9,7 @@ import {
   ensureProjectSpace,
   recordWorkerDelivery,
   integrateProjectSpaceQueue,
-} from "../projects/space.js";
+} from "@aihub/extension-projects";
 
 const execFileAsync = promisify(execFile);
 const SPACE_API_TEST_TIMEOUT_MS = 30_000;
@@ -40,6 +40,12 @@ describe("space merge API", () => {
   };
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
+  let extensions: Array<{
+    id: string;
+    registerRoutes: (api: unknown) => void;
+    start?: (ctx: unknown) => Promise<void>;
+    stop?: () => Promise<void>;
+  }> = [];
 
   const projectConfig = (): GatewayConfig =>
     ({
@@ -94,13 +100,43 @@ describe("space merge API", () => {
     const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("./api.core.js");
     api = mod.api;
-    const extensions = await loadExtensions(loadConfig());
+    const config = loadConfig();
+    extensions = (await loadExtensions(config)) as typeof extensions;
     for (const extension of extensions) {
       extension.registerRoutes(api as never);
+    }
+
+    for (const extension of extensions) {
+      if (extension.id === "projects") {
+        await extension.start?.({
+          getConfig: () => config,
+          getDataDir: () => path.join(tmpDir, ".aihub"),
+          getAgents: () => config.agents ?? [],
+          getAgent: (id: string) => config.agents?.find((a) => a.id === id),
+          isAgentActive: () => true,
+          isAgentStreaming: () => false,
+          resolveWorkspaceDir: () => tmpDir,
+          runAgent: async () => ({ ok: true, data: {} }),
+          getSubagentTemplates: () => [],
+          resolveSessionId: async () => undefined,
+          getSessionEntry: async () => undefined,
+          clearSessionEntry: async () => undefined,
+          restoreSessionUpdatedAt: () => {},
+          deleteSession: () => {},
+          invalidateHistoryCache: async () => {},
+          getSessionHistory: async () => [],
+          subscribe: () => () => {},
+          emit: () => {},
+          logger: console,
+        });
+      }
     }
   });
 
   afterAll(async () => {
+    for (const extension of extensions) {
+      await extension.stop?.();
+    }
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

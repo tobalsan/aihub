@@ -6,6 +6,12 @@ import { GatewayConfigSchema } from "@aihub/shared";
 
 describe("extension route mounting", () => {
   let tmpDir: string;
+  let extensions: Array<{
+    id: string;
+    registerRoutes: (api: unknown) => void;
+    start?: (ctx: unknown) => Promise<void>;
+    stop?: () => Promise<void>;
+  }> = [];
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-component-routes-"));
@@ -32,13 +38,42 @@ describe("extension route mounting", () => {
     setLoadedConfig(config);
     const { loadExtensions } = await import("../extensions/registry.js");
     const { api } = await import("./api.core.js");
-    const extensions = await loadExtensions(config);
+    extensions = (await loadExtensions(config)) as typeof extensions;
     for (const extension of extensions) {
       extension.registerRoutes(api);
+    }
+
+    for (const extension of extensions) {
+      if (extension.id === "projects") {
+        await extension.start?.({
+          getConfig: () => config,
+          getDataDir: () => path.join(tmpDir, ".aihub"),
+          getAgents: () => config.agents ?? [],
+          getAgent: (id: string) => config.agents?.find((a) => a.id === id),
+          isAgentActive: () => true,
+          isAgentStreaming: () => false,
+          resolveWorkspaceDir: () => tmpDir,
+          runAgent: async () => ({ ok: true, data: {} }),
+          getSubagentTemplates: () => [],
+          resolveSessionId: async () => undefined,
+          getSessionEntry: async () => undefined,
+          clearSessionEntry: async () => undefined,
+          restoreSessionUpdatedAt: () => {},
+          deleteSession: () => {},
+          invalidateHistoryCache: async () => {},
+          getSessionHistory: async () => [],
+          subscribe: () => () => {},
+          emit: () => {},
+          logger: console,
+        });
+      }
     }
   });
 
   afterAll(async () => {
+    for (const extension of extensions) {
+      await extension.stop?.();
+    }
     const { clearConfigCacheForTests } = await import("../config/index.js");
     clearConfigCacheForTests();
     await fs.rm(tmpDir, { recursive: true, force: true });

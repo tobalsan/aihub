@@ -21,26 +21,18 @@ import {
   type UpdateProjectRequest,
 } from "@aihub/shared";
 import { z } from "zod";
-import { agentEventBus } from "../../agents/events.js";
-import {
-  getActiveAgents,
-  getAgent,
-  getSubagentTemplates,
-  loadConfig,
-  isAgentActive,
-} from "../../config/index.js";
 import {
   getRecentActivity,
   recordCommentActivity,
   recordProjectStatusActivity,
-} from "../../activity/index.js";
+} from "./activity/index.js";
 import {
   createArea,
   deleteArea,
   listAreas,
   migrateAreas,
   updateArea,
-} from "../../areas/index.js";
+} from "./areas/index.js";
 import {
   appendProjectComment,
   archiveProject,
@@ -77,11 +69,11 @@ import {
   updateProject,
   updateProjectComment,
   writeSpec,
-} from "../../projects/index.js";
+} from "./projects/index.js";
 import {
   startProjectWatcher,
   type ProjectWatcher,
-} from "../../projects/watcher.js";
+} from "./projects/watcher.js";
 import {
   archiveSubagent,
   getSubagentLogs,
@@ -91,7 +83,7 @@ import {
   readSubagentConfig,
   unarchiveSubagent,
   updateSubagentConfig,
-} from "../../subagents/index.js";
+} from "./subagents/index.js";
 import {
   getUnsupportedSubagentCliError,
   interruptSubagent,
@@ -99,14 +91,14 @@ import {
   killSubagent,
   spawnRalphLoop,
   spawnSubagent,
-} from "../../subagents/runner.js";
-import { getTaskboardItem, scanTaskboard } from "../../taskboard/index.js";
-import { parseMarkdownFile } from "../../taskboard/parser.js";
-import { deleteSession } from "../../agents/sessions.js";
+} from "./subagents/runner.js";
+import { getTaskboardItem, scanTaskboard } from "./taskboard/index.js";
+import { parseMarkdownFile } from "./taskboard/parser.js";
 import {
-  clearSessionEntry,
-} from "../../sessions/index.js";
-import { invalidateResolvedHistoryFile } from "../../history/store.js";
+  clearProjectsContext,
+  getProjectsContext,
+  setProjectsContext,
+} from "./context.js";
 
 const execFileAsync = promisify(execFile);
 const registeredApps = new WeakSet<object>();
@@ -193,7 +185,7 @@ function getProjectsRuntimeConfig(config: GatewayConfig): GatewayConfig {
 }
 
 function getProjectsConfig(): GatewayConfig {
-  return getProjectsRuntimeConfig(loadConfig());
+  return getProjectsRuntimeConfig(getProjectsContext().getConfig());
 }
 
 function hasText(value: unknown): value is string {
@@ -216,7 +208,7 @@ function emitProjectFileChanged(
   projectDirName: string,
   fileName: string
 ): void {
-  agentEventBus.emitFileChanged({
+  getProjectsContext().emit("file.changed", {
     type: "file_changed",
     projectId,
     file: `${projectDirName}/${fileName}`,
@@ -419,10 +411,10 @@ async function clearLeadSessionState(
   sessionKey: string,
   userId?: string
 ): Promise<void> {
-  const cleared = await clearSessionEntry(agentId, sessionKey, userId);
+  const cleared = await getProjectsContext().clearSessionEntry(agentId, sessionKey, userId);
   if (!cleared) return;
-  deleteSession(agentId, cleared.sessionId);
-  invalidateResolvedHistoryFile(agentId, cleared.sessionId, userId);
+  getProjectsContext().deleteSession(agentId, cleared.sessionId);
+  await getProjectsContext().invalidateHistoryCache(agentId, cleared.sessionId, userId);
 }
 
 function isUploadedFile(
@@ -520,7 +512,7 @@ export function registerProjectRoutes(app: Hono): void {
     // Subagent template resolution
     const subagentTemplateName = startInput.subagentTemplate;
     if (subagentTemplateName) {
-      const match = getSubagentTemplates().find(
+      const match = getProjectsContext().getSubagentTemplates().find(
         (t) => t.name.toLowerCase() === subagentTemplateName.toLowerCase()
       );
       if (!match) {
@@ -568,7 +560,7 @@ export function registerProjectRoutes(app: Hono): void {
 
     let runAgentSelection = normalizeRunAgent(normalizedRunAgentValue);
     if (!runAgentSelection) {
-      const agents = getActiveAgents();
+      const agents = getProjectsContext().getAgents();
       if (agents.length === 0) {
         return c.json({ error: "No active agents available" }, 400);
       }
@@ -624,7 +616,7 @@ export function registerProjectRoutes(app: Hono): void {
               ? "Pi"
               : undefined;
     } else {
-      runAgentLabel = getAgent(runAgentSelection.id)?.name;
+      runAgentLabel = getProjectsContext().getAgent(runAgentSelection.id)?.name;
     }
 
     const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
@@ -767,7 +759,7 @@ export function registerProjectRoutes(app: Hono): void {
       customPrompt: mergedCustomPrompt || undefined,
       runAgentLabel,
       workerWorkspaces: reviewerWorkspaces,
-      subagentTypes: getSubagentTemplates(),
+      subagentTypes: getProjectsContext().getSubagentTemplates(),
       owner:
         typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,
       includeDefaultPrompt: startInput.includeDefaultPrompt,
@@ -782,8 +774,8 @@ export function registerProjectRoutes(app: Hono): void {
       typeof frontmatter.baseBranch === "string";
 
     if (runAgentSelection.type === "aihub") {
-      const agent = getAgent(runAgentSelection.id);
-      if (!agent || !isAgentActive(runAgentSelection.id)) {
+      const agent = getProjectsContext().getAgent(runAgentSelection.id);
+      if (!agent || !getProjectsContext().isAgentActive(runAgentSelection.id)) {
         return c.json({ error: "Agent not found" }, 404);
       }
       const sessionKeys =
@@ -800,14 +792,12 @@ export function registerProjectRoutes(app: Hono): void {
         updates.status = "in_progress";
       }
 
-      import("../../agents/index.js")
-        .then(({ runAgent }) =>
-          runAgent({
-            agentId: agent.id,
-            message: prompt,
-            sessionKey,
-          })
-        )
+      getProjectsContext()
+        .runAgent({
+          agentId: agent.id,
+          message: prompt,
+          sessionKey,
+        })
         .catch((err) => {
           console.error(`[projects:${project.id}] start run failed:`, err);
         });
@@ -922,8 +912,8 @@ export function registerProjectRoutes(app: Hono): void {
   });
 
   app.get("/config/spawn-options", (c) => {
-    const agents = getActiveAgents().map((a) => ({ id: a.id, name: a.name }));
-    const subagentTemplates = getSubagentTemplates();
+    const agents = getProjectsContext().getAgents().map((a) => ({ id: a.id, name: a.name }));
+    const subagentTemplates = getProjectsContext().getSubagentTemplates();
     return c.json({ agents, subagentTemplates });
   });
 
@@ -1523,8 +1513,8 @@ export function registerProjectRoutes(app: Hono): void {
         ? body.agentId.trim()
         : undefined;
     if (agentId) {
-      const agent = getAgent(agentId);
-      if (!agent || !isAgentActive(agentId)) {
+      const agent = getProjectsContext().getAgent(agentId);
+      if (!agent || !getProjectsContext().isAgentActive(agentId)) {
         return c.json({ error: "Agent not found" }, 404);
       }
       const config = getProjectsConfig();
@@ -1607,7 +1597,7 @@ export function registerProjectRoutes(app: Hono): void {
         owner,
         runAgentLabel: agent.name,
         customPrompt: prompt || undefined,
-        subagentTypes: getSubagentTemplates(),
+        subagentTypes: getProjectsContext().getSubagentTemplates(),
         includeDefaultPrompt,
         includeRoleInstructions,
         includePostRun,
@@ -1615,14 +1605,12 @@ export function registerProjectRoutes(app: Hono): void {
 
       const leadSlug = `lead-${agent.id.replace(/[^a-z0-9]/gi, "-")}`;
 
-      import("../../agents/index.js")
-        .then(({ runAgent }) =>
-          runAgent({
-            agentId: agent.id,
-            message: coordinatorPrompt,
-            sessionKey,
-          })
-        )
+      getProjectsContext()
+        .runAgent({
+          agentId: agent.id,
+          message: coordinatorPrompt,
+          sessionKey,
+        })
         .catch((err) => {
           console.error(
             `[projects:${project.id}] lead agent session failed:`,
@@ -2096,7 +2084,7 @@ export function registerProjectRoutes(app: Hono): void {
         return c.json({ error: "Space rebase conflict not found" }, 409);
       }
 
-      const reviewerConfig = getSubagentTemplates().find(
+      const reviewerConfig = getProjectsContext().getSubagentTemplates().find(
         (t) => t.type === "reviewer"
       );
       if (!reviewerConfig) {
@@ -2456,6 +2444,10 @@ export function registerProjectRoutes(app: Hono): void {
   });
 }
 
+// Re-exports for gateway/internal consumers
+export { recordCommentActivity } from "./activity/index.js";
+export * from "./projects/index.js";
+
 const projectsExtension: Extension = {
   id: "projects",
   displayName: "Projects",
@@ -2483,11 +2475,13 @@ const projectsExtension: Extension = {
     registerProjectRoutes(app);
   },
   async start(ctx) {
-    watcher = startProjectWatcher(getProjectsRuntimeConfig(ctx.getConfig()));
+    setProjectsContext(ctx);
+    watcher = startProjectWatcher(getProjectsConfig());
   },
   async stop() {
     await watcher?.close();
     watcher = null;
+    clearProjectsContext();
   },
   capabilities() {
     return ["projects", "subagents", "areas", "activity", "taskboard"];

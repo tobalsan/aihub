@@ -23,7 +23,7 @@ import {
 } from "../../agents/workspace.js";
 import { getSessionCreatedAt } from "../../sessions/store.js";
 import { resolveSessionDataFile } from "../../sessions/files.js";
-import { createPiSubagentTools } from "../../subagents/pi_tools.js";
+import { createPiSubagentTools } from "@aihub/extension-projects/pi-tools";
 import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
@@ -267,7 +267,7 @@ export const piAdapter: SdkAdapter = {
       const connectorTools = createPiConnectorTools(agent);
       const projectsComponentEnabled = hasProjectsComponentEnabled();
       const customTools = projectsComponentEnabled
-        ? createPiSubagentTools().map((tool) => ({
+        ? createPiSubagentTools().map((tool: any) => ({
             name: tool.name,
             label: tool.label,
             description: tool.description,

@@ -9,12 +9,14 @@ import type {
 } from "@aihub/shared";
 import { expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
-import { CONFIG_DIR } from "../config/index.js";
+import { getProjectsContext } from "../context.js";
 import { listAreas } from "../areas/store.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot } from "../util/paths.js";
 
-const PROJECTS_STATE_PATH = path.join(CONFIG_DIR, "projects.json");
+function getProjectsStatePath(): string {
+  return path.join(getProjectsContext().getDataDir(), "projects.json");
+}
 const THREAD_FILE = "THREAD.md";
 const ARCHIVE_DIR = ".archive";
 const TRASH_DIR = ".trash";
@@ -116,7 +118,7 @@ type ProjectsState = { lastId: number };
 
 async function readProjectsState(): Promise<ProjectsState> {
   try {
-    const raw = await fs.readFile(PROJECTS_STATE_PATH, "utf8");
+    const raw = await fs.readFile(getProjectsStatePath(), "utf8");
     const json = JSON.parse(raw) as ProjectsState;
     return { lastId: typeof json.lastId === "number" ? json.lastId : 0 };
   } catch {
@@ -125,9 +127,9 @@ async function readProjectsState(): Promise<ProjectsState> {
 }
 
 async function writeProjectsState(state: ProjectsState): Promise<void> {
-  await ensureDir(CONFIG_DIR);
+  await ensureDir(getProjectsContext().getDataDir());
   await fs.writeFile(
-    PROJECTS_STATE_PATH,
+    getProjectsStatePath(),
     JSON.stringify(state, null, 2),
     "utf8"
   );

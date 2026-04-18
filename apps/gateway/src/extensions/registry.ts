@@ -43,7 +43,9 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
   projects: {
     load: () =>
-      import("./projects/index.js").then((module) => module.projectsExtension),
+      import("@aihub/extension-projects").then(
+        (module) => module.projectsExtension
+      ),
     getConfig: (config) => config.extensions?.projects,
     routePrefixes: [
       "/api/areas",

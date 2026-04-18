@@ -3,6 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
 
+let clearProjectsContextForTest: (() => void) | undefined;
+
 describe("projects API", () => {
   let tmpDir: string;
   let projectsRoot: string;
@@ -46,12 +48,38 @@ describe("projects API", () => {
     );
 
     vi.resetModules();
+    const { setProjectsContext, clearProjectsContext } = await import(
+      "../context.js"
+    );
+    clearProjectsContextForTest = clearProjectsContext;
+    setProjectsContext({
+      getConfig: () => config,
+      getDataDir: () => path.join(tmpDir, ".aihub"),
+      getAgents: () => config.agents,
+      getAgent: (id: string) => config.agents.find((agent) => agent.id === id),
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => tmpDir,
+      runAgent: async () => ({ ok: true as const, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: () => {},
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as never);
+
     const { clearConfigCacheForTests, loadConfig } = await import(
-      "../config/index.js"
+      "../../../../../apps/gateway/src/config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadExtensions } = await import("../extensions/registry.js");
-    const mod = await import("../server/api.core.js");
+    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -60,6 +88,9 @@ describe("projects API", () => {
   });
 
   afterAll(async () => {
+    clearProjectsContextForTest?.();
+    clearProjectsContextForTest = undefined;
+
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

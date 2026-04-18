@@ -6,20 +6,20 @@ import {
   UpdateProjectRequestSchema,
   type GatewayConfig,
 } from "@aihub/shared";
-import { recordCommentActivity } from "../activity/index.js";
-import { loadConfig } from "../config/index.js";
 import {
+  recordCommentActivity,
   appendProjectComment,
   createProject,
   getProject,
   updateProject,
   type ProjectCommentResult,
   type ProjectItemResult,
-} from "../projects/index.js";
+} from "@aihub/extension-projects";
 import {
   createSubagentToolHandlers,
   type SubagentToolHandlers,
-} from "../subagents/tool_handlers.js";
+} from "@aihub/extension-projects/tool-handlers";
+import { loadConfig } from "../config/index.js";
 import { validateContainerToken } from "../sdk/container/tokens.js";
 
 const InternalToolRequestSchema = z.object({
