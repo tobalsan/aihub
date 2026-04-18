@@ -73,9 +73,6 @@ export function loadConfig(): GatewayConfig {
   // Apply defaults
   for (const agent of result.agents) {
     if (!agent.queueMode) agent.queueMode = "queue";
-    if (agent.amsg && agent.amsg.enabled === undefined) {
-      agent.amsg.enabled = true;
-    }
   }
 
   cachedConfig = result;
