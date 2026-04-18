@@ -308,90 +308,98 @@ describe("createSlackBot", () => {
   });
 
   it("streams thinking into a thread and deletes it by default", async () => {
-    const { createSlackBot } = await import("./bot.js");
-    const bot = createSlackBot([agent], {
-      ...config,
-      showThinking: true,
-    });
-    await bot?.start();
+    vi.useFakeTimers();
+    try {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], {
+        ...config,
+        showThinking: true,
+      });
+      await bot?.start();
 
-    mockRunAgent.mockImplementationOnce(async (params) => {
-      await Promise.all(
-        streamHandlers.map((handler) =>
-          handler({
-            type: "thinking",
-            data: "first thought",
-            agentId: params.agentId,
-            sessionId: "session",
-            sessionKey: params.sessionKey,
-            source: "slack",
-          })
-        )
-      );
-      await Promise.all(
-        streamHandlers.map((handler) =>
-          handler({
-            type: "thinking",
-            data: "wrong session",
-            agentId: params.agentId,
-            sessionId: "other-session",
-            sessionKey: params.sessionKey,
-            source: "slack",
-          })
-        )
-      );
-      await Promise.all(
-        streamHandlers.map((handler) =>
-          handler({
-            type: "thinking",
-            data: "second thought",
-            agentId: params.agentId,
-            sessionId: "session",
-            sessionKey: params.sessionKey,
-            source: "slack",
-          })
-        )
-      );
-      return {
-        payloads: [{ text: "ok" }],
-        meta: { durationMs: 1, sessionId: "session" },
-      };
-    });
+      mockRunAgent.mockImplementationOnce(async (params) => {
+        await Promise.all(
+          streamHandlers.map((handler) =>
+            handler({
+              type: "thinking",
+              data: "first thought",
+              agentId: params.agentId,
+              sessionId: "session",
+              sessionKey: params.sessionKey,
+              source: "slack",
+            })
+          )
+        );
+        // Advance past throttle interval so next update goes through
+        vi.advanceTimersByTime(4000);
+        await Promise.all(
+          streamHandlers.map((handler) =>
+            handler({
+              type: "thinking",
+              data: "wrong session",
+              agentId: params.agentId,
+              sessionId: "other-session",
+              sessionKey: params.sessionKey,
+              source: "slack",
+            })
+          )
+        );
+        vi.advanceTimersByTime(4000);
+        await Promise.all(
+          streamHandlers.map((handler) =>
+            handler({
+              type: "thinking",
+              data: "second thought",
+              agentId: params.agentId,
+              sessionId: "session",
+              sessionKey: params.sessionKey,
+              source: "slack",
+            })
+          )
+        );
+        return {
+          payloads: [{ text: "ok" }],
+          meta: { durationMs: 1, sessionId: "session" },
+        };
+      });
 
-    const messageHandler = getMessageHandler(apps[0]);
-    await messageHandler({
-      message: {
-        ts: "1.1",
-        text: "hello",
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "hello",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C1",
+          text: "_🧠 Thinking: first thought..._",
+          thread_ts: "1.1",
+        })
+      );
+      expect(apps[0].client.chat.update).toHaveBeenCalledWith({
         channel: "C1",
-        user: "U1",
-        channel_type: "channel",
-      },
-      client: apps[0].client,
-    });
-
-    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
+        ts: "reply-ts",
+        text: "_🧠 Thinking: second thought..._",
+        mrkdwn: true,
+      });
+      expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "_🧠 Thinking: wrong session..._",
+        })
+      );
+      expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
         channel: "C1",
-        text: "_🧠 Thinking: first thought..._",
-        thread_ts: "1.1",
-      })
-    );
-    expect(apps[0].client.chat.update).toHaveBeenCalledWith({
-      channel: "C1",
-      ts: "reply-ts",
-      text: "_🧠 Thinking: second thought..._",
-      mrkdwn: true,
-    });
-    expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: "_🧠 Thinking: wrong session..._",
-      })
-    );
-    expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
-      channel: "C1",
-      ts: "reply-ts",
-    });
+        ts: "reply-ts",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for pending thinking post before cleanup deletes it", async () => {
@@ -464,85 +472,92 @@ describe("createSlackBot", () => {
   });
 
   it("overrides tentative session binding with runAgent sessionId", async () => {
-    const { createSlackBot } = await import("./bot.js");
-    const bot = createSlackBot([agent], {
-      ...config,
-      showThinking: true,
-    });
-    await bot?.start();
+    vi.useFakeTimers();
+    try {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], {
+        ...config,
+        showThinking: true,
+      });
+      await bot?.start();
 
-    apps[0].client.chat.postMessage.mockImplementation(async (message) => {
-      if (message.text === "ok") {
+      apps[0].client.chat.postMessage.mockImplementation(async (message) => {
+        if (message.text === "ok") {
+          vi.advanceTimersByTime(4000);
+          await Promise.all(
+            streamHandlers.map((handler) =>
+              handler({
+                type: "thinking",
+                data: "stale after result",
+                agentId: "main",
+                sessionId: "stale-session",
+                sessionKey: "slack:C1",
+                source: "slack",
+              })
+            )
+          );
+          vi.advanceTimersByTime(4000);
+          await Promise.all(
+            streamHandlers.map((handler) =>
+              handler({
+                type: "thinking",
+                data: "correct after result",
+                agentId: "main",
+                sessionId: "correct-session",
+                sessionKey: "slack:C1",
+                source: "slack",
+              })
+            )
+          );
+        }
+        return { ts: message.text?.includes("Thinking") ? "thinking-ts" : "reply-ts" };
+      });
+
+      mockRunAgent.mockImplementationOnce(async (params) => {
         await Promise.all(
           streamHandlers.map((handler) =>
             handler({
               type: "thinking",
-              data: "stale after result",
-              agentId: "main",
+              data: "tentative stale",
+              agentId: params.agentId,
               sessionId: "stale-session",
-              sessionKey: "slack:C1",
+              sessionKey: params.sessionKey,
               source: "slack",
             })
           )
         );
-        await Promise.all(
-          streamHandlers.map((handler) =>
-            handler({
-              type: "thinking",
-              data: "correct after result",
-              agentId: "main",
-              sessionId: "correct-session",
-              sessionKey: "slack:C1",
-              source: "slack",
-            })
-          )
-        );
-      }
-      return { ts: message.text?.includes("Thinking") ? "thinking-ts" : "reply-ts" };
-    });
+        return {
+          payloads: [{ text: "ok" }],
+          meta: { durationMs: 1, sessionId: "correct-session" },
+        };
+      });
 
-    mockRunAgent.mockImplementationOnce(async (params) => {
-      await Promise.all(
-        streamHandlers.map((handler) =>
-          handler({
-            type: "thinking",
-            data: "tentative stale",
-            agentId: params.agentId,
-            sessionId: "stale-session",
-            sessionKey: params.sessionKey,
-            source: "slack",
-          })
-        )
-      );
-      return {
-        payloads: [{ text: "ok" }],
-        meta: { durationMs: 1, sessionId: "correct-session" },
-      };
-    });
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "hello",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
 
-    const messageHandler = getMessageHandler(apps[0]);
-    await messageHandler({
-      message: {
-        ts: "1.1",
-        text: "hello",
+      expect(apps[0].client.chat.update).toHaveBeenCalledWith({
         channel: "C1",
-        user: "U1",
-        channel_type: "channel",
-      },
-      client: apps[0].client,
-    });
-
-    expect(apps[0].client.chat.update).toHaveBeenCalledWith({
-      channel: "C1",
-      ts: "thinking-ts",
-      text: "_🧠 Thinking: correct after result..._",
-      mrkdwn: true,
-    });
-    expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: "_🧠 Thinking: stale after result..._",
-      })
-    );
+        ts: "thinking-ts",
+        text: "_🧠 Thinking: correct after result..._",
+        mrkdwn: true,
+      });
+      expect(apps[0].client.chat.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "_🧠 Thinking: stale after result..._",
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps thinking message when configured", async () => {

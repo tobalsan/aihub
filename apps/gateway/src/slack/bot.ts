@@ -63,7 +63,8 @@ type ThinkingStreamDisplay = {
   setSessionId: (sessionId: string | undefined) => void;
 };
 
-const MAX_THINKING_CHARS = 500;
+const MAX_THINKING_CHARS = 3000;
+const THINKING_UPDATE_INTERVAL_MS = 3000;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
@@ -196,6 +197,8 @@ function startThinkingStreamDisplay(params: {
   let posting = false;
   let pendingPost: Promise<void> | null = null;
   let latestText: string | undefined;
+  let lastUpdateTime = 0;
+  let throttleTimer: ReturnType<typeof setTimeout> | null = null;
 
   const setSessionId = (sessionId: string | undefined) => {
     if (!sessionId) return;
@@ -214,52 +217,69 @@ function startThinkingStreamDisplay(params: {
     return true;
   };
 
+  const doUpdate = async (text: string) => {
+    if (!messageTs || closed) return;
+    try {
+      await client.chat.update({ channel, ts: messageTs, text, mrkdwn: true });
+      lastUpdateTime = Date.now();
+    } catch (err) {
+      console.debug(`${logPrefix} Thinking message update failed:`, err);
+    }
+  };
+
   const publishThinking = async (text: string) => {
     latestText = text;
-    if (messageTs) {
-      await client.chat.update({ channel, ts: messageTs, text, mrkdwn: true });
-      return;
-    }
-    if (posting) {
+
+    // First message: post it immediately
+    if (!messageTs && !posting) {
+      posting = true;
+      pendingPost = (async () => {
+        try {
+          const result = await client.chat.postMessage({
+            channel,
+            text,
+            mrkdwn: true,
+            thread_ts: threadTs,
+            unfurl_links: false,
+            unfurl_media: false,
+          });
+          messageTs = result.ts;
+          lastUpdateTime = Date.now();
+        } catch (err) {
+          console.debug(`${logPrefix} Thinking message post failed:`, err);
+        } finally {
+          posting = false;
+          pendingPost = null;
+        }
+      })();
       await pendingPost;
       return;
     }
 
-    posting = true;
-    const postedText = text;
-    pendingPost = (async () => {
-      try {
-        const result = await client.chat.postMessage({
-          channel,
-          text: postedText,
-          mrkdwn: true,
-          thread_ts: threadTs,
-          unfurl_links: false,
-          unfurl_media: false,
-        });
-        messageTs = result.ts;
-        if (!closed && messageTs && latestText && latestText !== postedText) {
-          await client.chat.update({
-            channel,
-            ts: messageTs,
-            text: latestText,
-            mrkdwn: true,
-          });
+    // Still posting the first message — just buffer
+    if (posting) return;
+
+    // Throttle updates: if enough time has passed, update now
+    const elapsed = Date.now() - lastUpdateTime;
+    if (elapsed >= THINKING_UPDATE_INTERVAL_MS) {
+      if (throttleTimer) { clearTimeout(throttleTimer); throttleTimer = null; }
+      await doUpdate(text);
+    } else if (!throttleTimer) {
+      // Schedule a trailing update
+      throttleTimer = setTimeout(() => {
+        throttleTimer = null;
+        if (!closed && latestText && messageTs) {
+          doUpdate(latestText);
         }
-      } catch (err) {
-        console.debug(`${logPrefix} Thinking message update failed:`, err);
-      } finally {
-        posting = false;
-        pendingPost = null;
-      }
-    })();
-    await pendingPost;
+      }, THINKING_UPDATE_INTERVAL_MS - elapsed);
+    }
   };
 
   const cleanup = async () => {
     if (closed) return;
     closed = true;
     unsubscribe();
+    if (throttleTimer) { clearTimeout(throttleTimer); throttleTimer = null; }
     await pendingPost;
     if (!deleteOnComplete || !messageTs) return;
     try {
