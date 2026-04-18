@@ -60,18 +60,22 @@ async function runControlCommand(
   }
 }
 
-export function handleNewCommand(
+export async function handleNewCommand(
   command: SlackCommandData,
   target: SlackCommandTarget,
   respond: SlackRespond
 ): Promise<void> {
-  return runControlCommand(
+  await respond({
+    text: "Context cleared, new session started.",
+    response_type: "ephemeral",
+  });
+  runControlCommand(
     command,
     target,
     respond,
     "/new",
     "New conversation started."
-  );
+  ).catch(() => {});
 }
 
 export function handleAbortCommand(

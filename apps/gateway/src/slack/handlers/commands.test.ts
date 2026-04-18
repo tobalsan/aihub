@@ -65,7 +65,7 @@ describe("Slack command handlers", () => {
       })
     );
     expect(respond).toHaveBeenCalledWith({
-      text: "ok",
+      text: "Context cleared, new session started.",
       response_type: "ephemeral",
     });
   });
