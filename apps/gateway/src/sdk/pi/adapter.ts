@@ -28,7 +28,7 @@ import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
-import { getLoadedComponents } from "../../components/registry.js";
+import { getLoadedExtensions } from "../../extensions/registry.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
 import {
   appendAttachmentContext,
@@ -109,7 +109,7 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
 }
 
 function hasProjectsComponentEnabled(): boolean {
-  return getLoadedComponents().some((component) => component.id === "projects");
+  return getLoadedExtensions().some((extension) => extension.id === "projects");
 }
 
 async function withPiOnecliEnv<T>(

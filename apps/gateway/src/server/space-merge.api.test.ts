@@ -45,7 +45,9 @@ describe("space merge API", () => {
     ({
       agents: [],
       sessions: { idleMinutes: 360 },
-      projects: { root: projectsRoot },
+      extensions: {
+        projects: { enabled: true, root: projectsRoot },
+      },
     }) as unknown as GatewayConfig;
 
   beforeAll(async () => {
@@ -75,8 +77,7 @@ describe("space merge API", () => {
               },
             },
           ],
-          projects: { root: projectsRoot },
-          components: {
+          extensions: {
             projects: { enabled: true, root: projectsRoot },
           },
         },
@@ -90,12 +91,12 @@ describe("space merge API", () => {
       "../config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("./api.core.js");
     api = mod.api;
-    const components = await loadComponents(loadConfig());
-    for (const component of components) {
-      component.registerRoutes(api as never);
+    const extensions = await loadExtensions(loadConfig());
+    for (const extension of extensions) {
+      extension.registerRoutes(api as never);
     }
   });
 

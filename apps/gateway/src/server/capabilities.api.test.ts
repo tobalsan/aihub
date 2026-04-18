@@ -28,7 +28,7 @@ describe("/capabilities API", () => {
             model: { provider: "anthropic", model: "claude" },
           },
         ],
-        components: {
+        extensions: {
           scheduler: { enabled: true, tickSeconds: 60 },
         },
       })
@@ -38,8 +38,8 @@ describe("/capabilities API", () => {
     const { clearConfigCacheForTests, loadConfig } =
       await import("../config/index.js");
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
-    await loadComponents(loadConfig());
+    const { loadExtensions } = await import("../extensions/registry.js");
+    await loadExtensions(loadConfig());
   });
 
   afterAll(async () => {
@@ -57,7 +57,7 @@ describe("/capabilities API", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       version: 2,
-      components: { scheduler: true },
+      extensions: { scheduler: true },
       agents: ["main"],
       multiUser: false,
     });

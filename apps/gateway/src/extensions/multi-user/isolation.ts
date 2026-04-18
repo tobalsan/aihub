@@ -14,14 +14,6 @@ export function getUserSessionsPath(
     : path.join(baseDir, "sessions.json");
 }
 
-export function getUserClaudeSessionsPath(
-  userId?: string,
-  baseDir = CONFIG_DIR
-): string {
-  return userId
-    ? path.join(getUserDataDir(userId, baseDir), "claude-sessions.json")
-    : path.join(baseDir, "claude-sessions.json");
-}
 
 export function getUserHistoryDir(
   userId?: string,

@@ -1,6 +1,6 @@
 import {
-  SlackComponentConfigSchema,
-  type Component,
+  SlackExtensionConfigSchema,
+  type Extension,
 } from "@aihub/shared";
 import {
   startSlackBots,
@@ -8,14 +8,15 @@ import {
   createSlackAgentBot,
 } from "../../slack/index.js";
 
-const slackComponent: Component = {
+const slackExtension: Extension = {
   id: "slack",
   displayName: "Slack",
+  description: "Slack integration for channel and DM routing",
   dependencies: [],
-  requiredSecrets: [],
+  configSchema: SlackExtensionConfigSchema,
   routePrefixes: [],
   validateConfig(raw) {
-    // Per-agent sentinel or no component config — always valid
+    // Per-agent sentinel or no extension config — always valid
     if (
       !raw ||
       (typeof raw === "object" &&
@@ -24,7 +25,7 @@ const slackComponent: Component = {
     ) {
       return { valid: true, errors: [] };
     }
-    const result = SlackComponentConfigSchema.safeParse(raw);
+    const result = SlackExtensionConfigSchema.safeParse(raw);
     return {
       valid: result.success,
       errors: result.success
@@ -34,11 +35,11 @@ const slackComponent: Component = {
   },
   registerRoutes() {},
   async start(ctx) {
-    const rawConfig = ctx.getConfig().components?.slack;
+    const rawConfig = ctx.getConfig().extensions?.slack;
 
-    // Start shared component bot (if components.slack has valid token/appToken)
+    // Start shared extension bot (if extensions.slack has valid token/appToken)
     if (rawConfig) {
-      const parsed = SlackComponentConfigSchema.safeParse(rawConfig);
+      const parsed = SlackExtensionConfigSchema.safeParse(rawConfig);
       if (parsed.success) {
         await startSlackBots({
           agents: ctx.getAgents(),
@@ -71,4 +72,4 @@ const slackComponent: Component = {
   },
 };
 
-export { slackComponent };
+export { slackExtension };

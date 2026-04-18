@@ -23,9 +23,9 @@ vi.mock("../config/index.js", () => ({
   resolveWorkspaceDir,
 }));
 
-vi.mock("../components/registry.js", () => ({
-  getLoadedComponents: () => [],
-  isComponentLoaded: () => false,
+vi.mock("../extensions/registry.js", () => ({
+  getLoadedExtensions: () => [],
+  isExtensionLoaded: () => false,
 }));
 
 vi.mock("../agents/index.js", () => ({

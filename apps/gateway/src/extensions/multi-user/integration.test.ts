@@ -102,16 +102,18 @@ describe("multi-user integration", () => {
               model: { provider: "anthropic", model: "claude" },
             },
           ],
-          multiUser: {
-            enabled: true,
-            oauth: {
-              google: {
-                clientId: "client-id",
-                clientSecret: "client-secret",
+          extensions: {
+            multiUser: {
+              enabled: true,
+              oauth: {
+                google: {
+                  clientId: "client-id",
+                  clientSecret: "client-secret",
+                },
               },
+              allowedDomains: ["example.com"],
+              sessionSecret: "x".repeat(32),
             },
-            allowedDomains: ["example.com"],
-            sessionSecret: "x".repeat(32),
           },
         })
       );
@@ -128,27 +130,45 @@ describe("multi-user integration", () => {
         forwardAuthContextToRequest,
       } = await import("./middleware.js");
       const { getAuthDbPath } = await import("./db.js");
-      const { multiUserComponent, getMultiUserRuntime } =
+      const { multiUserExtension, getMultiUserRuntime } =
         await import("./index.js");
 
-      expect(multiUserComponent.validateConfig(config.multiUser)).toEqual({
+      expect(
+        multiUserExtension.validateConfig(config.extensions?.multiUser)
+      ).toEqual({
         valid: true,
         errors: [],
       });
 
-      multiUserComponent.registerRoutes(api as never);
-      await multiUserComponent.start({
-        resolveSecret: async () => {
-          throw new Error("not used");
-        },
+      multiUserExtension.registerRoutes(api as never);
+      await multiUserExtension.start({
+        getConfig: () => config,
+        getDataDir: () => "/tmp",
         getAgent: (agentId) =>
           config.agents.find((agent) => agent.id === agentId),
         getAgents: () => config.agents,
+        isAgentActive: () => true,
+        isAgentStreaming: () => false,
+        resolveWorkspaceDir: () => "/tmp",
         runAgent: async () => ({
           payloads: [],
           meta: { durationMs: 0, sessionId: "session" },
         }),
-        getConfig: () => config,
+        getSubagentTemplates: () => [],
+        resolveSessionId: async () => undefined,
+        getSessionEntry: async () => undefined,
+        clearSessionEntry: async () => undefined,
+        restoreSessionUpdatedAt: () => undefined,
+        deleteSession: () => undefined,
+        invalidateHistoryCache: async () => undefined,
+        getSessionHistory: async () => [],
+        subscribe: () => () => undefined,
+        emit: () => undefined,
+        logger: {
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined,
+        },
       });
 
       const app = createApiApp({
@@ -187,7 +207,7 @@ describe("multi-user integration", () => {
         error: "unauthorized",
       });
 
-      await multiUserComponent.stop();
+      await multiUserExtension.stop();
     } finally {
       restoreEnv(previousEnv);
     }
@@ -236,7 +256,7 @@ describe("multi-user integration", () => {
       expect(capabilitiesResponse.status).toBe(200);
       await expect(capabilitiesResponse.json()).resolves.toEqual({
         version: 2,
-        components: {},
+        extensions: {},
         agents: ["main"],
         multiUser: false,
       });
@@ -256,7 +276,7 @@ describe("multi-user integration", () => {
       ]);
 
       await expect(fs.access(getAuthDbPath())).rejects.toThrow();
-      expect(config.multiUser).toBeUndefined();
+      expect(config.extensions?.multiUser).toBeUndefined();
     } finally {
       restoreEnv(previousEnv);
     }
@@ -292,8 +312,8 @@ describe("multi-user integration", () => {
         await import("../../config/index.js");
       clearConfigCacheForTests();
 
-      const { loadComponents } = await import("../../components/registry.js");
-      await loadComponents(loadConfig());
+      const { loadExtensions } = await import("../../extensions/registry.js");
+      await loadExtensions(loadConfig());
 
       const { api } = await import("../../server/api.core.js");
       await expect(import("../../server/index.js")).resolves.toHaveProperty(
@@ -304,7 +324,7 @@ describe("multi-user integration", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
         version: 2,
-        components: {},
+        extensions: {},
         agents: ["main"],
         multiUser: false,
       });

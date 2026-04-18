@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { GatewayConfigSchema, type ComponentContext } from "@aihub/shared";
+import { GatewayConfigSchema, type ExtensionContext } from "@aihub/shared";
 
 const startDiscordBots = vi.fn();
 const stopDiscordBots = vi.fn();
@@ -15,7 +15,7 @@ describe("discord component", () => {
   });
 
   it("resolves component token and starts a single routed bot", async () => {
-    const { discordComponent } = await import("./index.js");
+    const { discordExtension } = await import("./index.js");
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -26,7 +26,7 @@ describe("discord component", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         discord: {
           enabled: true,
           token: "env-token",
@@ -39,14 +39,32 @@ describe("discord component", () => {
     });
 
     const ctx = {
-      resolveSecret: vi.fn(),
+      getConfig: () => config,
+      getDataDir: () => "/tmp",
       getAgent: (id: string) => config.agents.find((agent) => agent.id === id),
       getAgents: () => config.agents,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => "/tmp",
       runAgent: vi.fn(),
-      getConfig: () => config,
-    } satisfies ComponentContext;
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => undefined,
+      deleteSession: () => undefined,
+      invalidateHistoryCache: async () => undefined,
+      getSessionHistory: async () => [],
+      subscribe: () => () => undefined,
+      emit: () => undefined,
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    } satisfies ExtensionContext;
 
-    await discordComponent.start(ctx);
+    await discordExtension.start(ctx);
 
     expect(startDiscordBots).toHaveBeenCalledWith({
       agents: config.agents,
@@ -58,11 +76,10 @@ describe("discord component", () => {
         dm: { enabled: true, agent: "main" },
       }),
     });
-    expect(ctx.resolveSecret).not.toHaveBeenCalled();
   });
 
   it("uses already resolved config values", async () => {
-    const { discordComponent } = await import("./index.js");
+    const { discordExtension } = await import("./index.js");
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -73,7 +90,7 @@ describe("discord component", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         discord: {
           enabled: true,
           token: "secret-token",
@@ -85,16 +102,33 @@ describe("discord component", () => {
     });
 
     const ctx = {
-      resolveSecret: vi.fn().mockResolvedValue("secret-token"),
+      getConfig: () => config,
+      getDataDir: () => "/tmp",
       getAgent: (id: string) => config.agents.find((agent) => agent.id === id),
       getAgents: () => config.agents,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => "/tmp",
       runAgent: vi.fn(),
-      getConfig: () => config,
-    } satisfies ComponentContext;
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => undefined,
+      deleteSession: () => undefined,
+      invalidateHistoryCache: async () => undefined,
+      getSessionHistory: async () => [],
+      subscribe: () => () => undefined,
+      emit: () => undefined,
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    } satisfies ExtensionContext;
 
-    await discordComponent.start(ctx);
+    await discordExtension.start(ctx);
 
-    expect(ctx.resolveSecret).not.toHaveBeenCalled();
     expect(startDiscordBots).toHaveBeenCalledWith({
       agents: config.agents,
       componentConfig: expect.objectContaining({
@@ -104,9 +138,9 @@ describe("discord component", () => {
   });
 
   it("stops discord bots", async () => {
-    const { discordComponent } = await import("./index.js");
+    const { discordExtension } = await import("./index.js");
 
-    await discordComponent.stop();
+    await discordExtension.stop();
 
     expect(stopDiscordBots).toHaveBeenCalledOnce();
   });

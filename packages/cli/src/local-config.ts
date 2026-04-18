@@ -156,35 +156,32 @@ export function describeMigration(
 
   for (const agent of originalConfig.agents) {
     if (agent.discord?.token) {
-      actions.push(`Move agent "${agent.id}" discord config -> components.discord`);
+      actions.push(`Move agent "${agent.id}" discord config -> extensions.discord`);
     }
   }
 
-  if (originalConfig.scheduler) {
-    actions.push("Move scheduler config -> components.scheduler");
+  const legacyOriginal = originalConfig as typeof originalConfig & {
+    scheduler?: unknown;
+  };
+
+  if (legacyOriginal.scheduler) {
+    actions.push("Move scheduler config -> extensions.scheduler");
   } else if (
     originalConfig.agents.some((agent) => agent.heartbeat) &&
-    migratedConfig.components?.scheduler
+    migratedConfig.extensions?.scheduler
   ) {
-    actions.push("Add components.scheduler");
+    actions.push("Add extensions.scheduler");
   }
 
-  if (originalConfig.projects && migratedConfig.components?.projects) {
-    actions.push("Move projects config -> components.projects");
+  if (originalConfig.projects && migratedConfig.extensions?.projects) {
+    actions.push("Move projects config -> extensions.projects");
   }
 
   if (
     originalConfig.agents.some((agent) => agent.heartbeat) &&
-    migratedConfig.components?.heartbeat
+    migratedConfig.extensions?.heartbeat
   ) {
-    actions.push("Add components.heartbeat");
-  }
-
-  if (
-    originalConfig.agents.some((agent) => agent.amsg && agent.amsg.enabled !== false) &&
-    migratedConfig.components?.amsg
-  ) {
-    actions.push("Add components.amsg");
+    actions.push("Add extensions.heartbeat");
   }
 
   if (

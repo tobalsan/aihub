@@ -1,4 +1,4 @@
-import { GatewayConfigSchema, type ComponentContext } from "@aihub/shared";
+import { GatewayConfigSchema, type ExtensionContext } from "@aihub/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const startSlackBots = vi.fn();
@@ -15,7 +15,7 @@ describe("slack component", () => {
   });
 
   it("starts a routed Slack bot", async () => {
-    const { slackComponent } = await import("./index.js");
+    const { slackExtension } = await import("./index.js");
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -26,7 +26,7 @@ describe("slack component", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         slack: {
           enabled: true,
           token: "xoxb-test",
@@ -40,14 +40,32 @@ describe("slack component", () => {
     });
 
     const ctx = {
-      resolveSecret: vi.fn(),
+      getConfig: () => config,
+      getDataDir: () => "/tmp",
       getAgent: (id: string) => config.agents.find((agent) => agent.id === id),
       getAgents: () => config.agents,
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => "/tmp",
       runAgent: vi.fn(),
-      getConfig: () => config,
-    } satisfies ComponentContext;
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => undefined,
+      deleteSession: () => undefined,
+      invalidateHistoryCache: async () => undefined,
+      getSessionHistory: async () => [],
+      subscribe: () => () => undefined,
+      emit: () => undefined,
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    } satisfies ExtensionContext;
 
-    await slackComponent.start(ctx);
+    await slackExtension.start(ctx);
 
     expect(startSlackBots).toHaveBeenCalledWith({
       agents: config.agents,
@@ -60,8 +78,8 @@ describe("slack component", () => {
   });
 
   it("stops Slack bots", async () => {
-    const { slackComponent } = await import("./index.js");
-    await slackComponent.stop();
+    const { slackExtension } = await import("./index.js");
+    await slackExtension.stop();
     expect(stopSlackBots).toHaveBeenCalledOnce();
   });
 });

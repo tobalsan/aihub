@@ -42,8 +42,7 @@ describe("areas + tasks API", () => {
               },
             },
           ],
-          projects: { root: projectsRoot },
-          components: {
+          extensions: {
             projects: { enabled: true, root: projectsRoot },
           },
         },
@@ -57,12 +56,12 @@ describe("areas + tasks API", () => {
       "../config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("./api.core.js");
     api = mod.api;
-    const components = await loadComponents(loadConfig());
-    for (const component of components) {
-      component.registerRoutes(api as never);
+    const extensions = await loadExtensions(loadConfig());
+    for (const extension of extensions) {
+      extension.registerRoutes(api as never);
     }
   });
 

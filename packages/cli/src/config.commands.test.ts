@@ -49,7 +49,6 @@ describe("apm config commands", () => {
                 channelId: "123",
               },
               heartbeat: { every: "30m" },
-              amsg: { enabled: true },
             },
           ],
           scheduler: { enabled: true, tickSeconds: 60 },
@@ -68,7 +67,7 @@ describe("apm config commands", () => {
     expect(output).toContain("Migration would:");
     expect(
       output.some((line) =>
-        line.includes('Move agent "main" discord config -> components.discord')
+        line.includes('Move agent "main" discord config -> extensions.discord')
       )
     ).toBe(true);
     expect(output).toContain("No changes written (dry run).");
@@ -89,7 +88,6 @@ describe("apm config commands", () => {
               name: "Main",
               workspace: "~/agents/main",
               model: { provider: "anthropic", model: "claude" },
-              amsg: { enabled: true },
             },
           ],
         },
@@ -102,14 +100,13 @@ describe("apm config commands", () => {
 
     const migrated = JSON.parse(await fs.readFile(configPath, "utf8")) as {
       version?: number;
-      components?: Record<string, unknown>;
+      extensions?: Record<string, unknown>;
     };
     const backupPath = configPath.replace(/\.json$/i, ".v1.json");
     const backup = await fs.readFile(backupPath, "utf8");
     const output = logSpy.mock.calls.map(([line]) => String(line));
 
     expect(migrated.version).toBe(2);
-    expect(migrated.components).toHaveProperty("amsg");
     expect(backup).not.toContain('"version": 2');
     expect(output).toContain(`Migrated ${configPath} from v1 -> v2`);
     expect(output).toContain(`Backup saved to ${backupPath}`);

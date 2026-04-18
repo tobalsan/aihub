@@ -4,7 +4,7 @@ import { Hono } from "hono";
 const getMultiUserRuntime = vi.fn();
 const getAgent = vi.fn();
 const getActiveAgents = vi.fn();
-const getLoadedComponents = vi.fn();
+const getLoadedExtensions = vi.fn();
 
 vi.mock("./index.js", async () => {
   const actual =
@@ -39,15 +39,15 @@ vi.mock("../../config/index.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../components/registry.js", () => ({
-  getLoadedComponents,
+vi.mock("../../extensions/registry.js", () => ({
+  getLoadedExtensions,
   isMultiUserLoaded: () =>
-    getLoadedComponents().some(
-      (component: { id?: string }) => component.id === "multiUser"
+    getLoadedExtensions().some(
+      (extension: { id?: string }) => extension.id === "multiUser"
     ),
-  isComponentLoaded: (id: string) =>
-    getLoadedComponents().some(
-      (component: { id?: string }) => component.id === id
+  isExtensionLoaded: (id: string) =>
+    getLoadedExtensions().some(
+      (extension: { id?: string }) => extension.id === id
     ),
 }));
 
@@ -274,7 +274,7 @@ beforeEach(() => {
       workspace: "/tmp/b",
     },
   ]);
-  getLoadedComponents.mockReturnValue([{ id: "multiUser" }]);
+  getLoadedExtensions.mockReturnValue([{ id: "multiUser" }]);
 });
 
 afterEach(() => {
@@ -626,7 +626,7 @@ describe("multi-user api core", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       version: 2,
-      components: { multiUser: true },
+      extensions: { multiUser: true },
       agents: ["agent-b"],
       multiUser: true,
       user: {

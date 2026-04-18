@@ -1,21 +1,22 @@
 import {
-  LangfuseComponentConfigSchema,
-  type Component,
-  type ComponentContext,
+  LangfuseExtensionConfigSchema,
+  type Extension,
+  type ExtensionContext,
 } from "@aihub/shared";
 import { agentEventBus } from "../../agents/events.js";
 import { LangfuseTracer } from "./tracer.js";
 
 let tracer: LangfuseTracer | undefined;
 
-const langfuseComponent: Component = {
+const langfuseExtension: Extension = {
   id: "langfuse",
   displayName: "Langfuse",
+  description: "Langfuse tracing for agent runs",
   dependencies: [],
-  requiredSecrets: [],
+  configSchema: LangfuseExtensionConfigSchema,
   routePrefixes: [],
   validateConfig(raw) {
-    const result = LangfuseComponentConfigSchema.safeParse(raw);
+    const result = LangfuseExtensionConfigSchema.safeParse(raw);
     if (!result.success) {
       return {
         valid: false,
@@ -34,9 +35,9 @@ const langfuseComponent: Component = {
     return { valid: errors.length === 0, errors };
   },
   registerRoutes() {},
-  async start(ctx: ComponentContext) {
-    const config = LangfuseComponentConfigSchema.parse(
-      ctx.getConfig().components?.langfuse
+  async start(ctx: ExtensionContext) {
+    const config = LangfuseExtensionConfigSchema.parse(
+      ctx.getConfig().extensions?.langfuse
     );
     tracer = new LangfuseTracer({
       publicKey: config.publicKey ?? process.env.LANGFUSE_PUBLIC_KEY!,
@@ -58,4 +59,4 @@ const langfuseComponent: Component = {
   },
 };
 
-export { langfuseComponent };
+export { langfuseExtension };

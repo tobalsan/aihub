@@ -1,7 +1,7 @@
 import {
   MultiUserConfigSchema,
-  type Component,
-  type ComponentContext,
+  type Extension,
+  type ExtensionContext,
 } from "@aihub/shared";
 import type { Hono } from "hono";
 import type Database from "better-sqlite3";
@@ -45,11 +45,12 @@ export function getAgentFilter(
   };
 }
 
-export const multiUserComponent: Component = {
+export const multiUserExtension: Extension = {
   id: "multiUser",
   displayName: "Multi-User Auth",
+  description: "OAuth authentication, sessions, and per-user agent access control",
   dependencies: [],
-  requiredSecrets: [],
+  configSchema: MultiUserConfigSchema,
   routePrefixes: ["/api/auth", "/api/me", "/api/admin"],
   validateConfig(raw) {
     const result = MultiUserConfigSchema.safeParse(raw);
@@ -63,8 +64,8 @@ export const multiUserComponent: Component = {
   registerRoutes(app: Hono) {
     registerMultiUserRoutes(app);
   },
-  async start(ctx: ComponentContext) {
-    const config = ctx.getConfig().multiUser;
+  async start(ctx: ExtensionContext) {
+    const config = ctx.getConfig().extensions?.multiUser;
     if (!config?.enabled) {
       throw new Error("multiUser config missing or disabled");
     }

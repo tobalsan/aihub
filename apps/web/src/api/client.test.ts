@@ -15,8 +15,6 @@ import {
   fetchAllSubagents,
   fetchSubagents,
   fetchSubagentLogs,
-  createProjectFromConversation,
-  postConversationMessage,
   spawnSubagent,
   spawnRalphLoop,
   interruptSubagent,
@@ -82,7 +80,7 @@ describe("api client (projects/subagents)", () => {
       ok: true,
       json: async () => ({
         version: 2,
-        components: { projects: true },
+        extensions: { projects: true },
         agents: ["main"],
         multiUser: false,
       }),
@@ -91,7 +89,7 @@ describe("api client (projects/subagents)", () => {
     const res = await fetchCapabilities();
 
     expectFetchCall("/api/capabilities");
-    expect(res.components.projects).toBe(true);
+    expect(res.extensions.projects).toBe(true);
   });
 
   it("fetches projects with area filter", async () => {
@@ -450,55 +448,6 @@ describe("api client (projects/subagents)", () => {
     });
     expect(res.ok).toBe(true);
     expect(res.sha).toBe("abc123");
-  });
-
-  it("creates project from conversation", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: "PRO-7",
-        title: "Routing",
-        path: "PRO-7_routing",
-      }),
-    });
-
-    const res = await createProjectFromConversation("conv-1", {
-      title: "Routing",
-    });
-
-    expectFetchCall(
-      "/api/conversations/conv-1/projects",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Routing" }),
-      }
-    );
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.data.id).toBe("PRO-7");
-    }
-  });
-
-  it("posts conversation message", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({ mentions: ["codex"] }),
-    });
-
-    const res = await postConversationMessage("conv-1", {
-      message: "Ping @codex",
-    });
-
-    expectFetchCall(
-      "/api/conversations/conv-1/messages",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "Ping @codex" }),
-      }
-    );
-    expect(res.mentions).toEqual(["codex"]);
   });
 
   it("spawns subagent", async () => {

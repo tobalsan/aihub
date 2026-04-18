@@ -15,7 +15,7 @@ function registerToken(token: string, agentId = "agent-1"): void {
 }
 
 function createDeps() {
-  const config = { agents: [], components: {} } as unknown as GatewayConfig;
+  const config = { agents: [], extensions: {} } as unknown as GatewayConfig;
   const subagents: SubagentToolHandlers = {
     spawn: vi.fn(),
     status: vi.fn().mockResolvedValue({
@@ -146,7 +146,7 @@ describe("internal tools", () => {
       title: "Project One",
     });
     expect(projects.get).toHaveBeenCalledWith(
-      { agents: [], components: {} },
+      { agents: [], extensions: {} },
       "PRO-1"
     );
   });

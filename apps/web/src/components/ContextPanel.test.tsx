@@ -27,7 +27,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../lib/capabilities", () => ({
-  isComponentEnabled: () => true,
+  isExtensionEnabled: () => true,
 }));
 
 vi.mock("./ActivityFeed", () => ({ ActivityFeed: () => null }));

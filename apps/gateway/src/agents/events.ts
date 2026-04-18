@@ -1,45 +1,20 @@
 import { EventEmitter } from "node:events";
-import type { StreamEvent } from "@aihub/shared";
-import type { HistoryEvent } from "../sdk/types.js";
+import type {
+  AgentHistoryEvent,
+  AgentStatusChangeEvent,
+  AgentStreamEvent,
+  ProjectAgentChangedEvent,
+  ProjectFileChangedEvent,
+} from "@aihub/shared";
 
-export type RunSource =
-  | "web"
-  | "discord"
-  | "slack"
-  | "amsg"
-  | "scheduler"
-  | "cli"
-  | "heartbeat";
-
-export type AgentStreamEvent = StreamEvent & {
-  agentId: string;
-  sessionId: string;
-  sessionKey?: string;
-  source?: RunSource;
-};
-
-export type AgentHistoryEvent = HistoryEvent & {
-  agentId: string;
-  sessionId: string;
-  sessionKey?: string;
-  source?: RunSource;
-};
-
-export type AgentStatusChangeEvent = {
-  agentId: string;
-  status: "streaming" | "idle";
-};
-
-export type ProjectFileChangedEvent = {
-  type: "file_changed";
-  projectId: string;
-  file: string;
-};
-
-export type ProjectAgentChangedEvent = {
-  type: "agent_changed";
-  projectId: string;
-};
+export type {
+  RunSource,
+  AgentStreamEvent,
+  AgentHistoryEvent,
+  AgentStatusChangeEvent,
+  ProjectFileChangedEvent,
+  ProjectAgentChangedEvent,
+} from "@aihub/shared";
 
 class AgentEventBus extends EventEmitter {
   private recentEvents: Array<{

@@ -32,7 +32,7 @@ describe("capabilities store", () => {
       status: 200,
       json: async () => ({
         version: 2,
-        components: { projects: true },
+        extensions: { projects: true },
         agents: ["main"],
         multiUser: false,
       }),

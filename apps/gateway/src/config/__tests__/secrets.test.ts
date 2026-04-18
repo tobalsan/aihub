@@ -35,14 +35,14 @@ describe("secret resolution", () => {
 
     await expect(
       resolveConfigSecrets({
-        components: {
+        extensions: {
           discord: {
             token: "$env:TEST_SECRET_ENV",
           },
         },
       })
     ).resolves.toEqual({
-      components: {
+      extensions: {
         discord: {
           token: "resolved",
         },

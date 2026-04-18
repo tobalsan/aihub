@@ -39,19 +39,17 @@ describe("config validation", () => {
             guildId: "123",
             channelId: "456",
           },
-          amsg: {
-            id: "test",
-            enabled: true,
-          },
         },
       ],
       server: {
         host: "0.0.0.0",
         port: 4000,
       },
-      scheduler: {
-        enabled: true,
-        tickSeconds: 60,
+      extensions: {
+        scheduler: {
+          enabled: true,
+          tickSeconds: 60,
+        },
       },
     };
 

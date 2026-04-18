@@ -1,20 +1,23 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ThinkLevel } from "@aihub/shared";
+import {
+  DEFAULT_MAIN_KEY,
+  type SessionEntry,
+  type ThinkLevel,
+} from "@aihub/shared";
 import { CONFIG_DIR, loadConfig } from "../config/index.js";
-import { getUserSessionsPath } from "../components/multi-user/isolation.js";
+import { getUserSessionsPath } from "../extensions/multi-user/isolation.js";
 
 export { formatSessionTimestamp } from "./files.js";
 
-export type SessionEntry = {
-  sessionId: string;
-  updatedAt: number;
-  createdAt?: number;
+export { DEFAULT_MAIN_KEY } from "@aihub/shared";
+export type { SessionEntry } from "@aihub/shared";
+
+type SessionStoreEntry = SessionEntry & {
   thinkLevel?: ThinkLevel;
 };
 
-export const DEFAULT_MAIN_KEY = "main";
 export const DEFAULT_IDLE_MINUTES = 360;
 export const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
 export const DEFAULT_ABORT_TRIGGERS = ["/abort", "/stop"];
@@ -38,7 +41,7 @@ export function isAbortTrigger(
 }
 
 type StoreState = {
-  store: Record<string, SessionEntry>;
+  store: Record<string, SessionStoreEntry>;
   loaded: boolean;
   loadPromise?: Promise<void>;
 };
@@ -74,7 +77,7 @@ async function ensureLoaded(userId?: string): Promise<void> {
       const parsed = JSON.parse(raw);
       state.store =
         parsed && typeof parsed === "object"
-          ? (parsed as Record<string, SessionEntry>)
+          ? (parsed as Record<string, SessionStoreEntry>)
           : {};
     } catch {
       state.store = {};

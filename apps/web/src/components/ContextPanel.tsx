@@ -13,7 +13,7 @@ import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
 import { AgentDirectory } from "./AgentDirectory";
 import { fetchAgents, fetchAllSubagents, fetchProjects } from "../api/client";
-import { isComponentEnabled } from "../lib/capabilities";
+import { isExtensionEnabled } from "../lib/capabilities";
 
 type ContextPanelProps = {
   collapsed: Accessor<boolean>;
@@ -103,7 +103,7 @@ export function ContextPanel(props: ContextPanelProps) {
   const [agents] = createResource(fetchAgents);
   const [subagents] = createResource(fetchAllSubagents);
   const [projects] = createResource(
-    () => isComponentEnabled("projects"),
+    () => isExtensionEnabled("projects"),
     async (enabled) => (enabled ? fetchProjects() : [])
   );
   const [recentViews, setRecentViews] = createSignal<RecentProjectView[]>(
@@ -333,7 +333,7 @@ export function ContextPanel(props: ContextPanelProps) {
       <Show
         when={
           mode() === "agents" &&
-          isComponentEnabled("projects") &&
+          isExtensionEnabled("projects") &&
           recentViews().length > 0
         }
       >

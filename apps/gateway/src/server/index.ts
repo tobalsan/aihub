@@ -22,9 +22,9 @@ import {
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import {
-  getKnownComponentRouteMetadata,
-  isComponentLoaded,
-} from "../components/registry.js";
+  getKnownExtensionRouteMetadata,
+  isExtensionLoaded,
+} from "../extensions/registry.js";
 import {
   resolveSessionId,
   getSessionEntry,
@@ -35,13 +35,13 @@ import { getSessionCurrentTurn, isStreaming } from "../agents/index.js";
 import { normalizeInboundAttachments } from "../sdk/attachments.js";
 
 type RequestAuthContext =
-  import("../components/multi-user/middleware.js").RequestAuthContext;
+  import("../extensions/multi-user/middleware.js").RequestAuthContext;
 
 const app = new Hono();
 const wsDebug = process.env.DEBUG?.includes("aihub:ws");
 
-type ComponentRouteMatcher = {
-  component: string;
+type ExtensionRouteMatcher = {
+  extension: string;
   matches: (path: string) => boolean;
 };
 
@@ -62,40 +62,40 @@ function routePrefixToMatcher(prefix: string): (path: string) => boolean {
   return (path) => regex.test(path);
 }
 
-function buildComponentRouteMatchers(): ComponentRouteMatcher[] {
-  return getKnownComponentRouteMetadata().flatMap((component) =>
-    component.routePrefixes.map((prefix) => ({
-      component: component.id,
+function buildExtensionRouteMatchers(): ExtensionRouteMatcher[] {
+  return getKnownExtensionRouteMetadata().flatMap((extension) =>
+    extension.routePrefixes.map((prefix) => ({
+      extension: extension.id,
       matches: routePrefixToMatcher(prefix),
     }))
   );
 }
 
-const componentRouteMatchers = buildComponentRouteMatchers();
+const extensionRouteMatchers = buildExtensionRouteMatchers();
 
 type MultiUserMiddlewareModule =
-  typeof import("../components/multi-user/middleware.js");
+  typeof import("../extensions/multi-user/middleware.js");
 
 let multiUserMiddlewareModulePromise: Promise<MultiUserMiddlewareModule> | null =
   null;
 
 function loadMultiUserMiddlewareModule(): Promise<MultiUserMiddlewareModule> {
   multiUserMiddlewareModulePromise ??=
-    import("../components/multi-user/middleware.js");
+    import("../extensions/multi-user/middleware.js");
   return multiUserMiddlewareModulePromise;
 }
 
-function isComponentEnabled(
+function isExtensionEnabled(
   config: GatewayConfig,
-  componentId: string
+  extensionId: string
 ): boolean {
-  const componentConfig =
-    componentId === "multiUser"
-      ? config.multiUser
-      : config.components?.[
-          componentId as keyof NonNullable<GatewayConfig["components"]>
+  const extensionConfig =
+    extensionId === "multiUser"
+      ? config.extensions?.multiUser
+      : config.extensions?.[
+          extensionId as keyof NonNullable<GatewayConfig["extensions"]>
         ];
-  return !!componentConfig && componentConfig.enabled !== false;
+  return !!extensionConfig && extensionConfig.enabled !== false;
 }
 
 app.use("*", cors());
@@ -112,13 +112,13 @@ app.use("/api/*", async (c, next) => {
   }
 
   const path = c.req.path;
-  for (const matcher of componentRouteMatchers) {
+  for (const matcher of extensionRouteMatchers) {
     if (!matcher.matches(path)) continue;
-    if (isComponentEnabled(config, matcher.component)) break;
+    if (isExtensionEnabled(config, matcher.extension)) break;
     return c.json(
       {
-        error: "component_disabled",
-        component: matcher.component,
+        error: "extension_disabled",
+        extension: matcher.extension,
       },
       404
     );
@@ -127,7 +127,7 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 app.use("/api/*", async (c, next) => {
-  if (!isComponentLoaded("multiUser")) {
+  if (!isExtensionLoaded("multiUser")) {
     await next();
     return;
   }
@@ -136,7 +136,7 @@ app.use("/api/*", async (c, next) => {
   return createAuthMiddleware()(c, next);
 });
 app.use("/api/agents/:id", async (c, next) => {
-  if (!isComponentLoaded("multiUser")) {
+  if (!isExtensionLoaded("multiUser")) {
     await next();
     return;
   }
@@ -145,7 +145,7 @@ app.use("/api/agents/:id", async (c, next) => {
   return requireAgentAccess("id")(c, next);
 });
 app.use("/api/agents/:id/*", async (c, next) => {
-  if (!isComponentLoaded("multiUser")) {
+  if (!isExtensionLoaded("multiUser")) {
     await next();
     return;
   }
@@ -169,7 +169,7 @@ app.all("/api/*", async (c) => {
   url.pathname = pathname || "/";
   const request = new Request(url, c.req.raw);
 
-  if (isComponentLoaded("multiUser")) {
+  if (isExtensionLoaded("multiUser")) {
     const { forwardAuthContextToRequest, getRequestAuthContext } =
       await loadMultiUserMiddlewareModule();
     forwardAuthContextToRequest(request, getRequestAuthContext(c));
@@ -193,7 +193,7 @@ async function canAccessAgent(
   authContext: RequestAuthContext | null,
   agentId: string
 ): Promise<boolean> {
-  if (!isComponentLoaded("multiUser")) return true;
+  if (!isExtensionLoaded("multiUser")) return true;
   if (!authContext) return false;
   const { hasAgentAccess } = await loadMultiUserMiddlewareModule();
   return hasAgentAccess(authContext, agentId);
@@ -540,7 +540,7 @@ export function startServer(port?: number, host?: string) {
   });
 
   // Attach WebSocket server to the HTTP server
-  const shouldValidateWs = isComponentLoaded("multiUser");
+  const shouldValidateWs = isExtensionLoaded("multiUser");
   const wss = new WebSocketServer({
     server: server as import("http").Server,
     path: "/ws",

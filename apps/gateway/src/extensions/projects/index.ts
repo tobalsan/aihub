@@ -9,13 +9,13 @@ import {
   AreaSchema,
   CreateProjectRequestSchema,
   ProjectCommentRequestSchema,
-  ProjectsComponentConfigSchema,
+  ProjectsExtensionConfigSchema,
   StartProjectRunRequestSchema,
   UpdateProjectCommentRequestSchema,
   UpdateProjectRequestSchema,
   buildRolePrompt,
   normalizeProjectStatus,
-  type Component,
+  type Extension,
   type GatewayConfig,
   type PromptRole,
   type UpdateProjectRequest,
@@ -105,7 +105,6 @@ import { parseMarkdownFile } from "../../taskboard/parser.js";
 import { deleteSession } from "../../agents/sessions.js";
 import {
   clearSessionEntry,
-  clearClaudeSessionId,
 } from "../../sessions/index.js";
 import { invalidateResolvedHistoryFile } from "../../history/store.js";
 
@@ -182,7 +181,7 @@ const UpdateSubagentRequestSchema = z.object({
 let watcher: ProjectWatcher | null = null;
 
 function getProjectsRuntimeConfig(config: GatewayConfig): GatewayConfig {
-  const root = config.components?.projects?.root ?? config.projects?.root;
+  const root = config.extensions?.projects?.root ?? config.projects?.root;
   if (root === undefined) return config;
   return {
     ...config,
@@ -423,7 +422,6 @@ async function clearLeadSessionState(
   const cleared = await clearSessionEntry(agentId, sessionKey, userId);
   if (!cleared) return;
   deleteSession(agentId, cleared.sessionId);
-  await clearClaudeSessionId(agentId, cleared.sessionId, userId);
   invalidateResolvedHistoryFile(agentId, cleared.sessionId, userId);
 }
 
@@ -441,7 +439,7 @@ function isUploadedFile(
 }
 
 export function isProjectsComponentEnabled(config: GatewayConfig): boolean {
-  const componentConfig = config.components?.projects;
+  const componentConfig = config.extensions?.projects;
   if (componentConfig) return componentConfig.enabled !== false;
   return config.projects !== undefined;
 }
@@ -631,7 +629,7 @@ export function registerProjectRoutes(app: Hono): void {
 
     const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
     const root =
-      config.components?.projects?.root ??
+      config.extensions?.projects?.root ??
       config.projects?.root ??
       "~/projects";
     const resolvedRoot = root.startsWith("~/")
@@ -2458,11 +2456,12 @@ export function registerProjectRoutes(app: Hono): void {
   });
 }
 
-const projectsComponent: Component = {
+const projectsExtension: Extension = {
   id: "projects",
   displayName: "Projects",
+  description: "Project planning, taskboard, and subagent orchestration APIs",
   dependencies: [],
-  requiredSecrets: [],
+  configSchema: ProjectsExtensionConfigSchema,
   routePrefixes: [
     "/api/areas",
     "/api/config",
@@ -2472,7 +2471,7 @@ const projectsComponent: Component = {
     "/api/taskboard",
   ],
   validateConfig(raw) {
-    const result = ProjectsComponentConfigSchema.safeParse(raw);
+    const result = ProjectsExtensionConfigSchema.safeParse(raw);
     return {
       valid: result.success,
       errors: result.success
@@ -2495,4 +2494,4 @@ const projectsComponent: Component = {
   },
 };
 
-export { projectsComponent };
+export { projectsExtension };

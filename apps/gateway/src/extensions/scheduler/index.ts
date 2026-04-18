@@ -1,9 +1,9 @@
 import {
   CreateScheduleRequestSchema,
-  SchedulerComponentConfigSchema,
+  SchedulerExtensionConfigSchema,
   UpdateScheduleRequestSchema,
-  type Component,
-  type ComponentContext,
+  type Extension,
+  type ExtensionContext,
 } from "@aihub/shared";
 import type { Hono } from "hono";
 import {
@@ -12,14 +12,15 @@ import {
   stopScheduler,
 } from "../../scheduler/index.js";
 
-const schedulerComponent: Component = {
+const schedulerExtension: Extension = {
   id: "scheduler",
   displayName: "Scheduler",
+  description: "Cron-like scheduled agent execution",
   dependencies: [],
-  requiredSecrets: [],
+  configSchema: SchedulerExtensionConfigSchema,
   routePrefixes: ["/api/schedules"],
   validateConfig(raw) {
-    const result = SchedulerComponentConfigSchema.safeParse(raw);
+    const result = SchedulerExtensionConfigSchema.safeParse(raw);
     return {
       valid: result.success,
       errors: result.success ? [] : result.error.issues.map((issue) => issue.message),
@@ -71,7 +72,7 @@ const schedulerComponent: Component = {
       return c.json({ ok: true });
     });
   },
-  async start(_ctx: ComponentContext) {
+  async start(_ctx: ExtensionContext) {
     await startScheduler();
   },
   async stop() {
@@ -82,4 +83,4 @@ const schedulerComponent: Component = {
   },
 };
 
-export { schedulerComponent };
+export { schedulerExtension };

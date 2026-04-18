@@ -8,14 +8,10 @@ describe("multi-user isolation paths", () => {
   it("keeps single-user paths at the config root", async () => {
     const {
       getUserSessionsPath,
-      getUserClaudeSessionsPath,
       getUserHistoryDir,
     } = await import("./isolation.js");
 
     expect(getUserSessionsPath()).toBe("/tmp/aihub-test/sessions.json");
-    expect(getUserClaudeSessionsPath()).toBe(
-      "/tmp/aihub-test/claude-sessions.json"
-    );
     expect(getUserHistoryDir()).toBe("/tmp/aihub-test/history");
   });
 
@@ -23,16 +19,12 @@ describe("multi-user isolation paths", () => {
     const {
       getUserDataDir,
       getUserSessionsPath,
-      getUserClaudeSessionsPath,
       getUserHistoryDir,
     } = await import("./isolation.js");
 
     expect(getUserDataDir("user-123")).toBe("/tmp/aihub-test/users/user-123");
     expect(getUserSessionsPath("user-123")).toBe(
       "/tmp/aihub-test/users/user-123/sessions.json"
-    );
-    expect(getUserClaudeSessionsPath("user-123")).toBe(
-      "/tmp/aihub-test/users/user-123/claude-sessions.json"
     );
     expect(getUserHistoryDir("user-123")).toBe(
       "/tmp/aihub-test/users/user-123/history"

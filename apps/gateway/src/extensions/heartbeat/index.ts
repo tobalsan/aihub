@@ -1,4 +1,4 @@
-import { HeartbeatComponentConfigSchema, type Component } from "@aihub/shared";
+import { HeartbeatExtensionConfigSchema, type Extension } from "@aihub/shared";
 import type { Hono } from "hono";
 import { getAgent, isAgentActive } from "../../config/index.js";
 import {
@@ -7,14 +7,15 @@ import {
   stopAllHeartbeats,
 } from "../../heartbeat/index.js";
 
-const heartbeatComponent: Component = {
+const heartbeatExtension: Extension = {
   id: "heartbeat",
   displayName: "Heartbeat",
+  description: "Periodic heartbeat checks and alert runs",
   dependencies: ["scheduler"],
-  requiredSecrets: [],
+  configSchema: HeartbeatExtensionConfigSchema,
   routePrefixes: ["/api/agents/:id/heartbeat"],
   validateConfig(raw) {
-    const result = HeartbeatComponentConfigSchema.safeParse(raw);
+    const result = HeartbeatExtensionConfigSchema.safeParse(raw);
     return {
       valid: result.success,
       errors: result.success ? [] : result.error.issues.map((issue) => issue.message),
@@ -43,4 +44,4 @@ const heartbeatComponent: Component = {
   },
 };
 
-export { heartbeatComponent };
+export { heartbeatExtension };

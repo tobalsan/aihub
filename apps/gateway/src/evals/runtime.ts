@@ -8,13 +8,13 @@
  *
  * Skipped (vs `aihub gateway`):
  *   - HTTP server / WebSocket
- *   - Discord, amsg, scheduler, heartbeat, conversations, projects components
+ *   - Discord, amsg, scheduler, heartbeat, conversations, projects extensions
  *   - multi-user auth
  *   - web UI
  *   - tailscale serve
  *
  * The carve-out works because `prepareStartupConfig(rawConfig, [])` already
- * accepts an empty component list (this is what `aihub send` does).
+ * accepts an empty extension list (this is what `aihub send` does).
  */
 
 import { loadConfig, getAgent, setLoadedConfig } from "../config/index.js";

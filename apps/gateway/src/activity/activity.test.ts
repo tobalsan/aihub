@@ -36,8 +36,7 @@ describe("activity persistence", () => {
     const config = {
       version: 2,
       agents: [agentConfig],
-      projects: { root: projectsRoot },
-      components: {
+      extensions: {
         projects: { enabled: true, root: projectsRoot },
       },
     };
@@ -51,12 +50,12 @@ describe("activity persistence", () => {
       "../config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("../server/api.core.js");
     api = mod.api;
-    const components = await loadComponents(loadConfig());
-    for (const component of components) {
-      component.registerRoutes(api as never);
+    const extensions = await loadExtensions(loadConfig());
+    for (const extension of extensions) {
+      extension.registerRoutes(api as never);
     }
   });
 
@@ -147,12 +146,12 @@ describe("activity persistence", () => {
 
     vi.resetModules();
     const { loadConfig } = await import("../config/index.js");
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("../server/api.core.js");
     const api2 = mod.api;
-    const components = await loadComponents(loadConfig());
-    for (const component of components) {
-      component.registerRoutes(api2 as never);
+    const extensions = await loadExtensions(loadConfig());
+    for (const extension of extensions) {
+      extension.registerRoutes(api2 as never);
     }
 
     const activityRes = await Promise.resolve(api2.request("/activity"));
@@ -275,12 +274,12 @@ describe("activity persistence", () => {
 
     vi.resetModules();
     const { loadConfig } = await import("../config/index.js");
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("../server/api.core.js");
     const api2 = mod.api;
-    const components = await loadComponents(loadConfig());
-    for (const component of components) {
-      component.registerRoutes(api2 as never);
+    const extensions = await loadExtensions(loadConfig());
+    for (const extension of extensions) {
+      extension.registerRoutes(api2 as never);
     }
 
     await fs.writeFile(

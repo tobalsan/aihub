@@ -6,7 +6,7 @@ import {
 } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
-import { capabilities, isComponentEnabled } from "../lib/capabilities";
+import { capabilities, isExtensionEnabled } from "../lib/capabilities";
 
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
@@ -55,7 +55,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       </div>
       <div class="sidebar-content">
         <nav class="sidebar-nav" aria-label="Primary">
-          <Show when={isComponentEnabled("projects")}>
+          <Show when={isExtensionEnabled("projects")}>
             <A
               href="/projects"
               class="nav-link"
@@ -65,20 +65,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
             >
               <span class="nav-full">Projects</span>
               <span class="nav-short">Pr</span>
-            </A>
-          </Show>
-          <Show when={isComponentEnabled("conversations")}>
-            <A
-              href="/conversations"
-              class="nav-link"
-              classList={{
-                active: stripBase(location.pathname).startsWith(
-                  "/conversations"
-                ),
-              }}
-            >
-              <span class="nav-full">Conversations</span>
-              <span class="nav-short">Co</span>
             </A>
           </Show>
           <A

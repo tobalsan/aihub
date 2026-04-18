@@ -284,10 +284,10 @@ function fail(err: unknown): never {
 }
 
 function formatComponentList(config: GatewayConfig): string {
-  const components = Object.entries(config.components ?? {})
+  const extensions = Object.entries(config.extensions ?? {})
     .filter(([, value]) => value && value.enabled !== false)
     .map(([key]) => key);
-  return components.length > 0 ? components.join(", ") : "none";
+  return extensions.length > 0 ? extensions.join(", ") : "none";
 }
 
 function printWarnings(warnings: string[]): void {

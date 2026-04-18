@@ -41,8 +41,7 @@ describe("subagents API", () => {
           model: { provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
         },
       ],
-      projects: { root: projectsRoot },
-      components: {
+      extensions: {
         projects: { enabled: true, root: projectsRoot },
       },
     };
@@ -75,12 +74,12 @@ describe("subagents API", () => {
       "../config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("../server/api.core.js");
     api = mod.api;
-    const components = await loadComponents(loadConfig());
-    for (const component of components) {
-      component.registerRoutes(api as never);
+    const extensions = await loadExtensions(loadConfig());
+    for (const extension of extensions) {
+      extension.registerRoutes(api as never);
     }
   });
 

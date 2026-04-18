@@ -223,18 +223,18 @@ describe("gateway status websocket in multi-user mode", () => {
     );
 
     vi.resetModules();
-    vi.doMock("../components/registry.js", async () => {
+    vi.doMock("../extensions/registry.js", async () => {
       const actual = await vi.importActual<
-        typeof import("../components/registry.js")
-      >("../components/registry.js");
+        typeof import("../extensions/registry.js")
+      >("../extensions/registry.js");
       return {
         ...actual,
-        getLoadedComponents: () => [{ id: "multiUser" }],
+        getLoadedExtensions: () => [{ id: "multiUser" }],
         isMultiUserLoaded: () => true,
-        isComponentLoaded: (componentId: string) => componentId === "multiUser",
+        isExtensionLoaded: (extensionId: string) => extensionId === "multiUser",
       };
     });
-    vi.doMock("../components/multi-user/middleware.js", () => ({
+    vi.doMock("../extensions/multi-user/middleware.js", () => ({
       createAuthMiddleware:
         () => async (_c: unknown, next: () => Promise<void>) => {
           await next();

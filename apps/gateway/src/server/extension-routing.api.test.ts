@@ -4,7 +4,7 @@ import * as path from "node:path";
 import os from "node:os";
 import { GatewayConfigSchema } from "@aihub/shared";
 
-describe("component route mounting", () => {
+describe("extension route mounting", () => {
   let tmpDir: string;
 
   beforeAll(async () => {
@@ -25,17 +25,16 @@ describe("component route mounting", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         projects: { enabled: true, root: projectsRoot },
-        conversations: { enabled: true },
       },
     });
     setLoadedConfig(config);
-    const { loadComponents } = await import("../components/registry.js");
+    const { loadExtensions } = await import("../extensions/registry.js");
     const { api } = await import("./api.core.js");
-    const components = await loadComponents(config);
-    for (const component of components) {
-      component.registerRoutes(api);
+    const extensions = await loadExtensions(config);
+    for (const extension of extensions) {
+      extension.registerRoutes(api);
     }
   });
 
@@ -45,17 +44,12 @@ describe("component route mounting", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("serves routes registered by enabled components through the main app", async () => {
+  it("serves routes registered by enabled extensions through the main app", async () => {
     const { app } = await import("./index.js");
 
     const projectsResponse = await Promise.resolve(app.request("/api/projects"));
     expect(projectsResponse.status).toBe(200);
     await expect(projectsResponse.json()).resolves.toEqual(expect.any(Array));
 
-    const conversationsResponse = await Promise.resolve(
-      app.request("/api/conversations")
-    );
-    expect(conversationsResponse.status).toBe(200);
-    await expect(conversationsResponse.json()).resolves.toEqual(expect.any(Array));
   });
 });

@@ -33,20 +33,22 @@ describe("multi-user auth", () => {
       gateway: {
         port: 4123,
       },
-      multiUser: {
-        enabled: true,
-        oauth: {
-          google: {
-            clientId: "client-id",
-            clientSecret: "client-secret",
+      extensions: {
+        multiUser: {
+          enabled: true,
+          oauth: {
+            google: {
+              clientId: "client-id",
+              clientSecret: "client-secret",
+            },
           },
+          sessionSecret: "x".repeat(32),
         },
-        sessionSecret: "x".repeat(32),
       },
     });
 
     const db = initializeMultiUserDatabase(path.join(tempDir, "auth.db"));
-    const multiUserConfig = config.multiUser;
+    const multiUserConfig = config.extensions?.multiUser;
     if (!multiUserConfig || !multiUserConfig.enabled) {
       throw new Error("multiUser config missing");
     }

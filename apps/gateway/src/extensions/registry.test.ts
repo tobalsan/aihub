@@ -1,21 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { GatewayConfigSchema } from "@aihub/shared";
+import { GatewayConfigSchema, type Extension } from "@aihub/shared";
 import {
-  getLoadedComponents,
-  getKnownComponentRouteMetadata,
-  isComponentLoaded,
-  loadComponents,
+  getLoadedExtensions,
+  getKnownExtensionRouteMetadata,
+  isExtensionLoaded,
+  loadExtensions,
   topoSort,
 } from "./registry.js";
 
-describe("component registry", () => {
-  it("sorts components by dependency order", () => {
+describe("extension registry", () => {
+  it("sorts extensions by dependency order", () => {
     const result = topoSort([
       {
         id: "heartbeat",
         displayName: "Heartbeat",
+        description: "Heartbeat",
         dependencies: ["scheduler"],
-        requiredSecrets: [],
+        configSchema: GatewayConfigSchema,
         routePrefixes: ["/api/agents/:id/heartbeat"],
         validateConfig: () => ({ valid: true, errors: [] }),
         registerRoutes: () => undefined,
@@ -26,8 +27,9 @@ describe("component registry", () => {
       {
         id: "scheduler",
         displayName: "Scheduler",
+        description: "Scheduler",
         dependencies: [],
-        requiredSecrets: [],
+        configSchema: GatewayConfigSchema,
         routePrefixes: ["/api/schedules"],
         validateConfig: () => ({ valid: true, errors: [] }),
         registerRoutes: () => undefined,
@@ -35,15 +37,15 @@ describe("component registry", () => {
         stop: async () => undefined,
         capabilities: () => [],
       },
-    ]);
+    ] as Extension[]);
 
-    expect(result.map((component) => component.id)).toEqual([
+    expect(result.map((extension) => extension.id)).toEqual([
       "scheduler",
       "heartbeat",
     ]);
   });
 
-  it("loads enabled components and stores them globally", async () => {
+  it("loads enabled extensions and stores them globally", async () => {
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -54,28 +56,27 @@ describe("component registry", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         scheduler: { enabled: true, tickSeconds: 60 },
         heartbeat: { enabled: true },
-        amsg: { enabled: false },
       },
     });
 
-    const result = await loadComponents(config);
+    const result = await loadExtensions(config);
 
-    expect(result.map((component) => component.id)).toEqual([
+    expect(result.map((extension) => extension.id)).toEqual([
       "scheduler",
       "heartbeat",
     ]);
-    expect(getLoadedComponents().map((component) => component.id)).toEqual([
+    expect(getLoadedExtensions().map((extension) => extension.id)).toEqual([
       "scheduler",
       "heartbeat",
     ]);
-    expect(isComponentLoaded("scheduler")).toBe(true);
-    expect(isComponentLoaded("multiUser")).toBe(false);
+    expect(isExtensionLoaded("scheduler")).toBe(true);
+    expect(isExtensionLoaded("multiUser")).toBe(false);
   });
 
-  it("loads top-level multiUser component when enabled", async () => {
+  it("loads multiUser extension when enabled", async () => {
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -86,25 +87,27 @@ describe("component registry", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      multiUser: {
-        enabled: true,
-        oauth: {
-          google: {
-            clientId: "google-client-id",
-            clientSecret: "google-client-secret",
+      extensions: {
+        multiUser: {
+          enabled: true,
+          oauth: {
+            google: {
+              clientId: "google-client-id",
+              clientSecret: "google-client-secret",
+            },
           },
+          sessionSecret: "test-secret",
         },
-        sessionSecret: "test-secret",
       },
     });
 
-    const result = await loadComponents(config);
+    const result = await loadExtensions(config);
 
-    expect(result.map((component) => component.id)).toEqual(["multiUser"]);
-    expect(isComponentLoaded("multiUser")).toBe(true);
+    expect(result.map((extension) => extension.id)).toEqual(["multiUser"]);
+    expect(isExtensionLoaded("multiUser")).toBe(true);
   });
 
-  it("fails on invalid component config", async () => {
+  it("fails on invalid extension config", async () => {
     const config = {
       version: 2,
       agents: [
@@ -115,13 +118,13 @@ describe("component registry", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         scheduler: { enabled: true, tickSeconds: "bad" },
       },
     };
 
-    await expect(loadComponents(config as never)).rejects.toThrow(
-      'Component "scheduler" config invalid'
+    await expect(loadExtensions(config as never)).rejects.toThrow(
+      'Extension "scheduler" config invalid'
     );
   });
 
@@ -136,26 +139,26 @@ describe("component registry", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         heartbeat: { enabled: true },
       },
     });
 
-    await expect(loadComponents(config)).rejects.toThrow(
-      'Component "heartbeat" requires "scheduler" which is not enabled'
+    await expect(loadExtensions(config)).rejects.toThrow(
+      'Extension "heartbeat" requires "scheduler" which is not enabled'
     );
   });
 
-  it("returns known component route metadata without loading components", () => {
-    const components = getKnownComponentRouteMetadata();
-    const projects = components.find(
-      (component) => component.id === "projects"
+  it("returns known extension route metadata without loading extensions", () => {
+    const extensions = getKnownExtensionRouteMetadata();
+    const projects = extensions.find(
+      (extension) => extension.id === "projects"
     );
-    const heartbeat = components.find(
-      (component) => component.id === "heartbeat"
+    const heartbeat = extensions.find(
+      (extension) => extension.id === "heartbeat"
     );
-    const multiUser = components.find(
-      (component) => component.id === "multiUser"
+    const multiUser = extensions.find(
+      (extension) => extension.id === "multiUser"
     );
 
     expect(projects?.routePrefixes).toContain("/api/projects");

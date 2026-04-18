@@ -1,5 +1,5 @@
 import type {
-  Component,
+  Extension,
   GatewayConfig,
   ValidationResult,
 } from "@aihub/shared";
@@ -26,7 +26,7 @@ function validateComponentAgentReferences(
 ): ValidationResult {
   const agentIds = new Set(config.agents.map((agent) => agent.id));
   const errors: string[] = [];
-  const discord = config.components?.discord;
+  const discord = config.extensions?.discord;
 
   for (const [channelId, route] of Object.entries(discord?.channels ?? {})) {
     if (!agentIds.has(route.agent)) {
@@ -50,29 +50,29 @@ function validateComponentAgentReferences(
 
 function getComponentConfig(
   config: GatewayConfig,
-  component: Component
+  extension: Extension
 ): unknown {
-  // multiUser lives at config.multiUser, not config.components.multiUser
-  if (component.id === "multiUser") {
-    return config.multiUser;
+  // multiUser lives at config.extensions.multiUser
+  if (extension.id === "multiUser") {
+    return config.extensions?.multiUser;
   }
-  return config.components?.[
-    component.id as keyof NonNullable<GatewayConfig["components"]>
+  return config.extensions?.[
+    extension.id as keyof NonNullable<GatewayConfig["extensions"]>
   ];
 }
 
 function validateComponentConfigs(
   config: GatewayConfig,
-  components: Component[]
+  extensions: Extension[]
 ): ValidationResult {
   const errors: string[] = [];
 
-  for (const component of components) {
-    const rawConfig = getComponentConfig(config, component);
-    const result = component.validateConfig(rawConfig);
+  for (const extension of extensions) {
+    const rawConfig = getComponentConfig(config, extension);
+    const result = extension.validateConfig(rawConfig);
     if (!result.valid) {
       for (const error of result.errors) {
-        errors.push(`Component "${component.id}" config invalid: ${error}`);
+        errors.push(`Component "${extension.id}" config invalid: ${error}`);
       }
     }
   }
@@ -85,15 +85,15 @@ function validateComponentConfigs(
 
 export async function validateStartupConfig(
   config: GatewayConfig,
-  components: Component[]
+  extensions: Extension[]
 ): Promise<{ loaded: string[]; skipped: string[] }> {
-  const prepared = await prepareStartupConfig(config, components);
+  const prepared = await prepareStartupConfig(config, extensions);
   return prepared.summary;
 }
 
 export async function prepareStartupConfig(
   config: GatewayConfig,
-  components: Component[],
+  extensions: Extension[],
   options?: {
     resolvedConfig?: GatewayConfig;
     skipConnectorInitialization?: boolean;
@@ -112,7 +112,7 @@ export async function prepareStartupConfig(
 
   const checks = [
     uniqueAgentIdValidation(resolvedConfig),
-    validateComponentConfigs(resolvedConfig, components),
+    validateComponentConfigs(resolvedConfig, extensions),
     validateComponentAgentReferences(resolvedConfig),
   ];
 
@@ -121,8 +121,8 @@ export async function prepareStartupConfig(
     throw new Error(errors.join("\n"));
   }
 
-  const loaded = components.map((component) => component.id);
-  const skipped = Object.keys(resolvedConfig.components ?? {}).filter(
+  const loaded = extensions.map((extension) => extension.id);
+  const skipped = Object.keys(resolvedConfig.extensions ?? {}).filter(
     (id) => !loaded.includes(id)
   );
 

@@ -14,7 +14,7 @@ const mockLoadBootstrapFiles = vi.fn(async () => []);
 const mockBuildBootstrapContextFiles = vi.fn(() => []);
 const mockGetConnectorToolsForAgent = vi.fn(() => []);
 const mockGetConnectorPromptsForAgent = vi.fn(() => []);
-const mockGetLoadedComponents = vi.fn(() => []);
+const mockGetLoadedExtensions = vi.fn(() => []);
 const mockRenderAgentContext = vi.fn(() => "");
 
 vi.mock("../../agents/workspace.js", () => ({
@@ -44,8 +44,8 @@ vi.mock("../../connectors/index.js", () => ({
   getConnectorToolsForAgent: mockGetConnectorToolsForAgent,
 }));
 
-vi.mock("../../components/registry.js", () => ({
-  getLoadedComponents: mockGetLoadedComponents,
+vi.mock("../../extensions/registry.js", () => ({
+  getLoadedExtensions: mockGetLoadedExtensions,
 }));
 
 vi.mock("@mariozechner/pi-ai", () => ({

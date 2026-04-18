@@ -11,9 +11,9 @@ import {
   resolveWorkspaceDir,
 } from "../config/index.js";
 import {
-  getLoadedComponents,
-  isComponentLoaded,
-} from "../components/registry.js";
+  getLoadedExtensions,
+  isExtensionLoaded,
+} from "../extensions/registry.js";
 import {
   runAgent,
   getAllSessionsForAgent,
@@ -49,16 +49,16 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type MultiUserApiDeps = {
-  getForwardedAuthContext: typeof import("../components/multi-user/middleware.js").getForwardedAuthContext;
-  getAgentFilter: typeof import("../components/multi-user/index.js").getAgentFilter;
+  getForwardedAuthContext: typeof import("../extensions/multi-user/middleware.js").getForwardedAuthContext;
+  getAgentFilter: typeof import("../extensions/multi-user/index.js").getAgentFilter;
 };
 
 let multiUserApiDepsPromise: Promise<MultiUserApiDeps> | null = null;
 
 function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
   multiUserApiDepsPromise ??= Promise.all([
-    import("../components/multi-user/middleware.js"),
-    import("../components/multi-user/index.js"),
+    import("../extensions/multi-user/middleware.js"),
+    import("../extensions/multi-user/index.js"),
   ]).then(([middlewareModule, componentModule]) => ({
     getForwardedAuthContext: middlewareModule.getForwardedAuthContext,
     getAgentFilter: componentModule.getAgentFilter,
@@ -67,7 +67,7 @@ function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
 }
 
 async function getRequestAuthContext(c: Context) {
-  if (!isComponentLoaded("multiUser")) return null;
+  if (!isExtensionLoaded("multiUser")) return null;
   const { getForwardedAuthContext } = await loadMultiUserApiDeps();
   return getForwardedAuthContext(c.req.raw.headers);
 }
@@ -78,7 +78,7 @@ async function getRequestUserId(c: Context): Promise<string | undefined> {
 
 async function getVisibleAgents(c: Context) {
   const agents = getActiveAgents();
-  if (!isComponentLoaded("multiUser")) {
+  if (!isExtensionLoaded("multiUser")) {
     return agents;
   }
 
@@ -102,19 +102,19 @@ function contentDispositionFilename(filename: string): string {
 }
 
 api.get("/capabilities", async (c) => {
-  const components = Object.fromEntries(
-    getLoadedComponents().map((component) => [component.id, true])
+  const extensions = Object.fromEntries(
+    getLoadedExtensions().map((extension) => [extension.id, true])
   );
-  const multiUserEnabled = isComponentLoaded("multiUser");
-  const authContext = multiUserEnabled ? await getRequestAuthContext(c) : null;
+  const isMultiUserEnabled = isExtensionLoaded("multiUser");
+  const authContext = isMultiUserEnabled ? await getRequestAuthContext(c) : null;
   const agents = await getVisibleAgents(c);
 
   return c.json({
     version: 2,
-    components,
+    extensions,
     agents: agents.map((agent) => agent.id),
-    multiUser: multiUserEnabled,
-    ...(multiUserEnabled && authContext
+    multiUser: isMultiUserEnabled,
+    ...(isMultiUserEnabled && authContext
       ? {
           user: {
             id: authContext.user.id,

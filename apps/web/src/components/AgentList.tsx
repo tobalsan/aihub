@@ -1,7 +1,7 @@
 import { createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
-import { isComponentEnabled } from "../lib/capabilities";
+import { isExtensionEnabled } from "../lib/capabilities";
 
 function shortenPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/)?.[0];
@@ -22,7 +22,7 @@ export function AgentList() {
         <A class="home-link" href="/projects">
           AIHub
         </A>
-        <Show when={isComponentEnabled("projects")}>
+        <Show when={isExtensionEnabled("projects")}>
           <A
             class="taskboard-btn"
             href="/projects"

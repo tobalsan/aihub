@@ -37,7 +37,7 @@ import type {
 import { formatTimestamp } from "../lib/format";
 import { extractBlockText } from "../lib/history";
 import { renderMarkdown } from "../lib/markdown";
-import { isComponentEnabled } from "../lib/capabilities";
+import { isExtensionEnabled } from "../lib/capabilities";
 import { getMaxContextTokens } from "@aihub/shared/model-context";
 
 function isEmoji(str: string): boolean {
@@ -1012,7 +1012,7 @@ export function ChatView() {
     // If streaming in queue mode, send message without interrupting current stream
     if (isStreaming() && queueMode === "queue") {
       const sdkId = currentAgent?.sdk ?? "pi";
-      const trackSequentialQueue = sdkId === "claude" || sdkId === "openclaw";
+      const trackSequentialQueue = sdkId === "openclaw";
       if (trackSequentialQueue) {
         setPendingQueuedMessages((prev) => [
           ...prev,
@@ -1418,7 +1418,7 @@ export function ChatView() {
             </div>
           </div>
         </div>
-        <Show when={isComponentEnabled("projects")}>
+        <Show when={isExtensionEnabled("projects")}>
           <A
             class="taskboard-btn"
             href="/projects"

@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
 
-describe("component-disabled API responses", () => {
+describe("extension-disabled API responses", () => {
   let tmpDir: string;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
@@ -28,7 +28,7 @@ describe("component-disabled API responses", () => {
             model: { provider: "anthropic", model: "claude" },
           },
         ],
-        components: {},
+        extensions: {},
       })
     );
 
@@ -45,15 +45,15 @@ describe("component-disabled API responses", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns a structured 404 for disabled component routes", async () => {
+  it("returns a structured 404 for disabled extension routes", async () => {
     const { app } = await import("./index.js");
 
     const response = await Promise.resolve(app.request("/api/projects"));
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({
-      error: "component_disabled",
-      component: "projects",
+      error: "extension_disabled",
+      extension: "projects",
     });
   });
 });

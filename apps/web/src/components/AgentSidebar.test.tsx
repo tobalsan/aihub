@@ -42,7 +42,7 @@ describe("AgentSidebar", () => {
 
   it("renders sidebar logo and primary navigation links", () => {
     setCapabilitiesForTests({
-      components: { projects: true, conversations: true },
+      extensions: { projects: true },
     });
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -60,7 +60,6 @@ describe("AgentSidebar", () => {
 
     expect(container.textContent).toContain("AIHub");
     expect(container.textContent).toContain("Projects");
-    expect(container.textContent).toContain("Conversations");
     expect(container.textContent).toContain("Agents");
 
     dispose();
@@ -68,7 +67,7 @@ describe("AgentSidebar", () => {
 
   it("renders theme toggle button", () => {
     setCapabilitiesForTests({
-      components: { projects: true, conversations: true },
+      extensions: { projects: true },
     });
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -93,7 +92,7 @@ describe("AgentSidebar", () => {
 
   it("toggles theme on click", () => {
     setCapabilitiesForTests({
-      components: { projects: true, conversations: true },
+      extensions: { projects: true },
     });
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -120,7 +119,7 @@ describe("AgentSidebar", () => {
 
   it("does not render recents anymore", async () => {
     setCapabilitiesForTests({
-      components: { projects: true, conversations: true },
+      extensions: { projects: true },
     });
     localStorage.setItem(
       "aihub:recent-project-views",
@@ -155,7 +154,7 @@ describe("AgentSidebar", () => {
   });
 
   it("hides component nav links when capabilities disable them", () => {
-    setCapabilitiesForTests({ components: {} });
+    setCapabilitiesForTests({ extensions: {} });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const [collapsed] = createSignal(false);
@@ -171,7 +170,6 @@ describe("AgentSidebar", () => {
     );
 
     expect(container.textContent).not.toContain("Projects");
-    expect(container.textContent).not.toContain("Conversations");
     expect(container.textContent).toContain("Agents");
 
     dispose();

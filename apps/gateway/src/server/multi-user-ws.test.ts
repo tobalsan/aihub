@@ -33,15 +33,17 @@ describe("gateway multi-user websocket auth", () => {
             model: { provider: "anthropic", model: "claude" },
           },
         ],
-        multiUser: {
-          enabled: true,
-          oauth: {
-            google: {
-              clientId: "client-id",
-              clientSecret: "client-secret",
+        extensions: {
+          multiUser: {
+            enabled: true,
+            oauth: {
+              google: {
+                clientId: "client-id",
+                clientSecret: "client-secret",
+              },
             },
+            sessionSecret: "x".repeat(32),
           },
-          sessionSecret: "x".repeat(32),
         },
       })
     );
@@ -51,8 +53,8 @@ describe("gateway multi-user websocket auth", () => {
       "../config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadComponents } = await import("../components/registry.js");
-    await loadComponents(loadConfig());
+    const { loadExtensions } = await import("../extensions/registry.js");
+    await loadExtensions(loadConfig());
 
     const serverMod = await import("./index.js");
     server = serverMod.startServer(0, "127.0.0.1");

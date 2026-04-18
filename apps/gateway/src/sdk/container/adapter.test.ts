@@ -133,7 +133,7 @@ function setConfig(agent: AgentConfig, root: string): void {
   fs.writeFileSync(path.join(root, "onecli-ca.pem"), "cert");
   setLoadedConfig({
     agents: [agent],
-    components: {},
+    extensions: {},
     sandbox: {
       sharedDir: path.join(root, "shared"),
     },
@@ -543,7 +543,7 @@ describe("container adapter", () => {
     // Override config with top-level onecli that has per-agent token
     setLoadedConfig({
       agents: [{ ...agent, onecliToken: "tok-sally-123" }],
-      components: {},
+      extensions: {},
       onecli: {
         enabled: true,
         mode: "proxy",

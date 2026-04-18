@@ -1,18 +1,19 @@
 import {
-  DiscordComponentConfigSchema,
-  type Component,
-  type DiscordComponentConfig,
+  DiscordExtensionConfigSchema,
+  type Extension,
+  type DiscordExtensionConfig,
 } from "@aihub/shared";
 import { startDiscordBots, stopDiscordBots } from "../../discord/index.js";
 
-const discordComponent: Component = {
+const discordExtension: Extension = {
   id: "discord",
   displayName: "Discord",
+  description: "Discord integration for channel and DM routing",
   dependencies: [],
-  requiredSecrets: [],
+  configSchema: DiscordExtensionConfigSchema,
   routePrefixes: [],
   validateConfig(raw) {
-    const result = DiscordComponentConfigSchema.safeParse(raw);
+    const result = DiscordExtensionConfigSchema.safeParse(raw);
     return {
       valid: result.success,
       errors: result.success ? [] : result.error.issues.map((issue) => issue.message),
@@ -20,10 +21,10 @@ const discordComponent: Component = {
   },
   registerRoutes() {},
   async start(ctx) {
-    const rawConfig = ctx.getConfig().components?.discord;
-    const config = DiscordComponentConfigSchema.parse(
+    const rawConfig = ctx.getConfig().extensions?.discord;
+    const config = DiscordExtensionConfigSchema.parse(
       rawConfig
-    ) as DiscordComponentConfig;
+    ) as DiscordExtensionConfig;
 
     await startDiscordBots({
       agents: ctx.getAgents(),
@@ -40,4 +41,4 @@ const discordComponent: Component = {
   },
 };
 
-export { discordComponent };
+export { discordExtension };

@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GatewayConfigSchema } from "@aihub/shared";
 import { clearConnectors } from "@aihub/shared";
-import { loadComponents } from "../../components/registry.js";
+import { loadExtensions } from "../../extensions/registry.js";
 import {
   logComponentSummary,
   prepareStartupConfig,
@@ -42,8 +42,8 @@ describe("startup validation", () => {
         ],
       });
 
-      const components = await loadComponents(config);
-      await expect(validateStartupConfig(config, components)).resolves.toEqual({
+      const extensions = await loadExtensions(config);
+      await expect(validateStartupConfig(config, extensions)).resolves.toEqual({
         loaded: [],
         skipped: [],
       });
@@ -73,13 +73,13 @@ describe("startup validation", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         scheduler: { enabled: true, tickSeconds: 60 },
       },
     });
 
-    const components = await loadComponents(config);
-    await expect(validateStartupConfig(config, components)).rejects.toThrow(
+    const extensions = await loadExtensions(config);
+    await expect(validateStartupConfig(config, extensions)).rejects.toThrow(
       'Duplicate agent id "main"'
     );
   });
@@ -95,7 +95,7 @@ describe("startup validation", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         discord: {
           enabled: true,
           token: "discord-token",
@@ -106,8 +106,8 @@ describe("startup validation", () => {
       },
     });
 
-    const components = await loadComponents(config);
-    await expect(validateStartupConfig(config, components)).rejects.toThrow(
+    const extensions = await loadExtensions(config);
+    await expect(validateStartupConfig(config, extensions)).rejects.toThrow(
       'references unknown agent "missing"'
     );
   });
@@ -123,14 +123,14 @@ describe("startup validation", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         scheduler: { enabled: true, tickSeconds: 60 },
         heartbeat: { enabled: true },
       },
     });
 
-    const components = await loadComponents(config);
-    await expect(validateStartupConfig(config, components)).resolves.toEqual({
+    const extensions = await loadExtensions(config);
+    await expect(validateStartupConfig(config, extensions)).resolves.toEqual({
       loaded: ["scheduler", "heartbeat"],
       skipped: [],
     });
@@ -165,7 +165,7 @@ describe("startup validation", () => {
           model: { provider: "anthropic", model: "claude" },
         },
       ],
-      components: {
+      extensions: {
         discord: {
           enabled: true,
           token: "$env:TEST_RUNTIME_SECRET",
@@ -177,7 +177,7 @@ describe("startup validation", () => {
     });
 
     await expect(resolveStartupConfig(config)).resolves.toMatchObject({
-      components: {
+      extensions: {
         discord: expect.objectContaining({
           token: "resolved-value",
         }),

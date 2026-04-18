@@ -5,7 +5,7 @@ import { createStore } from "solid-js/store";
 
 const defaultCapabilities: CapabilitiesResponse = {
   version: 2,
-  components: {},
+  extensions: {},
   agents: [],
   multiUser: false,
 };
@@ -59,7 +59,7 @@ export function setCapabilitiesForTests(
 ): void {
   setCapabilities({
     version: value.version ?? defaultCapabilities.version,
-    components: value.components ?? defaultCapabilities.components,
+    extensions: value.extensions ?? defaultCapabilities.extensions,
     agents: value.agents ?? defaultCapabilities.agents,
     multiUser: value.multiUser ?? defaultCapabilities.multiUser,
     user: value.user,
@@ -67,8 +67,8 @@ export function setCapabilitiesForTests(
   setCapabilitiesReady(true);
 }
 
-export function isComponentEnabled(id: string): boolean {
-  return capabilities.components[id] === true;
+export function isExtensionEnabled(id: string): boolean {
+  return capabilities.extensions[id] === true;
 }
 
 export { capabilities, capabilitiesReady };

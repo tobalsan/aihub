@@ -23,12 +23,12 @@ export class SchedulerService {
   constructor() {
     this.store = loadScheduleStore();
     const config = loadConfig();
-    this.tickMs = (config.scheduler?.tickSeconds ?? 60) * 1000;
+    this.tickMs = (config.extensions?.scheduler?.tickSeconds ?? 60) * 1000;
   }
 
   async start() {
     const config = loadConfig();
-    if (config.scheduler?.enabled === false) {
+    if (config.extensions?.scheduler?.enabled === false) {
       console.log("[scheduler] Disabled");
       return;
     }

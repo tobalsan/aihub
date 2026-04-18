@@ -22,7 +22,7 @@ import { QuickChatOverlay } from "./components/QuickChatOverlay";
 import {
   capabilitiesReady,
   capabilities,
-  isComponentEnabled,
+  isExtensionEnabled,
   loadCapabilities,
 } from "./lib/capabilities";
 import {
@@ -36,11 +36,6 @@ import {
 const LazyAreasOverview = lazy(() =>
   import("./components/AreasOverview").then((mod) => ({
     default: mod.AreasOverview,
-  }))
-);
-const LazyConversationsPage = lazy(() =>
-  import("./components/conversations/ConversationsPage").then((mod) => ({
-    default: mod.ConversationsPage,
   }))
 );
 const LazyProjectsBoard = lazy(() =>
@@ -265,13 +260,13 @@ function AppBootSplash() {
   return <div class="app" />;
 }
 
-function ComponentUnavailable(props: { component: string }) {
+function ExtensionUnavailable(props: { extension: string }) {
   return (
     <LeftNavShell>
       <div class="component-unavailable">
         <h1>Component not available</h1>
         <p>
-          <code>{props.component}</code> is disabled in this AIHub config.
+          <code>{props.extension}</code> is disabled in this AIHub config.
         </p>
       </div>
       <style>{`
@@ -308,8 +303,8 @@ function GuardedRoute(props: { children?: JSX.Element }) {
 }
 
 function ProjectsRouteShell() {
-  if (!isComponentEnabled("projects")) {
-    return <ComponentUnavailable component="projects" />;
+  if (!isExtensionEnabled("projects")) {
+    return <ExtensionUnavailable extension="projects" />;
   }
 
   const params = useParams();
@@ -360,7 +355,7 @@ function ProjectsRouteShell() {
 }
 
 function AreasOverviewRouteShell() {
-  if (!isComponentEnabled("projects")) {
+  if (!isExtensionEnabled("projects")) {
     return <AgentsRouteShell />;
   }
 
@@ -472,20 +467,6 @@ function LeftNavShell(props: { children?: JSX.Element }) {
   );
 }
 
-function ConversationsRouteShell() {
-  if (!isComponentEnabled("conversations")) {
-    return <ComponentUnavailable component="conversations" />;
-  }
-
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyConversationsPage />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
 function AgentsRouteShell() {
   return (
     <LeftNavShell>
@@ -556,14 +537,6 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <ChatRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/conversations"
-        component={() => (
-          <GuardedRoute>
-            <ConversationsRouteShell />
           </GuardedRoute>
         )}
       />

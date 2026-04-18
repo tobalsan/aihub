@@ -45,7 +45,7 @@ function createDeps() {
     connectors: {
       hiveage: { apiKey: "secret-key" },
     },
-    components: {},
+    extensions: {},
   } as unknown as GatewayConfig;
 
   const app = createConnectorTools({

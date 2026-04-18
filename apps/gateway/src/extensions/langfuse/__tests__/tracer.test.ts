@@ -539,7 +539,7 @@ describe("LangfuseTracer", () => {
         "--name-only",
         "HEAD",
         "--",
-        "apps/gateway/src/components/langfuse/tracer.ts",
+        "apps/gateway/src/extensions/langfuse/tracer.ts",
       ],
       { encoding: "utf8" }
     );

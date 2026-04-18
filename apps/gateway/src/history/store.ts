@@ -10,8 +10,7 @@ import type {
 } from "@aihub/shared";
 import type { HistoryEvent } from "../sdk/types.js";
 import { CONFIG_DIR } from "../config/index.js";
-import { getUserHistoryDir } from "../components/multi-user/isolation.js";
-import { getClaudeSessionIdForSession } from "../sessions/claude.js";
+import { getUserHistoryDir } from "../extensions/multi-user/isolation.js";
 import { getSessionCreatedAt } from "../sessions/store.js";
 import { resolveSessionDataFile } from "../sessions/files.js";
 import { getMediaFileMetadata } from "../media/metadata.js";
@@ -586,7 +585,6 @@ export async function hasCanonicalHistory(
 }
 
 const PI_SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
-const CLAUDE_SESSIONS_DIR = path.join(CONFIG_DIR, "sessions", "projects");
 
 /**
  * Resolve Pi session file path (supports both timestamped and legacy formats)
@@ -606,205 +604,7 @@ async function resolvePiSessionFile(
   });
 }
 
-async function resolveClaudeSessionFile(
-  agentId: string,
-  sessionId: string,
-  userId?: string
-): Promise<string | null> {
-  const claudeSessionId = await getClaudeSessionIdForSession(
-    agentId,
-    sessionId,
-    userId
-  );
-  if (!claudeSessionId) return null;
 
-  try {
-    const entries = await fs.readdir(CLAUDE_SESSIONS_DIR, {
-      withFileTypes: true,
-    });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const candidate = path.join(
-        CLAUDE_SESSIONS_DIR,
-        entry.name,
-        `${claudeSessionId}.jsonl`
-      );
-      try {
-        await fs.access(candidate);
-        return candidate;
-      } catch {
-        // ignore
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-async function backfillFromClaudeSession(
-  agentId: string,
-  sessionId: string,
-  userId?: string
-): Promise<boolean> {
-  if (await hasCanonicalHistory(agentId, sessionId, userId)) return false;
-
-  const claudeFile = await resolveClaudeSessionFile(agentId, sessionId, userId);
-  if (!claudeFile) return false;
-
-  let content: string;
-  try {
-    content = await fs.readFile(claudeFile, "utf-8");
-  } catch {
-    return false;
-  }
-
-  await ensureHistoryDir(userId);
-  const lines = content.trim().split("\n");
-  for (const line of lines) {
-    if (!line) continue;
-    try {
-      const entry = JSON.parse(line) as Record<string, unknown>;
-      if (entry.type === "user") {
-        const message = entry.message as Record<string, unknown> | undefined;
-        const role = message?.role;
-        if (role !== "user") continue;
-        const rawContent = message?.content;
-        const text =
-          typeof rawContent === "string"
-            ? rawContent
-            : Array.isArray(rawContent)
-              ? rawContent
-                  .map((item) => {
-                    if (!item || typeof item !== "object") return "";
-                    const block = item as Record<string, unknown>;
-                    if (
-                      block.type === "text" &&
-                      typeof block.text === "string"
-                    ) {
-                      return block.text;
-                    }
-                    if (block.type === "tool_result") {
-                      if (typeof block.content === "string")
-                        return block.content;
-                      if (Array.isArray(block.content))
-                        return extractText(block.content);
-                    }
-                    return "";
-                  })
-                  .filter(Boolean)
-                  .join("\n")
-              : "";
-        if (!text) continue;
-        const ts =
-          typeof entry.timestamp === "string"
-            ? Date.parse(entry.timestamp)
-            : Date.now();
-        await appendRawEntry(
-          agentId,
-          sessionId,
-          {
-            role: "user",
-            content: [{ type: "text", text }],
-            timestamp: Number.isNaN(ts) ? Date.now() : ts,
-          },
-          userId
-        );
-      } else if (entry.type === "assistant") {
-        const message = entry.message as Record<string, unknown> | undefined;
-        const role = message?.role;
-        if (role !== "assistant") continue;
-        const content = message?.content;
-        const blocks: ContentBlock[] = [];
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (!block || typeof block !== "object") continue;
-            const item = block as Record<string, unknown>;
-            if (item.type === "text" && typeof item.text === "string") {
-              blocks.push({ type: "text", text: item.text });
-            } else if (
-              item.type === "thinking" &&
-              typeof item.thinking === "string"
-            ) {
-              blocks.push({ type: "thinking", thinking: item.thinking });
-            } else if (
-              item.type === "tool_use" &&
-              typeof item.id === "string" &&
-              typeof item.name === "string"
-            ) {
-              blocks.push({
-                type: "toolCall",
-                id: item.id,
-                name: item.name,
-                arguments: item.input,
-              });
-            }
-          }
-        }
-        if (blocks.length === 0) continue;
-        const ts =
-          typeof entry.timestamp === "string"
-            ? Date.parse(entry.timestamp)
-            : Date.now();
-        const usage =
-          (message?.usage as Record<string, unknown> | undefined) ?? undefined;
-        const usageMapped =
-          usage && typeof usage === "object"
-            ? {
-                input:
-                  typeof usage.input_tokens === "number"
-                    ? usage.input_tokens
-                    : 0,
-                output:
-                  typeof usage.output_tokens === "number"
-                    ? usage.output_tokens
-                    : 0,
-                cacheRead:
-                  typeof usage.cache_read_input_tokens === "number"
-                    ? usage.cache_read_input_tokens
-                    : undefined,
-                cacheWrite:
-                  typeof usage.cache_creation_input_tokens === "number"
-                    ? usage.cache_creation_input_tokens
-                    : undefined,
-                totalTokens:
-                  (typeof usage.input_tokens === "number"
-                    ? usage.input_tokens
-                    : 0) +
-                  (typeof usage.output_tokens === "number"
-                    ? usage.output_tokens
-                    : 0),
-              }
-            : undefined;
-        await appendRawEntry(
-          agentId,
-          sessionId,
-          {
-            role: "assistant",
-            content: blocks,
-            meta: {
-              provider: "anthropic",
-              model:
-                typeof message?.model === "string" ? message.model : undefined,
-              usage: usageMapped,
-              stopReason:
-                typeof message?.stop_reason === "string"
-                  ? message.stop_reason
-                  : undefined,
-            },
-            timestamp: Number.isNaN(ts) ? Date.now() : ts,
-          },
-          userId
-        );
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-
-  return true;
-}
 
 /**
  * Backfill canonical history from Pi session file (one-time migration)
@@ -984,14 +784,6 @@ export async function readPiSessionHistory(
   }
 
   return messages;
-}
-
-export async function backfillFromClaudeSessionIfNeeded(
-  agentId: string,
-  sessionId: string,
-  userId?: string
-): Promise<boolean> {
-  return backfillFromClaudeSession(agentId, sessionId, userId);
 }
 
 function extractText(content: unknown[]): string {
