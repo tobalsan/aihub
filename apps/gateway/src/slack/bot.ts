@@ -164,12 +164,16 @@ async function sendSlackError(
 }
 
 function formatThinkingMessage(text: string): string {
-  const trimmed = text.trim();
+  const trimmed = text.trim().replace(/\s+/g, " ");
   const truncated =
     trimmed.length > MAX_THINKING_CHARS
       ? trimmed.slice(0, MAX_THINKING_CHARS) + "…"
       : trimmed;
-  return `🧠 Thinking:\n${truncated}`;
+  // Break into lines after sentences (.) and dashes (-)
+  const formatted = truncated
+    .replace(/\.\s+/g, ".\n")
+    .replace(/\-\s+/g, "- ");
+  return `🧠 Thinking:\n${formatted}`;
 }
 
 function startThinkingStreamDisplay(params: {
@@ -294,10 +298,7 @@ function startThinkingStreamDisplay(params: {
     if (!matchesRun(event)) return;
     if (event.type === "thinking") {
       if (closed) return;
-      const chunk = (event.data ?? "").trim();
-      if (chunk) {
-        accumulatedThinking += (accumulatedThinking ? "\n" : "") + chunk;
-      }
+      accumulatedThinking += event.data ?? "";
       const text = formatThinkingMessage(accumulatedThinking);
       try {
         await publishThinking(text);

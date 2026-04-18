@@ -385,7 +385,7 @@ describe("createSlackBot", () => {
       expect(apps[0].client.chat.update).toHaveBeenCalledWith({
         channel: "C1",
         ts: "reply-ts",
-        text: "🧠 Thinking:\nfirst thought\nsecond thought",
+        text: "🧠 Thinking:\nfirst thoughtsecond thought",
         mrkdwn: true,
       });
       expect(apps[0].client.chat.delete).toHaveBeenCalledWith({
@@ -542,7 +542,7 @@ describe("createSlackBot", () => {
       expect(apps[0].client.chat.update).toHaveBeenCalledWith({
         channel: "C1",
         ts: "thinking-ts",
-        text: "🧠 Thinking:\ntentative stale\ncorrect after result",
+        text: "🧠 Thinking:\ntentative stalecorrect after result",
         mrkdwn: true,
       });
     } finally {
