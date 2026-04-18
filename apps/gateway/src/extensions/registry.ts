@@ -1,4 +1,7 @@
+import path from "node:path";
 import type { Extension, GatewayConfig } from "@aihub/shared";
+import { discoverExternalExtensions } from "@aihub/shared";
+import { CONFIG_DIR } from "../config/index.js";
 
 type ExtensionRegistration = {
   load: () => Promise<Extension>;
@@ -73,6 +76,8 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
 };
 
+const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
+
 let loadedExtensions: Extension[] = [];
 let loadedExtensionIds = new Set<string>();
 
@@ -132,9 +137,41 @@ export async function loadExtensions(
     const extensionConfig = registration.getConfig(config) as
       | { enabled?: boolean }
       | undefined;
-    if (!extensionConfig || extensionConfig.enabled === false) continue;
+
+    // Skip if explicitly disabled
+    if (extensionConfig?.enabled === false) continue;
+
+    // Skip non-defaults that have no config
+    const isDefault = BUILT_IN_DEFAULTS.has(id);
+    if (!extensionConfig && !isDefault) continue;
 
     const extension = await registration.load();
+    // For defaults with no config, pass empty object; validateConfig should accept it
+    const configToValidate = extensionConfig ?? {};
+    const validation = extension.validateConfig(configToValidate);
+    if (!validation.valid) {
+      throw new Error(
+        `Extension "${id}" config invalid: ${validation.errors.join(", ")}`
+      );
+    }
+    extensions.push(extension);
+  }
+
+  // Discover external extensions
+  const extensionsPath =
+    (config as GatewayConfig & { extensionsPath?: string }).extensionsPath ??
+    path.join(CONFIG_DIR, "extensions");
+  const external = await discoverExternalExtensions(extensionsPath);
+  for (const { extension, id } of external) {
+    const extensionConfig = (
+      config.extensions as Record<string, unknown> | undefined
+    )?.[id];
+    if (
+      !extensionConfig ||
+      (extensionConfig as { enabled?: boolean }).enabled === false
+    )
+      continue;
+
     const validation = extension.validateConfig(extensionConfig);
     if (!validation.valid) {
       throw new Error(

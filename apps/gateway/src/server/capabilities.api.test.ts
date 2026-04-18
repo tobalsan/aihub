@@ -57,7 +57,8 @@ describe("/capabilities API", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       version: 2,
-      extensions: { scheduler: true },
+      // heartbeat loads by default even without explicit config
+      extensions: { scheduler: true, heartbeat: true },
       agents: ["main"],
       multiUser: false,
     });

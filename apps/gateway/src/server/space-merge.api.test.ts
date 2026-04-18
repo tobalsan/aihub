@@ -106,30 +106,29 @@ describe("space merge API", () => {
       extension.registerRoutes(api as never);
     }
 
+    const mockCtx = {
+      getConfig: () => config,
+      getDataDir: () => path.join(tmpDir, ".aihub"),
+      getAgents: () => config.agents ?? [],
+      getAgent: (id: string) => config.agents?.find((a) => a.id === id),
+      isAgentActive: () => true,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: () => tmpDir,
+      runAgent: async () => ({ ok: true, data: {} }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => {},
+      deleteSession: () => {},
+      invalidateHistoryCache: async () => {},
+      getSessionHistory: async () => [],
+      subscribe: () => () => {},
+      emit: () => {},
+      logger: console,
+    };
     for (const extension of extensions) {
-      if (extension.id === "projects") {
-        await extension.start?.({
-          getConfig: () => config,
-          getDataDir: () => path.join(tmpDir, ".aihub"),
-          getAgents: () => config.agents ?? [],
-          getAgent: (id: string) => config.agents?.find((a) => a.id === id),
-          isAgentActive: () => true,
-          isAgentStreaming: () => false,
-          resolveWorkspaceDir: () => tmpDir,
-          runAgent: async () => ({ ok: true, data: {} }),
-          getSubagentTemplates: () => [],
-          resolveSessionId: async () => undefined,
-          getSessionEntry: async () => undefined,
-          clearSessionEntry: async () => undefined,
-          restoreSessionUpdatedAt: () => {},
-          deleteSession: () => {},
-          invalidateHistoryCache: async () => {},
-          getSessionHistory: async () => [],
-          subscribe: () => () => {},
-          emit: () => {},
-          logger: console,
-        });
-      }
+      await extension.start?.(mockCtx as never);
     }
   });
 

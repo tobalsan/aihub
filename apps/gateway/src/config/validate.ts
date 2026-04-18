@@ -54,11 +54,13 @@ function getComponentConfig(
 ): unknown {
   // multiUser lives at config.extensions.multiUser
   if (extension.id === "multiUser") {
-    return config.extensions?.multiUser;
+    return config.extensions?.multiUser ?? {};
   }
-  return config.extensions?.[
-    extension.id as keyof NonNullable<GatewayConfig["extensions"]>
-  ];
+  return (
+    config.extensions?.[
+      extension.id as keyof NonNullable<GatewayConfig["extensions"]>
+    ] ?? {}
+  );
 }
 
 function validateComponentConfigs(

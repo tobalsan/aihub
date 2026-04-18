@@ -43,8 +43,9 @@ describe("startup validation", () => {
       });
 
       const extensions = await loadExtensions(config);
+      // scheduler and heartbeat are loaded by default even without explicit config
       await expect(validateStartupConfig(config, extensions)).resolves.toEqual({
-        loaded: [],
+        loaded: ["scheduler", "heartbeat"],
         skipped: [],
       });
       expect(warnings).toEqual([

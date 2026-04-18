@@ -663,6 +663,19 @@ export interface Extension {
   capabilities(): string[];
 }
 
+export const ExtensionDefinitionSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  description: z.string(),
+  dependencies: z.array(z.string()),
+  routePrefixes: z.array(z.string()),
+  validateConfig: z
+    .function()
+    .args(z.unknown())
+    .returns(z.object({ valid: z.boolean(), errors: z.array(z.string()) })),
+  capabilities: z.function().args().returns(z.array(z.string())),
+});
+
 // API payloads
 export const SendMessageRequestSchema = z.object({
   message: z.string(),

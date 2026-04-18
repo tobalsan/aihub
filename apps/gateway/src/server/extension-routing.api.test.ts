@@ -43,9 +43,7 @@ describe("extension route mounting", () => {
       extension.registerRoutes(api);
     }
 
-    for (const extension of extensions) {
-      if (extension.id === "projects") {
-        await extension.start?.({
+    const mockCtx = {
           getConfig: () => config,
           getDataDir: () => path.join(tmpDir, ".aihub"),
           getAgents: () => config.agents ?? [],
@@ -65,9 +63,11 @@ describe("extension route mounting", () => {
           subscribe: () => () => {},
           emit: () => {},
           logger: console,
-        });
-      }
+    };
+    for (const extension of extensions) {
+      await extension.start?.(mockCtx as never);
     }
+
   });
 
   afterAll(async () => {

@@ -13,30 +13,22 @@ import {
   CONFIG_DIR,
   setLoadedConfig,
   isAgentActive,
-  getSubagentTemplates,
-  resolveWorkspaceDir,
 } from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";
-import { getSessionHistory, runAgent } from "../agents/index.js";
+import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import { registerEvalCommands } from "../evals/cli.js";
-import { resolveBindHost, type Extension, type UiConfig } from "@aihub/shared";
+import { resolveBindHost, type UiConfig } from "@aihub/shared";
 import { loadExtensions } from "../extensions/registry.js";
+import { createExtensionContext } from "../extensions/context.js";
 import {
   prepareStartupConfig,
   logComponentSummary,
   resolveStartupConfig,
 } from "../config/validate.js";
 import { initializeConnectors } from "../connectors/index.js";
-import { agentEventBus } from "../agents/events.js";
-import { getAllSessionsForAgent, deleteSession } from "../agents/sessions.js";
-import {
-  clearSessionEntry,
-  getSessionEntry,
-  restoreSessionUpdatedAt,
-} from "../sessions/index.js";
-import { invalidateResolvedHistoryFile } from "../history/store.js";
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -131,55 +123,6 @@ function getApiBaseUrl(): string {
   return `http://${host}:${port}`;
 }
 
-function createExtensionContext(resolvedConfig: ReturnType<typeof loadConfig>) {
-  return {
-    getConfig: () => resolvedConfig,
-    getDataDir: () => CONFIG_DIR,
-    getAgent,
-    getAgents,
-    isAgentActive,
-    isAgentStreaming: (agentId: string) =>
-      getAllSessionsForAgent(agentId).some((session) => session.isStreaming),
-    resolveWorkspaceDir: (agent) => resolveWorkspaceDir(agent.workspace),
-    runAgent,
-    getSubagentTemplates,
-    resolveSessionId: async (agentId: string, sessionKey: string) =>
-      getSessionEntry(agentId, sessionKey),
-    getSessionEntry,
-    clearSessionEntry,
-    restoreSessionUpdatedAt: (
-      agentId: string,
-      sessionKey: string,
-      timestamp: number
-    ) => {
-      void restoreSessionUpdatedAt(agentId, sessionKey, timestamp);
-    },
-    deleteSession: (agentId: string, sessionId: string) => {
-      void deleteSession(agentId, sessionId);
-    },
-    invalidateHistoryCache: async (
-      agentId: string,
-      sessionId: string,
-      userId?: string
-    ) => {
-      invalidateResolvedHistoryFile(agentId, sessionId, userId);
-    },
-    getSessionHistory: (agentId: string, sessionId: string) =>
-      getSessionHistory(agentId, sessionId),
-    subscribe: (event: string, handler: (payload: unknown) => void) => {
-      agentEventBus.on(event, handler);
-      return () => agentEventBus.off(event, handler);
-    },
-    emit: (event: string, payload: unknown) => {
-      agentEventBus.emit(event, payload);
-    },
-    logger: {
-      info: (...args: unknown[]) => console.log(...args),
-      warn: (...args: unknown[]) => console.warn(...args),
-      error: (...args: unknown[]) => console.error(...args),
-    },
-  } satisfies Parameters<Extension["start"]>[0];
-}
 
 function startWebUI(
   uiConfig: UiConfig,

@@ -103,7 +103,12 @@ describe("extension registry", () => {
 
     const result = await loadExtensions(config);
 
-    expect(result.map((extension) => extension.id)).toEqual(["multiUser"]);
+    // scheduler and heartbeat load by default even without explicit config
+    expect(result.map((extension) => extension.id)).toEqual([
+      "scheduler",
+      "heartbeat",
+      "multiUser",
+    ]);
     expect(isExtensionLoaded("multiUser")).toBe(true);
   });
 
@@ -129,6 +134,7 @@ describe("extension registry", () => {
   });
 
   it("fails on missing dependencies", async () => {
+    // Explicitly disable scheduler so heartbeat's dependency is missing
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -141,6 +147,7 @@ describe("extension registry", () => {
       ],
       extensions: {
         heartbeat: { enabled: true },
+        scheduler: { enabled: false },
       },
     });
 
