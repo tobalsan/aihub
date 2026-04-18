@@ -234,7 +234,7 @@ describe("gateway status websocket in multi-user mode", () => {
         isExtensionLoaded: (extensionId: string) => extensionId === "multiUser",
       };
     });
-    vi.doMock("../extensions/multi-user/middleware.js", () => ({
+    vi.doMock("@aihub/extension-multi-user", () => ({
       createAuthMiddleware:
         () => async (_c: unknown, next: () => Promise<void>) => {
           await next();

@@ -10,7 +10,7 @@ import type {
 } from "@aihub/shared";
 import type { HistoryEvent } from "../sdk/types.js";
 import { CONFIG_DIR } from "../config/index.js";
-import { getUserHistoryDir } from "../extensions/multi-user/isolation.js";
+import { getUserHistoryDir } from "@aihub/extension-multi-user/isolation";
 import { getSessionCreatedAt } from "../sessions/store.js";
 import { resolveSessionDataFile } from "../sessions/files.js";
 import { getMediaFileMetadata } from "../media/metadata.js";

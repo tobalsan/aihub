@@ -1,10 +1,6 @@
 import Langfuse from "langfuse";
 
-import type {
-  AgentHistoryEvent,
-  agentEventBus,
-  AgentStreamEvent,
-} from "../../agents/events.js";
+import type { AgentHistoryEvent, AgentStreamEvent } from "@aihub/shared";
 import type { GenerationState, SpanState, TraceState } from "./types.js";
 
 const IDLE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -20,7 +16,6 @@ type TracedHistoryEvent = Extract<
   { type: "tool_call" | "tool_result" | "meta" | "user" | "turn_end" }
 >;
 
-type AgentEventBus = typeof agentEventBus;
 type GenerationUpdate = Parameters<GenerationState["generation"]["update"]>[0];
 type SpanEnd = NonNullable<Parameters<SpanState["span"]["end"]>[0]>;
 
@@ -41,14 +36,12 @@ function toSurface(sessionKey?: string): string {
 
 export class LangfuseTracer {
   private langfuse: Langfuse | null = null;
-  private unsubscribeStream: (() => void) | null = null;
-  private unsubscribeHistory: (() => void) | null = null;
   private idleCleanupInterval: ReturnType<typeof setInterval> | null = null;
   private readonly traces = new Map<string, TraceState>();
 
   constructor(private readonly config: LangfuseTracerConfig) {}
 
-  start(bus: AgentEventBus): void {
+  start(): void {
     if (this.langfuse) return;
 
     this.langfuse = new Langfuse({
@@ -60,12 +53,6 @@ export class LangfuseTracer {
       environment: this.config.environment,
     });
 
-    this.unsubscribeStream = bus.onStreamEvent(
-      (event) => void this.handleStreamEvent(event)
-    );
-    this.unsubscribeHistory = bus.onHistoryEvent((event) =>
-      this.handleHistoryEvent(event)
-    );
     this.idleCleanupInterval = setInterval(
       () => void this.cleanupIdleTraces(),
       IDLE_CLEANUP_INTERVAL_MS
@@ -73,11 +60,6 @@ export class LangfuseTracer {
   }
 
   async stop(): Promise<void> {
-    this.unsubscribeStream?.();
-    this.unsubscribeStream = null;
-    this.unsubscribeHistory?.();
-    this.unsubscribeHistory = null;
-
     if (this.idleCleanupInterval) {
       clearInterval(this.idleCleanupInterval);
       this.idleCleanupInterval = null;

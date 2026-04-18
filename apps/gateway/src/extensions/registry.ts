@@ -27,7 +27,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
   scheduler: {
     load: () =>
-      import("./scheduler/index.js").then(
+      import("@aihub/extension-scheduler").then(
         (module) => module.schedulerExtension
       ),
     getConfig: (config) => config.extensions?.scheduler,
@@ -35,7 +35,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
   heartbeat: {
     load: () =>
-      import("./heartbeat/index.js").then(
+      import("@aihub/extension-heartbeat").then(
         (module) => module.heartbeatExtension
       ),
     getConfig: (config) => config.extensions?.heartbeat,
@@ -55,13 +55,15 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
   langfuse: {
     load: () =>
-      import("./langfuse/index.js").then((module) => module.langfuseExtension),
+      import("@aihub/extension-langfuse").then(
+        (module) => module.langfuseExtension
+      ),
     getConfig: (config) => config.extensions?.langfuse,
     routePrefixes: [],
   },
   multiUser: {
     load: () =>
-      import("./multi-user/index.js").then(
+      import("@aihub/extension-multi-user").then(
         (module) => module.multiUserExtension
       ),
     getConfig: (config) => config.extensions?.multiUser,

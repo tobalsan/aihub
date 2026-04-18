@@ -33,7 +33,7 @@ vi.mock("../agents/index.js", () => {
 
 // Mock heartbeat module
 const heartbeatEventEmitter = new EventEmitter();
-vi.mock("../heartbeat/index.js", () => ({
+vi.mock("@aihub/extension-heartbeat", () => ({
   onHeartbeatEvent: vi.fn((handler: (event: unknown) => void) => {
     heartbeatEventEmitter.on("heartbeat", handler);
     return () => heartbeatEventEmitter.off("heartbeat", handler);

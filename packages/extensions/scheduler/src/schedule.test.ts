@@ -44,7 +44,7 @@ describe("computeNextRunAtMs", () => {
 
       const next = computeNextRunAtMs(schedule, now);
 
-      // Next run should be the startAt time
+      // Next run should be startAt time
       expect(next).toBe(startAt.getTime());
     });
   });
@@ -57,7 +57,7 @@ describe("computeNextRunAtMs", () => {
         timezone: "UTC",
       };
 
-      // Use a fixed date for consistent testing
+      // Use fixed date for consistent testing
       const date = new Date("2024-06-15T08:00:00Z"); // 8 AM UTC
       const next = computeNextRunAtMs(schedule, date.getTime());
 
@@ -72,7 +72,7 @@ describe("computeNextRunAtMs", () => {
         timezone: "UTC",
       };
 
-      // 10 AM UTC - past the scheduled time
+      // 10 AM UTC - past scheduled time
       const date = new Date("2024-06-15T10:00:00Z");
       const next = computeNextRunAtMs(schedule, date.getTime());
 
@@ -88,7 +88,7 @@ describe("computeNextRunAtMs", () => {
         timezone: "America/New_York", // UTC-5 in winter
       };
 
-      // Midnight UTC on a winter day (so NY is UTC-5)
+      // Midnight UTC on winter day (NY UTC-5)
       const date = new Date("2024-01-15T00:00:00Z");
       const next = computeNextRunAtMs(schedule, date.getTime());
 
@@ -102,21 +102,19 @@ describe("computeNextRunAtMs", () => {
       const schedule: DailySchedule = {
         type: "daily",
         time: "01:00",
-        timezone: "Europe/Berlin", // UTC+1 in winter, UTC+2 in summer
+        timezone: "Europe/Berlin", // UTC+1 winter, UTC+2 summer
       };
 
-      // March 31 at 23:30 UTC - in Berlin this is April 1 at 00:30 (UTC+1 before DST)
-      // Actually March 31 2024 is when DST starts in Europe, so at 23:30 UTC it's already 01:30 CEST
-      // Let's use a cleaner example: end of January
-      const date = new Date("2024-01-31T23:30:00Z"); // In Berlin: Feb 1 00:30
+      // Jan 31 23:30 UTC -> Berlin Feb 1 00:30
+      const date = new Date("2024-01-31T23:30:00Z");
       const next = computeNextRunAtMs(schedule, date.getTime());
 
-      // In Berlin time, it's Feb 1 00:30, so 01:00 Berlin is still ahead
-      // 01:00 Berlin = 00:00 UTC on Feb 1
+      // In Berlin, Feb 1 00:30, so 01:00 Berlin still ahead
+      // 01:00 Berlin = 00:00 UTC in winter
       const nextDate = new Date(next);
       expect(nextDate.getUTCMonth()).toBe(1); // February
       expect(nextDate.getUTCDate()).toBe(1);
-      expect(nextDate.getUTCHours()).toBe(0); // 01:00 Berlin = 00:00 UTC in winter
+      expect(nextDate.getUTCHours()).toBe(0);
     });
 
     it("handles month boundary correctly", () => {
@@ -130,7 +128,7 @@ describe("computeNextRunAtMs", () => {
       const date = new Date("2024-01-31T10:00:00Z");
       const next = computeNextRunAtMs(schedule, date.getTime());
 
-      // Should be Feb 1st
+      // Should be Feb 1
       const nextDate = new Date(next);
       expect(nextDate.getUTCMonth()).toBe(1); // February
       expect(nextDate.getUTCDate()).toBe(1);

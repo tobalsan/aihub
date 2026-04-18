@@ -8,7 +8,7 @@ import type {
 } from "@aihub/shared";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import { getSessionEntry, DEFAULT_MAIN_KEY } from "../sessions/index.js";
-import { onHeartbeatEvent } from "../heartbeat/index.js";
+import { onHeartbeatEvent } from "@aihub/extension-heartbeat";
 import {
   createCarbonClient,
   getGatewayPlugin,

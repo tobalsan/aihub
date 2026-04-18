@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
-import type { ScheduleJob, CreateScheduleRequest, UpdateScheduleRequest } from "@aihub/shared";
-import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
-import { runAgent } from "../agents/index.js";
+import type {
+  ScheduleJob,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
+  ExtensionContext,
+} from "@aihub/shared";
 import { loadScheduleStore, saveScheduleStore, type ScheduleStore } from "./store.js";
 import { computeNextRunAtMs } from "./schedule.js";
 
@@ -14,6 +17,24 @@ export type SchedulerState = {
 
 type JobWithState = ScheduleJob & { state?: SchedulerState };
 
+let schedulerCtx: ExtensionContext | null = null;
+
+function getSchedulerContext(): ExtensionContext {
+  if (!schedulerCtx) {
+    throw new Error("Scheduler context not initialized");
+  }
+  return schedulerCtx;
+}
+
+export function setSchedulerContext(ctx: ExtensionContext): void {
+  schedulerCtx = ctx;
+}
+
+export function clearSchedulerContext(): void {
+  schedulerCtx = null;
+  instance = null;
+}
+
 export class SchedulerService {
   private store: ScheduleStore;
   private timer: NodeJS.Timeout | null = null;
@@ -21,13 +42,14 @@ export class SchedulerService {
   private tickMs: number;
 
   constructor() {
-    this.store = loadScheduleStore();
-    const config = loadConfig();
+    const ctx = getSchedulerContext();
+    this.store = loadScheduleStore(ctx.getDataDir());
+    const config = ctx.getConfig();
     this.tickMs = (config.extensions?.scheduler?.tickSeconds ?? 60) * 1000;
   }
 
   async start() {
-    const config = loadConfig();
+    const config = getSchedulerContext().getConfig();
     if (config.extensions?.scheduler?.enabled === false) {
       console.log("[scheduler] Disabled");
       return;
@@ -112,7 +134,7 @@ export class SchedulerService {
   }
 
   private save() {
-    saveScheduleStore(this.store);
+    saveScheduleStore(this.store, getSchedulerContext().getDataDir());
   }
 
   private armTimer() {
@@ -163,7 +185,8 @@ export class SchedulerService {
   }
 
   private async executeJob(job: JobWithState) {
-    const agent = getAgent(job.agentId);
+    const ctx = getSchedulerContext();
+    const agent = ctx.getAgent(job.agentId);
     if (!agent) {
       console.error(`[scheduler] Agent not found: ${job.agentId}`);
       job.state = job.state ?? {};
@@ -174,8 +197,8 @@ export class SchedulerService {
       return;
     }
 
-    // Skip if agent is not active (single-agent mode filter)
-    if (!isAgentActive(job.agentId)) {
+    // Skip if agent not active (single-agent mode filter)
+    if (!ctx.isAgentActive(job.agentId)) {
       job.state = job.state ?? {};
       job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
       return;
@@ -185,7 +208,7 @@ export class SchedulerService {
     const startedAt = Date.now();
 
     try {
-      await runAgent({
+      await ctx.runAgent({
         agentId: job.agentId,
         message: job.payload.message,
         sessionId: job.payload.sessionId ?? `scheduler:${job.id}`,

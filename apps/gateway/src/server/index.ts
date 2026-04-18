@@ -35,7 +35,7 @@ import { getSessionCurrentTurn, isStreaming } from "../agents/index.js";
 import { normalizeInboundAttachments } from "../sdk/attachments.js";
 
 type RequestAuthContext =
-  import("../extensions/multi-user/middleware.js").RequestAuthContext;
+  import("@aihub/extension-multi-user").RequestAuthContext;
 
 const app = new Hono();
 const wsDebug = process.env.DEBUG?.includes("aihub:ws");
@@ -73,15 +73,13 @@ function buildExtensionRouteMatchers(): ExtensionRouteMatcher[] {
 
 const extensionRouteMatchers = buildExtensionRouteMatchers();
 
-type MultiUserMiddlewareModule =
-  typeof import("../extensions/multi-user/middleware.js");
+type MultiUserMiddlewareModule = typeof import("@aihub/extension-multi-user");
 
 let multiUserMiddlewareModulePromise: Promise<MultiUserMiddlewareModule> | null =
   null;
 
 function loadMultiUserMiddlewareModule(): Promise<MultiUserMiddlewareModule> {
-  multiUserMiddlewareModulePromise ??=
-    import("../extensions/multi-user/middleware.js");
+  multiUserMiddlewareModulePromise ??= import("@aihub/extension-multi-user");
   return multiUserMiddlewareModulePromise;
 }
 

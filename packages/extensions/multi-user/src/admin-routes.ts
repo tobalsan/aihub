@@ -1,6 +1,5 @@
 import type { Hono } from "hono";
 import { z } from "zod";
-import { getAgent } from "../../config/index.js";
 import { getRequestAuthContext, requireAdmin } from "./middleware.js";
 import { getMultiUserRuntime } from "./index.js";
 
@@ -88,11 +87,10 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
     }
 
     const agentId = c.req.param("agentId");
+    const { assignments, db, getAgent } = getRuntimeOrThrow();
     if (!getAgent(agentId)) {
       return c.json({ error: "Agent not found" }, 404);
     }
-
-    const { assignments, db } = getRuntimeOrThrow();
     const authContext = getRequestAuthContext(c);
     if (!authContext) {
       return c.json({ error: "unauthorized" }, 401);

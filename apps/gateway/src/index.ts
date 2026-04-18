@@ -2,7 +2,7 @@ export { startServer, app } from "./server/index.js";
 export { loadConfig, reloadConfig, getAgent, getAgents } from "./config/index.js";
 export { runAgent } from "./agents/index.js";
 export { startDiscordBots, stopDiscordBots } from "./discord/index.js";
-export { startScheduler, stopScheduler, getScheduler } from "./scheduler/index.js";
+export { startScheduler, stopScheduler, getScheduler } from "@aihub/extension-scheduler";
 export {
   startAllHeartbeats,
   stopAllHeartbeats,
@@ -12,4 +12,4 @@ export {
   setHeartbeatsEnabled,
   areHeartbeatsEnabled,
   onHeartbeatEvent,
-} from "./heartbeat/index.js";
+} from "@aihub/extension-heartbeat";

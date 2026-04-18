@@ -24,9 +24,9 @@ function computeIntervalNext(schedule: IntervalSchedule, nowMs: number): number 
 }
 
 /**
- * Get the UTC offset in minutes for a timezone at a specific instant.
- * Uses Intl.DateTimeFormat to get the local representation, then computes
- * the difference using Date.UTC for accurate month/year boundary handling.
+ * Get UTC offset in minutes for timezone at specific instant.
+ * Uses Intl.DateTimeFormat to get local representation, then computes
+ * difference using Date.UTC for accurate month/year boundary handling.
  */
 function getTimezoneOffsetMinutes(tz: string, date: Date): number {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -41,7 +41,8 @@ function getTimezoneOffsetMinutes(tz: string, date: Date): number {
   });
 
   const parts = formatter.formatToParts(date);
-  const getPart = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
+  const getPart = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
 
   const tzYear = getPart("year");
   const tzMonth = getPart("month");
@@ -50,16 +51,16 @@ function getTimezoneOffsetMinutes(tz: string, date: Date): number {
   const tzMinute = getPart("minute");
   const tzSecond = getPart("second");
 
-  // Construct the same wall-clock time as UTC to get the offset
+  // Construct same wall-clock time as UTC to get offset
   const tzAsUtcMs = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, tzSecond);
   const actualUtcMs = date.getTime();
 
-  // Offset = how much the TZ is ahead of UTC (positive = east of UTC)
+  // Offset = how much TZ ahead of UTC (positive = east of UTC)
   return Math.round((tzAsUtcMs - actualUtcMs) / 60000);
 }
 
 /**
- * Convert a local time in a timezone to UTC milliseconds.
+ * Convert local time in timezone to UTC milliseconds.
  * Uses binary search to handle DST edge cases.
  */
 function localTimeToUtc(
@@ -70,19 +71,19 @@ function localTimeToUtc(
   minute: number,
   tz: string
 ): number {
-  // Start with the naive assumption (treat local as UTC)
+  // Start with naive assumption (treat local as UTC)
   const naiveUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
 
-  // Get the offset at this approximate time
+  // Get offset at this approximate time
   const offset = getTimezoneOffsetMinutes(tz, new Date(naiveUtcMs));
 
-  // The actual UTC time is earlier if TZ is ahead of UTC
+  // Actual UTC time earlier if TZ ahead of UTC
   const candidateUtcMs = naiveUtcMs - offset * 60000;
 
-  // Verify by checking the offset at the candidate time (handles DST)
+  // Verify by checking offset at candidate time (handles DST)
   const verifyOffset = getTimezoneOffsetMinutes(tz, new Date(candidateUtcMs));
   if (verifyOffset !== offset) {
-    // DST transition - use the verified offset
+    // DST transition - use verified offset
     return naiveUtcMs - verifyOffset * 60000;
   }
 
@@ -93,7 +94,7 @@ function computeDailyNext(schedule: DailySchedule, nowMs: number): number {
   const [hours, minutes] = schedule.time.split(":").map(Number);
   const tz = schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  // Get the current date/time in the target timezone
+  // Get current date/time in target timezone
   const now = new Date(nowMs);
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
@@ -106,7 +107,8 @@ function computeDailyNext(schedule: DailySchedule, nowMs: number): number {
   });
 
   const parts = formatter.formatToParts(now);
-  const getPart = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
+  const getPart = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
 
   const currentHour = getPart("hour");
   const currentMinute = getPart("minute");
@@ -118,7 +120,7 @@ function computeDailyNext(schedule: DailySchedule, nowMs: number): number {
   const todayPassed =
     currentHour > hours || (currentHour === hours && currentMinute >= minutes);
 
-  // Calculate the target date (today or tomorrow in target timezone)
+  // Calculate target date (today or tomorrow in target timezone)
   let targetYear = currentYear;
   let targetMonth = currentMonth;
   let targetDay = currentDay;
@@ -137,6 +139,6 @@ function computeDailyNext(schedule: DailySchedule, nowMs: number): number {
     }
   }
 
-  // Convert the target local time to UTC
+  // Convert target local time to UTC
   return localTimeToUtc(targetYear, targetMonth, targetDay, hours, minutes, tz);
 }

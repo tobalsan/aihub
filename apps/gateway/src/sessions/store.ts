@@ -7,7 +7,7 @@ import {
   type ThinkLevel,
 } from "@aihub/shared";
 import { CONFIG_DIR, loadConfig } from "../config/index.js";
-import { getUserSessionsPath } from "../extensions/multi-user/isolation.js";
+import { getUserSessionsPath } from "@aihub/extension-multi-user/isolation";
 
 export { formatSessionTimestamp } from "./files.js";
 

@@ -12,7 +12,12 @@ import {
   loadHeartbeatPrompt,
   DEFAULT_HEARTBEAT_PROMPT,
 } from "./runner.js";
-import type { AgentConfig, HeartbeatConfig } from "@aihub/shared";
+import type {
+  AgentConfig,
+  ExtensionContext,
+  HeartbeatConfig,
+  HeartbeatEventPayload,
+} from "@aihub/shared";
 
 // Helper to create minimal agent config for testing
 function createAgent(heartbeat?: HeartbeatConfig): AgentConfig {
@@ -363,6 +368,30 @@ describe("loadHeartbeatPrompt", () => {
   beforeEach(async () => {
     // Create a unique temp directory for each test
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "heartbeat-test-"));
+
+    const module = await import("./runner.js");
+    module.clearHeartbeatContext();
+    module.setHeartbeatContext({
+      getConfig: () => ({ agents: [] }) as never,
+      getDataDir: () => "/tmp",
+      getAgent: () => undefined,
+      getAgents: () => [],
+      isAgentActive: () => false,
+      isAgentStreaming: () => false,
+      resolveWorkspaceDir: (agent) => agent.workspace,
+      runAgent: async () => ({ payloads: [], meta: { durationMs: 0, sessionId: "s" } }),
+      getSubagentTemplates: () => [],
+      resolveSessionId: async () => undefined,
+      getSessionEntry: async () => undefined,
+      clearSessionEntry: async () => undefined,
+      restoreSessionUpdatedAt: () => undefined,
+      deleteSession: () => undefined,
+      invalidateHistoryCache: async () => undefined,
+      getSessionHistory: async () => [],
+      subscribe: () => () => undefined,
+      emit: () => undefined,
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    });
   });
 
   afterEach(async () => {
@@ -372,6 +401,9 @@ describe("loadHeartbeatPrompt", () => {
     } catch {
       // Ignore cleanup errors
     }
+
+    const module = await import("./runner.js");
+    module.clearHeartbeatContext();
   });
 
   function createAgentWithWorkspace(heartbeat?: HeartbeatConfig): AgentConfig {
@@ -514,7 +546,7 @@ describe("loadHeartbeatPrompt", () => {
 // Tests for runHeartbeat session preservation
 // These tests verify the scope: "Session preservation: restore updatedAt so heartbeat doesn't keep sessions alive"
 
-// Mock modules
+// Mock ExtensionContext surface
 const mockGetAgent = vi.fn();
 const mockGetSessionEntry = vi.fn();
 const mockRestoreSessionUpdatedAt = vi.fn();
@@ -522,63 +554,108 @@ const mockIsStreaming = vi.fn();
 const mockResolveSessionId = vi.fn();
 const mockRunAgent = vi.fn();
 const mockResolveWorkspaceDir = vi.fn();
+const mockGetConfig = vi.fn();
+const mockLoadConfig = mockGetConfig;
+const mockEmit = vi.fn();
+const mockSubscribe = vi.fn();
+const mockGetAgents = vi.fn();
+const mockGetDataDir = vi.fn();
+const mockIsAgentActive = vi.fn();
+const mockGetSubagentTemplates = vi.fn();
+const mockClearSessionEntry = vi.fn();
+const mockDeleteSession = vi.fn();
+const mockInvalidateHistoryCache = vi.fn();
+const mockGetSessionHistory = vi.fn();
+
+function createMockExtensionContext(): ExtensionContext {
+  return {
+    getConfig: mockGetConfig,
+    getDataDir: mockGetDataDir,
+    getAgent: mockGetAgent,
+    getAgents: mockGetAgents,
+    isAgentActive: mockIsAgentActive,
+    isAgentStreaming: mockIsStreaming,
+    resolveWorkspaceDir: mockResolveWorkspaceDir,
+    runAgent: mockRunAgent,
+    getSubagentTemplates: mockGetSubagentTemplates,
+    resolveSessionId: mockResolveSessionId,
+    getSessionEntry: mockGetSessionEntry,
+    clearSessionEntry: mockClearSessionEntry,
+    restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
+    deleteSession: mockDeleteSession,
+    invalidateHistoryCache: mockInvalidateHistoryCache,
+    getSessionHistory: mockGetSessionHistory,
+    subscribe: mockSubscribe,
+    emit: mockEmit,
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  };
+}
+
+async function getRunnerModuleWithContext() {
+  const module = await import("./runner.js");
+  module.stopAllHeartbeats();
+  module.clearHeartbeatContext();
+  module.setHeartbeatsEnabled(true);
+  module.setHeartbeatContext(createMockExtensionContext());
+  return module;
+}
+
+function resetContextMocks(): void {
+  vi.clearAllMocks();
+  mockGetAgent.mockReset();
+  mockGetSessionEntry.mockReset();
+  mockRestoreSessionUpdatedAt.mockReset();
+  mockIsStreaming.mockReset();
+  mockResolveSessionId.mockReset();
+  mockRunAgent.mockReset();
+  mockResolveWorkspaceDir.mockReset();
+  mockGetConfig.mockReset();
+  mockEmit.mockReset();
+  mockSubscribe.mockReset();
+  mockGetAgents.mockReset();
+  mockGetDataDir.mockReset();
+  mockIsAgentActive.mockReset();
+  mockGetSubagentTemplates.mockReset();
+  mockClearSessionEntry.mockReset();
+  mockDeleteSession.mockReset();
+  mockInvalidateHistoryCache.mockReset();
+  mockGetSessionHistory.mockReset();
+
+  mockRestoreSessionUpdatedAt.mockReturnValue(undefined);
+  mockIsStreaming.mockReturnValue(false);
+  mockResolveWorkspaceDir.mockReturnValue("/test/workspace");
+  mockResolveSessionId.mockResolvedValue({
+    sessionId: "test-session-id",
+    updatedAt: 1000,
+  });
+  mockRunAgent.mockResolvedValue({
+    payloads: [{ text: "HEARTBEAT_OK" }],
+    meta: { durationMs: 10, sessionId: "test-session-id" },
+  });
+  mockGetConfig.mockReturnValue({ agents: [] });
+  mockGetAgents.mockReturnValue([]);
+  mockGetDataDir.mockReturnValue("/tmp");
+  mockIsAgentActive.mockReturnValue(true);
+  mockGetSubagentTemplates.mockReturnValue([]);
+  mockClearSessionEntry.mockResolvedValue(undefined);
+  mockDeleteSession.mockReturnValue(undefined);
+  mockInvalidateHistoryCache.mockResolvedValue(undefined);
+  mockGetSessionHistory.mockResolvedValue([]);
+}
 
 describe("runHeartbeat session preservation", () => {
   beforeEach(async () => {
     vi.resetModules();
-    vi.clearAllMocks();
-
-    // Reset mocks to default behavior
-    mockGetAgent.mockReset();
-    mockGetSessionEntry.mockReset();
-    mockRestoreSessionUpdatedAt.mockReset();
-    mockIsStreaming.mockReset();
-    mockResolveSessionId.mockReset();
-    mockRunAgent.mockReset();
-    mockResolveWorkspaceDir.mockReset();
-
-    // Default mock implementations
-    mockRestoreSessionUpdatedAt.mockResolvedValue(undefined);
-    mockIsStreaming.mockReturnValue(false);
-    mockResolveWorkspaceDir.mockReturnValue("/test/workspace");
-    mockResolveSessionId.mockResolvedValue({
-      sessionId: "test-session-id",
-      message: "test prompt",
-      isNew: false,
-      createdAt: 1000,
-    });
-    mockRunAgent.mockResolvedValue({
-      payloads: [{ text: "HEARTBEAT_OK" }],
-    });
+    resetContextMocks();
   });
 
-  // Helper to get a mocked runHeartbeat
+  // Helper to get mocked runHeartbeat
   async function getRunHeartbeatWithMocks() {
-    vi.doMock("../config/index.js", () => ({
-      getAgent: mockGetAgent,
-      loadConfig: () => ({ agents: [] }),
-      resolveWorkspaceDir: mockResolveWorkspaceDir,
-    }));
-
-    vi.doMock("../sessions/store.js", () => ({
-      getSessionEntry: mockGetSessionEntry,
-      restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
-      DEFAULT_MAIN_KEY: "main",
-    }));
-
-    vi.doMock("../agents/sessions.js", () => ({
-      isStreaming: mockIsStreaming,
-    }));
-
-    vi.doMock("../sessions/index.js", () => ({
-      resolveSessionId: mockResolveSessionId,
-    }));
-
-    vi.doMock("../agents/runner.js", () => ({
-      runAgent: mockRunAgent,
-    }));
-
-    const module = await import("./runner.js");
+    const module = await getRunnerModuleWithContext();
     return module.runHeartbeat;
   }
 
@@ -776,53 +853,31 @@ describe("runHeartbeat session preservation", () => {
     const result = await runHeartbeat("test-agent");
 
     expect(result.status).toBe("ok-token");
-    // restoreSessionUpdatedAt called with undefined originalUpdatedAt - should be no-op
-    expect(mockRestoreSessionUpdatedAt).toHaveBeenCalledWith(
-      "test-agent",
-      "main",
-      undefined
-    );
+    // No restore call when no original updatedAt
+    expect(mockRestoreSessionUpdatedAt).not.toHaveBeenCalled();
   });
 
   it("does not restore updatedAt when global heartbeats disabled (no run attempted)", async () => {
-    // Import fresh module to test global disable
     vi.resetModules();
+    resetContextMocks();
 
-    vi.doMock("../config/index.js", () => ({
-      getAgent: () => ({
-        id: "test-agent",
-        heartbeat: {},
-        discord: { broadcastToChannel: "channel-1" },
-        workspace: "/test",
-      }),
-      loadConfig: () => ({ agents: [] }),
-      resolveWorkspaceDir: () => "/test",
-    }));
+    mockGetAgent.mockReturnValue({
+      id: "test-agent",
+      heartbeat: {},
+      discord: { broadcastToChannel: "channel-1" },
+      workspace: "/test",
+    });
+    mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
-    const mockRestore = vi.fn().mockResolvedValue(undefined);
-    vi.doMock("../sessions/store.js", () => ({
-      getSessionEntry: () => ({ sessionId: "s", updatedAt: 1000 }),
-      restoreSessionUpdatedAt: mockRestore,
-      DEFAULT_MAIN_KEY: "main",
-    }));
-
-    vi.doMock("../agents/sessions.js", () => ({
-      isStreaming: () => false,
-    }));
-
-    const module = await import("./runner.js");
+    const module = await getRunnerModuleWithContext();
     module.setHeartbeatsEnabled(false);
 
     const result = await module.runHeartbeat("test-agent");
 
     expect(result.status).toBe("skipped");
     expect(result.reason).toBe("disabled");
-    // Restore should NOT be called because we exit before capturing original
-    // Actually, looking at the code, global disable check happens AFTER capturing
-    // So this should NOT call restore (we don't capture yet when disabled)
-    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockRestoreSessionUpdatedAt).not.toHaveBeenCalled();
 
-    // Reset global state
     module.setHeartbeatsEnabled(true);
   });
 });
@@ -831,65 +886,29 @@ describe("runHeartbeat session preservation", () => {
 // These tests verify the scope: "Lifecycle wiring: start/stop timers with gateway process lifecycle"
 
 describe("heartbeat lifecycle", () => {
-  let mockGetAgent: ReturnType<typeof vi.fn>;
-  let mockLoadConfig: ReturnType<typeof vi.fn>;
-  let mockRunAgent: ReturnType<typeof vi.fn>;
-  let mockGetSessionEntry: ReturnType<typeof vi.fn>;
-  let mockRestoreSessionUpdatedAt: ReturnType<typeof vi.fn>;
-  let mockIsStreaming: ReturnType<typeof vi.fn>;
-  let mockResolveSessionId: ReturnType<typeof vi.fn>;
-  let mockResolveWorkspaceDir: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();
-
-    mockGetAgent = vi.fn();
-    mockLoadConfig = vi.fn();
-    mockRunAgent = vi.fn();
-    mockGetSessionEntry = vi.fn();
-    mockRestoreSessionUpdatedAt = vi.fn().mockResolvedValue(undefined);
-    mockIsStreaming = vi.fn().mockReturnValue(false);
-    mockResolveSessionId = vi.fn().mockResolvedValue({
+    resetContextMocks();
+    mockResolveSessionId.mockResolvedValue({
       sessionId: "test-session",
-      message: "test",
-      isNew: false,
-      createdAt: 1000,
+      updatedAt: 1000,
     });
-    mockResolveWorkspaceDir = vi.fn().mockReturnValue("/test/workspace");
-    mockRunAgent.mockResolvedValue({ payloads: [{ text: "HEARTBEAT_OK" }] });
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "HEARTBEAT_OK" }],
+      meta: { durationMs: 10, sessionId: "test-session" },
+    });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    const module = await import("./runner.js");
+    module.stopAllHeartbeats();
+    module.clearHeartbeatContext();
     vi.useRealTimers();
   });
 
   async function getLifecycleModule() {
-    vi.doMock("../config/index.js", () => ({
-      getAgent: mockGetAgent,
-      loadConfig: mockLoadConfig,
-      resolveWorkspaceDir: mockResolveWorkspaceDir,
-    }));
-
-    vi.doMock("../sessions/store.js", () => ({
-      getSessionEntry: mockGetSessionEntry,
-      restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
-      DEFAULT_MAIN_KEY: "main",
-    }));
-
-    vi.doMock("../agents/sessions.js", () => ({
-      isStreaming: mockIsStreaming,
-    }));
-
-    vi.doMock("../sessions/index.js", () => ({
-      resolveSessionId: mockResolveSessionId,
-    }));
-
-    vi.doMock("../agents/runner.js", () => ({
-      runAgent: mockRunAgent,
-    }));
-
-    return await import("./runner.js");
+    return await getRunnerModuleWithContext();
   }
 
   describe("startAllHeartbeats", () => {
@@ -1377,59 +1396,18 @@ describe("heartbeat lifecycle", () => {
 // These tests verify the scope: "Heartbeat status event emission (sent/ok-empty/ok-token/skipped/failed)"
 
 describe("heartbeat event emission", () => {
-  let mockGetAgent: ReturnType<typeof vi.fn>;
-  let mockLoadConfig: ReturnType<typeof vi.fn>;
-  let mockRunAgent: ReturnType<typeof vi.fn>;
-  let mockGetSessionEntry: ReturnType<typeof vi.fn>;
-  let mockRestoreSessionUpdatedAt: ReturnType<typeof vi.fn>;
-  let mockIsStreaming: ReturnType<typeof vi.fn>;
-  let mockResolveSessionId: ReturnType<typeof vi.fn>;
-  let mockResolveWorkspaceDir: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     vi.resetModules();
-
-    mockGetAgent = vi.fn();
-    mockLoadConfig = vi.fn().mockReturnValue({ agents: [] });
-    mockRunAgent = vi.fn().mockResolvedValue({ payloads: [{ text: "HEARTBEAT_OK" }] });
-    mockGetSessionEntry = vi.fn().mockReturnValue({ sessionId: "s", updatedAt: 1000 });
-    mockRestoreSessionUpdatedAt = vi.fn().mockResolvedValue(undefined);
-    mockIsStreaming = vi.fn().mockReturnValue(false);
-    mockResolveSessionId = vi.fn().mockResolvedValue({
-      sessionId: "test-session",
-      message: "test",
-      isNew: false,
-      createdAt: 1000,
+    resetContextMocks();
+    mockRunAgent.mockResolvedValue({
+      payloads: [{ text: "HEARTBEAT_OK" }],
+      meta: { durationMs: 10, sessionId: "test-session" },
     });
-    mockResolveWorkspaceDir = vi.fn().mockReturnValue("/test/workspace");
+    mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
   });
 
   async function getEventModule() {
-    vi.doMock("../config/index.js", () => ({
-      getAgent: mockGetAgent,
-      loadConfig: mockLoadConfig,
-      resolveWorkspaceDir: mockResolveWorkspaceDir,
-    }));
-
-    vi.doMock("../sessions/store.js", () => ({
-      getSessionEntry: mockGetSessionEntry,
-      restoreSessionUpdatedAt: mockRestoreSessionUpdatedAt,
-      DEFAULT_MAIN_KEY: "main",
-    }));
-
-    vi.doMock("../agents/sessions.js", () => ({
-      isStreaming: mockIsStreaming,
-    }));
-
-    vi.doMock("../sessions/index.js", () => ({
-      resolveSessionId: mockResolveSessionId,
-    }));
-
-    vi.doMock("../agents/runner.js", () => ({
-      runAgent: mockRunAgent,
-    }));
-
-    return await import("./runner.js");
+    return await getRunnerModuleWithContext();
   }
 
   describe("onHeartbeatEvent subscription", () => {
@@ -1937,5 +1915,3 @@ describe("heartbeat event emission", () => {
   });
 });
 
-// Import type for test assertions
-import type { HeartbeatEventPayload } from "@aihub/shared";

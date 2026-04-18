@@ -119,11 +119,11 @@ describe("multi-user integration", () => {
       );
 
       const { clearConfigCacheForTests, loadConfig } =
-        await import("../../config/index.js");
+        await import("../../../../apps/gateway/src/config/index.js");
       clearConfigCacheForTests();
 
       const config = loadConfig();
-      const { api } = await import("../../server/api.core.js");
+      const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
       const {
         createAuthMiddleware,
         getRequestAuthContext,
@@ -143,7 +143,7 @@ describe("multi-user integration", () => {
       multiUserExtension.registerRoutes(api as never);
       await multiUserExtension.start({
         getConfig: () => config,
-        getDataDir: () => "/tmp",
+        getDataDir: () => dir,
         getAgent: (agentId) =>
           config.agents.find((agent) => agent.id === agentId),
         getAgents: () => config.agents,
@@ -177,7 +177,7 @@ describe("multi-user integration", () => {
         getRequestAuthContext,
         forwardAuthContextToRequest,
       });
-      const authDbPath = getAuthDbPath();
+      const authDbPath = getAuthDbPath(dir);
       const runtime = getMultiUserRuntime();
 
       expect(runtime).not.toBeNull();
@@ -233,11 +233,11 @@ describe("multi-user integration", () => {
       );
 
       const { clearConfigCacheForTests, loadConfig } =
-        await import("../../config/index.js");
+        await import("../../../../apps/gateway/src/config/index.js");
       clearConfigCacheForTests();
 
       const config = loadConfig();
-      const { api } = await import("../../server/api.core.js");
+      const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
       const {
         createAuthMiddleware,
         getRequestAuthContext,
@@ -275,7 +275,7 @@ describe("multi-user integration", () => {
         },
       ]);
 
-      await expect(fs.access(getAuthDbPath())).rejects.toThrow();
+      await expect(fs.access(getAuthDbPath(dir))).rejects.toThrow();
       expect(config.extensions?.multiUser).toBeUndefined();
     } finally {
       restoreEnv(previousEnv);
@@ -309,14 +309,14 @@ describe("multi-user integration", () => {
       });
 
       const { clearConfigCacheForTests, loadConfig } =
-        await import("../../config/index.js");
+        await import("../../../../apps/gateway/src/config/index.js");
       clearConfigCacheForTests();
 
-      const { loadExtensions } = await import("../../extensions/registry.js");
+      const { loadExtensions } = await import("../../../../apps/gateway/src/extensions/registry.js");
       await loadExtensions(loadConfig());
 
-      const { api } = await import("../../server/api.core.js");
-      await expect(import("../../server/index.js")).resolves.toHaveProperty(
+      const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+      await expect(import("../../../../apps/gateway/src/server/index.js")).resolves.toHaveProperty(
         "startServer"
       );
 

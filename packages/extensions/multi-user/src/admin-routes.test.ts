@@ -28,8 +28,8 @@ vi.mock("./index.js", async () => {
   };
 });
 
-vi.mock("../../config/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../config/index.js")>();
+vi.mock("../../../../apps/gateway/src/config/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../apps/gateway/src/config/index.js")>();
   return {
     ...actual,
     getAgent,
@@ -39,7 +39,7 @@ vi.mock("../../config/index.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../extensions/registry.js", () => ({
+vi.mock("../../../../apps/gateway/src/extensions/registry.js", () => ({
   getLoadedExtensions,
   isMultiUserLoaded: () =>
     getLoadedExtensions().some(
@@ -215,6 +215,7 @@ function createRuntime(options?: {
     },
     db,
     assignments: assignmentStore.store,
+    getAgent,
   };
 
   return {
@@ -509,7 +510,7 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../server/api.core.js");
+    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/agents", {
         headers: {
@@ -539,7 +540,7 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../server/api.core.js");
+    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/agents", {
         headers: {
@@ -570,7 +571,7 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../server/api.core.js");
+    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/agents/status", {
         headers: {
@@ -602,7 +603,7 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../server/api.core.js");
+    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/capabilities", {
         headers: {

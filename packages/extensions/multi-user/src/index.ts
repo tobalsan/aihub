@@ -1,11 +1,11 @@
 import {
   MultiUserConfigSchema,
+  type AgentConfig,
   type Extension,
   type ExtensionContext,
 } from "@aihub/shared";
 import type { Hono } from "hono";
 import type Database from "better-sqlite3";
-import type { AgentConfig } from "@aihub/shared";
 import { initializeMultiUserDatabase } from "./db.js";
 import { createMultiUserAuth } from "./auth.js";
 import { registerMultiUserRoutes } from "./routes.js";
@@ -18,6 +18,7 @@ export type MultiUserRuntime = {
   auth: Awaited<ReturnType<typeof createMultiUserAuth>>;
   db: Database.Database;
   assignments: AgentAssignmentStore;
+  getAgent: ExtensionContext["getAgent"];
 };
 
 let runtime: MultiUserRuntime | null = null;
@@ -45,6 +46,24 @@ export function getAgentFilter(
   };
 }
 
+export {
+  FORWARDED_AUTH_CONTEXT_HEADER,
+  createAuthMiddleware,
+  forwardAuthContextToRequest,
+  getForwardedAuthContext,
+  getRequestAuthContext,
+  hasAgentAccess,
+  requireAdmin,
+  requireAgentAccess,
+  validateWebSocketRequest,
+} from "./middleware.js";
+export type { RequestAuthContext } from "./middleware.js";
+export {
+  getUserDataDir,
+  getUserHistoryDir,
+  getUserSessionsPath,
+} from "./isolation.js";
+
 export const multiUserExtension: Extension = {
   id: "multiUser",
   displayName: "Multi-User Auth",
@@ -70,10 +89,10 @@ export const multiUserExtension: Extension = {
       throw new Error("multiUser config missing or disabled");
     }
 
-    const db = initializeMultiUserDatabase();
+    const db = initializeMultiUserDatabase(ctx.getDataDir());
     const auth = await createMultiUserAuth(ctx.getConfig(), config, db);
     const assignments = createAgentAssignmentStore(db);
-    runtime = { auth, db, assignments };
+    runtime = { auth, db, assignments, getAgent: ctx.getAgent };
   },
   async stop() {
     runtime?.db.close();

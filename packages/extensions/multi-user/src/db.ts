@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { CONFIG_DIR } from "../../config/index.js";
 
 export const AUTH_DB_FILENAME = "auth.db";
 
-export function getAuthDbPath(baseDir = CONFIG_DIR): string {
-  return path.join(baseDir, AUTH_DB_FILENAME);
+export function getAuthDbPath(dataDir: string): string {
+  return path.join(dataDir, AUTH_DB_FILENAME);
 }
 
 export function ensureAgentAssignmentsTable(
@@ -80,8 +79,11 @@ export function ensureAgentAssignmentsTable(
 }
 
 export function initializeMultiUserDatabase(
-  dbPath = getAuthDbPath()
+  dataDirOrPath: string
 ): Database.Database {
+  const dbPath = path.extname(dataDirOrPath)
+    ? dataDirOrPath
+    : getAuthDbPath(dataDirOrPath);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");

@@ -7,10 +7,14 @@ import {
 } from "@aihub/shared";
 import type { Hono } from "hono";
 import {
+  SchedulerService,
+  clearSchedulerContext,
   getScheduler,
+  setSchedulerContext,
   startScheduler,
   stopScheduler,
-} from "../../scheduler/index.js";
+} from "./service.js";
+import { computeNextRunAtMs } from "./schedule.js";
 
 const schedulerExtension: Extension = {
   id: "scheduler",
@@ -72,11 +76,13 @@ const schedulerExtension: Extension = {
       return c.json({ ok: true });
     });
   },
-  async start(_ctx: ExtensionContext) {
+  async start(ctx: ExtensionContext) {
+    setSchedulerContext(ctx);
     await startScheduler();
   },
   async stop() {
     await stopScheduler();
+    clearSchedulerContext();
   },
   capabilities() {
     return ["schedules"];
@@ -84,3 +90,11 @@ const schedulerExtension: Extension = {
 };
 
 export { schedulerExtension };
+
+export {
+  SchedulerService,
+  getScheduler,
+  startScheduler,
+  stopScheduler,
+  computeNextRunAtMs,
+};

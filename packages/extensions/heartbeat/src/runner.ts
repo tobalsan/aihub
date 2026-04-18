@@ -1,15 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentConfig, HeartbeatEventPayload, HeartbeatStatus } from "@aihub/shared";
-import { loadConfig, getAgent, resolveWorkspaceDir } from "../config/index.js";
-import { runAgent } from "../agents/runner.js";
-import { isStreaming } from "../agents/sessions.js";
 import {
-  getSessionEntry,
-  restoreSessionUpdatedAt,
   DEFAULT_MAIN_KEY,
-} from "../sessions/store.js";
-import { resolveSessionId } from "../sessions/index.js";
+  type AgentConfig,
+  type ExtensionContext,
+  type HeartbeatEventPayload,
+  type HeartbeatStatus,
+} from "@aihub/shared";
 
 // Default heartbeat interval (30 minutes)
 const DEFAULT_HEARTBEAT_EVERY = "30m";
@@ -17,7 +14,24 @@ const DEFAULT_HEARTBEAT_EVERY = "30m";
 const DEFAULT_ACK_MAX_CHARS = 300;
 // Default heartbeat prompt
 export const DEFAULT_HEARTBEAT_PROMPT =
-  "Consider outstanding tasks and HEARTBEAT.md guidance from the workspace context (if present). Checkup sometimes on your human during (user local) day time.";
+  "Consider outstanding tasks and HEARTBEAT.md guidance from workspace context (if present). Checkup sometimes on human during (user local) day time.";
+
+let extensionCtx: ExtensionContext | null = null;
+
+export function setHeartbeatContext(ctx: ExtensionContext): void {
+  extensionCtx = ctx;
+}
+
+export function clearHeartbeatContext(): void {
+  extensionCtx = null;
+}
+
+function getContext(): ExtensionContext {
+  if (!extensionCtx) {
+    throw new Error("Heartbeat extension context not initialized");
+  }
+  return extensionCtx;
+}
 
 // Global toggle for all heartbeats
 let heartbeatsEnabled = true;
@@ -87,7 +101,7 @@ export function parseDurationMs(
 
 /**
  * Strip HEARTBEAT_OK token (including HTML/Markdown wrapped variants) from text.
- * Returns the remaining text after stripping.
+ * Returns remaining text after stripping.
  */
 export function stripHeartbeatToken(text: string): string {
   return text.replace(createTokenRegex(), "").trim();
@@ -125,7 +139,7 @@ export function evaluateHeartbeatReply(
 }
 
 /**
- * Load heartbeat prompt for an agent.
+ * Load heartbeat prompt for agent.
  * Resolution order: config > HEARTBEAT.md > default
  */
 export async function loadHeartbeatPrompt(agent: AgentConfig): Promise<string> {
@@ -136,7 +150,7 @@ export async function loadHeartbeatPrompt(agent: AgentConfig): Promise<string> {
 
   // 2. HEARTBEAT.md in workspace
   try {
-    const workspaceDir = resolveWorkspaceDir(agent.workspace);
+    const workspaceDir = getContext().resolveWorkspaceDir(agent);
     const heartbeatPath = path.join(workspaceDir, "HEARTBEAT.md");
     const content = await fs.readFile(heartbeatPath, "utf-8");
     if (content.trim()) {
@@ -151,7 +165,7 @@ export async function loadHeartbeatPrompt(agent: AgentConfig): Promise<string> {
 }
 
 /**
- * Emit heartbeat event to all listeners.
+ * Emit heartbeat event to listeners + extension bus.
  */
 function emitHeartbeatEvent(payload: HeartbeatEventPayload): void {
   for (const listener of eventListeners) {
@@ -159,6 +173,14 @@ function emitHeartbeatEvent(payload: HeartbeatEventPayload): void {
       listener(payload);
     } catch {
       // Ignore listener errors
+    }
+  }
+
+  if (extensionCtx) {
+    try {
+      extensionCtx.emit("heartbeat.event", payload);
+    } catch {
+      // Ignore emit errors
     }
   }
 }
@@ -180,19 +202,29 @@ export function setHeartbeatsEnabled(enabled: boolean): void {
 }
 
 /**
- * Check if heartbeats are globally enabled.
+ * Check if heartbeats globally enabled.
  */
 export function areHeartbeatsEnabled(): boolean {
   return heartbeatsEnabled;
 }
 
+function maybeRestoreSessionUpdatedAt(
+  agentId: string,
+  sessionKey: string,
+  originalUpdatedAt: number | undefined
+): void {
+  if (originalUpdatedAt === undefined) return;
+  getContext().restoreSessionUpdatedAt(agentId, sessionKey, originalUpdatedAt);
+}
+
 /**
- * Run a single heartbeat for an agent.
- * Returns the event payload describing the result.
+ * Run single heartbeat for agent.
+ * Returns event payload describing result.
  */
 export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPayload> {
   const startTs = Date.now();
-  const agent = getAgent(agentId);
+  const ctx = getContext();
+  const agent = ctx.getAgent(agentId);
 
   // Agent not found
   if (!agent) {
@@ -219,14 +251,12 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
   }
 
   // Capture original updatedAt for restoration
-  const originalEntry = await getSessionEntry(agentId, DEFAULT_MAIN_KEY);
+  const originalEntry = await ctx.getSessionEntry(agentId, DEFAULT_MAIN_KEY);
   const originalUpdatedAt = originalEntry?.updatedAt;
 
   // Check if main session is streaming
-  const sessionId = originalEntry?.sessionId;
-  if (sessionId && isStreaming(agentId, sessionId)) {
-    // Restore updatedAt since we're skipping
-    await restoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
+  if (ctx.isAgentStreaming(agentId)) {
+    maybeRestoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
     const payload: HeartbeatEventPayload = {
       ts: startTs,
       agentId,
@@ -240,8 +270,7 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
   // Check delivery target (Discord broadcastToChannel)
   const broadcastChannel = agent.discord?.broadcastToChannel;
   if (!broadcastChannel) {
-    // Restore updatedAt since no delivery target
-    await restoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
+    maybeRestoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
     const payload: HeartbeatEventPayload = {
       ts: startTs,
       agentId,
@@ -258,21 +287,16 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
     // Load prompt
     const prompt = await loadHeartbeatPrompt(agent);
 
-    // Run agent with heartbeat source
-    // Use sessionKey "main" but don't save to user-visible history
-    const resolved = await resolveSessionId({
-      agentId,
-      sessionKey: DEFAULT_MAIN_KEY,
-      message: prompt,
-    });
+    // Reuse existing main session if present
+    const resolved = await ctx.resolveSessionId(agentId, DEFAULT_MAIN_KEY);
 
-    const result = await runAgent({
+    const result = await ctx.runAgent({
       agentId,
       message: prompt,
-      sessionId: resolved.sessionId,
+      sessionId: resolved?.sessionId,
       sessionKey: DEFAULT_MAIN_KEY,
       source: "heartbeat",
-      // No onEvent - we don't want heartbeat runs in user-visible history
+      // No onEvent - no user-visible history for heartbeat runs
     });
 
     const durationMs = Date.now() - startTs;
@@ -283,7 +307,7 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
 
     // Restore updatedAt if not delivering
     if (!evaluation.shouldDeliver) {
-      await restoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
+      maybeRestoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
     }
 
     const payload: HeartbeatEventPayload = {
@@ -298,8 +322,7 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
     emitHeartbeatEvent(payload);
     return payload;
   } catch (err) {
-    // Restore updatedAt on failure
-    await restoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
+    maybeRestoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
     const payload: HeartbeatEventPayload = {
       ts: startTs,
       agentId,
@@ -313,7 +336,7 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
 }
 
 /**
- * Check if heartbeat is enabled for an agent.
+ * Check if heartbeat enabled for agent.
  */
 export function isHeartbeatEnabled(agent: AgentConfig): boolean {
   // No heartbeat block = disabled
@@ -331,8 +354,8 @@ export function isHeartbeatEnabled(agent: AgentConfig): boolean {
 }
 
 /**
- * Get heartbeat interval for an agent in milliseconds.
- * Returns null if heartbeat is disabled.
+ * Get heartbeat interval for agent in milliseconds.
+ * Returns null if heartbeat disabled.
  */
 export function getHeartbeatIntervalMs(agent: AgentConfig): number | null {
   if (!isHeartbeatEnabled(agent)) return null;
@@ -347,7 +370,7 @@ export function getHeartbeatIntervalMs(agent: AgentConfig): number | null {
 }
 
 /**
- * Schedule heartbeat tick for an agent.
+ * Schedule heartbeat tick for agent.
  */
 function scheduleTick(agentId: string, intervalMs: number): void {
   // Clear existing timer
@@ -361,7 +384,7 @@ function scheduleTick(agentId: string, intervalMs: number): void {
     await runHeartbeat(agentId);
 
     // Reschedule (if still configured)
-    const agent = getAgent(agentId);
+    const agent = getContext().getAgent(agentId);
     if (agent && isHeartbeatEnabled(agent)) {
       const newInterval = getHeartbeatIntervalMs(agent);
       if (newInterval) {
@@ -380,11 +403,11 @@ function scheduleTick(agentId: string, intervalMs: number): void {
 }
 
 /**
- * Start heartbeat for an agent.
- * Returns true if heartbeat was started, false if disabled.
+ * Start heartbeat for agent.
+ * Returns true if started, false if disabled.
  */
 export function startHeartbeat(agentId: string): boolean {
-  const agent = getAgent(agentId);
+  const agent = getContext().getAgent(agentId);
   if (!agent) return false;
 
   const intervalMs = getHeartbeatIntervalMs(agent);
@@ -395,7 +418,7 @@ export function startHeartbeat(agentId: string): boolean {
 }
 
 /**
- * Stop heartbeat for an agent.
+ * Stop heartbeat for agent.
  */
 export function stopHeartbeat(agentId: string): void {
   const timer = timers.get(agentId);
@@ -407,10 +430,9 @@ export function stopHeartbeat(agentId: string): void {
 
 /**
  * Start heartbeats for all configured agents.
- * Called on gateway startup.
  */
 export function startAllHeartbeats(): void {
-  const config = loadConfig();
+  const config = getContext().getConfig();
   for (const agent of config.agents) {
     startHeartbeat(agent.id);
   }
@@ -418,7 +440,6 @@ export function startAllHeartbeats(): void {
 
 /**
  * Stop all heartbeat timers.
- * Called on gateway shutdown.
  */
 export function stopAllHeartbeats(): void {
   for (const timer of timers.values()) {

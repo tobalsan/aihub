@@ -1,12 +1,15 @@
 import {
   LangfuseExtensionConfigSchema,
+  type AgentHistoryEvent,
+  type AgentStreamEvent,
   type Extension,
   type ExtensionContext,
 } from "@aihub/shared";
-import { agentEventBus } from "../../agents/events.js";
 import { LangfuseTracer } from "./tracer.js";
 
 let tracer: LangfuseTracer | undefined;
+let unsubscribeStream: (() => void) | undefined;
+let unsubscribeHistory: (() => void) | undefined;
 
 const langfuseExtension: Extension = {
   id: "langfuse",
@@ -48,9 +51,19 @@ const langfuseExtension: Extension = {
       debug: config.debug,
       environment: config.environment ?? "dev",
     });
-    tracer.start(agentEventBus);
+    tracer.start();
+    unsubscribeStream = ctx.subscribe("agent.stream", (event) => {
+      void tracer?.handleStreamEvent(event as AgentStreamEvent);
+    });
+    unsubscribeHistory = ctx.subscribe("agent.history", (event) => {
+      tracer?.handleHistoryEvent(event as AgentHistoryEvent);
+    });
   },
   async stop() {
+    unsubscribeStream?.();
+    unsubscribeStream = undefined;
+    unsubscribeHistory?.();
+    unsubscribeHistory = undefined;
     await tracer?.stop();
     tracer = undefined;
   },

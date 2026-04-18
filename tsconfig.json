@@ -16,6 +16,10 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/cli" },
+    { "path": "packages/extensions/heartbeat" },
+    { "path": "packages/extensions/langfuse" },
+    { "path": "packages/extensions/multi-user" },
+    { "path": "packages/extensions/scheduler" },
     { "path": "apps/gateway" },
     { "path": "container/agent-runner" }
   ]

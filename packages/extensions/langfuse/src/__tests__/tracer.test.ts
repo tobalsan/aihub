@@ -1,10 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  AgentHistoryEvent,
-  AgentStreamEvent,
-  agentEventBus,
-} from "../../../agents/events.js";
+import type { AgentHistoryEvent, AgentStreamEvent } from "@aihub/shared";
 import { LangfuseTracer } from "../tracer.js";
 
 const langfuseMock = vi.hoisted(() => {
@@ -539,7 +535,7 @@ describe("LangfuseTracer", () => {
         "--name-only",
         "HEAD",
         "--",
-        "apps/gateway/src/extensions/langfuse/tracer.ts",
+        "packages/extensions/langfuse/src/tracer.ts",
       ],
       { encoding: "utf8" }
     );
@@ -550,15 +546,8 @@ describe("LangfuseTracer", () => {
 
 function startTracer(): LangfuseTracer {
   const tracer = new LangfuseTracer(tracerConfig);
-  tracer.start(fakeBus());
+  tracer.start();
   return tracer;
-}
-
-function fakeBus(): typeof agentEventBus {
-  return {
-    onStreamEvent: vi.fn(() => vi.fn()),
-    onHistoryEvent: vi.fn(() => vi.fn()),
-  } as unknown as typeof agentEventBus;
 }
 
 function streamEvent(
