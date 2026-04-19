@@ -9,6 +9,10 @@ const sharedSrcDir = fileURLToPath(
   new URL("./packages/shared/src/", import.meta.url)
 );
 
+// Extension source directories (for vitest to use src/ instead of dist/)
+const extSrc = (name: string, file = "index.ts") =>
+  fileURLToPath(new URL(`./packages/extensions/${name}/src/${file}`, import.meta.url));
+
 export default defineConfig({
   plugins: [solid({ hot: false })],
   resolve: {
@@ -20,6 +24,18 @@ export default defineConfig({
         replacement: `${sharedSrcDir}$1.ts`,
       },
       { find: "@aihub/shared", replacement: sharedSrc },
+      // Extension aliases — keep vitest using src/ to avoid dist/ singleton splits
+      { find: "@aihub/extension-heartbeat", replacement: extSrc("heartbeat") },
+      { find: "@aihub/extension-scheduler", replacement: extSrc("scheduler") },
+      { find: "@aihub/extension-langfuse", replacement: extSrc("langfuse") },
+      { find: "@aihub/extension-discord", replacement: extSrc("discord") },
+      { find: "@aihub/extension-slack", replacement: extSrc("slack") },
+      { find: /^@aihub\/extension-multi-user\/isolation$/, replacement: extSrc("multi-user", "isolation.ts") },
+      { find: /^@aihub\/extension-multi-user\/middleware$/, replacement: extSrc("multi-user", "middleware.ts") },
+      { find: "@aihub/extension-multi-user", replacement: extSrc("multi-user") },
+      { find: /^@aihub\/extension-projects\/pi-tools$/, replacement: extSrc("projects", "subagents/pi_tools.ts") },
+      { find: /^@aihub\/extension-projects\/tool-handlers$/, replacement: extSrc("projects", "subagents/tool_handlers.ts") },
+      { find: "@aihub/extension-projects", replacement: extSrc("projects") },
     ],
   },
   test: {

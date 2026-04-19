@@ -2,12 +2,24 @@
   "name": "@aihub/extension-multi-user",
   "version": "0.1.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./isolation": "./src/isolation.ts",
-    "./middleware": "./src/middleware.ts"
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./isolation": {
+      "import": "./dist/isolation.js",
+      "types": "./dist/isolation.d.ts"
+    },
+    "./middleware": {
+      "import": "./dist/middleware.js",
+      "types": "./dist/middleware.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",

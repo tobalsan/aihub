@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @aihub/shared --filter @aihub/cli --filter @aihub/extension-heartbeat --filter @aihub/gateway --filter @aihub/agent-runner build",
+    "build": "pnpm --filter @aihub/shared --filter @aihub/cli --filter @aihub/extension-heartbeat --filter @aihub/extension-scheduler --filter @aihub/extension-langfuse --filter @aihub/extension-multi-user --filter @aihub/extension-discord --filter @aihub/extension-slack --filter @aihub/extension-projects --filter @aihub/gateway --filter @aihub/agent-runner build",
     "build:web": "pnpm --filter @aihub/web build",
     "dev": "pnpm exec tsx scripts/dev.ts",
     "dev:gateway": "pnpm --filter @aihub/shared exec tsc --watch --preserveWatchOutput & AIHUB_WEB_DEV=1 pnpm --filter @aihub/gateway exec tsx watch --include '../../packages/shared/dist/**/*' src/cli/index.ts gateway",
