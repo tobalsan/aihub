@@ -53,6 +53,9 @@ const OUTPUT_END = "---AIHUB_OUTPUT_END---";
 const EVENT_PREFIX = "---AIHUB_EVENT---";
 const DEFAULT_GATEWAY_PORT = 4000;
 const DEFAULT_TIMEOUT_SECONDS = 300;
+const BENIGN_STDERR_PATTERNS = [
+  /^\[agent-runner\] Running agent .+ with SDK .+$/,
+];
 
 function resolveContainerGatewayUrl(config: GatewayConfig): string {
   if (config.server?.baseUrl) return config.server.baseUrl;
@@ -114,6 +117,19 @@ function parseProtocolOutput(lines: string[]): ContainerOutput | undefined {
   const payload = lines.join("\n").trim();
   if (!payload) return undefined;
   return JSON.parse(payload) as ContainerOutput;
+}
+
+function getMeaningfulStderr(stderr: string): string {
+  return stderr
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .filter(
+      (line) =>
+        !BENIGN_STDERR_PATTERNS.some((pattern) => pattern.test(line.trim()))
+    )
+    .join("\n")
+    .trim();
 }
 
 function isContainerHandle(handle: unknown): handle is ContainerSessionHandle {
@@ -691,9 +707,10 @@ export function getContainerAdapter(): SdkAdapter {
               resolve({ text: "", aborted: true });
               return;
             }
+            const meaningfulStderr = getMeaningfulStderr(stderr);
             const message = timedOut
               ? `Container timed out after ${timeoutSeconds}s`
-              : stderr.trim() ||
+              : meaningfulStderr ||
                 `Container exited without protocol output (code ${code ?? "unknown"})`;
             params.onEvent({ type: "error", message });
             reject(new Error(message));

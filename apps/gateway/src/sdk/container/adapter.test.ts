@@ -536,6 +536,24 @@ describe("container adapter", () => {
     await expect(run).rejects.toThrow("boom");
   });
 
+  it("does not expose benign runner startup stderr as the failure", async () => {
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root);
+    setConfig(agent, root);
+    const { processes } = mockSpawn();
+    mockExecFile();
+
+    const run = getContainerAdapter().run(createParams(agent));
+    await tick();
+    processes[0].stderr.write("[agent-runner] Running agent henry with SDK pi\n");
+    processes[0].finish(1);
+
+    await expect(run).rejects.toThrow(
+      "Container exited without protocol output (code 1)"
+    );
+  });
+
   it("embeds per-agent onecli token into proxy URL", async () => {
     const root = tempDir();
     process.env.AIHUB_HOME = path.join(root, "aihub");
