@@ -122,7 +122,6 @@ function createAgent(
       image: "aihub-agent:latest",
       memory: "2g",
       cpus: 1,
-      timeout: 300,
       workspaceWritable: false,
       ...sandbox,
     },
@@ -299,10 +298,12 @@ describe("container adapter", () => {
     });
     expect(input.sdkConfig.model.auth_token).toBeUndefined();
     expect(input.agentToken).toEqual(expect.any(String));
-    expect(params.onSessionHandle).toHaveBeenCalledWith({
-      containerName: expect.stringMatching(/^aihub-agent-cloud-/),
-      ipcDir: path.join(aihubHome, "ipc", "cloud"),
-    });
+    expect(params.onSessionHandle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        containerName: expect.stringMatching(/^aihub-agent-cloud-/),
+        ipcDir: path.join(aihubHome, "ipc", "cloud"),
+      })
+    );
     expect(params.onEvent).toHaveBeenCalledWith({
       type: "text",
       data: "hello back",
@@ -461,8 +462,10 @@ describe("container adapter", () => {
     const ipcDir = path.join(root, "ipc", "cloud");
     vi.spyOn(Date, "now").mockReturnValue(123);
 
+    const recordQueuedMessageActivity = vi.fn();
+
     await getContainerAdapter().queueMessage?.(
-      { containerName: "container", ipcDir },
+      { containerName: "container", ipcDir, recordQueuedMessageActivity },
       "follow up"
     );
 
@@ -471,6 +474,7 @@ describe("container adapter", () => {
         fs.readFileSync(path.join(ipcDir, "input", "123.json"), "utf8")
       )
     ).toEqual({ message: "follow up", timestamp: 123 });
+    expect(recordQueuedMessageActivity).toHaveBeenCalledTimes(1);
   });
 
   it("writes close sentinel and stops on abort", () => {
@@ -489,7 +493,7 @@ describe("container adapter", () => {
     );
   });
 
-  it("stops then kills on timeout", async () => {
+  it("stops then kills on legacy hard runtime timeout", async () => {
     vi.useFakeTimers();
     const root = tempDir();
     process.env.AIHUB_HOME = path.join(root, "aihub");
@@ -517,7 +521,74 @@ describe("container adapter", () => {
     );
 
     processes[0].finish(137);
-    await expect(run).rejects.toThrow("Container timed out after 1s");
+    await expect(run).rejects.toThrow("Container exceeded max runtime after 1s");
+  });
+
+  it("stops then kills on idle timeout", async () => {
+    vi.useFakeTimers();
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root, { idleTimeout: 1, maxRunTime: 100 });
+    setConfig(agent, root);
+    const { processes } = mockSpawn();
+    const execSpy = mockExecFile(false);
+
+    const run = getContainerAdapter().run(createParams(agent));
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersByTime(1_000);
+    expect(execSpy).toHaveBeenCalledWith(
+      "docker",
+      ["stop", expect.stringMatching(/^aihub-agent-cloud-/)],
+      { timeout: 10_000 },
+      expect.any(Function)
+    );
+
+    vi.advanceTimersByTime(10_000);
+    expect(execSpy).toHaveBeenCalledWith(
+      "docker",
+      ["kill", expect.stringMatching(/^aihub-agent-cloud-/)],
+      { timeout: 5_000 },
+      expect.any(Function)
+    );
+
+    processes[0].finish(137);
+    await expect(run).rejects.toThrow(
+      "Container idle timed out after 1s without activity"
+    );
+  });
+
+  it("resets idle timeout on protocol activity", async () => {
+    vi.useFakeTimers();
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root, { idleTimeout: 1, maxRunTime: 100 });
+    setConfig(agent, root);
+    const { processes } = mockSpawn();
+    const execSpy = mockExecFile(false);
+
+    const run = getContainerAdapter().run(createParams(agent));
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersByTime(800);
+    processes[0].emitStreamEvent({
+      type: "assistant_text",
+      text: "still working",
+      timestamp: Date.now(),
+    });
+    vi.advanceTimersByTime(999);
+    expect(execSpy).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(execSpy).toHaveBeenCalledWith(
+      "docker",
+      ["stop", expect.stringMatching(/^aihub-agent-cloud-/)],
+      { timeout: 10_000 },
+      expect.any(Function)
+    );
+
+    processes[0].finish(137);
+    await expect(run).rejects.toThrow(
+      "last activity was history_assistant_text 1s ago"
+    );
   });
 
   it("rejects non-zero exits without protocol output", async () => {

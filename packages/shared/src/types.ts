@@ -133,17 +133,24 @@ export const SandboxMountSchema = z.object({
 });
 export type SandboxMount = z.infer<typeof SandboxMountSchema>;
 
-export const AgentSandboxConfigSchema = z.object({
-  enabled: z.boolean().optional().default(false),
-  image: z.string().optional().default("aihub-agent:latest"),
-  network: z.string().optional(),
-  memory: z.string().optional().default("2g"),
-  cpus: z.number().optional().default(1),
-  timeout: z.number().optional().default(300),
-  workspaceWritable: z.boolean().optional().default(false),
-  env: z.record(z.string(), z.string()).optional(),
-  mounts: z.array(SandboxMountSchema).optional(),
-});
+export const AgentSandboxConfigSchema = z
+  .object({
+    enabled: z.boolean().optional().default(false),
+    image: z.string().optional().default("aihub-agent:latest"),
+    network: z.string().optional(),
+    memory: z.string().optional().default("2g"),
+    cpus: z.number().optional().default(1),
+    timeout: z.number().optional(),
+    idleTimeout: z.number().optional().default(300),
+    maxRunTime: z.number().optional(),
+    workspaceWritable: z.boolean().optional().default(false),
+    env: z.record(z.string(), z.string()).optional(),
+    mounts: z.array(SandboxMountSchema).optional(),
+  })
+  .transform((value) => ({
+    ...value,
+    maxRunTime: value.maxRunTime ?? value.timeout ?? 1800,
+  }));
 export type AgentSandboxConfig = z.infer<typeof AgentSandboxConfigSchema>;
 
 export const WebhookConfigSchema = z.object({

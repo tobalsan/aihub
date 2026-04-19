@@ -120,8 +120,25 @@ describe("sandbox config schemas", () => {
       image: "aihub-agent:latest",
       memory: "2g",
       cpus: 1,
-      timeout: 300,
+      idleTimeout: 300,
+      maxRunTime: 1800,
       workspaceWritable: false,
+    });
+  });
+
+  it("keeps legacy timeout as the hard runtime when maxRunTime is absent", () => {
+    const result = AgentConfigSchema.parse({
+      id: "sandbox-agent",
+      name: "Sandbox Agent",
+      workspace: "~/agents/sandbox",
+      model: { provider: "anthropic", model: "claude" },
+      sandbox: { timeout: 1200 },
+    });
+
+    expect(result.sandbox).toMatchObject({
+      timeout: 1200,
+      idleTimeout: 300,
+      maxRunTime: 1200,
     });
   });
 

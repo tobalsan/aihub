@@ -52,7 +52,8 @@ const OUTPUT_START = "---AIHUB_OUTPUT_START---";
 const OUTPUT_END = "---AIHUB_OUTPUT_END---";
 const EVENT_PREFIX = "---AIHUB_EVENT---";
 const DEFAULT_GATEWAY_PORT = 4000;
-const DEFAULT_TIMEOUT_SECONDS = 300;
+const DEFAULT_IDLE_TIMEOUT_SECONDS = 300;
+const DEFAULT_MAX_RUNTIME_SECONDS = 1800;
 const BENIGN_STDERR_PATTERNS = [
   /^\[agent-runner\] Running agent .+ with SDK .+$/,
 ];
@@ -71,6 +72,7 @@ const STOP_GRACE_MS = 10_000;
 type ContainerSessionHandle = {
   containerName: string;
   ipcDir: string;
+  recordQueuedMessageActivity?: () => void;
 };
 
 function hasReadableDocumentAttachment(params: SdkRunParams): boolean {
@@ -614,20 +616,8 @@ export function getContainerAdapter(): SdkAdapter {
       if (extraNetwork) {
         attachExtraNetwork(containerName, extraNetwork);
       }
-      const handle: ContainerSessionHandle = { containerName, ipcDir };
-      params.onSessionHandle?.(handle);
-
-      // Emit user event immediately so active-turn state is populated before
-      // the container starts streaming assistant events.
-      params.onHistoryEvent({
-        type: "user",
-        text: params.message,
-        attachments: params.attachments,
-        timestamp: Date.now(),
-      });
-
       let stderr = "";
-      let timedOut = false;
+      let timeoutKind: "idle" | "max" | undefined;
       let aborted = false;
       let settled = false;
       let stdoutLineBuffer = "";
@@ -635,15 +625,66 @@ export function getContainerAdapter(): SdkAdapter {
       let inOutputBlock = false;
       let sawStreamingHistory = false;
       const pendingFileOutputs: Promise<void>[] = [];
-      const timeoutSeconds =
-        params.agent.sandbox?.timeout ?? DEFAULT_TIMEOUT_SECONDS;
+      const idleTimeoutSeconds =
+        params.agent.sandbox?.idleTimeout ?? DEFAULT_IDLE_TIMEOUT_SECONDS;
+      const maxRunTimeSeconds =
+        params.agent.sandbox?.maxRunTime ??
+        params.agent.sandbox?.timeout ??
+        DEFAULT_MAX_RUNTIME_SECONDS;
+      let lastActivityAt = Date.now();
+      let lastActivityType = "container_start";
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      let maxRunTimeTimer: ReturnType<typeof setTimeout> | undefined;
 
       return new Promise<SdkRunResult>((resolve, reject) => {
         const cleanup = () => {
-          clearTimeout(timeoutTimer);
+          if (idleTimer) clearTimeout(idleTimer);
+          if (maxRunTimeTimer) clearTimeout(maxRunTimeTimer);
           params.abortSignal.removeEventListener("abort", onAbort);
           removeContainerToken(agentToken);
         };
+
+        const describeLastActivity = (): string => {
+          const ageSeconds = Math.max(0, Math.round((Date.now() - lastActivityAt) / 1000));
+          return `last activity was ${lastActivityType} ${ageSeconds}s ago`;
+        };
+
+        const stopForTimeout = (kind: "idle" | "max"): void => {
+          if (timeoutKind || settled) return;
+          timeoutKind = kind;
+          stopThenKill(containerName);
+        };
+
+        const resetIdleTimer = (): void => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            stopForTimeout("idle");
+          }, idleTimeoutSeconds * 1000);
+          idleTimer.unref?.();
+        };
+
+        const recordActivity = (type: string): void => {
+          if (settled || timeoutKind) return;
+          lastActivityAt = Date.now();
+          lastActivityType = type;
+          resetIdleTimer();
+        };
+
+        const handle: ContainerSessionHandle = {
+          containerName,
+          ipcDir,
+          recordQueuedMessageActivity: () => recordActivity("queued_user_message"),
+        };
+        params.onSessionHandle?.(handle);
+
+        // Emit user event immediately so active-turn state is populated before
+        // the container starts streaming assistant events.
+        params.onHistoryEvent({
+          type: "user",
+          text: params.message,
+          attachments: params.attachments,
+          timestamp: Date.now(),
+        });
 
         const handleProtocolEvent = (rawEvent: string): void => {
           if (!rawEvent) return;
@@ -651,12 +692,14 @@ export function getContainerAdapter(): SdkAdapter {
           try {
             const event = JSON.parse(rawEvent);
             if (isHistoryEvent(event)) {
+              recordActivity(`history_${event.type}`);
               sawStreamingHistory = true;
               params.onHistoryEvent(event);
               forwardStreamEvent(params, event);
               return;
             }
             if (isRawFileOutputEvent(event)) {
+              recordActivity("file_output");
               const task = handleFileOutputEvent(
                 params,
                 event,
@@ -708,8 +751,10 @@ export function getContainerAdapter(): SdkAdapter {
               return;
             }
             const meaningfulStderr = getMeaningfulStderr(stderr);
-            const message = timedOut
-              ? `Container timed out after ${timeoutSeconds}s`
+            const message = timeoutKind
+              ? timeoutKind === "idle"
+                ? `Container idle timed out after ${idleTimeoutSeconds}s without activity; ${describeLastActivity()}`
+                : `Container exceeded max runtime after ${maxRunTimeSeconds}s; ${describeLastActivity()}`
               : meaningfulStderr ||
                 `Container exited without protocol output (code ${code ?? "unknown"})`;
             params.onEvent({ type: "error", message });
@@ -738,11 +783,11 @@ export function getContainerAdapter(): SdkAdapter {
           stopThenKill(containerName);
         };
 
-        const timeoutTimer = setTimeout(() => {
-          timedOut = true;
-          stopThenKill(containerName);
-        }, timeoutSeconds * 1000);
-        timeoutTimer.unref?.();
+        resetIdleTimer();
+        maxRunTimeTimer = setTimeout(() => {
+          stopForTimeout("max");
+        }, maxRunTimeSeconds * 1000);
+        maxRunTimeTimer.unref?.();
 
         child.stdout?.on("data", (chunk: Buffer | string) => {
           stdoutLineBuffer += chunk.toString();
@@ -798,7 +843,7 @@ export function getContainerAdapter(): SdkAdapter {
       });
     },
     async queueMessage(handle: unknown, message: string) {
-      const { ipcDir } = assertContainerHandle(handle);
+      const { ipcDir, recordQueuedMessageActivity } = assertContainerHandle(handle);
       const inputDir = path.join(ipcDir, "input");
       const timestamp = Date.now();
       fs.mkdirSync(inputDir, { recursive: true });
@@ -806,6 +851,7 @@ export function getContainerAdapter(): SdkAdapter {
         path.join(inputDir, `${timestamp}.json`),
         JSON.stringify({ message, timestamp })
       );
+      recordQueuedMessageActivity?.();
     },
     abort(handle: unknown) {
       const { containerName, ipcDir } = assertContainerHandle(handle);
