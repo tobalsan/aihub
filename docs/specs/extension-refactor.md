@@ -529,36 +529,88 @@ function createExtensionContext(resolvedConfig: GatewayConfig, extensionId: stri
 
 ---
 
-## Risks & Mitigations
+## Risks & Mitigations — All Resolved
 
-### 1. Projects extension coupling (~50 symbols)
-**Risk:** Projects extension absorbs 6 gateway domain modules. Any change to session/agent APIs requires updating both gateway core and the projects extension.
-**Mitigation:** The `ExtensionContext` interface is the contract boundary. Gateway can refactor internals freely as long as the context methods stay stable. The domain modules (projects/store, subagents/runner, etc.) move into the extension package — they become the extension's responsibility.
+| # | Risk | Resolution |
+|---|---|---|
+| 1 | Projects coupling (~50 symbols) | `ExtensionContext` is the contract boundary. All domain modules moved into the extension package. |
+| 2 | Multi-user middleware injection | `registerRoutes()` mounts routes + middleware on Hono app. Pattern preserved. |
+| 3 | Cross-extension deps | `ctx.subscribe()` / `ctx.emit()` decouples. Context rendering in `@aihub/shared`. |
+| 4 | Circular imports | Intra-extension imports fine within same package. No cycles at extension boundary. |
+| 5 | Dev mode (pnpm dev) | `packages/extensions/*` in `pnpm-workspace.yaml`. TS project refs resolve sources directly. |
+| 6 | Test strategy | Tests moved with extensions. Gateway mocks replaced with `ExtensionContext` mocks. |
+| 7 | Heartbeat runtime coupling | `isStreaming`, `restoreSessionUpdatedAt`, `resolveWorkspaceDir` → `ExtensionContext` methods. |
+| 8 | Config migration | Top-level `multiUser`/`scheduler` moved into `extensions` key. Users update manually or via `apm config migrate`. |
 
-### 2. Multi-user auth middleware injection
-**Risk:** Multi-user auth middleware is deeply integrated into the server's request pipeline. The extension registers routes on a Hono app, but the auth middleware runs at the server level before routes.
-**Mitigation:** The extension's `registerRoutes()` mounts both routes and middleware on the Hono app. The gateway forwards requests through this app (already the pattern today). The middleware import chain stays within the extension package.
+---
 
-### 3. Cross-extension dependencies
-**Risk:** Discord subscribes to heartbeat events. Slack and Discord share context rendering.
-**Mitigation:** Event subscriptions through `ctx.subscribe()` decouple the dependency. Context rendering moves to `@aihub/shared` as a shared utility.
+## Refactor Summary
 
-### 4. Circular imports during extraction
-**Risk:** Domain modules that move into extensions may import each other (e.g., `subagents/runner.ts` imports from `projects/space.ts`).
-**Mitigation:** These are intra-extension imports — fine once both modules live in the same package. The dependency audit confirmed no cycles at the extension boundary level.
+### Commits (9 + docs cleanup)
 
-### 5. Dev mode (pnpm dev)
-**Risk:** Dev mode needs to resolve extension TypeScript sources without pre-building.
-**Mitigation:** Add `packages/extensions/*` to `pnpm-workspace.yaml`. TypeScript project references or tsconfig path aliases allow dev-time resolution of `@aihub/extension-<name>` to source files.
+| # | Commit | Files | Δ Lines |
+|---|---|---|---|
+| 1 | `e5882e7` Remove amsg | 5 | -183 |
+| 2 | `68bf1b8` Remove conversations | 10 | -2,548 |
+| 3 | `406b09e` Remove Claude SDK adapter | 12 | +5 / -1,311 |
+| 4 | `c7a43e2` Rename components → extensions | 77 | +1,688 / -1,324 |
+| 5 | `0b01b8b` Prepare shared contracts | 7 | +451 / -151 |
+| 6 | `b67f49c` Extract heartbeat, scheduler, langfuse, multi-user | 55 | +706 / -527 |
+| 7 | `e444d32` Extract discord and slack | 63 | +670 / -574 |
+| 8 | `c39ed53` Extract projects | 49 | +649 / -106 |
+| 9 | `eefed14` Extension loading mechanism | 15 | +308 / -121 |
 
-### 6. Test strategy
-**Risk:** Tests currently import from gateway-relative paths.
-**Mitigation:** Tests move with the extension. Gateway-internal test mocks are replaced with `ExtensionContext` mocks. Integration tests that test the full gateway+extension stack stay in the gateway.
+**Total:** 226 files changed, +4,297 / -6,704 (net -2,407 lines)
 
-### 7. Heartbeat runtime state coupling
-**Risk:** Heartbeat needs `isStreaming`, `restoreSessionUpdatedAt`, `resolveWorkspaceDir` — agent runtime state that's tightly coupled to gateway internals.
-**Mitigation:** These become `ExtensionContext` methods. The gateway wires them to the real implementations. Extensions never import agent/session modules directly.
+### Deleted from gateway
 
-### 8. Config shape migration (multiUser + scheduler) — ✅ RESOLVED
-**Risk:** Moving `multiUser` and `scheduler` from top-level config into `extensions` breaks existing `aihub.json` files.
-**Resolution:** Config shape change is done (Phase 2). Top-level `multiUser` and `scheduler` keys removed from schema. Users must update config manually or run `apm config migrate`.
+29 directories removed from `apps/gateway/src/`:
+- `amsg/`, `conversations/`, `components/` (entire dir)
+- `sdk/claude/`, `sessions/claude.ts`
+- `heartbeat/`, `scheduler/`, `discord/`, `slack/`
+- `projects/`, `subagents/`, `areas/`, `activity/`, `taskboard/`
+- `server/component-*.test.ts` (renamed)
+
+### New packages
+
+7 extension packages in `packages/extensions/`:
+
+| Package | Source files | Lines |
+|---|---|---|
+| `@aihub/extension-heartbeat` | 6 | 2,559 |
+| `@aihub/extension-scheduler` | 10 | 713 |
+| `@aihub/extension-langfuse` | 8 | 1,148 |
+| `@aihub/extension-multi-user` | 23 | 2,484 |
+| `@aihub/extension-discord` | 44 | 4,931 |
+| `@aihub/extension-slack` | 48 | 3,747 |
+| `@aihub/extension-projects` | 58 | 17,896 |
+| **Total** | **197** | **33,478** |
+
+New shared modules:
+- `packages/shared/src/events.ts` — event payload types
+- `packages/shared/src/context-rendering.ts` — Discord/Slack context rendering
+- `packages/shared/src/extensions/discovery.ts` — external extension discovery
+
+### Gateway after refactor
+
+- **47 source files** remain in gateway core (down from ~140)
+- Gateway owns: agents, sessions, history, config, SDK adapters, server, connectors, media
+- All extension access through `ExtensionContext` — zero gateway-internal imports in extension packages
+
+### Tests
+
+| Suite | Tests |
+|---|---|
+| Gateway | 161 |
+| Extensions | 485 |
+| Shared | 52 |
+| CLI | 19 |
+| Web | 161 |
+| **Total** | **878** |
+
+### Config changes (breaking)
+
+Users must update `aihub.json`:
+- `components` → `extensions`
+- `multiUser` → `extensions.multiUser`
+- `scheduler` → `extensions.scheduler`
