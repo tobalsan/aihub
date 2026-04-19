@@ -77,6 +77,15 @@ const discordExtension: Extension = {
   configSchema: DiscordExtensionConfigSchema,
   routePrefixes: [],
   validateConfig(raw) {
+    if (
+      !raw ||
+      (typeof raw === "object" &&
+        (Object.keys(raw as object).length === 0 ||
+          "_perAgent" in (raw as object) ||
+          "_perAgentFallback" in (raw as object)))
+    ) {
+      return { valid: true, errors: [] };
+    }
     const result = DiscordExtensionConfigSchema.safeParse(raw);
     return {
       valid: result.success,
@@ -88,11 +97,15 @@ const discordExtension: Extension = {
   registerRoutes() {},
   async start(ctx) {
     const rawConfig = ctx.getConfig().extensions?.discord;
-    const config = DiscordExtensionConfigSchema.parse(
-      rawConfig
-    ) as DiscordExtensionConfig;
 
-    await startDiscordBots(ctx, { ...config });
+    if (rawConfig) {
+      const parsed = DiscordExtensionConfigSchema.safeParse(rawConfig);
+      if (parsed.success) {
+        await startDiscordBots(ctx, { ...parsed.data });
+      }
+    }
+
+    await startDiscordBots(ctx);
   },
   async stop() {
     await stopDiscordBots();

@@ -13,7 +13,13 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   discord: {
     load: () =>
       import("@aihub/extension-discord").then((module) => module.discordExtension),
-    getConfig: (config) => config.extensions?.discord,
+    getConfig: (config) => {
+      const hasPerAgent = config.agents?.some((a) => a.discord?.token);
+      if (config.extensions?.discord) {
+        return { ...config.extensions.discord, _perAgentFallback: hasPerAgent };
+      }
+      return hasPerAgent ? { _perAgent: true } : undefined;
+    },
     routePrefixes: [],
   },
   slack: {

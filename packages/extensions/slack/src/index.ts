@@ -82,7 +82,8 @@ const slackExtension: Extension = {
     if (
       !raw ||
       (typeof raw === "object" &&
-        ("_perAgent" in (raw as object) ||
+        (Object.keys(raw as object).length === 0 ||
+          "_perAgent" in (raw as object) ||
           "_perAgentFallback" in (raw as object)))
     ) {
       return { valid: true, errors: [] };
