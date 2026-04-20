@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
-import type { AgentConfig, ExtensionContext } from "@aihub/shared";
+import type {
+  AgentConfig,
+  ExtensionContext,
+  WebhookConfig,
+} from "@aihub/shared";
 import type { Hono } from "hono";
 import { interpolateWebhookPrompt, resolveWebhookPrompt } from "./prompt.js";
 import {
@@ -51,6 +55,36 @@ function getContentLength(headers: Headers): number | null {
 
 function payloadByteLength(payload: string): number {
   return Buffer.byteLength(payload, "utf8");
+}
+
+function hasWebhookVerificationField(params: {
+  webhookConfig: WebhookConfig;
+  headers: Record<string, string>;
+  payload: string;
+}): boolean {
+  const verification = params.webhookConfig.verification;
+  if (!verification) return false;
+
+  if (verification.location === "header") {
+    const fieldName = verification.fieldName.toLowerCase();
+    return Object.keys(params.headers).some(
+      (header) => header.toLowerCase() === fieldName
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(params.payload);
+  } catch {
+    return false;
+  }
+
+  return (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    !Array.isArray(parsed) &&
+    Object.prototype.hasOwnProperty.call(parsed, verification.fieldName)
+  );
 }
 
 class PayloadTooLargeError extends Error {
@@ -262,6 +296,14 @@ export function registerWebhookRoutes(app: Hono): void {
     }
     if (payloadByteLength(payload) > maxPayloadSize) {
       return c.json({ error: "Payload Too Large" }, 413);
+    }
+    if (hasWebhookVerificationField({ webhookConfig, headers, payload })) {
+      current.ctx.logger.info(
+        `[webhooks] ${agentId}/${webhookName} verification request — headers: ${JSON.stringify(
+          headers
+        )} payload: ${payload}`
+      );
+      return c.json({ ok: true, verification: true });
     }
     if (
       webhookConfig.signingSecret &&

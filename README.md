@@ -123,6 +123,10 @@ Agents can be triggered by external HTTP webhooks:
           "prompt": "Payload: $WEBHOOK_PAYLOAD",
           "langfuseTracing": true,
           "signingSecret": "$env:NOTION_WEBHOOK_SECRET",
+          "verification": {
+            "location": "payload",
+            "fieldName": "verification_token"
+          },
           "maxPayloadSize": 1048576
         }
       }
@@ -141,6 +145,7 @@ On startup, AIHub creates `$AIHUB_HOME/webhook-secrets.json` and logs the full U
 Supported interpolation variables: `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, `$WEBHOOK_PAYLOAD`.
 Each webhook invocation uses a fresh `webhook:<agentId>:<name>:<requestId>` session.
 When Langfuse is enabled, webhook traces use surface `webhook` unless `langfuseTracing: false`.
+Set `verification` for setup requests that include a known header or payload field, such as Notion's `verification_token`; matching requests return `{ "ok": true, "verification": true }` without signature checks or agent invocation.
 Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is set; Notion and Zendesk GET `challenge` requests short-circuit without invoking the agent.
 Payloads are capped at `maxPayloadSize` bytes per webhook, defaulting to 1MB.
 Example prompt templates live in `docs/examples/webhooks/`.

@@ -235,6 +235,180 @@ describe("webhook routes", () => {
     expect(captured?.message).toContain('BODY={"ticket":123}');
   });
 
+  it("returns verification success for a matching payload field", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "hello",
+          signingSecret: "secret",
+          verification: {
+            location: "payload",
+            fieldName: "verification_token",
+          },
+        },
+      },
+    });
+    let called = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          called = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret-token" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret-token", {
+        method: "POST",
+        body: '{"verification_token":"abc123"}',
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, verification: true });
+    expect(called).toBe(false);
+  });
+
+  it("returns verification success for a matching header field", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "hello",
+          signingSecret: "secret",
+          verification: {
+            location: "header",
+            fieldName: "X-Webhook-Verify",
+          },
+        },
+      },
+    });
+    let called = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          called = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret-token" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret-token", {
+        method: "POST",
+        body: "{}",
+        headers: { "x-webhook-verify": "abc123" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, verification: true });
+    expect(called).toBe(false);
+  });
+
+  it("runs the agent when verification config does not match", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+          verification: {
+            location: "payload",
+            fieldName: "verification_token",
+          },
+        },
+      },
+    });
+    let captured: RunAgentParams | undefined;
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async (params) => {
+          captured = params;
+          resolveRun();
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret-token" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret-token", {
+        method: "POST",
+        body: '{"event":"page.updated"}',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await runPromise;
+    expect(captured?.message).toBe('BODY={"event":"page.updated"}');
+  });
+
+  it("runs the agent normally without verification config", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+        },
+      },
+    });
+    let captured: RunAgentParams | undefined;
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async (params) => {
+          captured = params;
+          resolveRun();
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret-token" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret-token", {
+        method: "POST",
+        body: '{"verification_token":"abc123"}',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await runPromise;
+    expect(captured?.message).toBe('BODY={"verification_token":"abc123"}');
+  });
+
   it("passes a disabled trace context when langfuse tracing is off", async () => {
     const agent = AgentConfigSchema.parse({
       id: "sales",
