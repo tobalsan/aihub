@@ -38,6 +38,17 @@ describe("webhook secrets", () => {
     expect(loadWebhookSecrets(dataDir)[key]).toBe(result.secrets[key]);
   });
 
+  it("writes the secrets file with owner-only permissions", async () => {
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-webhook-secrets-")
+    );
+
+    saveWebhookSecrets(dataDir, { "sales:notion": "secret" });
+
+    const stat = await fs.stat(getWebhookSecretsPath(dataDir));
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
+
   it("keeps existing secrets stable", async () => {
     const dataDir = await fs.mkdtemp(
       path.join(os.tmpdir(), "aihub-webhook-secrets-")

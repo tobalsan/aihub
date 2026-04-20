@@ -6,6 +6,14 @@ import type { AgentConfig } from "@aihub/shared";
 export type WebhookSecrets = Record<string, string>;
 
 const SECRET_FILE = "webhook-secrets.json";
+const SECRET_FILE_MODE = 0o600;
+
+type CachedWebhookSecrets = {
+  mtimeMs: number | null;
+  secrets: WebhookSecrets;
+};
+
+const secretsCache = new Map<string, CachedWebhookSecrets>();
 
 export function webhookSecretKey(agentId: string, webhookName: string): string {
   return `${agentId}:${webhookName}`;
@@ -17,6 +25,15 @@ export function generateWebhookSecret(): string {
 
 export function getWebhookSecretsPath(dataDir: string): string {
   return path.join(dataDir, SECRET_FILE);
+}
+
+function getSecretFileMtime(filePath: string): number | null {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
 }
 
 export function loadWebhookSecrets(dataDir: string): WebhookSecrets {
@@ -41,16 +58,47 @@ export function loadWebhookSecrets(dataDir: string): WebhookSecrets {
   return secrets;
 }
 
+export function reloadWebhookSecrets(dataDir: string): WebhookSecrets {
+  const filePath = getWebhookSecretsPath(dataDir);
+  const secrets = loadWebhookSecrets(dataDir);
+  secretsCache.set(filePath, {
+    mtimeMs: getSecretFileMtime(filePath),
+    secrets,
+  });
+  return secrets;
+}
+
+export function getCachedWebhookSecrets(dataDir: string): WebhookSecrets {
+  const filePath = getWebhookSecretsPath(dataDir);
+  const mtimeMs = getSecretFileMtime(filePath);
+  const cached = secretsCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.secrets;
+  return reloadWebhookSecrets(dataDir);
+}
+
+export function setCachedWebhookSecrets(
+  dataDir: string,
+  secrets: WebhookSecrets
+): void {
+  const filePath = getWebhookSecretsPath(dataDir);
+  secretsCache.set(filePath, {
+    mtimeMs: getSecretFileMtime(filePath),
+    secrets,
+  });
+}
+
 export function saveWebhookSecrets(
   dataDir: string,
   secrets: WebhookSecrets
 ): void {
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(
-    getWebhookSecretsPath(dataDir),
-    `${JSON.stringify(secrets, null, 2)}\n`,
-    "utf8"
-  );
+  const filePath = getWebhookSecretsPath(dataDir);
+  fs.writeFileSync(filePath, `${JSON.stringify(secrets, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: SECRET_FILE_MODE,
+  });
+  fs.chmodSync(filePath, SECRET_FILE_MODE);
+  setCachedWebhookSecrets(dataDir, secrets);
 }
 
 export function ensureWebhookSecrets(

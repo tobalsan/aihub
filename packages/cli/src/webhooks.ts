@@ -24,6 +24,7 @@ type RotateWebhookSecretResult = {
 };
 
 const SECRET_FILE = "webhook-secrets.json";
+const SECRET_FILE_MODE = 0o600;
 
 function webhookSecretKey(agentId: string, webhookName: string): string {
   return `${agentId}:${webhookName}`;
@@ -57,11 +58,12 @@ function loadWebhookSecrets(dataDir: string): WebhookSecrets {
 
 function saveWebhookSecrets(dataDir: string, secrets: WebhookSecrets): void {
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(
-    getWebhookSecretsPath(dataDir),
-    `${JSON.stringify(secrets, null, 2)}\n`,
-    "utf8"
-  );
+  const filePath = getWebhookSecretsPath(dataDir);
+  fs.writeFileSync(filePath, `${JSON.stringify(secrets, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: SECRET_FILE_MODE,
+  });
+  fs.chmodSync(filePath, SECRET_FILE_MODE);
 }
 
 function generateWebhookSecret(): string {

@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
@@ -13,9 +16,12 @@ import {
   registerWebhookRoutes,
   setWebhooksRuntime,
 } from "./routes.js";
+import { getWebhookSecretsPath, saveWebhookSecrets } from "./secrets.js";
 
 function createContext(params: {
   agent?: AgentConfig;
+  dataDir?: string;
+  onEmit?: (event: string, payload: unknown) => void;
   onRunAgent?: (params: RunAgentParams) => Promise<RunAgentResult>;
 }): ExtensionContext {
   return {
@@ -24,7 +30,7 @@ function createContext(params: {
         agents: params.agent ? [params.agent] : [],
         extensions: {},
       }),
-    getDataDir: () => "/tmp",
+    getDataDir: () => params.dataDir ?? "/tmp",
     getAgent: (id) => (params.agent?.id === id ? params.agent : undefined),
     getAgents: () => (params.agent ? [params.agent] : []),
     isAgentActive: (id) => params.agent?.id === id,
@@ -45,7 +51,7 @@ function createContext(params: {
     invalidateHistoryCache: async () => undefined,
     getSessionHistory: async () => [],
     subscribe: () => () => undefined,
-    emit: () => undefined,
+    emit: (event, payload) => params.onEmit?.(event, payload),
     logger: {
       info: () => undefined,
       warn: () => undefined,
@@ -97,6 +103,46 @@ describe("webhook routes", () => {
     expect(
       await getStatus(app, "http://localhost/hooks/sales/notion/wrong")
     ).toBe(401);
+  });
+
+  it("reloads rotated secrets from disk at request time", async () => {
+    const dataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "aihub-webhook-routes-")
+    );
+    saveWebhookSecrets(dataDir, { "sales:notion": "old-secret" });
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: { notion: { prompt: "hello", langfuseTracing: true } },
+    });
+    setWebhooksRuntime({
+      ctx: createContext({ agent, dataDir }),
+      secrets: { "sales:notion": "old-secret" },
+    });
+    const app = createApp();
+
+    expect(
+      await getStatus(app, "http://localhost/hooks/sales/notion/old-secret")
+    ).toBe(200);
+
+    const filePath = getWebhookSecretsPath(dataDir);
+    fs.writeFileSync(
+      filePath,
+      `${JSON.stringify({ "sales:notion": "new-secret" }, null, 2)}\n`,
+      "utf8"
+    );
+    fs.chmodSync(filePath, 0o600);
+    const nextMtime = new Date(Date.now() + 1000);
+    fs.utimesSync(filePath, nextMtime, nextMtime);
+
+    expect(
+      await getStatus(app, "http://localhost/hooks/sales/notion/old-secret")
+    ).toBe(401);
+    expect(
+      await getStatus(app, "http://localhost/hooks/sales/notion/new-secret")
+    ).toBe(200);
   });
 
   it("returns 404 for unknown agents or webhook names", async () => {
@@ -417,6 +463,136 @@ describe("webhook routes", () => {
 
     expect(response.status).toBe(413);
     expect(ran).toBe(false);
+  });
+
+  it("stops reading streamed bodies once the payload limit is exceeded", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+          maxPayloadSize: 4,
+        },
+      },
+    });
+
+    let ran = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          ran = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret" },
+    });
+    const app = createApp();
+    const encoder = new TextEncoder();
+    let pullCount = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount === 1) {
+          controller.enqueue(encoder.encode("12"));
+          return;
+        }
+        if (pullCount === 2) {
+          controller.enqueue(encoder.encode("345"));
+          return;
+        }
+        throw new Error("read past payload cap");
+      },
+    });
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret", {
+        method: "POST",
+        body,
+        duplex: "half",
+      } as RequestInit)
+    );
+
+    expect(response.status).toBe(413);
+    expect(pullCount).toBe(2);
+    expect(ran).toBe(false);
+  });
+
+  it("emits a traceable error event when async agent execution fails", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+          langfuseTracing: true,
+        },
+      },
+    });
+
+    const events: Array<{ event: string; payload: unknown }> = [];
+    let resolveError: () => void = () => undefined;
+    const errorEvent = new Promise<void>((resolve) => {
+      resolveError = resolve;
+    });
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onEmit: (event, payload) => {
+          events.push({ event, payload });
+          if (
+            event === "agent.stream" &&
+            (payload as { type?: string }).type === "error"
+          ) {
+            resolveError();
+          }
+        },
+        onRunAgent: async () => {
+          throw new Error("agent failed");
+        },
+      }),
+      secrets: { "sales:notion": "secret" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret", {
+        method: "POST",
+        body: "{}",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await errorEvent;
+    const emitted = events.find(
+      (entry) =>
+        entry.event === "agent.stream" &&
+        (entry.payload as { type?: string }).type === "error"
+    )?.payload as {
+      message?: string;
+      agentId?: string;
+      sessionKey?: string;
+      source?: string;
+      trace?: { surface?: string; metadata?: Record<string, unknown> };
+    };
+    expect(emitted).toMatchObject({
+      message: "agent failed",
+      agentId: "sales",
+      source: "webhook",
+      trace: {
+        surface: "webhook",
+        metadata: {
+          webhookName: "notion",
+          requestPayload: "{}",
+        },
+      },
+    });
+    expect(emitted.sessionKey).toMatch(/^webhook:sales:notion:[0-9a-f-]{36}$/);
   });
 
   it("returns 413 from content-length before reading the body", async () => {

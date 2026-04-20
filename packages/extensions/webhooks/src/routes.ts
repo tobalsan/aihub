@@ -2,7 +2,12 @@ import crypto from "node:crypto";
 import type { AgentConfig, ExtensionContext } from "@aihub/shared";
 import type { Hono } from "hono";
 import { interpolateWebhookPrompt, resolveWebhookPrompt } from "./prompt.js";
-import { webhookSecretKey, type WebhookSecrets } from "./secrets.js";
+import {
+  getCachedWebhookSecrets,
+  setCachedWebhookSecrets,
+  webhookSecretKey,
+  type WebhookSecrets,
+} from "./secrets.js";
 import { verifyWebhookSignature } from "./verify.js";
 
 type WebhooksRuntime = {
@@ -13,6 +18,7 @@ type WebhooksRuntime = {
 let runtime: WebhooksRuntime | null = null;
 
 export function setWebhooksRuntime(next: WebhooksRuntime): void {
+  setCachedWebhookSecrets(next.ctx.getDataDir(), next.secrets);
   runtime = next;
 }
 
@@ -47,6 +53,69 @@ function payloadByteLength(payload: string): number {
   return Buffer.byteLength(payload, "utf8");
 }
 
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("Payload Too Large");
+  }
+}
+
+async function readRequestPayloadWithLimit(
+  request: Request,
+  maxPayloadSize: number
+): Promise<string> {
+  if (request.method === "GET") return getRequestPayload(request);
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxPayloadSize) {
+        await reader.cancel();
+        throw new PayloadTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function getTraceContext(params: {
+  agent: AgentConfig;
+  webhookName: string;
+  originUrl: string;
+  headers: Record<string, string>;
+  payload: string;
+  langfuseTracing: boolean;
+  timestamp: string;
+}) {
+  return {
+    enabled: params.langfuseTracing,
+    name: `aihub:webhook:${params.agent.id}`,
+    surface: "webhook",
+    metadata: {
+      webhookName: params.webhookName,
+      agentId: params.agent.id,
+      sourceUrl: params.originUrl,
+      timestamp: params.timestamp,
+      requestHeaders: params.headers,
+      requestPayload: params.payload,
+    },
+  };
+}
+
 async function runWebhookAgent(params: {
   ctx: ExtensionContext;
   agent: AgentConfig;
@@ -59,10 +128,14 @@ async function runWebhookAgent(params: {
   langfuseTracing: boolean;
   timestamp: string;
 }): Promise<void> {
+  const sessionKey = `webhook:${params.agent.id}:${params.webhookName}:${params.requestId}`;
+  const trace = getTraceContext(params);
+  let message: string | undefined;
+
   try {
     const workspaceDir = params.ctx.resolveWorkspaceDir(params.agent);
     const prompt = await resolveWebhookPrompt(params.prompt, workspaceDir);
-    const message = interpolateWebhookPrompt(prompt, {
+    message = interpolateWebhookPrompt(prompt, {
       originUrl: params.originUrl,
       headers: params.headers,
       payload: params.payload,
@@ -71,28 +144,59 @@ async function runWebhookAgent(params: {
     await params.ctx.runAgent({
       agentId: params.agent.id,
       message,
-      sessionKey: `webhook:${params.agent.id}:${params.webhookName}:${params.requestId}`,
+      sessionKey,
       thinkLevel: params.agent.thinkLevel,
       source: "webhook",
-      trace: {
-        enabled: params.langfuseTracing,
-        name: `aihub:webhook:${params.agent.id}`,
-        surface: "webhook",
-        metadata: {
-          webhookName: params.webhookName,
-          agentId: params.agent.id,
-          sourceUrl: params.originUrl,
-          timestamp: params.timestamp,
-          requestHeaders: params.headers,
-          requestPayload: params.payload,
-        },
-      },
+      trace,
     });
   } catch (err) {
+    const messageText = errorMessage(err);
     params.ctx.logger.error(
       `[webhooks] ${params.agent.id}/${params.webhookName} failed`,
       err
     );
+    if (!params.langfuseTracing) return;
+
+    let sessionId = sessionKey;
+    try {
+      sessionId =
+        (await params.ctx.getSessionEntry(params.agent.id, sessionKey))
+          ?.sessionId ?? sessionKey;
+    } catch {
+      sessionId = sessionKey;
+    }
+
+    if (message) {
+      params.ctx.emit("agent.history", {
+        type: "user",
+        text: message,
+        timestamp: Date.now(),
+        agentId: params.agent.id,
+        sessionId,
+        sessionKey,
+        source: "webhook",
+        trace,
+      });
+    }
+
+    params.ctx.emit("agent.stream", {
+      type: "text",
+      data: "",
+      agentId: params.agent.id,
+      sessionId,
+      sessionKey,
+      source: "webhook",
+      trace,
+    });
+    params.ctx.emit("agent.stream", {
+      type: "error",
+      message: messageText,
+      agentId: params.agent.id,
+      sessionId,
+      sessionKey,
+      source: "webhook",
+      trace,
+    });
   }
 }
 
@@ -124,8 +228,8 @@ export function registerWebhookRoutes(app: Hono): void {
       return c.json({ error: "Webhook not found" }, 404);
     }
 
-    const expectedSecret =
-      current.secrets[webhookSecretKey(agentId, webhookName)];
+    const secrets = getCachedWebhookSecrets(current.ctx.getDataDir());
+    const expectedSecret = secrets[webhookSecretKey(agentId, webhookName)];
     if (!expectedSecret || providedSecret !== expectedSecret) {
       return c.json({ error: "Unauthorized" }, 401);
     }
@@ -147,7 +251,15 @@ export function registerWebhookRoutes(app: Hono): void {
       return c.text(challenge);
     }
 
-    const payload = await getRequestPayload(c.req.raw.clone());
+    let payload: string;
+    try {
+      payload = await readRequestPayloadWithLimit(c.req.raw, maxPayloadSize);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        return c.json({ error: "Payload Too Large" }, 413);
+      }
+      throw err;
+    }
     if (payloadByteLength(payload) > maxPayloadSize) {
       return c.json({ error: "Payload Too Large" }, 413);
     }

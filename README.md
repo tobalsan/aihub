@@ -137,7 +137,7 @@ On startup, AIHub creates `$AIHUB_HOME/webhook-secrets.json` and logs the full U
 [webhooks] sales/notion -> http://127.0.0.1:4000/hooks/sales/notion/<secret>
 ```
 
-`prompt` can be inline text or a `.md`/`.txt` file path relative to the agent workspace.
+`prompt` can be inline text or a `.md`/`.txt` file path relative to the agent workspace; paths outside the workspace are rejected.
 Supported interpolation variables: `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, `$WEBHOOK_PAYLOAD`.
 Each webhook invocation uses a fresh `webhook:<agentId>:<name>:<requestId>` session.
 When Langfuse is enabled, webhook traces use surface `webhook` unless `langfuseTracing: false`.
@@ -151,6 +151,8 @@ Rotate a webhook URL secret with:
 apm webhooks rotate sales notion
 # or: aihub webhooks rotate sales notion
 ```
+
+Running gateways pick up rotated secrets without restart.
 
 ### Multi-User Mode
 

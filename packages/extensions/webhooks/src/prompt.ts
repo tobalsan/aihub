@@ -16,7 +16,16 @@ export async function resolveWebhookPrompt(
   const ext = path.extname(prompt).toLowerCase();
   if (!PROMPT_FILE_EXTENSIONS.has(ext)) return prompt;
 
-  return fs.readFile(path.resolve(workspaceDir, prompt), "utf8");
+  const workspaceRoot = path.resolve(workspaceDir);
+  const promptPath = path.resolve(workspaceRoot, prompt);
+  if (
+    promptPath !== workspaceRoot &&
+    !promptPath.startsWith(workspaceRoot + path.sep)
+  ) {
+    throw new Error("Webhook prompt path must stay within agent workspace");
+  }
+
+  return fs.readFile(promptPath, "utf8");
 }
 
 export function interpolateWebhookPrompt(

@@ -73,9 +73,12 @@ export { webhooksExtension };
 export {
   ensureWebhookSecrets,
   generateWebhookSecret,
+  getCachedWebhookSecrets,
   getWebhookSecretsPath,
   loadWebhookSecrets,
+  reloadWebhookSecrets,
   saveWebhookSecrets,
+  setCachedWebhookSecrets,
   webhookSecretKey,
 } from "./secrets.js";
 export { interpolateWebhookPrompt, resolveWebhookPrompt } from "./prompt.js";
