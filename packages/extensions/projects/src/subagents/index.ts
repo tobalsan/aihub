@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
@@ -99,13 +100,33 @@ async function readJson<T>(filePath: string): Promise<T | null> {
   }
 }
 
-function isProcessAlive(pid: number | undefined | null): boolean {
+function isProcessAlive(
+  pid: number | undefined | null,
+  startedAt?: string
+): boolean {
   if (!pid || pid <= 0) return false;
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
+  }
+  // PID exists — verify it started around the same time as our subagent
+  // to avoid false positives from OS PID reuse.
+  if (!startedAt) return true;
+  const subagentStart = Date.parse(startedAt);
+  if (Number.isNaN(subagentStart)) return true;
+  try {
+    const psOutput = execSync(`ps -o lstart= -p ${pid}`, {
+      encoding: "utf8",
+      timeout: 2000,
+    }).trim();
+    const procStart = Date.parse(psOutput);
+    if (Number.isNaN(procStart)) return true;
+    // If the current process with this PID started >5s after the subagent
+    // was launched, the PID was reused by the OS for a different process.
+    return procStart <= subagentStart + 5000;
+  } catch {
+    return true;
   }
 }
 
@@ -781,6 +802,7 @@ export async function listSubagents(
       run_mode?: string;
       worktree_path?: string;
       base_branch?: string;
+      started_at?: string;
       outcome?: string;
       finished_at?: string;
     }>(path.join(dir, "state.json"));
@@ -797,7 +819,7 @@ export async function listSubagents(
     let status: SubagentStatus = "idle";
     if (state?.last_error && state.last_error.trim()) {
       status = "error";
-    } else if (!isTerminal && isProcessAlive(state?.supervisor_pid)) {
+    } else if (!isTerminal && isProcessAlive(state?.supervisor_pid, state?.started_at)) {
       status = "running";
     } else if (outcome === "error") {
       status = "error";
@@ -1052,7 +1074,7 @@ export async function listAllSubagents(
       let status: SubagentStatus = "idle";
       if (state?.last_error && state.last_error.trim()) {
         status = "error";
-      } else if (!isTerminal && isProcessAlive(state?.supervisor_pid)) {
+      } else if (!isTerminal && isProcessAlive(state?.supervisor_pid, state?.started_at)) {
         status = "running";
       } else if (outcome === "error") {
         status = "error";
