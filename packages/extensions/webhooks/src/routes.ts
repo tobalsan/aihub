@@ -36,6 +36,17 @@ async function getRequestPayload(request: Request): Promise<string> {
   return request.text();
 }
 
+function getContentLength(headers: Headers): number | null {
+  const raw = headers.get("content-length");
+  if (!raw) return null;
+  const length = Number(raw);
+  return Number.isInteger(length) && length >= 0 ? length : null;
+}
+
+function payloadByteLength(payload: string): number {
+  return Buffer.byteLength(payload, "utf8");
+}
+
 async function runWebhookAgent(params: {
   ctx: ExtensionContext;
   agent: AgentConfig;
@@ -119,6 +130,12 @@ export function registerWebhookRoutes(app: Hono): void {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
+    const maxPayloadSize = webhookConfig.maxPayloadSize;
+    const contentLength = getContentLength(c.req.raw.headers);
+    if (contentLength !== null && contentLength > maxPayloadSize) {
+      return c.json({ error: "Payload Too Large" }, 413);
+    }
+
     const requestId = crypto.randomUUID();
     const headers = getRequestHeaders(c.req.raw.headers);
     const challenge = getChallenge(c.req.raw);
@@ -131,6 +148,9 @@ export function registerWebhookRoutes(app: Hono): void {
     }
 
     const payload = await getRequestPayload(c.req.raw.clone());
+    if (payloadByteLength(payload) > maxPayloadSize) {
+      return c.json({ error: "Payload Too Large" }, 413);
+    }
     if (
       webhookConfig.signingSecret &&
       !verifyWebhookSignature({

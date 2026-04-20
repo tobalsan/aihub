@@ -86,6 +86,7 @@ describe("AgentConfigSchema openclaw model handling", () => {
 
     expect(result.webhooks?.notion.langfuseTracing).toBe(true);
     expect(result.webhooks?.notion.prompt).toBe("./webhooks/notion.md");
+    expect(result.webhooks?.notion.maxPayloadSize).toBe(1048576);
   });
 
   it("accepts openclaw sessionMode fixed", () => {

@@ -150,6 +150,7 @@ export const WebhookConfigSchema = z.object({
   prompt: z.string(),
   langfuseTracing: z.boolean().default(true),
   signingSecret: z.string().optional(),
+  maxPayloadSize: z.number().int().positive().default(1048576),
 });
 export type WebhookConfig = z.infer<typeof WebhookConfigSchema>;
 

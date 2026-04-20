@@ -17,6 +17,7 @@ import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
+import { registerWebhookCommands } from "./webhooks.js";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type UiConfig } from "@aihub/shared";
 import { loadExtensions } from "../extensions/registry.js";
@@ -430,6 +431,7 @@ program
   });
 
 registerSubagentCommands(program);
+registerWebhookCommands(program);
 registerEvalCommands(program);
 
 // Auth commands

@@ -11,7 +11,7 @@ import {
   webhookSecretKey,
 } from "./secrets.js";
 
-function agent(id: string, webhooks: AgentConfig["webhooks"]): AgentConfig {
+function agent(id: string, webhooks: unknown): AgentConfig {
   return AgentConfigSchema.parse({
     id,
     name: id,

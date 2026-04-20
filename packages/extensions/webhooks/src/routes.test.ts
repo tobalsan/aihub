@@ -378,5 +378,73 @@ describe("webhook routes", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("abc123");
     expect(called).toBe(false);
+  it("returns 413 when the payload exceeds the configured limit", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+          maxPayloadSize: 4,
+        },
+      },
+    });
+
+    let ran = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          ran = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret", {
+        method: "POST",
+        body: "12345",
+        headers: { "content-length": "3" },
+      })
+    );
+
+    expect(response.status).toBe(413);
+    expect(ran).toBe(false);
+  });
+
+  it("returns 413 from content-length before reading the body", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+          maxPayloadSize: 4,
+        },
+      },
+    });
+
+    setWebhooksRuntime({
+      ctx: createContext({ agent }),
+      secrets: { "sales:notion": "secret" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret", {
+        method: "POST",
+        body: "1",
+        headers: { "content-length": "5" },
+      })
+    );
+
+    expect(response.status).toBe(413);
   });
 });

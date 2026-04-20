@@ -14,6 +14,7 @@ import {
   resolveLocalConfigPath,
   validateLocalConfig,
 } from "./local-config.js";
+import { registerWebhookCommands } from "./webhooks.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -379,6 +380,7 @@ export function runConfigValidateCommand(opts?: { config?: string }): void {
 export const program = new Command();
 
 program.name("apm").description("AIHub project manager").version("0.1.0");
+registerWebhookCommands(program);
 
 const configCommand = program
   .command("config")

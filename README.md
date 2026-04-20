@@ -122,7 +122,8 @@ Agents can be triggered by external HTTP webhooks:
         "notion": {
           "prompt": "Payload: $WEBHOOK_PAYLOAD",
           "langfuseTracing": true,
-          "signingSecret": "$env:NOTION_WEBHOOK_SECRET"
+          "signingSecret": "$env:NOTION_WEBHOOK_SECRET",
+          "maxPayloadSize": 1048576
         }
       }
     }
@@ -141,6 +142,15 @@ Supported interpolation variables: `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, `$
 Each webhook invocation uses a fresh `webhook:<agentId>:<name>:<requestId>` session.
 When Langfuse is enabled, webhook traces use surface `webhook` unless `langfuseTracing: false`.
 Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is set; Notion and Zendesk GET `challenge` requests short-circuit without invoking the agent.
+Payloads are capped at `maxPayloadSize` bytes per webhook, defaulting to 1MB.
+Example prompt templates live in `docs/examples/webhooks/`.
+
+Rotate a webhook URL secret with:
+
+```bash
+apm webhooks rotate sales notion
+# or: aihub webhooks rotate sales notion
+```
 
 ### Multi-User Mode
 
