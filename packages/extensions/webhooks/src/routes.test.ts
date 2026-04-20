@@ -378,6 +378,8 @@ describe("webhook routes", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("abc123");
     expect(called).toBe(false);
+  });
+
   it("returns 413 when the payload exceeds the configured limit", async () => {
     const agent = AgentConfigSchema.parse({
       id: "sales",
