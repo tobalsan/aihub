@@ -35,6 +35,7 @@ Core TypeScript/Node.js application. Exports:
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
   - `multiUser` is an auth component that enables Better Auth + SQLite, guards `/api/*` and `/ws`, exposes `/api/auth/*`, `/api/me`, `/api/admin/*`, and keeps session/history storage isolated per user.
   - `langfuse` is an optional tracing component. Its registry entry is lazy-loaded, has no routes, validates `publicKey`/`secretKey` from component config or `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, and subscribes to `agentEventBus` stream/history events. `langfuse/tracer.ts` maps `agentId:sessionId` to traces, buffers text/thinking into generations, maps HistoryEvent user/meta/tool_call/tool_result data into generation input/model/usage and tool spans, finalizes on `done`/`error`, catches flush/shutdown failures as warnings, and idle-cleans traces after 30 minutes.
+  - `webhooks` is auto-loaded when any agent has `webhooks` config. It registers `/hooks/:agentId/:name/:secret`, stores generated URL secrets in `$AIHUB_HOME/webhook-secrets.json`, resolves inline or `.md`/`.txt` prompts relative to the agent workspace, interpolates `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, and `$WEBHOOK_PAYLOAD`, and runs each invocation in a fresh `webhook:<agentId>:<name>:<requestId>` session with source `webhook`.
 - **Connectors** (`src/connectors/`): Gateway runtime glue that discovers external connectors, validates configured connector mounts, and exposes connector tools to Pi/Claude sessions.
   - `src/connectors/http-client.ts` provides a connector-scoped fetch wrapper that can temporarily inject OneCLI proxy + CA env vars for outbound connector HTTP requests.
 
@@ -159,6 +160,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
+- `webhook-secrets.json` - Generated per-agent webhook URL secrets
 - `schedules.json` - Persisted schedule jobs with state
 - `projects.json` - Project ID counter (`{ lastId }`)
 - `sessions.json` - Session key -> sessionId mapping with timestamps
@@ -195,6 +197,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh",
     queueMode?: "queue"|"interrupt",  // Default: queue
     discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, broadcastToChannel?, ... },
+    webhooks?: Record<string, { prompt: string, langfuseTracing?: boolean, signingSecret?: string }>,
     heartbeat?: { every?, prompt?, ackMaxChars? },
     amsg?: { id?, enabled? },
     introMessage?: string,           // Custom intro for /new (default: "New conversation started.")

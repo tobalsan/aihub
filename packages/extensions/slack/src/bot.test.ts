@@ -1,6 +1,5 @@
 import type { AgentConfig, SlackComponentConfig } from "@aihub/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getSlackContext } from "./context.js";
 import { clearAllHistory, getHistory } from "./utils/history.js";
 
 type MockStreamEvent = {

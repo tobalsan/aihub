@@ -101,8 +101,42 @@ AIHub v2 is modular. These are the built-in component IDs you can enable under `
 - `projects`: project management surface including areas, kanban, taskboard, activity feed, subagents, and Space workflows
 - `multiUser`: optional Better Auth + SQLite auth layer with per-user isolation and admin APIs
 - `langfuse`: optional tracing component for stream/history events, LLM generations, tool spans, and model usage
+- `webhooks`: auto-loaded when any agent defines `webhooks`; exposes `/hooks/:agentId/:name/:secret`
 
 If a component key is absent, it is disabled and not loaded.
+`webhooks` is the exception: it is configured per agent and needs no top-level component key.
+
+### Webhooks
+
+Agents can be triggered by external HTTP webhooks:
+
+```json
+{
+  "agents": [
+    {
+      "id": "sales",
+      "name": "Sales",
+      "workspace": "~/agents/sales",
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
+      "webhooks": {
+        "notion": {
+          "prompt": "Payload: $WEBHOOK_PAYLOAD"
+        }
+      }
+    }
+  ]
+}
+```
+
+On startup, AIHub creates `$AIHUB_HOME/webhook-secrets.json` and logs the full URL:
+
+```text
+[webhooks] sales/notion -> http://127.0.0.1:4000/hooks/sales/notion/<secret>
+```
+
+`prompt` can be inline text or a `.md`/`.txt` file path relative to the agent workspace.
+Supported interpolation variables: `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, `$WEBHOOK_PAYLOAD`.
+Each webhook invocation uses a fresh `webhook:<agentId>:<name>:<requestId>` session.
 
 ### Multi-User Mode
 

@@ -12,7 +12,9 @@ type ExtensionRegistration = {
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   discord: {
     load: () =>
-      import("@aihub/extension-discord").then((module) => module.discordExtension),
+      import("@aihub/extension-discord").then(
+        (module) => module.discordExtension
+      ),
     getConfig: (config) => {
       const hasPerAgent = config.agents?.some((a) => a.discord?.token);
       if (config.extensions?.discord) {
@@ -71,6 +73,19 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
       ),
     getConfig: (config) => config.extensions?.langfuse,
     routePrefixes: [],
+  },
+  webhooks: {
+    load: () =>
+      import("@aihub/extension-webhooks").then(
+        (module) => module.webhooksExtension
+      ),
+    getConfig: (config) => {
+      const hasWebhooks = config.agents?.some(
+        (agent) => agent.webhooks && Object.keys(agent.webhooks).length > 0
+      );
+      return hasWebhooks ? { _perAgent: true } : undefined;
+    },
+    routePrefixes: ["/hooks"],
   },
   multiUser: {
     load: () =>

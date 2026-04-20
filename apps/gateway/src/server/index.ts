@@ -176,6 +176,13 @@ app.all("/api/*", async (c) => {
   return api.fetch(request);
 });
 
+app.all("/hooks/*", async (c) => {
+  if (!isExtensionLoaded("webhooks")) {
+    return c.json({ error: "extension_disabled", extension: "webhooks" }, 404);
+  }
+  return api.fetch(c.req.raw);
+});
+
 app.get("/health", (c) => c.json({ ok: true }));
 
 // Subscription store: Map<ws, { agentId, sessionKey }>

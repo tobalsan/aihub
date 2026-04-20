@@ -12,7 +12,6 @@ import {
   setSingleAgentMode,
   CONFIG_DIR,
   setLoadedConfig,
-  isAgentActive,
 } from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";

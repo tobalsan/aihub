@@ -1,6 +1,5 @@
 import {
   DiscordExtensionConfigSchema,
-  type DiscordExtensionConfig,
   type Extension,
   type ExtensionContext,
   type DiscordComponentConfig,

@@ -30,6 +30,7 @@ export default defineConfig({
       { find: "@aihub/extension-langfuse", replacement: extSrc("langfuse") },
       { find: "@aihub/extension-discord", replacement: extSrc("discord") },
       { find: "@aihub/extension-slack", replacement: extSrc("slack") },
+      { find: "@aihub/extension-webhooks", replacement: extSrc("webhooks") },
       { find: /^@aihub\/extension-multi-user\/isolation$/, replacement: extSrc("multi-user", "isolation.ts") },
       { find: /^@aihub\/extension-multi-user\/middleware$/, replacement: extSrc("multi-user", "middleware.ts") },
       { find: "@aihub/extension-multi-user", replacement: extSrc("multi-user") },

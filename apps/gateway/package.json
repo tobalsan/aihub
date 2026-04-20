@@ -20,6 +20,7 @@
     "@aihub/extension-projects": "workspace:*",
     "@aihub/extension-scheduler": "workspace:*",
     "@aihub/extension-slack": "workspace:*",
+    "@aihub/extension-webhooks": "workspace:*",
     "@aihub/shared": "workspace:*",
     "@hono/node-server": "^1.19.9",
     "@mariozechner/pi-agent-core": "^0.67",

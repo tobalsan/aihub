@@ -112,6 +112,31 @@ describe("extension registry", () => {
     expect(isExtensionLoaded("multiUser")).toBe(true);
   });
 
+  it("loads webhooks extension when any agent has webhooks config", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+          webhooks: {
+            notion: {
+              prompt: "Handle $WEBHOOK_PAYLOAD",
+            },
+          },
+        },
+      ],
+      extensions: {},
+    });
+
+    const result = await loadExtensions(config);
+
+    expect(result.map((extension) => extension.id)).toContain("webhooks");
+    expect(isExtensionLoaded("webhooks")).toBe(true);
+  });
+
   it("fails on invalid extension config", async () => {
     const config = {
       version: 2,
@@ -167,9 +192,13 @@ describe("extension registry", () => {
     const multiUser = extensions.find(
       (extension) => extension.id === "multiUser"
     );
+    const webhooks = extensions.find(
+      (extension) => extension.id === "webhooks"
+    );
 
     expect(projects?.routePrefixes).toContain("/api/projects");
     expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");
     expect(multiUser?.routePrefixes).toContain("/api/auth");
+    expect(webhooks?.routePrefixes).toContain("/hooks");
   });
 });

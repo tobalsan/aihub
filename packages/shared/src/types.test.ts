@@ -71,6 +71,23 @@ describe("AgentConfigSchema openclaw model handling", () => {
     }
   });
 
+  it("accepts agent-level webhooks config", () => {
+    const result = AgentConfigSchema.parse({
+      id: "webhook-agent",
+      name: "Webhook Agent",
+      workspace: "~/agents/webhook",
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
+      webhooks: {
+        notion: {
+          prompt: "./webhooks/notion.md",
+        },
+      },
+    });
+
+    expect(result.webhooks?.notion.langfuseTracing).toBe(true);
+    expect(result.webhooks?.notion.prompt).toBe("./webhooks/notion.md");
+  });
+
   it("accepts openclaw sessionMode fixed", () => {
     const result = AgentConfigSchema.safeParse({
       id: "openclaw-agent",

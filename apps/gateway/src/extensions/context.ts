@@ -17,7 +17,6 @@ import {
 import { runAgent, agentEventBus } from "../agents/index.js";
 import { getAllSessionsForAgent } from "../agents/sessions.js";
 import {
-  resolveSessionId,
   getSessionEntry,
   clearSessionEntry,
   restoreSessionUpdatedAt,

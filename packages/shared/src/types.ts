@@ -146,6 +146,13 @@ export const AgentSandboxConfigSchema = z.object({
 });
 export type AgentSandboxConfig = z.infer<typeof AgentSandboxConfigSchema>;
 
+export const WebhookConfigSchema = z.object({
+  prompt: z.string(),
+  langfuseTracing: z.boolean().default(true),
+  signingSecret: z.string().optional(),
+});
+export type WebhookConfig = z.infer<typeof WebhookConfigSchema>;
+
 // Agent config
 const AgentConfigBaseSchema = z.object({
   id: z.string(),
@@ -162,6 +169,7 @@ const AgentConfigBaseSchema = z.object({
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
+  webhooks: z.record(z.string(), WebhookConfigSchema).optional(),
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
   connectors: z.record(z.string(), AgentConnectorConfigSchema).optional(),
   globalSkills: z.boolean().optional(), // Include ~/.agents/skills/ (default: false)
@@ -400,9 +408,7 @@ export const SlackExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   token: SecretRefSchema,
   appToken: SecretRefSchema,
-  channels: z
-    .record(z.string(), SlackExtensionChannelConfigSchema)
-    .optional(),
+  channels: z.record(z.string(), SlackExtensionChannelConfigSchema).optional(),
   dm: SlackExtensionDmConfigSchema.optional(),
   historyLimit: z.number().int().min(0).optional(),
   clearHistoryAfterReply: z.boolean().optional(),
@@ -418,9 +424,7 @@ export type SlackComponentConfig = SlackExtensionConfig;
 export const SlackAgentConfigSchema = z.object({
   token: SecretRefSchema,
   appToken: SecretRefSchema,
-  channels: z
-    .record(z.string(), SlackExtensionChannelConfigSchema)
-    .optional(),
+  channels: z.record(z.string(), SlackExtensionChannelConfigSchema).optional(),
   dm: SlackExtensionDmConfigSchema.optional(),
   historyLimit: z.number().int().min(0).optional(),
   clearHistoryAfterReply: z.boolean().optional(),

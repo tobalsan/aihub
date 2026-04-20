@@ -9,7 +9,8 @@ export type RunSource =
   | "slack"
   | "scheduler"
   | "cli"
-  | "heartbeat";
+  | "heartbeat"
+  | "webhook";
 
 export type AgentStreamEvent = StreamEvent & {
   agentId: string;
