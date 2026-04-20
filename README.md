@@ -120,7 +120,9 @@ Agents can be triggered by external HTTP webhooks:
       "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
       "webhooks": {
         "notion": {
-          "prompt": "Payload: $WEBHOOK_PAYLOAD"
+          "prompt": "Payload: $WEBHOOK_PAYLOAD",
+          "langfuseTracing": true,
+          "signingSecret": "$env:NOTION_WEBHOOK_SECRET"
         }
       }
     }
@@ -137,6 +139,8 @@ On startup, AIHub creates `$AIHUB_HOME/webhook-secrets.json` and logs the full U
 `prompt` can be inline text or a `.md`/`.txt` file path relative to the agent workspace.
 Supported interpolation variables: `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, `$WEBHOOK_PAYLOAD`.
 Each webhook invocation uses a fresh `webhook:<agentId>:<name>:<requestId>` session.
+When Langfuse is enabled, webhook traces use surface `webhook` unless `langfuseTracing: false`.
+Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is set; Notion and Zendesk GET `challenge` requests short-circuit without invoking the agent.
 
 ### Multi-User Mode
 

@@ -3,6 +3,7 @@ import type { AgentConfig, ExtensionContext } from "@aihub/shared";
 import type { Hono } from "hono";
 import { interpolateWebhookPrompt, resolveWebhookPrompt } from "./prompt.js";
 import { webhookSecretKey, type WebhookSecrets } from "./secrets.js";
+import { verifyWebhookSignature } from "./verify.js";
 
 type WebhooksRuntime = {
   ctx: ExtensionContext;
@@ -44,6 +45,8 @@ async function runWebhookAgent(params: {
   headers: Record<string, string>;
   payload: string;
   requestId: string;
+  langfuseTracing: boolean;
+  timestamp: string;
 }): Promise<void> {
   try {
     const workspaceDir = params.ctx.resolveWorkspaceDir(params.agent);
@@ -60,6 +63,19 @@ async function runWebhookAgent(params: {
       sessionKey: `webhook:${params.agent.id}:${params.webhookName}:${params.requestId}`,
       thinkLevel: params.agent.thinkLevel,
       source: "webhook",
+      trace: {
+        enabled: params.langfuseTracing,
+        name: `aihub:webhook:${params.agent.id}`,
+        surface: "webhook",
+        metadata: {
+          webhookName: params.webhookName,
+          agentId: params.agent.id,
+          sourceUrl: params.originUrl,
+          timestamp: params.timestamp,
+          requestHeaders: params.headers,
+          requestPayload: params.payload,
+        },
+      },
     });
   } catch (err) {
     params.ctx.logger.error(
@@ -67,6 +83,13 @@ async function runWebhookAgent(params: {
       err
     );
   }
+}
+
+function getChallenge(request: Request): string | undefined {
+  if (request.method !== "GET") return undefined;
+  const url = new URL(request.url);
+  if (!url.searchParams.has("challenge")) return undefined;
+  return url.searchParams.get("challenge") ?? "";
 }
 
 export function registerWebhookRoutes(app: Hono): void {
@@ -98,8 +121,30 @@ export function registerWebhookRoutes(app: Hono): void {
 
     const requestId = crypto.randomUUID();
     const headers = getRequestHeaders(c.req.raw.headers);
+    const challenge = getChallenge(c.req.raw);
+    const normalizedName = webhookName.toLowerCase();
+    if (challenge !== undefined && normalizedName.includes("notion")) {
+      return c.json({ challenge });
+    }
+    if (challenge !== undefined && normalizedName.includes("zendesk")) {
+      return c.text(challenge);
+    }
+
     const payload = await getRequestPayload(c.req.raw.clone());
+    if (
+      webhookConfig.signingSecret &&
+      !verifyWebhookSignature({
+        webhookName,
+        headers: c.req.raw.headers,
+        payload,
+        signingSecret: webhookConfig.signingSecret,
+      })
+    ) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
     const originUrl = c.req.url;
+    const timestamp = new Date().toISOString();
 
     void runWebhookAgent({
       ctx: current.ctx,
@@ -110,6 +155,8 @@ export function registerWebhookRoutes(app: Hono): void {
       headers,
       payload,
       requestId,
+      langfuseTracing: webhookConfig.langfuseTracing,
+      timestamp,
     });
 
     return c.json({ ok: true, requestId });

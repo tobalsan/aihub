@@ -1,7 +1,7 @@
 // Event payload types shared between gateway and extensions.
 // Event bus runtime stays in gateway.
 
-import type { StreamEvent, HistoryEvent } from "./types.js";
+import type { StreamEvent, HistoryEvent, AgentTraceContext } from "./types.js";
 
 export type RunSource =
   | "web"
@@ -17,6 +17,7 @@ export type AgentStreamEvent = StreamEvent & {
   sessionId: string;
   sessionKey?: string;
   source?: RunSource;
+  trace?: AgentTraceContext;
 };
 
 export type AgentHistoryEvent = HistoryEvent & {
@@ -24,6 +25,7 @@ export type AgentHistoryEvent = HistoryEvent & {
   sessionId: string;
   sessionKey?: string;
   source?: RunSource;
+  trace?: AgentTraceContext;
 };
 
 export type AgentStatusChangeEvent = {

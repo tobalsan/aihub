@@ -7,6 +7,7 @@ import type {
   FullHistoryMessage,
   HistoryViewMode,
   AgentContext,
+  AgentTraceContext,
   FileAttachment,
 } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
@@ -69,6 +70,7 @@ export type RunAgentParams = {
   thinkLevel?: ThinkLevel;
   context?: AgentContext; // Structured context (Discord metadata, etc.)
   source?: RunSource;
+  trace?: AgentTraceContext;
   onEvent?: (event: StreamEvent) => void;
   resolvedSession?: {
     sessionId: string;
@@ -191,6 +193,7 @@ export async function runAgent(
           sessionId: "none",
           sessionKey: params.sessionKey,
           source: params.source,
+          trace: params.trace,
         } as AgentStreamEvent);
       };
       emit({ type: "text", data: "No active run." });
@@ -210,6 +213,7 @@ export async function runAgent(
         sessionId,
         sessionKey: params.sessionKey,
         source: params.source,
+        trace: params.trace,
       } as AgentStreamEvent);
     };
 
@@ -283,6 +287,7 @@ export async function runAgent(
       sessionId,
       sessionKey,
       source: params.source,
+      trace: params.trace,
     } as AgentStreamEvent);
   };
 
@@ -522,6 +527,7 @@ export async function runAgent(
       sessionId,
       sessionKey,
       source: params.source,
+      trace: params.trace,
     } as AgentHistoryEvent);
 
     if (event.type === "user") {
@@ -677,6 +683,7 @@ export async function runAgent(
           sessionKey,
           thinkLevel: params.thinkLevel,
           source: params.source,
+          trace: params.trace,
           // onEvent omitted - events go to agentEventBus only
         });
       }

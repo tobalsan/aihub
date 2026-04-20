@@ -553,6 +553,13 @@ export const GatewayConfigSchema = z.object({
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 
+export type AgentTraceContext = {
+  enabled?: boolean;
+  name?: string;
+  surface?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type RunAgentParams = {
   agentId: string;
   message: string;
@@ -562,6 +569,7 @@ export type RunAgentParams = {
   thinkLevel?: ThinkLevel;
   context?: AgentContext;
   source?: string;
+  trace?: AgentTraceContext;
   onEvent?: (event: StreamEvent) => void;
 };
 

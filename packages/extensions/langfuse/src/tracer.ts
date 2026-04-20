@@ -29,9 +29,11 @@ export type LangfuseTracerConfig = {
   environment?: string;
 };
 
-/** Derive surface from sessionKey: "project" if key starts with "project:", else "chat". */
-function toSurface(sessionKey?: string): string {
-  return sessionKey?.startsWith("project:") ? "project" : "chat";
+function toSurface(event: AgentStreamEvent | AgentHistoryEvent): string {
+  if (event.trace?.surface) return event.trace.surface;
+  if (event.sessionKey?.startsWith("project:")) return "project";
+  if (event.sessionKey?.startsWith("webhook:")) return "webhook";
+  return "chat";
 }
 
 export class LangfuseTracer {
@@ -81,6 +83,7 @@ export class LangfuseTracer {
 
   async handleStreamEvent(event: AgentStreamEvent): Promise<void> {
     if (!this.langfuse) return;
+    if (event.trace?.enabled === false) return;
     if (!isTracedStreamEvent(event)) return;
 
     const trace = this.getTrace(event);
@@ -117,6 +120,7 @@ export class LangfuseTracer {
 
   handleHistoryEvent(event: AgentHistoryEvent): void {
     if (!this.langfuse) return;
+    if (event.trace?.enabled === false) return;
     if (!isTracedHistoryEvent(event)) return;
 
     const trace =
@@ -195,8 +199,8 @@ export class LangfuseTracer {
       throw new Error("Langfuse tracer is not started");
     }
 
-    const surface = toSurface(event.sessionKey);
-    const traceName = `aihub:${surface}:${event.agentId}`;
+    const surface = toSurface(event);
+    const traceName = event.trace?.name ?? `aihub:${surface}:${event.agentId}`;
 
     const trace = this.langfuse.trace({
       name: traceName,
@@ -207,6 +211,7 @@ export class LangfuseTracer {
         source: event.source,
         sessionKey: event.sessionKey,
         surface,
+        ...event.trace?.metadata,
       },
     });
     const state: TraceState = {

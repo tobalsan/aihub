@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
@@ -61,6 +62,14 @@ function createApp(): Hono {
 
 async function getStatus(app: Hono, url: string): Promise<number> {
   return (await app.fetch(new Request(url))).status;
+}
+
+function sign(
+  payload: string,
+  secret: string,
+  encoding: "hex" | "base64" = "hex"
+): string {
+  return crypto.createHmac("sha256", secret).update(payload).digest(encoding);
 }
 
 describe("webhook routes", () => {
@@ -160,6 +169,17 @@ describe("webhook routes", () => {
       /^webhook:sales:notion:[0-9a-f-]{36}$/
     );
     expect(captured?.source).toBe("webhook");
+    expect(captured?.trace).toMatchObject({
+      enabled: true,
+      name: "aihub:webhook:sales",
+      surface: "webhook",
+      metadata: {
+        webhookName: "notion",
+        agentId: "sales",
+        sourceUrl: "http://localhost/hooks/sales/notion/secret",
+        requestPayload: '{"ticket":123}',
+      },
+    });
     expect(captured?.message).toContain(
       "URL=http://localhost/hooks/sales/notion/secret"
     );
@@ -167,5 +187,196 @@ describe("webhook routes", () => {
       'HEADERS={"content-type":"application/json"}'
     );
     expect(captured?.message).toContain('BODY={"ticket":123}');
+  });
+
+  it("passes a disabled trace context when langfuse tracing is off", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        notion: {
+          prompt: "hello",
+          langfuseTracing: false,
+        },
+      },
+    });
+
+    let captured: RunAgentParams | undefined;
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async (params) => {
+          captured = params;
+          resolveRun();
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret", {
+        method: "POST",
+        body: "{}",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await runPromise;
+    expect(captured?.trace?.enabled).toBe(false);
+  });
+
+  it("rejects known webhook signatures that fail verification", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        github: {
+          prompt: "hello",
+          signingSecret: "secret",
+        },
+      },
+    });
+    let called = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          called = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:github": "secret-token" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/github/secret-token", {
+        method: "POST",
+        body: "{}",
+        headers: { "x-hub-signature-256": "sha256=bad" },
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(called).toBe(false);
+  });
+
+  it("accepts a known webhook with a valid signature", async () => {
+    const payload = '{"action":"opened"}';
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: {
+        github: {
+          prompt: "BODY=$WEBHOOK_PAYLOAD",
+          signingSecret: "secret",
+        },
+      },
+    });
+    let captured: RunAgentParams | undefined;
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async (params) => {
+          captured = params;
+          resolveRun();
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:github": "secret-token" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/github/secret-token", {
+        method: "POST",
+        body: payload,
+        headers: {
+          "x-hub-signature-256": `sha256=${sign(payload, "secret")}`,
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await runPromise;
+    expect(captured?.message).toBe(`BODY=${payload}`);
+  });
+
+  it("returns Notion GET challenges without running the agent", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: { notion: { prompt: "hello" } },
+    });
+    let called = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          called = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:notion": "secret" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request("http://localhost/hooks/sales/notion/secret?challenge=abc123")
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ challenge: "abc123" });
+    expect(called).toBe(false);
+  });
+
+  it("returns Zendesk GET challenges as plain text", async () => {
+    const agent = AgentConfigSchema.parse({
+      id: "sales",
+      name: "Sales",
+      workspace: "/tmp",
+      model: { model: "claude" },
+      webhooks: { zendesk: { prompt: "hello" } },
+    });
+    let called = false;
+    setWebhooksRuntime({
+      ctx: createContext({
+        agent,
+        onRunAgent: async () => {
+          called = true;
+          return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
+        },
+      }),
+      secrets: { "sales:zendesk": "secret" },
+    });
+    const app = createApp();
+
+    const response = await app.fetch(
+      new Request(
+        "http://localhost/hooks/sales/zendesk/secret?challenge=abc123"
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("abc123");
+    expect(called).toBe(false);
   });
 });
