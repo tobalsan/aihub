@@ -1,4 +1,4 @@
-import { App } from "@slack/bolt";
+import { App, SocketModeReceiver } from "@slack/bolt";
 import type {
   AgentConfig,
   SlackAgentConfig,
@@ -65,6 +65,17 @@ type ThinkingStreamDisplay = {
 
 const MAX_THINKING_CHARS = 3000;
 const THINKING_UPDATE_INTERVAL_MS = 3000;
+const SLACK_CLIENT_PING_TIMEOUT_MS = 20_000;
+
+function createSocketModeApp(token: string, appToken: string): App {
+  return new App({
+    token,
+    receiver: new SocketModeReceiver({
+      appToken,
+      clientPingTimeout: SLACK_CLIENT_PING_TIMEOUT_MS,
+    }),
+  });
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
@@ -603,11 +614,10 @@ export function createSlackBot(
     return null;
   }
 
-  const app = new App({
-    token: componentConfig.token,
-    appToken: componentConfig.appToken,
-    socketMode: true,
-  });
+  const app = createSocketModeApp(
+    componentConfig.token,
+    componentConfig.appToken
+  );
   const client = app.client as unknown as SlackWebClient;
   const textAccumulators = new Map<string, string>();
   const logPrefix = "[slack]";
@@ -801,11 +811,10 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
 
   const agentSlackConfig = agent.slack as SlackAgentConfig;
   const slackConfig = agent.slack as SlackComponentConfig;
-  const app = new App({
-    token: agentSlackConfig.token,
-    appToken: agentSlackConfig.appToken,
-    socketMode: true,
-  });
+  const app = createSocketModeApp(
+    agentSlackConfig.token,
+    agentSlackConfig.appToken
+  );
   const client = app.client as unknown as SlackWebClient;
   const textAccumulators = new Map<string, string>();
   const logPrefix = `[slack:${agent.id}]`;

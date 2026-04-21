@@ -234,13 +234,6 @@ async function runWebhookAgent(params: {
   }
 }
 
-function getChallenge(request: Request): string | undefined {
-  if (request.method !== "GET") return undefined;
-  const url = new URL(request.url);
-  if (!url.searchParams.has("challenge")) return undefined;
-  return url.searchParams.get("challenge") ?? "";
-}
-
 export function registerWebhookRoutes(app: Hono): void {
   app.on(["GET", "POST"], "/hooks/:agentId/:name", (c) => {
     return c.json({ error: "Unauthorized" }, 401);
@@ -274,16 +267,7 @@ export function registerWebhookRoutes(app: Hono): void {
       return c.json({ error: "Payload Too Large" }, 413);
     }
 
-    const requestId = crypto.randomUUID();
     const headers = getRequestHeaders(c.req.raw.headers);
-    const challenge = getChallenge(c.req.raw);
-    const normalizedName = webhookName.toLowerCase();
-    if (challenge !== undefined && normalizedName.includes("notion")) {
-      return c.json({ challenge });
-    }
-    if (challenge !== undefined && normalizedName.includes("zendesk")) {
-      return c.text(challenge);
-    }
 
     let payload: string;
     try {
@@ -305,6 +289,8 @@ export function registerWebhookRoutes(app: Hono): void {
       );
       return c.json({ ok: true, verification: true });
     }
+
+    const requestId = crypto.randomUUID();
     if (
       webhookConfig.signingSecret &&
       !verifyWebhookSignature({

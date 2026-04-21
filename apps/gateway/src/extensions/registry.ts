@@ -9,6 +9,12 @@ type ExtensionRegistration = {
   routePrefixes: string[];
 };
 
+const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
+  webhooks: -10,
+  discord: 10,
+  slack: 10,
+};
+
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   discord: {
     load: () =>
@@ -154,7 +160,13 @@ export async function loadExtensions(
 ): Promise<Extension[]> {
   const extensions: Extension[] = [];
 
-  for (const [id, registration] of Object.entries(EXTENSION_REGISTRY)) {
+  const registrations = Object.entries(EXTENSION_REGISTRY).sort(
+    ([leftId], [rightId]) =>
+      (EXTENSION_LOAD_PRIORITY[leftId] ?? 0) -
+      (EXTENSION_LOAD_PRIORITY[rightId] ?? 0)
+  );
+
+  for (const [id, registration] of registrations) {
     const extensionConfig = registration.getConfig(config) as
       | { enabled?: boolean }
       | undefined;

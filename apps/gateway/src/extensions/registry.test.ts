@@ -137,6 +137,37 @@ describe("extension registry", () => {
     expect(isExtensionLoaded("webhooks")).toBe(true);
   });
 
+  it("loads webhooks before slack for per-agent startup", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+          slack: {
+            token: "xoxb-test",
+            appToken: "xapp-test",
+          },
+          webhooks: {
+            notion: {
+              prompt: "Handle $WEBHOOK_PAYLOAD",
+            },
+          },
+        },
+      ],
+      extensions: {},
+    });
+
+    const result = await loadExtensions(config);
+    const ids = result.map((extension) => extension.id);
+
+    expect(ids.indexOf("webhooks")).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf("slack")).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf("webhooks")).toBeLessThan(ids.indexOf("slack"));
+  });
+
   it("fails on invalid extension config", async () => {
     const config = {
       version: 2,

@@ -48,11 +48,17 @@ type SlackCommandCallback = (args: {
 }) => Promise<void>;
 
 const apps: MockSlackApp[] = [];
+const receivers: Array<Record<string, unknown>> = [];
 const streamHandlers = vi.hoisted(
   () => [] as Array<(event: MockStreamEvent) => void | Promise<void>>
 );
 
 vi.mock("@slack/bolt", () => ({
+  SocketModeReceiver: vi.fn((config: Record<string, unknown>) => {
+    const receiver = { config };
+    receivers.push(receiver);
+    return receiver;
+  }),
   App: vi.fn((config: Record<string, unknown>) => {
     const app: MockSlackApp = {
       config,
@@ -135,6 +141,7 @@ function getCommandHandler(
 describe("createSlackBot", () => {
   beforeEach(() => {
     apps.length = 0;
+    receivers.length = 0;
     streamHandlers.length = 0;
     vi.clearAllMocks();
     clearAllHistory();
@@ -152,8 +159,11 @@ describe("createSlackBot", () => {
     expect(bot).not.toBeNull();
     expect(apps[0].config).toEqual({
       token: "xoxb-test",
+      receiver: receivers[0],
+    });
+    expect(receivers[0]?.config).toEqual({
       appToken: "xapp-test",
-      socketMode: true,
+      clientPingTimeout: 20000,
     });
     expect(apps[0].message).toHaveBeenCalledOnce();
     expect(apps[0].event).toHaveBeenCalledWith(
@@ -700,8 +710,11 @@ describe("createSlackAgentBot", () => {
     expect(bot?.agentId).toBe("a1");
     expect(apps[0].config).toEqual({
       token: "xoxb-test",
+      receiver: receivers[0],
+    });
+    expect(receivers[0]?.config).toEqual({
       appToken: "xapp-test",
-      socketMode: true,
+      clientPingTimeout: 20000,
     });
     expect(apps[0].command).toHaveBeenCalledWith("/stop", expect.any(Function));
     expect(apps[0].command).not.toHaveBeenCalledWith(

@@ -538,20 +538,25 @@ describe("webhook routes", () => {
     expect(captured?.message).toBe(`BODY=${payload}`);
   });
 
-  it("returns Notion GET challenges without running the agent", async () => {
+  it("treats Notion GET challenge params as a normal webhook when verification is absent", async () => {
     const agent = AgentConfigSchema.parse({
       id: "sales",
       name: "Sales",
       workspace: "/tmp",
       model: { model: "claude" },
-      webhooks: { notion: { prompt: "hello" } },
+      webhooks: { notion: { prompt: "BODY=$WEBHOOK_PAYLOAD" } },
     });
-    let called = false;
+    let captured: RunAgentParams | undefined;
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
     setWebhooksRuntime({
       ctx: createContext({
         agent,
-        onRunAgent: async () => {
-          called = true;
+        onRunAgent: async (params) => {
+          captured = params;
+          resolveRun();
           return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
         },
       }),
@@ -564,24 +569,29 @@ describe("webhook routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ challenge: "abc123" });
-    expect(called).toBe(false);
+    await runPromise;
+    expect(captured?.message).toBe("BODY=challenge=abc123");
   });
 
-  it("returns Zendesk GET challenges as plain text", async () => {
+  it("treats Zendesk GET challenge params as a normal webhook when verification is absent", async () => {
     const agent = AgentConfigSchema.parse({
       id: "sales",
       name: "Sales",
       workspace: "/tmp",
       model: { model: "claude" },
-      webhooks: { zendesk: { prompt: "hello" } },
+      webhooks: { zendesk: { prompt: "BODY=$WEBHOOK_PAYLOAD" } },
     });
-    let called = false;
+    let captured: RunAgentParams | undefined;
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
     setWebhooksRuntime({
       ctx: createContext({
         agent,
-        onRunAgent: async () => {
-          called = true;
+        onRunAgent: async (params) => {
+          captured = params;
+          resolveRun();
           return { payloads: [], meta: { durationMs: 0, sessionId: "s1" } };
         },
       }),
@@ -596,8 +606,8 @@ describe("webhook routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("abc123");
-    expect(called).toBe(false);
+    await runPromise;
+    expect(captured?.message).toBe("BODY=challenge=abc123");
   });
 
   it("returns 413 when the payload exceeds the configured limit", async () => {
