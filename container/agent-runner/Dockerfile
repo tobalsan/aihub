@@ -12,7 +12,6 @@ COPY container/agent-runner/package.json ./container/agent-runner/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --prod --filter @aihub/agent-runner... 2>/dev/null || pnpm install --prod --filter @aihub/agent-runner...
 COPY packages/shared/dist/ ./packages/shared/dist/
 COPY container/agent-runner/dist/ ./container/agent-runner/dist/
-RUN chmod -R a+rX /app
 ENV UV_CACHE_DIR=/tmp/uv-cache
 # OneCLI CA cert will be bind-mounted at runtime
 WORKDIR /app/container/agent-runner

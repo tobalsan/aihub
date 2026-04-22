@@ -24,9 +24,15 @@ interface GatewayConfig {
   bind?: BindMode;
 }
 
+interface BaseUrlConfig {
+  baseUrl?: string;
+}
+
 interface AihubConfig {
   ui?: UiConfig;
   gateway?: GatewayConfig;
+  server?: BaseUrlConfig;
+  web?: BaseUrlConfig;
 }
 
 function loadConfig(): AihubConfig {
@@ -66,6 +72,15 @@ function resolveHost(bind?: BindMode): string {
   return host;
 }
 
+function extractHostname(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
 const config = loadConfig();
 const uiConfig = config.ui ?? {};
 const gatewayConfig = config.gateway ?? {};
@@ -87,6 +102,11 @@ const host = tailscaleServe ? "127.0.0.1" : resolveHost(uiConfig.bind);
 
 // Get MagicDNS hostname for allowed hosts when using tailscale serve
 const tailnetHostname = tailscaleServe ? getTailnetHostname() : null;
+const configuredHostnames = [
+  extractHostname(config.server?.baseUrl),
+  extractHostname(config.web?.baseUrl),
+  tailnetHostname,
+].filter((value, index, values): value is string => !!value && values.indexOf(value) === index);
 const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 
 // Resolve gateway target for proxy
@@ -111,8 +131,7 @@ export default defineConfig({
   server: {
     host,
     port,
-    // Allow MagicDNS hostname when using tailscale serve
-    allowedHosts: tailnetHostname ? [tailnetHostname] : undefined,
+    allowedHosts: configuredHostnames.length > 0 ? configuredHostnames : undefined,
     // Let HMR follow the browser host by default; allow override if needed
     hmr: hmrHostOverride ? { host: hmrHostOverride } : undefined,
     proxy: {
@@ -129,5 +148,6 @@ export default defineConfig({
   preview: {
     host,
     port,
+    allowedHosts: configuredHostnames.length > 0 ? configuredHostnames : undefined,
   },
 });
