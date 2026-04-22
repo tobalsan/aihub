@@ -210,6 +210,7 @@ Bootstrap flow:
 Notes:
 
 - Multi-user mode adds `/login`, `/api/me`, `/api/admin/users`, and `/api/admin/agents`.
+- Gateway initializes the Better Auth runtime before opening the HTTP listener, so `/api/auth/*` is live as soon as the server starts.
 - Sessions/history move to per-user paths under `$AIHUB_HOME/users/<userId>/`.
 - There is no migration for existing single-user session/history data. Treat enablement as a fresh start.
 
@@ -289,7 +290,10 @@ Add a `sandbox` block to the agent config in `aihub.json`:
       "id": "sandboxed-agent",
       "name": "Sandboxed Agent",
       "workspace": "~/agents/sandboxed",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" },
+      "model": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929"
+      },
       "sandbox": {
         "enabled": true
       }
@@ -324,17 +328,17 @@ OneCLI proxy config lives in the top-level `onecli` block (see [OneCLI](#onecli)
 
 #### Per-agent sandbox options
 
-| Field               | Default                 | Description                                                              |
-| --------------------| ----------------------- | ------------------------------------------------------------------------ |
-| `enabled`           | `false`                 | Enable container isolation for this agent                                |
-| `image`             | `aihub-agent:latest`   | Docker image to use                                                      |
-| `network`           | From global `sandbox.network.name` | Docker network name                                             |
-| `memory`            | `2g`                    | Memory limit                                                             |
-| `cpus`              | `1`                     | CPU limit                                                                |
-| `timeout`           | `300`                   | Max seconds before the container is stopped and killed                   |
-| `workspaceWritable` | `false`                 | Allow the agent to write to its workspace mount                          |
-| `env`               | `{}`                    | Extra environment variables (secret values are automatically filtered)   |
-| `mounts`            | `[]`                    | Additional bind mounts (validated against the allowlist)                 |
+| Field               | Default                            | Description                                                            |
+| ------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| `enabled`           | `false`                            | Enable container isolation for this agent                              |
+| `image`             | `aihub-agent:latest`               | Docker image to use                                                    |
+| `network`           | From global `sandbox.network.name` | Docker network name                                                    |
+| `memory`            | `2g`                               | Memory limit                                                           |
+| `cpus`              | `1`                                | CPU limit                                                              |
+| `timeout`           | `300`                              | Max seconds before the container is stopped and killed                 |
+| `workspaceWritable` | `false`                            | Allow the agent to write to its workspace mount                        |
+| `env`               | `{}`                               | Extra environment variables (secret values are automatically filtered) |
+| `mounts`            | `[]`                               | Additional bind mounts (validated against the allowlist)               |
 
 #### How it works
 
@@ -697,12 +701,12 @@ Project API details: `docs/projects_api.md`
 | `auth.mode`        | `oauth`, `api_key`, or `proxy` (Pi SDK only)                                         |
 | `thinkLevel`       | off, minimal, low, medium, high                                                      |
 | `queueMode`        | `queue` (inject into current run) or `interrupt` (abort & restart)                   |
-| `discord`          | Discord bot config (legacy per-agent; prefer [Channels](#channels) component config)  |
-| `slack`            | Slack bot config (per-agent token; see [Channels](#channels) section)                  |
+| `discord`          | Discord bot config (legacy per-agent; prefer [Channels](#channels) component config) |
+| `slack`            | Slack bot config (per-agent token; see [Channels](#channels) section)                |
 | `heartbeat`        | Periodic check-in config (see below)                                                 |
 | `amsg`             | Amsg inbox watcher config (`enabled` to toggle; ID read from workspace `.amsg-info`) |
-| `sandbox`          | Container isolation config (see [Container Isolation](#container-isolation))          |
-| `onecliToken`      | Per-agent OneCLI proxy access token (e.g. `"$env:ONECLI_MY_AGENT_TOKEN"`)             |
+| `sandbox`          | Container isolation config (see [Container Isolation](#container-isolation))         |
+| `onecliToken`      | Per-agent OneCLI proxy access token (e.g. `"$env:ONECLI_MY_AGENT_TOKEN"`)            |
 
 ### Gateway Options
 
@@ -861,41 +865,41 @@ Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). 
 
 #### Slack Config Reference
 
-| Field                              | Description                                                                          |
-| ---------------------------------- | ------------------------------------------------------------------------------------ |
-| `token`                            | Bot token (`xoxb-`), use `$env:SLACK_BOT_TOKEN`                                      |
-| `appToken`                         | App-level token (`xapp-`), use `$env:SLACK_APP_TOKEN`                                |
-| `channels`                         | Map of channel IDs to routing config                                                 |
-| `channels.<id>.agent`              | Agent ID to route to                                                                 |
-| `channels.<id>.requireMention`     | Require @mention to trigger (default: `true`)                                        |
-| `channels.<id>.threadPolicy`       | `always` (default), `never`, or `follow`                                             |
-| `channels.<id>.users`              | Allowed Slack user IDs (empty = all allowed)                                         |
-| `dm.enabled`                       | Enable DM support                                                                    |
-| `dm.agent`                         | Agent ID for DMs                                                                     |
-| `dm.allowFrom`                     | Allowed Slack user IDs for DMs (empty = all allowed)                                 |
-| `broadcastToChannel`               | Post non-Slack agent responses to this channel                                       |
-| `historyLimit`                     | Recent messages included as context (default: 20)                                    |
-| `clearHistoryAfterReply`           | Clear history buffer after reply (default: `false`)                                  |
-| `mentionPatterns`                  | Additional regex patterns that trigger a response                                    |
-| `showThinking`                     | Show live thinking text in a thread reply (default: `false`)                         |
-| `deleteThinkingOnComplete`         | Delete thinking text when the run completes (default: `true`)                        |
+| Field                          | Description                                                   |
+| ------------------------------ | ------------------------------------------------------------- |
+| `token`                        | Bot token (`xoxb-`), use `$env:SLACK_BOT_TOKEN`               |
+| `appToken`                     | App-level token (`xapp-`), use `$env:SLACK_APP_TOKEN`         |
+| `channels`                     | Map of channel IDs to routing config                          |
+| `channels.<id>.agent`          | Agent ID to route to                                          |
+| `channels.<id>.requireMention` | Require @mention to trigger (default: `true`)                 |
+| `channels.<id>.threadPolicy`   | `always` (default), `never`, or `follow`                      |
+| `channels.<id>.users`          | Allowed Slack user IDs (empty = all allowed)                  |
+| `dm.enabled`                   | Enable DM support                                             |
+| `dm.agent`                     | Agent ID for DMs                                              |
+| `dm.allowFrom`                 | Allowed Slack user IDs for DMs (empty = all allowed)          |
+| `broadcastToChannel`           | Post non-Slack agent responses to this channel                |
+| `historyLimit`                 | Recent messages included as context (default: 20)             |
+| `clearHistoryAfterReply`       | Clear history buffer after reply (default: `false`)           |
+| `mentionPatterns`              | Additional regex patterns that trigger a response             |
+| `showThinking`                 | Show live thinking text in a thread reply (default: `false`)  |
+| `deleteThinkingOnComplete`     | Delete thinking text when the run completes (default: `true`) |
 
 #### Thread Policy
 
-| Value    | Behavior                                                                   |
-| -------- | -------------------------------------------------------------------------- |
-| `always` | Always reply in a thread (default, keeps channels clean)                   |
-| `never`  | Always reply directly in channel                                           |
-| `follow` | Thread if user message was in a thread, otherwise reply in channel         |
+| Value    | Behavior                                                           |
+| -------- | ------------------------------------------------------------------ |
+| `always` | Always reply in a thread (default, keeps channels clean)           |
+| `never`  | Always reply directly in channel                                   |
+| `follow` | Thread if user message was in a thread, otherwise reply in channel |
 
 #### Slash Commands
 
-| Command          | Description                                                      |
-| ---------------- | ---------------------------------------------------------------- |
-| `/new [session]` | Start new conversation                                           |
-| `/stop [session]` | Stop current agent run                                          |
-| `/help`          | Show routing policy and config (ephemeral)                       |
-| `/ping`          | Health check: agent name, SDK, model (ephemeral)                 |
+| Command           | Description                                      |
+| ----------------- | ------------------------------------------------ |
+| `/new [session]`  | Start new conversation                           |
+| `/stop [session]` | Stop current agent run                           |
+| `/help`           | Show routing policy and config (ephemeral)       |
+| `/ping`           | Health check: agent name, SDK, model (ephemeral) |
 
 Slash commands enforce the same `users` and `allowFrom` allowlists as message routing.
 Slack uses `/stop` instead of `/abort`; both route to the same internal abort behavior.

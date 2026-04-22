@@ -9,26 +9,20 @@ import {
   loadConfig,
   getAgents,
   getAgent,
-  setSingleAgentMode,
   CONFIG_DIR,
   setLoadedConfig,
 } from "../config/index.js";
-import { startServer } from "../server/index.js";
-import { api } from "../server/api.core.js";
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type UiConfig } from "@aihub/shared";
-import { loadExtensions } from "../extensions/registry.js";
-import { createExtensionContext } from "../extensions/context.js";
 import {
   prepareStartupConfig,
-  logComponentSummary,
   resolveStartupConfig,
 } from "../config/validate.js";
 import { initializeConnectors } from "../connectors/index.js";
-
+import { startGatewayCommand } from "./gateway.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -123,7 +117,6 @@ function getApiBaseUrl(): string {
   return `http://${host}:${port}`;
 }
 
-
 function startWebUI(
   uiConfig: UiConfig,
   gatewayPort: number
@@ -210,75 +203,16 @@ program
     "Server host (default: from config gateway.bind)"
   )
   .option("--agent-id <id>", "Single-agent mode: only load this agent")
-  .option(
-    "--dev",
-    "Dev mode: auto-find ports, disable scheduler/heartbeat"
-  )
+  .option("--dev", "Dev mode: auto-find ports, disable scheduler/heartbeat")
   .action(async (opts) => {
     try {
-      const rawConfig = loadConfig();
-      const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
-      await initializeConnectors(resolvedStartupConfig);
-      const extensions = await loadExtensions(resolvedStartupConfig);
-      const { resolvedConfig: config, summary } = await prepareStartupConfig(
-        rawConfig,
-        extensions,
-        {
-          resolvedConfig: resolvedStartupConfig,
-          skipConnectorInitialization: true,
-        }
-      );
-      logComponentSummary(summary);
-      setLoadedConfig(config);
-
-      console.log(`Loaded config with ${config.agents.length} agent(s)`);
-
-      if (opts.agentId) {
-        const agent = getAgent(opts.agentId);
-        if (!agent) {
-          console.error(`Agent not found: ${opts.agentId}`);
-          process.exit(1);
-        }
-        setSingleAgentMode(opts.agentId);
-        console.log(`Single-agent mode: ${agent.name} (${agent.id})`);
-      }
-
-      // In dev mode, set AIHUB_DEV env var for child processes
-      if (opts.dev) {
-        process.env.AIHUB_DEV = "1";
-      }
-
-      for (const extension of extensions) {
-        extension.registerRoutes(api);
-      }
-
-      // Start server (undefined args let startServer use config defaults)
-      const port = opts.port ? parseInt(opts.port, 10) : undefined;
-      startServer(port, opts.host);
-
-      // Resolve actual port for banner
-      const actualPort = port ?? config.gateway?.port ?? 4000;
-      const uiPort = process.env.AIHUB_UI_PORT
-        ? parseInt(process.env.AIHUB_UI_PORT, 10)
-        : (config.ui?.port ?? 3000);
+      const { actualPort, config, extensions, uiEnabled, uiPort } =
+        await startGatewayCommand(opts);
 
       // Start web UI if enabled (default: true) and not in dev mode
       // In dev mode, web UI is started by scripts/dev.ts with proper port coordination
-      const uiEnabled = config.ui?.enabled !== false;
       if (uiEnabled && !opts.dev) {
         webProcess = startWebUI(config.ui ?? {}, actualPort);
-      }
-
-      // Patch config with runtime-resolved values so components (e.g. auth)
-      // see the actual port, not just the config-file default.
-      const runtimeConfig = {
-        ...config,
-        gateway: { ...config.gateway, port: actualPort },
-        ui: { ...config.ui, port: uiPort },
-      };
-      const extensionContext = createExtensionContext(runtimeConfig);
-      for (const extension of extensions) {
-        await extension.start(extensionContext);
       }
 
       // In dev mode, skip external services and show banner
