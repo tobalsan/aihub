@@ -72,10 +72,18 @@ function resolveHost(bind?: BindMode): string {
   return host;
 }
 
+function resolveEnvReference(value?: string): string | undefined {
+  if (!value) return undefined;
+  const match = /^\$env:([A-Z0-9_]+)$/.exec(value.trim());
+  if (!match) return value;
+  return process.env[match[1]];
+}
+
 function extractHostname(url?: string): string | null {
-  if (!url) return null;
+  const resolvedUrl = resolveEnvReference(url);
+  if (!resolvedUrl) return null;
   try {
-    return new URL(url).hostname;
+    return new URL(resolvedUrl).hostname;
   } catch {
     return null;
   }
