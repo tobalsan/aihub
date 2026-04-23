@@ -14,6 +14,9 @@ vi.mock("../context.js", () => ({
 }));
 
 const mockRunAgent = vi.fn();
+const mockClearSessionEntry = vi.fn();
+const mockDeleteSession = vi.fn();
+const mockInvalidateHistoryCache = vi.fn();
 
 const agent: AgentConfig = {
   id: "main",
@@ -44,14 +47,23 @@ describe("Slack command handlers", () => {
     vi.clearAllMocks();
     vi.mocked(getSlackContext).mockReturnValue({
       runAgent: mockRunAgent,
+      clearSessionEntry: mockClearSessionEntry,
+      deleteSession: mockDeleteSession,
+      invalidateHistoryCache: mockInvalidateHistoryCache,
     } as never);
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },
     });
+    mockClearSessionEntry.mockResolvedValue({
+      sessionId: "session",
+      updatedAt: 1,
+      createdAt: 1,
+    });
+    mockInvalidateHistoryCache.mockResolvedValue(undefined);
   });
 
-  it("runs /new against the route session", async () => {
+  it("clears /new against the route session without running the agent", async () => {
     const respond = vi.fn();
     await handleNewCommand(
       { channel_id: "C1", user_id: "U1", text: "" },
@@ -59,14 +71,13 @@ describe("Slack command handlers", () => {
       respond
     );
 
-    expect(mockRunAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: "main",
-        message: "/new",
-        sessionKey: "slack:C1",
-        source: "slack",
-      })
+    expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1");
+    expect(mockDeleteSession).toHaveBeenCalledWith("main", "session");
+    expect(mockInvalidateHistoryCache).toHaveBeenCalledWith(
+      "main",
+      "session"
     );
+    expect(mockRunAgent).not.toHaveBeenCalled();
     expect(respond).toHaveBeenCalledWith({
       text: "Context cleared, new session started.",
       response_type: "ephemeral",
@@ -92,9 +103,7 @@ describe("Slack command handlers", () => {
       { ...target, isDm: true, channelConfig: undefined },
       respond
     );
-    expect(mockRunAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionKey: "main" })
-    );
+    expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "main");
   });
 
   it("responds to help and ping ephemerally", async () => {

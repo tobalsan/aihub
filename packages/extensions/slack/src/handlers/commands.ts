@@ -60,22 +60,34 @@ async function runControlCommand(
   }
 }
 
+async function clearSlackSession(
+  command: SlackCommandData,
+  target: SlackCommandTarget
+): Promise<void> {
+  const ctx = getSlackContext();
+  const sessionKey = commandSessionKey(target, command);
+  const cleared = await ctx.clearSessionEntry(target.agent.id, sessionKey);
+  if (!cleared) return;
+  ctx.deleteSession(target.agent.id, cleared.sessionId);
+  await ctx.invalidateHistoryCache(target.agent.id, cleared.sessionId);
+}
+
 export async function handleNewCommand(
   command: SlackCommandData,
   target: SlackCommandTarget,
   respond: SlackRespond
 ): Promise<void> {
+  try {
+    await clearSlackSession(command, target);
+  } catch (err) {
+    const text = err instanceof Error ? err.message : "Unknown error";
+    await respond({ text: `Error: ${text}`, response_type: "ephemeral" });
+    return;
+  }
   await respond({
     text: "Context cleared, new session started.",
     response_type: "ephemeral",
   });
-  runControlCommand(
-    command,
-    target,
-    respond,
-    "/new",
-    "New conversation started."
-  ).catch(() => {});
 }
 
 export function handleAbortCommand(
