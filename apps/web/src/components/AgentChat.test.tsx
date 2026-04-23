@@ -341,7 +341,9 @@ describe("AgentChat stop/send behavior", () => {
     });
 
     let callbacks:
-      | Parameters<typeof subscribeToSessionMock.mockImplementation>[0]
+      | {
+          onText?: (text: string) => void;
+        }
       | undefined;
     subscribeToSessionMock.mockImplementation(
       (

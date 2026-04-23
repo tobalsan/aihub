@@ -433,6 +433,12 @@ export type SubscriptionCallbacks = {
   ) => void;
   onToolStart?: (toolName: string) => void;
   onToolEnd?: (toolName: string, isError: boolean) => void;
+  onFileOutput?: (file: {
+    fileId: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }) => void;
   onActiveTurn?: (snapshot: ActiveTurn) => void;
   onDone?: () => void;
   onHistoryUpdated?: () => void;

@@ -55,6 +55,7 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
+- `BoardView` chat now uses the real lead-agent session APIs: loads simple history per selected agent/session key, streams assistant text over `/ws`, and toggles Send into Stop via `/abort` while a run is active
 - Project `AgentChat` virtualizes only larger persisted history/log lists (`>=80` rows) with `@tanstack/solid-virtual`, remeasures visible rows on pane resize, and keeps the bottom row anchored while the live streaming row stays outside the virtualized region
 - ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; interrupted runs also keep any streamed assistant text that arrived before `/abort`/Stop, and full-mode chat renders transport/run errors inline
 - Projects board shell uses split sidebars:

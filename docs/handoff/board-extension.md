@@ -51,7 +51,8 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - Two-pane layout with responsive mobile fallback
    - Agent selector dropdown in chat header
    - Canvas tabs: Overview, Projects, Agents — switchable via buttons or API
-   - Chat input with echo placeholder (not yet wired to real agent chat)
+   - Chat loads real simple-history per selected agent/session and streams replies over the existing WebSocket agent API
+   - Send toggles to Stop during active runs and calls `/abort`
    - Polls canvas state every 2s for selected agent
 
 4. **Home routing** (`apps/web/src/App.tsx`)
@@ -82,9 +83,8 @@ AIHUB_HOME=$(pwd)/.aihub AIHUB_GATEWAY_PORT=3011 AIHUB_UI_PORT=4011 \
 
 ## What's next
 
-1. **Wire chat to real agent API** — currently echoes. Needs to use the existing agent messaging API (`POST /api/agents/:id/messages`) and render streaming responses
-2. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status, day overview with priorities
-3. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
-4. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner.
-5. **SSE/WebSocket for canvas** — replace polling with real-time updates via the existing gateway WebSocket infrastructure
-6. **Agent sidebar behavior** — when board is home, does the left agent sidebar still make sense? Or does the chat pane replace it?
+1. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status, day overview with priorities
+2. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
+3. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner.
+4. **SSE/WebSocket for canvas** — replace polling with real-time updates via the existing gateway WebSocket infrastructure
+5. **Agent sidebar behavior** — when board is home, does the left agent sidebar still make sense? Or does the chat pane replace it?

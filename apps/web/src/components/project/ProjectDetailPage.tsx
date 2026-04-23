@@ -102,6 +102,15 @@ function getFrontmatterRecord(
   return value as Record<string, unknown>;
 }
 
+function getRecordString(
+  record: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  if (!record) return undefined;
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
 function getRepoStatusMessage(project?: {
   frontmatter: Record<string, unknown>;
   repoValid: boolean;
@@ -427,7 +436,7 @@ export function ProjectDetailPage() {
         projectId: current.id,
         agentId: savedView.agent.agentId,
         agentName: savedView.agent.agentId,
-        sessionKey: sessionKeys[savedView.agent.agentId],
+        sessionKey: getRecordString(sessionKeys, savedView.agent.agentId),
         sessionNonce: 0,
       });
       return;
@@ -442,7 +451,7 @@ export function ProjectDetailPage() {
           projectId: current.id,
           agentId: leadAgentId,
           agentName: leadAgentId,
-          sessionKey: sessionKeys?.[leadAgentId],
+          sessionKey: getRecordString(sessionKeys, leadAgentId),
           sessionNonce: 0,
         });
       }
@@ -458,7 +467,7 @@ export function ProjectDetailPage() {
       projectId: current.id,
       agentId: leadAgentId,
       agentName: leadAgentId,
-      sessionKey: sessionKeys?.[leadAgentId],
+      sessionKey: getRecordString(sessionKeys, leadAgentId),
       sessionNonce: 0,
     });
   });

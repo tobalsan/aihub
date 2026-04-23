@@ -478,7 +478,7 @@ function FileCard(props: { file: FileBlock }) {
         </div>
       </div>
       <Show when={props.file.direction === "outbound"}>
-        <a class="file-download" href={href()} download>
+        <a class="file-download" href={href()} download="">
           Download
         </a>
       </Show>
@@ -831,6 +831,7 @@ export function ChatView() {
           id: crypto.randomUUID(),
           role: "user",
           content: res.activeTurn.userText,
+          files: undefined,
           timestamp: res.activeTurn.userTimestamp,
         });
       }

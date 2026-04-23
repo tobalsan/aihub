@@ -377,9 +377,11 @@ const HOME_REGISTRY: Record<string, () => JSX.Element> = {
 };
 
 function HomeRoute() {
-  const home = () => capabilities.home;
+  const home = capabilities.home;
   const fallback = () => <AgentsRouteShell />;
-  if (home() && HOME_REGISTRY[home()]) return HOME_REGISTRY[home()!]();
+  if (typeof home === "string" && home in HOME_REGISTRY) {
+    return HOME_REGISTRY[home]();
+  }
   if (isExtensionEnabled("projects")) return <AreasOverviewRouteShell />;
   return fallback();
 }
