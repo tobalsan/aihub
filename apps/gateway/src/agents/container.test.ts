@@ -304,6 +304,49 @@ describe("buildContainerArgs", () => {
     expect(args.at(-1)).toBe("custom-agent:latest");
   });
 
+  it("includes safe top-level config env in the container", () => {
+    vi.spyOn(Date, "now").mockReturnValue(123456);
+
+    const agent = AgentConfigSchema.parse({
+      id: "cloud",
+      name: "Cloud",
+      workspace: "/workspace",
+      model: { provider: "anthropic", model: "claude" },
+      sandbox: {
+        env: {
+          SHARED_FLAG: "agent-override",
+          AGENT_ONLY: "set",
+        },
+      },
+    });
+
+    const args = buildContainerArgs(
+      agent,
+      {},
+      [],
+      "/aihub",
+      undefined,
+      undefined,
+      {
+        SHARED_FLAG: "global",
+        GLOBAL_ONLY: "set",
+        SECRET_TOKEN: "should-not-pass",
+      }
+    );
+
+    expect(argValues(args, "--env")).toEqual(
+      expect.arrayContaining([
+        "GATEWAY_URL=http://gateway:4000",
+        "GLOBAL_ONLY=set",
+        "SHARED_FLAG=agent-override",
+        "AGENT_ONLY=set",
+      ])
+    );
+    expect(argValues(args, "--env")).not.toContain(
+      "SECRET_TOKEN=should-not-pass"
+    );
+  });
+
   it("omits onecli env when onecli config is absent", () => {
     vi.spyOn(Date, "now").mockReturnValue(123456);
 

@@ -125,6 +125,7 @@ Standalone Node 22 package for sandboxed agent containers. It reads `ContainerIn
 Container OneCLI proxy wiring:
 
 - `apps/gateway/src/agents/container.ts` injects `ONECLI_URL`, `ONECLI_CA_PATH`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, and `NODE_TLS_REJECT_UNAUTHORIZED=0` when top-level `onecli` is configured.
+- Safe top-level `aihub.json.env` entries are also forwarded into sandbox containers; per-agent `sandbox.env` overlays them afterward.
 - Anthropic uses `ANTHROPIC_BASE_URL=<onecli url>`; OpenAI uses `OPENAI_BASE_URL=<onecli url>/v1`.
 - The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
 - `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK run and forwards IPC follow-ups to the active run (`deliverAs: "steer"` for Pi, queued follow-up text for Claude CLI one-shot).
@@ -314,6 +315,7 @@ $AIHUB_HOME/
 
 1. **Config Load**: `loadConfig()` reads `--config`/explicit file paths when provided, else `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), validates via Zod
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
+   - Top-level `env` is copied into the gateway process when unset there already; safe entries are also forwarded into sandbox containers
 
 - Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
 - Startup also initializes connectors from `apps/gateway/src/connectors/index.ts` after secret resolution and before component loading.

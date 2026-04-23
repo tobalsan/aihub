@@ -309,7 +309,8 @@ export function buildContainerArgs(
   mounts: ContainerVolumeMount[],
   _aihubHome: string,
   _userId?: string,
-  onecli?: OnecliConfig
+  onecli?: OnecliConfig,
+  configEnv?: Record<string, string>
 ): string[] {
   const sandbox = agent.sandbox;
   const onecliEnabled = onecli?.enabled !== false && !!onecli?.gatewayUrl;
@@ -365,6 +366,7 @@ export function buildContainerArgs(
             : { NODE_TLS_REJECT_UNAUTHORIZED: "0" }),
         }
       : {}),
+    ...filterSecretEnvVars(configEnv),
     ...filterSecretEnvVars(sandbox?.env),
   };
 

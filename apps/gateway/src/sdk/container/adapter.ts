@@ -576,7 +576,8 @@ export function getContainerAdapter(): SdkAdapter {
         mounts,
         aihubHome,
         params.userId,
-        config.onecli
+        config.onecli,
+        config.env
       );
       const containerName = getArgValue(args, "--name");
       const ipcDir = path.join(aihubHome, "ipc", params.agentId);

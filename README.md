@@ -344,6 +344,8 @@ OneCLI proxy config lives in the top-level `onecli` block (see [OneCLI](#onecli)
 | `env`               | `{}`                               | Extra environment variables (secret values are automatically filtered) |
 | `mounts`            | `[]`                               | Additional bind mounts (validated against the allowlist)               |
 
+Sandbox containers also inherit safe top-level `aihub.json.env` entries. Per-agent `sandbox.env` is applied on top.
+
 #### How it works
 
 When `sandbox.enabled` is `true`, the gateway replaces the normal in-process agent run with a container spawn:
@@ -373,6 +375,7 @@ If you don't use OneCLI, containers can still run but will need direct network a
 - **Ephemeral containers**: fresh environment every invocation, no persistent state
 - **Read-only workspace**: agent identity files (SOUL.md, skills) are mounted read-only by default
 - **`.env` shadowing**: if the workspace contains a `.env` file, it is shadowed with `/dev/null` inside the container
+- **Top-level config env propagation**: safe `aihub.json.env` entries are forwarded into sandbox containers
 - **`sandbox.env` filtering**: secret-looking env vars (keys containing KEY/SECRET/TOKEN/etc., values starting with `sk-`/`ghp_`/etc.) are automatically stripped
 - **Mount allowlist**: custom mounts are validated against `sandbox.mountAllowlist.allowedRoots` and blocked if they match `blockedPatterns`
 - **Path traversal prevention**: container mount paths with `..` or non-absolute paths are rejected
