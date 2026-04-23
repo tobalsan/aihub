@@ -16,6 +16,12 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
 - **Home route priority:** Gateway resolves home ownership at startup via extension config schemas. Only one extension can claim `home: true` — the gateway refuses to start if there's a conflict. No hardcoding anywhere.
 - **Two-pane layout:** Left = chat with selectable agent. Right = canvas that shows contextually relevant panels.
 
+### Board workspace
+- **Default root:** `$AIHUB_HOME/extensions/board` — resolved from gateway's data dir
+- **Custom override:** `extensions.board.root` in config (supports `~` expansion via `expandPath`)
+- **Auto-created** on extension `start()` via `fs.mkdirSync(root, { recursive: true })`
+- **Exposed** via `/api/board/info` → `{ root: string }` so UI/agents can discover it
+
 ### Data model
 - **Simplified statuses:** `intent` → `current` → `review` → `done` (down from 10 statuses in projects)
 - **Dropped fields:** `domain`, `owner` from projects
@@ -30,12 +36,14 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
 ### Chat
 - Shares the same agent/session infrastructure as the existing `/chat` route
 - Same agent ID, same session key — just a different layout wrapper
+- Uses **full history** (`fetchFullHistory`) — not simple history — so tool calls, thinking blocks, and diffs render inline
 
 ## What's been built
 
 ### Gateway side
 1. **Board extension** (`packages/extensions/board/src/index.ts`)
    - Config schema: `root` (optional path), `home` (defaults to `true`)
+   - Board root resolution: custom path or `$AIHUB_HOME/extensions/board`, auto-created on start
    - Routes: `/api/board/info`, `/api/board/canvas/:agentId`, `/api/board/agents`, `/api/board/projects`
    - Canvas state stored in-memory (will evolve to persistent)
    - Emits `canvas.updated` events for SSE subscribers
@@ -47,44 +55,125 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - `ExtensionsConfigSchema` in shared types has `board` config shape
 
 ### UI side
-3. **BoardView** (`apps/web/src/components/BoardView.tsx`)
-   - Two-pane layout with responsive mobile fallback
-   - Agent selector dropdown in chat header
-   - Canvas tabs: Overview, Projects, Agents — switchable via buttons or API
-   - Chat loads real simple-history per selected agent/session and streams replies over the existing WebSocket agent API
-   - Send toggles to Stop during active runs and calls `/abort`
-   - Polls canvas state every 2s for selected agent
+3. **BoardChatRenderer** (`apps/web/src/components/BoardChatRenderer.tsx`)
+   - `buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[]` — converts full history into renderable log items (text, thinking, tool calls, diffs)
+   - `BoardChatLog` component — renders all log item types with:
+     - User messages in pill bubbles, assistant text via `renderMarkdown()`
+     - Collapsible tool call entries with icons (read, bash, write, generic tool)
+     - Collapsible thinking blocks, inline diffs with green/red tint
+   - Markdown rendered with proper list styling (`white-space: normal`, tight margins)
 
-4. **Home routing** (`apps/web/src/App.tsx`)
+4. **BoardView** (`apps/web/src/components/BoardView.tsx`)
+   - Two-pane layout (520px chat / flex canvas) with responsive mobile fallback
+   - **Chat pane (left):**
+     - Agent avatar + transparent select dropdown in header
+     - Empty state: centered chat icon + "How can I help?"
+     - Full history via `fetchFullHistory()` — shows tool calls, thinking, diffs
+     - Live streaming via `streamMessage()` with tool call/result callbacks (`onToolCall`, `onToolResult`)
+     - Session subscription with tool callbacks for background run monitoring
+     - `liveText` signal accumulates streaming text, appended as assistant log item
+     - Queued messages displayed inline while agent is streaming
+     - Animated "Thinking…" indicator (pulsating opacity, italic, respects `prefers-reduced-motion`)
+     - Codex-style rounded input container with send/stop toggle
+     - Auto-scroll to bottom (follow mode, pauses on scroll up, resumes when near bottom)
+   - **Canvas pane (right):**
+     - Tabs: Overview, Projects, Agents — switchable via buttons or API
+     - Polls canvas state every 2s for selected agent
+
+5. **Home routing** (`apps/web/src/App.tsx`)
    - `HOME_REGISTRY` maps extension IDs → components (no hardcoding in route logic)
    - `HomeRoute` reads `capabilities.home` and does a registry lookup
    - Falls back to areas overview (if projects enabled) then agents list
 
 ### Test environment
-5. **`.aihub/aihub.json`** — standalone config for dev testing
-   - Agent "boardy" (🐼), gateway on port 3011, web on 4011
+6. **`.aihub/aihub.json`** — standalone config for dev testing
+   - Agent "boardy" (🐼), gateway on port 4010, web on 3010
    - Projects extension disabled — proves board runs independently
+   - `AIHUB_HOME=$(pwd)/.aihub`
+
+### Commits (all sessions)
+- `12cb4b0` scaffold board extension with home route priority
+- `bb8b00c` add board extension handoff document
+- `93a5811` wire chat to real agent streaming API
+- `5c89234` improve chat styling and thinking indicator animation (amended)
+- `ace8efa` add stop button and message queuing while streaming (amended)
+- `bfc81d8` add full-history log renderer with tool call support (BoardChatRenderer)
+- `014dcdb` switch BoardView to full history with tool call rendering
+- `e906d00` style markdown bullet/ordered lists with proper padding and margin
+- `3a80881` move white-space pre-wrap to user messages only, fix markdown line-height
+- `12ddd6b` resolve board root from config, default to $AIHUB_HOME/extensions/board
 
 ## How to run
 
 ```bash
 cd ~/projects/workspaces/board
 
-# Gateway (port 3011)
+# Build extension (REQUIRED after gateway-side changes!)
+pnpm --filter @aihub/extension-board build
+
+# Gateway (port 4010)
 AIHUB_HOME=$(pwd)/.aihub AIHUB_SKIP_WEB=1 \
-  node apps/gateway/dist/cli/index.js gateway --dev --port 3011
+  node apps/gateway/dist/cli/index.js gateway --dev --port 4010
 
-# Web (port 4011, in another terminal)
-AIHUB_HOME=$(pwd)/.aihub AIHUB_GATEWAY_PORT=3011 AIHUB_UI_PORT=4011 \
-  pnpm --filter @aihub/web exec vite dev --port 4011 --host 127.0.0.1
+# Web (port 3010, in another terminal)
+AIHUB_HOME=$(pwd)/.aihub AIHUB_GATEWAY_PORT=4010 AIHUB_UI_PORT=3010 \
+  pnpm --filter @aihub/web exec vite dev --port 3010 --host 127.0.0.1
 
-# Open http://127.0.0.1:4011
+# Open http://127.0.0.1:3010
 ```
+
+## E2E debugging with agent-browser
+
+Use `agent-browser` CLI to inspect the live UI when you can't see it directly. The gateway must be running.
+
+```bash
+# Navigate to board
+agent-browser open http://127.0.0.1:3010/
+
+# Take a screenshot to see current state
+agent-browser screenshot
+agent-browser screenshot --annotate    # with ref labels
+
+# Get accessibility snapshot of the page
+agent-browser snapshot                 # full tree
+agent-browser snapshot -i              # interactive elements only
+
+# Interact with elements (refs from snapshot/annotate)
+agent-browser fill @e3 "list 5 cat facts"
+agent-browser click @e4
+
+# Run JS in the browser to inspect computed styles
+cat <<'EOF' | agent-browser eval --stdin
+(() => {
+  const el = document.querySelector('.board-msg-markdown');
+  const cs = getComputedStyle(el);
+  return JSON.stringify({ whiteSpace: cs.whiteSpace, lineHeight: cs.lineHeight });
+})()
+EOF
+
+# Get element text/html
+agent-browser get text @e5
+agent-browser get html @e5
+
+# Wait for a condition
+agent-browser wait --fn "document.querySelector('.board-msg-markdown') !== null"
+```
+
+### Tips
+- **Inline `<style>` tags** in SolidJS components may not hot-reload via Vite HMR. Do a hard refresh (Cmd+Shift+R) if CSS changes aren't taking effect.
+- **Gateway changes** require rebuilding: `pnpm --filter @aihub/extension-board build` then restart gateway.
+- **Web UI changes** are picked up automatically by Vite dev server.
+
+## Known issues
+- CSS variables like `--text-accent`, `--bg-accent` are undefined in the board extension context. All UI elements must use solid color fallbacks (e.g., `var(--bg-accent, #6366f1)`).
+- The `.board-msg-content` base rule was setting `white-space: pre-wrap` which broke markdown rendering (extra vertical gaps in lists, paragraphs). Fixed by scoping `pre-wrap` to `.board-msg-user .board-msg-content` only. Don't re-add it to the base rule.
 
 ## What's next
 
-1. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status, day overview with priorities
-2. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
-3. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner.
-4. **SSE/WebSocket for canvas** — replace polling with real-time updates via the existing gateway WebSocket infrastructure
-5. **Agent sidebar behavior** — when board is home, does the left agent sidebar still make sense? Or does the chat pane replace it?
+1. ~~**Markdown rendering**~~ ✅ — assistant messages render via `renderMarkdown()`
+2. ~~**Tool call rendering**~~ ✅ — collapsible entries with icons for read/bash/write, diffs, thinking blocks
+3. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status, day overview with priorities
+4. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
+5. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner. Board root is now configured and auto-created — store should live under it.
+6. **SSE/WebSocket for canvas** — replace polling with real-time updates via the existing gateway WebSocket infrastructure
+7. **Agent sidebar behavior** — when board is home, does the left agent sidebar still make sense? Or does the chat pane replace it?
