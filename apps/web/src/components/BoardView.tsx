@@ -397,36 +397,42 @@ export function BoardView() {
           </Show>
           <For each={messages()}>
             {(msg, index) => {
-              const content = () => {
-                if (msg.content) return msg.content;
-                if (
-                  msg.role === "assistant" &&
-                  index() === messages().length - 1 &&
-                  isStreaming() &&
-                  waitingForFirstText()
-                ) {
-                  return "Thinking...";
-                }
-                return "";
-              };
+              const content = () => msg.content;
+              const shouldHideThinkingPlaceholder = () =>
+                msg.role === "assistant" &&
+                !content() &&
+                index() === messages().length - 1 &&
+                isStreaming() &&
+                waitingForFirstText();
 
               return (
-              <div class={`board-msg board-msg-${msg.role}`}>
-                <div class="board-msg-role">
-                  <Show when={msg.role === "assistant"} fallback={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                  }>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-                  </Show>
-                  <span>{msg.role === "user" ? "You" : selectedAgent()?.name ?? "Agent"}</span>
-                </div>
-                <Show when={content()}>
-                  <div class="board-msg-content">{content()}</div>
+                <Show when={!shouldHideThinkingPlaceholder()}>
+                  <div class={`board-msg board-msg-${msg.role}`}>
+                    <div class="board-msg-role">
+                      <Show when={msg.role === "assistant"} fallback={
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      }>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                      </Show>
+                      <span>{msg.role === "user" ? "You" : selectedAgent()?.name ?? "Agent"}</span>
+                    </div>
+                    <Show when={content()}>
+                      <div class="board-msg-content">{content()}</div>
+                    </Show>
+                  </div>
                 </Show>
-              </div>
               );
             }}
           </For>
+          <Show when={isStreaming() && waitingForFirstText()}>
+            <div class="board-msg board-msg-assistant">
+              <div class="board-msg-role">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <span>{selectedAgent()?.name ?? "Agent"}</span>
+              </div>
+              <div class="board-msg-thinking">Thinking…</div>
+            </div>
+          </Show>
         </div>
 
         <div class="board-chat-input-area">
@@ -669,13 +675,32 @@ export function BoardView() {
           padding: 10px 14px;
           border-radius: 12px;
           border-top-right-radius: 4px;
-          background: var(--bg-accent);
-          color: var(--text-on-accent);
+          background: color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+          color: var(--text-primary);
         }
 
         .board-msg-assistant .board-msg-content {
           padding: 0;
           background: transparent;
+        }
+
+        .board-msg-thinking {
+          font-size: 14px;
+          font-style: italic;
+          color: var(--text-secondary);
+          animation: thinking-pulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes thinking-pulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 1; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .board-msg-thinking {
+            animation: none;
+            opacity: 0.6;
+          }
         }
 
         /* Input area */
