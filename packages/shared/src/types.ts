@@ -480,6 +480,7 @@ export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   flushAt: z.number().optional(),
   flushInterval: z.number().optional(),
   debug: z.boolean().optional(),
+  env: z.string().optional(),
   environment: z.string().optional(),
 });
 export type LangfuseExtensionConfig = z.infer<

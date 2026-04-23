@@ -11,6 +11,20 @@ let tracer: LangfuseTracer | undefined;
 let unsubscribeStream: (() => void) | undefined;
 let unsubscribeHistory: (() => void) | undefined;
 
+export function resolveLangfuseEnvironment(config: {
+  env?: string;
+  environment?: string;
+}): string {
+  return (
+    config.environment ??
+    config.env ??
+    process.env.LANGFUSE_ENV ??
+    process.env.LANGFUSE_TRACING_ENVIRONMENT ??
+    process.env.LANGFUSE_ENVIRONMENT ??
+    "dev"
+  );
+}
+
 const langfuseExtension: Extension = {
   id: "langfuse",
   displayName: "Langfuse",
@@ -49,7 +63,7 @@ const langfuseExtension: Extension = {
       flushAt: config.flushAt,
       flushInterval: config.flushInterval,
       debug: config.debug,
-      environment: config.environment ?? "dev",
+      environment: resolveLangfuseEnvironment(config),
     });
     tracer.start();
     unsubscribeStream = ctx.subscribe("agent.stream", (event) => {

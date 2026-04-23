@@ -43,6 +43,7 @@ describe("extension config schemas", () => {
       flushAt: 15,
       flushInterval: 10000,
       debug: false,
+      env: "test",
     });
 
     const invalid = LangfuseExtensionConfigSchema.safeParse({
@@ -51,6 +52,7 @@ describe("extension config schemas", () => {
     });
 
     expect(valid.flushAt).toBe(15);
+    expect(valid.env).toBe("test");
     expect(invalid.success).toBe(false);
   });
 
