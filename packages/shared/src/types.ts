@@ -942,6 +942,11 @@ export type FileOutputEvent = {
 // History event types (canonical transcript format)
 export type HistoryEvent =
   | {
+      type: "system_prompt";
+      text: string;
+      timestamp: number;
+    }
+  | {
       type: "user";
       text: string;
       attachments?: FileAttachment[];

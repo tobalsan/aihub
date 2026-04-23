@@ -108,6 +108,7 @@ AIHub v2 is modular. These are the built-in component IDs you can enable under `
 
 If a component key is absent, it is disabled and not loaded.
 `webhooks` is the exception: it is configured per agent and needs no top-level component key.
+Inbound Slack and Discord messages now append a normalized `[CHANNEL CONTEXT]` block to the actual agent system prompt. It includes the channel (`slack` or `discord`), place (`#channel`, `#channel / thread`, or `direct message / <peer>`), conversation type, sender, and fallback-filled channel/topic/thread/history fields. The same block is persisted in full history as a system message and forwarded to Langfuse as both trace input and generation `systemPrompt` metadata. First-party gateway/web/CLI messages do not get this block.
 
 ### Webhooks
 
@@ -786,6 +787,8 @@ Connect your agent to Discord with support for guilds, DMs, reactions, and slash
 
 **Prerequisites:** Create a Discord application at https://discord.com/developers/applications, create a bot, enable **Message Content Intent**, copy the **Bot Token** and **Application ID**, then invite the bot with Send Messages, Read Message History, and Add Reactions permissions.
 
+Inbound Discord messages inject normalized channel context into the real agent system prompt. Thread replies, for example, render `place: #projects / launch-plan`, `conversation_type: thread_reply`, and `sender: <best display name or id fallback>`.
+
 **Basic setup** (bot responds when mentioned):
 
 ```json
@@ -816,6 +819,8 @@ Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). 
 3. Install the app to your workspace and copy the **Bot Token** (`xoxb-`)
 4. Add bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `commands`, `im:history`, `im:read`, `im:write`, `reactions:read`, `reactions:write`, `users:read`
 5. Enable **Socket Mode** in the app settings
+
+Inbound Slack messages inject the same normalized channel-context block into the real agent system prompt, using Slack display names when available and id fallbacks otherwise.
 
 **Basic setup** (single-agent, all channels):
 

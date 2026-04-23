@@ -13,7 +13,9 @@ type TracedStreamEvent = Extract<
 
 type TracedHistoryEvent = Extract<
   AgentHistoryEvent,
-  { type: "tool_call" | "tool_result" | "meta" | "user" | "turn_end" }
+  | { type: "system_context" }
+  | { type: "system_prompt" }
+  | { type: "tool_call" | "tool_result" | "meta" | "user" | "turn_end" }
 >;
 
 type GenerationUpdate = Parameters<GenerationState["generation"]["update"]>[0];
@@ -132,6 +134,21 @@ export class LangfuseTracer {
     trace.lastActivity = Date.now();
 
     switch (event.type) {
+      case "system_context":
+        trace.trace.update({
+          metadata: {
+            source: event.source,
+            sessionKey: event.sessionKey,
+            surface: toSurface(event),
+            channelContext: event.context,
+            channelContextRendered: event.rendered,
+            ...event.trace?.metadata,
+          },
+        });
+        break;
+      case "system_prompt":
+        this.setSystemPrompt(trace, event.text);
+        break;
       case "user":
         this.setUserInput(trace, event.text);
         break;
@@ -229,12 +246,19 @@ export class LangfuseTracer {
   ): GenerationState {
     if (trace.currentGeneration) return trace.currentGeneration;
 
+    const metadata = trace.pendingSystemPrompt
+      ? { systemPrompt: trace.pendingSystemPrompt }
+      : undefined;
     const generation = trace.trace.generation({
       name: "llm-turn",
-      input: trace.pendingUserInput,
+      input: buildGenerationInput(
+        trace.pendingSystemPrompt,
+        trace.pendingUserInput
+      ),
       metadata: {
         source: event.source,
         sessionKey: event.sessionKey,
+        ...(metadata ?? {}),
       },
     });
     trace.currentGeneration = {
@@ -242,20 +266,41 @@ export class LangfuseTracer {
       openSpans: new Map(),
       output: [],
       thinking: [],
+      metadata,
+      systemPrompt: trace.pendingSystemPrompt,
       userInput: trace.pendingUserInput,
     };
+    trace.pendingSystemPrompt = undefined;
     trace.pendingUserInput = undefined;
     return trace.currentGeneration;
   }
 
   private setUserInput(trace: TraceState, input: string): void {
+    trace.trace.update({ input });
     if (trace.currentGeneration) {
       trace.currentGeneration.userInput = input;
+      trace.currentGeneration.generation.update({
+        input: buildGenerationInput(trace.currentGeneration.systemPrompt, input),
+      });
       return;
     }
     trace.pendingUserInput = input;
-    // Also set trace-level input
-    trace.trace.update({ input });
+  }
+
+  private setSystemPrompt(trace: TraceState, prompt: string): void {
+    if (trace.currentGeneration) {
+      trace.currentGeneration.systemPrompt = prompt;
+      trace.currentGeneration.metadata = {
+        ...(trace.currentGeneration.metadata ?? {}),
+        systemPrompt: prompt,
+      };
+      trace.currentGeneration.generation.update({
+        input: buildGenerationInput(prompt, trace.currentGeneration.userInput),
+        metadata: trace.currentGeneration.metadata,
+      });
+      return;
+    }
+    trace.pendingSystemPrompt = prompt;
   }
 
   private finalizeGeneration(trace: TraceState, errorMessage?: string): void {
@@ -266,6 +311,7 @@ export class LangfuseTracer {
 
     const thinking = generation.thinking.join("");
     const metadata: Record<string, unknown> = {
+      ...(generation.metadata ?? {}),
       thinking: thinking || undefined,
     };
     if (generation.provider) metadata.provider = generation.provider;
@@ -277,7 +323,11 @@ export class LangfuseTracer {
       level: errorMessage ? "ERROR" : "DEFAULT",
       statusMessage: errorMessage,
     };
-    if (generation.userInput !== undefined) update.input = generation.userInput;
+    const input = buildGenerationInput(
+      generation.systemPrompt,
+      generation.userInput
+    );
+    if (input !== undefined) update.input = input;
     if (generation.model) update.model = generation.model;
     const usageDetails = toUsageDetails(generation.usage);
     if (usageDetails) update.usageDetails = usageDetails;
@@ -353,6 +403,25 @@ export class LangfuseTracer {
   }
 }
 
+type LangfuseChatMessage = {
+  role: "system" | "user";
+  content: string;
+};
+
+function buildGenerationInput(
+  systemPrompt: string | undefined,
+  userInput: string | undefined
+): LangfuseChatMessage[] | undefined {
+  const messages: LangfuseChatMessage[] = [];
+  if (systemPrompt) {
+    messages.push({ role: "system", content: systemPrompt });
+  }
+  if (userInput) {
+    messages.push({ role: "user", content: userInput });
+  }
+  return messages.length > 0 ? messages : undefined;
+}
+
 function toUsageDetails(
   usage: GenerationState["usage"]
 ): Record<string, number> | undefined {
@@ -383,6 +452,8 @@ function isTracedHistoryEvent(
   event: AgentHistoryEvent
 ): event is TracedHistoryEvent {
   return (
+    event.type === "system_context" ||
+    event.type === "system_prompt" ||
     event.type === "tool_call" ||
     event.type === "tool_result" ||
     event.type === "meta" ||

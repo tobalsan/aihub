@@ -363,6 +363,15 @@ export const piAdapter: SdkAdapter = {
         agentSession.abort();
       });
 
+      const systemPrompt = agentSession.agent.state.systemPrompt;
+      if (typeof systemPrompt === "string" && systemPrompt.trim().length > 0) {
+        params.onHistoryEvent({
+          type: "system_prompt",
+          text: systemPrompt,
+          timestamp: Date.now(),
+        });
+      }
+
       if (renderedContext && params.context) {
         params.onHistoryEvent({
           type: "system_context",

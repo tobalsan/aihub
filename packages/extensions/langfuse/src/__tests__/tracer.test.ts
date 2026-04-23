@@ -378,10 +378,109 @@ describe("LangfuseTracer", () => {
     await tracer.handleStreamEvent(streamEvent({ type: "done" }));
 
     expect(langfuseMock.generations[0]?.args).toEqual(
-      expect.objectContaining({ input: "hello" })
+      expect.objectContaining({
+        input: [{ role: "user", content: "hello" }],
+      })
     );
     expect(langfuseMock.generations[0]?.update).toHaveBeenCalledWith(
-      expect.objectContaining({ input: "hello" })
+      expect.objectContaining({
+        input: [{ role: "user", content: "hello" }],
+      })
+    );
+
+    await tracer.stop();
+  });
+
+  it("stores system prompt on the trace and generation", async () => {
+    const tracer = startTracer();
+
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "system_prompt",
+        text: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+        timestamp: 1,
+      })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({
+        type: "system_context",
+        rendered: "[CHANNEL CONTEXT]\nchannel: slack",
+        context: {
+          kind: "slack",
+          blocks: [
+            {
+              type: "metadata",
+              channel: "slack",
+              place: "direct message / Thinh",
+              conversationType: "direct_message",
+              sender: "Thinh",
+            },
+          ],
+        },
+        timestamp: 1,
+      })
+    );
+    tracer.handleHistoryEvent(
+      historyEvent({ type: "user", text: "hello", timestamp: 2 })
+    );
+    await tracer.handleStreamEvent(
+      streamEvent({ type: "text", data: "answer" })
+    );
+    await tracer.handleStreamEvent(streamEvent({ type: "done" }));
+
+    expect(langfuseMock.traces[0]?.update).toHaveBeenCalledWith({
+      input: "hello",
+    });
+    expect(langfuseMock.traces[0]?.update).toHaveBeenCalledWith({
+      metadata: {
+        source: "web",
+        sessionKey: "main",
+        surface: "chat",
+        channelContext: {
+          kind: "slack",
+          blocks: [
+            {
+              type: "metadata",
+              channel: "slack",
+              place: "direct message / Thinh",
+              conversationType: "direct_message",
+              sender: "Thinh",
+            },
+          ],
+        },
+        channelContextRendered: "[CHANNEL CONTEXT]\nchannel: slack",
+      },
+    });
+    expect(langfuseMock.generations[0]?.args).toEqual(
+      expect.objectContaining({
+        input: [
+          {
+            role: "system",
+            content: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+          },
+          { role: "user", content: "hello" },
+        ],
+        metadata: {
+          source: "web",
+          sessionKey: "main",
+          systemPrompt: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+        },
+      })
+    );
+    expect(langfuseMock.generations[0]?.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: [
+          {
+            role: "system",
+            content: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+          },
+          { role: "user", content: "hello" },
+        ],
+        metadata: {
+          systemPrompt: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+          thinking: undefined,
+        },
+      })
     );
 
     await tracer.stop();

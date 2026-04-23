@@ -18,6 +18,8 @@ export type GenerationState = {
   openSpans: Map<string, SpanState>;
   output: string[];
   thinking: string[];
+  metadata?: Record<string, unknown>;
+  systemPrompt?: string;
   model?: string;
   provider?: string;
   usage?: ModelUsage;
@@ -30,6 +32,7 @@ export type TraceState = {
   trace: LangfuseTraceClient;
   currentGeneration?: GenerationState;
   pendingUserInput?: string;
+  pendingSystemPrompt?: string;
   output: string[];
   lastActivity: number;
 };

@@ -28,6 +28,11 @@ import {
 
 type HistoryEvent =
   | {
+      type: "system_prompt";
+      text: string;
+      timestamp: number;
+    }
+  | {
       type: "system_context";
       context: ContainerInput["context"];
       rendered: string;
@@ -220,6 +225,17 @@ export async function runAgent(
       settingsManager,
     });
     activeSession = session;
+
+    const systemPrompt = session.agent.state.systemPrompt;
+    if (typeof systemPrompt === "string" && systemPrompt.trim().length > 0) {
+      const systemPromptEvent: HistoryEvent = {
+        type: "system_prompt",
+        text: systemPrompt,
+        timestamp: Date.now(),
+      };
+      history.push(systemPromptEvent);
+      onStreamEvent?.(systemPromptEvent);
+    }
 
     const unsubscribe = session.subscribe((evt) => {
       const collectedEvents = collectHistoryEvent(evt, history);

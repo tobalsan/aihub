@@ -132,7 +132,12 @@ describe("pi adapter onecli env wiring", () => {
     } as GatewayConfig;
     const session = {
       messages: [{ role: "assistant", content: "done" }],
-      agent: { state: { messages: [] } },
+      agent: {
+        state: {
+          messages: [],
+          systemPrompt: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+        },
+      },
       subscribe: vi.fn(() => vi.fn()),
       prompt: vi.fn(async () => undefined),
       abort: vi.fn(),
@@ -183,7 +188,12 @@ describe("pi adapter onecli env wiring", () => {
     const config = { agents: [agent] } as GatewayConfig;
     const session = {
       messages: [{ role: "assistant", content: "done" }],
-      agent: { state: { messages: [] } },
+      agent: {
+        state: {
+          messages: [],
+          systemPrompt: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+        },
+      },
       subscribe: vi.fn(() => vi.fn()),
       prompt: vi.fn(async () => undefined),
       abort: vi.fn(),
@@ -305,5 +315,58 @@ describe("pi adapter onecli env wiring", () => {
       },
     ]);
     expect(process.env.HTTP_PROXY).toBeUndefined();
+  });
+
+  it("emits the assembled system prompt into history before the run", async () => {
+    const agent = makeAgent();
+    const config = { agents: [agent] } as GatewayConfig;
+    const session = {
+      messages: [{ role: "assistant", content: "done" }],
+      agent: {
+        state: {
+          messages: [],
+          systemPrompt: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+        },
+      },
+      subscribe: vi.fn(() => vi.fn()),
+      prompt: vi.fn(async () => undefined),
+      abort: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const onHistoryEvent = vi.fn();
+
+    setLoadedConfig(config);
+    mockCreateAgentSession.mockResolvedValue({ session });
+
+    const { piAdapter } = await import("../adapter.js");
+    await piAdapter.run({
+      ...makeRunParams(agent),
+      onHistoryEvent,
+      context: {
+        kind: "slack",
+        blocks: [
+          {
+            type: "metadata",
+            channel: "slack",
+            place: "direct message / Thinh",
+            conversationType: "direct_message",
+            sender: "Thinh",
+          },
+        ],
+      },
+    });
+
+    expect(onHistoryEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "system_prompt",
+        text: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+      })
+    );
+    expect(onHistoryEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "system_context",
+        rendered: expect.stringContaining("[CHANNEL CONTEXT]"),
+      })
+    );
   });
 });

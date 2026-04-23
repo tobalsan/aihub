@@ -87,6 +87,7 @@ function hasReadableDocumentAttachment(params: SdkRunParams): boolean {
 }
 
 const historyEventTypes = new Set<HistoryEvent["type"]>([
+  "system_prompt",
   "user",
   "assistant_text",
   "assistant_thinking",

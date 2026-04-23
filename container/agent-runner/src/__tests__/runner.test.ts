@@ -17,6 +17,11 @@ const piMock = vi.hoisted(() => {
   };
   const session = {
     messages: [] as unknown[],
+    agent: {
+      state: {
+        systemPrompt: "You are Sally.\n\n[CHANNEL CONTEXT]\nchannel: slack",
+      },
+    },
     subscribe: vi.fn((listener: (event: unknown) => void) => {
       subscribers.push(listener);
       return vi.fn();
@@ -32,7 +37,7 @@ const piMock = vi.hoisted(() => {
     setRuntimeApiKey,
     model,
     session,
-    createAgentSession: vi.fn(async () => ({ session })),
+    createAgentSession: vi.fn(async (_options: unknown) => ({ session })),
     createCodingTools: vi.fn(() => []),
     resourceReload: vi.fn(async () => undefined),
     reset() {
@@ -146,6 +151,7 @@ describe("Pi runner", () => {
       output.history?.map((event) => (event as { type: string }).type)
     ).toEqual([
       "user",
+      "system_prompt",
       "assistant_text",
       "tool_call",
       "tool_result",
@@ -155,6 +161,7 @@ describe("Pi runner", () => {
     expect(
       streamedEvents.map((event) => (event as { type: string }).type)
     ).toEqual([
+      "system_prompt",
       "assistant_text",
       "tool_call",
       "tool_result",
@@ -327,12 +334,86 @@ describe("Pi runner", () => {
 
     await fs.rm(tempDir, { recursive: true, force: true });
   });
+
+  it("appends channel context to the system prompt and emits full/system context history", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    piMock.session.prompt.mockImplementationOnce(async () => {
+      piMock.session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      });
+    });
+
+    const output = await runAgent(
+      createInput({
+        workspaceDir,
+        sessionDir,
+        context: {
+          kind: "slack",
+          blocks: [
+            {
+              type: "metadata",
+              channel: "slack",
+              place: "#projects / thread:1.1",
+              conversationType: "thread_reply",
+              sender: "alice",
+            },
+            { type: "channel_name", name: "projects" },
+          ],
+        },
+      })
+    );
+
+    const createAgentSessionArgs = piMock.createAgentSession.mock.calls[0]?.[0] as
+      | {
+          resourceLoader: {
+            options?: {
+              appendSystemPrompt?: string[];
+            };
+          };
+        }
+      | undefined;
+    expect(
+      createAgentSessionArgs?.resourceLoader.options?.appendSystemPrompt
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("[CHANNEL CONTEXT]"),
+        expect.stringContaining("channel: slack"),
+      ])
+    );
+    expect(piMock.session.prompt).toHaveBeenCalledWith(
+      expect.stringContaining("[CHANNEL CONTEXT]"),
+      undefined
+    );
+    expect(
+      output.history?.map((event) => (event as { type: string }).type)
+    ).toContain("system_prompt");
+    expect(
+      output.history?.map((event) => (event as { type: string }).type)
+    ).toContain("system_context");
+    expect(output.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "system_prompt",
+          text: expect.stringContaining("[CHANNEL CONTEXT]"),
+        }),
+      ])
+    );
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
 });
 
 function createInput(paths: {
   workspaceDir: string;
   sessionDir: string;
   connectorConfigs?: ContainerInput["connectorConfigs"];
+  context?: ContainerInput["context"];
 }): ContainerInput {
   return {
     agentId: "agent-1",
@@ -344,6 +425,7 @@ function createInput(paths: {
     gatewayUrl: "http://gateway:3000",
     agentToken: "token-1",
     connectorConfigs: paths.connectorConfigs,
+    context: paths.context,
     sdkConfig: {
       sdk: "pi",
       model: {
