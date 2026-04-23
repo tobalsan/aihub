@@ -60,7 +60,6 @@ const BENIGN_STDERR_PATTERNS = [
 ];
 
 function resolveContainerGatewayUrl(config: GatewayConfig): string {
-  if (config.server?.baseUrl) return config.server.baseUrl;
   const envPort = Number(process.env.AIHUB_GATEWAY_PORT);
   const port =
     Number.isFinite(envPort) && envPort > 0
