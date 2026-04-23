@@ -1,35 +1,36 @@
+import fs from "node:fs";
+import path from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
-import {
-  type Extension,
-  type ExtensionContext,
-  type GatewayConfig,
-} from "@aihub/shared";
+import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared";
 
 // ── Config ──────────────────────────────────────────────────────────
 
 const BoardExtensionConfigSchema = z.object({
-  /** Re-use the projects root for data storage */
+  /** Custom board workspace path (defaults to $AIHUB_HOME/extensions/board) */
   root: z.string().optional(),
   /** If true, board claims the home route (/) */
   home: z.boolean().default(true),
 });
 
-type BoardConfig = z.infer<typeof BoardExtensionConfigSchema>;
 
 let extensionContext: ExtensionContext | null = null;
+let boardRoot: string | null = null;
 
 function getContext(): ExtensionContext {
   if (!extensionContext) throw new Error("Board extension not started");
   return extensionContext;
 }
 
-function getBoardConfig(): BoardConfig & { root: string } {
-  const config = getContext().getConfig();
-  const raw = config.extensions?.board ?? {};
-  const parsed = BoardExtensionConfigSchema.parse(raw);
-  const root = parsed.root ?? "~/projects";
-  return { ...parsed, root };
+function getBoardRoot(): string {
+  if (!boardRoot) throw new Error("Board root not initialized");
+  return boardRoot;
+}
+
+function resolveBoardRoot(ctx: ExtensionContext, rawConfig: unknown): string {
+  const parsed = BoardExtensionConfigSchema.pick({ root: true }).parse(rawConfig);
+  if (parsed.root) return expandPath(parsed.root);
+  return path.join(ctx.getDataDir(), "extensions", "board");
 }
 
 // ── Simplified project statuses ─────────────────────────────────────
@@ -49,10 +50,13 @@ function registerBoardRoutes(app: Hono): void {
 
   // Health / info
   app.get("/board/info", (c) => {
-    const config = getBoardConfig();
+    const config = getContext().getConfig();
+    const raw = config.extensions?.board ?? {};
+    const parsed = BoardExtensionConfigSchema.parse(raw);
     return c.json({
       id: "board",
-      home: config.home,
+      home: parsed.home,
+      root: getBoardRoot(),
       statuses: BOARD_STATUSES,
     });
   });
@@ -129,10 +133,17 @@ const boardExtension: Extension = {
   },
   async start(ctx) {
     extensionContext = ctx;
-    console.log("[board] extension started");
+
+    const config = ctx.getConfig();
+    const raw = config.extensions?.board ?? {};
+    boardRoot = resolveBoardRoot(ctx, raw);
+
+    fs.mkdirSync(boardRoot, { recursive: true });
+    console.log(`[board] extension started (root: ${boardRoot})`);
   },
   async stop() {
     extensionContext = null;
+    boardRoot = null;
     console.log("[board] extension stopped");
   },
   capabilities() {
