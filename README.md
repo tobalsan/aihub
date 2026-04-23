@@ -1031,8 +1031,9 @@ Add custom providers via `$AIHUB_HOME/models.json` (default: `~/.aihub/models.js
 {
   "providers": {
     "my-provider": {
-      "models": [{ "id": "my-model", "displayName": "My Model" }],
-      "baseUrl": "https://api.example.com/v1"
+      "baseUrl": "https://api.example.com/v1",
+      "apiKey": "PROVIDER_API_KEY", // supports direct env var resolution,
+      "models": [{ "id": "my-model", "displayName": "My Model" }]
     }
   }
 }
