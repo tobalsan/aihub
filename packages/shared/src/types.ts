@@ -501,6 +501,13 @@ export const ExtensionsConfigSchema = z
     projects: ProjectsExtensionConfigSchema.optional(),
     langfuse: LangfuseExtensionConfigSchema.optional(),
     multiUser: MultiUserConfigSchema.optional(),
+    board: z
+      .object({
+        enabled: z.boolean().optional(),
+        root: z.string().optional(),
+        home: z.boolean().optional(),
+      })
+      .optional(),
   })
   .optional();
 export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
@@ -735,6 +742,7 @@ export const CapabilitiesResponseSchema = z.object({
   extensions: z.record(z.string(), z.boolean()),
   agents: z.array(z.string()),
   multiUser: z.boolean(),
+  home: z.string().optional(),
   user: CapabilitiesUserSchema.optional(),
 });
 export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;

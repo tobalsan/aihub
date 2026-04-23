@@ -38,6 +38,11 @@ const LazyAreasOverview = lazy(() =>
     default: mod.AreasOverview,
   }))
 );
+const LazyBoardView = lazy(() =>
+  import("./components/BoardView").then((mod) => ({
+    default: mod.BoardView,
+  }))
+);
 const LazyProjectsBoard = lazy(() =>
   import("./components/ProjectsBoard").then((mod) => ({
     default: mod.ProjectsBoard,
@@ -354,6 +359,31 @@ function ProjectsRouteShell() {
   );
 }
 
+function BoardRouteShell() {
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazyBoardView />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
+
+// Home route registry: maps extension IDs to lazy-loaded components.
+// Extensions register here — no gateway or App code needs to know about them.
+const HOME_REGISTRY: Record<string, () => JSX.Element> = {
+  board: () => <BoardRouteShell />,
+  projects: () => <AreasOverviewRouteShell />,
+};
+
+function HomeRoute() {
+  const home = () => capabilities.home;
+  const fallback = () => <AgentsRouteShell />;
+  if (home() && HOME_REGISTRY[home()]) return HOME_REGISTRY[home()!]();
+  if (isExtensionEnabled("projects")) return <AreasOverviewRouteShell />;
+  return fallback();
+}
+
 function AreasOverviewRouteShell() {
   if (!isExtensionEnabled("projects")) {
     return <AgentsRouteShell />;
@@ -520,7 +550,7 @@ export default function App() {
         path="/"
         component={() => (
           <GuardedRoute>
-            <AreasOverviewRouteShell />
+            <HomeRoute />
           </GuardedRoute>
         )}
       />

@@ -16,3 +16,4 @@ apps/web/vite.config.d.ts.map
 jobs/
 __pycache__/
 worker-types
+.aihub/

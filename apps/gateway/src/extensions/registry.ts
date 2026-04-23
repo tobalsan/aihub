@@ -101,12 +101,22 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     getConfig: (config) => config.extensions?.multiUser,
     routePrefixes: ["/api/auth", "/api/me", "/api/admin"],
   },
+  board: {
+    load: () =>
+      import("@aihub/extension-board").then(
+        (module) => module.boardExtension
+      ),
+    getConfig: (config) => config.extensions?.board,
+    routePrefixes: ["/api/board"],
+  },
 };
 
 const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
 
 let loadedExtensions: Extension[] = [];
 let loadedExtensionIds = new Set<string>();
+let homeExtensionId: string | undefined;
+let extensionConfigs = new Map<string, Record<string, unknown>>();
 
 export function getKnownExtensionRouteMetadata(): Array<{
   id: string;
@@ -159,6 +169,7 @@ export async function loadExtensions(
   config: GatewayConfig
 ): Promise<Extension[]> {
   const extensions: Extension[] = [];
+  const rawConfigs = new Map<string, Record<string, unknown>>();
 
   const registrations = Object.entries(EXTENSION_REGISTRY).sort(
     ([leftId], [rightId]) =>
@@ -168,7 +179,7 @@ export async function loadExtensions(
 
   for (const [id, registration] of registrations) {
     const extensionConfig = registration.getConfig(config) as
-      | { enabled?: boolean }
+      | Record<string, unknown>
       | undefined;
 
     // Skip if explicitly disabled
@@ -188,6 +199,7 @@ export async function loadExtensions(
       );
     }
     extensions.push(extension);
+    rawConfigs.set(id, configToValidate);
   }
 
   // Discover external extensions
@@ -212,12 +224,35 @@ export async function loadExtensions(
       );
     }
     extensions.push(extension);
+    rawConfigs.set(id, extensionConfig as Record<string, unknown>);
   }
 
   loadedExtensions = topoSort(extensions);
   loadedExtensionIds = new Set(
     loadedExtensions.map((extension) => extension.id)
   );
+  extensionConfigs = rawConfigs;
+
+  // Resolve home route ownership
+  // Parse each extension's raw config through its own configSchema to resolve defaults
+  const homeClaimants = loadedExtensions.filter((extension) => {
+    const raw = rawConfigs.get(extension.id);
+    if (!raw) return false;
+    try {
+      const parsed = extension.configSchema.parse(raw) as Record<string, unknown>;
+      return parsed.home === true;
+    } catch {
+      return false;
+    }
+  });
+  if (homeClaimants.length > 1) {
+    const names = homeClaimants.map((e) => `"${e.id}"`).join(", ");
+    throw new Error(
+      `Multiple extensions claim home route: ${names}. Only one extension can have home: true.`
+    );
+  }
+  homeExtensionId = homeClaimants[0]?.id;
+
   return loadedExtensions;
 }
 
@@ -231,4 +266,8 @@ export function isMultiUserLoaded(): boolean {
 
 export function isExtensionLoaded(extensionId: string): boolean {
   return loadedExtensionIds.has(extensionId);
+}
+
+export function getHomeExtension(): string | undefined {
+  return homeExtensionId;
 }

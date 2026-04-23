@@ -13,6 +13,7 @@ import {
 import {
   getLoadedExtensions,
   isExtensionLoaded,
+  getHomeExtension,
 } from "../extensions/registry.js";
 import {
   runAgent,
@@ -113,6 +114,7 @@ api.get("/capabilities", async (c) => {
     extensions,
     agents: agents.map((agent) => agent.id),
     multiUser: isMultiUserEnabled,
+    home: getHomeExtension(),
     ...(isMultiUserEnabled && authContext
       ? {
           user: {
