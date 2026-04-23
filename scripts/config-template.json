@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "agents": [
+    {
+      "id": "devagent",
+      "name": "DevAgent",
+      "description": "Test Agent for development",
+      "avatar": "🤖",
+      "workspace": ".aihub/devagent",
+      "sdk": "pi",
+      "model": {
+        "provider": "zai",
+        "model": "glm-5.1"
+      },
+      "queueMode": "queue"
+    }
+  ],
+  "subagents": [
+    {
+      "name": "Worker",
+      "description": "Implements code in isolated workspace",
+      "harness": "codex",
+      "model": "gpt-5.3-codex",
+      "reasoning": "medium",
+      "type": "worker",
+      "runMode": "worktree"
+    }
+  ],
+  "extensions": {},
+  "gateway": {
+    "bind": "loopback",
+    "port": __GATEWAY_PORT__
+  },
+  "sessions": {
+    "idleMinutes": 360
+  },
+  "ui": {
+    "bind": "loopback",
+    "port": __UI_PORT__
+  },
+  "apiUrl": "http://127.0.0.1:__GATEWAY_PORT__/aihub"
+}

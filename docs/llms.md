@@ -171,6 +171,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled
 - (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
+- Repo-local dev helper: `pnpm init-dev-config` writes `./.aihub/aihub.json` from `scripts/config-template.json` using the first free UI port in `3001-3100` and the first free gateway port in `4001-4100`
 
 ## Config Schema
 

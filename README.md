@@ -88,6 +88,8 @@ cat > "$AIHUB_HOME/aihub.json" << 'EOF'
 EOF
 ```
 
+For repo-local dev, `pnpm init-dev-config` writes `./.aihub/aihub.json` from `scripts/config-template.json`, picking the first free UI port in `3001-3100` and the first free gateway port in `4001-4100`.
+
 ### Built-in components
 
 AIHub v2 is modular. These are the built-in component IDs you can enable under `components`:
