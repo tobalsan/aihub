@@ -9,13 +9,15 @@ import {
 } from "solid-js";
 import {
   fetchAgents,
-  fetchSimpleHistory,
+  fetchFullHistory,
   getSessionKey,
   postAbort,
   streamMessage,
   subscribeToSession,
 } from "../api/client";
-import type { Agent, SimpleHistoryMessage } from "../api/types";
+import type { Agent, FullHistoryMessage } from "../api/types";
+import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
+import type { BoardLogItem } from "./BoardChatRenderer";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -30,11 +32,6 @@ interface CanvasState {
   panel: CanvasPanel;
   props?: Record<string, unknown>;
 }
-
-type BoardMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
 
 // ── API helpers ─────────────────────────────────────────────────────
 
@@ -65,7 +62,8 @@ export function BoardView() {
   const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(null);
   const [canvas, setCanvas] = createSignal<CanvasState>({ panel: "overview" });
   const [chatInput, setChatInput] = createSignal("");
-  const [messages, setMessages] = createSignal<BoardMessage[]>([]);
+  const [logItems, setLogItems] = createSignal<BoardLogItem[]>([]);
+  const [liveText, setLiveText] = createSignal("");
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [waitingForFirstText, setWaitingForFirstText] = createSignal(false);
   const [stickToBottom, setStickToBottom] = createSignal(true);
@@ -81,6 +79,14 @@ export function BoardView() {
   const selectedAgent = createMemo(() =>
     agents().find((a) => a.id === selectedAgentId())
   );
+  const displayedLogItems = createMemo<BoardLogItem[]>(() => {
+    const items = logItems().slice();
+    const text = liveText();
+    if (text) {
+      items.push({ type: "text", role: "assistant", content: text });
+    }
+    return items;
+  });
 
   function cleanupStream() {
     stopStream?.();
@@ -113,57 +119,75 @@ export function BoardView() {
     });
   }
 
-  function toBoardMessages(history: SimpleHistoryMessage[]): BoardMessage[] {
-    return history.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+  function appendUserLog(text: string) {
+    setLogItems((prev) => [...prev, { type: "text", role: "user", content: text }]);
   }
 
-  function getQueuedDraftMessages(activeUserText?: string | null): BoardMessage[] {
-    const pending = queuedMessages().slice();
-    if (activeUserText && pending[0] === activeUserText) {
-      pending.shift();
-    }
-    return pending.map((content) => ({ role: "user", content }));
-  }
-
-  function appendAssistantText(text: string) {
+  function appendAssistantLog(text: string) {
     if (!text) return;
-    setMessages((prev) => {
-      const next = prev.slice();
-      const last = next[next.length - 1];
-      if (last?.role === "assistant") {
-        next[next.length - 1] = {
-          ...last,
-          content: `${last.content}${text}`,
-        };
-        return next;
+    setLogItems((prev) => [
+      ...prev,
+      { type: "text", role: "assistant", content: text },
+    ]);
+  }
+
+  function toolIcon(name: string): "read" | "write" | "bash" | "tool" {
+    const key = name.toLowerCase();
+    if (key === "read") return "read";
+    if (key === "bash" || key === "exec_command") return "bash";
+    if (key === "write" || key === "apply_patch") return "write";
+    return "tool";
+  }
+
+  function summarizeToolTitle(name: string, args: unknown): string {
+    const a = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+    const key = name.toLowerCase();
+    if (key === "read") return `Read ${String(a.path ?? a.file_path ?? "file")}`;
+    if (key === "bash" || key === "exec_command") {
+      return `Bash ${String(a.cmd ?? a.command ?? "")}`.trim();
+    }
+    if (key === "write" || key === "apply_patch") {
+      return `Edit ${String(a.path ?? a.file_path ?? "file")}`;
+    }
+    return name;
+  }
+
+  function appendToolLog(name: string, args: unknown) {
+    setLogItems((prev) => [
+      ...prev,
+      {
+        type: "tool",
+        toolName: name,
+        title: summarizeToolTitle(name, args),
+        body: "",
+        icon: toolIcon(name),
+        expanded: false,
+      },
+    ]);
+  }
+
+  function updateToolLog(name: string, content: string) {
+    setLogItems((prev) => {
+      for (let i = prev.length - 1; i >= 0; i -= 1) {
+        const item = prev[i];
+        if (item.type === "tool" && item.toolName === name && !item.body) {
+          return [
+            ...prev.slice(0, i),
+            { ...item, body: content },
+            ...prev.slice(i + 1),
+          ];
+        }
       }
-      next.push({ role: "assistant", content: text });
-      return next;
+      return prev;
     });
   }
 
-  function setAssistantMessage(content: string) {
-    setMessages((prev) => {
-      const next = prev.slice();
-      const last = next[next.length - 1];
-      if (last?.role === "assistant") {
-        next[next.length - 1] = { ...last, content };
-        return next;
-      }
-      next.push({ role: "assistant", content });
-      return next;
-    });
+  function clearLiveText() {
+    setLiveText("");
   }
 
-  function removeEmptyTrailingAssistant() {
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (last?.role !== "assistant" || last.content.trim()) return prev;
-      return prev.slice(0, -1);
-    });
+  function buildHistoryLogItems(messages: FullHistoryMessage[]): BoardLogItem[] {
+    return buildBoardLogs(messages);
   }
 
   function attachSessionSubscription(agentId: string, sessionKey: string) {
@@ -172,10 +196,17 @@ export function BoardView() {
       onText(text) {
         if (!text) return;
         setWaitingForFirstText(false);
-        appendAssistantText(text);
+        setLiveText((prev) => prev + text);
+      },
+      onToolCall(_id, name, args) {
+        appendToolLog(name, args);
+      },
+      onToolResult(_id, name, content) {
+        updateToolLog(name, content);
       },
       onDone() {
         cleanupSubscription();
+        clearLiveText();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         void loadHistory(agentId);
@@ -183,9 +214,10 @@ export function BoardView() {
       },
       onError(error) {
         cleanupSubscription();
+        clearLiveText();
         setWaitingForFirstText(false);
         setIsStreaming(false);
-        setAssistantMessage(error);
+        appendAssistantLog(error);
         processNextQueuedMessage(agentId);
       },
     });
@@ -196,44 +228,29 @@ export function BoardView() {
     const sessionKey = getSessionKey(agentId);
 
     try {
-      const history = await fetchSimpleHistory(agentId, sessionKey);
+      const history = await fetchFullHistory(agentId, sessionKey);
       if (version !== historyLoadVersion || selectedAgentId() !== agentId) return;
 
-      const nextMessages = toBoardMessages(history.messages);
-      if (history.isStreaming && history.activeTurn) {
-        const { userText, text } = history.activeTurn;
-        const last = nextMessages[nextMessages.length - 1];
-        if (
-          userText &&
-          (last?.role !== "user" || last.content !== userText)
-        ) {
-          nextMessages.push({ role: "user", content: userText });
-        }
-        nextMessages.push({ role: "assistant", content: text });
-      }
+      const historyMessages: FullHistoryMessage[] = history.messages;
+      const items = buildHistoryLogItems(historyMessages);
 
-      setMessages([
-        ...nextMessages,
-        ...getQueuedDraftMessages(history.activeTurn?.userText ?? null),
-      ]);
-      setIsStreaming(Boolean(history.isStreaming && history.activeTurn));
-      setWaitingForFirstText(
-        Boolean(
-          history.isStreaming &&
-            history.activeTurn &&
-            !history.activeTurn.text.trim()
-        )
-      );
-
-      cleanupSubscription();
       if (history.isStreaming && history.activeTurn && !stopStream) {
+        cleanupSubscription();
         attachSessionSubscription(agentId, sessionKey);
       }
+
+      setLogItems(items);
+      setLiveText(history.isStreaming ? history.activeTurn?.text ?? "" : "");
+      setIsStreaming(Boolean(history.isStreaming));
+      setWaitingForFirstText(
+        Boolean(history.isStreaming && !history.activeTurn?.text?.trim())
+      );
       scrollToBottom(true);
     } catch (err) {
       if (version !== historyLoadVersion || selectedAgentId() !== agentId) return;
       console.error("[BoardView] failed to load history:", err);
-      setMessages(getQueuedDraftMessages());
+      setLogItems([]);
+      clearLiveText();
       setIsStreaming(false);
       setWaitingForFirstText(false);
     }
@@ -276,7 +293,8 @@ export function BoardView() {
   // ── Chat ──────────────────────────────────────────────────────────
 
   createEffect(() => {
-    messages();
+    displayedLogItems();
+    queuedMessages();
     waitingForFirstText();
     scrollToBottom();
   });
@@ -285,7 +303,8 @@ export function BoardView() {
     const agentId = selectedAgentId();
     cleanupLiveConnections();
     historyLoadVersion += 1;
-    setMessages([]);
+    setLogItems([]);
+    clearLiveText();
     setIsStreaming(false);
     setWaitingForFirstText(false);
     setStickToBottom(true);
@@ -304,54 +323,48 @@ export function BoardView() {
     setIsStreaming(true);
     setWaitingForFirstText(true);
     setStickToBottom(true);
+    clearLiveText();
     scrollToBottom(true);
-    if (mode === "normal") {
-      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
-    }
 
     const sessionKey = getSessionKey(agentId);
-    let queuedAssistantText = "";
     stopStream = streamMessage(
       agentId,
       text,
       sessionKey,
       (chunk) => {
-        if (mode === "queued") {
-          queuedAssistantText += chunk;
-          return;
-        }
+        if (!chunk) return;
         setWaitingForFirstText(false);
-        appendAssistantText(chunk);
+        setLiveText((prev) => prev + chunk);
       },
       () => {
         cleanupStream();
+        clearLiveText();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         if (mode === "queued") {
           activeQueuedMessage = null;
-          setQueuedMessages((prev) => (prev.length > 0 ? prev.slice(1) : prev));
-          if (queuedAssistantText) {
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: queuedAssistantText },
-            ]);
-          }
         }
         void loadHistory(agentId);
         processNextQueuedMessage(agentId);
       },
       (error) => {
         cleanupStream();
+        clearLiveText();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         if (mode === "queued") {
           activeQueuedMessage = null;
-          setQueuedMessages((prev) => (prev.length > 0 ? prev.slice(1) : prev));
-          setMessages((prev) => [...prev, { role: "assistant", content: error }]);
-        } else {
-          setAssistantMessage(error);
         }
+        appendAssistantLog(error);
         processNextQueuedMessage(agentId);
+      },
+      {
+        onToolCall(_id, name, args) {
+          appendToolLog(name, args);
+        },
+        onToolResult(_id, name, content) {
+          updateToolLog(name, content);
+        },
       }
     );
   }
@@ -363,6 +376,8 @@ export function BoardView() {
     const nextText = queuedMessages()[0];
     if (!nextText) return;
     activeQueuedMessage = nextText;
+    setQueuedMessages((prev) => prev.slice(1));
+    appendUserLog(nextText);
     sendStreamMessage(agentId, nextText, "queued");
   }
 
@@ -370,23 +385,13 @@ export function BoardView() {
     if (!queuedMessages().length || selectedAgentId() !== agentId) return;
     const sessionKey = getSessionKey(agentId);
     try {
-      const history = await fetchSimpleHistory(agentId, sessionKey);
+      const history = await fetchFullHistory(agentId, sessionKey);
       if (selectedAgentId() !== agentId) return;
       if (!history.isStreaming) {
         processNextQueuedMessage(agentId);
         return;
       }
-      cleanupSubscription();
-      stopSubscription = subscribeToSession(agentId, sessionKey, {
-        onDone() {
-          cleanupSubscription();
-          processNextQueuedMessage(agentId);
-        },
-        onError() {
-          cleanupSubscription();
-          processNextQueuedMessage(agentId);
-        },
-      });
+      attachSessionSubscription(agentId, sessionKey);
     } catch (err) {
       console.error("[BoardView] failed to resume queued messages:", err);
     }
@@ -401,14 +406,13 @@ export function BoardView() {
     resetInputHeight();
 
     if (isStreaming()) {
-      setMessages((prev) => [...prev, { role: "user", content: text }]);
       setQueuedMessages((prev) => [...prev, text]);
       setStickToBottom(true);
       scrollToBottom(true);
       return;
     }
 
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    appendUserLog(text);
     sendStreamMessage(agentId, text, "normal");
   }
 
@@ -422,13 +426,14 @@ export function BoardView() {
       console.error("[BoardView] failed to abort stream:", err);
     } finally {
       cleanupLiveConnections();
+      const partialText = liveText();
+      if (partialText) {
+        appendAssistantLog(partialText);
+      }
+      clearLiveText();
       setIsStreaming(false);
       setWaitingForFirstText(false);
-      if (activeQueuedMessage) {
-        activeQueuedMessage = null;
-        setQueuedMessages((prev) => (prev.length > 0 ? prev.slice(1) : prev));
-      }
-      removeEmptyTrailingAssistant();
+      activeQueuedMessage = null;
       void resumeQueuedMessagesAfterAbort(agentId);
     }
   }
@@ -480,7 +485,7 @@ export function BoardView() {
           ref={messagesEl}
           onScroll={(e) => setStickToBottom(isNearBottom(e.currentTarget))}
         >
-          <Show when={messages().length === 0 && !isStreaming()}>
+          <Show when={logItems().length === 0 && !isStreaming()}>
             <div class="board-chat-empty">
               <div class="board-chat-empty-icon">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -491,34 +496,20 @@ export function BoardView() {
               <p class="board-chat-empty-sub">Send a message to start.</p>
             </div>
           </Show>
-          <For each={messages()}>
-            {(msg, index) => {
-              const content = () => msg.content;
-              const shouldHideThinkingPlaceholder = () =>
-                msg.role === "assistant" &&
-                !content() &&
-                index() === messages().length - 1 &&
-                isStreaming() &&
-                waitingForFirstText();
-
-              return (
-                <Show when={!shouldHideThinkingPlaceholder()}>
-                  <div class={`board-msg board-msg-${msg.role}`}>
-                    <div class="board-msg-role">
-                      <Show when={msg.role === "assistant"} fallback={
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                      }>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-                      </Show>
-                      <span>{msg.role === "user" ? "You" : selectedAgent()?.name ?? "Agent"}</span>
-                    </div>
-                    <Show when={content()}>
-                      <div class="board-msg-content">{content()}</div>
-                    </Show>
-                  </div>
-                </Show>
-              );
-            }}
+          <BoardChatLog
+            items={displayedLogItems()}
+            agentName={selectedAgent()?.name ?? "Agent"}
+          />
+          <For each={queuedMessages()}>
+            {(message) => (
+              <div class="board-msg board-msg-user">
+                <div class="board-msg-role">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <span>You (queued)</span>
+                </div>
+                <div class="board-msg-content">{message}</div>
+              </div>
+            )}
           </For>
           <Show when={isStreaming() && waitingForFirstText()}>
             <div class="board-msg board-msg-assistant">

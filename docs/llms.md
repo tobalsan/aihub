@@ -55,7 +55,7 @@ Features:
 - Live tool indicators during streaming
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
-- `BoardView` chat now uses the real lead-agent session APIs: loads simple history per selected agent/session key, streams assistant text over `/ws`, keeps the textarea editable while a run is active, shows separate Send/Stop controls, and queues follow-up user messages client-side until the active run finishes
+- `BoardView` chat now uses full lead-agent history per selected agent/session key, renders through `BoardChatRenderer`, streams assistant text plus live tool calls/results over `/ws`, keeps the textarea editable while a run is active, shows separate Send/Stop controls, and keeps queued follow-up user messages separate until the active run picks them up
 - `apps/web/src/components/BoardChatRenderer.tsx` now exists as a standalone full-history board log renderer: it exports `BoardLogItem`, `buildBoardLogs()`, and `BoardChatLog` for rendering structured assistant/user text, thinking blocks, tool calls, and inline diffs from `FullHistoryMessage[]`
 - Project `AgentChat` virtualizes only larger persisted history/log lists (`>=80` rows) with `@tanstack/solid-virtual`, remeasures visible rows on pane resize, and keeps the bottom row anchored while the live streaming row stays outside the virtualized region
 - ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; interrupted runs also keep any streamed assistant text that arrived before `/abort`/Stop, and full-mode chat renders transport/run errors inline
