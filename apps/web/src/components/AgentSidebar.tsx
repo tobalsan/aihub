@@ -37,103 +37,116 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
-      <div class="sidebar-header">
-        <A class="sidebar-logo" href="/">
-          <span class="logo-full">AIHub</span>
-          <span class="logo-short">AI</span>
-        </A>
-        <Show when={import.meta.env.VITE_AIHUB_DEV === "true"}>
-          <span class="dev-badge">DEV</span>
-        </Show>
-        <button
-          class="collapse-btn"
-          type="button"
-          onClick={props.onToggleCollapse}
-        >
-          «
-        </button>
-      </div>
-      <div class="sidebar-content">
-        <nav class="sidebar-nav" aria-label="Primary">
-          <Show when={isExtensionEnabled("projects")}>
-            <A
-              href="/projects"
-              class="nav-link"
-              classList={{
-                active: stripBase(location.pathname).startsWith("/projects"),
-              }}
-            >
-              <span class="nav-full">Projects</span>
-              <span class="nav-short">Pr</span>
-            </A>
-          </Show>
-          <A
-            href="/agents"
-            class="nav-link"
-            classList={{
-              active:
-                stripBase(location.pathname).startsWith("/agents") ||
-                stripBase(location.pathname).startsWith("/chat"),
-            }}
-          >
-            <span class="nav-full">Agents</span>
-            <span class="nav-short">Ag</span>
+      <div class="agent-sidebar-shell">
+        <div class="sidebar-header">
+          <A class="sidebar-logo" href="/">
+            <span class="logo-full">AIHub</span>
+            <span class="logo-short">AI</span>
           </A>
-          <Show
-            when={
-              capabilities.multiUser && hasAdminRole(capabilities.user?.role)
-            }
+          <Show when={import.meta.env.VITE_AIHUB_DEV === "true"}>
+            <span class="dev-badge">DEV</span>
+          </Show>
+          <button
+            class="collapse-btn"
+            type="button"
+            onClick={props.onToggleCollapse}
           >
+            «
+          </button>
+        </div>
+        <div class="sidebar-content">
+          <nav class="sidebar-nav" aria-label="Primary">
+            <Show when={isExtensionEnabled("projects")}>
+              <A
+                href="/projects"
+                class="nav-link"
+                classList={{
+                  active: stripBase(location.pathname).startsWith("/projects"),
+                }}
+              >
+                <span class="nav-full">Projects</span>
+                <span class="nav-short">Pr</span>
+              </A>
+            </Show>
             <A
-              href="/admin/users"
+              href="/agents"
               class="nav-link"
               classList={{
-                active: stripBase(location.pathname).startsWith("/admin/"),
+                active:
+                  stripBase(location.pathname).startsWith("/agents") ||
+                  stripBase(location.pathname).startsWith("/chat"),
               }}
             >
-              <span class="nav-full">Admin</span>
-              <span class="nav-short">Ad</span>
+              <span class="nav-full">Agents</span>
+              <span class="nav-short">Ag</span>
             </A>
+            <Show
+              when={
+                capabilities.multiUser && hasAdminRole(capabilities.user?.role)
+              }
+            >
+              <A
+                href="/admin/users"
+                class="nav-link"
+                classList={{
+                  active: stripBase(location.pathname).startsWith("/admin/"),
+                }}
+              >
+                <span class="nav-full">Admin</span>
+                <span class="nav-short">Ad</span>
+              </A>
+            </Show>
+          </nav>
+        </div>
+        <div class="sidebar-footer">
+          <Show when={capabilities.multiUser}>
+            <Suspense>
+              <LazySidebarAccountPanel collapsed={props.collapsed} />
+            </Suspense>
           </Show>
-        </nav>
-      </div>
-      <div class="sidebar-footer">
-        <Show when={capabilities.multiUser}>
-          <Suspense>
-            <LazySidebarAccountPanel collapsed={props.collapsed} />
-          </Suspense>
-        </Show>
-        <button
-          class="theme-toggle"
-          type="button"
-          onClick={toggleTheme}
-          aria-label={`Switch to ${theme() === "dark" ? "light" : "dark"} mode`}
-        >
-          <Show
-            when={theme() === "dark"}
-            fallback={
-              <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-              </svg>
-            }
+          <button
+            class="theme-toggle"
+            type="button"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme() === "dark" ? "light" : "dark"} mode`}
           >
-            <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fill-rule="evenodd"
-                d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
-                clip-rule="evenodd"
-              />
-            </svg>
-          </Show>
-          <span class="theme-label">
-            {theme() === "dark" ? "Light" : "Dark"}
-          </span>
-        </button>
+            <Show
+              when={theme() === "dark"}
+              fallback={
+                <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                </svg>
+              }
+            >
+              <svg class="theme-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path
+                  fill-rule="evenodd"
+                  d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </Show>
+            <span class="theme-label">
+              {theme() === "dark" ? "Light" : "Dark"}
+            </span>
+          </button>
+        </div>
       </div>
 
       <style>{`
         .agent-sidebar {
+          position: relative;
+          z-index: 40;
           width: 250px;
+          min-width: 250px;
+          flex-shrink: 0;
+          overflow: visible;
+        }
+
+        .agent-sidebar-shell {
+          position: relative;
+          width: 100%;
+          height: 100%;
           background: var(--bg-surface);
           border-right: 1px solid var(--border-default);
           display: flex;
@@ -144,10 +157,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
         .agent-sidebar.collapsed {
           width: 50px;
+          min-width: 50px;
         }
 
-        .agent-sidebar.collapsed:hover {
+        .agent-sidebar.collapsed .agent-sidebar-shell {
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 50px;
+        }
+
+        .agent-sidebar.collapsed:hover .agent-sidebar-shell {
           width: 250px;
+          box-shadow: 12px 0 24px var(--shadow-md);
         }
 
         .sidebar-header {
@@ -332,22 +353,32 @@ export function AgentSidebar(props: AgentSidebarProps) {
             position: fixed;
             top: 0;
             left: 0;
+            width: 250px;
+            min-width: 250px;
             height: 100%;
             height: 100dvh;
             z-index: 850;
-            box-shadow: 12px 0 24px var(--shadow-md);
             transform: translateX(0);
-            transition: transform 0.2s ease, width 0.2s ease, box-shadow 0.2s ease;
+            transition: transform 0.2s ease;
+          }
+
+          .agent-sidebar-shell {
+            width: 100%;
+            box-shadow: 12px 0 24px var(--shadow-md);
           }
 
           .agent-sidebar.collapsed {
+            width: 250px;
+            min-width: 250px;
             transform: translateX(-100%);
-            box-shadow: none;
           }
 
-          .agent-sidebar.collapsed:hover {
-            transform: translateX(-100%);
-            width: 50px;
+          .agent-sidebar.collapsed .agent-sidebar-shell,
+          .agent-sidebar.collapsed:hover .agent-sidebar-shell {
+            position: relative;
+            inset: auto;
+            width: 100%;
+            box-shadow: none;
           }
         }
       `}</style>

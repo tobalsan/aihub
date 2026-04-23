@@ -241,146 +241,165 @@ export function ContextPanel(props: ContextPanelProps) {
 
   return (
     <aside class="context-panel" classList={{ collapsed: props.collapsed() }}>
-      <div class="panel-header">
-        <button
-          class="collapse-btn"
-          type="button"
-          onClick={props.onToggleCollapse}
-        >
-          »
-        </button>
-        <div class="panel-tabs">
+      <div class="context-panel-shell">
+        <div class="panel-header">
+          <button
+            class="collapse-btn"
+            type="button"
+            onClick={props.onToggleCollapse}
+          >
+            »
+          </button>
+          <div class="panel-tabs">
+            <button
+              type="button"
+              classList={{ active: mode() === "agents" }}
+              onClick={() => setMode("agents")}
+            >
+              Agents
+            </button>
+            <button
+              type="button"
+              classList={{ active: mode() === "chat" }}
+              onClick={() => setMode("chat")}
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              classList={{ active: mode() === "feed" }}
+              onClick={() => setMode("feed")}
+            >
+              Feed
+            </button>
+          </div>
+        </div>
+
+        <div class="collapsed-icons">
           <button
             type="button"
             classList={{ active: mode() === "agents" }}
-            onClick={() => setMode("agents")}
+            onClick={() => expandAndShow("agents")}
+            title="Agents"
           >
-            Agents
+            🤖
           </button>
           <button
             type="button"
             classList={{ active: mode() === "chat" }}
-            onClick={() => setMode("chat")}
+            onClick={() => expandAndShow("chat")}
+            title="Chat"
           >
-            Chat
+            💬
           </button>
           <button
             type="button"
             classList={{ active: mode() === "feed" }}
-            onClick={() => setMode("feed")}
+            onClick={() => expandAndShow("feed")}
+            title="Activity Feed"
           >
-            Feed
+            📋
           </button>
         </div>
-      </div>
 
-      <div class="collapsed-icons">
-        <button
-          type="button"
-          classList={{ active: mode() === "agents" }}
-          onClick={() => expandAndShow("agents")}
-          title="Agents"
-        >
-          🤖
-        </button>
-        <button
-          type="button"
-          classList={{ active: mode() === "chat" }}
-          onClick={() => expandAndShow("chat")}
-          title="Chat"
-        >
-          💬
-        </button>
-        <button
-          type="button"
-          classList={{ active: mode() === "feed" }}
-          onClick={() => expandAndShow("feed")}
-          title="Activity Feed"
-        >
-          📋
-        </button>
-      </div>
-
-      <div class="panel-content">
-        <div
-          class="panel-view"
-          classList={{ hidden: mode() !== "agents" }}
-          aria-hidden={mode() !== "agents"}
-        >
-          <AgentDirectory
-            selectedAgent={props.selectedAgent}
-            onSelectAgent={props.onSelectAgent}
-            onOpenProject={props.onOpenProject}
-          />
+        <div class="panel-content">
+          <div
+            class="panel-view"
+            classList={{ hidden: mode() !== "agents" }}
+            aria-hidden={mode() !== "agents"}
+          >
+            <AgentDirectory
+              selectedAgent={props.selectedAgent}
+              onSelectAgent={props.onSelectAgent}
+              onOpenProject={props.onOpenProject}
+            />
+          </div>
+          <Show when={mode() === "feed"}>
+            <ActivityFeed
+              onSelectAgent={props.onSelectAgent}
+              onOpenProject={props.onOpenProject}
+            />
+          </Show>
+          <Show when={mode() === "chat"}>
+            <AgentChat
+              agentId={agentType() === "lead" ? props.selectedAgent() : null}
+              agentName={agentName()}
+              agentType={agentType()}
+              subagentInfo={subagentInfo()}
+              onBack={handleBack}
+              onOpenProject={props.onOpenProject}
+            />
+          </Show>
         </div>
-        <Show when={mode() === "feed"}>
-          <ActivityFeed
-            onSelectAgent={props.onSelectAgent}
-            onOpenProject={props.onOpenProject}
-          />
-        </Show>
-        <Show when={mode() === "chat"}>
-          <AgentChat
-            agentId={agentType() === "lead" ? props.selectedAgent() : null}
-            agentName={agentName()}
-            agentType={agentType()}
-            subagentInfo={subagentInfo()}
-            onBack={handleBack}
-            onOpenProject={props.onOpenProject}
-          />
+        <Show
+          when={
+            mode() === "agents" &&
+            isExtensionEnabled("projects") &&
+            recentViews().length > 0
+          }
+        >
+          <div class="panel-recent">
+            <div class="panel-recent-label">Recent</div>
+            <For each={recentViews()}>
+              {(item) => {
+                return (
+                  <A
+                    href={`/projects/${item.id}`}
+                    class="recent-project-link"
+                    classList={{
+                      active: stripBase(location.pathname) === `/projects/${item.id}`,
+                    }}
+                  >
+                    <span class="recent-project-title">
+                      {item.id}: {item.title ?? item.id}
+                    </span>
+                    <span class="recent-project-time">
+                      {relativeTime(item.viewedAt)}
+                    </span>
+                  </A>
+                );
+              }}
+            </For>
+          </div>
         </Show>
       </div>
-      <Show
-        when={
-          mode() === "agents" &&
-          isExtensionEnabled("projects") &&
-          recentViews().length > 0
-        }
-      >
-        <div class="panel-recent">
-          <div class="panel-recent-label">Recent</div>
-          <For each={recentViews()}>
-            {(item) => {
-              return (
-                <A
-                  href={`/projects/${item.id}`}
-                  class="recent-project-link"
-                  classList={{
-                    active: stripBase(location.pathname) === `/projects/${item.id}`,
-                  }}
-                >
-                  <span class="recent-project-title">
-                    {item.id}: {item.title ?? item.id}
-                  </span>
-                  <span class="recent-project-time">
-                    {relativeTime(item.viewedAt)}
-                  </span>
-                </A>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
 
       <style>{`
         .context-panel {
           position: relative;
           z-index: 30;
           width: 480px;
+          min-width: 480px;
+          flex-shrink: 0;
+          overflow: visible;
+        }
+
+        .context-panel-shell {
+          position: relative;
+          width: 100%;
+          height: 100%;
           background: var(--bg-surface);
           border-left: 1px solid var(--border-default);
           display: flex;
           flex-direction: column;
-          transition: width 0.2s ease;
+          transition: width 0.2s ease, box-shadow 0.2s ease;
           overflow: hidden;
         }
 
         .context-panel.collapsed {
           width: 50px;
+          min-width: 50px;
         }
 
-        .context-panel.collapsed:hover {
+        .context-panel.collapsed .context-panel-shell {
+          position: absolute;
+          inset: 0 0 0 auto;
+          width: 50px;
+        }
+
+        .context-panel.collapsed:hover .context-panel-shell {
           width: 480px;
+          box-shadow: -12px 0 24px var(--shadow-md);
         }
 
         .panel-header {
@@ -543,9 +562,8 @@ export function ContextPanel(props: ContextPanelProps) {
             min-width: 50px;
           }
 
-          .context-panel.collapsed:hover {
+          .context-panel.collapsed:hover .context-panel-shell {
             width: 320px;
-            min-width: 320px;
           }
 
           .context-panel.collapsed .panel-header,
@@ -574,6 +592,10 @@ export function ContextPanel(props: ContextPanelProps) {
           .context-panel:not(.collapsed) {
             width: 320px;
             min-width: 320px;
+          }
+
+          .context-panel:not(.collapsed) .context-panel-shell {
+            width: 100%;
           }
 
           .context-panel:not(.collapsed) .panel-header,

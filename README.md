@@ -417,6 +417,7 @@ packages/
 - Areas homepage supports quick area creation with auto-generated ids and color picker selection
 - Kanban routes: `/projects` for all projects, `/projects?area=<id>` for area-filtered kanban
 - Right sidebar tabs: `Agents`, `Chat`, `Feed`
+- Collapsed left/right sidebars hover-expand as overlays instead of pushing the main content
 - Legacy direct-chat agent list remains at `/agents`
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
