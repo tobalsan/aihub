@@ -54,7 +54,7 @@ Features:
 - Collapsible blocks auto-collapse if content >200 chars
 - Thinking indicator dots while waiting for response
 - Project `AgentChat` virtualizes only larger persisted history/log lists (`>=80` rows) with `@tanstack/solid-virtual`, remeasures visible rows on pane resize, and keeps the bottom row anchored while the live streaming row stays outside the virtualized region
-- ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; full-mode chat also renders transport/run errors inline
+- ChatView preserves optimistic user/error messages on failed runs instead of immediately reloading stale history when streaming ends with an error; interrupted runs also keep any streamed assistant text that arrived before `/abort`/Stop, and full-mode chat renders transport/run errors inline
 - Projects board shell uses split sidebars:
   - Left sidebar: AIHub logo + primary nav (`Chats` always; `Projects`/`Conversations` only when enabled by `/api/capabilities`)
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`

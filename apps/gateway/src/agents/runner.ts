@@ -651,7 +651,7 @@ export async function runAgent(
     }
 
     const durationMs = Date.now() - started;
-    emit({ type: "done", meta: { durationMs } });
+    emit({ type: "done", meta: { durationMs, aborted } });
     runCompleted = true;
 
     return {

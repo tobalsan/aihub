@@ -425,6 +425,7 @@ packages/
 - Right context panel `Recent` list shows the 5 most recently viewed projects from browser localStorage
 - Web UI fetches `/api/capabilities` on boot, hides disabled component nav, and lazy-loads projects/conversations route bundles only when enabled
 - Intercom-style quick chat is available globally via a fixed bottom-right bubble; it opens a lead-agent overlay with agent picker, streaming chat, and image attachments
+- Lead `ChatView` aborts preserve any assistant text already streamed before `/abort` or the Stop button, then show an `Interrupted` marker instead of dropping the partial reply
 - Project-detail UI spawns use name-based session slugs, so the generated session folder follows the displayed agent name instead of a random id
 - Project detail center-panel chat keeps `Send` available while a run is active and also shows `Stop` (lead: `/abort`; subagent: interrupt endpoint for codex/claude/pi); subagent follow-ups sent mid-run stay queued in the UI and flush after the active CLI run completes
 - Changes tab branch header is expandable: click branch aggregate stats to view per-file pending +/- counts (when available)

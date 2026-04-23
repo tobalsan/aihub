@@ -928,6 +928,59 @@ export function ChatView() {
     }
   };
 
+  const appendStreamingAssistantMessage = () => {
+    const content = streamingText();
+    const thinkingContent = streamingThinking();
+    const toolCalls = streamingToolCalls();
+    const files = streamingFiles();
+    if (
+      !content &&
+      !thinkingContent &&
+      toolCalls.length === 0 &&
+      files.length === 0
+    ) {
+      return false;
+    }
+
+    const blocks: ContentBlock[] = [];
+    if (thinkingContent) {
+      blocks.push({ type: "thinking", thinking: thinkingContent });
+    }
+    for (const tc of toolCalls) {
+      blocks.push({
+        type: "toolCall",
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+      });
+    }
+    if (content) {
+      blocks.push({ type: "text", text: content });
+    }
+    blocks.push(...files);
+
+    const timestamp = streamingStartedAt() ?? Date.now();
+    setSimpleMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content,
+        files: files.length > 0 ? files : undefined,
+        timestamp,
+      },
+    ]);
+    setFullMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: blocks.length > 0 ? blocks : [{ type: "text", text: content }],
+        timestamp,
+      },
+    ]);
+    return true;
+  };
+
   // Check if stream has any content (used to guard against wiping real stream)
   const hasStreamingContent = () =>
     streamingText() ||
@@ -1201,60 +1254,15 @@ export function ChatView() {
         // If aborted, discard streamed content and show system message
         if (aborted || meta?.aborted) {
           aborted = false;
+          appendStreamingAssistantMessage();
+          setShowInterrupted(true);
           resetStreamingState();
           cleanup = null;
           maybeRefreshHistory();
           return;
         }
 
-        // Add assistant message - build content blocks from streaming state
-        const content = streamingText();
-        const blocks: ContentBlock[] = [];
-        const thinkingContent = streamingThinking();
-        if (thinkingContent) {
-          blocks.push({ type: "thinking", thinking: thinkingContent });
-        }
-        for (const tc of streamingToolCalls()) {
-          blocks.push({
-            type: "toolCall",
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments,
-          });
-        }
-        if (content) {
-          blocks.push({ type: "text", text: content });
-        }
-        const files = streamingFiles();
-        blocks.push(...files);
-
-        // Only add assistant message if there's actual content
-        if (
-          content ||
-          thinkingContent ||
-          streamingToolCalls().length > 0 ||
-          files.length > 0
-        ) {
-          setSimpleMessages((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content,
-              files: files.length > 0 ? files : undefined,
-              timestamp: Date.now(),
-            },
-          ]);
-          setFullMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content:
-                blocks.length > 0 ? blocks : [{ type: "text", text: content }],
-              timestamp: Date.now(),
-            },
-          ]);
-        }
+        appendStreamingAssistantMessage();
         // Update thinkingLevel if pending was used
         if (pendingThinkLevel()) {
           setThinkingLevel(pendingThinkLevel()!);
@@ -1358,18 +1366,13 @@ export function ChatView() {
     setStopping(true);
     aborted = true;
 
-    // Close current stream
-    if (cleanup) {
-      cleanup();
-      cleanup = null;
-    }
-
-    // Discard any streamed content and show "Interrupted"
-    resetStreamingState();
-    setShowInterrupted(true);
-
     try {
       await postAbort(params.agentId, sessionKey());
+    } catch (error) {
+      aborted = false;
+      setUploadError(
+        error instanceof Error ? error.message : "Failed to stop run"
+      );
     } finally {
       setStopping(false);
     }
