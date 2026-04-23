@@ -69,12 +69,14 @@ export function BoardView() {
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [waitingForFirstText, setWaitingForFirstText] = createSignal(false);
   const [stickToBottom, setStickToBottom] = createSignal(true);
+  const [queuedMessages, setQueuedMessages] = createSignal<string[]>([]);
 
   let messagesEl: HTMLDivElement | undefined;
   let inputEl: HTMLTextAreaElement | undefined;
   let stopStream: (() => void) | null = null;
   let stopSubscription: (() => void) | null = null;
   let historyLoadVersion = 0;
+  let activeQueuedMessage: string | null = null;
 
   const selectedAgent = createMemo(() =>
     agents().find((a) => a.id === selectedAgentId())
@@ -116,6 +118,14 @@ export function BoardView() {
       role: msg.role,
       content: msg.content,
     }));
+  }
+
+  function getQueuedDraftMessages(activeUserText?: string | null): BoardMessage[] {
+    const pending = queuedMessages().slice();
+    if (activeUserText && pending[0] === activeUserText) {
+      pending.shift();
+    }
+    return pending.map((content) => ({ role: "user", content }));
   }
 
   function appendAssistantText(text: string) {
@@ -169,12 +179,14 @@ export function BoardView() {
         setWaitingForFirstText(false);
         setIsStreaming(false);
         void loadHistory(agentId);
+        processNextQueuedMessage(agentId);
       },
       onError(error) {
         cleanupSubscription();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         setAssistantMessage(error);
+        processNextQueuedMessage(agentId);
       },
     });
   }
@@ -200,7 +212,10 @@ export function BoardView() {
         nextMessages.push({ role: "assistant", content: text });
       }
 
-      setMessages(nextMessages);
+      setMessages([
+        ...nextMessages,
+        ...getQueuedDraftMessages(history.activeTurn?.userText ?? null),
+      ]);
       setIsStreaming(Boolean(history.isStreaming && history.activeTurn));
       setWaitingForFirstText(
         Boolean(
@@ -211,14 +226,14 @@ export function BoardView() {
       );
 
       cleanupSubscription();
-      if (history.isStreaming && history.activeTurn) {
+      if (history.isStreaming && history.activeTurn && !stopStream) {
         attachSessionSubscription(agentId, sessionKey);
       }
       scrollToBottom(true);
     } catch (err) {
       if (version !== historyLoadVersion || selectedAgentId() !== agentId) return;
       console.error("[BoardView] failed to load history:", err);
-      setMessages([]);
+      setMessages(getQueuedDraftMessages());
       setIsStreaming(false);
       setWaitingForFirstText(false);
     }
@@ -274,35 +289,37 @@ export function BoardView() {
     setIsStreaming(false);
     setWaitingForFirstText(false);
     setStickToBottom(true);
+    setQueuedMessages([]);
+    activeQueuedMessage = null;
     if (!agentId) return;
     void loadHistory(agentId);
   });
 
-  function handleSend() {
-    const agentId = selectedAgentId();
-    const text = chatInput().trim();
-    if (!agentId || !text || isStreaming()) return;
-
+  function sendStreamMessage(
+    agentId: string,
+    text: string,
+    mode: "normal" | "queued"
+  ) {
     cleanupSubscription();
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: text },
-      { role: "assistant", content: "" },
-    ]);
-    setChatInput("");
     setIsStreaming(true);
     setWaitingForFirstText(true);
     setStickToBottom(true);
     scrollToBottom(true);
-
-    resetInputHeight();
+    if (mode === "normal") {
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    }
 
     const sessionKey = getSessionKey(agentId);
+    let queuedAssistantText = "";
     stopStream = streamMessage(
       agentId,
       text,
       sessionKey,
       (chunk) => {
+        if (mode === "queued") {
+          queuedAssistantText += chunk;
+          return;
+        }
         setWaitingForFirstText(false);
         appendAssistantText(chunk);
       },
@@ -310,15 +327,89 @@ export function BoardView() {
         cleanupStream();
         setWaitingForFirstText(false);
         setIsStreaming(false);
+        if (mode === "queued") {
+          activeQueuedMessage = null;
+          setQueuedMessages((prev) => (prev.length > 0 ? prev.slice(1) : prev));
+          if (queuedAssistantText) {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: queuedAssistantText },
+            ]);
+          }
+        }
         void loadHistory(agentId);
+        processNextQueuedMessage(agentId);
       },
       (error) => {
         cleanupStream();
         setWaitingForFirstText(false);
         setIsStreaming(false);
-        setAssistantMessage(error);
+        if (mode === "queued") {
+          activeQueuedMessage = null;
+          setQueuedMessages((prev) => (prev.length > 0 ? prev.slice(1) : prev));
+          setMessages((prev) => [...prev, { role: "assistant", content: error }]);
+        } else {
+          setAssistantMessage(error);
+        }
+        processNextQueuedMessage(agentId);
       }
     );
+  }
+
+  function processNextQueuedMessage(agentId: string) {
+    if (selectedAgentId() !== agentId || isStreaming() || activeQueuedMessage) {
+      return;
+    }
+    const nextText = queuedMessages()[0];
+    if (!nextText) return;
+    activeQueuedMessage = nextText;
+    sendStreamMessage(agentId, nextText, "queued");
+  }
+
+  async function resumeQueuedMessagesAfterAbort(agentId: string) {
+    if (!queuedMessages().length || selectedAgentId() !== agentId) return;
+    const sessionKey = getSessionKey(agentId);
+    try {
+      const history = await fetchSimpleHistory(agentId, sessionKey);
+      if (selectedAgentId() !== agentId) return;
+      if (!history.isStreaming) {
+        processNextQueuedMessage(agentId);
+        return;
+      }
+      cleanupSubscription();
+      stopSubscription = subscribeToSession(agentId, sessionKey, {
+        onDone() {
+          cleanupSubscription();
+          processNextQueuedMessage(agentId);
+        },
+        onError() {
+          cleanupSubscription();
+          processNextQueuedMessage(agentId);
+        },
+      });
+    } catch (err) {
+      console.error("[BoardView] failed to resume queued messages:", err);
+    }
+  }
+
+  function handleSend() {
+    const agentId = selectedAgentId();
+    const text = chatInput().trim();
+    if (!agentId || !text) return;
+
+    setChatInput("");
+    resetInputHeight();
+
+    if (isStreaming()) {
+      setMessages((prev) => [...prev, { role: "user", content: text }]);
+      setQueuedMessages((prev) => [...prev, text]);
+      setStickToBottom(true);
+      scrollToBottom(true);
+      return;
+    }
+
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    sendStreamMessage(agentId, text, "normal");
   }
 
   async function handleAbort() {
@@ -333,7 +424,12 @@ export function BoardView() {
       cleanupLiveConnections();
       setIsStreaming(false);
       setWaitingForFirstText(false);
+      if (activeQueuedMessage) {
+        activeQueuedMessage = null;
+        setQueuedMessages((prev) => (prev.length > 0 ? prev.slice(1) : prev));
+      }
       removeEmptyTrailingAssistant();
+      void resumeQueuedMessagesAfterAbort(agentId);
     }
   }
 
@@ -440,34 +536,40 @@ export function BoardView() {
             <textarea
               class="board-chat-input"
               ref={inputEl}
-              placeholder={isStreaming() ? "Agent is responding..." : "Ask anything..."}
+              placeholder="Ask anything..."
               value={chatInput()}
               onInput={handleInputChange}
               onKeyDown={handleKeyDown}
-              disabled={isStreaming()}
               rows={1}
             />
-            <button
-              class="board-chat-send"
-              onClick={() => (isStreaming() ? handleAbort() : handleSend())}
-              type="button"
-              disabled={!isStreaming() && !chatInput().trim()}
-              aria-label={isStreaming() ? "Stop response" : "Send message"}
-            >
-              <Show
-                when={isStreaming()}
-                fallback={
+            <Show
+              when={isStreaming()}
+              fallback={
+                <button
+                  class="board-chat-send"
+                  onClick={handleSend}
+                  type="button"
+                  disabled={!chatInput().trim()}
+                  aria-label="Send message"
+                >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </svg>
-                }
+                </button>
+              }
+            >
+              <button
+                class="board-chat-send board-chat-stop"
+                onClick={handleAbort}
+                type="button"
+                aria-label="Stop response"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="1" />
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
-              </Show>
-            </button>
+              </button>
+            </Show>
           </div>
           <p class="board-chat-input-hint">
             Enter to send, Shift+Enter for new line
@@ -601,7 +703,7 @@ export function BoardView() {
         .board-agent-select:focus {
           outline: none;
           background: var(--bg-surface);
-          border-color: var(--border-accent, var(--text-accent));
+          border-color: var(--border-accent, var(--text-accent, #6366f1));
           box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-accent, #6366f1) 20%, transparent);
         }
 
@@ -721,7 +823,7 @@ export function BoardView() {
         }
 
         .board-chat-input-wrapper:focus-within {
-          border-color: var(--border-accent, var(--text-accent));
+          border-color: var(--border-accent, var(--text-accent, #6366f1));
           box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-accent, #6366f1) 15%, transparent);
         }
 
@@ -756,11 +858,16 @@ export function BoardView() {
           margin: 4px;
           border-radius: 10px;
           border: none;
-          background: var(--text-accent, var(--bg-accent));
-          color: white;
+          background: var(--bg-accent, #6366f1);
+          color: var(--text-on-accent, #ffffff);
           cursor: pointer;
           transition: opacity 0.15s, transform 0.15s;
           flex-shrink: 0;
+        }
+
+        .board-chat-send.board-chat-stop {
+          background: #ef4444;
+          color: #ffffff;
         }
 
         .board-chat-send:hover:not(:disabled) {
@@ -778,7 +885,7 @@ export function BoardView() {
         }
 
         .board-chat-send:focus-visible {
-          outline: 2px solid var(--text-accent, var(--bg-accent));
+          outline: 2px solid var(--text-accent, #6366f1);
           outline-offset: 2px;
         }
 
@@ -822,8 +929,8 @@ export function BoardView() {
         }
 
         .board-canvas-tab.active {
-          color: var(--text-accent);
-          border-bottom-color: var(--text-accent);
+          color: var(--text-accent, #6366f1);
+          border-bottom-color: var(--text-accent, #6366f1);
         }
 
         .board-canvas-content {
