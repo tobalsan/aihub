@@ -758,8 +758,7 @@ export function BoardView() {
 
         .board-msg-content {
           font-size: 14px;
-          line-height: 1.65;
-          white-space: pre-wrap;
+          line-height: 1.55;
           word-break: break-word;
           color: var(--text-primary);
         }
@@ -770,6 +769,7 @@ export function BoardView() {
           border-top-right-radius: 4px;
           background: color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
           color: var(--text-primary);
+          white-space: pre-wrap;
         }
 
         .board-msg-assistant .board-msg-content {

@@ -427,6 +427,11 @@ export function BoardChatLog(props: {
           background: transparent;
         }
 
+        .board-msg-markdown {
+          white-space: normal;
+          line-height: 1.55;
+        }
+
         .board-msg-markdown > :first-child {
           margin-top: 0;
         }
@@ -436,11 +441,29 @@ export function BoardChatLog(props: {
         }
 
         .board-msg-markdown p,
-        .board-msg-markdown ul,
-        .board-msg-markdown ol,
         .board-msg-markdown pre,
         .board-msg-markdown blockquote {
-          margin: 0 0 0.75rem;
+          margin: 0 0 0.5em;
+        }
+
+        .board-msg-markdown ul,
+        .board-msg-markdown ol {
+          margin: 0.25em 0;
+          padding-left: 1.25em;
+        }
+
+        .board-msg-markdown li {
+          margin: 0;
+          padding: 0;
+        }
+
+        .board-msg-markdown li > p {
+          margin: 0;
+        }
+
+        .board-msg-markdown li > ul,
+        .board-msg-markdown li > ol {
+          margin: 0;
         }
 
         .board-msg-markdown code {
