@@ -72,6 +72,7 @@ Features:
 - Right context panel shows last 5 recently viewed projects (from `localStorage`) at the bottom, with truncated titles and relative viewed timestamps
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
+- Agent `ChatView` file attachments support drag-and-drop with zone feedback on the history pane, composer, and `+` attach button, in addition to the picker button
 - Project-detail lead-agent launches persist per-project `sessionKeys`; the UI binds the opened chat to the exact returned project session key instead of the agent's global `main` session
 - Fresh project-detail lead-agent launches now show an immediate pending spinner and render subscribed text/tool activity live while the run is in progress, instead of waiting for final history reload
 - Project-detail lead-agent rows support reset/remove actions: remove clears the project `sessionKeys` entry, and reset clears the bound session state then reuses the canonical `project:<id>:<agentId>` key

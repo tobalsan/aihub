@@ -94,6 +94,8 @@ type PendingFile = {
   previewUrl?: string;
 };
 
+type DropZone = "history" | "composer" | "attach";
+
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
 }
@@ -381,6 +383,10 @@ export function ChatView() {
   const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
   const [uploadingFiles, setUploadingFiles] = createSignal(false);
   const [uploadError, setUploadError] = createSignal("");
+  const [isFileDragActive, setIsFileDragActive] = createSignal(false);
+  const [activeDropZone, setActiveDropZone] = createSignal<DropZone | null>(
+    null
+  );
   const [stopping, setStopping] = createSignal(false);
   const [showInterrupted, setShowInterrupted] = createSignal(false);
   const [isStreaming, setIsStreaming] = createSignal(false);
@@ -415,6 +421,7 @@ export function ChatView() {
     FullHistoryMessage[]
   >([]);
 
+  let chatViewRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -422,6 +429,7 @@ export function ChatView() {
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
   let aborted = false;
+  let fileDragDepth = 0;
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -497,6 +505,46 @@ export function ChatView() {
     }
   };
 
+  const canAttachFiles = () =>
+    !loading() && !uploadingFiles() && !isStreaming();
+
+  const getFileDropError = () => {
+    if (isStreaming()) {
+      return "Wait for the current response before attaching files.";
+    }
+    if (uploadingFiles()) {
+      return "Wait for the current upload to finish before attaching files.";
+    }
+    if (loading()) {
+      return "Wait for the chat to finish loading before attaching files.";
+    }
+    return "";
+  };
+
+  const isFileDragEvent = (event: DragEvent) =>
+    Array.from(event.dataTransfer?.types ?? []).includes("Files");
+
+  const getDropZone = (target: EventTarget | null): DropZone | null => {
+    const element = target instanceof Element ? target : null;
+    if (!element) return null;
+    if (element.closest(".attach-btn")) return "attach";
+    if (element.closest(".input-wrapper") || element.closest(".input-area")) {
+      return "composer";
+    }
+    if (element.closest(".messages")) return "history";
+    return null;
+  };
+
+  const resetFileDragState = () => {
+    fileDragDepth = 0;
+    setIsFileDragActive(false);
+    setActiveDropZone(null);
+  };
+
+  const updateDropZoneFromEvent = (event: DragEvent) => {
+    setActiveDropZone(getDropZone(event.target));
+  };
+
   const resizeTextarea = () => {
     if (!textareaRef) return;
     textareaRef.style.height = "auto";
@@ -548,21 +596,6 @@ export function ChatView() {
       if (removed) revokePendingFile(removed);
       return prev.filter((item) => item.id !== id);
     });
-  };
-
-  const handleFileDragOver = (event: DragEvent) => {
-    event.preventDefault();
-  };
-
-  const handleFileDrop = (event: DragEvent) => {
-    event.preventDefault();
-    if (isStreaming()) {
-      setUploadError("Wait for the current response before attaching files.");
-      return;
-    }
-    const files = event.dataTransfer?.files;
-    if (!files || files.length === 0) return;
-    addPendingFiles(files);
   };
 
   onCleanup(clearPendingFiles);
@@ -895,6 +928,69 @@ export function ChatView() {
     cleanup?.();
     subscriptionCleanup?.();
     statusCleanup?.();
+    resetFileDragState();
+  });
+
+  createEffect(() => {
+    if (canAttachFiles()) return;
+    resetFileDragState();
+  });
+
+  createEffect(() => {
+    const root = chatViewRef;
+    if (!root) return;
+
+    const handleRootDragEnter = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent) || !canAttachFiles()) return;
+      dragEvent.preventDefault();
+      fileDragDepth += 1;
+      setIsFileDragActive(true);
+      updateDropZoneFromEvent(dragEvent);
+    };
+
+    const handleRootDragOver = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent)) return;
+      if (!canAttachFiles()) return;
+      dragEvent.preventDefault();
+      if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "copy";
+      setIsFileDragActive(true);
+      updateDropZoneFromEvent(dragEvent);
+    };
+
+    const handleRootDragLeave = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent) || fileDragDepth === 0) return;
+      fileDragDepth = Math.max(0, fileDragDepth - 1);
+      if (fileDragDepth === 0) resetFileDragState();
+    };
+
+    const handleRootDrop = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent)) return;
+      dragEvent.preventDefault();
+      const files = dragEvent.dataTransfer?.files;
+      const dropError = getFileDropError();
+      resetFileDragState();
+      if (dropError) {
+        setUploadError(dropError);
+        return;
+      }
+      if (!files || files.length === 0) return;
+      addPendingFiles(files);
+    };
+
+    root.addEventListener("dragenter", handleRootDragEnter, true);
+    root.addEventListener("dragover", handleRootDragOver, true);
+    root.addEventListener("dragleave", handleRootDragLeave, true);
+    root.addEventListener("drop", handleRootDrop, true);
+    onCleanup(() => {
+      root.removeEventListener("dragenter", handleRootDragEnter, true);
+      root.removeEventListener("dragover", handleRootDragOver, true);
+      root.removeEventListener("dragleave", handleRootDragLeave, true);
+      root.removeEventListener("drop", handleRootDrop, true);
+    });
   });
 
   const handleViewChange = (mode: HistoryViewMode) => {
@@ -1378,8 +1474,22 @@ export function ChatView() {
     }
   };
 
+  const fileDropHint = createMemo(() => {
+    if (!isFileDragActive()) return "";
+    if (activeDropZone() === "history") return "Drop files into the chat.";
+    if (activeDropZone() === "composer") {
+      return "Drop files to attach them to your next message.";
+    }
+    if (activeDropZone() === "attach") return "Drop files on + to attach.";
+    return "Drop files to attach them.";
+  });
+
   return (
-    <div class="chat-view">
+    <div
+      ref={chatViewRef}
+      class="chat-view"
+      classList={{ "drop-active": isFileDragActive() }}
+    >
       <header class="header">
         <A href="/agents" class="back-btn" aria-label="Go back">
           <svg
@@ -1482,8 +1592,10 @@ export function ChatView() {
         class="messages"
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        onDragOver={handleFileDragOver}
-        onDrop={handleFileDrop}
+        classList={{
+          "drop-target":
+            isFileDragActive() && activeDropZone() === "history",
+        }}
       >
         <Show when={viewMode() === "simple"}>
           <For each={simpleMessages()}>
@@ -1678,6 +1790,9 @@ export function ChatView() {
         <div ref={messagesEndRef} />
       </div>
 
+      <Show when={isFileDragActive()}>
+        <div class="drop-banner">{fileDropHint()}</div>
+      </Show>
       <Show when={uploadError()}>
         {(error) => <div class="upload-error">{error()}</div>}
       </Show>
@@ -1710,7 +1825,7 @@ export function ChatView() {
         </div>
       </Show>
 
-      <div class="input-area">
+      <div class="input-area" classList={{ "drop-active": isFileDragActive() }}>
         <input
           ref={fileInputRef}
           class="file-input"
@@ -1728,6 +1843,10 @@ export function ChatView() {
         <button
           type="button"
           class="attach-btn"
+          classList={{
+            "drop-target":
+              isFileDragActive() && activeDropZone() === "attach",
+          }}
           aria-label="Attach files"
           disabled={loading() || uploadingFiles() || isStreaming()}
           onClick={() => fileInputRef?.click()}
@@ -1739,7 +1858,16 @@ export function ChatView() {
             />
           </svg>
         </button>
-        <div class="input-wrapper">
+        <div
+          class="input-wrapper"
+          classList={{
+            "drop-target":
+              isFileDragActive() && activeDropZone() === "composer",
+          }}
+        >
+          <Show when={isFileDragActive() && activeDropZone() === "composer"}>
+            <div class="input-drop-hint">Drop files to attach</div>
+          </Show>
           <textarea
             ref={textareaRef}
             class="input"
@@ -1816,6 +1944,8 @@ export function ChatView() {
         .chat-view {
           --accent: #6366f1;
           --accent-glow: rgba(99, 102, 241, 0.4);
+          --drop-surface: rgba(99, 102, 241, 0.08);
+          --drop-border: rgba(99, 102, 241, 0.5);
           --surface-0: var(--bg-base);
           --surface-1: var(--bg-surface);
           --surface-2: var(--border-default);
@@ -1832,6 +1962,10 @@ export function ChatView() {
           flex-direction: column;
           background: var(--surface-0);
           font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .chat-view.drop-active {
+          box-shadow: inset 0 0 0 1px var(--drop-border);
         }
 
         .header {
@@ -2014,6 +2148,7 @@ export function ChatView() {
         }
 
         .messages {
+          position: relative;
           flex: 1;
           overflow-y: auto;
           overscroll-behavior: contain;
@@ -2023,6 +2158,15 @@ export function ChatView() {
           display: flex;
           flex-direction: column;
           gap: 16px;
+        }
+
+        .messages.drop-target {
+          background:
+            linear-gradient(180deg, var(--drop-surface), transparent 28%),
+            var(--surface-0);
+          outline: 1px dashed var(--drop-border);
+          outline-offset: -10px;
+          border-radius: 18px;
         }
 
         .messages::-webkit-scrollbar {
@@ -2494,6 +2638,12 @@ export function ChatView() {
           border-top: 1px solid var(--surface-2);
         }
 
+        .input-area.drop-active {
+          background:
+            linear-gradient(180deg, rgba(99, 102, 241, 0.03), transparent 70%),
+            var(--surface-0);
+        }
+
         .file-input {
           display: none;
         }
@@ -2506,6 +2656,15 @@ export function ChatView() {
           padding: 10px 20px 0;
           background: var(--surface-0);
           border-top: 1px solid var(--surface-2);
+        }
+
+        .drop-banner {
+          padding: 10px 20px 0;
+          background: var(--surface-0);
+          color: var(--accent);
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.01em;
         }
 
         .attachment-pill {
@@ -2589,17 +2748,47 @@ export function ChatView() {
           color: var(--text-primary);
         }
 
+        .attach-btn.drop-target {
+          background: var(--accent);
+          color: #fff;
+          border-color: var(--accent);
+          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+          transform: translateY(-1px);
+        }
+
         .attach-btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
         }
 
         .input-wrapper {
+          position: relative;
           flex: 1;
           background: var(--surface-1);
           border: 1px solid var(--surface-2);
           border-radius: var(--radius-lg);
           transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .input-wrapper.drop-target {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
+          background:
+            linear-gradient(180deg, rgba(99, 102, 241, 0.08), transparent 70%),
+            var(--surface-1);
+        }
+
+        .input-drop-hint {
+          position: absolute;
+          top: 8px;
+          right: 14px;
+          z-index: 1;
+          pointer-events: none;
+          color: var(--accent);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
         }
 
         .input-wrapper:focus-within {

@@ -50,6 +50,20 @@ vi.mock("../api/client", () => ({
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+function createFileDragEvent(
+  type: "dragenter" | "dragover" | "drop",
+  files: File[]
+) {
+  const event = new Event(type, {
+    bubbles: true,
+    cancelable: true,
+  }) as DragEvent;
+  Object.defineProperty(event, "dataTransfer", {
+    value: { files, types: ["Files"], dropEffect: "none" },
+  });
+  return event;
+}
+
 function renderView() {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -61,6 +75,8 @@ describe("ChatView abort handling", () => {
   beforeEach(() => {
     delegateEvents(["click", "input", "keydown"]);
     Element.prototype.scrollIntoView = vi.fn();
+    URL.createObjectURL = vi.fn(() => "blob:preview");
+    URL.revokeObjectURL = vi.fn();
 
     fetchAgentMock.mockResolvedValue({
       id: "agent-1",
@@ -149,6 +165,111 @@ describe("ChatView abort handling", () => {
 
     expect(container.textContent).toContain("partial answer");
     expect(container.textContent).toContain("Interrupted");
+
+    dispose();
+  });
+
+  it("adds pending files when dropped on the chat history", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const history = container.querySelector(".messages");
+    if (!(history instanceof HTMLDivElement)) {
+      throw new Error("Expected messages container");
+    }
+
+    history.dispatchEvent(
+      createFileDragEvent("drop", [
+        new File(["image"], "history-drop.png", { type: "image/png" }),
+      ])
+    );
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".attachment-name")?.textContent).toContain(
+      "history-drop.png"
+    );
+
+    dispose();
+  });
+
+  it("adds pending files when dropped on the text input", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat textarea");
+    }
+
+    textarea.dispatchEvent(
+      createFileDragEvent("drop", [
+        new File(["doc"], "notes.md", { type: "text/markdown" }),
+      ])
+    );
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".attachment-name")?.textContent).toContain(
+      "notes.md"
+    );
+
+    dispose();
+  });
+
+  it("adds pending files when dropped on the attach button", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const attachButton = container.querySelector(".attach-btn");
+    if (!(attachButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected attach button");
+    }
+
+    attachButton.dispatchEvent(
+      createFileDragEvent("drop", [
+        new File(["sheet"], "budget.csv", { type: "text/csv" }),
+      ])
+    );
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".attachment-name")?.textContent).toContain(
+      "budget.csv"
+    );
+
+    dispose();
+  });
+
+  it("shows drag feedback for the composer while a file is over the input", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    const chatView = container.querySelector(".chat-view");
+    const inputWrapper = container.querySelector(".input-wrapper");
+    if (
+      !(textarea instanceof HTMLTextAreaElement) ||
+      !(chatView instanceof HTMLDivElement) ||
+      !(inputWrapper instanceof HTMLDivElement)
+    ) {
+      throw new Error("Expected chat composer elements");
+    }
+
+    const file = new File(["image"], "composer.png", { type: "image/png" });
+    textarea.dispatchEvent(createFileDragEvent("dragenter", [file]));
+    textarea.dispatchEvent(createFileDragEvent("dragover", [file]));
+    await tick();
+
+    expect(chatView.classList.contains("drop-active")).toBe(true);
+    expect(inputWrapper.classList.contains("drop-target")).toBe(true);
+    expect(container.textContent).toContain(
+      "Drop files to attach them to your next message."
+    );
 
     dispose();
   });
