@@ -13,7 +13,12 @@ import {
   type AgentSession,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import type { ContainerInput, ContainerOutput } from "@aihub/shared";
+import {
+  renderAgentContext,
+  type AgentContext,
+  type ContainerInput,
+  type ContainerOutput,
+} from "@aihub/shared";
 import { callGatewayTool } from "./gateway-client.js";
 import {
   abortClaudeAgent,
@@ -22,6 +27,12 @@ import {
 } from "./claude-runner.js";
 
 type HistoryEvent =
+  | {
+      type: "system_context";
+      context: ContainerInput["context"];
+      rendered: string;
+      timestamp: number;
+    }
   | { type: "user"; text: string; timestamp: number }
   | { type: "assistant_text"; text: string; timestamp: number }
   | { type: "assistant_thinking"; text: string; timestamp: number }
@@ -132,9 +143,23 @@ export async function runAgent(
       );
     }
 
-    const history: HistoryEvent[] = [
-      { type: "user", text: input.message, timestamp: Date.now() },
-    ];
+    const history: HistoryEvent[] = [];
+    const context = input.context as AgentContext | undefined;
+    const renderedContext = context ? renderAgentContext(context) : "";
+    const promptText = renderedContext
+      ? `${renderedContext}\n\n${input.message}`
+      : input.message;
+    if (renderedContext && context) {
+      const systemContextEvent: HistoryEvent = {
+        type: "system_context",
+        context,
+        rendered: renderedContext,
+        timestamp: Date.now(),
+      };
+      history.push(systemContextEvent);
+      onStreamEvent?.(systemContextEvent);
+    }
+    history.push({ type: "user", text: input.message, timestamp: Date.now() });
     let aborted = false;
 
     const sessionRoot = path.join(input.sessionDir, input.agentId);
@@ -165,7 +190,10 @@ export async function runAgent(
       settingsManager,
       additionalSkillPaths: [path.join(input.workspaceDir, "skills")],
       systemPromptOverride: () => AIHUB_PI_SYSTEM_PROMPT,
-      appendSystemPrompt: [orchestrationToolPrompt()],
+      appendSystemPrompt: [
+        orchestrationToolPrompt(),
+        renderedContext || undefined,
+      ].filter((prompt): prompt is string => Boolean(prompt)),
       agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
     });
     await resourceLoader.reload();
@@ -205,7 +233,7 @@ export async function runAgent(
         await session.sendUserMessage(message, { deliverAs: "steer" });
       }
 
-      await session.prompt(input.message, await loadPromptOptions(input));
+      await session.prompt(promptText, await loadPromptOptions(input));
     } catch (error) {
       if (isAbortLikeError(error)) {
         aborted = true;

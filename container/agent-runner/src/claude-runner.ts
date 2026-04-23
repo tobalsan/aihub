@@ -1,7 +1,12 @@
 import { execFile, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ContainerInput, ContainerOutput } from "@aihub/shared";
+import {
+  renderAgentContext,
+  type AgentContext,
+  type ContainerInput,
+  type ContainerOutput,
+} from "@aihub/shared";
 
 type ClaudeRunnerState = {
   sessionId?: string;
@@ -28,8 +33,21 @@ export async function runClaudeAgent(
   );
 
   const history: Array<{ type: string; [key: string]: unknown }> = [
-    { type: "user", text: input.message, timestamp: Date.now() },
   ];
+  const context = input.context as AgentContext | undefined;
+  const renderedContext = context ? renderAgentContext(context) : "";
+  const promptText = renderedContext
+    ? `${renderedContext}\n\n${input.message}`
+    : input.message;
+  if (renderedContext && context) {
+    history.push({
+      type: "system_context",
+      context,
+      rendered: renderedContext,
+      timestamp: Date.now(),
+    });
+  }
+  history.push({ type: "user", text: input.message, timestamp: Date.now() });
 
   const sessionRoot = path.join(input.sessionDir, input.agentId);
   await fs.mkdir(sessionRoot, { recursive: true });
@@ -38,10 +56,14 @@ export async function runClaudeAgent(
 
   const state = await readState(statePath);
   const queuedFollowUps = pendingFollowUps.splice(0);
-  const prompt = buildPrompt(input.message, queuedFollowUps);
+  const prompt = buildPrompt(promptText, queuedFollowUps);
   await fs.writeFile(promptPath, prompt, "utf8");
 
-  const args = ["--print", "--output-format", "json", "-p", prompt];
+  const args = ["--print", "--output-format", "json"];
+  if (renderedContext) {
+    args.push("--append-system-prompt", renderedContext);
+  }
+  args.push("-p", prompt);
   if (input.sdkConfig.model.model) {
     args.push("--model", input.sdkConfig.model.model);
   }

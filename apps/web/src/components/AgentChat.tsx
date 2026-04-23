@@ -318,6 +318,17 @@ function buildAihubLogs(messages: FullHistoryMessage[]): LogItem[] {
   const skipResults = new Set<string>();
 
   for (const msg of messages) {
+    if (msg.role === "system") {
+      const text = getTextBlocks(msg.content);
+      if (!text) continue;
+      entries.push({
+        tone: "muted",
+        title: "System Context",
+        body: text,
+        collapsible: true,
+      });
+      continue;
+    }
     if (msg.role === "user") {
       const text = getTextBlocks(msg.content);
       if (!text) continue;

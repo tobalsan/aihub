@@ -267,7 +267,7 @@ export const piAdapter: SdkAdapter = {
       const connectorTools = createPiConnectorTools(agent);
       const projectsComponentEnabled = hasProjectsComponentEnabled();
       const customTools = projectsComponentEnabled
-        ? createPiSubagentTools().map((tool: any) => ({
+        ? createPiSubagentTools().map((tool: AgentTool) => ({
             name: tool.name,
             label: tool.label,
             description: tool.description,
@@ -295,9 +295,13 @@ export const piAdapter: SdkAdapter = {
         path: `connector:${cp.id}`,
         content: cp.prompt,
       }));
-      const allAppendedPrompts = subagentToolPrompt
-        ? [subagentToolPrompt]
-        : undefined;
+      const renderedContext = params.context
+        ? renderAgentContext(params.context)
+        : "";
+      const allAppendedPrompts = [
+        subagentToolPrompt,
+        renderedContext || undefined,
+      ].filter((prompt): prompt is string => Boolean(prompt));
 
       const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
       const settingsManager = SettingsManager.create(
@@ -314,7 +318,8 @@ export const piAdapter: SdkAdapter = {
         agentDir: CONFIG_DIR,
         settingsManager,
         systemPromptOverride: () => AIHUB_PI_SYSTEM_PROMPT,
-        appendSystemPrompt: allAppendedPrompts,
+        appendSystemPrompt:
+          allAppendedPrompts.length > 0 ? allAppendedPrompts : undefined,
         additionalSkillPaths: [workspaceSkillsDir],
         agentsFilesOverride: () => ({
           agentsFiles: [...contextFiles, ...connectorContextFiles],
@@ -358,18 +363,13 @@ export const piAdapter: SdkAdapter = {
         agentSession.abort();
       });
 
-      // Render context preamble and emit system_context event if present
-      let contextPreamble = "";
-      if (params.context) {
-        contextPreamble = renderAgentContext(params.context);
-        if (contextPreamble) {
-          params.onHistoryEvent({
-            type: "system_context",
-            context: params.context,
-            rendered: contextPreamble,
-            timestamp: Date.now(),
-          });
-        }
+      if (renderedContext && params.context) {
+        params.onHistoryEvent({
+          type: "system_context",
+          context: params.context,
+          rendered: renderedContext,
+          timestamp: Date.now(),
+        });
       }
 
       // Load images from file paths
@@ -390,15 +390,11 @@ export const piAdapter: SdkAdapter = {
         }
       }
 
-      // Build message with context preamble (if any)
-      const messageToSend = contextPreamble
-        ? `${contextPreamble}\n\n${params.message}`
-        : params.message;
       const attachmentContext = await buildDocumentAttachmentContext(
         params.attachments
       );
       const messageWithAttachments = appendAttachmentContext(
-        messageToSend,
+        params.message,
         attachmentContext
       );
 

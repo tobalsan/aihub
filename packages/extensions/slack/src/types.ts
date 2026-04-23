@@ -2,6 +2,18 @@ export type SlackWebClient = {
   auth?: {
     test(params?: Record<string, unknown>): Promise<{ user_id?: string }>;
   };
+  users?: {
+    info(params: { user: string }): Promise<{
+      user?: {
+        profile?: {
+          display_name?: string;
+          real_name?: string;
+        };
+        real_name?: string;
+        name?: string;
+      };
+    }>;
+  };
   chat: {
     postMessage(params: {
       channel: string;

@@ -139,6 +139,34 @@ async function getChannelMetadata(client: SlackWebClient, channel: string) {
   }
 }
 
+async function getSlackUserDisplayName(
+  client: SlackWebClient,
+  userId: string | undefined
+): Promise<string | undefined> {
+  if (!userId || !client.users?.info) return undefined;
+  try {
+    const result = await client.users.info({ user: userId });
+    const profile = result.user?.profile;
+    return (
+      profile?.display_name?.trim() ||
+      profile?.real_name?.trim() ||
+      result.user?.real_name?.trim() ||
+      result.user?.name?.trim() ||
+      undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveSlackConversationType(
+  data: MessageData
+): "direct_message" | "channel_message" | "thread_reply" {
+  if (data.channel_type === "im") return "direct_message";
+  if (data.thread_ts && data.thread_ts !== data.ts) return "thread_reply";
+  return "channel_message";
+}
+
 async function sendSlackReply(
   client: SlackWebClient,
   channel: string,
@@ -349,17 +377,6 @@ async function handleSlackMessage(
     return;
   }
 
-  recordMessage(
-    data.channel,
-    {
-      author: data.user ?? "unknown",
-      content: data.text ?? "",
-      timestamp: slackTsToMs(data.ts),
-    },
-    50,
-    data.ts
-  );
-
   const content = result.normalizedContent;
   if (!content) return;
 
@@ -388,13 +405,45 @@ async function handleSlackMessage(
     : null;
 
   try {
-    const [channelMeta, threadParent] = await Promise.all([
+    const [channelMeta, threadParent, senderName] = await Promise.all([
       getChannelMetadata(client, data.channel),
       getThreadParent(client, data.channel, data.thread_ts, data.ts),
+      getSlackUserDisplayName(client, data.user),
     ]);
+    const sender = senderName ?? data.user ?? "unknown";
+    recordMessage(
+      data.channel,
+      {
+        author: sender,
+        content: data.text ?? "",
+        timestamp: slackTsToMs(data.ts),
+      },
+      50,
+      data.ts
+    );
+    const conversationType = resolveSlackConversationType(data);
+    const channelName = channelMeta.name;
+    const placeChannel = `#${channelName ?? data.channel}`;
+    const threadName =
+      conversationType === "thread_reply"
+        ? `thread:${data.thread_ts ?? data.ts}`
+        : undefined;
+    const place =
+      conversationType === "direct_message"
+        ? `direct message / ${sender}`
+        : conversationType === "thread_reply"
+          ? `${placeChannel} / ${threadName}`
+          : placeChannel;
     const context = buildSlackContext({
-      channelName: channelMeta.name,
+      metadata: {
+        channel: "slack",
+        place,
+        conversationType,
+        sender,
+      },
+      channelName,
       channelTopic: channelMeta.topic,
+      threadName,
       threadParent: threadParent ?? undefined,
       history: getHistory(data.channel, historyLimit),
     });

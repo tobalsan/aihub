@@ -99,6 +99,52 @@ describe("claude runner", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it("passes channel context through --append-system-prompt", async () => {
+    childProcessMock.execFile.mockImplementation(
+      (_file: string, _args: string[], _opts: unknown, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
+        callback(null, JSON.stringify({ result: "ok" }), "");
+        return { kill: vi.fn() };
+      }
+    );
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-claude-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    const output = await runClaudeAgent(
+      createInput({
+        workspaceDir,
+        sessionDir,
+        context: {
+          kind: "discord",
+          blocks: [
+            {
+              type: "metadata",
+              channel: "discord",
+              place: "#projects",
+              conversationType: "channel_message",
+              sender: "alice",
+            },
+          ],
+        },
+      })
+    );
+
+    const args = childProcessMock.execFile.mock.calls[0]?.[1] as string[];
+    expect(args).toContain("--append-system-prompt");
+    expect(args).toContainEqual(expect.stringContaining("[CHANNEL CONTEXT]"));
+    const promptIndex = args.indexOf("-p");
+    expect(promptIndex).toBeGreaterThan(-1);
+    expect(args[promptIndex + 1]).toContain("[CHANNEL CONTEXT]");
+    expect(
+      output.history?.map((event) => (event as { type: string }).type)
+    ).toContain("system_context");
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
   it("aborts active claude subprocess with SIGTERM", async () => {
     let callbackRef:
       | ((error: Error | null, stdout: string, stderr: string) => void)
@@ -148,6 +194,7 @@ describe("claude runner", () => {
 function createInput(paths: {
   workspaceDir: string;
   sessionDir: string;
+  context?: ContainerInput["context"];
 }): ContainerInput {
   return {
     agentId: "agent-1",
@@ -158,6 +205,7 @@ function createInput(paths: {
     ipcDir: "/ipc",
     gatewayUrl: "http://gateway:3000",
     agentToken: "token-1",
+    context: paths.context,
     sdkConfig: {
       sdk: "claude",
       model: {

@@ -1,5 +1,6 @@
 import type {
   AgentContext,
+  ChannelContextMetadata,
   DiscordContext,
   DiscordContextBlock,
   SlackContext,
@@ -18,74 +19,135 @@ export const SLACK_FORMATTING = [
   "[END FORMATTING]",
 ].join("\n");
 
-function renderDiscordBlock(block: DiscordContextBlock): string {
-  switch (block.type) {
-    case "channel_name":
-      return `Channel: #${block.name}`;
-    case "channel_topic":
-      return `Topic: ${block.topic}`;
-    case "thread_starter": {
-      const time = new Date(block.timestamp).toISOString();
-      return `Thread started by ${block.author} at ${time}:\n${block.content}`;
-    }
-    case "history": {
-      if (block.messages.length === 0) return "";
-      const lines = block.messages.map((message) => {
-        const time = new Date(message.timestamp).toISOString();
-        return `[${time}] ${message.author}: ${message.content}`;
-      });
-      return `Recent messages:\n${lines.join("\n")}`;
-    }
-    case "reaction": {
-      const verb = block.action === "add" ? "reacted with" : "removed reaction";
-      return `${block.user} ${verb} ${block.emoji} on message ${block.messageId}`;
-    }
-  }
+function renderThreadStarter(
+  starter: { author: string; content: string; timestamp: number } | undefined,
+  fallback: string
+): string {
+  if (!starter) return fallback;
+  const time = new Date(starter.timestamp).toISOString();
+  const content = starter.content.trim() || "(empty)";
+  return `${starter.author} at ${time} - ${content}`;
 }
 
-function renderSlackBlock(block: SlackContextBlock): string {
+function renderHistory(
+  history:
+    | Array<{ author: string; content: string; timestamp: number }>
+    | undefined
+): string {
+  if (!history || history.length === 0) return "- none";
+  return history
+    .map((message) => {
+      const time = new Date(message.timestamp).toISOString();
+      return `- [${time}] ${message.author}: ${message.content}`;
+    })
+    .join("\n");
+}
+
+function getMetadata(
+  blocks: DiscordContextBlock[] | SlackContextBlock[]
+): ChannelContextMetadata | undefined {
+  const block = blocks.find((entry) => entry.type === "metadata");
+  if (!block) return undefined;
+  return {
+    channel: block.channel,
+    place: block.place,
+    conversationType: block.conversationType,
+    sender: block.sender,
+  };
+}
+
+function getBlock<T extends DiscordContextBlock["type"] | SlackContextBlock["type"]>(
+  blocks: DiscordContextBlock[] | SlackContextBlock[],
+  type: T
+): Extract<DiscordContextBlock | SlackContextBlock, { type: T }> | undefined {
+  return blocks.find((block) => block.type === type) as
+    | Extract<DiscordContextBlock | SlackContextBlock, { type: T }>
+    | undefined;
+}
+
+function renderChannelContext(
+  metadata: ChannelContextMetadata,
+  blocks: DiscordContextBlock[] | SlackContextBlock[],
+  options?: { includeSlackFormatting?: boolean }
+): string {
+  const channelName =
+    renderBlockOrFallback(getBlock(blocks, "channel_name"), {
+      direct_message: "direct message",
+      channel_message: "unknown channel",
+      thread_reply: "unknown channel",
+    }[metadata.conversationType]) ?? "unknown channel";
+  const channelTopic =
+    renderBlockOrFallback(getBlock(blocks, "channel_topic"), "unavailable") ??
+    "unavailable";
+  const threadName =
+    renderBlockOrFallback(
+      getBlock(blocks, "thread_name"),
+      metadata.conversationType === "thread_reply" ? "unavailable" : "not a thread"
+    ) ??
+    "unavailable";
+  const threadStarter = renderThreadStarter(
+    getBlock(blocks, "thread_starter"),
+    metadata.conversationType === "thread_reply" ? "unavailable" : "not a thread"
+  );
+  const recentHistory = renderHistory(getBlock(blocks, "history")?.messages);
+
+  const parts = [
+    "[CHANNEL CONTEXT]",
+    `channel: ${metadata.channel}`,
+    `place: ${metadata.place}`,
+    `conversation_type: ${metadata.conversationType}`,
+    `sender: ${metadata.sender}`,
+    `channel_name: ${channelName}`,
+    `channel_topic: ${channelTopic}`,
+    `thread_name: ${threadName}`,
+    `thread_starter: ${threadStarter}`,
+    "recent_history:",
+    recentHistory,
+    "[END CHANNEL CONTEXT]",
+  ];
+
+  if (options?.includeSlackFormatting) {
+    parts.push("", SLACK_FORMATTING);
+  }
+
+  return parts.join("\n");
+}
+
+function renderBlockOrFallback(
+  block: DiscordContextBlock | SlackContextBlock | undefined,
+  fallback: string
+): string {
+  if (!block) return fallback;
+  let rendered = "";
   switch (block.type) {
     case "channel_name":
-      return `Channel: #${block.name}`;
+      rendered = `#${block.name}`;
+      break;
     case "channel_topic":
-      return `Topic: ${block.topic}`;
-    case "thread_starter": {
-      const time = new Date(block.timestamp).toISOString();
-      return `Thread started by ${block.author} at ${time}:\n${block.content}`;
-    }
-    case "history": {
-      if (block.messages.length === 0) return "";
-      const lines = block.messages.map((message) => {
-        const time = new Date(message.timestamp).toISOString();
-        return `[${time}] ${message.author}: ${message.content}`;
-      });
-      return `Recent messages:\n${lines.join("\n")}`;
-    }
-    case "reaction": {
-      const verb = block.action === "add" ? "reacted with" : "removed reaction";
-      return `${block.user} ${verb} ${block.emoji} on message ${block.messageId}`;
-    }
+      rendered = block.topic;
+      break;
+    case "thread_name":
+      rendered = block.name;
+      break;
+    default:
+      rendered = "";
+      break;
   }
+  return rendered || fallback;
 }
 
 export function renderDiscordContext(ctx: DiscordContext): string {
-  const parts: string[] = [];
-  for (const block of ctx.blocks) {
-    const rendered = renderDiscordBlock(block);
-    if (rendered) parts.push(rendered);
-  }
-  if (parts.length === 0) return "";
-  return `[SYSTEM CONTEXT - Discord]\n${parts.join("\n\n")}\n[END CONTEXT]`;
+  const metadata = getMetadata(ctx.blocks);
+  if (!metadata) return "";
+  return renderChannelContext(metadata, ctx.blocks);
 }
 
 export function renderSlackContext(ctx: SlackContext): string {
-  const parts: string[] = [];
-  for (const block of ctx.blocks) {
-    const rendered = renderSlackBlock(block);
-    if (rendered) parts.push(rendered);
-  }
-  parts.push(SLACK_FORMATTING);
-  return `[SYSTEM CONTEXT - Slack]\n${parts.join("\n\n")}\n[END CONTEXT]`;
+  const metadata = getMetadata(ctx.blocks);
+  if (!metadata) return "";
+  return renderChannelContext(metadata, ctx.blocks, {
+    includeSlackFormatting: true,
+  });
 }
 
 export function renderAgentContext(ctx: AgentContext): string {
@@ -95,19 +157,33 @@ export function renderAgentContext(ctx: AgentContext): string {
 }
 
 export function buildDiscordContext(opts: {
+  metadata?: ChannelContextMetadata;
   channelName?: string;
   channelTopic?: string;
+  threadName?: string;
   threadStarter?: { author: string; content: string; timestamp: number };
   history?: Array<{ author: string; content: string; timestamp: number }>;
   reaction?: { emoji: string; user: string; messageId: string; action: "add" | "remove" };
 }): DiscordContext {
   const blocks: DiscordContextBlock[] = [];
 
+  if (opts.metadata) {
+    blocks.push({
+      type: "metadata",
+      channel: "discord",
+      place: opts.metadata.place,
+      conversationType: opts.metadata.conversationType,
+      sender: opts.metadata.sender,
+    });
+  }
   if (opts.channelName) {
     blocks.push({ type: "channel_name", name: opts.channelName });
   }
   if (opts.channelTopic) {
     blocks.push({ type: "channel_topic", topic: opts.channelTopic });
+  }
+  if (opts.threadName) {
+    blocks.push({ type: "thread_name", name: opts.threadName });
   }
   if (opts.threadStarter) {
     blocks.push({ type: "thread_starter", ...opts.threadStarter });
@@ -123,19 +199,33 @@ export function buildDiscordContext(opts: {
 }
 
 export function buildSlackContext(opts: {
+  metadata?: ChannelContextMetadata;
   channelName?: string;
   channelTopic?: string;
+  threadName?: string;
   threadParent?: { author: string; content: string; timestamp: number };
   history?: Array<{ author: string; content: string; timestamp: number }>;
   reaction?: { emoji: string; user: string; messageId: string; action: "add" | "remove" };
 }): SlackContext {
   const blocks: SlackContextBlock[] = [];
 
+  if (opts.metadata) {
+    blocks.push({
+      type: "metadata",
+      channel: "slack",
+      place: opts.metadata.place,
+      conversationType: opts.metadata.conversationType,
+      sender: opts.metadata.sender,
+    });
+  }
   if (opts.channelName) {
     blocks.push({ type: "channel_name", name: opts.channelName });
   }
   if (opts.channelTopic) {
     blocks.push({ type: "channel_topic", topic: opts.channelTopic });
+  }
+  if (opts.threadName) {
+    blocks.push({ type: "thread_name", name: opts.threadName });
   }
   if (opts.threadParent) {
     blocks.push({ type: "thread_starter", ...opts.threadParent });

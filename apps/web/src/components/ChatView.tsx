@@ -1667,6 +1667,20 @@ export function ChatView() {
                   </div>
                 );
               }
+              if (msg.role === "system") {
+                return (
+                  <div class="message assistant full-message system-message">
+                    <ContentBlocks
+                      blocks={msg.content}
+                      timestamp={msg.timestamp}
+                      toolResultsMap={toolResultsMap()}
+                    />
+                    <div class="message-time">
+                      {formatTimestamp(msg.timestamp)}
+                    </div>
+                  </div>
+                );
+              }
               // Skip toolResult messages - they are now rendered inline with their tool calls
               if (msg.role === "toolResult") {
                 return null;

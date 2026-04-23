@@ -8,6 +8,8 @@ import type { Client } from "@buape/carbon";
 export type ChannelMetadata = {
   name?: string;
   topic?: string;
+  type?: number;
+  parentId?: string;
 };
 
 /**
@@ -23,11 +25,14 @@ export async function getChannelMetadata(
       name?: string;
       topic?: string | null;
       type?: number;
+      parent_id?: string;
     };
 
     return {
       name: channel.name,
       topic: channel.topic ?? undefined,
+      type: channel.type,
+      parentId: channel.parent_id ?? undefined,
     };
   } catch {
     // Fetch failed - return empty metadata

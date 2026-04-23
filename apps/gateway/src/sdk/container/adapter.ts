@@ -12,6 +12,7 @@ import type {
   FileAttachment,
   GatewayConfig,
 } from "@aihub/shared";
+import { renderAgentContext } from "@aihub/shared";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   buildContainerArgs,
@@ -375,7 +376,11 @@ function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
 function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   if (output.history?.length) {
     for (const event of output.history) {
-      if (isHistoryEvent(event) && event.type !== "user") {
+      if (
+        isHistoryEvent(event) &&
+        event.type !== "user" &&
+        event.type !== "system_context"
+      ) {
         params.onHistoryEvent(event);
       }
     }
@@ -635,6 +640,9 @@ export function getContainerAdapter(): SdkAdapter {
       let lastActivityType = "container_start";
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let maxRunTimeTimer: ReturnType<typeof setTimeout> | undefined;
+      const renderedContext = params.context
+        ? renderAgentContext(params.context)
+        : "";
 
       return new Promise<SdkRunResult>((resolve, reject) => {
         const cleanup = () => {
@@ -677,6 +685,15 @@ export function getContainerAdapter(): SdkAdapter {
         };
         params.onSessionHandle?.(handle);
 
+        if (renderedContext && params.context) {
+          params.onHistoryEvent({
+            type: "system_context",
+            context: params.context,
+            rendered: renderedContext,
+            timestamp: Date.now(),
+          });
+        }
+
         // Emit user event immediately so active-turn state is populated before
         // the container starts streaming assistant events.
         params.onHistoryEvent({
@@ -694,7 +711,9 @@ export function getContainerAdapter(): SdkAdapter {
             if (isHistoryEvent(event)) {
               recordActivity(`history_${event.type}`);
               sawStreamingHistory = true;
-              params.onHistoryEvent(event);
+              if (event.type !== "system_context") {
+                params.onHistoryEvent(event);
+              }
               forwardStreamEvent(params, event);
               return;
             }

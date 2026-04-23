@@ -71,6 +71,10 @@ function buildComponentDmConfig(enabled: boolean): DiscordConfig["dm"] {
   };
 }
 
+function isDiscordThreadType(type: number | undefined): boolean {
+  return type === 10 || type === 11 || type === 12;
+}
+
 async function sendDiscordReply(
   client: CarbonClient,
   channelId: string,
@@ -163,11 +167,46 @@ async function handleDiscordMessage(
       getChannelMetadata(client, data.channel_id),
       getThreadStarter(client, data.channel_id),
     ]);
+    const parentChannelMeta =
+      isDiscordThreadType(channelMeta.type) && channelMeta.parentId
+        ? await getChannelMetadata(client, channelMeta.parentId)
+        : undefined;
+    const sender = data.author.username ?? data.author.id;
+    const conversationType = !data.guild_id
+      ? "direct_message"
+      : isDiscordThreadType(channelMeta.type)
+        ? "thread_reply"
+        : "channel_message";
+    const channelName =
+      conversationType === "thread_reply"
+        ? parentChannelMeta?.name
+        : channelMeta.name;
+    const threadName =
+      conversationType === "thread_reply"
+        ? channelMeta.name ?? `thread:${data.channel_id}`
+        : undefined;
+    const placeChannel = `#${channelName ?? data.channel_id}`;
+    const place =
+      conversationType === "direct_message"
+        ? `direct message / ${sender}`
+        : conversationType === "thread_reply"
+          ? `${placeChannel} / ${threadName}`
+          : placeChannel;
 
     const recentHistory = getHistory(data.channel_id, historyLimit);
     const context = buildDiscordContext({
-      channelName: channelMeta.name,
-      channelTopic: channelMeta.topic,
+      metadata: {
+        channel: "discord",
+        place,
+        conversationType,
+        sender,
+      },
+      channelName,
+      channelTopic:
+        conversationType === "thread_reply"
+          ? parentChannelMeta?.topic ?? channelMeta.topic
+          : channelMeta.topic,
+      threadName,
       threadStarter: threadStarter ?? undefined,
       history: recentHistory.length > 0 ? recentHistory : undefined,
     });

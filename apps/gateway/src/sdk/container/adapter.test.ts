@@ -379,6 +379,52 @@ describe("container adapter", () => {
     });
   });
 
+  it("emits system_context from gateway for container runs", async () => {
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root);
+    setConfig(agent, root);
+    const { processes } = mockSpawn();
+    mockExecFile();
+    const params = createParams(agent);
+    params.context = {
+      kind: "slack",
+      blocks: [
+        {
+          type: "metadata",
+          channel: "slack",
+          place: "direct message / Floriane",
+          conversationType: "direct_message",
+          sender: "Floriane",
+        },
+      ],
+    };
+
+    const run = getContainerAdapter().run(params);
+    await tick();
+    const dockerProcess = processes[0];
+
+    expect(params.onHistoryEvent).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: "system_context",
+        rendered: expect.stringContaining("[CHANNEL CONTEXT]"),
+      })
+    );
+    expect(params.onHistoryEvent).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ type: "user", text: "hello" })
+    );
+
+    dockerProcess.emitOutput({ text: "hello back" });
+    dockerProcess.finish(0);
+
+    await expect(run).resolves.toEqual({
+      text: "hello back",
+      aborted: undefined,
+    });
+  });
+
   it("copies file_output events to outbound media", async () => {
     const root = tempDir();
     const aihubHome = path.join(root, "aihub");

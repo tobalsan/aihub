@@ -153,27 +153,23 @@ export const openclawAdapter: SdkAdapter = {
       turnEnded = true;
     };
 
-    let contextPreamble = "";
-    if (params.context) {
-      contextPreamble = renderAgentContext(params.context);
-      if (contextPreamble) {
-        params.onHistoryEvent({
-          type: "system_context",
-          context: params.context,
-          rendered: contextPreamble,
-          timestamp: Date.now(),
-        });
-      }
+    const renderedContext = params.context
+      ? renderAgentContext(params.context)
+      : "";
+    if (renderedContext && params.context) {
+      params.onHistoryEvent({
+        type: "system_context",
+        context: params.context,
+        rendered: renderedContext,
+        timestamp: Date.now(),
+      });
     }
 
-    const baseTextContent = contextPreamble
-      ? `${contextPreamble}\n\n${params.message}`
-      : params.message;
     const attachmentContext = await buildDocumentAttachmentContext(
       params.attachments
     );
     const textContent = appendAttachmentContext(
-      baseTextContent,
+      params.message,
       attachmentContext
     );
 
@@ -252,6 +248,7 @@ export const openclawAdapter: SdkAdapter = {
             params: {
               sessionKey,
               message: messageToSend,
+              ...(renderedContext ? { extraSystemPrompt: renderedContext } : {}),
               deliver: true,
               idempotencyKey: randomUUID(),
             },

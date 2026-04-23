@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
+  AgentContext,
   FullHistoryMessage,
   SimpleHistoryMessage,
   ContentBlock,
@@ -74,6 +75,16 @@ type UserHistoryEntry = {
   content: ContentBlock[];
 };
 
+type SystemHistoryEntry = {
+  type: "history";
+  agentId: string;
+  sessionId: string;
+  timestamp: number;
+  role: "system";
+  content: ContentBlock[];
+  context?: AgentContext;
+};
+
 type AssistantHistoryEntry = {
   type: "history";
   agentId: string;
@@ -104,6 +115,7 @@ type ToolResultHistoryEntry = {
 };
 
 type HistoryEntry =
+  | SystemHistoryEntry
   | UserHistoryEntry
   | AssistantHistoryEntry
   | ToolResultHistoryEntry;
@@ -157,6 +169,11 @@ export type TurnBuffer = {
   userTimestamp: number;
   userAttachments: FileAttachment[];
   userFlushed: boolean;
+  systemContext?: {
+    rendered: string;
+    context: AgentContext;
+    timestamp: number;
+  };
   thinkingText: string;
   assistantText: string;
   fileBlocks: FileBlock[];
@@ -191,6 +208,7 @@ export function createTurnBuffer(): TurnBuffer {
     userTimestamp: Date.now(),
     userAttachments: [],
     userFlushed: false,
+    systemContext: undefined,
     thinkingText: "",
     assistantText: "",
     fileBlocks: [],
@@ -213,6 +231,19 @@ export async function flushTurnBuffer(
   buffer: TurnBuffer,
   userId?: string
 ): Promise<void> {
+  if (buffer.systemContext) {
+    await appendRawEntry(
+      agentId,
+      sessionId,
+      {
+        role: "system",
+        content: [{ type: "text", text: buffer.systemContext.rendered }],
+        context: buffer.systemContext.context,
+        timestamp: buffer.systemContext.timestamp,
+      },
+      userId
+    );
+  }
   // 1. User message (skip if already eagerly flushed)
   if (buffer.userText && !buffer.userFlushed) {
     const userContent = await buildUserContent(
@@ -320,6 +351,13 @@ export function bufferHistoryEvent(
   event: HistoryEvent
 ): void {
   switch (event.type) {
+    case "system_context":
+      buffer.systemContext = {
+        rendered: event.rendered,
+        context: event.context,
+        timestamp: event.timestamp,
+      };
+      break;
     case "user":
       buffer.userText = event.text;
       buffer.userTimestamp = event.timestamp;
@@ -532,7 +570,14 @@ export async function getFullHistory(
         const entry = JSON.parse(line) as HistoryEntry;
         if (entry.type !== "history") continue;
 
-        if (entry.role === "user") {
+        if (entry.role === "system") {
+          messages.push({
+            role: "system",
+            content: entry.content,
+            timestamp: entry.timestamp,
+            context: entry.context,
+          });
+        } else if (entry.role === "user") {
           messages.push({
             role: "user",
             content: entry.content,

@@ -1186,6 +1186,12 @@ export type ModelMeta = {
 /** Full history message with all content blocks */
 export type FullHistoryMessage =
   | {
+      role: "system";
+      content: ContentBlock[];
+      timestamp: number;
+      context?: AgentContext;
+    }
+  | {
       role: "user";
       content: ContentBlock[];
       timestamp: number;
@@ -1209,9 +1215,29 @@ export type FullHistoryMessage =
 export type HistoryViewMode = "simple" | "full";
 
 // Discord context types for runAgent()
+export type ChannelConversationType =
+  | "direct_message"
+  | "channel_message"
+  | "thread_reply";
+
+export type ChannelContextMetadata = {
+  channel: "discord" | "slack";
+  place: string;
+  conversationType: ChannelConversationType;
+  sender: string;
+};
+
 export type DiscordContextBlock =
+  | {
+      type: "metadata";
+      channel: "discord";
+      place: string;
+      conversationType: ChannelConversationType;
+      sender: string;
+    }
   | { type: "channel_topic"; topic: string }
   | { type: "channel_name"; name: string }
+  | { type: "thread_name"; name: string }
   | {
       type: "thread_starter";
       author: string;
@@ -1236,8 +1262,16 @@ export type DiscordContext = {
 };
 
 export type SlackContextBlock =
+  | {
+      type: "metadata";
+      channel: "slack";
+      place: string;
+      conversationType: ChannelConversationType;
+      sender: string;
+    }
   | { type: "channel_topic"; topic: string }
   | { type: "channel_name"; name: string }
+  | { type: "thread_name"; name: string }
   | {
       type: "thread_starter";
       author: string;
