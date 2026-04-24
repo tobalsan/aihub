@@ -116,7 +116,6 @@ const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
 let loadedExtensions: Extension[] = [];
 let loadedExtensionIds = new Set<string>();
 let homeExtensionId: string | undefined;
-let extensionConfigs = new Map<string, Record<string, unknown>>();
 
 export function getKnownExtensionRouteMetadata(): Array<{
   id: string;
@@ -231,7 +230,6 @@ export async function loadExtensions(
   loadedExtensionIds = new Set(
     loadedExtensions.map((extension) => extension.id)
   );
-  extensionConfigs = rawConfigs;
 
   // Resolve home route ownership
   // Parse each extension's raw config through its own configSchema to resolve defaults

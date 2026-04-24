@@ -60,9 +60,6 @@ function resolveBoardRoot(ctx: ExtensionContext, rawConfig: unknown): string {
 // ── Simplified project statuses ─────────────────────────────────────
 
 const BOARD_STATUSES = ["intent", "current", "review", "done"] as const;
-type BoardStatus = (typeof BOARD_STATUSES)[number];
-
-const BoardStatusSchema = z.enum(BOARD_STATUSES);
 
 // ── Routes ──────────────────────────────────────────────────────────
 
