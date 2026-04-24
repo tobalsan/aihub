@@ -1,0 +1,58 @@
+{
+  "enabledPlugins": {
+    "caveman@caveman": true,
+    "dev-browser@dev-browser-marketplace": true,
+    "document-skills@anthropic-agent-skills": true,
+    "example-skills@anthropic-agent-skills": true,
+    "superpowers@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "curl -s -X POST http://127.0.0.1:9900/hook/pre-tool -H 'Content-Type: application/json' -H 'X-Maestro-Session: 3' -H 'X-Maestro-Instance: b97b75ca-096f-4384-84a5-b93aeea74f89' -d @/dev/stdin",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "curl -s -X POST http://127.0.0.1:9900/hook/session-end -H 'Content-Type: application/json' -H 'X-Maestro-Session: 3' -H 'X-Maestro-Instance: b97b75ca-096f-4384-84a5-b93aeea74f89' -d @/dev/stdin",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "curl -s -X POST http://127.0.0.1:9900/hook/session-start -H 'Content-Type: application/json' -H 'X-Maestro-Session: 3' -H 'X-Maestro-Instance: b97b75ca-096f-4384-84a5-b93aeea74f89' -d @/dev/stdin",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "curl -s -X POST http://127.0.0.1:9900/hook/stop -H 'Content-Type: application/json' -H 'X-Maestro-Session: 3' -H 'X-Maestro-Instance: b97b75ca-096f-4384-84a5-b93aeea74f89' -d @/dev/stdin",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//Users/thinh/.nvm/versions/node/**)"
+    ]
+  }
+}

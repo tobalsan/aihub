@@ -134,8 +134,8 @@ describe("gateway client", () => {
     const result = await callGatewayTool(
       "http://gateway:3000",
       "token-1",
-      "subagent.status",
-      { slug: "worker" },
+      "project.get",
+      { projectId: "PRO-1" },
       "agent-1"
     );
 
@@ -150,8 +150,8 @@ describe("gateway client", () => {
           "X-Agent-Token": "token-1",
         },
         body: JSON.stringify({
-          tool: "subagent.status",
-          args: { slug: "worker" },
+          tool: "project.get",
+          args: { projectId: "PRO-1" },
           agentId: "agent-1",
           agentToken: "token-1",
         }),

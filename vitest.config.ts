@@ -34,8 +34,6 @@ export default defineConfig({
       { find: /^@aihub\/extension-multi-user\/isolation$/, replacement: extSrc("multi-user", "isolation.ts") },
       { find: /^@aihub\/extension-multi-user\/middleware$/, replacement: extSrc("multi-user", "middleware.ts") },
       { find: "@aihub/extension-multi-user", replacement: extSrc("multi-user") },
-      { find: /^@aihub\/extension-projects\/pi-tools$/, replacement: extSrc("projects", "subagents/pi_tools.ts") },
-      { find: /^@aihub\/extension-projects\/tool-handlers$/, replacement: extSrc("projects", "subagents/tool_handlers.ts") },
       { find: "@aihub/extension-projects", replacement: extSrc("projects") },
     ],
   },

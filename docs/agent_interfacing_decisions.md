@@ -71,11 +71,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
   - `GET /api/projects/:id/subagents` (status list)
   - `GET /api/projects/:id/subagents/:slug/logs?since=<byte>` (normalized events, with byte cursor)
 - `since` cursor = byte offset (fastest).
-- Tools for main agents (Pi + Claude SDK):
-  - `subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch? }`
-  - `subagent.status { projectId, slug }`
-  - `subagent.logs { projectId, slug, since }`
-  - `subagent.interrupt { projectId, slug }`
+- Subagent operations are dispatched via `apm start` CLI flows (not internal `subagent.*` tools).
 - Auth: none (keep simple).
 - Expose subagent tool calls in monitoring UI (full observability).
 

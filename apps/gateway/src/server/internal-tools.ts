@@ -15,10 +15,6 @@ import {
   type ProjectCommentResult,
   type ProjectItemResult,
 } from "@aihub/extension-projects";
-import {
-  createSubagentToolHandlers,
-  type SubagentToolHandlers,
-} from "@aihub/extension-projects/tool-handlers";
 import { loadConfig } from "../config/index.js";
 import { validateContainerToken } from "../sdk/container/tokens.js";
 
@@ -52,7 +48,6 @@ type ProjectOps = {
 type InternalToolsDeps = {
   getConfig: () => GatewayConfig;
   validateToken: (token: string, agentId: string) => boolean;
-  subagents: SubagentToolHandlers;
   projects: ProjectOps;
   recordComment: typeof recordCommentActivity;
 };
@@ -60,7 +55,6 @@ type InternalToolsDeps = {
 const defaultDeps: InternalToolsDeps = {
   getConfig: loadConfig,
   validateToken: validateContainerToken,
-  subagents: createSubagentToolHandlers(),
   projects: {
     create: createProject,
     update: updateProject,
@@ -84,10 +78,6 @@ function unwrapProjectResult(
   return result.data;
 }
 
-function parseSubagentArgs<T>(args: unknown): T {
-  return args as T;
-}
-
 async function dispatchInternalTool(
   deps: InternalToolsDeps,
   tool: string,
@@ -96,26 +86,6 @@ async function dispatchInternalTool(
   const config = deps.getConfig();
 
   switch (tool) {
-    case "subagent.spawn": {
-      const result = await deps.subagents.spawn(parseSubagentArgs(args));
-      if (!result.ok) throw new Error(result.error);
-      return result.data;
-    }
-    case "subagent.status": {
-      const result = await deps.subagents.status(parseSubagentArgs(args));
-      if (!result.ok) throw new Error(result.error);
-      return result.data;
-    }
-    case "subagent.logs": {
-      const result = await deps.subagents.logs(parseSubagentArgs(args));
-      if (!result.ok) throw new Error(result.error);
-      return result.data;
-    }
-    case "subagent.interrupt": {
-      const result = await deps.subagents.interrupt(parseSubagentArgs(args));
-      if (!result.ok) throw new Error(result.error);
-      return result.data;
-    }
     case "project.create": {
       const parsed = CreateProjectRequestSchema.parse(args);
       return unwrapProjectResult(await deps.projects.create(config, parsed));

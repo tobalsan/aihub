@@ -8,14 +8,6 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./pi-tools": {
-      "import": "./dist/subagents/pi_tools.js",
-      "types": "./dist/subagents/pi_tools.d.ts"
-    },
-    "./tool-handlers": {
-      "import": "./dist/subagents/tool_handlers.js",
-      "types": "./dist/subagents/tool_handlers.d.ts"
     }
   },
   "scripts": {
@@ -23,7 +15,6 @@
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",
-    "@mariozechner/pi-agent-core": "^0.67",
     "chokidar": "^4.0.3",
     "hono": "^4.11.4",
     "js-yaml": "^4.1.1",

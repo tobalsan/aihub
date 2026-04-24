@@ -129,11 +129,7 @@ Let's tackle the following project:
 <status>
 <README body>
 
-You can spawn subagents:
-- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch? }
-- subagent.status { projectId, slug }
-- subagent.logs { projectId, slug, since }
-- subagent.interrupt { projectId, slug }
+Subagent orchestration runs through `apm start` CLI dispatch.
 ```
 
 ### Follow‑up
@@ -204,17 +200,7 @@ Response:
 
 ## Tools (AIHub agents)
 
-Tools available to Pi + Claude SDK agents:
-
-- `subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch? }`
-- `subagent.status { projectId, slug }`
-- `subagent.logs { projectId, slug, since }`
-- `subagent.interrupt { projectId, slug }`
-
-Notes:
-- `projectId` required (simple, no auth).
-- `mode` default `worktree`; allow `main-run`.
-- `slug` required; collision error.
+No `subagent.*` internal tools are exposed. Subagent orchestration is CLI-driven via `apm start`.
 
 ---
 

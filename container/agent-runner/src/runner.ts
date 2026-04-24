@@ -328,10 +328,6 @@ async function loadContextFiles(
 function orchestrationToolPrompt(): string {
   return [
     "Additional orchestration tools:",
-    "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
-    "- subagent.status { projectId, slug }",
-    "- subagent.logs { projectId, slug, since? }",
-    "- subagent.interrupt { projectId, slug }",
     "- project.create { title, readme?, specs?, domain?, owner?, status? }",
     "- project.get { projectId }",
     "- project.update { projectId, updates }",
@@ -341,68 +337,6 @@ function orchestrationToolPrompt(): string {
 
 function createOrchestrationTools(input: ContainerInput): ToolDefinition[] {
   return [
-    gatewayTool(
-      input,
-      "subagent.spawn",
-      "Spawn subagent",
-      "Spawn an external CLI subagent",
-      {
-        type: "object",
-        properties: {
-          projectId: { type: "string" },
-          slug: { type: "string" },
-          cli: { type: "string" },
-          prompt: { type: "string" },
-          mode: { type: "string" },
-          baseBranch: { type: "string" },
-          resume: { type: "boolean" },
-        },
-        required: ["projectId", "slug", "cli", "prompt"],
-      }
-    ),
-    gatewayTool(
-      input,
-      "subagent.status",
-      "Subagent status",
-      "Get subagent status",
-      {
-        type: "object",
-        properties: {
-          projectId: { type: "string" },
-          slug: { type: "string" },
-        },
-        required: ["projectId", "slug"],
-      }
-    ),
-    gatewayTool(
-      input,
-      "subagent.logs",
-      "Subagent logs",
-      "Fetch subagent logs",
-      {
-        type: "object",
-        properties: {
-          projectId: { type: "string" },
-          slug: { type: "string" },
-          since: { type: "number" },
-        },
-        required: ["projectId", "slug"],
-      }
-    ),
-    gatewayTool(
-      input,
-      "subagent.interrupt",
-      "Interrupt subagent",
-      "Interrupt a running subagent",
-      {
-        type: "object",
-        properties: {
-          projectId: { type: "string" },
-          slug: { type: "string" },
-        },
-        required: ["projectId", "slug"],
-      }
-    ),
     gatewayTool(
       input,
       "project.create",

@@ -23,12 +23,10 @@ import {
 } from "../../agents/workspace.js";
 import { getSessionCreatedAt } from "../../sessions/store.js";
 import { resolveSessionDataFile } from "../../sessions/files.js";
-import { createPiSubagentTools } from "@aihub/extension-projects/pi-tools";
 import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
-import { getLoadedExtensions } from "../../extensions/registry.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
 import {
   appendAttachmentContext,
@@ -106,10 +104,6 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
       };
     },
   }));
-}
-
-function hasProjectsComponentEnabled(): boolean {
-  return getLoadedExtensions().some((extension) => extension.id === "projects");
 }
 
 async function withPiOnecliEnv<T>(
@@ -265,31 +259,6 @@ export const piAdapter: SdkAdapter = {
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
       const connectorTools = createPiConnectorTools(agent);
-      const projectsComponentEnabled = hasProjectsComponentEnabled();
-      const customTools = projectsComponentEnabled
-        ? createPiSubagentTools().map((tool: AgentTool) => ({
-            name: tool.name,
-            label: tool.label,
-            description: tool.description,
-            parameters: tool.parameters,
-            execute: async (
-              toolCallId: string,
-              params: unknown,
-              _signal: AbortSignal | undefined,
-              _onUpdate: unknown,
-              _ctx: unknown
-            ) => tool.execute(toolCallId, params),
-          }))
-        : [];
-      const subagentToolPrompt = projectsComponentEnabled
-        ? [
-            "Additional tools:",
-            "- subagent.spawn { projectId, slug, cli, prompt, mode?, baseBranch?, resume? }",
-            "- subagent.status { projectId, slug }",
-            "- subagent.logs { projectId, slug, since? }",
-            "- subagent.interrupt { projectId, slug }",
-          ].join("\n")
-        : undefined;
       const connectorPrompts = getConnectorPromptsForAgent(agent);
       const connectorContextFiles = connectorPrompts.map((cp) => ({
         path: `connector:${cp.id}`,
@@ -298,10 +267,9 @@ export const piAdapter: SdkAdapter = {
       const renderedContext = params.context
         ? renderAgentContext(params.context)
         : "";
-      const allAppendedPrompts = [
-        subagentToolPrompt,
-        renderedContext || undefined,
-      ].filter((prompt): prompt is string => Boolean(prompt));
+      const allAppendedPrompts = [renderedContext || undefined].filter(
+        (prompt): prompt is string => Boolean(prompt)
+      );
 
       const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
       const settingsManager = SettingsManager.create(
@@ -343,7 +311,7 @@ export const piAdapter: SdkAdapter = {
         model,
         ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
         tools,
-        customTools: [...customTools, ...connectorTools],
+        customTools: connectorTools,
         resourceLoader,
         sessionManager,
         settingsManager,
