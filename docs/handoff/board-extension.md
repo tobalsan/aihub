@@ -44,18 +44,44 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
 1. **Board extension** (`packages/extensions/board/src/index.ts`)
    - Config schema: `root` (optional path), `home` (defaults to `true`)
    - Board root resolution: custom path or `$AIHUB_HOME/extensions/board`, auto-created on start
-   - Routes: `/api/board/info`, `/api/board/canvas/:agentId`, `/api/board/agents`, `/api/board/projects`
+   - Routes: `/api/board/info`, `/api/board/canvas/:agentId`, `/api/board/agents`, `/api/board/projects`, `/api/board/scratchpad`
    - Canvas state stored in-memory (will evolve to persistent)
-   - Emits `canvas.updated` events for SSE subscribers
+   - Emits `canvas.updated` and `scratchpad.updated` events for SSE subscribers
 
-2. **Home route priority** (gateway changes)
+2. **Scratchpad internal tools** (`apps/gateway/src/server/internal-tools.ts`)
+   - `scratchpad.read {}` — returns `{ content, updatedAt }` from `$BOARD_ROOT/SCRATCHPAD.md`
+   - `scratchpad.write { content }` — atomic write (temp + rename) to scratchpad file
+   - Board root resolved from `config.extensions.board.root` (same logic as extension)
+   - Registered alongside existing project/subagent tools in `dispatchInternalTool`
+
+3. **Agent tool prompt** (`apps/gateway/src/sdk/pi/adapter.ts`)
+   - `hasBoardExtensionEnabled()` checks if board extension is loaded
+   - Injects scratchpad tool definitions into agent system prompt when board is active
+   - Prompt includes usage docs for `scratchpad.read` and `scratchpad.write`
+
+4. **Home route priority** (gateway changes)
    - `registry.ts`: After loading extensions, parses each one's raw config through its `configSchema` to resolve zod defaults. If >1 has `home === true`, startup fails with a clear error.
    - `api.core.ts`: `/api/capabilities` now includes `"home": "<extension-id>"` field
    - `shared/types.ts`: `CapabilitiesResponseSchema` has `home: z.string().optional()`
    - `ExtensionsConfigSchema` in shared types has `board` config shape
 
 ### UI side
-3. **BoardChatRenderer** (`apps/web/src/components/BoardChatRenderer.tsx`)
+5. **ScratchpadEditor** (`apps/web/src/components/ScratchpadEditor.tsx`)
+   - Contenteditable div with markdown rendering via `renderMarkdown()` (existing `marked` + DOMPurify util)
+   - **Display mode (blurred):** innerHTML set to rendered markdown HTML
+   - **Edit mode (focused):** textContent set to raw markdown, monospace font
+   - Auto-save debounced 500ms after input, serialized (no concurrent saves)
+   - Polls `/api/board/scratchpad` every 5s for external changes (agent writes)
+   - Conflict guard: only applies remote changes if user is not actively editing
+   - Shows "Updated X ago" (refreshes every 1s) and "Saving…" indicator
+   - Placeholder: "Start typing... Markdown supported." when empty
+
+6. **OverviewPanel integration** (`apps/web/src/components/BoardView.tsx`)
+   - Scratchpad is the first content below the date heading on the canvas Overview tab
+   - Removed the 🚧 placeholder — scratchpad IS the default content now
+   - Flex layout: date heading → scratchpad fills remaining space
+
+7. **BoardChatRenderer** (`apps/web/src/components/BoardChatRenderer.tsx`)
    - `buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[]` — converts full history into renderable log items (text, thinking, tool calls, diffs)
    - `BoardChatLog` component — renders all log item types with:
      - User messages in pill bubbles, assistant text via `renderMarkdown()`
@@ -63,7 +89,7 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
      - Collapsible thinking blocks, inline diffs with green/red tint
    - Markdown rendered with proper list styling (`white-space: normal`, tight margins)
 
-4. **BoardView** (`apps/web/src/components/BoardView.tsx`)
+8. **BoardView** (`apps/web/src/components/BoardView.tsx`)
    - Two-pane layout (520px chat / flex canvas) with responsive mobile fallback
    - **Chat pane (left):**
      - Agent avatar + transparent select dropdown in header
@@ -80,13 +106,13 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
      - Tabs: Overview, Projects, Agents — switchable via buttons or API
      - Polls canvas state every 2s for selected agent
 
-5. **Home routing** (`apps/web/src/App.tsx`)
+9. **Home routing** (`apps/web/src/App.tsx`)
    - `HOME_REGISTRY` maps extension IDs → components (no hardcoding in route logic)
    - `HomeRoute` reads `capabilities.home` and does a registry lookup
    - Falls back to areas overview (if projects enabled) then agents list
 
 ### Test environment
-6. **`.aihub/aihub.json`** — standalone config for dev testing
+10. **`.aihub/aihub.json`** — standalone config for dev testing
    - Agent "boardy" (🐼), gateway on port 4010, web on 3010
    - Projects extension disabled — proves board runs independently
    - `AIHUB_HOME=$(pwd)/.aihub`
@@ -102,6 +128,11 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
 - `e906d00` style markdown bullet/ordered lists with proper padding and margin
 - `3a80881` move white-space pre-wrap to user messages only, fix markdown line-height
 - `12ddd6b` resolve board root from config, default to $AIHUB_HOME/extensions/board
+- `41476e0` add scratchpad read/write API endpoints
+- `a9ae7e8` register scratchpad.read/write as internal tools
+- `7bb3a43` expose scratchpad tools in agent prompt
+- `4b2c0f6` add ScratchpadEditor UI component with contenteditable markdown rendering
+- `0cf57b0` integrate scratchpad into overview panel, remove placeholder
 
 ## How to run
 
@@ -172,8 +203,9 @@ agent-browser wait --fn "document.querySelector('.board-msg-markdown') !== null"
 
 1. ~~**Markdown rendering**~~ ✅ — assistant messages render via `renderMarkdown()`
 2. ~~**Tool call rendering**~~ ✅ — collapsible entries with icons for read/bash/write, diffs, thinking blocks
-3. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status, day overview with priorities
-4. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
-5. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner. Board root is now configured and auto-created — store should live under it.
-6. **SSE/WebSocket for canvas** — replace polling with real-time updates via the existing gateway WebSocket infrastructure
-7. **Agent sidebar behavior** — when board is home, does the left agent sidebar still make sense? Or does the chat pane replace it?
+3. ~~**Collaborative scratchpad**~~ ✅ — contenteditable markdown editor on Overview panel, persisted to `SCRATCHPAD.md`, agent tools `scratchpad.read/write`, auto-save + polling
+4. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status
+5. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
+6. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner. Board root is now configured and auto-created — store should live under it.
+7. **SSE/WebSocket for canvas + scratchpad** — replace polling with real-time updates via the existing gateway WebSocket infrastructure
+8. **Agent sidebar behavior** — when board is home, does the left agent sidebar still make sense? Or does the chat pane replace it?
