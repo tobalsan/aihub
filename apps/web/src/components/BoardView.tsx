@@ -15,7 +15,8 @@ import {
   streamMessage,
   subscribeToSession,
 } from "../api/client";
-import type { Agent, FullHistoryMessage } from "../api/types";
+import type { ActiveTurn } from "../api/client";
+import type { Agent, FullHistoryMessage, FullToolResultMessage } from "../api/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
@@ -64,7 +65,7 @@ export function BoardView() {
   const [canvas, setCanvas] = createSignal<CanvasState>({ panel: "overview" });
   const [chatInput, setChatInput] = createSignal("");
   const [logItems, setLogItems] = createSignal<BoardLogItem[]>([]);
-  const [liveText, setLiveText] = createSignal("");
+  const [streamingLogItems, setStreamingLogItems] = createSignal<BoardLogItem[]>([]);
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [waitingForFirstText, setWaitingForFirstText] = createSignal(false);
   const [stickToBottom, setStickToBottom] = createSignal(true);
@@ -81,12 +82,7 @@ export function BoardView() {
     agents().find((a) => a.id === selectedAgentId())
   );
   const displayedLogItems = createMemo<BoardLogItem[]>(() => {
-    const items = logItems().slice();
-    const text = liveText();
-    if (text) {
-      items.push({ type: "text", role: "assistant", content: text });
-    }
-    return items;
+    return [...logItems(), ...streamingLogItems()];
   });
 
   function cleanupStream() {
@@ -132,59 +128,123 @@ export function BoardView() {
     ]);
   }
 
-  function toolIcon(name: string): "read" | "write" | "bash" | "tool" {
-    const key = name.toLowerCase();
-    if (key === "read") return "read";
-    if (key === "bash" || key === "exec_command") return "bash";
-    if (key === "write" || key === "apply_patch") return "write";
-    return "tool";
-  }
-
-  function summarizeToolTitle(name: string, args: unknown): string {
-    const a = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-    const key = name.toLowerCase();
-    if (key === "read") return `Read ${String(a.path ?? a.file_path ?? "file")}`;
-    if (key === "bash" || key === "exec_command") {
-      return `Bash ${String(a.cmd ?? a.command ?? "")}`.trim();
-    }
-    if (key === "write" || key === "apply_patch") {
-      return `Edit ${String(a.path ?? a.file_path ?? "file")}`;
-    }
-    return name;
-  }
-
-  function appendToolLog(name: string, args: unknown) {
-    setLogItems((prev) => [
-      ...prev,
-      {
-        type: "tool",
-        toolName: name,
-        title: summarizeToolTitle(name, args),
-        body: "",
-        icon: toolIcon(name),
-        expanded: false,
-      },
-    ]);
-  }
-
-  function updateToolLog(name: string, content: string) {
-    setLogItems((prev) => {
-      for (let i = prev.length - 1; i >= 0; i -= 1) {
-        const item = prev[i];
-        if (item.type === "tool" && item.toolName === name && !item.body) {
-          return [
-            ...prev.slice(0, i),
-            { ...item, body: content },
-            ...prev.slice(i + 1),
-          ];
-        }
+  function appendStreamingTextLog(text: string) {
+    setWaitingForFirstText(false);
+    setStreamingLogItems((prev) => {
+      const last = prev.at(-1);
+      if (last?.type === "text" && last.role === "assistant") {
+        return [...prev.slice(0, -1), { ...last, content: last.content + text }];
       }
-      return prev;
+      return [...prev, { type: "text", role: "assistant", content: text }];
     });
   }
 
-  function clearLiveText() {
-    setLiveText("");
+  function appendStreamingThinkingLog(text: string) {
+    setStreamingLogItems((prev) => {
+      const last = prev.at(-1);
+      if (last?.type === "thinking") {
+        return [...prev.slice(0, -1), { ...last, content: last.content + text }];
+      }
+      return [...prev, { type: "thinking", content: text }];
+    });
+  }
+
+  function appendStreamingToolLog(id: string, name: string, args: unknown) {
+    setStreamingLogItems((prev) =>
+      prev.some((item) => item.type === "tool" && item.id === id)
+        ? prev
+        : [
+            ...prev,
+            {
+              type: "tool",
+              id,
+              toolName: name,
+              args,
+              status: "running",
+            },
+          ]
+    );
+  }
+
+  function updateStreamingToolStatus(name: string, status: "done" | "error") {
+    setStreamingLogItems((prev) =>
+      prev.map((item) =>
+        item.type === "tool" && item.toolName === name && item.status === "running"
+          ? { ...item, status }
+          : item
+      )
+    );
+  }
+
+  function attachStreamingToolResult(
+    id: string,
+    name: string,
+    content: string,
+    isError: boolean,
+    details?: { diff?: string }
+  ) {
+    const result: FullToolResultMessage = {
+      role: "toolResult",
+      toolCallId: id,
+      toolName: name,
+      content: [{ type: "text", text: content }],
+      isError,
+      details,
+      timestamp: Date.now(),
+    };
+    setStreamingLogItems((prev) =>
+      prev.map((item) =>
+        item.type === "tool" && item.id === id
+          ? {
+              ...item,
+              body: content,
+              result,
+              status: isError ? "error" : "done",
+            }
+          : item
+      )
+    );
+  }
+
+  function finalizeStreamingLogs() {
+    const items = streamingLogItems();
+    if (items.length > 0) {
+      setLogItems((prev) => [...prev, ...items]);
+    }
+    setStreamingLogItems([]);
+  }
+
+  function applyActiveTurnSnapshot(turn: ActiveTurn) {
+    setIsStreaming(true);
+    setWaitingForFirstText(!turn.text?.trim() && !turn.thinking?.trim());
+    const activeItems: BoardLogItem[] = [];
+    if (turn.thinking) {
+      activeItems.push({ type: "thinking", content: turn.thinking });
+    }
+    if (turn.text) {
+      activeItems.push({ type: "text", role: "assistant", content: turn.text });
+    }
+    for (const toolCall of turn.toolCalls ?? []) {
+      activeItems.push({
+        type: "tool",
+        id: toolCall.id,
+        toolName: toolCall.name,
+        args: toolCall.arguments,
+        status: toolCall.status,
+      });
+    }
+    setStreamingLogItems(activeItems);
+    if (turn.userText) {
+      setLogItems((prev) =>
+        prev.some((item) => item.type === "text" && item.role === "user" && item.content === turn.userText)
+          ? prev
+          : [...prev, { type: "text", role: "user", content: turn.userText ?? "" }]
+      );
+    }
+  }
+
+  function clearStreamingLogs() {
+    setStreamingLogItems([]);
   }
 
   function buildHistoryLogItems(messages: FullHistoryMessage[]): BoardLogItem[] {
@@ -196,26 +256,34 @@ export function BoardView() {
     stopSubscription = subscribeToSession(agentId, sessionKey, {
       onText(text) {
         if (!text) return;
-        setWaitingForFirstText(false);
-        setLiveText((prev) => prev + text);
+        appendStreamingTextLog(text);
       },
-      onToolCall(_id, name, args) {
-        appendToolLog(name, args);
+      onThinking(text) {
+        if (!text) return;
+        appendStreamingThinkingLog(text);
       },
-      onToolResult(_id, name, content) {
-        updateToolLog(name, content);
+      onToolCall(id, name, args) {
+        appendStreamingToolLog(id, name, args);
+      },
+      onToolEnd(name, isError) {
+        updateStreamingToolStatus(name, isError ? "error" : "done");
+      },
+      onToolResult(id, name, content, isError, details) {
+        attachStreamingToolResult(id, name, content, isError, details);
+      },
+      onActiveTurn(turn) {
+        applyActiveTurnSnapshot(turn);
       },
       onDone() {
         cleanupSubscription();
-        clearLiveText();
+        finalizeStreamingLogs();
         setWaitingForFirstText(false);
         setIsStreaming(false);
-        void loadHistory(agentId);
         processNextQueuedMessage(agentId);
       },
       onError(error) {
         cleanupSubscription();
-        clearLiveText();
+        clearStreamingLogs();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         appendAssistantLog(error);
@@ -241,7 +309,11 @@ export function BoardView() {
       }
 
       setLogItems(items);
-      setLiveText(history.isStreaming ? history.activeTurn?.text ?? "" : "");
+      if (history.isStreaming && history.activeTurn) {
+        applyActiveTurnSnapshot(history.activeTurn);
+      } else {
+        clearStreamingLogs();
+      }
       setIsStreaming(Boolean(history.isStreaming));
       setWaitingForFirstText(
         Boolean(history.isStreaming && !history.activeTurn?.text?.trim())
@@ -251,7 +323,7 @@ export function BoardView() {
       if (version !== historyLoadVersion || selectedAgentId() !== agentId) return;
       console.error("[BoardView] failed to load history:", err);
       setLogItems([]);
-      clearLiveText();
+      clearStreamingLogs();
       setIsStreaming(false);
       setWaitingForFirstText(false);
     }
@@ -305,7 +377,7 @@ export function BoardView() {
     cleanupLiveConnections();
     historyLoadVersion += 1;
     setLogItems([]);
-    clearLiveText();
+    clearStreamingLogs();
     setIsStreaming(false);
     setWaitingForFirstText(false);
     setStickToBottom(true);
@@ -324,7 +396,7 @@ export function BoardView() {
     setIsStreaming(true);
     setWaitingForFirstText(true);
     setStickToBottom(true);
-    clearLiveText();
+    clearStreamingLogs();
     scrollToBottom(true);
 
     const sessionKey = getSessionKey(agentId);
@@ -334,23 +406,21 @@ export function BoardView() {
       sessionKey,
       (chunk) => {
         if (!chunk) return;
-        setWaitingForFirstText(false);
-        setLiveText((prev) => prev + chunk);
+        appendStreamingTextLog(chunk);
       },
       () => {
         cleanupStream();
-        clearLiveText();
+        finalizeStreamingLogs();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         if (mode === "queued") {
           activeQueuedMessage = null;
         }
-        void loadHistory(agentId);
         processNextQueuedMessage(agentId);
       },
       (error) => {
         cleanupStream();
-        clearLiveText();
+        clearStreamingLogs();
         setWaitingForFirstText(false);
         setIsStreaming(false);
         if (mode === "queued") {
@@ -360,11 +430,18 @@ export function BoardView() {
         processNextQueuedMessage(agentId);
       },
       {
-        onToolCall(_id, name, args) {
-          appendToolLog(name, args);
+        onThinking(chunk) {
+          if (!chunk) return;
+          appendStreamingThinkingLog(chunk);
         },
-        onToolResult(_id, name, content) {
-          updateToolLog(name, content);
+        onToolCall(id, name, args) {
+          appendStreamingToolLog(id, name, args);
+        },
+        onToolEnd(name, isError) {
+          updateStreamingToolStatus(name, isError ? "error" : "done");
+        },
+        onToolResult(id, name, content, isError, details) {
+          attachStreamingToolResult(id, name, content, isError, details);
         },
       }
     );
@@ -427,11 +504,7 @@ export function BoardView() {
       console.error("[BoardView] failed to abort stream:", err);
     } finally {
       cleanupLiveConnections();
-      const partialText = liveText();
-      if (partialText) {
-        appendAssistantLog(partialText);
-      }
-      clearLiveText();
+      finalizeStreamingLogs();
       setIsStreaming(false);
       setWaitingForFirstText(false);
       activeQueuedMessage = null;

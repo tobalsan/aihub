@@ -1,6 +1,6 @@
-import { For, Show } from "solid-js";
-import type { FullHistoryMessage } from "../api/types";
-import { getTextBlocks } from "../lib/history";
+import { createEffect, createSignal, For, Show } from "solid-js";
+import type { FullHistoryMessage, FullToolResultMessage } from "../api/types";
+import { extractBlockText, getTextBlocks } from "../lib/history";
 import { renderMarkdown } from "../lib/markdown";
 
 export type BoardLogItem =
@@ -8,31 +8,14 @@ export type BoardLogItem =
   | { type: "thinking"; content: string }
   | {
       type: "tool";
+      id?: string;
       toolName: string;
-      title: string;
-      body: string;
-      icon: "read" | "write" | "bash" | "tool";
-      expanded?: boolean;
+      args: unknown;
+      body?: string;
+      result?: FullToolResultMessage;
+      status?: "running" | "done" | "error";
     }
-  | { type: "diff"; changes: number; content: string };
-
-function countLines(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  return trimmed.split(/\r?\n/).length;
-}
-
-function countChanges(text: string): number {
-  return text
-    .split(/\r?\n/)
-    .filter((line) => /^[+-](?![+-])/.test(line))
-    .length;
-}
-
-function formatMeasure(value: number, unit: string): string {
-  if (value <= 0) return `No ${unit}`;
-  return `${value} ${unit}${value === 1 ? "" : "s"}`;
-}
+  | { type: "file"; content: string };
 
 function formatJson(value: unknown): string {
   try {
@@ -42,70 +25,48 @@ function formatJson(value: unknown): string {
   }
 }
 
-function summarizeToolLabel(
+function detailBody(
   toolName: string,
-  args: Record<string, unknown> | null,
-  body: string,
-  diff?: string
-): string {
-  const key = toolName.trim().toLowerCase();
-  if (key === "read") {
-    const path =
-      typeof args?.path === "string"
-        ? args.path
-        : typeof args?.file_path === "string"
-          ? args.file_path
-          : "file";
-    return `Read ${path} · ${formatMeasure(countLines(body), "line")}`;
-  }
-  if (key === "exec_command" || key === "bash") {
-    const command =
-      typeof args?.cmd === "string"
-        ? args.cmd
-        : typeof args?.command === "string"
-          ? args.command
-          : toolName;
-    const output = body.trim()
-      ? formatMeasure(countLines(body), "line")
-      : "No output";
-    return `Bash ${command} · ${output}`;
-  }
-  if (key === "write") {
-    const path =
-      typeof args?.path === "string"
-        ? args.path
-        : typeof args?.file_path === "string"
-          ? args.file_path
-          : "file";
-    return `Edit ${path} · ${formatMeasure(
-      diff ? countChanges(diff) : countLines(body),
-      "change"
-    )}`;
-  }
-  return `${toolName || "Tool"} · ${
-    diff
-      ? formatMeasure(countChanges(diff), "change")
-      : formatMeasure(countLines(body), "line")
-  }`;
-}
-
-function toolIcon(toolName: string): BoardLogItem extends infer T
-  ? T extends { type: "tool"; icon: infer I }
-    ? I
-    : never
-  : never {
-  const key = toolName.trim().toLowerCase();
-  if (key === "read") return "read";
-  if (key === "write") return "write";
-  if (key === "bash" || key === "exec_command") return "bash";
-  return "tool";
-}
-
-function detailBody(toolName: string, args: Record<string, unknown>, body: string) {
+  args: Record<string, unknown>,
+  body: string
+) {
   const key = toolName.trim().toLowerCase();
   if (body.trim()) return body;
   if (key === "write" && typeof args.content === "string") return args.content;
   return formatJson(args);
+}
+
+function getToolResultText(result?: FullToolResultMessage): string {
+  return (result?.content ?? [])
+    .filter((block) => block.type === "text")
+    .map((block) => extractBlockText((block as { text: unknown }).text))
+    .join("\n");
+}
+
+function getToolInputSummary(toolName: string, args: unknown): string {
+  if (args && typeof args === "object") {
+    const record = args as Record<string, unknown>;
+    if (typeof record.command === "string") return record.command;
+    if (typeof record.cmd === "string") return record.cmd;
+    if (typeof record.path === "string") {
+      return record.path.split("/").filter(Boolean).at(-1) ?? record.path;
+    }
+    if (typeof record.file_path === "string") {
+      return (
+        record.file_path.split("/").filter(Boolean).at(-1) ?? record.file_path
+      );
+    }
+    if (typeof record.pattern === "string") return record.pattern;
+    if (typeof record.query === "string") return record.query;
+  }
+  return toolName;
+}
+
+function truncateInline(value: string, max = 96): string {
+  const singleLine = value.replace(/\s+/g, " ").trim();
+  return singleLine.length > max
+    ? `${singleLine.slice(0, Math.max(0, max - 1))}…`
+    : singleLine;
 }
 
 export function buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[] {
@@ -136,7 +97,9 @@ export function buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[] {
         items.push({
           type: "thinking",
           content:
-            typeof block.thinking === "string" ? block.thinking : String(block.thinking),
+            typeof block.thinking === "string"
+              ? block.thinking
+              : String(block.thinking),
         });
         continue;
       }
@@ -158,112 +121,101 @@ export function buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[] {
       const result = toolResults.get(block.id);
       const output = result ? getTextBlocks(result.content) : "";
       const body = detailBody(toolName, args, output);
-      const diff = result?.details?.diff;
 
       items.push({
         type: "tool",
+        id: block.id,
         toolName,
-        title: summarizeToolLabel(toolName, args, body, diff),
+        args,
         body,
-        icon: toolIcon(toolName),
+        result,
+        status: result?.isError ? "error" : result ? "done" : "running",
       });
-
-      if (diff) {
-        items.push({
-          type: "diff",
-          changes: countChanges(diff),
-          content: diff,
-        });
-      }
     }
   }
 
   return items;
 }
 
-function BoardLogIcon(props: { icon: "read" | "write" | "bash" | "tool" | "diff" }) {
-  if (props.icon === "bash") {
-    return (
-      <svg
-        class="board-log-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path d="M4 5h16v14H4z" />
-        <path d="M7 9l3 3-3 3" />
-        <path d="M12 15h4" />
-      </svg>
-    );
-  }
-  if (props.icon === "read") {
-    return (
-      <svg
-        class="board-log-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path d="M4 19h12a4 4 0 0 0 0-8h-1" />
-        <path d="M4 19V5h9a4 4 0 0 1 4 4v2" />
-      </svg>
-    );
-  }
-  if (props.icon === "write") {
-    return (
-      <svg
-        class="board-log-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5l4 4L8 20l-4 1 1-4L16.5 3.5z" />
-      </svg>
-    );
-  }
-  if (props.icon === "diff") {
-    return (
-      <svg
-        class="board-log-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path d="M12 3v18" />
-        <path d="M5 8l7-5 7 5" />
-        <path d="M19 16l-7 5-7-5" />
-      </svg>
-    );
-  }
-  return (
-    <svg
-      class="board-log-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-    >
-      <path d="M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4l-3 3-3-3 3-3z" />
-    </svg>
-  );
-}
-
 function ToolLog(props: {
   item: Extract<BoardLogItem, { type: "tool" }>;
 }) {
+  const argsText = () => formatJson(props.item.args);
+  const resultText = () =>
+    getToolResultText(props.item.result) || props.item.body || "";
+  const failed = () =>
+    props.item.status === "error" || props.item.result?.isError;
+  const statusLabel = () => {
+    if (failed()) return "Failed";
+    if (props.item.status === "running" || !props.item.result) return "Running";
+    return "Ran";
+  };
+  const summary = () =>
+    truncateInline(getToolInputSummary(props.item.toolName, props.item.args));
+  const preview = () => truncateInline(resultText() || argsText(), 120);
+  const [collapsed, setCollapsed] = createSignal(Boolean(resultText()));
+  const [autoCollapsed, setAutoCollapsed] = createSignal(Boolean(resultText()));
+
+  createEffect(() => {
+    if (resultText() && !autoCollapsed()) {
+      setCollapsed(true);
+      setAutoCollapsed(true);
+    }
+  });
+
   return (
-    <details class="board-log-details" open={props.item.expanded}>
-      <summary class="board-log-summary">
-        <BoardLogIcon icon={props.item.icon} />
-        <span>{props.item.title}</span>
-      </summary>
-      <pre class="board-log-pre">{props.item.body || "No output"}</pre>
-    </details>
+    <div class={`board-tool-block ${failed() ? "error" : ""}`}>
+      <button
+        class="board-tool-header"
+        onClick={() => setCollapsed(!collapsed())}
+      >
+        <span class="board-collapse-icon">{collapsed() ? "▶" : "▼"}</span>
+        <span class="board-tool-title">
+          {statusLabel()} {summary()}
+        </span>
+        <span class="board-tool-kind">{props.item.toolName}</span>
+        <Show when={collapsed()}>
+          <span class="board-tool-preview">{preview()}</span>
+        </Show>
+      </button>
+      <Show when={!collapsed()}>
+        <div class="board-tool-body">
+          <Show
+            when={
+              props.item.toolName === "bash" ||
+              props.item.toolName === "exec_command"
+            }
+            fallback={
+              <>
+                <div class="board-tool-section-label">Input</div>
+                <pre class="board-tool-code">{argsText()}</pre>
+                <Show when={props.item.result || props.item.body}>
+                  <div class="board-tool-section-label">Output</div>
+                  <pre class="board-tool-code">
+                    {resultText() || "(no output)"}
+                  </pre>
+                </Show>
+              </>
+            }
+          >
+            <div class="board-tool-section-label">Shell</div>
+            <pre class="board-tool-code">
+              {`$ ${getToolInputSummary(props.item.toolName, props.item.args)}${
+                props.item.result || props.item.body
+                  ? `\n\n${resultText() || "(no output)"}`
+                  : ""
+              }`}
+            </pre>
+          </Show>
+          <Show when={props.item.result?.details?.diff}>
+            <div class="board-tool-section-label">Diff</div>
+            <pre class="board-tool-code">
+              {props.item.result!.details!.diff}
+            </pre>
+          </Show>
+        </div>
+      </Show>
+    </div>
   );
 }
 
@@ -281,17 +233,9 @@ function ThinkingLog(props: {
 }
 
 function DiffLog(props: {
-  item: Extract<BoardLogItem, { type: "diff" }>;
+  item: Extract<BoardLogItem, { type: "file" }>;
 }) {
-  return (
-    <details class="board-log-details board-log-diff">
-      <summary class="board-log-summary">
-        <BoardLogIcon icon="diff" />
-        <span>{`Diff · ${formatMeasure(props.item.changes, "change")}`}</span>
-      </summary>
-      <pre class="board-log-pre board-log-diff-pre">{props.item.content}</pre>
-    </details>
-  );
+  return <pre class="board-log-pre">{props.item.content}</pre>;
 }
 
 function TextLog(props: {
@@ -365,13 +309,21 @@ export function BoardChatLog(props: {
                 fallback={
                   <Show
                     when={item.type === "tool"}
-                    fallback={<DiffLog item={item as Extract<BoardLogItem, { type: "diff" }>} />}
+                    fallback={
+                      <DiffLog
+                        item={item as Extract<BoardLogItem, { type: "file" }>}
+                      />
+                    }
                   >
-                    <ToolLog item={item as Extract<BoardLogItem, { type: "tool" }>} />
+                    <ToolLog
+                      item={item as Extract<BoardLogItem, { type: "tool" }>}
+                    />
                   </Show>
                 }
               >
-                <ThinkingLog item={item as Extract<BoardLogItem, { type: "thinking" }>} />
+                <ThinkingLog
+                  item={item as Extract<BoardLogItem, { type: "thinking" }>}
+                />
               </Show>
             }
           >
@@ -507,10 +459,7 @@ export function BoardChatLog(props: {
         }
 
         .board-log-icon {
-          width: 16px;
-          height: 16px;
-          flex: 0 0 auto;
-          color: #6366f1;
+          display: none;
         }
 
         .board-log-pre {
@@ -533,18 +482,97 @@ export function BoardChatLog(props: {
           color: var(--text-secondary);
         }
 
-        .board-log-diff {
-          border-color: color-mix(in srgb, #6366f1 18%, var(--border-default));
+        .board-tool-block {
+          background: color-mix(in srgb, var(--text-primary) 5%, var(--bg-surface));
+          border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
+          border-radius: 14px;
+          overflow: hidden;
         }
 
-        .board-log-diff-pre {
-          background:
-            linear-gradient(
-              180deg,
-              color-mix(in srgb, #22c55e 8%, transparent) 0%,
-              color-mix(in srgb, #ef4444 8%, transparent) 100%
-            ),
-            var(--bg-base);
+        .board-tool-block.error {
+          border-color: color-mix(in srgb, #ef4444 42%, var(--border-default));
+        }
+
+        .board-tool-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          min-height: 42px;
+          padding: 8px 14px;
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .board-tool-header:hover {
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+        }
+
+        .board-collapse-icon {
+          flex-shrink: 0;
+          width: 10px;
+          color: var(--text-secondary);
+          font-size: 9px;
+        }
+
+        .board-tool-title {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--text-primary);
+          font-size: 14px;
+          font-weight: 560;
+        }
+
+        .board-tool-kind {
+          flex-shrink: 0;
+          padding: 1px 6px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+          color: var(--text-secondary);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          font-size: 11px;
+        }
+
+        .board-tool-preview {
+          min-width: 0;
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--text-secondary);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          font-size: 12px;
+        }
+
+        .board-tool-body {
+          padding: 12px 14px 14px;
+          border-top: 1px solid color-mix(in srgb, var(--border-default) 84%, transparent);
+        }
+
+        .board-tool-section-label {
+          margin-bottom: 8px;
+          color: var(--text-secondary);
+          font-size: 12px;
+          font-weight: 560;
+        }
+
+        .board-tool-section-label:not(:first-child) {
+          margin-top: 14px;
+        }
+
+        .board-tool-code {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          color: var(--text-secondary);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          font-size: 12.5px;
+          line-height: 1.62;
         }
       `}</style>
     </div>

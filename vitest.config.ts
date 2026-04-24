@@ -41,6 +41,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
+    setupFiles: ["./vitest.setup.ts"],
     fileParallelism: true,
     maxWorkers: 4,
     minWorkers: 1,
