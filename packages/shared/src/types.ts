@@ -473,6 +473,28 @@ export type ProjectsExtensionConfig = z.infer<
   typeof ProjectsExtensionConfigSchema
 >;
 
+export const SubagentRuntimeCliSchema = z.enum(["codex", "claude", "pi"]);
+export type SubagentRuntimeCli = z.infer<typeof SubagentRuntimeCliSchema>;
+
+export const SubagentRuntimeProfileSchema = z.object({
+  name: z.string(),
+  cli: SubagentRuntimeCliSchema,
+  model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+  labelPrefix: z.string().optional(),
+});
+export type SubagentRuntimeProfile = z.infer<
+  typeof SubagentRuntimeProfileSchema
+>;
+
+export const SubagentsExtensionConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  profiles: z.array(SubagentRuntimeProfileSchema).optional().default([]),
+});
+export type SubagentsExtensionConfig = z.infer<
+  typeof SubagentsExtensionConfigSchema
+>;
+
 export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   baseUrl: z.string().optional(),
   publicKey: z.string().optional(),
@@ -499,6 +521,7 @@ export const ExtensionsConfigSchema = z
       .optional(),
     heartbeat: HeartbeatExtensionConfigSchema.optional(),
     projects: ProjectsExtensionConfigSchema.optional(),
+    subagents: SubagentsExtensionConfigSchema.optional(),
     langfuse: LangfuseExtensionConfigSchema.optional(),
     multiUser: MultiUserConfigSchema.optional(),
     board: z
@@ -894,6 +917,50 @@ export type SubagentGlobalListItem = {
   runStartedAt?: string;
 };
 
+export const SubagentRunStatusSchema = z.enum([
+  "starting",
+  "running",
+  "done",
+  "error",
+  "interrupted",
+]);
+export type SubagentRunStatus = z.infer<typeof SubagentRunStatusSchema>;
+
+export type SubagentParent = {
+  type: string;
+  id: string;
+};
+
+export type SubagentRun = {
+  id: string;
+  label: string;
+  parent?: SubagentParent;
+  cli: SubagentRuntimeCli;
+  cwd: string;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: string;
+  status: SubagentRunStatus;
+  pid?: number;
+  cliSessionId?: string;
+  startedAt: string;
+  lastActiveAt?: string;
+  latestOutput?: string;
+  finishedAt?: string;
+  exitCode?: number;
+  lastError?: string;
+  archived?: boolean;
+};
+
+export type SubagentLogEvent = {
+  ts?: string;
+  type: string;
+  text?: string;
+  tool?: { name?: string; id?: string };
+  diff?: { path?: string; summary?: string };
+  parentToolUseId?: string;
+};
+
 export const CreateScheduleRequestSchema = z.object({
   name: z.string(),
   agentId: z.string(),
@@ -1096,6 +1163,13 @@ export type WsAgentChangedEvent = {
   projectId: string;
 };
 
+export type WsSubagentChangedEvent = {
+  type: "subagent_changed";
+  runId: string;
+  parent?: SubagentParent;
+  status: SubagentRunStatus;
+};
+
 export type WsActiveTurnSnapshot = {
   type: "active_turn";
   agentId: string;
@@ -1120,6 +1194,7 @@ export type WsServerMessage =
   | WsStatusEvent
   | WsFileChangedEvent
   | WsAgentChangedEvent
+  | WsSubagentChangedEvent
   | WsActiveTurnSnapshot;
 
 // History types

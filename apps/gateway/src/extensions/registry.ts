@@ -11,6 +11,7 @@ type ExtensionRegistration = {
 
 const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
   webhooks: -10,
+  subagents: -5,
   discord: 10,
   slack: 10,
 };
@@ -67,10 +68,17 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     routePrefixes: [
       "/api/areas",
       "/api/projects",
-      "/api/subagents",
       "/api/activity",
       "/api/taskboard",
     ],
+  },
+  subagents: {
+    load: () =>
+      import("@aihub/extension-subagents").then(
+        (module) => module.subagentsExtension
+      ),
+    getConfig: (config) => config.extensions?.subagents,
+    routePrefixes: ["/api/subagents"],
   },
   langfuse: {
     load: () =>
@@ -103,15 +111,13 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
   board: {
     load: () =>
-      import("@aihub/extension-board").then(
-        (module) => module.boardExtension
-      ),
+      import("@aihub/extension-board").then((module) => module.boardExtension),
     getConfig: (config) => config.extensions?.board,
     routePrefixes: ["/api/board"],
   },
 };
 
-const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
+const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler", "subagents"]);
 
 let loadedExtensions: Extension[] = [];
 let loadedExtensionIds = new Set<string>();
@@ -237,7 +243,10 @@ export async function loadExtensions(
     const raw = rawConfigs.get(extension.id);
     if (!raw) return false;
     try {
-      const parsed = extension.configSchema.parse(raw) as Record<string, unknown>;
+      const parsed = extension.configSchema.parse(raw) as Record<
+        string,
+        unknown
+      >;
       return parsed.home === true;
     } catch {
       return false;

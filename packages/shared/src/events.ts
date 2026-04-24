@@ -43,3 +43,10 @@ export type ProjectAgentChangedEvent = {
   type: "agent_changed";
   projectId: string;
 };
+
+export type SubagentChangedEvent = {
+  type: "subagent_changed";
+  runId: string;
+  parent?: { type: string; id: string };
+  status: "starting" | "running" | "done" | "error" | "interrupted";
+};

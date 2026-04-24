@@ -93,6 +93,15 @@ function isExtensionEnabled(
       : config.extensions?.[
           extensionId as keyof NonNullable<GatewayConfig["extensions"]>
         ];
+  if (
+    extensionConfig &&
+    typeof extensionConfig === "object" &&
+    "enabled" in extensionConfig &&
+    extensionConfig.enabled === false
+  ) {
+    return false;
+  }
+  if (isExtensionLoaded(extensionId)) return true;
   return !!extensionConfig && extensionConfig.enabled !== false;
 }
 
@@ -469,6 +478,18 @@ function setupEventBroadcast() {
     }
     for (const ws of connectedClients) {
       sendWs(ws, event);
+    }
+  });
+
+  agentEventBus.on("subagent.changed", (event) => {
+    if (wsDebug) {
+      const payload = event as { runId?: string; status?: string };
+      console.log(
+        `[ws] subagentChanged: ${payload.runId ?? "unknown"} -> ${payload.status ?? "unknown"} (${connectedClients.size} clients)`
+      );
+    }
+    for (const ws of connectedClients) {
+      sendWs(ws, event as WsServerMessage);
     }
   });
 }

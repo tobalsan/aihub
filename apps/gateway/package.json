@@ -20,6 +20,7 @@
     "@aihub/extension-projects": "workspace:*",
     "@aihub/extension-board": "workspace:*",
     "@aihub/extension-scheduler": "workspace:*",
+    "@aihub/extension-subagents": "workspace:*",
     "@aihub/extension-slack": "workspace:*",
     "@aihub/extension-webhooks": "workspace:*",
     "@aihub/shared": "workspace:*",

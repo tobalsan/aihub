@@ -65,10 +65,12 @@ describe("extension registry", () => {
     const result = await loadExtensions(config);
 
     expect(result.map((extension) => extension.id)).toEqual([
+      "subagents",
       "scheduler",
       "heartbeat",
     ]);
     expect(getLoadedExtensions().map((extension) => extension.id)).toEqual([
+      "subagents",
       "scheduler",
       "heartbeat",
     ]);
@@ -103,8 +105,9 @@ describe("extension registry", () => {
 
     const result = await loadExtensions(config);
 
-    // scheduler and heartbeat load by default even without explicit config
+    // subagents, scheduler, and heartbeat load by default even without explicit config
     expect(result.map((extension) => extension.id)).toEqual([
+      "subagents",
       "scheduler",
       "heartbeat",
       "multiUser",
