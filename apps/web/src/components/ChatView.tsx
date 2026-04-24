@@ -14,7 +14,6 @@ import {
   streamMessage,
   uploadFiles,
   getSessionKey,
-  fetchSimpleHistory,
   fetchFullHistory,
   fetchAgent,
   fetchAgentStatuses,
@@ -96,6 +95,15 @@ type PendingFile = {
 };
 
 type DropZone = "history" | "composer" | "attach";
+
+type SimpleToolMessage = {
+  id: string;
+  role: "tool";
+  toolName: string;
+  timestamp: number;
+};
+
+type SimpleViewMessage = Message | SimpleToolMessage;
 
 type StreamingBlock =
   | {
@@ -220,32 +228,168 @@ function CollapsibleBlock(props: {
   );
 }
 
-// Render a tool result inline
-function ToolResultDisplay(props: { result: FullToolResultMessage }) {
-  const textContent = props.result.content
+function getToolResultText(result?: FullToolResultMessage): string {
+  return (result?.content ?? [])
     .filter((b) => b.type === "text")
     .map((b) => extractBlockText((b as { text: unknown }).text))
     .join("\n");
+}
+
+function getToolInputSummary(toolName: string, args: unknown): string {
+  if (args && typeof args === "object") {
+    const record = args as Record<string, unknown>;
+    if (typeof record.command === "string") return record.command;
+    if (typeof record.path === "string") {
+      return record.path.split("/").filter(Boolean).at(-1) ?? record.path;
+    }
+    if (typeof record.pattern === "string") return record.pattern;
+    if (typeof record.query === "string") return record.query;
+  }
+  return toolName;
+}
+
+function truncateInline(value: string, max = 96): string {
+  const singleLine = value.replace(/\s+/g, " ").trim();
+  return singleLine.length > max
+    ? `${singleLine.slice(0, Math.max(0, max - 1))}…`
+    : singleLine;
+}
+
+function ToolBlock(props: {
+  name: string;
+  arguments: unknown;
+  result?: FullToolResultMessage;
+  status?: "running" | "done" | "error";
+}) {
+  const argsText = () => formatJson(props.arguments);
+  const resultText = () => getToolResultText(props.result);
+  const failed = () => props.status === "error" || props.result?.isError;
+  const summary = () =>
+    truncateInline(getToolInputSummary(props.name, props.arguments));
+  const statusLabel = () => {
+    if (failed()) return "Failed";
+    if (props.status === "running" || !props.result) return "Running";
+    return "Ran";
+  };
+  const preview = () => truncateInline(resultText() || argsText(), 120);
+  const [collapsed, setCollapsed] = createSignal(Boolean(props.result));
+  const [autoCollapsed, setAutoCollapsed] = createSignal(Boolean(props.result));
+
+  createEffect(() => {
+    if (props.result && !autoCollapsed()) {
+      setCollapsed(true);
+      setAutoCollapsed(true);
+    }
+  });
 
   return (
-    <div class={`tool-result-inline ${props.result.isError ? "error" : ""}`}>
-      <CollapsibleBlock
-        title={`${props.result.isError ? "✗" : "✓"} ${props.result.toolName}`}
-        content={textContent || "(no output)"}
-        defaultCollapsed={isLongContent(textContent)}
-        isError={props.result.isError}
-        mono={true}
-      />
-      {props.result.details?.diff && (
-        <CollapsibleBlock
-          title="Diff"
-          content={props.result.details.diff}
-          defaultCollapsed={true}
-          mono={true}
-        />
-      )}
+    <div class={`tool-block ${failed() ? "error" : ""}`}>
+      <button class="tool-header" onClick={() => setCollapsed(!collapsed())}>
+        <span class="collapse-icon">{collapsed() ? "▶" : "▼"}</span>
+        <span class="tool-title">
+          {statusLabel()} {summary()}
+        </span>
+        <span class="tool-kind">{props.name}</span>
+        <Show when={collapsed()}>
+          <span class="tool-preview">{preview()}</span>
+        </Show>
+      </button>
+      <Show when={!collapsed()}>
+        <div class="tool-body">
+          <Show
+            when={props.name === "bash"}
+            fallback={
+              <>
+                <div class="tool-section-label">Input</div>
+                <pre class="tool-code">{argsText()}</pre>
+                <Show when={props.result}>
+                  <div class="tool-section-label">Output</div>
+                  <pre class="tool-code">{resultText() || "(no output)"}</pre>
+                </Show>
+              </>
+            }
+          >
+            <div class="tool-section-label">Shell</div>
+            <pre class="tool-code">
+              {`$ ${getToolInputSummary(props.name, props.arguments)}${
+                props.result ? `\n\n${resultText() || "(no output)"}` : ""
+              }`}
+            </pre>
+          </Show>
+          <Show when={props.result?.details?.diff}>
+            <div class="tool-section-label">Diff</div>
+            <pre class="tool-code">{props.result!.details!.diff}</pre>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
+}
+
+function SimpleToolBlock(props: { name: string }) {
+  return (
+    <div class="tool-block simple-tool-block">
+      <div class="tool-header simple-tool-header">
+        <span class="tool-title">Called tool:</span>
+        <span class="tool-kind">{props.name}</span>
+      </div>
+    </div>
+  );
+}
+
+function fullMessagesToSimpleView(
+  messages: FullHistoryMessage[]
+): SimpleViewMessage[] {
+  const simple: SimpleViewMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "toolResult" || message.role === "system") continue;
+    if (message.role === "user") {
+      const text = message.content
+        .filter(
+          (block): block is { type: "text"; text: string } =>
+            block.type === "text"
+        )
+        .map((block) => block.text)
+        .join("\n");
+      simple.push({
+        id: crypto.randomUUID(),
+        role: "user",
+        content: text,
+        files: message.content.filter(
+          (block): block is FileBlock => block.type === "file"
+        ),
+        timestamp: message.timestamp,
+      });
+      continue;
+    }
+
+    for (const block of message.content) {
+      if (block.type === "text" && block.text.trim()) {
+        simple.push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: block.text,
+          timestamp: message.timestamp,
+        });
+      } else if (block.type === "toolCall") {
+        simple.push({
+          id: crypto.randomUUID(),
+          role: "tool",
+          toolName: block.name,
+          timestamp: message.timestamp,
+        });
+      } else if (block.type === "file") {
+        simple.push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          files: [block],
+          timestamp: message.timestamp,
+        });
+      }
+    }
+  }
+  return simple;
 }
 
 // Render content blocks for full mode
@@ -277,19 +421,13 @@ function ContentBlocks(props: {
             );
           }
           if (block.type === "toolCall") {
-            const argsStr = formatJson(block.arguments);
             const result = props.toolResultsMap?.get(block.id);
             return (
-              <div class="tool-call-group">
-                <CollapsibleBlock
-                  title={`Tool: ${block.name}`}
-                  content={argsStr}
-                  defaultCollapsed={isLongContent(argsStr)}
-                  mono={true}
-                  timestamp={props.timestamp}
-                />
-                {result && <ToolResultDisplay result={result} />}
-              </div>
+              <ToolBlock
+                name={block.name}
+                arguments={block.arguments}
+                result={result}
+              />
             );
           }
           if (block.type === "file") {
@@ -393,7 +531,9 @@ export function ChatView() {
   const viewMode = createMemo<HistoryViewMode>(() =>
     params.view === "full" ? "full" : "simple"
   );
-  const [simpleMessages, setSimpleMessages] = createSignal<Message[]>([]);
+  const [simpleMessages, setSimpleMessages] = createSignal<SimpleViewMessage[]>(
+    []
+  );
   const [fullMessages, setFullMessages] = createSignal<FullHistoryMessage[]>(
     []
   );
@@ -684,14 +824,8 @@ export function ChatView() {
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
       applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     } else {
-      const res = await fetchSimpleHistory(params.agentId, sessionKey());
-      const base = res.messages.map((h) => ({
-        id: crypto.randomUUID(),
-        role: h.role,
-        content: h.content,
-        files: h.files,
-        timestamp: h.timestamp,
-      }));
+      const res = await fetchFullHistory(params.agentId, sessionKey());
+      const base = fullMessagesToSimpleView(res.messages);
       if (res.activeTurn?.userText) {
         base.push({
           id: crypto.randomUUID(),
@@ -906,7 +1040,10 @@ export function ChatView() {
     );
   };
 
-  const appendStreamingFileBlock = (file: FileBlock, timestamp = Date.now()) => {
+  const appendStreamingFileBlock = (
+    file: FileBlock,
+    timestamp = Date.now()
+  ) => {
     setStreamingBlocks((prev) => [...prev, { ...file, timestamp }]);
   };
 
@@ -1019,10 +1156,7 @@ export function ChatView() {
           direction: "outbound",
           ...file,
         };
-        setStreamingFiles((prev) => [
-          ...prev,
-          fileBlock,
-        ]);
+        setStreamingFiles((prev) => [...prev, fileBlock]);
         appendStreamingFileBlock(fileBlock);
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
         setIsStreaming(true);
@@ -1073,7 +1207,7 @@ export function ChatView() {
         /* ignore */
       });
 
-      // Subscribe to real-time status changes
+    // Subscribe to real-time status changes
     statusCleanup = subscribeToStatus({
       onStatus: (id, status) => {
         if (id !== agentId) return;
@@ -1134,7 +1268,8 @@ export function ChatView() {
 
   onCleanup(() => {
     if (autoScrollFrame !== undefined) cancelAnimationFrame(autoScrollFrame);
-    if (autoScrollSettleTimer !== undefined) clearTimeout(autoScrollSettleTimer);
+    if (autoScrollSettleTimer !== undefined)
+      clearTimeout(autoScrollSettleTimer);
     cleanup?.();
     subscriptionCleanup?.();
     statusCleanup?.();
@@ -1232,11 +1367,7 @@ export function ChatView() {
     const content = streamingText();
     const blocks = streamingBlocks();
     const files = streamingFiles();
-    if (
-      !content &&
-      blocks.length === 0 &&
-      files.length === 0
-    ) {
+    if (!content && blocks.length === 0 && files.length === 0) {
       return false;
     }
 
@@ -1269,16 +1400,52 @@ export function ChatView() {
         : [{ type: "text", text: content }, ...files];
 
     const timestamp = streamingStartedAt() ?? Date.now();
-    setSimpleMessages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content,
-        files: files.length > 0 ? files : undefined,
-        timestamp,
-      },
-    ]);
+    const simpleStreamMessages: SimpleViewMessage[] =
+      blocks.length > 0
+        ? blocks.flatMap((block): SimpleViewMessage[] => {
+            if (block.type === "text" && block.text.trim()) {
+              return [
+                {
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: block.text,
+                  timestamp: block.timestamp,
+                },
+              ];
+            }
+            if (block.type === "toolCall") {
+              return [
+                {
+                  id: crypto.randomUUID(),
+                  role: "tool",
+                  toolName: block.name,
+                  timestamp: block.timestamp,
+                },
+              ];
+            }
+            if (block.type === "file") {
+              return [
+                {
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: "",
+                  files: [block],
+                  timestamp: block.timestamp,
+                },
+              ];
+            }
+            return [];
+          })
+        : [
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content,
+              files: files.length > 0 ? files : undefined,
+              timestamp,
+            },
+          ];
+    setSimpleMessages((prev) => [...prev, ...simpleStreamMessages]);
     const toolResults = blocks
       .filter((block) => block.type === "toolCall" && block.result)
       .map((block) => (block.type === "toolCall" ? block.result : undefined))
@@ -1464,15 +1631,43 @@ export function ChatView() {
             queuedFiles.length > 0 ||
             queuedToolResults.length > 0
           ) {
+            const timestamp = Date.now();
             setSimpleMessages((prev) => [
               ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                content: queuedText,
-                files: queuedFiles.length > 0 ? queuedFiles : undefined,
-                timestamp: Date.now(),
-              },
+              ...blocks.flatMap((block): SimpleViewMessage[] => {
+                if (block.type === "text" && block.text.trim()) {
+                  return [
+                    {
+                      id: crypto.randomUUID(),
+                      role: "assistant",
+                      content: block.text,
+                      timestamp,
+                    },
+                  ];
+                }
+                if (block.type === "toolCall") {
+                  return [
+                    {
+                      id: crypto.randomUUID(),
+                      role: "tool",
+                      toolName: block.name,
+                      timestamp,
+                    },
+                  ];
+                }
+                if (block.type === "file") {
+                  return [
+                    {
+                      id: crypto.randomUUID(),
+                      role: "assistant",
+                      content: "",
+                      files: [block],
+                      timestamp,
+                    },
+                  ];
+                }
+                return [];
+              }),
             ]);
             setFullMessages((prev) => [
               ...prev,
@@ -1482,7 +1677,7 @@ export function ChatView() {
                   blocks.length > 0
                     ? blocks
                     : [{ type: "text", text: queuedText }],
-                timestamp: Date.now(),
+                timestamp,
               },
               ...queuedToolResults,
             ]);
@@ -1745,10 +1940,7 @@ export function ChatView() {
             direction: "outbound",
             ...file,
           };
-          setStreamingFiles((prev) => [
-            ...prev,
-            fileBlock,
-          ]);
+          setStreamingFiles((prev) => [...prev, fileBlock]);
           appendStreamingFileBlock(fileBlock);
         },
         onSessionReset: () => {
@@ -1839,7 +2031,9 @@ export function ChatView() {
               </span>
               <Show when={agent()?.description}>
                 <span class="agent-description-sep">&middot;</span>
-                <span class="agent-description-inline">{agent()!.description}</span>
+                <span class="agent-description-inline">
+                  {agent()!.description}
+                </span>
               </Show>
             </div>
           </div>
@@ -1906,15 +2100,16 @@ export function ChatView() {
         ref={messagesContainerRef}
         onScroll={handleScroll}
         classList={{
-          "drop-target":
-            isFileDragActive() && activeDropZone() === "history",
+          "drop-target": isFileDragActive() && activeDropZone() === "history",
         }}
       >
         <Show when={viewMode() === "simple"}>
           <For each={simpleMessages()}>
             {(msg) => (
               <div class={`message ${msg.role}`}>
-                {msg.role === "assistant" ? (
+                {msg.role === "tool" ? (
+                  <SimpleToolBlock name={msg.toolName} />
+                ) : msg.role === "assistant" ? (
                   <>
                     <Show when={msg.content}>
                       <div
@@ -1932,7 +2127,11 @@ export function ChatView() {
                     <FileAttachmentList files={msg.files} />
                   </>
                 )}
-                <div class="message-time">{formatTimestamp(msg.timestamp)}</div>
+                <Show when={msg.role !== "tool"}>
+                  <div class="message-time">
+                    {formatTimestamp(msg.timestamp)}
+                  </div>
+                </Show>
               </div>
             )}
           </For>
@@ -2040,18 +2239,12 @@ export function ChatView() {
                   }
                   if (block.type === "toolCall") {
                     return (
-                      <div class="tool-call-group">
-                        <CollapsibleBlock
-                          title={`${block.status === "error" ? "✗" : block.status === "done" ? "✓" : "⟳"} ${block.name}`}
-                          content={formatJson(block.arguments)}
-                          defaultCollapsed={false}
-                          mono={true}
-                          timestamp={block.timestamp}
-                        />
-                        {block.result && (
-                          <ToolResultDisplay result={block.result} />
-                        )}
-                      </div>
+                      <ToolBlock
+                        name={block.name}
+                        arguments={block.arguments}
+                        result={block.result}
+                        status={block.status}
+                      />
                     );
                   }
                   return <FileCard file={block} />;
@@ -2066,31 +2259,72 @@ export function ChatView() {
           </div>
         </Show>
 
-        {/* Streaming content in simple mode - just text */}
+        {/* Streaming content in simple mode */}
         <Show
           when={
             viewMode() === "simple" &&
             isStreaming() &&
-            (streamingText() || streamingFiles().length > 0)
+            (streamingBlocks().length > 0 ||
+              streamingText() ||
+              streamingFiles().length > 0)
           }
         >
-          <div class="message assistant streaming">
-            <Show when={streamingText()}>
-              <div
-                class="content markdown-content"
-                innerHTML={renderMarkdown(streamingText())}
-              />
-            </Show>
-            <For each={streamingFiles()}>
-              {(file) => <FileCard file={file} />}
-            </For>
-            {(streamingTextAt() || streamingStartedAt()) && (
-              <div class="message-time">
-                {formatTimestamp(
-                  (streamingTextAt() ?? streamingStartedAt()) as number
+          <div class="simple-stream-blocks">
+            <Show when={streamingBlocks().length === 0 && streamingText()}>
+              <div class="message assistant streaming">
+                <div
+                  class="content markdown-content"
+                  innerHTML={renderMarkdown(streamingText())}
+                />
+                {(streamingTextAt() || streamingStartedAt()) && (
+                  <div class="message-time">
+                    {formatTimestamp(
+                      (streamingTextAt() ?? streamingStartedAt()) as number
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </Show>
+            <For each={streamingBlocks()}>
+              {(block) => {
+                if (block.type === "text") {
+                  return (
+                    <div class="message assistant streaming">
+                      <div
+                        class="content markdown-content"
+                        innerHTML={renderMarkdown(block.text)}
+                      />
+                      <div class="message-time">
+                        {formatTimestamp(block.timestamp)}
+                      </div>
+                    </div>
+                  );
+                }
+                if (block.type === "toolCall") {
+                  return (
+                    <div class="message tool">
+                      <SimpleToolBlock name={block.name} />
+                    </div>
+                  );
+                }
+                if (block.type === "file") {
+                  return (
+                    <div class="message assistant">
+                      <FileCard file={block} />
+                      <div class="message-time">
+                        {formatTimestamp(block.timestamp)}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              }}
+            </For>
+            <Show when={streamingBlocks().length === 0}>
+              <For each={streamingFiles()}>
+                {(file) => <FileCard file={file} />}
+              </For>
+            </Show>
           </div>
         </Show>
 
@@ -2114,8 +2348,13 @@ export function ChatView() {
             </div>
           )}
 
-        {/* Keep ActiveToolIndicator for simple mode compatibility */}
-        <Show when={viewMode() === "simple" && activeTools().length > 0}>
+        <Show
+          when={
+            viewMode() === "simple" &&
+            activeTools().length > 0 &&
+            streamingBlocks().length === 0
+          }
+        >
           <ActiveToolIndicator tools={activeTools()} />
         </Show>
 
@@ -2182,8 +2421,7 @@ export function ChatView() {
           type="button"
           class="attach-btn"
           classList={{
-            "drop-target":
-              isFileDragActive() && activeDropZone() === "attach",
+            "drop-target": isFileDragActive() && activeDropZone() === "attach",
           }}
           aria-label="Attach files"
           disabled={loading() || uploadingFiles() || isStreaming()}
@@ -2280,20 +2518,24 @@ export function ChatView() {
 
       <style>{`
         .chat-view {
-          --accent: #6366f1;
-          --accent-glow: rgba(99, 102, 241, 0.4);
-          --drop-surface: rgba(99, 102, 241, 0.08);
-          --drop-border: rgba(99, 102, 241, 0.5);
+          --accent: #2563eb;
+          --accent-soft: color-mix(in srgb, var(--accent) 11%, transparent);
+          --accent-glow: color-mix(in srgb, var(--accent) 18%, transparent);
+          --drop-surface: color-mix(in srgb, var(--accent) 8%, transparent);
+          --drop-border: color-mix(in srgb, var(--accent) 34%, transparent);
           --surface-0: var(--bg-base);
-          --surface-1: var(--bg-surface);
+          --surface-1: color-mix(in srgb, var(--bg-surface) 88%, var(--bg-base));
           --surface-2: var(--border-default);
-          --surface-3: var(--bg-raised);
-          --user-bg: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          --surface-3: color-mix(in srgb, var(--bg-raised) 72%, var(--bg-base));
+          --transcript-width: 1120px;
+          --user-bg: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+          --tool-bg: color-mix(in srgb, var(--text-primary) 5%, var(--bg-surface));
+          --tool-border: color-mix(in srgb, var(--text-primary) 9%, transparent);
           --error: #ef4444;
           --success: #22c55e;
-          --radius-sm: 8px;
-          --radius-md: 16px;
-          --radius-lg: 24px;
+          --radius-sm: 10px;
+          --radius-md: 18px;
+          --radius-lg: 28px;
 
           height: 100%;
           display: flex;
@@ -2309,52 +2551,51 @@ export function ChatView() {
         .header {
           display: flex;
           align-items: center;
-          padding: 16px 20px;
-          gap: 16px;
-          background: var(--surface-0);
-          border-bottom: 1px solid var(--surface-2);
+          padding: 14px max(18px, calc((100% - var(--transcript-width)) / 2 + 18px));
+          gap: 12px;
+          background: color-mix(in srgb, var(--surface-0) 86%, transparent);
+          border-bottom: 1px solid color-mix(in srgb, var(--surface-2) 70%, transparent);
+          backdrop-filter: blur(18px);
           position: sticky;
           top: 0;
           z-index: 10;
         }
 
-        .back-btn {
-          width: 40px;
-          height: 40px;
+        .back-btn,
+        .taskboard-btn {
+          width: 38px;
+          height: 38px;
           border-radius: var(--radius-sm);
-          background: var(--surface-1);
-          border: 1px solid var(--surface-2);
+          background: transparent;
+          border: 1px solid transparent;
           color: var(--text-secondary);
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: all 0.2s ease;
+          transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
           text-decoration: none;
         }
 
-        .back-btn:hover {
-          background: var(--surface-2);
-          color: var(--text-primary);
-        }
-
-        .taskboard-btn {
-          width: 40px;
-          height: 40px;
-          border-radius: var(--radius-sm);
-          background: var(--surface-1);
-          border: 1px solid var(--surface-2);
-          color: var(--text-secondary);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s ease;
-        }
-
+        .back-btn:hover,
         .taskboard-btn:hover {
-          background: var(--surface-2);
+          background: var(--surface-1);
+          border-color: var(--surface-2);
           color: var(--text-primary);
+        }
+
+        .back-btn:focus-visible,
+        .taskboard-btn:focus-visible,
+        .toggle-btn:focus-visible,
+        .attach-btn:focus-visible,
+        .send-btn:focus-visible,
+        .stop-btn:focus-visible,
+        .attachment-remove:focus-visible,
+        .file-download:focus-visible,
+        .collapse-header:focus-visible,
+        .tool-header:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 2px;
         }
 
         .agent-info {
@@ -2375,8 +2616,9 @@ export function ChatView() {
         .agent-avatar {
           width: 36px;
           height: 36px;
-          border-radius: 8px;
+          border-radius: 12px;
           background: var(--surface-1);
+          border: 1px solid color-mix(in srgb, var(--surface-2) 72%, transparent);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2409,8 +2651,9 @@ export function ChatView() {
         }
 
         .agent-name {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 600;
+          letter-spacing: -0.01em;
           color: var(--text-primary);
         }
 
@@ -2423,7 +2666,7 @@ export function ChatView() {
         .status-dot {
           width: 6px;
           height: 6px;
-          background: var(--success);
+          background: color-mix(in srgb, var(--success) 78%, var(--text-muted));
           border-radius: 50%;
         }
 
@@ -2442,11 +2685,11 @@ export function ChatView() {
         }
 
         .think-dropdown {
-          background: var(--surface-1);
+          background: transparent;
           color: var(--text-primary);
-          border: 1px solid var(--surface-2);
+          border: 1px solid color-mix(in srgb, var(--surface-2) 70%, transparent);
           border-radius: var(--radius-sm);
-          padding: 6px 10px;
+          padding: 7px 10px;
           font-size: 12px;
           cursor: pointer;
           outline: none;
@@ -2454,14 +2697,15 @@ export function ChatView() {
 
         .think-dropdown:focus {
           border-color: var(--accent);
+          box-shadow: 0 0 0 3px var(--accent-glow);
         }
 
         .view-toggle {
           display: flex;
-          background: var(--surface-1);
-          border-radius: var(--radius-sm);
+          background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+          border-radius: 12px;
           padding: 2px;
-          border: 1px solid var(--surface-2);
+          border: 1px solid color-mix(in srgb, var(--surface-2) 70%, transparent);
         }
 
         .toggle-btn {
@@ -2472,13 +2716,14 @@ export function ChatView() {
           font-size: 12px;
           font-weight: 500;
           cursor: pointer;
-          border-radius: 6px;
-          transition: all 0.2s ease;
+          border-radius: 9px;
+          transition: background 0.16s ease, color 0.16s ease;
         }
 
         .toggle-btn.active {
-          background: var(--accent);
-          color: #fff;
+          background: var(--surface-3);
+          color: var(--text-primary);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface-2) 70%, transparent);
         }
 
         .toggle-btn:hover:not(.active) {
@@ -2492,10 +2737,14 @@ export function ChatView() {
           overscroll-behavior: contain;
           -webkit-overflow-scrolling: touch;
           touch-action: pan-y;
-          padding: 24px 20px;
+          width: min(100%, var(--transcript-width));
+          box-sizing: border-box;
+          margin: 0 auto;
+          padding: 36px 18px 30px;
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 22px;
+          scroll-padding-block: 30px;
         }
 
         .messages.drop-target {
@@ -2512,19 +2761,20 @@ export function ChatView() {
         }
 
         .messages::-webkit-scrollbar-thumb {
-          background: var(--surface-2);
+          background: color-mix(in srgb, var(--text-primary) 12%, transparent);
           border-radius: 3px;
         }
 
         .message {
-          max-width: 85%;
-          padding: 12px 16px;
+          max-width: min(78ch, 100%);
+          padding: 0;
           border-radius: var(--radius-md);
-          line-height: 1.5;
+          line-height: 1.58;
           white-space: pre-wrap;
           word-wrap: break-word;
-          font-size: 15px;
-          animation: message-in 0.3s ease-out;
+          font-size: 16px;
+          letter-spacing: -0.01em;
+          animation: message-in 0.22s ease-out;
         }
 
         @keyframes message-in {
@@ -2535,27 +2785,39 @@ export function ChatView() {
         .message.user {
           align-self: flex-end;
           background: var(--user-bg);
-          color: #fff;
-          border-bottom-right-radius: 6px;
+          color: color-mix(in srgb, var(--accent) 78%, var(--text-primary));
+          border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+          border-radius: 22px;
+          padding: 14px 18px;
         }
 
         .message.assistant {
           align-self: flex-start;
-          background: var(--surface-1);
+          background: transparent;
           color: var(--text-primary);
-          border: 1px solid var(--surface-2);
-          border-bottom-left-radius: 6px;
+          border: 1px solid transparent;
+        }
+
+        .message.assistant:not(.full-message) {
+          width: min(78ch, 100%);
+        }
+
+        .message.tool {
+          width: min(78ch, 100%);
+          max-width: min(78ch, 100%);
+          align-self: flex-start;
         }
 
         .message.full-message {
-          max-width: 95%;
+          width: 100%;
+          max-width: 100%;
         }
 
         .message.tool-result {
           align-self: flex-start;
           max-width: 95%;
-          background: var(--surface-1);
-          border: 1px solid var(--surface-2);
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
           padding: 8px;
         }
 
@@ -2564,14 +2826,19 @@ export function ChatView() {
         }
 
         .message-time {
-          margin-top: 6px;
+          margin-top: 8px;
           font-size: 11px;
           color: var(--text-muted);
           text-align: right;
+          font-variant-numeric: tabular-nums;
         }
 
         .message.user .message-time {
-          color: rgba(255, 255, 255, 0.7);
+          color: color-mix(in srgb, var(--accent) 48%, var(--text-muted));
+        }
+
+        .message.assistant:not(.full-message) .message-time {
+          text-align: right;
         }
 
         .message-files {
@@ -2593,8 +2860,8 @@ export function ChatView() {
         .message-file-pill {
           max-width: 260px;
           padding: 6px 8px;
-          background: rgba(255, 255, 255, 0.14);
-          border: 1px solid rgba(255, 255, 255, 0.2);
+          background: color-mix(in srgb, var(--accent) 12%, transparent);
+          border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
         }
 
         .file-icon {
@@ -2608,7 +2875,7 @@ export function ChatView() {
         .message.user .file-icon,
         .message.user .file-size,
         .message.user .file-name {
-          color: rgba(255, 255, 255, 0.86);
+          color: color-mix(in srgb, var(--accent) 70%, var(--text-primary));
         }
 
         .file-name,
@@ -2631,9 +2898,9 @@ export function ChatView() {
 
         .file-card {
           width: min(360px, 100%);
-          padding: 10px;
-          background: var(--surface-0);
-          border: 1px solid var(--surface-2);
+          padding: 11px 12px;
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
           white-space: normal;
         }
 
@@ -2658,19 +2925,21 @@ export function ChatView() {
           flex-shrink: 0;
           padding: 6px 8px;
           border-radius: var(--radius-sm);
-          background: var(--accent);
-          color: #fff;
+          background: var(--accent-soft);
+          color: var(--accent);
           font-size: 12px;
           text-decoration: none;
         }
 
-        .message.streaming .content::after {
+        .message.streaming .content::after,
+        .message.streaming .block-text:last-child::after {
           content: "";
           display: inline-block;
           width: 2px;
           height: 1em;
           background: var(--accent);
-          margin-left: 2px;
+          margin-left: 3px;
+          vertical-align: -0.12em;
           animation: cursor-blink 1s step-end infinite;
         }
 
@@ -2679,7 +2948,7 @@ export function ChatView() {
         }
 
         .message.thinking {
-          padding: 16px 20px;
+          padding: 14px 0;
         }
 
         .thinking-dots {
@@ -2703,13 +2972,12 @@ export function ChatView() {
           40% { opacity: 1; transform: scale(1); }
         }
 
-        /* Collapsible blocks */
         .collapsible-block {
-          background: var(--surface-0);
-          border: 1px solid var(--surface-2);
-          border-radius: var(--radius-sm);
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
+          border-radius: 14px;
           overflow: hidden;
-          margin: 4px 0;
+          margin: 2px 0;
         }
 
         .collapsible-block.error {
@@ -2721,26 +2989,26 @@ export function ChatView() {
           align-items: center;
           gap: 8px;
           width: 100%;
-          padding: 8px 12px;
+          padding: 9px 14px;
           background: transparent;
           border: none;
           color: var(--text-secondary);
-          font-size: 13px;
+          font-size: 14px;
           cursor: pointer;
           text-align: left;
         }
 
         .collapse-header:hover {
-          background: var(--surface-2);
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
         }
 
         .collapse-icon {
-          font-size: 10px;
+          font-size: 9px;
           color: var(--text-muted);
         }
 
         .collapse-title {
-          font-weight: 500;
+          font-weight: 560;
           color: var(--text-primary);
         }
 
@@ -2754,8 +3022,8 @@ export function ChatView() {
         }
 
         .collapse-content {
-          padding: 12px;
-          border-top: 1px solid var(--surface-2);
+          padding: 12px 14px 14px;
+          border-top: 1px solid color-mix(in srgb, var(--tool-border) 84%, transparent);
           font-size: 13px;
           color: var(--text-secondary);
           white-space: pre-wrap;
@@ -2765,48 +3033,141 @@ export function ChatView() {
         }
 
         .collapse-content.mono {
-          font-family: 'SF Mono', 'Consolas', monospace;
-          font-size: 12px;
+          font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+          font-size: 12.5px;
+          line-height: 1.62;
         }
 
         .block-time {
-          padding: 6px 12px 8px;
+          padding: 0 14px 10px;
           font-size: 11px;
           color: var(--text-muted);
           text-align: right;
+          font-variant-numeric: tabular-nums;
         }
 
-        /* Content blocks */
         .content-blocks {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 16px;
         }
 
-        /* Tool call with result grouped together */
-        .tool-call-group {
+        .tool-block {
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
+          border-radius: 14px;
+          overflow: hidden;
+        }
+
+        .tool-block.error {
+          border-color: color-mix(in srgb, var(--error) 42%, var(--tool-border));
+        }
+
+        .tool-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          min-height: 42px;
+          padding: 8px 14px;
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .tool-header:hover {
+          background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+        }
+
+        .simple-tool-block {
+          display: inline-flex;
+          max-width: 100%;
+        }
+
+        .simple-tool-header {
+          width: auto;
+          min-height: 34px;
+          padding: 6px 11px;
+          cursor: default;
+        }
+
+        .simple-tool-header:hover {
+          background: transparent;
+        }
+
+        .tool-title {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--text-primary);
+          font-size: 14px;
+          font-weight: 560;
+        }
+
+        .tool-kind {
+          flex-shrink: 0;
+          padding: 1px 6px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+          color: var(--text-muted);
+          font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+          font-size: 11px;
+          letter-spacing: 0;
+        }
+
+        .tool-preview {
+          min-width: 120px;
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--text-muted);
+          font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+          font-size: 12px;
+        }
+
+        .tool-body {
+          padding: 12px 14px 14px;
+          border-top: 1px solid color-mix(in srgb, var(--tool-border) 84%, transparent);
+        }
+
+        .tool-section-label {
+          margin-bottom: 8px;
+          color: var(--text-muted);
+          font-size: 12px;
+          font-weight: 560;
+        }
+
+        .tool-section-label:not(:first-child) {
+          margin-top: 14px;
+        }
+
+        .tool-code {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          color: var(--text-secondary);
+          font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+          font-size: 12.5px;
+          line-height: 1.62;
+        }
+
+        .simple-stream-blocks {
           display: flex;
           flex-direction: column;
-          gap: 4px;
-        }
-
-        .tool-result-inline {
-          margin-left: 12px;
-          border-left: 2px solid var(--surface-3);
-          padding-left: 8px;
-        }
-
-        .tool-result-inline.error {
-          border-left-color: var(--error);
+          gap: 16px;
         }
 
         .block-text {
           white-space: pre-wrap;
+          max-width: 78ch;
         }
 
-        /* Markdown content */
         .markdown-content {
-          line-height: 1.7;
+          line-height: 1.68;
           white-space: normal;
         }
 
@@ -2819,24 +3180,24 @@ export function ChatView() {
         }
 
         .markdown-content p {
-          margin: 0.4em 0;
+          margin: 0.5em 0;
         }
 
         .markdown-content code {
-          background: var(--surface-2);
-          padding: 0.1em 0.35em;
-          border-radius: 4px;
-          font-family: 'SF Mono', 'Consolas', monospace;
+          background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+          padding: 0.08em 0.34em;
+          border-radius: 6px;
+          font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
           font-size: 0.9em;
         }
 
         .markdown-content pre {
-          background: var(--surface-0);
-          border: 1px solid var(--surface-2);
-          border-radius: var(--radius-sm);
-          padding: 10px;
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
+          border-radius: 14px;
+          padding: 12px 14px;
           overflow-x: auto;
-          margin: 0.5em 0;
+          margin: 0.7em 0;
         }
 
         .markdown-content pre code {
@@ -2861,19 +3222,19 @@ export function ChatView() {
         }
 
         .markdown-content a {
-          color: #818cf8;
+          color: var(--accent);
           text-decoration: underline;
-          text-decoration-color: rgba(129, 140, 248, 0.35);
+          text-decoration-color: color-mix(in srgb, var(--accent) 32%, transparent);
           text-underline-offset: 2px;
           transition: text-decoration-color 0.15s ease;
         }
 
         .markdown-content a:hover {
-          text-decoration-color: #818cf8;
+          text-decoration-color: var(--accent);
         }
 
         .markdown-content blockquote {
-          border-left: 3px solid var(--surface-3);
+          border-left: 3px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
           margin: 0.4em 0;
           padding-left: 0.75em;
           color: var(--text-secondary);
@@ -2910,16 +3271,15 @@ export function ChatView() {
         }
 
         .markdown-content tbody tr:nth-child(even) {
-          background: rgba(255, 255, 255, 0.02);
+          background: color-mix(in srgb, var(--text-primary) 3%, transparent);
         }
 
-        /* Model meta */
         .model-meta {
           display: flex;
           gap: 12px;
-          margin-top: 8px;
+          margin-top: 12px;
           padding-top: 8px;
-          border-top: 1px solid var(--surface-2);
+          border-top: 1px solid color-mix(in srgb, var(--surface-2) 70%, transparent);
           font-size: 11px;
           color: var(--text-muted);
         }
@@ -2928,7 +3288,6 @@ export function ChatView() {
           font-weight: 500;
         }
 
-        /* Active tools */
         .active-tools {
           display: flex;
           flex-wrap: wrap;
@@ -2941,8 +3300,8 @@ export function ChatView() {
           align-items: center;
           gap: 6px;
           padding: 6px 12px;
-          background: var(--surface-1);
-          border: 1px solid var(--surface-2);
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
           border-radius: var(--radius-sm);
           font-size: 12px;
           color: var(--text-secondary);
@@ -2970,15 +3329,19 @@ export function ChatView() {
           display: flex;
           align-items: flex-end;
           flex-shrink: 0;
-          gap: 12px;
-          padding: 16px 20px 24px;
-          background: var(--surface-0);
-          border-top: 1px solid var(--surface-2);
+          gap: 10px;
+          width: min(100%, var(--transcript-width));
+          box-sizing: border-box;
+          margin: 0 auto;
+          padding: 14px 18px 22px;
+          background: color-mix(in srgb, var(--surface-0) 88%, transparent);
+          border-top: 1px solid color-mix(in srgb, var(--surface-2) 54%, transparent);
+          backdrop-filter: blur(18px);
         }
 
         .input-area.drop-active {
           background:
-            linear-gradient(180deg, rgba(99, 102, 241, 0.03), transparent 70%),
+            linear-gradient(180deg, color-mix(in srgb, var(--accent) 3%, transparent), transparent 70%),
             var(--surface-0);
         }
 
@@ -2991,13 +3354,19 @@ export function ChatView() {
           align-items: center;
           flex-wrap: wrap;
           gap: 8px;
-          padding: 10px 20px 0;
+          width: min(100%, var(--transcript-width));
+          box-sizing: border-box;
+          margin: 0 auto;
+          padding: 10px 18px 0;
           background: var(--surface-0);
-          border-top: 1px solid var(--surface-2);
+          border-top: 1px solid color-mix(in srgb, var(--surface-2) 54%, transparent);
         }
 
         .drop-banner {
-          padding: 10px 20px 0;
+          width: min(100%, var(--transcript-width));
+          box-sizing: border-box;
+          margin: 0 auto;
+          padding: 10px 18px 0;
           background: var(--surface-0);
           color: var(--accent);
           font-size: 12px;
@@ -3012,8 +3381,8 @@ export function ChatView() {
           max-width: 240px;
           padding: 6px 8px;
           border-radius: var(--radius-sm);
-          background: var(--surface-1);
-          border: 1px solid var(--surface-2);
+          background: var(--tool-bg);
+          border: 1px solid var(--tool-border);
         }
 
         .attachment-thumb {
@@ -3045,7 +3414,7 @@ export function ChatView() {
         }
 
         .attachment-remove:hover:not(:disabled) {
-          background: var(--surface-2);
+          background: color-mix(in srgb, var(--text-primary) 6%, transparent);
           color: var(--text-primary);
         }
 
@@ -3056,24 +3425,27 @@ export function ChatView() {
         }
 
         .upload-error {
-          padding: 8px 20px 0;
+          width: min(100%, var(--transcript-width));
+          box-sizing: border-box;
+          margin: 0 auto;
+          padding: 8px 18px 0;
           color: var(--error);
           background: var(--surface-0);
         }
 
         .attach-btn {
-          width: 48px;
-          height: 48px;
+          width: 44px;
+          height: 44px;
           border-radius: var(--radius-sm);
-          background: var(--surface-1);
-          border: 1px solid var(--surface-2);
+          background: transparent;
+          border: 1px solid transparent;
           color: var(--text-secondary);
           cursor: pointer;
           flex-shrink: 0;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: all 0.2s ease;
+          transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
         }
 
         .attach-btn svg {
@@ -3082,7 +3454,8 @@ export function ChatView() {
         }
 
         .attach-btn:hover:not(:disabled) {
-          background: var(--surface-2);
+          background: var(--surface-1);
+          border-color: var(--surface-2);
           color: var(--text-primary);
         }
 
@@ -3090,7 +3463,7 @@ export function ChatView() {
           background: var(--accent);
           color: #fff;
           border-color: var(--accent);
-          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+          box-shadow: 0 0 0 4px var(--accent-glow);
           transform: translateY(-1px);
         }
 
@@ -3103,16 +3476,17 @@ export function ChatView() {
           position: relative;
           flex: 1;
           background: var(--surface-1);
-          border: 1px solid var(--surface-2);
-          border-radius: var(--radius-lg);
+          border: 1px solid color-mix(in srgb, var(--surface-2) 82%, transparent);
+          border-radius: 22px;
+          box-shadow: 0 12px 38px color-mix(in srgb, #000 8%, transparent);
           transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
         .input-wrapper.drop-target {
           border-color: var(--accent);
-          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
+          box-shadow: 0 0 0 4px var(--accent-glow);
           background:
-            linear-gradient(180deg, rgba(99, 102, 241, 0.08), transparent 70%),
+            linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
             var(--surface-1);
         }
 
@@ -3130,13 +3504,15 @@ export function ChatView() {
         }
 
         .input-wrapper:focus-within {
-          border-color: var(--accent);
-          box-shadow: 0 0 0 3px var(--accent-glow);
+          border-color: color-mix(in srgb, var(--accent) 44%, var(--surface-2));
+          box-shadow:
+            0 0 0 3px var(--accent-glow),
+            0 14px 42px color-mix(in srgb, #000 10%, transparent);
         }
 
         .input {
           width: 100%;
-          padding: 14px 20px;
+          padding: 13px 18px;
           background: transparent;
           border: none;
           color: var(--text-primary);
@@ -3156,33 +3532,40 @@ export function ChatView() {
           opacity: 0.5;
         }
 
-        .send-btn {
-          width: 48px;
-          height: 48px;
+        .send-btn,
+        .stop-btn {
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
-          background: var(--surface-2);
-          border: none;
-          color: var(--text-muted);
+          border: 1px solid var(--surface-2);
           cursor: pointer;
           flex-shrink: 0;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .send-btn {
+          background: var(--surface-1);
+          color: var(--text-muted);
         }
 
         .send-btn:not(:disabled) {
           background: var(--accent);
           color: #fff;
-          box-shadow: 0 4px 16px var(--accent-glow);
+          border-color: var(--accent);
+          box-shadow: 0 10px 24px var(--accent-glow);
         }
 
-        .send-btn:not(:disabled):hover {
-          transform: scale(1.05);
+        .send-btn:not(:disabled):hover,
+        .stop-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
         }
 
-        .send-btn:not(:disabled):active {
-          transform: scale(0.95);
+        .send-btn:not(:disabled):active,
+        .stop-btn:active:not(:disabled) {
+          transform: translateY(0);
         }
 
         .send-btn:disabled {
@@ -3198,40 +3581,30 @@ export function ChatView() {
         }
 
         .stop-btn {
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
           background: #d32f2f;
-          border: none;
+          border-color: #d32f2f;
           color: #fff;
-          cursor: pointer;
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 4px 16px rgba(211, 47, 47, 0.4);
+          box-shadow: 0 10px 24px rgba(211, 47, 47, 0.24);
         }
 
         .stop-btn:hover:not(:disabled) {
           background: #c62828;
-          transform: scale(1.05);
-        }
-
-        .stop-btn:active:not(:disabled) {
-          transform: scale(0.95);
         }
 
         .stop-btn.stopping {
           background: #f57c00;
+          border-color: #f57c00;
           cursor: not-allowed;
         }
 
         .context-usage {
+          width: min(100%, var(--transcript-width));
+          box-sizing: border-box;
+          margin: 0 auto;
           text-align: right;
           color: var(--text-muted);
           font-size: 11px;
-          padding: 0 20px 8px;
+          padding: 0 18px 8px;
         }
 
         .context-usage.unavailable {
@@ -3239,7 +3612,9 @@ export function ChatView() {
         }
 
         .context-warning {
-          margin: 0 20px 8px;
+          width: min(calc(100% - 36px), calc(var(--transcript-width) - 36px));
+          box-sizing: border-box;
+          margin: 0 auto 8px;
           padding: 8px 10px;
           border: 1px solid color-mix(in srgb, #ef4444 35%, transparent);
           border-radius: 10px;
@@ -3258,6 +3633,63 @@ export function ChatView() {
           color: var(--text-muted);
           font-size: 0.85em;
           font-style: italic;
+        }
+
+        @media (max-width: 720px) {
+          .header {
+            padding: 10px 12px;
+          }
+
+          .agent-description-inline,
+          .agent-description-sep {
+            display: none;
+          }
+
+          .messages {
+            padding: 24px 12px 24px;
+            gap: 18px;
+          }
+
+          .message {
+            font-size: 15px;
+          }
+
+          .message.user {
+            max-width: 92%;
+            padding: 12px 14px;
+          }
+
+          .input-area {
+            padding: 10px 12px 14px;
+          }
+
+          .attach-btn,
+          .send-btn,
+          .stop-btn {
+            width: 42px;
+            height: 42px;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .message,
+          .thinking-dots span,
+          .active-tool.running .tool-icon,
+          .status-dot.active,
+          .message.streaming .content::after,
+          .message.streaming .block-text:last-child::after {
+            animation: none;
+          }
+
+          .send-btn,
+          .stop-btn,
+          .attach-btn,
+          .toggle-btn,
+          .back-btn,
+          .taskboard-btn,
+          .send-icon {
+            transition: none;
+          }
         }
       `}</style>
     </div>
