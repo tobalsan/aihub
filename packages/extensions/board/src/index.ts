@@ -27,6 +27,30 @@ function getBoardRoot(): string {
   return boardRoot;
 }
 
+function getScratchpadPath(): string {
+  return path.join(getBoardRoot(), "SCRATCHPAD.md");
+}
+
+function readScratchpad(): { content: string; updatedAt: string } {
+  const filePath = getScratchpadPath();
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, "", "utf-8");
+  }
+  const content = fs.readFileSync(filePath, "utf-8");
+  const stat = fs.statSync(filePath);
+  return { content, updatedAt: stat.mtime.toISOString() };
+}
+
+function writeScratchpad(content: string): { updatedAt: string } {
+  const filePath = getScratchpadPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tmpPath = filePath + ".tmp";
+  fs.writeFileSync(tmpPath, content, "utf-8");
+  fs.renameSync(tmpPath, filePath);
+  const stat = fs.statSync(filePath);
+  return { updatedAt: stat.mtime.toISOString() };
+}
+
 function resolveBoardRoot(ctx: ExtensionContext, rawConfig: unknown): string {
   const parsed = BoardExtensionConfigSchema.pick({ root: true }).parse(rawConfig);
   if (parsed.root) return expandPath(parsed.root);
@@ -104,6 +128,21 @@ function registerBoardRoutes(app: Hono): void {
         description: a.description,
       })),
     });
+  });
+
+  app.get("/board/scratchpad", (c) => {
+    const data = readScratchpad();
+    return c.json(data);
+  });
+
+  app.put("/board/scratchpad", async (c) => {
+    const body = await c.req.json();
+    const content = typeof body.content === "string" ? body.content : "";
+    const result = writeScratchpad(content);
+    getContext().emit("scratchpad.updated", {
+      updatedAt: result.updatedAt,
+    });
+    return c.json({ ok: true, ...result });
   });
 }
 
