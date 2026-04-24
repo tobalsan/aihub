@@ -27,6 +27,7 @@ import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
+import { getLoadedExtensions } from "../../extensions/registry.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
 import {
   appendAttachmentContext,
@@ -104,6 +105,10 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
       };
     },
   }));
+}
+
+function hasBoardExtensionEnabled(): boolean {
+  return getLoadedExtensions().some((extension) => extension.id === "board");
 }
 
 async function withPiOnecliEnv<T>(
@@ -259,6 +264,14 @@ export const piAdapter: SdkAdapter = {
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
       const connectorTools = createPiConnectorTools(agent);
+      const boardExtensionEnabled = hasBoardExtensionEnabled();
+      const scratchpadToolPrompt = boardExtensionEnabled
+        ? [
+            "Board scratchpad tools:",
+            "- scratchpad.read {} → Returns { content: string, updatedAt: string }. The shared scratchpad content.",
+            "- scratchpad.write { content: string } → Replaces scratchpad content. Use for collaborative notes, brainstorms, status updates.",
+          ].join("\n")
+        : undefined;
       const connectorPrompts = getConnectorPromptsForAgent(agent);
       const connectorContextFiles = connectorPrompts.map((cp) => ({
         path: `connector:${cp.id}`,
@@ -267,9 +280,10 @@ export const piAdapter: SdkAdapter = {
       const renderedContext = params.context
         ? renderAgentContext(params.context)
         : "";
-      const allAppendedPrompts = [renderedContext || undefined].filter(
-        (prompt): prompt is string => Boolean(prompt)
-      );
+      const allAppendedPrompts = [
+        scratchpadToolPrompt,
+        renderedContext || undefined,
+      ].filter((prompt): prompt is string => Boolean(prompt));
 
       const sessionManager = SessionManager.open(sessionFile, SESSIONS_DIR);
       const settingsManager = SettingsManager.create(
