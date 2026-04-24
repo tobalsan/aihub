@@ -15,6 +15,7 @@ aihub/
 │   └── agent-runner/ # Standalone Docker entrypoint for sandboxed agents
 ├── packages/
 │   ├── cli/         # apm CLI package (HTTP client to gateway API)
+│   ├── extensions/  # First-party gateway extensions
 │   └── shared/      # Zod schemas, shared types
 └── ~/.aihub/        # Default AIHUB_HOME runtime config & data
 ```
@@ -34,6 +35,7 @@ Core TypeScript/Node.js application. Exports:
 - Inbound Slack/Discord message runs now normalize `channel`, `place`, `conversation_type`, and `sender`, render a fallback-filled `[CHANNEL CONTEXT]` block, and append it to the true system prompt. This applies to both in-process and sandbox/container runs. First-party gateway/web/CLI runs do not get channel context.
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
+  - `subagents` is a default-enabled first-party extension for project-agnostic CLI subagent runtime. It owns `/api/subagents`, `aihub subagents ...`, process lifecycle, normalized logs, `subagent_changed` websocket broadcasts, and run storage under `$AIHUB_HOME/sessions/subagents/runs/<runId>`.
   - `multiUser` is an auth component that enables Better Auth + SQLite, guards `/api/*` and `/ws`, exposes `/api/auth/*`, `/api/me`, `/api/admin/*`, keeps session/history storage isolated per user, and must finish startup before the HTTP server begins accepting requests.
   - `langfuse` is an optional tracing component. Its registry entry is lazy-loaded, has no routes, validates `publicKey`/`secretKey` from component config or `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, and subscribes to `agentEventBus` stream/history events. `langfuse/tracer.ts` maps `agentId:sessionId` to traces, honors per-run trace context (`enabled`, explicit `surface`/`name`, metadata), buffers text/thinking into generations, maps HistoryEvent user/meta/tool_call/tool_result data into generation input/model/usage and tool spans, finalizes on `done`/`error`, catches flush/shutdown failures as warnings, and idle-cleans traces after 30 minutes.
   - `system_prompt` history events now capture the harness-assembled prompt text itself. Langfuse generation observations are emitted as chat-style input arrays (`system` + `user`), so the Langfuse UI shows the real system prompt section. `system_context` remains separate metadata for normalized Slack/Discord channel details.
@@ -163,6 +165,7 @@ Standalone `apm` CLI package.
 - Token precedence for HTTP commands: `AIHUB_TOKEN` > `$AIHUB_HOME/aihub.json` (`token`, default home `~/.aihub/`)
 - Local config path precedence: `--config` > `$AIHUB_HOME/aihub.json` (legacy fallback: derive home from `AIHUB_CONFIG`)
 - Gateway/web dev entrypoints now honor `AIHUB_HOME`, so `pnpm dev` and `pnpm dev:web` preview the same config home as local config commands
+- Project-agnostic subagent runtime commands live under the main gateway CLI: `aihub subagents start|list|status|logs|resume|interrupt|archive|unarchive|delete`.
 
 ## Runtime Data
 
@@ -179,6 +182,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `users/<userId>/sessions.json` - Per-user session mapping file when multi-user mode is enabled
 - `users/<userId>/claude-sessions.json` - Per-user Claude session map when multi-user mode is enabled
 - `users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled
+- `sessions/subagents/runs/<runId>/` - Project-agnostic CLI subagent run data (`config.json`, `state.json`, `progress.json`, `logs.jsonl`, `history.jsonl`)
 - (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
 - Repo-local dev helper: `pnpm init-dev-config` writes `./.aihub/aihub.json` from `scripts/config-template.json` using the first free UI port in `3001-3100` and the first free gateway port in `4001-4100`
@@ -581,6 +585,15 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | GET    | `/api/projects/:id/subagents`                    | List project subagents                                     |
 | POST   | `/api/projects/:id/subagents`                    | Spawn project subagent                                     |
 | PATCH  | `/api/projects/:id/subagents/:slug`              | Rename project subagent run                                |
+| GET    | `/api/subagents`                                 | List runtime subagent runs; supports `parent`, `status`    |
+| POST   | `/api/subagents`                                 | Start project-agnostic CLI subagent run                    |
+| GET    | `/api/subagents/:runId`                          | Get runtime subagent run                                   |
+| POST   | `/api/subagents/:runId/resume`                   | Resume completed/interrupted runtime run                   |
+| POST   | `/api/subagents/:runId/interrupt`                | Interrupt runtime run                                      |
+| POST   | `/api/subagents/:runId/archive`                  | Archive runtime run                                        |
+| POST   | `/api/subagents/:runId/unarchive`                | Unarchive runtime run                                      |
+| DELETE | `/api/subagents/:runId`                          | Delete runtime run record                                  |
+| GET    | `/api/subagents/:runId/logs`                     | Read normalized runtime run logs                           |
 | GET    | `/api/projects/:id/space`                        | Get project Space state                                    |
 | POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                             |
 | POST   | `/api/projects/:id/space/entries/skip`           | Mark selected pending Space entries as skipped             |
