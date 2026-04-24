@@ -14,6 +14,8 @@ import type {
   SimpleHistoryMessage,
   StreamEvent,
   SubagentGlobalListItem as SharedSubagentGlobalListItem,
+  SubagentLogEvent as SharedSubagentLogEvent,
+  SubagentRun,
   Task as SharedTask,
   TaskboardItemResponse,
   TaskboardResponse,
@@ -185,6 +187,10 @@ export type SubagentGlobalListResponse = {
   items: SubagentGlobalListItem[];
 };
 
+export type RuntimeSubagentListResponse = {
+  items: SubagentRun[];
+};
+
 export type SubagentListItem = {
   slug: string;
   type?: "subagent" | "ralph_loop";
@@ -207,14 +213,7 @@ export type SubagentListItem = {
   agentId?: string;
 };
 
-export type SubagentLogEvent = {
-  ts?: string;
-  type: string;
-  text?: string;
-  tool?: { name?: string; id?: string };
-  diff?: { path?: string; summary?: string };
-  parentToolUseId?: string;
-};
+export type SubagentLogEvent = SharedSubagentLogEvent;
 
 export type ActivityEvent = {
   id: string;

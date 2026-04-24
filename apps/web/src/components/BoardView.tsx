@@ -10,25 +10,28 @@ import {
 import {
   fetchAgents,
   fetchFullHistory,
+  fetchRuntimeSubagents,
   getSessionKey,
+  interruptRuntimeSubagent,
   postAbort,
   streamMessage,
+  subscribeToSubagentChanges,
   subscribeToSession,
 } from "../api/client";
 import type { ActiveTurn } from "../api/client";
-import type { Agent, FullHistoryMessage, FullToolResultMessage } from "../api/types";
+import type {
+  Agent,
+  FullHistoryMessage,
+  FullToolResultMessage,
+} from "../api/types";
+import type { SubagentRun } from "@aihub/shared/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
 
 // ── Types ───────────────────────────────────────────────────────────
 
-type CanvasPanel =
-  | "overview"
-  | "projects"
-  | "agents"
-  | "spec"
-  | "monitor";
+type CanvasPanel = "overview" | "projects" | "agents" | "spec" | "monitor";
 
 interface CanvasState {
   panel: CanvasPanel;
@@ -61,11 +64,15 @@ async function setCanvasState(
 
 export function BoardView() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(
+    null
+  );
   const [canvas, setCanvas] = createSignal<CanvasState>({ panel: "overview" });
   const [chatInput, setChatInput] = createSignal("");
   const [logItems, setLogItems] = createSignal<BoardLogItem[]>([]);
-  const [streamingLogItems, setStreamingLogItems] = createSignal<BoardLogItem[]>([]);
+  const [streamingLogItems, setStreamingLogItems] = createSignal<
+    BoardLogItem[]
+  >([]);
   const [isStreaming, setIsStreaming] = createSignal(false);
   const [waitingForFirstText, setWaitingForFirstText] = createSignal(false);
   const [stickToBottom, setStickToBottom] = createSignal(true);
@@ -117,7 +124,10 @@ export function BoardView() {
   }
 
   function appendUserLog(text: string) {
-    setLogItems((prev) => [...prev, { type: "text", role: "user", content: text }]);
+    setLogItems((prev) => [
+      ...prev,
+      { type: "text", role: "user", content: text },
+    ]);
   }
 
   function appendAssistantLog(text: string) {
@@ -133,7 +143,10 @@ export function BoardView() {
     setStreamingLogItems((prev) => {
       const last = prev.at(-1);
       if (last?.type === "text" && last.role === "assistant") {
-        return [...prev.slice(0, -1), { ...last, content: last.content + text }];
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content: last.content + text },
+        ];
       }
       return [...prev, { type: "text", role: "assistant", content: text }];
     });
@@ -143,7 +156,10 @@ export function BoardView() {
     setStreamingLogItems((prev) => {
       const last = prev.at(-1);
       if (last?.type === "thinking") {
-        return [...prev.slice(0, -1), { ...last, content: last.content + text }];
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content: last.content + text },
+        ];
       }
       return [...prev, { type: "thinking", content: text }];
     });
@@ -169,7 +185,9 @@ export function BoardView() {
   function updateStreamingToolStatus(name: string, status: "done" | "error") {
     setStreamingLogItems((prev) =>
       prev.map((item) =>
-        item.type === "tool" && item.toolName === name && item.status === "running"
+        item.type === "tool" &&
+        item.toolName === name &&
+        item.status === "running"
           ? { ...item, status }
           : item
       )
@@ -236,9 +254,17 @@ export function BoardView() {
     setStreamingLogItems(activeItems);
     if (turn.userText) {
       setLogItems((prev) =>
-        prev.some((item) => item.type === "text" && item.role === "user" && item.content === turn.userText)
+        prev.some(
+          (item) =>
+            item.type === "text" &&
+            item.role === "user" &&
+            item.content === turn.userText
+        )
           ? prev
-          : [...prev, { type: "text", role: "user", content: turn.userText ?? "" }]
+          : [
+              ...prev,
+              { type: "text", role: "user", content: turn.userText ?? "" },
+            ]
       );
     }
   }
@@ -247,7 +273,9 @@ export function BoardView() {
     setStreamingLogItems([]);
   }
 
-  function buildHistoryLogItems(messages: FullHistoryMessage[]): BoardLogItem[] {
+  function buildHistoryLogItems(
+    messages: FullHistoryMessage[]
+  ): BoardLogItem[] {
     return buildBoardLogs(messages);
   }
 
@@ -298,7 +326,8 @@ export function BoardView() {
 
     try {
       const history = await fetchFullHistory(agentId, sessionKey);
-      if (version !== historyLoadVersion || selectedAgentId() !== agentId) return;
+      if (version !== historyLoadVersion || selectedAgentId() !== agentId)
+        return;
 
       const historyMessages: FullHistoryMessage[] = history.messages;
       const items = buildHistoryLogItems(historyMessages);
@@ -320,7 +349,8 @@ export function BoardView() {
       );
       scrollToBottom(true);
     } catch (err) {
-      if (version !== historyLoadVersion || selectedAgentId() !== agentId) return;
+      if (version !== historyLoadVersion || selectedAgentId() !== agentId)
+        return;
       console.error("[BoardView] failed to load history:", err);
       setLogItems([]);
       clearStreamingLogs();
@@ -535,10 +565,17 @@ export function BoardView() {
       <div class="board-chat">
         <div class="board-chat-header">
           <div class="board-chat-agent-info">
-            <Show when={selectedAgent()?.avatar} fallback={
-              <div class="board-chat-agent-avatar board-chat-agent-avatar--default">AI</div>
-            }>
-              <div class="board-chat-agent-avatar">{selectedAgent()?.avatar}</div>
+            <Show
+              when={selectedAgent()?.avatar}
+              fallback={
+                <div class="board-chat-agent-avatar board-chat-agent-avatar--default">
+                  AI
+                </div>
+              }
+            >
+              <div class="board-chat-agent-avatar">
+                {selectedAgent()?.avatar}
+              </div>
             </Show>
             <select
               class="board-agent-select"
@@ -546,9 +583,7 @@ export function BoardView() {
               onChange={(e) => setSelectedAgentId(e.currentTarget.value)}
             >
               <For each={agents()}>
-                {(agent) => (
-                  <option value={agent.id}>{agent.name}</option>
-                )}
+                {(agent) => <option value={agent.id}>{agent.name}</option>}
               </For>
             </select>
           </div>
@@ -562,7 +597,16 @@ export function BoardView() {
           <Show when={logItems().length === 0 && !isStreaming()}>
             <div class="board-chat-empty">
               <div class="board-chat-empty-icon">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               </div>
@@ -578,7 +622,19 @@ export function BoardView() {
             {(message) => (
               <div class="board-msg board-msg-user">
                 <div class="board-msg-role">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
                   <span>You (queued)</span>
                 </div>
                 <div class="board-msg-content">{message}</div>
@@ -588,7 +644,20 @@ export function BoardView() {
           <Show when={isStreaming() && waitingForFirstText()}>
             <div class="board-msg board-msg-assistant">
               <div class="board-msg-role">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
                 <span>{selectedAgent()?.name ?? "Agent"}</span>
               </div>
               <div class="board-msg-thinking">Thinking…</div>
@@ -617,7 +686,16 @@ export function BoardView() {
                   disabled={!chatInput().trim()}
                   aria-label="Send message"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </svg>
@@ -630,7 +708,12 @@ export function BoardView() {
                 type="button"
                 aria-label="Stop response"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               </button>
@@ -1032,8 +1115,9 @@ function CanvasPanelRenderer(props: {
       return <OverviewPanel />;
     case "projects":
       return <ProjectsPanel />;
+    case "agents":
     case "monitor":
-      return <MonitorPanel />;
+      return <MonitorPanel agentId={props.agentId} />;
     default:
       return <OverviewPanel />;
   }
@@ -1096,19 +1180,236 @@ function ProjectsPanel() {
   );
 }
 
-function MonitorPanel() {
+function formatRuntime(startedAt: string) {
+  const elapsed = Date.now() - Date.parse(startedAt);
+  if (!Number.isFinite(elapsed) || elapsed < 0) return "now";
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function parentKey(parent: SubagentRun["parent"]) {
+  return parent ? `${parent.type}:${parent.id}` : "";
+}
+
+function MonitorPanel(props: { agentId: string | null }) {
+  const [runs, setRuns] = createSignal<SubagentRun[]>([]);
+  const [error, setError] = createSignal<string | null>(null);
+  const [loading, setLoading] = createSignal(false);
+  const scopedParent = createMemo(() =>
+    props.agentId
+      ? `agent-session:${props.agentId}:${getSessionKey(props.agentId)}`
+      : undefined
+  );
+
+  async function loadRuns() {
+    setLoading(true);
+    try {
+      const parent = scopedParent();
+      const data = await fetchRuntimeSubagents(
+        parent ? { parent } : { status: "running" }
+      );
+      setRuns(data.items);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function interruptRun(runId: string) {
+    const result = await interruptRuntimeSubagent(runId);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    await loadRuns();
+  }
+
+  createEffect(() => {
+    scopedParent();
+    void loadRuns();
+  });
+
+  const unsubscribe = subscribeToSubagentChanges({
+    onSubagentChanged: (event) => {
+      const parent = scopedParent();
+      if (!parent || parentKey(event.parent) === parent) void loadRuns();
+    },
+    onError: setError,
+  });
+  onCleanup(unsubscribe);
+
+  const runningCount = createMemo(
+    () => runs().filter((run) => run.status === "running").length
+  );
+
   return (
     <div class="canvas-monitor">
-      <h2>Agent Monitor</h2>
-      <p>Running subagents will stream here.</p>
+      <header class="canvas-monitor-header">
+        <div>
+          <h2>Agent Monitor</h2>
+          <p>{runningCount()} running</p>
+        </div>
+        <button class="canvas-monitor-refresh" onClick={loadRuns} type="button">
+          Refresh
+        </button>
+      </header>
+      <Show when={error()}>
+        {(message) => <div class="canvas-monitor-error">{message()}</div>}
+      </Show>
+      <Show
+        when={runs().length > 0}
+        fallback={
+          <p class="canvas-monitor-empty">
+            {loading() ? "Loading subagents..." : "No active subagents."}
+          </p>
+        }
+      >
+        <div class="canvas-monitor-list">
+          <For each={runs()}>
+            {(run) => (
+              <article class="canvas-monitor-run">
+                <div class="canvas-monitor-run-main">
+                  <div class="canvas-monitor-run-title">
+                    <span class={`canvas-monitor-dot ${run.status}`} />
+                    <strong>{run.label}</strong>
+                    <span>{run.cli}</span>
+                  </div>
+                  <div class="canvas-monitor-run-meta">
+                    <span>{run.status}</span>
+                    <span>{formatRuntime(run.startedAt)}</span>
+                    <Show when={run.parent}>
+                      {(parent) => <span>{parentKey(parent())}</span>}
+                    </Show>
+                  </div>
+                  <Show when={run.latestOutput}>
+                    {(latest) => (
+                      <p class="canvas-monitor-output">{latest()}</p>
+                    )}
+                  </Show>
+                </div>
+                <Show when={run.status === "running"}>
+                  <button
+                    class="canvas-monitor-stop"
+                    onClick={() => void interruptRun(run.id)}
+                    type="button"
+                  >
+                    Stop
+                  </button>
+                </Show>
+              </article>
+            )}
+          </For>
+        </div>
+      </Show>
       <style>{`
+        .canvas-monitor {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .canvas-monitor-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
         .canvas-monitor h2 {
-          margin: 0 0 12px;
+          margin: 0;
           color: var(--text-primary);
         }
         .canvas-monitor p {
+          margin: 0;
           color: var(--text-secondary);
           font-size: 14px;
+        }
+        .canvas-monitor-refresh,
+        .canvas-monitor-stop {
+          border: 1px solid var(--border-default);
+          background: var(--surface-secondary);
+          color: var(--text-primary);
+          border-radius: 6px;
+          padding: 7px 10px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+        .canvas-monitor-error {
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          color: #fca5a5;
+          border-radius: 6px;
+          padding: 8px 10px;
+          font-size: 13px;
+        }
+        .canvas-monitor-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .canvas-monitor-run {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          padding: 12px;
+          background: var(--surface-secondary);
+        }
+        .canvas-monitor-run-main {
+          min-width: 0;
+        }
+        .canvas-monitor-run-title,
+        .canvas-monitor-run-meta {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+        .canvas-monitor-run-title strong {
+          color: var(--text-primary);
+          font-size: 14px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .canvas-monitor-run-title span,
+        .canvas-monitor-run-meta span {
+          color: var(--text-secondary);
+          font-size: 12px;
+        }
+        .canvas-monitor-run-meta {
+          margin-top: 5px;
+          flex-wrap: wrap;
+        }
+        .canvas-monitor-output {
+          margin-top: 8px !important;
+          color: var(--text-primary) !important;
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
+        .canvas-monitor-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--text-secondary);
+          flex: 0 0 auto;
+        }
+        .canvas-monitor-dot.running,
+        .canvas-monitor-dot.starting {
+          background: #22c55e;
+        }
+        .canvas-monitor-dot.error {
+          background: #ef4444;
+        }
+        .canvas-monitor-dot.interrupted {
+          background: #f59e0b;
         }
       `}</style>
     </div>

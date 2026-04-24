@@ -16,6 +16,7 @@ import type {
   ActivityResponse,
   AgentStatusResponse,
   SubagentGlobalListResponse,
+  RuntimeSubagentListResponse,
   SubagentListItem,
   SubagentListResponse,
   SubagentLogsResponse,
@@ -35,6 +36,7 @@ import type {
   Task,
   TasksResponse,
 } from "./types";
+import type { SubagentRun, SubagentRunStatus } from "@aihub/shared/types";
 
 const API_BASE = "/api";
 const SESSION_KEY_PREFIX = "aihub:sessionKey:";
@@ -489,6 +491,15 @@ export type FileChangeCallbacks = {
   onError?: (error: string) => void;
 };
 
+export type SubagentChangeCallbacks = {
+  onSubagentChanged?: (event: {
+    runId: string;
+    parent?: { type: string; id: string };
+    status: SubagentRunStatus;
+  }) => void;
+  onError?: (error: string) => void;
+};
+
 const statusSubscribers = new Set<StatusCallbacks>();
 let statusSocket: WebSocket | null = null;
 let statusReconnectTimer: number | undefined;
@@ -582,6 +593,7 @@ function connectStatusSocket(): void {
 }
 
 const fileChangeSubscribers = new Set<FileChangeCallbacks>();
+const subagentChangeSubscribers = new Set<SubagentChangeCallbacks>();
 let fileChangeSocket: WebSocket | null = null;
 let fileChangeReconnectTimer: number | undefined;
 
@@ -593,11 +605,16 @@ function clearFileChangeReconnectTimer(): void {
 }
 
 function scheduleFileChangeReconnect(): void {
-  if (fileChangeSubscribers.size === 0) return;
+  if (
+    fileChangeSubscribers.size === 0 &&
+    subagentChangeSubscribers.size === 0
+  ) {
+    return;
+  }
   if (fileChangeReconnectTimer !== undefined) return;
   fileChangeReconnectTimer = window.setTimeout(() => {
     fileChangeReconnectTimer = undefined;
-    if (fileChangeSubscribers.size > 0) {
+    if (fileChangeSubscribers.size > 0 || subagentChangeSubscribers.size > 0) {
       connectFileChangeSocket();
     }
   }, 1000);
@@ -613,7 +630,12 @@ function disconnectFileChangeSocket(): void {
 }
 
 function connectFileChangeSocket(): void {
-  if (fileChangeSubscribers.size === 0) return;
+  if (
+    fileChangeSubscribers.size === 0 &&
+    subagentChangeSubscribers.size === 0
+  ) {
+    return;
+  }
   if (
     fileChangeSocket &&
     (fileChangeSocket.readyState === WebSocket.OPEN ||
@@ -646,8 +668,21 @@ function connectFileChangeSocket(): void {
       }
       return;
     }
+    if (payload.type === "subagent_changed") {
+      for (const subscriber of subagentChangeSubscribers) {
+        subscriber.onSubagentChanged?.({
+          runId: payload.runId,
+          parent: payload.parent,
+          status: payload.status,
+        });
+      }
+      return;
+    }
     if (payload.type === "error") {
       for (const subscriber of fileChangeSubscribers) {
+        subscriber.onError?.(payload.message);
+      }
+      for (const subscriber of subagentChangeSubscribers) {
         subscriber.onError?.(payload.message);
       }
     }
@@ -656,6 +691,9 @@ function connectFileChangeSocket(): void {
   ws.onerror = () => {
     for (const subscriber of fileChangeSubscribers) {
       subscriber.onError?.("File change subscription connection error");
+    }
+    for (const subscriber of subagentChangeSubscribers) {
+      subscriber.onError?.("Subagent subscription connection error");
     }
   };
 
@@ -691,7 +729,27 @@ export function subscribeToFileChanges(
 
   return () => {
     fileChangeSubscribers.delete(callbacks);
-    if (fileChangeSubscribers.size === 0) {
+    if (
+      fileChangeSubscribers.size === 0 &&
+      subagentChangeSubscribers.size === 0
+    ) {
+      disconnectFileChangeSocket();
+    }
+  };
+}
+
+export function subscribeToSubagentChanges(
+  callbacks: SubagentChangeCallbacks
+): () => void {
+  subagentChangeSubscribers.add(callbacks);
+  connectFileChangeSocket();
+
+  return () => {
+    subagentChangeSubscribers.delete(callbacks);
+    if (
+      fileChangeSubscribers.size === 0 &&
+      subagentChangeSubscribers.size === 0
+    ) {
       disconnectFileChangeSocket();
     }
   };
@@ -977,6 +1035,41 @@ export async function fetchAllSubagents(): Promise<SubagentGlobalListResponse> {
   const res = await fetch(`${API_BASE}/subagents`);
   if (!res.ok) throw new Error("Failed to fetch subagents");
   return res.json();
+}
+
+export async function fetchRuntimeSubagents(filters?: {
+  parent?: string;
+  status?: SubagentRunStatus;
+  includeArchived?: boolean;
+}): Promise<RuntimeSubagentListResponse> {
+  const params = new URLSearchParams();
+  if (filters?.parent) params.set("parent", filters.parent);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.includeArchived) params.set("includeArchived", "true");
+  const query = params.toString();
+  const res = await fetch(`${API_BASE}/subagents${query ? `?${query}` : ""}`);
+  if (!res.ok) throw new Error("Failed to fetch subagents");
+  return res.json();
+}
+
+export type InterruptRuntimeSubagentResult =
+  | { ok: true; data: SubagentRun }
+  | { ok: false; error: string };
+
+export async function interruptRuntimeSubagent(
+  runId: string
+): Promise<InterruptRuntimeSubagentResult> {
+  const res = await fetch(
+    `${API_BASE}/subagents/${encodeURIComponent(runId)}/interrupt`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to interrupt subagent" }));
+    return { ok: false, error: data.error ?? "Failed to interrupt subagent" };
+  }
+  return { ok: true, data: (await res.json()) as SubagentRun };
 }
 
 export type SubagentListResult =
