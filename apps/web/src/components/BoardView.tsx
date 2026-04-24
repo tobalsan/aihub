@@ -18,6 +18,7 @@ import {
 import type { Agent, FullHistoryMessage } from "../api/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
+import { ScratchpadEditor } from "./ScratchpadEditor";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -977,30 +978,26 @@ function OverviewPanel() {
   return (
     <div class="canvas-overview">
       <h1>{dateStr}</h1>
-      <p class="canvas-overview-subtitle">Board is ready. Start a conversation to begin.</p>
-      <div class="canvas-overview-placeholder">
-        <p>🚧 Canvas panels will populate as you interact with agents.</p>
+      <div class="canvas-overview-scratchpad">
+        <ScratchpadEditor />
       </div>
       <style>{`
         .canvas-overview {
           max-width: 600px;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
         }
         .canvas-overview h1 {
           margin: 0 0 8px;
           font-size: 22px;
           color: var(--text-primary);
+          flex-shrink: 0;
         }
-        .canvas-overview-subtitle {
-          margin: 0 0 24px;
-          color: var(--text-secondary);
-          font-size: 14px;
-        }
-        .canvas-overview-placeholder {
-          padding: 20px;
-          border: 1px dashed var(--border-default);
-          border-radius: 8px;
-          color: var(--text-secondary);
-          font-size: 14px;
+        .canvas-overview-scratchpad {
+          flex: 1;
+          min-height: 0;
+          margin-top: 16px;
         }
       `}</style>
     </div>
