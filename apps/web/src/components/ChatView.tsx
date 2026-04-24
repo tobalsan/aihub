@@ -7,6 +7,7 @@ import {
   onCleanup,
   Show,
   on,
+  batch,
 } from "solid-js";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import {
@@ -95,6 +96,28 @@ type PendingFile = {
 };
 
 type DropZone = "history" | "composer" | "attach";
+
+type StreamingBlock =
+  | {
+      type: "thinking";
+      thinking: string;
+      timestamp: number;
+    }
+  | {
+      type: "text";
+      text: string;
+      timestamp: number;
+    }
+  | {
+      type: "toolCall";
+      id: string;
+      name: string;
+      arguments: unknown;
+      status: "running" | "done" | "error";
+      timestamp: number;
+      result?: FullToolResultMessage;
+    }
+  | (FileBlock & { timestamp: number });
 
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
@@ -404,6 +427,9 @@ export function ChatView() {
     }>
   >([]);
   const [streamingText, setStreamingText] = createSignal("");
+  const [streamingBlocks, setStreamingBlocks] = createSignal<StreamingBlock[]>(
+    []
+  );
   const [streamingFiles, setStreamingFiles] = createSignal<FileBlock[]>([]);
   const [streamingTextAt, setStreamingTextAt] = createSignal<number | null>(
     null
@@ -411,9 +437,9 @@ export function ChatView() {
   const [streamingStartedAt, setStreamingStartedAt] = createSignal<
     number | null
   >(null);
+  const [streamingFinished, setStreamingFinished] = createSignal(false);
   const [activeTools, setActiveTools] = createSignal<ActiveToolCall[]>([]);
   const [loading, setLoading] = createSignal(true);
-  const [pendingHistoryRefresh, setPendingHistoryRefresh] = createSignal(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = createSignal<
     Array<{ text: string; timestamp: number; files?: FileBlock[] }>
   >([]);
@@ -422,13 +448,13 @@ export function ChatView() {
   >([]);
 
   let chatViewRef: HTMLDivElement | undefined;
-  let messagesEndRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let cleanup: (() => void) | null = null;
   let subscriptionCleanup: (() => void) | null = null;
   let aborted = false;
+  let skipNextHistoryRefresh = false;
   let fileDragDepth = 0;
 
   const sessionKey = () => getSessionKey(params.agentId);
@@ -486,8 +512,10 @@ export function ChatView() {
     return null;
   });
 
-  const [isAtBottom, setIsAtBottom] = createSignal(true);
+  const [autoScrollPinned, setAutoScrollPinned] = createSignal(true);
   const SCROLL_THRESHOLD = 40;
+  let autoScrollFrame: number | undefined;
+  let autoScrollSettleTimer: number | undefined;
 
   const checkIsAtBottom = () => {
     if (!messagesContainerRef) return true;
@@ -496,12 +524,36 @@ export function ChatView() {
   };
 
   const handleScroll = () => {
-    setIsAtBottom(checkIsAtBottom());
+    const atBottom = checkIsAtBottom();
+    setAutoScrollPinned(atBottom);
   };
 
   const scrollToBottom = (force = false) => {
-    if (force || isAtBottom()) {
-      messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+    if (!messagesContainerRef) return;
+    if (force) setAutoScrollPinned(true);
+    if (force || autoScrollPinned()) {
+      if (autoScrollFrame !== undefined) {
+        cancelAnimationFrame(autoScrollFrame);
+      }
+      if (autoScrollSettleTimer !== undefined) {
+        clearTimeout(autoScrollSettleTimer);
+      }
+      autoScrollFrame = requestAnimationFrame(() => {
+        if (!messagesContainerRef) return;
+        messagesContainerRef.scrollTo({
+          top: messagesContainerRef.scrollHeight,
+          behavior: "smooth",
+        });
+        autoScrollFrame = undefined;
+        autoScrollSettleTimer = window.setTimeout(() => {
+          if (!messagesContainerRef) return;
+          if (autoScrollPinned() && !checkIsAtBottom()) {
+            messagesContainerRef.scrollTop = messagesContainerRef.scrollHeight;
+          }
+          setAutoScrollPinned(true);
+          autoScrollSettleTimer = undefined;
+        }, 320);
+      });
     }
   };
 
@@ -686,6 +738,36 @@ export function ChatView() {
         timestamp: turn.startedAt,
       }))
     );
+    setStreamingBlocks([
+      ...(turn.thinking
+        ? ([
+            {
+              type: "thinking" as const,
+              thinking: turn.thinking,
+              timestamp: turn.startedAt,
+            },
+          ] satisfies StreamingBlock[])
+        : []),
+      ...(turn.text
+        ? ([
+            {
+              type: "text" as const,
+              text: turn.text,
+              timestamp: turn.startedAt,
+            },
+          ] satisfies StreamingBlock[])
+        : []),
+      ...(turn.toolCalls ?? []).map(
+        (tc): StreamingBlock => ({
+          type: "toolCall",
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+          status: tc.status,
+          timestamp: turn.startedAt,
+        })
+      ),
+    ]);
     setActiveTools(
       (turn.toolCalls ?? []).map((tc) => ({
         id: tc.id || crypto.randomUUID(),
@@ -735,6 +817,99 @@ export function ChatView() {
     applyActiveTurnSnapshot(turn);
   };
 
+  const appendStreamingTextBlock = (chunk: string, timestamp = Date.now()) => {
+    setStreamingBlocks((prev) => {
+      const last = prev.at(-1);
+      if (last?.type === "text") {
+        return [...prev.slice(0, -1), { ...last, text: last.text + chunk }];
+      }
+      return [...prev, { type: "text", text: chunk, timestamp }];
+    });
+  };
+
+  const appendStreamingThinkingBlock = (
+    chunk: string,
+    timestamp = Date.now()
+  ) => {
+    setStreamingBlocks((prev) => {
+      const last = prev.at(-1);
+      if (last?.type === "thinking") {
+        return [
+          ...prev.slice(0, -1),
+          { ...last, thinking: last.thinking + chunk },
+        ];
+      }
+      return [...prev, { type: "thinking", thinking: chunk, timestamp }];
+    });
+  };
+
+  const appendStreamingToolCallBlock = (
+    id: string,
+    name: string,
+    args: unknown,
+    timestamp = Date.now()
+  ) => {
+    setStreamingBlocks((prev) =>
+      prev.some((block) => block.type === "toolCall" && block.id === id)
+        ? prev
+        : [
+            ...prev,
+            {
+              type: "toolCall",
+              id,
+              name,
+              arguments: args,
+              status: "running",
+              timestamp,
+            },
+          ]
+    );
+  };
+
+  const updateStreamingToolBlockStatus = (
+    toolName: string,
+    status: "done" | "error"
+  ) => {
+    setStreamingBlocks((prev) =>
+      prev.map((block) =>
+        block.type === "toolCall" &&
+        block.name === toolName &&
+        block.status === "running"
+          ? { ...block, status }
+          : block
+      )
+    );
+  };
+
+  const attachStreamingToolResult = (
+    id: string,
+    name: string,
+    content: string,
+    isError: boolean,
+    details?: { diff?: string }
+  ) => {
+    const result: FullToolResultMessage = {
+      role: "toolResult",
+      toolCallId: id,
+      toolName: name,
+      content: [{ type: "text", text: content }],
+      isError,
+      details,
+      timestamp: Date.now(),
+    };
+    setStreamingBlocks((prev) =>
+      prev.map((block) =>
+        block.type === "toolCall" && block.id === id
+          ? { ...block, status: isError ? "error" : "done", result }
+          : block
+      )
+    );
+  };
+
+  const appendStreamingFileBlock = (file: FileBlock, timestamp = Date.now()) => {
+    setStreamingBlocks((prev) => [...prev, { ...file, timestamp }]);
+  };
+
   // Load history when agent is loaded or view mode changes.
   // Do not track isStreaming here: reloading on stream end can wipe optimistic
   // user/error messages for failed runs before history is persisted.
@@ -767,20 +942,25 @@ export function ChatView() {
     subscriptionCleanup = subscribeToSession(agentId, key, {
       onText: (chunk) => {
         if (cleanup) return;
+        setStreamingFinished(false);
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
+        appendStreamingTextBlock(chunk);
         setIsStreaming(true);
       },
       onThinking: (chunk) => {
         if (cleanup) return;
+        setStreamingFinished(false);
         setStreamingThinking((prev) => prev + chunk);
         if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
+        appendStreamingThinkingBlock(chunk);
         setIsStreaming(true);
       },
       onToolCall: (id, name, args) => {
         if (cleanup) return;
+        setStreamingFinished(false);
         setStreamingToolCalls((prev) => {
           if (prev.some((tc) => tc.id === id)) return prev;
           return [
@@ -794,6 +974,7 @@ export function ChatView() {
             },
           ];
         });
+        appendStreamingToolCallBlock(id, name, args);
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
         setIsStreaming(true);
       },
@@ -824,18 +1005,31 @@ export function ChatView() {
               : tc
           )
         );
+        updateStreamingToolBlockStatus(toolName, isError ? "error" : "done");
+      },
+      onToolResult: (id, name, content, isError, details) => {
+        if (cleanup) return;
+        attachStreamingToolResult(id, name, content, isError, details);
       },
       onFileOutput: (file) => {
         if (cleanup) return;
+        setStreamingFinished(false);
+        const fileBlock: FileBlock = {
+          type: "file",
+          direction: "outbound",
+          ...file,
+        };
         setStreamingFiles((prev) => [
           ...prev,
-          { type: "file", direction: "outbound", ...file },
+          fileBlock,
         ]);
+        appendStreamingFileBlock(fileBlock);
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
         setIsStreaming(true);
       },
       onDone: () => {
         if (cleanup) return;
+        if (streamingFinished()) return;
         resetStreamingState();
       },
       onActiveTurn: (turn) => {
@@ -843,15 +1037,16 @@ export function ChatView() {
         applyActiveTurnSnapshot(turn);
       },
       onHistoryUpdated: () => {
+        if (skipNextHistoryRefresh) {
+          skipNextHistoryRefresh = false;
+          return;
+        }
         // Refetch history when background run completes
         if (!isStreaming()) {
           if (pendingQueuedMessages().length > 0) {
             setPendingQueuedMessages((prev) => prev.slice(1));
           }
           loadHistory(viewMode());
-          setPendingHistoryRefresh(false);
-        } else {
-          setPendingHistoryRefresh(true);
         }
       },
     });
@@ -878,14 +1073,18 @@ export function ChatView() {
         /* ignore */
       });
 
-    // Subscribe to real-time status changes
+      // Subscribe to real-time status changes
     statusCleanup = subscribeToStatus({
       onStatus: (id, status) => {
         if (id !== agentId) return;
-        if (status === "streaming" && !isStreaming()) {
+        if (status === "streaming" && !isStreaming() && !streamingFinished()) {
           setIsStreaming(true);
           setStreamingStartedAt(Date.now());
         } else if (status === "idle" && isStreaming() && !cleanup) {
+          if (streamingFinished()) {
+            setIsStreaming(false);
+            return;
+          }
           // Agent went idle and we're not the ones streaming (no active cleanup)
           // This means a background/reconnected run finished
           resetStreamingState();
@@ -896,7 +1095,11 @@ export function ChatView() {
         // Re-check status after reconnect
         fetchAgentStatuses()
           .then((res) => {
-            if (res.statuses[agentId] === "streaming" && !isStreaming()) {
+            if (
+              res.statuses[agentId] === "streaming" &&
+              !isStreaming() &&
+              !streamingFinished()
+            ) {
               setIsStreaming(true);
               setStreamingStartedAt(Date.now());
             } else if (
@@ -904,6 +1107,10 @@ export function ChatView() {
               isStreaming() &&
               !cleanup
             ) {
+              if (streamingFinished()) {
+                setIsStreaming(false);
+                return;
+              }
               resetStreamingState();
               loadHistory(viewMode());
             }
@@ -919,12 +1126,15 @@ export function ChatView() {
     simpleMessages();
     fullMessages();
     streamingText();
+    streamingBlocks();
     streamingFiles();
     activeTools();
     scrollToBottom();
   });
 
   onCleanup(() => {
+    if (autoScrollFrame !== undefined) cancelAnimationFrame(autoScrollFrame);
+    if (autoScrollSettleTimer !== undefined) clearTimeout(autoScrollSettleTimer);
     cleanup?.();
     subscriptionCleanup?.();
     statusCleanup?.();
@@ -1009,51 +1219,54 @@ export function ChatView() {
     setStreamingThinkingAt(null);
     setStreamingToolCalls([]);
     setStreamingText("");
+    setStreamingBlocks([]);
     setStreamingFiles([]);
     setStreamingTextAt(null);
     setActiveTools([]);
     setIsStreaming(false);
+    setStreamingFinished(false);
     setStreamingStartedAt(null);
-  };
-
-  const maybeRefreshHistory = () => {
-    if (pendingQueuedMessages().length > 0) return;
-    if (pendingHistoryRefresh()) {
-      loadHistory(viewMode());
-      setPendingHistoryRefresh(false);
-    }
   };
 
   const appendStreamingAssistantMessage = () => {
     const content = streamingText();
-    const thinkingContent = streamingThinking();
-    const toolCalls = streamingToolCalls();
+    const blocks = streamingBlocks();
     const files = streamingFiles();
     if (
       !content &&
-      !thinkingContent &&
-      toolCalls.length === 0 &&
+      blocks.length === 0 &&
       files.length === 0
     ) {
       return false;
     }
 
-    const blocks: ContentBlock[] = [];
-    if (thinkingContent) {
-      blocks.push({ type: "thinking", thinking: thinkingContent });
-    }
-    for (const tc of toolCalls) {
-      blocks.push({
-        type: "toolCall",
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-      });
-    }
-    if (content) {
-      blocks.push({ type: "text", text: content });
-    }
-    blocks.push(...files);
+    const contentBlocks: ContentBlock[] =
+      blocks.length > 0
+        ? blocks.map((block) => {
+            if (block.type === "toolCall") {
+              return {
+                type: "toolCall",
+                id: block.id,
+                name: block.name,
+                arguments: block.arguments,
+              };
+            }
+            if (block.type === "thinking") {
+              return { type: "thinking", thinking: block.thinking };
+            }
+            if (block.type === "text") {
+              return { type: "text", text: block.text };
+            }
+            return {
+              type: "file",
+              fileId: block.fileId,
+              filename: block.filename,
+              mimeType: block.mimeType,
+              size: block.size,
+              direction: block.direction,
+            };
+          })
+        : [{ type: "text", text: content }, ...files];
 
     const timestamp = streamingStartedAt() ?? Date.now();
     setSimpleMessages((prev) => [
@@ -1066,13 +1279,21 @@ export function ChatView() {
         timestamp,
       },
     ]);
+    const toolResults = blocks
+      .filter((block) => block.type === "toolCall" && block.result)
+      .map((block) => (block.type === "toolCall" ? block.result : undefined))
+      .filter((result): result is FullToolResultMessage => Boolean(result));
     setFullMessages((prev) => [
       ...prev,
       {
         role: "assistant",
-        content: blocks.length > 0 ? blocks : [{ type: "text", text: content }],
+        content:
+          contentBlocks.length > 0
+            ? contentBlocks
+            : [{ type: "text", text: content }],
         timestamp,
       },
+      ...toolResults,
     ]);
     return true;
   };
@@ -1082,9 +1303,17 @@ export function ChatView() {
     streamingText() ||
     streamingThinking() ||
     streamingToolCalls().length > 0 ||
+    streamingBlocks().length > 0 ||
     streamingFiles().length > 0;
 
   const handleSend = async () => {
+    if (streamingFinished()) {
+      batch(() => {
+        appendStreamingAssistantMessage();
+        resetStreamingState();
+      });
+    }
+
     const text = input().trim();
     const currentPendingFiles = pendingFiles();
     const hasFiles = currentPendingFiles.length > 0;
@@ -1156,7 +1385,6 @@ export function ChatView() {
     setInput("");
     if (textareaRef) textareaRef.style.height = "auto";
     scrollToBottom(true);
-    setIsAtBottom(true);
 
     // If streaming in queue mode, send message without interrupting current stream
     if (isStreaming() && queueMode === "queue") {
@@ -1175,6 +1403,8 @@ export function ChatView() {
       let queuedText = "";
       let queuedThinking = "";
       const queuedFiles: FileBlock[] = [];
+      const queuedBlocks: ContentBlock[] = [];
+      const queuedToolResults: FullToolResultMessage[] = [];
       const queuedToolCalls: Array<{
         id: string;
         name: string;
@@ -1190,6 +1420,12 @@ export function ChatView() {
         sessionKey(),
         (chunk) => {
           queuedText += chunk;
+          const last = queuedBlocks.at(-1);
+          if (last?.type === "text") {
+            last.text += chunk;
+          } else {
+            queuedBlocks.push({ type: "text", text: chunk });
+          }
         },
         (meta?: DoneMeta) => {
           if (meta?.queued) {
@@ -1203,28 +1439,30 @@ export function ChatView() {
             );
           }
 
-          const blocks: ContentBlock[] = [];
-          if (queuedThinking) {
-            blocks.push({ type: "thinking", thinking: queuedThinking });
-          }
-          for (const tc of queuedToolCalls) {
-            blocks.push({
-              type: "toolCall",
-              id: tc.id,
-              name: tc.name,
-              arguments: tc.arguments,
-            });
-          }
-          if (queuedText) {
-            blocks.push({ type: "text", text: queuedText });
-          }
-          blocks.push(...queuedFiles);
+          const blocks: ContentBlock[] = queuedBlocks.length
+            ? queuedBlocks
+            : [
+                ...(queuedThinking
+                  ? [{ type: "thinking" as const, thinking: queuedThinking }]
+                  : []),
+                ...queuedToolCalls.map((tc) => ({
+                  type: "toolCall" as const,
+                  id: tc.id,
+                  name: tc.name,
+                  arguments: tc.arguments,
+                })),
+                ...(queuedText
+                  ? [{ type: "text" as const, text: queuedText }]
+                  : []),
+                ...queuedFiles,
+              ];
 
           if (
             queuedText ||
             queuedThinking ||
             queuedToolCalls.length > 0 ||
-            queuedFiles.length > 0
+            queuedFiles.length > 0 ||
+            queuedToolResults.length > 0
           ) {
             setSimpleMessages((prev) => [
               ...prev,
@@ -1246,6 +1484,7 @@ export function ChatView() {
                     : [{ type: "text", text: queuedText }],
                 timestamp: Date.now(),
               },
+              ...queuedToolResults,
             ]);
           }
           if (pendingThinkLevel()) {
@@ -1271,6 +1510,12 @@ export function ChatView() {
         {
           onThinking: (chunk) => {
             queuedThinking += chunk;
+            const last = queuedBlocks.at(-1);
+            if (last?.type === "thinking") {
+              last.thinking += chunk;
+            } else {
+              queuedBlocks.push({ type: "thinking", thinking: chunk });
+            }
           },
           onToolCall: (id, name, args) => {
             queuedToolCalls.push({
@@ -1280,6 +1525,12 @@ export function ChatView() {
               status: "running",
               timestamp: Date.now(),
             });
+            queuedBlocks.push({
+              type: "toolCall",
+              id,
+              name,
+              arguments: args,
+            });
           },
           onToolEnd: (toolName, isError) => {
             for (const tc of queuedToolCalls) {
@@ -1288,12 +1539,25 @@ export function ChatView() {
               }
             }
           },
+          onToolResult: (id, name, content, isError, details) => {
+            queuedToolResults.push({
+              role: "toolResult",
+              toolCallId: id,
+              toolName: name,
+              content: [{ type: "text", text: content }],
+              isError,
+              details,
+              timestamp: Date.now(),
+            });
+          },
           onFileOutput: (file) => {
-            queuedFiles.push({
+            const fileBlock: FileBlock = {
               type: "file",
               direction: "outbound",
               ...file,
-            });
+            };
+            queuedFiles.push(fileBlock);
+            queuedBlocks.push(fileBlock);
           },
           onSessionReset: () => {
             // Queued /new or /reset triggered - clear messages and streaming state
@@ -1320,11 +1584,13 @@ export function ChatView() {
     }
 
     setIsStreaming(true);
+    setStreamingFinished(false);
     setStreamingStartedAt(Date.now());
     setStreamingThinking("");
     setStreamingThinkingAt(null);
     setStreamingToolCalls([]);
     setStreamingText("");
+    setStreamingBlocks([]);
     setStreamingFiles([]);
     setStreamingTextAt(null);
     setActiveTools([]);
@@ -1334,8 +1600,10 @@ export function ChatView() {
       messageText,
       sessionKey(),
       (chunk) => {
+        setStreamingFinished(false);
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
+        appendStreamingTextBlock(chunk);
       },
       (meta?: DoneMeta) => {
         // Queued ack arrived unexpectedly - reset state only if no real stream content
@@ -1349,24 +1617,55 @@ export function ChatView() {
 
         // If aborted, discard streamed content and show system message
         if (aborted || meta?.aborted) {
-          aborted = false;
-          appendStreamingAssistantMessage();
-          setShowInterrupted(true);
-          resetStreamingState();
-          cleanup = null;
-          maybeRefreshHistory();
+          if (viewMode() !== "full") {
+            batch(() => {
+              aborted = false;
+              appendStreamingAssistantMessage();
+              skipNextHistoryRefresh = true;
+              setShowInterrupted(true);
+              resetStreamingState();
+              cleanup = null;
+            });
+            return;
+          }
+          batch(() => {
+            aborted = false;
+            skipNextHistoryRefresh = true;
+            setShowInterrupted(true);
+            setActiveTools([]);
+            setIsStreaming(false);
+            setStreamingFinished(true);
+            cleanup = null;
+          });
           return;
         }
 
-        appendStreamingAssistantMessage();
-        // Update thinkingLevel if pending was used
-        if (pendingThinkLevel()) {
-          setThinkingLevel(pendingThinkLevel()!);
-          setPendingThinkLevel(null);
+        if (viewMode() !== "full") {
+          batch(() => {
+            appendStreamingAssistantMessage();
+            skipNextHistoryRefresh = true;
+            if (pendingThinkLevel()) {
+              setThinkingLevel(pendingThinkLevel()!);
+              setPendingThinkLevel(null);
+            }
+            resetStreamingState();
+            cleanup = null;
+          });
+          return;
         }
-        resetStreamingState();
-        cleanup = null;
-        maybeRefreshHistory();
+
+        batch(() => {
+          skipNextHistoryRefresh = true;
+          // Update thinkingLevel if pending was used
+          if (pendingThinkLevel()) {
+            setThinkingLevel(pendingThinkLevel()!);
+            setPendingThinkLevel(null);
+          }
+          setActiveTools([]);
+          setIsStreaming(false);
+          setStreamingFinished(true);
+          cleanup = null;
+        });
       },
       (error) => {
         const content = `Error: ${error}`;
@@ -1389,14 +1688,16 @@ export function ChatView() {
         ]);
         resetStreamingState();
         cleanup = null;
-        maybeRefreshHistory();
       },
       {
         onThinking: (chunk) => {
+          setStreamingFinished(false);
           setStreamingThinking((prev) => prev + chunk);
           if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
+          appendStreamingThinkingBlock(chunk);
         },
         onToolCall: (id, name, args) => {
+          setStreamingFinished(false);
           setStreamingToolCalls((prev) => [
             ...prev,
             {
@@ -1407,6 +1708,7 @@ export function ChatView() {
               timestamp: Date.now(),
             },
           ]);
+          appendStreamingToolCallBlock(id, name, args);
         },
         onToolStart: (toolName) => {
           setActiveTools((prev) => [
@@ -1431,12 +1733,23 @@ export function ChatView() {
                 : tc
             )
           );
+          updateStreamingToolBlockStatus(toolName, isError ? "error" : "done");
+        },
+        onToolResult: (id, name, content, isError, details) => {
+          attachStreamingToolResult(id, name, content, isError, details);
         },
         onFileOutput: (file) => {
+          setStreamingFinished(false);
+          const fileBlock: FileBlock = {
+            type: "file",
+            direction: "outbound",
+            ...file,
+          };
           setStreamingFiles((prev) => [
             ...prev,
-            { type: "file", direction: "outbound", ...file },
+            fileBlock,
           ]);
+          appendStreamingFileBlock(fileBlock);
         },
         onSessionReset: () => {
           // Clear messages when session resets (e.g., /new command)
@@ -1694,44 +2007,55 @@ export function ChatView() {
         <Show
           when={
             viewMode() === "full" &&
-            isStreaming() &&
-            (streamingThinking() ||
-              streamingToolCalls().length > 0 ||
+            (isStreaming() || streamingFinished()) &&
+            (streamingBlocks().length > 0 ||
               streamingText() ||
               streamingFiles().length > 0)
           }
         >
-          <div class="message assistant full-message streaming">
+          <div
+            class="message assistant full-message"
+            classList={{ streaming: isStreaming() }}
+          >
             <div class="content-blocks">
-              {streamingThinking() && (
-                <CollapsibleBlock
-                  title="Thinking"
-                  content={streamingThinking()}
-                  defaultCollapsed={false}
-                  timestamp={
-                    streamingThinkingAt() ?? streamingStartedAt() ?? undefined
+              <For each={streamingBlocks()}>
+                {(block) => {
+                  if (block.type === "thinking") {
+                    return (
+                      <CollapsibleBlock
+                        title="Thinking"
+                        content={block.thinking}
+                        defaultCollapsed={false}
+                        timestamp={block.timestamp}
+                      />
+                    );
                   }
-                />
-              )}
-              <For each={streamingToolCalls()}>
-                {(tc) => (
-                  <CollapsibleBlock
-                    title={`${tc.status === "error" ? "✗" : tc.status === "done" ? "✓" : "⟳"} ${tc.name}`}
-                    content={formatJson(tc.arguments)}
-                    defaultCollapsed={false}
-                    mono={true}
-                    timestamp={tc.timestamp}
-                  />
-                )}
-              </For>
-              {streamingText() && (
-                <div
-                  class="block-text markdown-content"
-                  innerHTML={renderMarkdown(streamingText())}
-                />
-              )}
-              <For each={streamingFiles()}>
-                {(file) => <FileCard file={file} />}
+                  if (block.type === "text") {
+                    return (
+                      <div
+                        class="block-text markdown-content"
+                        innerHTML={renderMarkdown(block.text)}
+                      />
+                    );
+                  }
+                  if (block.type === "toolCall") {
+                    return (
+                      <div class="tool-call-group">
+                        <CollapsibleBlock
+                          title={`${block.status === "error" ? "✗" : block.status === "done" ? "✓" : "⟳"} ${block.name}`}
+                          content={formatJson(block.arguments)}
+                          defaultCollapsed={false}
+                          mono={true}
+                          timestamp={block.timestamp}
+                        />
+                        {block.result && (
+                          <ToolResultDisplay result={block.result} />
+                        )}
+                      </div>
+                    );
+                  }
+                  return <FileCard file={block} />;
+                }}
               </For>
             </div>
             {streamingStartedAt() && (
@@ -1801,7 +2125,7 @@ export function ChatView() {
           </div>
         </Show>
 
-        <div ref={messagesEndRef} />
+        <div data-scroll-anchor />
       </div>
 
       <Show when={isFileDragActive()}>

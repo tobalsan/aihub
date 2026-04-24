@@ -16,6 +16,7 @@ const {
   subscribeToSessionMock,
   subscribeToStatusMock,
   uploadFilesMock,
+  routeState,
 } = vi.hoisted(() => ({
   fetchAgentMock: vi.fn(),
   fetchSimpleHistoryMock: vi.fn(),
@@ -27,12 +28,13 @@ const {
   subscribeToSessionMock: vi.fn(),
   subscribeToStatusMock: vi.fn(),
   uploadFilesMock: vi.fn(),
+  routeState: { view: undefined as string | undefined },
 }));
 
 vi.mock("@solidjs/router", () => ({
   A: (props: Record<string, unknown>) => <a {...props} />,
   useNavigate: () => navigateMock,
-  useParams: () => ({ agentId: "agent-1" }),
+  useParams: () => ({ agentId: "agent-1", view: routeState.view }),
 }));
 
 vi.mock("../api/client", () => ({
@@ -103,6 +105,7 @@ describe("ChatView abort handling", () => {
     subscribeToSessionMock.mockImplementation(() => () => {});
     subscribeToStatusMock.mockImplementation(() => () => {});
     uploadFilesMock.mockResolvedValue([]);
+    routeState.view = undefined;
   });
 
   afterEach(() => {
@@ -165,6 +168,105 @@ describe("ChatView abort handling", () => {
 
     expect(container.textContent).toContain("partial answer");
     expect(container.textContent).toContain("Interrupted");
+
+    dispose();
+  });
+
+  it("renders full-mode stream blocks chronologically", async () => {
+    let onText: ((chunk: string) => void) | undefined;
+    let onDone: (() => void) | undefined;
+    let callbacks:
+      | {
+          onToolCall?: (id: string, name: string, args: unknown) => void;
+          onToolResult?: (
+            id: string,
+            name: string,
+            content: string,
+            isError: boolean
+          ) => void;
+        }
+      | undefined;
+    let subscriptionCallbacks:
+      | {
+          onDone?: () => void;
+          onHistoryUpdated?: () => void;
+        }
+      | undefined;
+    subscribeToSessionMock.mockImplementation(
+      (_agentId: string, _sessionKey: string, callbacksArg) => {
+        subscriptionCallbacks = callbacksArg;
+        return vi.fn();
+      }
+    );
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        nextOnText: (chunk: string) => void,
+        nextOnDone: () => void,
+        _onError: (error: string) => void,
+        nextCallbacks?: typeof callbacks
+      ) => {
+        onText = nextOnText;
+        onDone = nextOnDone;
+        callbacks = nextCallbacks;
+        return vi.fn();
+      }
+    );
+
+    routeState.view = "full";
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat textarea");
+    }
+    textarea.value = "hello";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) {
+      throw new Error("Expected send button");
+    }
+    sendBtn.click();
+    await tick();
+
+    const fetchesBeforeDone = fetchFullHistoryMock.mock.calls.length;
+    onText?.("First text.");
+    callbacks?.onToolCall?.("tool-1", "bash", { command: "date" });
+    callbacks?.onToolResult?.("tool-1", "bash", "tool output", false);
+    onText?.(" Last text.");
+    await tick();
+
+    const liveText = container.textContent ?? "";
+    expect(liveText.indexOf("First text.")).toBeLessThan(
+      liveText.indexOf("bash")
+    );
+    expect(liveText.indexOf("tool output")).toBeLessThan(
+      liveText.indexOf("Last text.")
+    );
+
+    onDone?.();
+    await tick();
+
+    const finalText = container.textContent ?? "";
+    expect(finalText.indexOf("First text.")).toBeLessThan(
+      finalText.indexOf("bash")
+    );
+    expect(finalText.indexOf("tool output")).toBeLessThan(
+      finalText.indexOf("Last text.")
+    );
+    expect(fetchFullHistoryMock.mock.calls.length).toBe(fetchesBeforeDone);
+    subscriptionCallbacks?.onDone?.();
+    await tick();
+    expect(container.textContent).toContain("tool output");
+    subscriptionCallbacks?.onHistoryUpdated?.();
+    await tick();
+    expect(fetchFullHistoryMock.mock.calls.length).toBe(fetchesBeforeDone);
 
     dispose();
   });

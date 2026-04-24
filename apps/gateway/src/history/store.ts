@@ -176,6 +176,7 @@ export type TurnBuffer = {
   };
   thinkingText: string;
   assistantText: string;
+  assistantContent: ContentBlock[];
   fileBlocks: FileBlock[];
   toolCalls: Array<{
     id: string;
@@ -211,6 +212,7 @@ export function createTurnBuffer(): TurnBuffer {
     systemContext: undefined,
     thinkingText: "",
     assistantText: "",
+    assistantContent: [],
     fileBlocks: [],
     toolCalls: [],
     toolResults: [],
@@ -264,21 +266,25 @@ export async function flushTurnBuffer(
   }
 
   // 2. Assistant message
-  const content: ContentBlock[] = [];
-  if (buffer.thinkingText) {
-    content.push({ type: "thinking", thinking: buffer.thinkingText });
-  }
-  if (buffer.assistantText) {
-    content.push({ type: "text", text: buffer.assistantText });
-  }
-  content.push(...buffer.fileBlocks);
-  for (const tc of buffer.toolCalls) {
-    content.push({
-      type: "toolCall",
-      id: tc.id,
-      name: tc.name,
-      arguments: tc.args,
-    });
+  const content: ContentBlock[] = buffer.assistantContent.length
+    ? buffer.assistantContent
+    : [];
+  if (content.length === 0) {
+    if (buffer.thinkingText) {
+      content.push({ type: "thinking", thinking: buffer.thinkingText });
+    }
+    if (buffer.assistantText) {
+      content.push({ type: "text", text: buffer.assistantText });
+    }
+    content.push(...buffer.fileBlocks);
+    for (const tc of buffer.toolCalls) {
+      content.push({
+        type: "toolCall",
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.args,
+      });
+    }
   }
 
   if (content.length > 0) {
@@ -343,6 +349,24 @@ export async function flushUserMessage(
   buffer.userFlushed = true;
 }
 
+function appendAssistantText(buffer: TurnBuffer, text: string): void {
+  const last = buffer.assistantContent.at(-1);
+  if (last?.type === "text") {
+    last.text += text;
+    return;
+  }
+  buffer.assistantContent.push({ type: "text", text });
+}
+
+function appendAssistantThinking(buffer: TurnBuffer, text: string): void {
+  const last = buffer.assistantContent.at(-1);
+  if (last?.type === "thinking") {
+    last.thinking += text;
+    return;
+  }
+  buffer.assistantContent.push({ type: "thinking", thinking: text });
+}
+
 /**
  * Accumulate a history event into the turn buffer (sync, no I/O)
  */
@@ -369,6 +393,7 @@ export function bufferHistoryEvent(
         buffer.startTimestamp = event.timestamp;
       }
       buffer.assistantText += event.text;
+      appendAssistantText(buffer, event.text);
       break;
     case "assistant_thinking":
       if (!buffer.assistantStarted) {
@@ -376,6 +401,7 @@ export function bufferHistoryEvent(
         buffer.startTimestamp = event.timestamp;
       }
       buffer.thinkingText += event.text;
+      appendAssistantThinking(buffer, event.text);
       break;
     case "assistant_file":
       if (!buffer.assistantStarted) {
@@ -383,6 +409,14 @@ export function bufferHistoryEvent(
         buffer.startTimestamp = event.timestamp;
       }
       buffer.fileBlocks.push({
+        type: "file",
+        fileId: event.fileId,
+        filename: event.filename,
+        mimeType: event.mimeType,
+        size: event.size,
+        direction: event.direction,
+      });
+      buffer.assistantContent.push({
         type: "file",
         fileId: event.fileId,
         filename: event.filename,
@@ -401,6 +435,12 @@ export function bufferHistoryEvent(
         name: event.name,
         args: event.args,
         status: "running",
+      });
+      buffer.assistantContent.push({
+        type: "toolCall",
+        id: event.id,
+        name: event.name,
+        arguments: event.args,
       });
       break;
     case "tool_result":
