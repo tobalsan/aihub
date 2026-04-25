@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { stdout } from "node:process";
@@ -17,8 +17,10 @@ const GATEWAY_PORT_RANGE = {
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const templatePath = path.join(scriptDir, "config-template.json");
+const agentsSourceDir = path.join(scriptDir, "agents");
 const outputDir = path.join(repoRoot, ".aihub");
 const outputPath = path.join(outputDir, "aihub.json");
+const agentsOutputDir = path.join(outputDir, "agents");
 
 function checkPort(port) {
   return new Promise((resolve) => {
@@ -66,9 +68,13 @@ async function main() {
 
   await mkdir(outputDir, { recursive: true });
   await writeFile(outputPath, content);
+  await cp(agentsSourceDir, agentsOutputDir, { recursive: true });
 
   stdout.write(
     `Wrote ${path.relative(repoRoot, outputPath)} with gateway ${gatewayPort} and ui ${uiPort}\n`,
+  );
+  stdout.write(
+    `Copied agents to ${path.relative(repoRoot, agentsOutputDir)}\n`,
   );
 }
 
