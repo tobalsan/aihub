@@ -6,7 +6,7 @@
       "name": "DevAgent",
       "description": "Test Agent for development",
       "avatar": "🤖",
-      "workspace": ".aihub/devagent",
+      "workspace": "agents/devagent",
       "sdk": "pi",
       "model": {
         "provider": "zai",
