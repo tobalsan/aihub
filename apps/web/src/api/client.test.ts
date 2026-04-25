@@ -12,6 +12,8 @@ import {
   mergeSpaceIntoMain,
   skipSpaceEntries,
   commitProjectChanges,
+  archiveRuntimeSubagent,
+  deleteRuntimeSubagent,
   fetchAllSubagents,
   fetchRuntimeSubagentLogs,
   fetchSubagents,
@@ -194,6 +196,30 @@ describe("api client (projects/subagents)", () => {
 
     expectFetchCall("/api/subagents/sar_1/logs?since=12");
     expect(res.cursor).toBe(42);
+  });
+
+  it("archives runtime subagent", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: "sar_1", archived: true }),
+    });
+
+    const res = await archiveRuntimeSubagent("sar_1");
+
+    expectFetchCall("/api/subagents/sar_1/archive", { method: "POST" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("deletes runtime subagent", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+
+    const res = await deleteRuntimeSubagent("sar_1");
+
+    expectFetchCall("/api/subagents/sar_1", { method: "DELETE" });
+    expect(res.ok).toBe(true);
   });
 
   it("fetches subagent logs", async () => {

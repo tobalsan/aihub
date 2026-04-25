@@ -10,6 +10,8 @@ import {
   Match,
 } from "solid-js";
 import {
+  archiveRuntimeSubagent,
+  deleteRuntimeSubagent,
   fetchAgents,
   fetchFullHistory,
   fetchRuntimeSubagentLogs,
@@ -1428,12 +1430,52 @@ function MonitorPanel(props: { agentId: string | null }) {
     if (shouldLoad) void loadRunLogs(runId);
   }
 
+  function forgetRun(runId: string) {
+    setExpandedRunIds((current) => {
+      const next = new Set(current);
+      next.delete(runId);
+      return next;
+    });
+    setLogsByRunId((current) => {
+      const next = { ...current };
+      delete next[runId];
+      return next;
+    });
+  }
+
   async function interruptRun(runId: string) {
     const result = await interruptRuntimeSubagent(runId);
     if (!result.ok) {
       setError(result.error);
       return;
     }
+    await loadRuns();
+  }
+
+  async function archiveRun(runId: string) {
+    const result = await archiveRuntimeSubagent(runId);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    forgetRun(runId);
+    await loadRuns();
+  }
+
+  async function deleteRun(run: SubagentRun) {
+    if (
+      !window.confirm(
+        `Kill subagent run ${run.label}? This removes its runtime data.`
+      )
+    ) {
+      return;
+    }
+    const result = await deleteRuntimeSubagent(run.id);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    forgetRun(run.id);
     await loadRuns();
   }
 
@@ -1509,22 +1551,58 @@ function MonitorPanel(props: { agentId: string | null }) {
                         )}
                       </Show>
                     </div>
-                    <span class="canvas-monitor-chevron">
-                      {expandedRunIds().has(run.id) ? "Close" : "History"}
-                    </span>
                   </button>
-                  <Show when={run.status === "running"}>
+                  <div class="canvas-monitor-run-actions">
+                    <Show when={run.status === "running"}>
+                      <button
+                        aria-label={`Stop ${run.label}`}
+                        class="canvas-monitor-icon-action"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void interruptRun(run.id);
+                        }}
+                        title="Stop"
+                        type="button"
+                      >
+                        <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+                          <rect x="7" y="7" width="10" height="10" rx="1" />
+                        </svg>
+                      </button>
+                    </Show>
                     <button
-                      class="canvas-monitor-stop"
+                      aria-label={`Archive ${run.label}`}
+                      class="canvas-monitor-icon-action"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void interruptRun(run.id);
+                        void archiveRun(run.id);
                       }}
+                      title="Archive"
                       type="button"
                     >
-                      Stop
+                      <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+                        <path d="M3 7h18v13H3z" />
+                        <path d="M7 7V4h10v3" />
+                        <path d="M7 12h10" />
+                      </svg>
                     </button>
-                  </Show>
+                    <button
+                      aria-label={`Kill ${run.label}`}
+                      class="canvas-monitor-icon-action danger"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deleteRun(run);
+                      }}
+                      title="Kill"
+                      type="button"
+                    >
+                      <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M6 6l1 15h10l1-15" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <Show when={expandedRunIds().has(run.id)}>
                   <div class="canvas-monitor-history">
@@ -1603,8 +1681,7 @@ function MonitorPanel(props: { agentId: string | null }) {
           color: var(--text-secondary);
           font-size: 14px;
         }
-        .canvas-monitor-refresh,
-        .canvas-monitor-stop {
+        .canvas-monitor-refresh {
           border: 1px solid var(--border-default);
           background: var(--surface-secondary);
           color: var(--text-primary);
@@ -1654,10 +1731,49 @@ function MonitorPanel(props: { agentId: string | null }) {
         .canvas-monitor-run-main {
           min-width: 0;
         }
-        .canvas-monitor-chevron {
+        .canvas-monitor-run-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
           flex: 0 0 auto;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 120ms ease;
+        }
+        .canvas-monitor-run:hover .canvas-monitor-run-actions,
+        .canvas-monitor-run:focus-within .canvas-monitor-run-actions {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .canvas-monitor-icon-action {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          border: 1px solid var(--border-default);
+          border-radius: 6px;
+          background: rgba(148, 163, 184, 0.08);
           color: var(--text-secondary);
-          font-size: 12px;
+          cursor: pointer;
+          padding: 0;
+        }
+        .canvas-monitor-icon-action:hover {
+          color: var(--text-primary);
+          background: rgba(148, 163, 184, 0.16);
+        }
+        .canvas-monitor-icon-action.danger:hover {
+          color: #fca5a5;
+          border-color: rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.1);
+        }
+        .canvas-monitor-icon-action svg {
+          width: 13px;
+          height: 13px;
+          stroke: currentColor;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
         }
         .canvas-monitor-run-title,
         .canvas-monitor-run-meta {

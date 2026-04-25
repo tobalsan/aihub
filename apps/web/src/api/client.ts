@@ -1083,6 +1083,48 @@ export async function interruptRuntimeSubagent(
   return { ok: true, data: (await res.json()) as SubagentRun };
 }
 
+export type ArchiveRuntimeSubagentResult =
+  | { ok: true; data: SubagentRun }
+  | { ok: false; error: string };
+
+export async function archiveRuntimeSubagent(
+  runId: string
+): Promise<ArchiveRuntimeSubagentResult> {
+  const res = await fetch(
+    `${API_BASE}/subagents/${encodeURIComponent(runId)}/archive`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to archive subagent" }));
+    return { ok: false, error: data.error ?? "Failed to archive subagent" };
+  }
+  return { ok: true, data: (await res.json()) as SubagentRun };
+}
+
+export type DeleteRuntimeSubagentResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export async function deleteRuntimeSubagent(
+  runId: string
+): Promise<DeleteRuntimeSubagentResult> {
+  const res = await fetch(
+    `${API_BASE}/subagents/${encodeURIComponent(runId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to delete subagent" }));
+    return { ok: false, error: data.error ?? "Failed to delete subagent" };
+  }
+  return { ok: true };
+}
+
 export type SubagentListResult =
   | { ok: true; data: SubagentListResponse }
   | { ok: false; error: string };
