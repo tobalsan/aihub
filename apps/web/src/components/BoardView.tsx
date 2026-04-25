@@ -1214,10 +1214,7 @@ function MonitorPanel(props: { agentId: string | null }) {
   async function loadRuns() {
     setLoading(true);
     try {
-      const parent = scopedParent();
-      const data = await fetchRuntimeSubagents(
-        parent ? { parent } : { status: "running" }
-      );
+      const data = await fetchRuntimeSubagents();
       setRuns(data.items);
       setError(null);
     } catch (err) {
@@ -1243,8 +1240,8 @@ function MonitorPanel(props: { agentId: string | null }) {
 
   const unsubscribe = subscribeToSubagentChanges({
     onSubagentChanged: (event) => {
-      const parent = scopedParent();
-      if (!parent || parentKey(event.parent) === parent) void loadRuns();
+      void event;
+      void loadRuns();
     },
     onError: setError,
   });
@@ -1272,7 +1269,7 @@ function MonitorPanel(props: { agentId: string | null }) {
         when={runs().length > 0}
         fallback={
           <p class="canvas-monitor-empty">
-            {loading() ? "Loading subagents..." : "No active subagents."}
+            {loading() ? "Loading subagents..." : "No subagent runs."}
           </p>
         }
       >
