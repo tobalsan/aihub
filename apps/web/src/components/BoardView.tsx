@@ -1358,6 +1358,8 @@ function MonitorPanel(props: { agentId: string | null }) {
   const [logsByRunId, setLogsByRunId] = createSignal<
     Record<string, MonitorLogState>
   >({});
+  const scrollRefs = new Map<string, HTMLDivElement>();
+  const scrollPositions = new Map<string, number>();
   const scopedParent = createMemo(() =>
     props.agentId
       ? `agent-session:${props.agentId}:${getSessionKey(props.agentId)}`
@@ -1375,6 +1377,19 @@ function MonitorPanel(props: { agentId: string | null }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function rememberRunScroll(runId: string) {
+    const element = scrollRefs.get(runId);
+    if (element) scrollPositions.set(runId, element.scrollTop);
+  }
+
+  function restoreRunScroll(runId: string) {
+    requestAnimationFrame(() => {
+      const element = scrollRefs.get(runId);
+      if (!element) return;
+      element.scrollTop = scrollPositions.get(runId) ?? element.scrollHeight;
+    });
   }
 
   async function loadRunLogs(runId: string, append = false) {
@@ -1402,6 +1417,7 @@ function MonitorPanel(props: { agentId: string | null }) {
           loading: false,
         },
       }));
+      if (!append) restoreRunScroll(runId);
     } catch (err) {
       setLogsByRunId((prev) => ({
         ...prev,
@@ -1420,6 +1436,7 @@ function MonitorPanel(props: { agentId: string | null }) {
     setExpandedRunIds((current) => {
       const next = new Set(current);
       if (next.has(runId)) {
+        rememberRunScroll(runId);
         next.delete(runId);
       } else {
         next.add(runId);
@@ -1431,6 +1448,8 @@ function MonitorPanel(props: { agentId: string | null }) {
   }
 
   function forgetRun(runId: string) {
+    scrollRefs.delete(runId);
+    scrollPositions.delete(runId);
     setExpandedRunIds((current) => {
       const next = new Set(current);
       next.delete(runId);
@@ -1623,7 +1642,18 @@ function MonitorPanel(props: { agentId: string | null }) {
                         </p>
                       }
                     >
-                      <div class="canvas-monitor-history-scroll">
+                      <div
+                        class="canvas-monitor-history-scroll"
+                        onScroll={(event) => {
+                          scrollPositions.set(
+                            run.id,
+                            event.currentTarget.scrollTop
+                          );
+                        }}
+                        ref={(element) => {
+                          scrollRefs.set(run.id, element);
+                        }}
+                      >
                         <For
                           each={toMonitorHistory(
                             logsByRunId()[run.id]?.events ?? []
