@@ -166,6 +166,7 @@ Standalone `apm` CLI package.
 - Local config path precedence: `--config` > `$AIHUB_HOME/aihub.json` (legacy fallback: derive home from `AIHUB_CONFIG`)
 - Gateway/web dev entrypoints now honor `AIHUB_HOME`, so `pnpm dev` and `pnpm dev:web` preview the same config home as local config commands
 - Project-agnostic subagent runtime commands live under the main gateway CLI: `aihub subagents start|list|status|logs|resume|interrupt|archive|unarchive|delete`.
+- Runtime `--profile <name>` resolves `extensions.subagents.profiles[]` first, then top-level `subagents[]` templates. Both config surfaces use `cli` (`codex`/`claude`/`pi`) for the CLI harness; top-level templates keep `reasoning` while runtime profiles use `reasoningEffort`.
 
 ## Runtime Data
 
@@ -663,7 +664,7 @@ Behavior:
   - Codex: `-m <model>` and `-c reasoning_effort=<xhigh|high|medium|low>` where `<model>` is one of `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`
   - Claude: `--model <model>` and `--effort <high|medium|low>`
   - Pi: `--model <id>` and `--thinking <off|low|medium|high|xhigh>`
-- Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/harness naming.
+- Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/CLI naming.
 - Project-detail UI spawn form derives the slug from the displayed run name and de-dupes against existing project subagent slugs (`coordinator`, `worker-2`, etc.).
 - `apm start` supports these fields directly:
   - `--agent <cli|aihub:id>`
@@ -677,7 +678,7 @@ Behavior:
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
-- `apm start --subagent <name>` sends the selected config subagent name; server resolves harness/model/reasoning/runMode/type from `aihub.json`.
+- `apm start --subagent <name>` sends the selected config subagent name; server resolves `cli`/model/reasoning/runMode/type from `aihub.json`.
 - If `--allow-overrides` is set, CLI also sends the resolved defaults client-side and allows explicit override flags.
 - Locked fields can be overridden only with `--allow-overrides`.
 - Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions keyed as `project:<projectId>:<agentId>`.

@@ -165,7 +165,7 @@ describe("role-based project prompts", () => {
         {
           name: "Worker",
           description: "Implements code",
-          harness: "codex",
+          cli: "codex",
           model: "gpt-5.4",
           reasoning: "medium",
           type: "worker",

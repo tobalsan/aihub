@@ -132,7 +132,7 @@ Options:
 - `-j, --json`: JSON output.
 
 Subagent config mapping (`--subagent`) comes from the top-level `subagents` array in `aihub.json`.
-Each config can define `name`, `description`, `harness`, `model`, `reasoning`, `type`, and `runMode`.
+Each config can define `name`, `description`, `cli`, `model`, `reasoning`, `type`, and `runMode`.
 The web spawn form and `apm start --subagent <name>` both resolve through that same config source.
 
 Any explicit locked-field override requires `--allow-overrides`.

@@ -56,7 +56,15 @@ export type RolePromptInput = {
   content?: string;
   projectFiles?: readonly string[];
   workerWorkspaces?: WorkerWorkspaceRef[];
-  subagentTypes?: Array<{ name: string; description?: string; harness: string; model: string; reasoning: string; type: string; runMode: string }>;
+  subagentTypes?: Array<{
+    name: string;
+    description?: string;
+    cli: string;
+    model: string;
+    reasoning: string;
+    type: string;
+    runMode: string;
+  }>;
   includeDefaultPrompt?: boolean;
   includeRoleInstructions?: boolean;
   includePostRun?: boolean;
@@ -298,7 +306,7 @@ export function buildCoordinatorPrompt(input: RolePromptInput): string {
           "",
           ...input.subagentTypes.map(
             (s) =>
-              `- **${s.name}** (${s.harness} / ${s.model}, reasoning: ${s.reasoning}, mode: ${s.runMode})${s.description ? `: ${s.description}` : ""}\n  → \`apm start ${projectId} --subagent ${s.name} --custom-prompt "..."\``
+              `- **${s.name}** (${s.cli} / ${s.model}, reasoning: ${s.reasoning}, mode: ${s.runMode})${s.description ? `: ${s.description}` : ""}\n  → \`apm start ${projectId} --subagent ${s.name} --custom-prompt "..."\``
           ),
         ].join("\n")
       : "";

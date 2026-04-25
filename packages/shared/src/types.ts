@@ -538,7 +538,7 @@ export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
 export const SubagentConfigSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  harness: z.enum(["codex", "claude", "pi"]),
+  cli: z.enum(["codex", "claude", "pi"]),
   model: z.string(),
   reasoning: z.string(),
   type: z.enum(["worker", "reviewer"]),

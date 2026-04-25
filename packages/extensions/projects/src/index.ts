@@ -522,7 +522,7 @@ export function registerProjectRoutes(app: Hono): void {
         );
       }
       if (!hasText(startInput.runAgent))
-        startInput.runAgent = `cli:${match.harness}`;
+        startInput.runAgent = `cli:${match.cli}`;
       if (!hasText(startInput.model)) startInput.model = match.model;
       if (!hasText(startInput.reasoningEffort))
         startInput.reasoningEffort = match.reasoning;
@@ -2091,7 +2091,7 @@ export function registerProjectRoutes(app: Hono): void {
         return c.json({ error: "No reviewer subagent configured" }, 400);
       }
       const reviewerRunAgent = normalizeRunAgent(
-        `cli:${reviewerConfig.harness}`
+        `cli:${reviewerConfig.cli}`
       );
       if (
         !reviewerRunAgent ||
@@ -2099,7 +2099,7 @@ export function registerProjectRoutes(app: Hono): void {
         !isSupportedSubagentCli(reviewerRunAgent.id)
       ) {
         return c.json(
-          { error: "Reviewer subagent harness is missing or unsupported" },
+          { error: "Reviewer subagent cli is missing or unsupported" },
           400
         );
       }

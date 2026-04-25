@@ -81,6 +81,24 @@ Profiles live in `aihub.json` under `extensions.subagents.profiles`.
 Profiles are convenience defaults. CLI and API callers can still override
 `cli`, `model`, and `reasoningEffort`.
 
+Top-level `subagents` templates also resolve as runtime profiles while project
+screens migrate to the runtime extension. Those templates use `cli`:
+
+```json
+{
+  "subagents": [
+    {
+      "name": "Worker",
+      "cli": "codex",
+      "model": "gpt-5.3-codex",
+      "reasoning": "medium",
+      "type": "worker",
+      "runMode": "worktree"
+    }
+  ]
+}
+```
+
 ## CLI Examples
 
 Start a Codex subagent in a repo:

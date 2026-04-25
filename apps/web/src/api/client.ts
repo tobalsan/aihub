@@ -1549,7 +1549,7 @@ export type AgentInfo = { id: string; name: string };
 export type SubagentTemplateInfo = {
   name: string;
   description?: string;
-  harness: string;
+  cli: string;
   model: string;
   reasoning: string;
   type: string;

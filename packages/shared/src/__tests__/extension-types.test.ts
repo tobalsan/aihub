@@ -4,6 +4,7 @@ import {
   ExtensionsConfigSchema,
   DiscordExtensionConfigSchema,
   LangfuseExtensionConfigSchema,
+  GatewayConfigSchema,
   type Extension,
   type ExtensionContext,
   type ValidationResult,
@@ -61,6 +62,9 @@ describe("extension config schemas", () => {
       scheduler: { tickSeconds: 60 },
       heartbeat: { enabled: true },
       projects: { root: "~/projects" },
+      subagents: {
+        profiles: [{ name: "Worker", cli: "codex" }],
+      },
       langfuse: {
         enabled: true,
         publicKey: "$env:LANGFUSE_PUBLIC_KEY",
@@ -73,7 +77,26 @@ describe("extension config schemas", () => {
     }
     expect(result.scheduler?.tickSeconds).toBe(60);
     expect(result.projects?.root).toBe("~/projects");
+    expect(result.subagents?.profiles[0]?.cli).toBe("codex");
     expect(result.langfuse?.enabled).toBe(true);
+  });
+
+  it("parses configured subagent templates with cli", () => {
+    const result = GatewayConfigSchema.parse({
+      agents: [],
+      subagents: [
+        {
+          name: "Worker",
+          cli: "codex",
+          model: "gpt-5.3-codex",
+          reasoning: "medium",
+          type: "worker",
+          runMode: "worktree",
+        },
+      ],
+    });
+
+    expect(result.subagents?.[0]?.cli).toBe("codex");
   });
 
   it("parses capabilities response", () => {

@@ -39,8 +39,24 @@ function runtimeOptions() {
 }
 
 function profiles(): SubagentRuntimeProfile[] {
-  const raw = getContext().getConfig().extensions?.subagents ?? {};
-  return SubagentsExtensionConfigSchema.parse(raw).profiles ?? [];
+  const config = getContext().getConfig();
+  const raw = config.extensions?.subagents ?? {};
+  const extensionProfiles =
+    SubagentsExtensionConfigSchema.parse(raw).profiles ?? [];
+  const legacyProfiles = (config.subagents ?? []).map((profile) => ({
+    name: profile.name,
+    cli: profile.cli,
+    model: profile.model,
+    reasoningEffort: profile.reasoning,
+    labelPrefix: profile.name,
+  }));
+  return [
+    ...extensionProfiles,
+    ...legacyProfiles.filter(
+      (legacy) =>
+        !extensionProfiles.some((profile) => profile.name === legacy.name)
+    ),
+  ];
 }
 
 function resolveProfile(
