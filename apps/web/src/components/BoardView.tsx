@@ -6,6 +6,8 @@ import {
   createMemo,
   Show,
   For,
+  Switch,
+  Match,
 } from "solid-js";
 import {
   fetchAgents,
@@ -1110,17 +1112,21 @@ function CanvasPanelRenderer(props: {
   state: CanvasState;
   agentId: string | null;
 }) {
-  switch (props.state.panel) {
-    case "overview":
-      return <OverviewPanel />;
-    case "projects":
-      return <ProjectsPanel />;
-    case "agents":
-    case "monitor":
-      return <MonitorPanel agentId={props.agentId} />;
-    default:
-      return <OverviewPanel />;
-  }
+  return (
+    <Switch fallback={<OverviewPanel />}>
+      <Match when={props.state.panel === "overview"}>
+        <OverviewPanel />
+      </Match>
+      <Match when={props.state.panel === "projects"}>
+        <ProjectsPanel />
+      </Match>
+      <Match
+        when={props.state.panel === "agents" || props.state.panel === "monitor"}
+      >
+        <MonitorPanel agentId={props.agentId} />
+      </Match>
+    </Switch>
+  );
 }
 
 function OverviewPanel() {
