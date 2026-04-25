@@ -19,7 +19,7 @@
     {
       "name": "Worker",
       "description": "Implements code in isolated workspace",
-      "harness": "codex",
+      "cli": "codex",
       "model": "gpt-5.3-codex",
       "reasoning": "medium",
       "type": "worker",
