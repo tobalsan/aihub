@@ -13,6 +13,7 @@ import {
   skipSpaceEntries,
   commitProjectChanges,
   fetchAllSubagents,
+  fetchRuntimeSubagentLogs,
   fetchSubagents,
   fetchSubagentLogs,
   spawnSubagent,
@@ -180,6 +181,21 @@ describe("api client (projects/subagents)", () => {
     expect(res.items[0]?.projectId).toBe("PRO-1");
   });
 
+  it("fetches runtime subagent logs", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        cursor: 42,
+        events: [{ type: "stdout", text: "hi" }],
+      }),
+    });
+
+    const res = await fetchRuntimeSubagentLogs("sar_1", 12);
+
+    expectFetchCall("/api/subagents/sar_1/logs?since=12");
+    expect(res.cursor).toBe(42);
+  });
+
   it("fetches subagent logs", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
@@ -308,14 +324,11 @@ describe("api client (projects/subagents)", () => {
 
     const res = await fixSpaceRebaseConflict("PRO-9");
 
-    expectFetchCall(
-      "/api/projects/PRO-9/space/rebase/fix",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }
-    );
+    expectFetchCall("/api/projects/PRO-9/space/rebase/fix", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     expect(res.slug).toBe("space-rebase-reviewer");
   });
 
@@ -347,14 +360,11 @@ describe("api client (projects/subagents)", () => {
 
     const res = await skipSpaceEntries("PRO-9", ["alpha:1", "alpha:2"]);
 
-    expectFetchCall(
-      "/api/projects/PRO-9/space/entries/skip",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entryIds: ["alpha:1", "alpha:2"] }),
-      }
-    );
+    expectFetchCall("/api/projects/PRO-9/space/entries/skip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryIds: ["alpha:1", "alpha:2"] }),
+    });
     expect(res.projectId).toBe("PRO-9");
   });
 
@@ -375,14 +385,11 @@ describe("api client (projects/subagents)", () => {
 
     const res = await integrateSpaceEntries("PRO-9", ["alpha:1", "alpha:2"]);
 
-    expectFetchCall(
-      "/api/projects/PRO-9/space/entries/integrate",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entryIds: ["alpha:1", "alpha:2"] }),
-      }
-    );
+    expectFetchCall("/api/projects/PRO-9/space/entries/integrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryIds: ["alpha:1", "alpha:2"] }),
+    });
     expect(res.projectId).toBe("PRO-9");
   });
 

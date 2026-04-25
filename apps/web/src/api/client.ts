@@ -1052,6 +1052,17 @@ export async function fetchRuntimeSubagents(filters?: {
   return res.json();
 }
 
+export async function fetchRuntimeSubagentLogs(
+  runId: string,
+  since: number
+): Promise<SubagentLogsResponse> {
+  const res = await fetch(
+    `${API_BASE}/subagents/${encodeURIComponent(runId)}/logs?since=${since}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch subagent logs");
+  return res.json();
+}
+
 export type InterruptRuntimeSubagentResult =
   | { ok: true; data: SubagentRun }
   | { ok: false; error: string };

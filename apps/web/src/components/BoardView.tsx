@@ -12,6 +12,7 @@ import {
 import {
   fetchAgents,
   fetchFullHistory,
+  fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
   getSessionKey,
   interruptRuntimeSubagent,
@@ -25,11 +26,13 @@ import type {
   Agent,
   FullHistoryMessage,
   FullToolResultMessage,
+  SubagentLogEvent,
 } from "../api/types";
 import type { SubagentRun } from "@aihub/shared/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
+import { renderMarkdown } from "../lib/markdown";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -1201,10 +1204,158 @@ function parentKey(parent: SubagentRun["parent"]) {
   return parent ? `${parent.type}:${parent.id}` : "";
 }
 
+type MonitorLogState = {
+  cursor: number;
+  events: SubagentLogEvent[];
+  loading: boolean;
+  error?: string;
+};
+
+type MonitorHistoryItem = {
+  tone: "user" | "assistant" | "tool" | "system" | "error";
+  title?: string;
+  body: string;
+  meta?: string;
+  bodyFormat?: "markdown" | "mono";
+};
+
+function parseJsonRecord(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function titleFromType(type: string) {
+  return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function toMonitorHistoryItem(
+  event: SubagentLogEvent
+): MonitorHistoryItem | null {
+  const text = (
+    event.text ??
+    event.diff?.summary ??
+    event.tool?.name ??
+    ""
+  ).trim();
+  if (!text) return null;
+
+  if (event.type === "stderr" || event.type === "error") {
+    return { tone: "error", title: "Error", body: text, bodyFormat: "mono" };
+  }
+
+  const parsed = parseJsonRecord(text);
+  if (!parsed) {
+    return {
+      tone: event.type === "user" ? "user" : "assistant",
+      body: text,
+    };
+  }
+
+  const payload = getRecord(parsed.payload);
+  if (parsed.type === "event_msg" && payload?.type === "user_message") {
+    const message = typeof payload.message === "string" ? payload.message : "";
+    return message ? { tone: "user", body: message } : null;
+  }
+
+  const item = getRecord(parsed.item);
+  if (item?.type === "command_execution") {
+    const command = typeof item.command === "string" ? item.command : "";
+    const output =
+      typeof item.aggregated_output === "string"
+        ? item.aggregated_output.trim()
+        : "";
+    const status = typeof item.status === "string" ? item.status : "";
+    const exitNumber =
+      typeof item.exit_code === "number" ? item.exit_code : undefined;
+    const exitCode = exitNumber !== undefined ? `exit ${exitNumber}` : status;
+    return {
+      tone:
+        status === "completed" && exitNumber !== undefined && exitNumber !== 0
+          ? "error"
+          : "tool",
+      title: status === "in_progress" ? "Running command" : "Command finished",
+      meta: [command, exitCode].filter(Boolean).join(" · "),
+      body:
+        output || command || titleFromType(String(parsed.type ?? event.type)),
+      bodyFormat: "mono",
+    };
+  }
+
+  if (parsed.type === "thread.started") {
+    const threadId =
+      typeof parsed.thread_id === "string" ? parsed.thread_id : "";
+    return {
+      tone: "system",
+      title: "Thread started",
+      body: threadId || "Subagent session initialized.",
+    };
+  }
+
+  if (parsed.type === "turn.started") {
+    return {
+      tone: "system",
+      title: "Turn started",
+      body: "Processing prompt.",
+    };
+  }
+
+  if (parsed.type === "turn.completed") {
+    return {
+      tone: "system",
+      title: "Turn completed",
+      body: "Subagent turn finished.",
+    };
+  }
+
+  const parsedType =
+    typeof parsed.type === "string" ? parsed.type : String(event.type);
+  return {
+    tone: "system",
+    title: titleFromType(parsedType),
+    body: "Runtime event received.",
+  };
+}
+
+function toMonitorHistory(events: SubagentLogEvent[]) {
+  return events
+    .map(toMonitorHistoryItem)
+    .filter((item): item is MonitorHistoryItem => item !== null);
+}
+
+function MonitorHistoryBody(props: { item: MonitorHistoryItem }) {
+  if (props.item.bodyFormat === "mono") {
+    return <pre class="canvas-monitor-history-mono">{props.item.body}</pre>;
+  }
+  return (
+    <div
+      class="canvas-monitor-history-markdown"
+      innerHTML={renderMarkdown(props.item.body, { breaks: true })}
+    />
+  );
+}
+
 function MonitorPanel(props: { agentId: string | null }) {
   const [runs, setRuns] = createSignal<SubagentRun[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  const [expandedRunIds, setExpandedRunIds] = createSignal<Set<string>>(
+    new Set()
+  );
+  const [logsByRunId, setLogsByRunId] = createSignal<
+    Record<string, MonitorLogState>
+  >({});
   const scopedParent = createMemo(() =>
     props.agentId
       ? `agent-session:${props.agentId}:${getSessionKey(props.agentId)}`
@@ -1224,6 +1375,59 @@ function MonitorPanel(props: { agentId: string | null }) {
     }
   }
 
+  async function loadRunLogs(runId: string, append = false) {
+    const current = logsByRunId()[runId];
+    setLogsByRunId((prev) => ({
+      ...prev,
+      [runId]: {
+        cursor: current?.cursor ?? 0,
+        events: current?.events ?? [],
+        loading: true,
+      },
+    }));
+    try {
+      const data = await fetchRuntimeSubagentLogs(
+        runId,
+        append ? (current?.cursor ?? 0) : 0
+      );
+      setLogsByRunId((prev) => ({
+        ...prev,
+        [runId]: {
+          cursor: data.cursor,
+          events: append
+            ? [...(prev[runId]?.events ?? []), ...data.events]
+            : data.events,
+          loading: false,
+        },
+      }));
+    } catch (err) {
+      setLogsByRunId((prev) => ({
+        ...prev,
+        [runId]: {
+          cursor: current?.cursor ?? 0,
+          events: current?.events ?? [],
+          loading: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  }
+
+  function toggleRun(runId: string) {
+    let shouldLoad = false;
+    setExpandedRunIds((current) => {
+      const next = new Set(current);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+        shouldLoad = true;
+      }
+      return next;
+    });
+    if (shouldLoad) void loadRunLogs(runId);
+  }
+
   async function interruptRun(runId: string) {
     const result = await interruptRuntimeSubagent(runId);
     if (!result.ok) {
@@ -1240,8 +1444,10 @@ function MonitorPanel(props: { agentId: string | null }) {
 
   const unsubscribe = subscribeToSubagentChanges({
     onSubagentChanged: (event) => {
-      void event;
       void loadRuns();
+      if (expandedRunIds().has(event.runId)) {
+        void loadRunLogs(event.runId, true);
+      }
     },
     onError: setError,
   });
@@ -1277,33 +1483,99 @@ function MonitorPanel(props: { agentId: string | null }) {
           <For each={runs()}>
             {(run) => (
               <article class="canvas-monitor-run">
-                <div class="canvas-monitor-run-main">
-                  <div class="canvas-monitor-run-title">
-                    <span class={`canvas-monitor-dot ${run.status}`} />
-                    <strong>{run.label}</strong>
-                    <span>{run.cli}</span>
-                  </div>
-                  <div class="canvas-monitor-run-meta">
-                    <span>{run.status}</span>
-                    <span>{formatRuntime(run.startedAt)}</span>
-                    <Show when={run.parent}>
-                      {(parent) => <span>{parentKey(parent())}</span>}
-                    </Show>
-                  </div>
-                  <Show when={run.latestOutput}>
-                    {(latest) => (
-                      <p class="canvas-monitor-output">{latest()}</p>
-                    )}
-                  </Show>
-                </div>
-                <Show when={run.status === "running"}>
+                <div class="canvas-monitor-run-head">
                   <button
-                    class="canvas-monitor-stop"
-                    onClick={() => void interruptRun(run.id)}
+                    aria-expanded={expandedRunIds().has(run.id)}
+                    class="canvas-monitor-run-toggle"
+                    onClick={() => toggleRun(run.id)}
                     type="button"
                   >
-                    Stop
+                    <div class="canvas-monitor-run-main">
+                      <div class="canvas-monitor-run-title">
+                        <span class={`canvas-monitor-dot ${run.status}`} />
+                        <strong>{run.label}</strong>
+                        <span>{run.cli}</span>
+                      </div>
+                      <div class="canvas-monitor-run-meta">
+                        <span>{run.status}</span>
+                        <span>{formatRuntime(run.startedAt)}</span>
+                        <Show when={run.parent}>
+                          {(parent) => <span>{parentKey(parent())}</span>}
+                        </Show>
+                      </div>
+                      <Show when={run.latestOutput}>
+                        {(latest) => (
+                          <p class="canvas-monitor-output">{latest()}</p>
+                        )}
+                      </Show>
+                    </div>
+                    <span class="canvas-monitor-chevron">
+                      {expandedRunIds().has(run.id) ? "Close" : "History"}
+                    </span>
                   </button>
+                  <Show when={run.status === "running"}>
+                    <button
+                      class="canvas-monitor-stop"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void interruptRun(run.id);
+                      }}
+                      type="button"
+                    >
+                      Stop
+                    </button>
+                  </Show>
+                </div>
+                <Show when={expandedRunIds().has(run.id)}>
+                  <div class="canvas-monitor-history">
+                    <Show when={logsByRunId()[run.id]?.error}>
+                      {(message) => (
+                        <div class="canvas-monitor-history-error">
+                          {message()}
+                        </div>
+                      )}
+                    </Show>
+                    <Show
+                      when={(logsByRunId()[run.id]?.events.length ?? 0) > 0}
+                      fallback={
+                        <p class="canvas-monitor-history-empty">
+                          {logsByRunId()[run.id]?.loading
+                            ? "Loading history..."
+                            : "No history yet."}
+                        </p>
+                      }
+                    >
+                      <div class="canvas-monitor-history-scroll">
+                        <For
+                          each={toMonitorHistory(
+                            logsByRunId()[run.id]?.events ?? []
+                          )}
+                        >
+                          {(item) => (
+                            <div
+                              class={`canvas-monitor-history-entry ${item.tone}`}
+                            >
+                              <Show when={item.title}>
+                                {(title) => (
+                                  <div class="canvas-monitor-history-title">
+                                    {title()}
+                                  </div>
+                                )}
+                              </Show>
+                              <Show when={item.meta}>
+                                {(meta) => (
+                                  <div class="canvas-monitor-history-meta">
+                                    {meta()}
+                                  </div>
+                                )}
+                              </Show>
+                              <MonitorHistoryBody item={item} />
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
                 </Show>
               </article>
             )}
@@ -1354,17 +1626,38 @@ function MonitorPanel(props: { agentId: string | null }) {
           gap: 10px;
         }
         .canvas-monitor-run {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 12px;
           border: 1px solid var(--border-default);
           border-radius: 8px;
           padding: 12px;
           background: var(--surface-secondary);
         }
+        .canvas-monitor-run-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .canvas-monitor-run-toggle {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          min-width: 0;
+          flex: 1;
+          border: 0;
+          padding: 0;
+          background: transparent;
+          color: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
         .canvas-monitor-run-main {
           min-width: 0;
+        }
+        .canvas-monitor-chevron {
+          flex: 0 0 auto;
+          color: var(--text-secondary);
+          font-size: 12px;
         }
         .canvas-monitor-run-title,
         .canvas-monitor-run-meta {
@@ -1413,6 +1706,139 @@ function MonitorPanel(props: { agentId: string | null }) {
         }
         .canvas-monitor-dot.interrupted {
           background: #f59e0b;
+        }
+        .canvas-monitor-history {
+          margin-top: 10px;
+          border-top: 1px solid var(--border-default);
+          padding-top: 10px;
+        }
+        .canvas-monitor-history-scroll {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          max-height: 360px;
+          overflow: auto;
+          padding-right: 4px;
+        }
+        .canvas-monitor-history-entry {
+          width: min(100%, 760px);
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          padding: 9px 10px;
+          background: var(--surface-primary);
+        }
+        .canvas-monitor-history-entry.user {
+          align-self: flex-end;
+          background: rgba(59, 130, 246, 0.12);
+          border-color: rgba(59, 130, 246, 0.28);
+        }
+        .canvas-monitor-history-entry.assistant {
+          align-self: flex-start;
+        }
+        .canvas-monitor-history-entry.tool,
+        .canvas-monitor-history-entry.system {
+          align-self: stretch;
+          width: 100%;
+          background: rgba(148, 163, 184, 0.08);
+        }
+        .canvas-monitor-history-entry.error {
+          align-self: stretch;
+          width: 100%;
+          background: rgba(239, 68, 68, 0.1);
+          border-color: rgba(239, 68, 68, 0.3);
+        }
+        .canvas-monitor-history-title {
+          color: var(--text-primary);
+          font-size: 12px;
+          font-weight: 600;
+          margin-bottom: 4px;
+        }
+        .canvas-monitor-history-meta {
+          color: var(--text-secondary);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
+          font-size: 11px;
+          margin-bottom: 6px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .canvas-monitor-history-markdown {
+          color: var(--text-primary);
+          font-size: 13px;
+          line-height: 1.5;
+          overflow-wrap: anywhere;
+        }
+        .canvas-monitor-history-markdown p,
+        .canvas-monitor-history-markdown ul,
+        .canvas-monitor-history-markdown ol,
+        .canvas-monitor-history-markdown pre {
+          margin: 0;
+        }
+        .canvas-monitor-history-markdown p + p,
+        .canvas-monitor-history-markdown p + ul,
+        .canvas-monitor-history-markdown p + ol,
+        .canvas-monitor-history-markdown ul + p,
+        .canvas-monitor-history-markdown ol + p,
+        .canvas-monitor-history-markdown pre + p {
+          margin-top: 8px;
+        }
+        .canvas-monitor-history-markdown ul,
+        .canvas-monitor-history-markdown ol {
+          padding-left: 20px;
+        }
+        .canvas-monitor-history-markdown li + li {
+          margin-top: 4px;
+        }
+        .canvas-monitor-history-markdown code,
+        .canvas-monitor-history-markdown pre,
+        .canvas-monitor-history-mono {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
+          font-size: 12px;
+        }
+        .canvas-monitor-history-markdown code {
+          border: 1px solid var(--border-default);
+          border-radius: 4px;
+          background: rgba(148, 163, 184, 0.12);
+          padding: 1px 4px;
+        }
+        .canvas-monitor-history-markdown pre {
+          margin-top: 8px;
+          border: 1px solid var(--border-default);
+          border-radius: 6px;
+          background: rgba(148, 163, 184, 0.1);
+          padding: 8px;
+          overflow: auto;
+          white-space: pre;
+        }
+        .canvas-monitor-history-markdown pre code {
+          border: 0;
+          background: transparent;
+          padding: 0;
+        }
+        .canvas-monitor-history-mono {
+          margin: 0;
+          color: var(--text-primary);
+          line-height: 1.45;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+        .canvas-monitor-history-entry.system .canvas-monitor-history-markdown,
+        .canvas-monitor-history-entry.system .canvas-monitor-history-title {
+          color: var(--text-secondary);
+        }
+        .canvas-monitor-history-entry.error .canvas-monitor-history-mono,
+        .canvas-monitor-history-entry.error .canvas-monitor-history-markdown,
+        .canvas-monitor-history-entry.error .canvas-monitor-history-title {
+          color: #fca5a5;
+        }
+        .canvas-monitor-history-empty,
+        .canvas-monitor-history-error {
+          font-size: 13px !important;
+        }
+        .canvas-monitor-history-error {
+          color: #fca5a5 !important;
         }
       `}</style>
     </div>
