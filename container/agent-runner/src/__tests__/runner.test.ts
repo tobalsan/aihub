@@ -297,6 +297,72 @@ describe("Pi runner", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it("writes large extension tool results to workspace data", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      Response.json({ rows: ["x".repeat(25_000)] }, { status: 200 })
+    );
+    piMock.session.prompt.mockImplementationOnce(async () => {
+      piMock.session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      });
+    });
+
+    await runAgent(
+      createInput({
+        workspaceDir,
+        sessionDir,
+        extensionTools: [
+          {
+            extensionId: "gsheets",
+            name: "gsheets.read_sheet",
+            description: "Read sheet",
+            parameters: {
+              type: "object",
+              properties: {},
+            },
+          },
+        ],
+      })
+    );
+
+    const createAgentSessionCalls = piMock.createAgentSession.mock
+      .calls as unknown as Array<[
+      {
+        customTools: Array<{
+          name: string;
+          execute: (
+            id: string,
+            args: unknown
+          ) => Promise<{
+            content: Array<{ type: "text"; text: string }>;
+            details: unknown;
+          }>;
+        }>;
+      },
+    ]>;
+    const tool = createAgentSessionCalls[0]?.[0].customTools.find(
+      (candidate) => candidate.name === "gsheets_read_sheet"
+    );
+    const result = await tool?.execute("tool-2", {});
+    const text = result?.content[0]?.text ?? "";
+    const match = text.match(/saved to (.+?\.json)/);
+    expect(match?.[1]).toBeDefined();
+    expect(text).toContain("Use that file path directly");
+    expect(text).toContain("Preview:");
+    expect(await fs.readFile(String(match?.[1]), "utf8")).toContain(
+      "x".repeat(25_000)
+    );
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
   it("steers follow-up IPC messages into the active session", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
     const workspaceDir = path.join(tempDir, "workspace");

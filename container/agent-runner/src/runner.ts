@@ -82,6 +82,9 @@ const AIHUB_CONTAINER_SYSTEM_PROMPT = `You are an AI agent running inside an iso
 To share a file with the user, write it to /workspace/data/ then use the send_file tool. The file will appear as a downloadable card in the chat.
 `;
 
+const LARGE_TOOL_RESULT_THRESHOLD = 20_000;
+const LARGE_TOOL_RESULT_PREVIEW_LENGTH = 2_000;
+
 let activeSession: AgentSession | undefined;
 let pendingFollowUps: string[] = [];
 let activeSdk: "pi" | "claude" | undefined;
@@ -465,7 +468,7 @@ function gatewayTool(
     description,
     promptSnippet: description,
     parameters: parameters as ToolDefinition["parameters"],
-    execute: async (_toolCallId, params) => {
+    execute: async (toolCallId, params) => {
       const result = await callGatewayTool(
         input.gatewayUrl,
         input.agentToken,
@@ -473,8 +476,9 @@ function gatewayTool(
         params,
         input.agentId
       );
+      const text = await formatGatewayToolResult(input, toolCallId, name, result);
       return {
-        content: [{ type: "text", text: stringifyToolResult(result) }],
+        content: [{ type: "text", text }],
         details: result,
       };
     },
@@ -623,6 +627,30 @@ function extractToolResultText(result: unknown): string {
 
 function stringifyToolResult(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result ?? null);
+}
+
+async function formatGatewayToolResult(
+  input: ContainerInput,
+  toolCallId: string,
+  toolName: string,
+  result: unknown
+): Promise<string> {
+  const text = stringifyToolResult(result);
+  if (text.length <= LARGE_TOOL_RESULT_THRESHOLD) return text;
+
+  const safeId = `${toolName}-${toolCallId}`.replace(/[^a-zA-Z0-9_.-]+/g, "_");
+  const outputDir = path.join(input.workspaceDir, "data", "tool-results");
+  const outputPath = path.join(outputDir, `${safeId}.json`);
+  await fs.mkdir(outputDir, { recursive: true });
+  await fs.writeFile(outputPath, text, "utf8");
+
+  return [
+    `Large tool result saved to ${outputPath}.`,
+    `Use that file path directly instead of pasting this JSON into shell commands.`,
+    "",
+    "Preview:",
+    text.slice(0, LARGE_TOOL_RESULT_PREVIEW_LENGTH),
+  ].join("\n");
 }
 
 function getIpcMessageText(message: unknown): string | undefined {
