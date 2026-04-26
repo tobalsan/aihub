@@ -1668,6 +1668,7 @@ function ProjectsPanel() {
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [includeDone, setIncludeDone] = createSignal(false);
+  const [filterChanged, setFilterChanged] = createSignal(false);
   const [areaFilter, setAreaFilter] = createSignal<string>("all");
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [initialised, setInitialised] = createSignal(false);
@@ -1690,6 +1691,7 @@ function ProjectsPanel() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      setFilterChanged(false);
     }
   }
 
@@ -1752,7 +1754,10 @@ function ProjectsPanel() {
             <input
               type="checkbox"
               checked={includeDone()}
-              onChange={(e) => setIncludeDone(e.currentTarget.checked)}
+              onChange={(e) => {
+                setFilterChanged(true);
+                setIncludeDone(e.currentTarget.checked);
+              }}
             />
             <span>Show done</span>
           </label>
@@ -1763,7 +1768,7 @@ function ProjectsPanel() {
         <div class="cp-error">{error()}</div>
       </Show>
 
-      <Show when={loading() && projects().length === 0}>
+      <Show when={loading() && (projects().length === 0 || filterChanged())}>
         <div class="cp-loading">
           <div class="cp-spinner" />
           <span>Loading projects…</span>
