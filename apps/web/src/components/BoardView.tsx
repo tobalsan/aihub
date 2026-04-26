@@ -48,6 +48,27 @@ interface CanvasState {
 // ── API helpers ─────────────────────────────────────────────────────
 
 const API_BASE = "/api/board";
+const SELECTED_AGENT_STORAGE_KEY = "aihub:board:selected-agent";
+
+function readSelectedAgentId(): string | null {
+  try {
+    return localStorage.getItem(SELECTED_AGENT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSelectedAgentId(agentId: string | null): void {
+  try {
+    if (agentId) {
+      localStorage.setItem(SELECTED_AGENT_STORAGE_KEY, agentId);
+    } else {
+      localStorage.removeItem(SELECTED_AGENT_STORAGE_KEY);
+    }
+  } catch {
+    // ignore localStorage failures
+  }
+}
 
 async function getCanvasState(agentId: string): Promise<CanvasState> {
   const res = await fetch(`${API_BASE}/canvas/${encodeURIComponent(agentId)}`);
@@ -72,7 +93,7 @@ async function setCanvasState(
 export function BoardView() {
   const [agents, setAgents] = createSignal<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(
-    null
+    readSelectedAgentId()
   );
   const [canvas, setCanvas] = createSignal<CanvasState>({ panel: "overview" });
   const [chatInput, setChatInput] = createSignal("");
@@ -95,6 +116,7 @@ export function BoardView() {
   const selectedAgent = createMemo(() =>
     agents().find((a) => a.id === selectedAgentId())
   );
+  const selectedAgentAvatar = createMemo(() => selectedAgent()?.avatar);
   const displayedLogItems = createMemo<BoardLogItem[]>(() => {
     return [...logItems(), ...streamingLogItems()];
   });
@@ -371,12 +393,20 @@ export function BoardView() {
     try {
       const list = await fetchAgents();
       setAgents(list);
-      if (list.length > 0 && !selectedAgentId()) {
+      const selected = selectedAgentId();
+      if (
+        list.length > 0 &&
+        (!selected || !list.some((agent) => agent.id === selected))
+      ) {
         setSelectedAgentId(list[0].id);
       }
     } catch (err) {
       console.error("[BoardView] failed to load agents:", err);
     }
+  });
+
+  createEffect(() => {
+    writeSelectedAgentId(selectedAgentId());
   });
 
   // Poll canvas state for selected agent
@@ -573,16 +603,16 @@ export function BoardView() {
         <div class="board-chat-header">
           <div class="board-chat-agent-info">
             <Show
-              when={selectedAgent()?.avatar}
+              when={selectedAgentAvatar()}
               fallback={
                 <div class="board-chat-agent-avatar board-chat-agent-avatar--default">
                   AI
                 </div>
               }
             >
-              <div class="board-chat-agent-avatar">
-                {selectedAgent()?.avatar}
-              </div>
+              {(avatar) => (
+                <div class="board-chat-agent-avatar">{avatar()}</div>
+              )}
             </Show>
             <select
               class="board-agent-select"
@@ -590,7 +620,14 @@ export function BoardView() {
               onChange={(e) => setSelectedAgentId(e.currentTarget.value)}
             >
               <For each={agents()}>
-                {(agent) => <option value={agent.id}>{agent.name}</option>}
+                {(agent) => (
+                  <option
+                    value={agent.id}
+                    selected={agent.id === selectedAgentId()}
+                  >
+                    {agent.name}
+                  </option>
+                )}
               </For>
             </select>
           </div>
