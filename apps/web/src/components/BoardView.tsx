@@ -1666,12 +1666,14 @@ const GROUP_EMPTY: Record<ProjectGroup, string> = {
 function ProjectsPanel() {
   const [projects, setProjects] = createSignal<BoardProject[]>([]);
   const [error, setError] = createSignal<string | null>(null);
+  const [loading, setLoading] = createSignal(true);
   const [includeDone, setIncludeDone] = createSignal(false);
   const [areaFilter, setAreaFilter] = createSignal<string>("all");
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [initialised, setInitialised] = createSignal(false);
 
   async function load() {
+    setLoading(true);
     try {
       const items = await fetchBoardProjects(includeDone());
       setProjects(items);
@@ -1686,6 +1688,8 @@ function ProjectsPanel() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -1759,7 +1763,14 @@ function ProjectsPanel() {
         <div class="cp-error">{error()}</div>
       </Show>
 
-      <div class="cp-sections">
+      <Show when={loading() && projects().length === 0}>
+        <div class="cp-loading">
+          <div class="cp-spinner" />
+          <span>Loading projects…</span>
+        </div>
+      </Show>
+
+      <div class="cp-sections" classList={{ "cp-loading-fade": loading() && projects().length > 0 }}>
         <For each={visibleGroups()}>
           {(group) => {
             const items = () => grouped()[group];
@@ -1892,6 +1903,30 @@ function ProjectsPanel() {
           border: 1px solid color-mix(in srgb, #f87171 35%, var(--border-default));
           border-radius: 6px;
           background: color-mix(in srgb, #f87171 8%, var(--bg-surface));
+        }
+        .cp-loading {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          padding: 48px 0;
+          color: var(--text-secondary);
+          font-size: 13px;
+        }
+        .cp-spinner {
+          width: 18px;
+          height: 18px;
+          border: 2px solid var(--border-default);
+          border-top-color: var(--text-accent, #6366f1);
+          border-radius: 50%;
+          animation: cp-spin 0.7s linear infinite;
+        }
+        @keyframes cp-spin {
+          to { transform: rotate(360deg); }
+        }
+        .cp-loading-fade {
+          opacity: 0.5;
+          transition: opacity 0.2s ease;
         }
         .cp-sections {
           display: flex;
