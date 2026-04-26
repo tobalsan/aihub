@@ -1,7 +1,8 @@
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
-import { Editor } from "@tiptap/core";
+import { Editor, Extension, InputRule } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
 
 const SCRATCHPAD_ENDPOINT = "/api/board/scratchpad";
@@ -23,6 +24,35 @@ function formatRelativeTime(value: string): string {
 
   return `${Math.floor(hours / 24)}d ago`;
 }
+
+const MarkdownLinkShortcut = Extension.create({
+  name: "markdownLinkShortcut",
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /(?:^|\s)(\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\))$/,
+        handler: ({ state, range, match }) => {
+          const linkMark = state.schema.marks.link;
+          if (!linkMark) return;
+
+          const fullMatch = match[0];
+          const markdownLink = match[1];
+          const label = match[2];
+          const href = match[3];
+          if (!markdownLink || !label || !href) return;
+
+          const linkStart = range.from + fullMatch.lastIndexOf(markdownLink);
+          const linkEnd = range.to;
+          state.tr
+            .insertText(label, linkStart, linkEnd)
+            .addMark(linkStart, linkStart + label.length, linkMark.create({ href }))
+            .removeStoredMark(linkMark);
+        },
+      }),
+    ];
+  },
+});
 
 export function ScratchpadEditor() {
   const [rawMarkdown, setRawMarkdown] = createSignal("");
@@ -132,11 +162,21 @@ export function ScratchpadEditor() {
     editor = new Editor({
       element: editorHostRef,
       extensions: [
-        StarterKit,
+        StarterKit.configure({
+          link: false,
+        }),
+        Link.configure({
+          openOnClick: true,
+          HTMLAttributes: {
+            target: "_blank",
+            rel: "noopener noreferrer",
+          },
+        }),
         Placeholder.configure({
           placeholder: PLACEHOLDER,
         }),
         Markdown,
+        MarkdownLinkShortcut,
       ],
       content: "",
       contentType: "markdown",
@@ -254,6 +294,9 @@ export function ScratchpadEditor() {
 
         .scratchpad-editor-body .ProseMirror a {
           color: var(--text-accent, #6366f1);
+          cursor: pointer;
+          text-decoration: underline;
+          text-underline-offset: 2px;
         }
 
         .scratchpad-editor-body .ProseMirror p,
@@ -292,6 +335,12 @@ export function ScratchpadEditor() {
           padding-left: 12px;
           border-left: 3px solid var(--text-accent, #6366f1);
           color: var(--text-secondary);
+        }
+
+        .scratchpad-editor-body .ProseMirror hr {
+          margin: 22px 0;
+          border: 0;
+          border-top: 1px solid var(--border-default);
         }
 
         .scratchpad-editor-body .ProseMirror code,

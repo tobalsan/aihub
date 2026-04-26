@@ -1151,7 +1151,7 @@ function OverviewPanel() {
       </div>
       <style>{`
         .canvas-overview {
-          max-width: 600px;
+          width: 100%;
           display: flex;
           flex-direction: column;
           height: 100%;
