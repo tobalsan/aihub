@@ -35,6 +35,7 @@ import type {
   Area,
   Task,
   TasksResponse,
+  BoardProject,
 } from "./types";
 import type { SubagentRun, SubagentRunStatus } from "@aihub/shared/types";
 
@@ -793,6 +794,18 @@ export async function fetchTaskboardItem(
   }
   const data = await res.json();
   return { ok: true, data };
+}
+
+export async function fetchBoardProjects(
+  includeDone = false
+): Promise<BoardProject[]> {
+  const url = includeDone
+    ? `${API_BASE}/board/projects?include=done`
+    : `${API_BASE}/board/projects`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch board projects");
+  const data = (await res.json()) as { items?: BoardProject[] };
+  return data.items ?? [];
 }
 
 // Projects API functions

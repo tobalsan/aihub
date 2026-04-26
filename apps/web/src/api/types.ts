@@ -351,3 +351,21 @@ export type CommitResult = {
   message?: string;
   error?: string;
 };
+
+export type BoardWorktree = {
+  name: string;
+  path: string;
+  branch: string;
+  dirty: boolean;
+  ahead: number;
+};
+
+export type BoardProject = {
+  id: string;
+  title: string;
+  area: string;
+  status: string;
+  group: "active" | "review" | "stale" | "done";
+  created: string;
+  worktrees: BoardWorktree[];
+};
