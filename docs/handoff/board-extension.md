@@ -51,6 +51,10 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
 2. **Scratchpad extension tools**
    - `scratchpad.read {}` — returns `{ content, updatedAt }` from `$BOARD_ROOT/SCRATCHPAD.md`
    - `scratchpad.write { content }` — atomic write (temp + rename) to scratchpad file
+   - `scratchpad.read_lines { startLine?, endLine? }` — returns numbered, 1-based lines plus `lineCount` and `updatedAt`
+   - `scratchpad.insert_lines { afterLine, content, expectedUpdatedAt? }` — inserts after a 1-based line number, or `0` for top
+   - `scratchpad.replace_lines { startLine, endLine, content, expectedContent?, expectedUpdatedAt? }` — replaces an inclusive line range
+   - `scratchpad.delete_lines { startLine, endLine, expectedContent?, expectedUpdatedAt? }` — deletes an inclusive line range
    - Board root resolved from `config.extensions.board.root`
    - Registered through `Extension.getAgentTools(agent)`
    - Container executions go through `/internal/tools`, which dispatches to enabled extension tool handlers
@@ -60,7 +64,7 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - Gateway aggregates extension prompt contributions in `apps/gateway/src/extensions/prompts.ts`
    - In-process Pi runs append those strings through `DefaultResourceLoader.appendSystemPrompt`
    - Sandbox/container runs receive them as `ContainerInput.extensionSystemPrompts` and append them in the runner
-   - Board's contribution documents `scratchpad.read` and `scratchpad.write`
+   - Board's contribution documents full-file and line-level scratchpad tools
 
 4. **Agent tool contribution**
    - Board implements the shared `Extension.getAgentTools(agent)` hook

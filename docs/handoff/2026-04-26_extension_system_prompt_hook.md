@@ -6,7 +6,7 @@
 - Added gateway collector `apps/gateway/src/extensions/prompts.ts`.
 - Added optional `Extension.getAgentTools(agent)` plus gateway collector/dispatch in `apps/gateway/src/extensions/tools.ts`.
 - Removed board-specific scratchpad prompt special casing from the Pi adapter.
-- Board now contributes its scratchpad prompt and callable scratchpad tools through extension hooks.
+- Board now contributes its scratchpad prompt and callable full-file/line-level scratchpad tools through extension hooks.
 - Subagents now contributes CLI use, monitoring, and lifecycle command guidance through the extension hook.
 - In-process Pi runs append extension prompts and mount extension tools directly.
 - Container runs now carry extension prompt text in `ContainerInput.extensionSystemPrompts`, extension tool definitions in `ContainerInput.extensionTools`, and execute those tools through `/internal/tools`.

@@ -51,6 +51,143 @@ function writeScratchpad(content: string): { updatedAt: string } {
   return { updatedAt: stat.mtime.toISOString() };
 }
 
+function splitLines(content: string): {
+  lines: string[];
+  trailingNewline: boolean;
+} {
+  if (!content) return { lines: [], trailingNewline: false };
+  const trailingNewline = content.endsWith("\n");
+  const normalized = trailingNewline ? content.slice(0, -1) : content;
+  return {
+    lines: normalized ? normalized.split(/\r?\n/) : [],
+    trailingNewline,
+  };
+}
+
+function joinLines(lines: string[], trailingNewline: boolean): string {
+  const content = lines.join("\n");
+  return trailingNewline && content ? `${content}\n` : content;
+}
+
+function assertFresh(
+  currentUpdatedAt: string,
+  expectedUpdatedAt: string | undefined
+): void {
+  if (expectedUpdatedAt && expectedUpdatedAt !== currentUpdatedAt) {
+    throw new Error(
+      `Scratchpad changed since read: expected ${expectedUpdatedAt}, got ${currentUpdatedAt}`
+    );
+  }
+}
+
+function readScratchpadLines(startLine?: number, endLine?: number) {
+  const scratchpad = readScratchpad();
+  const { lines } = splitLines(scratchpad.content);
+  if (lines.length === 0) {
+    if (startLine !== undefined && startLine !== 1) {
+      throw new Error("startLine must be 1 for an empty scratchpad");
+    }
+    if (endLine !== undefined && endLine !== 0) {
+      throw new Error("endLine must be 0 for an empty scratchpad");
+    }
+    return { updatedAt: scratchpad.updatedAt, lineCount: 0, lines: [] };
+  }
+  const start = startLine ?? 1;
+  const end = endLine ?? lines.length;
+  if (!Number.isInteger(start) || start < 1) {
+    throw new Error("startLine must be a positive integer");
+  }
+  if (!Number.isInteger(end) || end < start) {
+    throw new Error("endLine must be greater than or equal to startLine");
+  }
+  if (end > lines.length) {
+    throw new Error(`endLine ${end} exceeds line count ${lines.length}`);
+  }
+  return {
+    updatedAt: scratchpad.updatedAt,
+    lineCount: lines.length,
+    lines: lines.slice(start - 1, end).map((text, index) => ({
+      line: start + index,
+      text,
+    })),
+  };
+}
+
+function assertLineRange(
+  lineCount: number,
+  startLine: number,
+  endLine: number
+): void {
+  if (!Number.isInteger(startLine) || startLine < 1) {
+    throw new Error("startLine must be a positive integer");
+  }
+  if (!Number.isInteger(endLine) || endLine < startLine) {
+    throw new Error("endLine must be greater than or equal to startLine");
+  }
+  if (endLine > lineCount) {
+    throw new Error(`endLine ${endLine} exceeds line count ${lineCount}`);
+  }
+}
+
+function editScratchpadLines(params: {
+  startLine: number;
+  endLine: number;
+  content?: string;
+  expectedContent?: string;
+  expectedUpdatedAt?: string;
+}) {
+  const scratchpad = readScratchpad();
+  assertFresh(scratchpad.updatedAt, params.expectedUpdatedAt);
+  const parsed = splitLines(scratchpad.content);
+  assertLineRange(parsed.lines.length, params.startLine, params.endLine);
+
+  const currentContent = parsed.lines
+    .slice(params.startLine - 1, params.endLine)
+    .join("\n");
+  if (
+    params.expectedContent !== undefined &&
+    params.expectedContent !== currentContent
+  ) {
+    throw new Error("Scratchpad lines did not match expectedContent");
+  }
+
+  const replacement = splitLines(params.content ?? "").lines;
+  parsed.lines.splice(
+    params.startLine - 1,
+    params.endLine - params.startLine + 1,
+    ...replacement
+  );
+  const result = writeScratchpad(
+    joinLines(parsed.lines, parsed.trailingNewline)
+  );
+  return { ...result, lineCount: parsed.lines.length };
+}
+
+function insertScratchpadLines(params: {
+  afterLine: number;
+  content: string;
+  expectedUpdatedAt?: string;
+}) {
+  const scratchpad = readScratchpad();
+  assertFresh(scratchpad.updatedAt, params.expectedUpdatedAt);
+  const parsed = splitLines(scratchpad.content);
+  if (
+    !Number.isInteger(params.afterLine) ||
+    params.afterLine < 0 ||
+    params.afterLine > parsed.lines.length
+  ) {
+    throw new Error(
+      `afterLine must be an integer between 0 and ${parsed.lines.length}`
+    );
+  }
+  const insertedLines = splitLines(params.content).lines;
+  parsed.lines.splice(params.afterLine, 0, ...insertedLines);
+  const result = writeScratchpad(
+    joinLines(parsed.lines, parsed.trailingNewline)
+  );
+  return { ...result, lineCount: parsed.lines.length };
+}
+
 function resolveBoardRoot(ctx: ExtensionContext, rawConfig: unknown): string {
   const parsed = BoardExtensionConfigSchema.pick({ root: true }).parse(rawConfig);
   if (parsed.root) return expandPath(parsed.root);
@@ -186,7 +323,12 @@ const boardExtension: Extension = {
     return [
       "Board scratchpad tools:",
       "- scratchpad.read {} → Returns { content: string, updatedAt: string }. The shared scratchpad content.",
-      "- scratchpad.write { content: string } → Replaces scratchpad content. Use for collaborative notes, brainstorms, status updates.",
+      "- scratchpad.write { content: string } → Replaces scratchpad content. Use only when intentionally rewriting the full scratchpad.",
+      "- scratchpad.read_lines { startLine?, endLine? } → Returns numbered scratchpad lines.",
+      "- scratchpad.insert_lines { afterLine, content, expectedUpdatedAt? } → Inserts lines after a 1-based line number, or 0 for top.",
+      "- scratchpad.replace_lines { startLine, endLine, content, expectedContent?, expectedUpdatedAt? } → Replaces an inclusive line range.",
+      "- scratchpad.delete_lines { startLine, endLine, expectedContent?, expectedUpdatedAt? } → Deletes an inclusive line range.",
+      "Prefer line-level tools for edits to avoid clobbering concurrent scratchpad changes.",
     ].join("\n");
   },
   getAgentTools() {
@@ -215,6 +357,109 @@ const boardExtension: Extension = {
         execute: (args) => {
           const parsed = z.object({ content: z.string() }).parse(args);
           return writeScratchpad(parsed.content);
+        },
+      },
+      {
+        name: "scratchpad.read_lines",
+        description:
+          "Read numbered lines from the shared Board scratchpad. Lines are 1-based.",
+        parameters: {
+          type: "object",
+          properties: {
+            startLine: { type: "number" },
+            endLine: { type: "number" },
+          },
+          additionalProperties: false,
+        },
+        execute: (args) => {
+          const parsed = z
+            .object({
+              startLine: z.number().int().positive().optional(),
+              endLine: z.number().int().nonnegative().optional(),
+            })
+            .parse(args);
+          return readScratchpadLines(parsed.startLine, parsed.endLine);
+        },
+      },
+      {
+        name: "scratchpad.insert_lines",
+        description:
+          "Insert lines into the shared Board scratchpad after a 1-based line number, or 0 for the top.",
+        parameters: {
+          type: "object",
+          properties: {
+            afterLine: { type: "number" },
+            content: { type: "string" },
+            expectedUpdatedAt: { type: "string" },
+          },
+          required: ["afterLine", "content"],
+          additionalProperties: false,
+        },
+        execute: (args) => {
+          const parsed = z
+            .object({
+              afterLine: z.number().int().nonnegative(),
+              content: z.string(),
+              expectedUpdatedAt: z.string().optional(),
+            })
+            .parse(args);
+          return insertScratchpadLines(parsed);
+        },
+      },
+      {
+        name: "scratchpad.replace_lines",
+        description:
+          "Replace an inclusive 1-based line range in the shared Board scratchpad.",
+        parameters: {
+          type: "object",
+          properties: {
+            startLine: { type: "number" },
+            endLine: { type: "number" },
+            content: { type: "string" },
+            expectedContent: { type: "string" },
+            expectedUpdatedAt: { type: "string" },
+          },
+          required: ["startLine", "endLine", "content"],
+          additionalProperties: false,
+        },
+        execute: (args) => {
+          const parsed = z
+            .object({
+              startLine: z.number().int().positive(),
+              endLine: z.number().int().positive(),
+              content: z.string(),
+              expectedContent: z.string().optional(),
+              expectedUpdatedAt: z.string().optional(),
+            })
+            .parse(args);
+          return editScratchpadLines(parsed);
+        },
+      },
+      {
+        name: "scratchpad.delete_lines",
+        description:
+          "Delete an inclusive 1-based line range from the shared Board scratchpad.",
+        parameters: {
+          type: "object",
+          properties: {
+            startLine: { type: "number" },
+            endLine: { type: "number" },
+            expectedContent: { type: "string" },
+            expectedUpdatedAt: { type: "string" },
+          },
+          required: ["startLine", "endLine"],
+          additionalProperties: false,
+        },
+        execute: (args) => {
+          const parsed = z
+            .object({
+              startLine: z.number().int().positive(),
+              endLine: z.number().int().positive(),
+              expectedContent: z.string().optional(),
+              expectedUpdatedAt: z.string().optional(),
+            })
+            .parse(args);
+          return editScratchpadLines(parsed);
         },
       },
     ];
