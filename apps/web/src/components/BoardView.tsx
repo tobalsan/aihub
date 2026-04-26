@@ -1770,7 +1770,7 @@ function ProjectsPanel() {
         </div>
       </Show>
 
-      <div class="cp-sections" classList={{ "cp-loading-fade": loading() && projects().length > 0 }}>
+      <div class="cp-sections">
         <For each={visibleGroups()}>
           {(group) => {
             const items = () => grouped()[group];
@@ -1923,10 +1923,6 @@ function ProjectsPanel() {
         }
         @keyframes cp-spin {
           to { transform: rotate(360deg); }
-        }
-        .cp-loading-fade {
-          opacity: 0.5;
-          transition: opacity 0.2s ease;
         }
         .cp-sections {
           display: flex;
