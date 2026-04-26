@@ -346,6 +346,7 @@ $AIHUB_HOME/
 - Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
 - Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.
 - Loaded extensions can append agent system-prompt guidance through optional `Extension.getSystemPromptContributions(agent)`. Gateway collection lives in `apps/gateway/src/extensions/prompts.ts`; in-process Pi runs append the returned strings directly, while sandbox/container runs serialize them through `ContainerInput.extensionSystemPrompts` for the runner to append.
+- Loaded extensions can expose callable agent tools through optional `Extension.getAgentTools(agent)`. Gateway collection/dispatch lives in `apps/gateway/src/extensions/tools.ts`; in-process Pi runs mount them as `customTools`, while sandbox/container runs serialize definitions through `ContainerInput.extensionTools` and execute them through `/internal/tools`.
 - Pi lead agents override the Pi SDK default system prompt with AIHub-specific gateway guidance while preserving SDK-appended project context, connector guidance, skills, date, and working directory sections.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.

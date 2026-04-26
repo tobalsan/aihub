@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentConfig, GatewayConfig } from "@aihub/shared";
+import type { AgentConfig, Extension, GatewayConfig } from "@aihub/shared";
 import type { SdkRunParams } from "../../types.js";
 import {
   clearConfigCacheForTests,
@@ -14,7 +14,10 @@ const mockLoadBootstrapFiles = vi.fn(async () => []);
 const mockBuildBootstrapContextFiles = vi.fn(() => []);
 const mockGetConnectorToolsForAgent = vi.fn(() => []);
 const mockGetConnectorPromptsForAgent = vi.fn(() => []);
-const mockGetLoadedExtensions = vi.fn(() => []);
+const mockGetLoadedExtensions = vi.fn<() => Partial<Extension>[]>(() => []);
+const mockGetExtensionAgentTools = vi.fn<() => Promise<unknown[]>>(
+  async () => []
+);
 
 vi.mock("../../agents/workspace.js", () => ({
   ensureBootstrapFiles: mockEnsureBootstrapFiles,
@@ -37,6 +40,10 @@ vi.mock("../../connectors/index.js", () => ({
 
 vi.mock("../../extensions/registry.js", () => ({
   getLoadedExtensions: mockGetLoadedExtensions,
+}));
+
+vi.mock("../../../extensions/tools.js", () => ({
+  getExtensionAgentTools: mockGetExtensionAgentTools,
 }));
 
 vi.mock("@mariozechner/pi-ai", () => ({
@@ -104,6 +111,8 @@ describe("pi adapter onecli env wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearConfigCacheForTests();
+    mockGetLoadedExtensions.mockReturnValue([]);
+    mockGetExtensionAgentTools.mockResolvedValue([]);
     process.env = { ...originalEnv };
   });
 
@@ -364,5 +373,48 @@ describe("pi adapter onecli env wiring", () => {
         rendered: expect.stringContaining("[CHANNEL CONTEXT]"),
       })
     );
+  });
+
+  it("mounts extension tools in the in-process runtime", async () => {
+    const agent = makeAgent();
+    const config = { agents: [agent] } as GatewayConfig;
+    const execute = vi.fn(async () => ({ content: "scratch" }));
+    const session = {
+      messages: [{ role: "assistant", content: "done" }],
+      agent: { state: { messages: [], systemPrompt: "You are Sally." } },
+      subscribe: vi.fn(() => vi.fn()),
+      prompt: vi.fn(async () => undefined),
+      abort: vi.fn(),
+      dispose: vi.fn(),
+    };
+
+    setLoadedConfig(config);
+    mockGetExtensionAgentTools.mockResolvedValue([
+      {
+        extensionId: "board",
+        name: "scratchpad.read",
+        description: "Read scratchpad",
+        parameters: { type: "object", properties: {} },
+        execute,
+      },
+    ]);
+    mockCreateAgentSession.mockResolvedValue({ session });
+
+    const { piAdapter } = await import("../adapter.js");
+    await piAdapter.run(makeRunParams(agent));
+
+    expect(mockGetExtensionAgentTools).toHaveBeenCalledWith(agent);
+    const options = mockCreateAgentSession.mock.calls[0]?.[0] as {
+      customTools?: Array<{
+        name: string;
+        execute: (_id: string, params: unknown) => Promise<unknown>;
+      }>;
+    };
+    const tool = options.customTools?.find(
+      (candidate) => candidate.name === "scratchpad.read"
+    );
+    expect(tool).toBeDefined();
+    await tool?.execute("tool-1", {});
+    expect(execute).toHaveBeenCalledWith({}, { agent });
   });
 });

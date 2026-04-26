@@ -189,6 +189,36 @@ const boardExtension: Extension = {
       "- scratchpad.write { content: string } → Replaces scratchpad content. Use for collaborative notes, brainstorms, status updates.",
     ].join("\n");
   },
+  getAgentTools() {
+    return [
+      {
+        name: "scratchpad.read",
+        description: "Read the shared Board scratchpad.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        execute: () => readScratchpad(),
+      },
+      {
+        name: "scratchpad.write",
+        description: "Replace the shared Board scratchpad content.",
+        parameters: {
+          type: "object",
+          properties: {
+            content: { type: "string" },
+          },
+          required: ["content"],
+          additionalProperties: false,
+        },
+        execute: (args) => {
+          const parsed = z.object({ content: z.string() }).parse(args);
+          return writeScratchpad(parsed.content);
+        },
+      },
+    ];
+  },
   capabilities() {
     return ["board", "canvas"];
   },

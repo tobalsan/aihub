@@ -18,4 +18,21 @@ describe("board extension system prompt contribution", () => {
     expect(text).toContain("scratchpad.read");
     expect(text).toContain("scratchpad.write");
   });
+
+  it("contributes scratchpad tools through the extension hook", async () => {
+    const tools = await boardExtension.getAgentTools?.({
+      id: "lead",
+      name: "Lead",
+      workspace: "/tmp/aihub-board-test",
+      sdk: "pi",
+      model: { model: "test" },
+      queueMode: "queue",
+    });
+
+    expect(tools?.map((tool) => tool.name)).toEqual([
+      "scratchpad.read",
+      "scratchpad.write",
+    ]);
+    expect(tools?.[0]?.parameters).toMatchObject({ type: "object" });
+  });
 });

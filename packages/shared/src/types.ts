@@ -706,6 +706,20 @@ export interface ExtensionContext {
   logger: ExtensionLogger;
 }
 
+export type ExtensionAgentToolContext = {
+  agent: AgentConfig;
+};
+
+export type ExtensionAgentTool = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute(
+    args: unknown,
+    context: ExtensionAgentToolContext
+  ): unknown | Promise<unknown>;
+};
+
 export interface Extension {
   id: string;
   displayName: string;
@@ -721,6 +735,9 @@ export interface Extension {
   getSystemPromptContributions?(
     agent: AgentConfig
   ): string | string[] | undefined | Promise<string | string[] | undefined>;
+  getAgentTools?(
+    agent: AgentConfig
+  ): ExtensionAgentTool[] | Promise<ExtensionAgentTool[]>;
 }
 
 export const ExtensionDefinitionSchema = z.object({
@@ -735,6 +752,7 @@ export const ExtensionDefinitionSchema = z.object({
     .returns(z.object({ valid: z.boolean(), errors: z.array(z.string()) })),
   capabilities: z.function().args().returns(z.array(z.string())),
   getSystemPromptContributions: z.function().optional(),
+  getAgentTools: z.function().optional(),
 });
 
 // API payloads
@@ -1414,6 +1432,16 @@ export type ContainerConnectorConfig = z.infer<
   typeof ContainerConnectorConfigSchema
 >;
 
+export const ContainerExtensionToolSchema = z.object({
+  extensionId: z.string(),
+  name: z.string(),
+  description: z.string(),
+  parameters: z.record(z.unknown()),
+});
+export type ContainerExtensionTool = z.infer<
+  typeof ContainerExtensionToolSchema
+>;
+
 export const ContainerInputSchema = z.object({
   agentId: z.string(),
   sessionId: z.string(),
@@ -1428,6 +1456,7 @@ export const ContainerInputSchema = z.object({
   thinkLevel: ThinkLevelSchema.optional(),
   context: AgentContextSchema.optional(),
   extensionSystemPrompts: z.array(z.string()).optional(),
+  extensionTools: z.array(ContainerExtensionToolSchema).optional(),
   onecli: z
     .object({
       enabled: z.boolean(),

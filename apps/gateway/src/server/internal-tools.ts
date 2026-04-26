@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -20,6 +17,7 @@ import {
 } from "@aihub/extension-projects";
 import { loadConfig } from "../config/index.js";
 import { validateContainerToken } from "../sdk/container/tokens.js";
+import { executeExtensionAgentTool } from "../extensions/tools.js";
 
 const InternalToolRequestSchema = z.object({
   tool: z.string(),
@@ -53,6 +51,7 @@ type InternalToolsDeps = {
   validateToken: (token: string, agentId: string) => boolean;
   projects: ProjectOps;
   recordComment: typeof recordCommentActivity;
+  executeExtensionTool: typeof executeExtensionAgentTool;
 };
 
 const defaultDeps: InternalToolsDeps = {
@@ -65,6 +64,7 @@ const defaultDeps: InternalToolsDeps = {
     comment: appendProjectComment,
   },
   recordComment: recordCommentActivity,
+  executeExtensionTool: executeExtensionAgentTool,
 };
 
 function formatThreadDate(date: Date): string {
@@ -81,26 +81,11 @@ function unwrapProjectResult(
   return result.data;
 }
 
-function resolveBoardScratchpadPath(config: GatewayConfig): string {
-  const ext = config.extensions as
-    | Record<string, Record<string, unknown>>
-    | undefined;
-  const boardConfig = ext?.board;
-  const root = boardConfig?.root as string | undefined;
-  const base = root
-    ? root.replace(/^~/, process.env.HOME || os.homedir())
-    : path.join(
-        process.env.AIHUB_HOME || path.join(os.homedir(), ".aihub"),
-        "extensions",
-        "board"
-      );
-  return path.join(base, "SCRATCHPAD.md");
-}
-
 async function dispatchInternalTool(
   deps: InternalToolsDeps,
   tool: string,
-  args: unknown
+  args: unknown,
+  agentId: string
 ): Promise<unknown> {
   const config = deps.getConfig();
 
@@ -139,28 +124,17 @@ async function dispatchInternalTool(
       });
       return data;
     }
-    case "scratchpad.read": {
-      const filePath = resolveBoardScratchpadPath(deps.getConfig());
-      if (!fs.existsSync(filePath)) {
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, "", "utf-8");
-      }
-      const content = fs.readFileSync(filePath, "utf-8");
-      const stat = fs.statSync(filePath);
-      return { content, updatedAt: stat.mtime.toISOString() };
-    }
-    case "scratchpad.write": {
-      const parsed = z.object({ content: z.string() }).parse(args);
-      const filePath = resolveBoardScratchpadPath(deps.getConfig());
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      const tmpPath = filePath + ".tmp";
-      fs.writeFileSync(tmpPath, parsed.content, "utf-8");
-      fs.renameSync(tmpPath, filePath);
-      const stat = fs.statSync(filePath);
-      return { updatedAt: stat.mtime.toISOString() };
-    }
-    default:
+    default: {
+      const agent = config.agents.find((candidate) => candidate.id === agentId);
+      if (!agent) throw new Error(`Unknown agent: ${agentId}`);
+      const extensionResult = await deps.executeExtensionTool(
+        agent,
+        tool,
+        args
+      );
+      if (extensionResult.found) return extensionResult.result;
       throw new Error(`Unknown tool: ${tool}`);
+    }
   }
 }
 
@@ -191,7 +165,8 @@ export function createInternalTools(
       const result = await dispatchInternalTool(
         deps,
         parsed.data.tool,
-        parsed.data.args
+        parsed.data.args,
+        parsed.data.agentId
       );
       return c.json(result);
     } catch (error) {

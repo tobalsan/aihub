@@ -33,10 +33,17 @@ const mockGetConnectorToolGroupsForAgent = vi.hoisted(() =>
 const mockGetConnectorPromptsForAgent = vi.hoisted(() =>
   vi.fn<(agent: unknown) => unknown[]>(() => [])
 );
+const mockGetExtensionAgentTools = vi.hoisted(() =>
+  vi.fn<(agent: unknown) => unknown[]>(() => [])
+);
 
 vi.mock("../../connectors/index.js", () => ({
   getConnectorToolGroupsForAgent: mockGetConnectorToolGroupsForAgent,
   getConnectorPromptsForAgent: mockGetConnectorPromptsForAgent,
+}));
+
+vi.mock("../../extensions/tools.js", () => ({
+  getExtensionAgentTools: mockGetExtensionAgentTools,
 }));
 
 vi.mock("../../agents/workspace.js", () => ({
@@ -193,6 +200,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetConnectorToolGroupsForAgent.mockReturnValue([]);
   mockGetConnectorPromptsForAgent.mockReturnValue([]);
+  mockGetExtensionAgentTools.mockReturnValue([]);
   delete process.env.AIHUB_HOME;
 });
 
@@ -228,6 +236,14 @@ describe("container adapter", () => {
     ]);
     mockGetConnectorPromptsForAgent.mockReturnValue([
       { id: "github", prompt: "Use GitHub tools first." },
+    ]);
+    mockGetExtensionAgentTools.mockResolvedValue([
+      {
+        extensionId: "board",
+        name: "scratchpad.read",
+        description: "Read scratchpad",
+        parameters: { type: "object", properties: {} },
+      },
     ]);
 
     const { processes, spy } = mockSpawn();
@@ -289,6 +305,14 @@ describe("container adapter", () => {
               }),
             },
           ],
+        },
+      ],
+      extensionTools: [
+        {
+          extensionId: "board",
+          name: "scratchpad.read",
+          description: "Read scratchpad",
+          parameters: { type: "object", properties: {} },
         },
       ],
       sdkConfig: {

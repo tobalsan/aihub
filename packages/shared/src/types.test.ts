@@ -202,6 +202,17 @@ describe("container IPC schemas", () => {
           ],
         },
       ],
+      extensionTools: [
+        {
+          extensionId: "board",
+          name: "scratchpad.read",
+          description: "Read scratchpad",
+          parameters: {
+            type: "object",
+            properties: {},
+          },
+        },
+      ],
       sdkConfig: {
         sdk: "pi",
         model: { provider: "anthropic", model: "claude" },

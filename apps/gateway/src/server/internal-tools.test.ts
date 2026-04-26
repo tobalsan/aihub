@@ -14,7 +14,18 @@ function registerToken(token: string, agentId = "agent-1"): void {
 }
 
 function createDeps() {
-  const config = { agents: [], extensions: {} } as unknown as GatewayConfig;
+  const config = {
+    agents: [
+      {
+        id: "agent-1",
+        name: "Agent One",
+        workspace: "/tmp/agent-1",
+        queueMode: "queue",
+        model: { model: "test" },
+      },
+    ],
+    extensions: {},
+  } as unknown as GatewayConfig;
   const projects = {
     create: vi.fn(),
     update: vi.fn(),
@@ -25,15 +36,18 @@ function createDeps() {
     comment: vi.fn(),
   };
   const recordComment = vi.fn();
+  const executeExtensionTool = vi.fn().mockResolvedValue({ found: false });
 
   return {
     app: createInternalTools({
       getConfig: () => config,
       projects,
       recordComment,
+      executeExtensionTool,
     }),
     projects,
     recordComment,
+    executeExtensionTool,
   };
 }
 
@@ -81,7 +95,7 @@ describe("internal tools", () => {
       title: "Project One",
     });
     expect(projects.get).toHaveBeenCalledWith(
-      { agents: [], extensions: {} },
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
       "PRO-1"
     );
   });
@@ -133,8 +147,32 @@ describe("internal tools", () => {
       title: "Project One",
     });
     expect(projects.get).toHaveBeenCalledWith(
-      { agents: [], extensions: {} },
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
       "PRO-1"
+    );
+  });
+
+  it("dispatches enabled extension tools", async () => {
+    const { app, executeExtensionTool } = createDeps();
+    executeExtensionTool.mockResolvedValueOnce({
+      found: true,
+      result: { content: "hello" },
+    });
+    registerToken("token-6");
+
+    const response = await postTool(app, {
+      tool: "scratchpad.read",
+      args: {},
+      agentId: "agent-1",
+      agentToken: "token-6",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ content: "hello" });
+    expect(executeExtensionTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      "scratchpad.read",
+      {}
     );
   });
 

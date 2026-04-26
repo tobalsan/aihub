@@ -110,7 +110,7 @@ describe("extension config schemas", () => {
     expect(result.extensions.scheduler).toBe(true);
   });
 
-  it("exports extension contracts", () => {
+  it("exports extension contracts", async () => {
     const validation: ValidationResult = { valid: true, errors: [] };
     const ctx = {} as ExtensionContext;
     const extension: Extension = {
@@ -127,9 +127,19 @@ describe("extension config schemas", () => {
       },
       stop: async () => undefined,
       capabilities: () => ["schedules"],
+      getAgentTools: () => [
+        {
+          name: "sample.tool",
+          description: "Sample tool",
+          parameters: { type: "object", properties: {} },
+          execute: () => ({ ok: true }),
+        },
+      ],
     };
 
     expect(extension.validateConfig({})).toEqual(validation);
+    const tools = await extension.getAgentTools?.({} as never);
+    expect(tools?.[0]?.name).toBe("sample.tool");
     expect(ctx).toBeDefined();
   });
 });

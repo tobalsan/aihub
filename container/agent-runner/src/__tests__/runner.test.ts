@@ -220,6 +220,17 @@ describe("Pi runner", () => {
             ],
           },
         ],
+        extensionTools: [
+          {
+            extensionId: "board",
+            name: "scratchpad.read",
+            description: "Read scratchpad",
+            parameters: {
+              type: "object",
+              properties: {},
+            },
+          },
+        ],
       })
     );
 
@@ -265,6 +276,35 @@ describe("Pi runner", () => {
           connectorId: "github",
           tool: "github.search",
           args: { query: "aihub" },
+          agentId: "agent-1",
+          agentToken: "token-1",
+        }),
+      })
+    );
+
+    vi.mocked(global.fetch).mockClear();
+    vi.mocked(global.fetch).mockResolvedValue(
+      Response.json({ content: "scratch" }, { status: 200 })
+    );
+    const extensionTool = createAgentSessionArgs.customTools.find(
+      (tool) => tool.name === "scratchpad.read"
+    );
+    expect(extensionTool).toBeDefined();
+    await extensionTool?.execute("tool-2", {});
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: expect.stringContaining("/internal/tools"),
+      }),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "content-type": "application/json",
+          "X-Agent-Id": "agent-1",
+          "X-Agent-Token": "token-1",
+        }),
+        body: JSON.stringify({
+          tool: "scratchpad.read",
+          args: {},
           agentId: "agent-1",
           agentToken: "token-1",
         }),
@@ -413,6 +453,7 @@ function createInput(paths: {
   workspaceDir: string;
   sessionDir: string;
   connectorConfigs?: ContainerInput["connectorConfigs"];
+  extensionTools?: ContainerInput["extensionTools"];
   context?: ContainerInput["context"];
 }): ContainerInput {
   return {
@@ -425,6 +466,7 @@ function createInput(paths: {
     gatewayUrl: "http://gateway:3000",
     agentToken: "token-1",
     connectorConfigs: paths.connectorConfigs,
+    extensionTools: paths.extensionTools,
     context: paths.context,
     sdkConfig: {
       sdk: "pi",

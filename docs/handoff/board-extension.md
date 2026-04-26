@@ -48,11 +48,12 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - Canvas state stored in-memory (will evolve to persistent)
    - Emits `canvas.updated` and `scratchpad.updated` events for SSE subscribers
 
-2. **Scratchpad internal tools** (`apps/gateway/src/server/internal-tools.ts`)
+2. **Scratchpad extension tools**
    - `scratchpad.read {}` — returns `{ content, updatedAt }` from `$BOARD_ROOT/SCRATCHPAD.md`
    - `scratchpad.write { content }` — atomic write (temp + rename) to scratchpad file
-   - Board root resolved from `config.extensions.board.root` (same logic as extension)
-   - Registered alongside existing project/subagent tools in `dispatchInternalTool`
+   - Board root resolved from `config.extensions.board.root`
+   - Registered through `Extension.getAgentTools(agent)`
+   - Container executions go through `/internal/tools`, which dispatches to enabled extension tool handlers
 
 3. **Agent prompt contribution**
    - Board implements the shared `Extension.getSystemPromptContributions(agent)` hook
@@ -61,7 +62,13 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - Sandbox/container runs receive them as `ContainerInput.extensionSystemPrompts` and append them in the runner
    - Board's contribution documents `scratchpad.read` and `scratchpad.write`
 
-4. **Home route priority** (gateway changes)
+4. **Agent tool contribution**
+   - Board implements the shared `Extension.getAgentTools(agent)` hook
+   - In-process Pi runs mount `scratchpad.read`/`scratchpad.write` as `customTools`
+   - Sandbox/container runs receive tool definitions as `ContainerInput.extensionTools`
+   - Container tool calls execute through `/internal/tools`, which dispatches to enabled extension tool handlers
+
+5. **Home route priority** (gateway changes)
    - `registry.ts`: After loading extensions, parses each one's raw config through its `configSchema` to resolve zod defaults. If >1 has `home === true`, startup fails with a clear error.
    - `api.core.ts`: `/api/capabilities` now includes `"home": "<extension-id>"` field
    - `shared/types.ts`: `CapabilitiesResponseSchema` has `home: z.string().optional()`

@@ -7,6 +7,7 @@ import path from "node:path";
 import type {
   AgentConfig,
   ContainerConnectorConfig,
+  ContainerExtensionTool,
   ContainerInput,
   ContainerOutput,
   FileAttachment,
@@ -29,6 +30,7 @@ import {
   getConnectorToolGroupsForAgent,
 } from "../../connectors/index.js";
 import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
+import { getExtensionAgentTools } from "../../extensions/tools.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import {
   ensureMediaDirectories,
@@ -440,6 +442,17 @@ function buildConnectorConfigs(
   return Array.from(connectorConfigs.values());
 }
 
+async function buildExtensionTools(
+  params: SdkRunParams
+): Promise<ContainerExtensionTool[]> {
+  return (await getExtensionAgentTools(params.agent)).map((tool) => ({
+    extensionId: tool.extensionId,
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+  }));
+}
+
 function attachExtraNetwork(containerName: string, network: string): void {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
@@ -514,6 +527,7 @@ async function buildInput(
   const connectorConfigs = buildConnectorConfigs(params);
   const extensionSystemPrompts =
     await getExtensionSystemPromptContributions(params.agent);
+  const extensionTools = await buildExtensionTools(params);
   return {
     agentId: params.agentId,
     sessionId: params.sessionId,
@@ -524,6 +538,7 @@ async function buildInput(
     context: params.context,
     extensionSystemPrompts:
       extensionSystemPrompts.length > 0 ? extensionSystemPrompts : undefined,
+    extensionTools: extensionTools.length > 0 ? extensionTools : undefined,
     workspaceDir: "/workspace",
     sessionDir: "/sessions",
     ipcDir: "/workspace/ipc",

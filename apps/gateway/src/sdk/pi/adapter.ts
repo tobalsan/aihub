@@ -28,6 +28,7 @@ import {
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
 import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
+import { getExtensionAgentTools } from "../../extensions/tools.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
 import {
   appendAttachmentContext,
@@ -99,6 +100,22 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
     ) as unknown as AgentTool["parameters"],
     execute: async (_toolCallId, params) => {
       const result = await tool.execute(params);
+      return {
+        content: [{ type: "text", text: stringifyToolResult(result) }],
+        details: result,
+      };
+    },
+  }));
+}
+
+async function createPiExtensionTools(agent: AgentConfig): Promise<AgentTool[]> {
+  return (await getExtensionAgentTools(agent)).map((tool) => ({
+    name: tool.name,
+    label: tool.description,
+    description: tool.description,
+    parameters: tool.parameters as unknown as AgentTool["parameters"],
+    execute: async (_toolCallId, params) => {
+      const result = await tool.execute(params, { agent });
       return {
         content: [{ type: "text", text: stringifyToolResult(result) }],
         details: result,
@@ -260,6 +277,7 @@ export const piAdapter: SdkAdapter = {
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
       const connectorTools = createPiConnectorTools(agent);
+      const extensionTools = await createPiExtensionTools(agent);
       const extensionPrompts =
         await getExtensionSystemPromptContributions(agent);
       const connectorPrompts = getConnectorPromptsForAgent(agent);
@@ -315,7 +333,7 @@ export const piAdapter: SdkAdapter = {
         model,
         ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
         tools,
-        customTools: connectorTools,
+        customTools: [...connectorTools, ...extensionTools],
         resourceLoader,
         sessionManager,
         settingsManager,

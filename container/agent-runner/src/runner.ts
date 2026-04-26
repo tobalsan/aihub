@@ -209,6 +209,7 @@ export async function runAgent(
     const customTools = [
       ...createOrchestrationTools(input),
       ...createConnectorTools(input),
+      ...createExtensionTools(input),
       createSendFileTool(onStreamEvent),
     ];
 
@@ -414,6 +415,18 @@ function createConnectorTools(input: ContainerInput): ToolDefinition[] {
         };
       },
     }))
+  );
+}
+
+function createExtensionTools(input: ContainerInput): ToolDefinition[] {
+  return (input.extensionTools ?? []).map((tool) =>
+    gatewayTool(
+      input,
+      tool.name,
+      tool.description,
+      tool.description,
+      tool.parameters
+    )
   );
 }
 
