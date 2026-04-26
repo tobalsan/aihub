@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import type {
   SubagentChangedEvent,
@@ -117,7 +118,7 @@ async function readJson<T>(filePath: string): Promise<T | null> {
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   try {
     await fs.writeFile(tempPath, JSON.stringify(value, null, 2), "utf8");
@@ -567,7 +568,13 @@ async function spawnRunProcess(
     const text = chunk.toString("utf8");
     void fs
       .appendFile(paths.logs, text, "utf8")
-      .then(() => updateProgress(text));
+      .then(() => updateProgress(text))
+      .catch((error: unknown) => {
+        console.warn(
+          `[subagents] failed to record stdout progress for ${runId}:`,
+          error
+        );
+      });
     for (const line of text.split(/\r?\n/).filter(Boolean)) {
       try {
         const ev = JSON.parse(line) as {
@@ -585,12 +592,19 @@ async function spawnRunProcess(
                 ? ev.id
                 : undefined;
         if (nextSessionId) {
-          void readJson<StoredState>(paths.state).then((current) =>
-            writeJson(paths.state, {
-              ...(current ?? state),
-              cliSessionId: nextSessionId,
-            } satisfies StoredState)
-          );
+          void readJson<StoredState>(paths.state)
+            .then((current) =>
+              writeJson(paths.state, {
+                ...(current ?? state),
+                cliSessionId: nextSessionId,
+              } satisfies StoredState)
+            )
+            .catch((error: unknown) => {
+              console.warn(
+                `[subagents] failed to record session id for ${runId}:`,
+                error
+              );
+            });
         }
       } catch {
         // ignore non-json output
@@ -608,7 +622,13 @@ async function spawnRunProcess(
     if (!lines) return;
     void fs
       .appendFile(paths.logs, `${lines}\n`, "utf8")
-      .then(() => updateProgress(text));
+      .then(() => updateProgress(text))
+      .catch((error: unknown) => {
+        console.warn(
+          `[subagents] failed to record stderr progress for ${runId}:`,
+          error
+        );
+      });
   });
 
   child.on("error", (error) => {
