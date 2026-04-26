@@ -27,7 +27,7 @@ import {
   getConnectorPromptsForAgent,
   getConnectorToolsForAgent,
 } from "../../connectors/index.js";
-import { getLoadedExtensions } from "../../extensions/registry.js";
+import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
 import {
   appendAttachmentContext,
@@ -105,10 +105,6 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
       };
     },
   }));
-}
-
-function hasBoardExtensionEnabled(): boolean {
-  return getLoadedExtensions().some((extension) => extension.id === "board");
 }
 
 async function withPiOnecliEnv<T>(
@@ -264,14 +260,8 @@ export const piAdapter: SdkAdapter = {
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
       const connectorTools = createPiConnectorTools(agent);
-      const boardExtensionEnabled = hasBoardExtensionEnabled();
-      const scratchpadToolPrompt = boardExtensionEnabled
-        ? [
-            "Board scratchpad tools:",
-            "- scratchpad.read {} → Returns { content: string, updatedAt: string }. The shared scratchpad content.",
-            "- scratchpad.write { content: string } → Replaces scratchpad content. Use for collaborative notes, brainstorms, status updates.",
-          ].join("\n")
-        : undefined;
+      const extensionPrompts =
+        await getExtensionSystemPromptContributions(agent);
       const connectorPrompts = getConnectorPromptsForAgent(agent);
       const connectorContextFiles = connectorPrompts.map((cp) => ({
         path: `connector:${cp.id}`,
@@ -281,7 +271,7 @@ export const piAdapter: SdkAdapter = {
         ? renderAgentContext(params.context)
         : "";
       const allAppendedPrompts = [
-        scratchpadToolPrompt,
+        ...extensionPrompts,
         renderedContext || undefined,
       ].filter((prompt): prompt is string => Boolean(prompt));
 

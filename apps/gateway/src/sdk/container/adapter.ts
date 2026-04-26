@@ -28,6 +28,7 @@ import {
   getConnectorPromptsForAgent,
   getConnectorToolGroupsForAgent,
 } from "../../connectors/index.js";
+import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
 import {
   ensureMediaDirectories,
@@ -505,9 +506,14 @@ function remapAttachmentsToContainer(
   });
 }
 
-function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
+async function buildInput(
+  params: SdkRunParams,
+  agentToken: string
+): Promise<ContainerInput> {
   const config = loadConfig();
   const connectorConfigs = buildConnectorConfigs(params);
+  const extensionSystemPrompts =
+    await getExtensionSystemPromptContributions(params.agent);
   return {
     agentId: params.agentId,
     sessionId: params.sessionId,
@@ -516,6 +522,8 @@ function buildInput(params: SdkRunParams, agentToken: string): ContainerInput {
     attachments: remapAttachmentsToContainer(params.attachments),
     thinkLevel: params.thinkLevel,
     context: params.context,
+    extensionSystemPrompts:
+      extensionSystemPrompts.length > 0 ? extensionSystemPrompts : undefined,
     workspaceDir: "/workspace",
     sessionDir: "/sessions",
     ipcDir: "/workspace/ipc",
@@ -608,7 +616,7 @@ export function getContainerAdapter(): SdkAdapter {
       const attachmentContext = hasReadableDocumentAttachment(params)
         ? await buildDocumentAttachmentContext(params.attachments)
         : "";
-      const input = buildInput(
+      const input = await buildInput(
         {
           ...params,
           message: appendAttachmentContext(params.message, attachmentContext),

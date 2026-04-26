@@ -35,6 +35,23 @@ function context(config: GatewayConfig): ExtensionContext {
 }
 
 describe("subagents extension profile resolution", () => {
+  it("contributes subagent command guidance to the system prompt", async () => {
+    const contribution = subagentsExtension.getSystemPromptContributions?.({
+      id: "lead",
+      name: "Lead",
+      workspace: "/tmp/aihub-subagents-test",
+      sdk: "pi",
+      model: { model: "test" },
+      queueMode: "queue",
+    });
+    const resolved = await Promise.resolve(contribution);
+    const text = Array.isArray(resolved) ? resolved.join("\n") : resolved ?? "";
+
+    expect(text).toContain("aihub subagents start");
+    expect(text).toContain("aihub subagents list");
+    expect(text).toContain("aihub subagents interrupt|archive");
+  });
+
   it("uses top-level subagent cli templates as profiles", async () => {
     const app = new Hono();
     await subagentsExtension.start(

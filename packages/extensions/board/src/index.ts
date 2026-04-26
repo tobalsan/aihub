@@ -182,6 +182,13 @@ const boardExtension: Extension = {
     boardRoot = null;
     console.log("[board] extension stopped");
   },
+  getSystemPromptContributions() {
+    return [
+      "Board scratchpad tools:",
+      "- scratchpad.read {} → Returns { content: string, updatedAt: string }. The shared scratchpad content.",
+      "- scratchpad.write { content: string } → Replaces scratchpad content. Use for collaborative notes, brainstorms, status updates.",
+    ].join("\n");
+  },
   capabilities() {
     return ["board", "canvas"];
   },

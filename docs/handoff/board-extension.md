@@ -54,10 +54,12 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - Board root resolved from `config.extensions.board.root` (same logic as extension)
    - Registered alongside existing project/subagent tools in `dispatchInternalTool`
 
-3. **Agent tool prompt** (`apps/gateway/src/sdk/pi/adapter.ts`)
-   - `hasBoardExtensionEnabled()` checks if board extension is loaded
-   - Injects scratchpad tool definitions into agent system prompt when board is active
-   - Prompt includes usage docs for `scratchpad.read` and `scratchpad.write`
+3. **Agent prompt contribution**
+   - Board implements the shared `Extension.getSystemPromptContributions(agent)` hook
+   - Gateway aggregates extension prompt contributions in `apps/gateway/src/extensions/prompts.ts`
+   - In-process Pi runs append those strings through `DefaultResourceLoader.appendSystemPrompt`
+   - Sandbox/container runs receive them as `ContainerInput.extensionSystemPrompts` and append them in the runner
+   - Board's contribution documents `scratchpad.read` and `scratchpad.write`
 
 4. **Home route priority** (gateway changes)
    - `registry.ts`: After loading extensions, parses each one's raw config through its `configSchema` to resolve zod defaults. If >1 has `home === true`, startup fails with a clear error.

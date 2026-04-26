@@ -197,6 +197,7 @@ export async function runAgent(
       systemPromptOverride: () => AIHUB_PI_SYSTEM_PROMPT,
       appendSystemPrompt: [
         orchestrationToolPrompt(),
+        ...(input.extensionSystemPrompts ?? []),
         renderedContext || undefined,
       ].filter((prompt): prompt is string => Boolean(prompt)),
       agentsFilesOverride: () => ({ agentsFiles: contextFiles }),

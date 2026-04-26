@@ -718,6 +718,9 @@ export interface Extension {
   start(ctx: ExtensionContext): Promise<void>;
   stop(): Promise<void>;
   capabilities(): string[];
+  getSystemPromptContributions?(
+    agent: AgentConfig
+  ): string | string[] | undefined | Promise<string | string[] | undefined>;
 }
 
 export const ExtensionDefinitionSchema = z.object({
@@ -731,6 +734,7 @@ export const ExtensionDefinitionSchema = z.object({
     .args(z.unknown())
     .returns(z.object({ valid: z.boolean(), errors: z.array(z.string()) })),
   capabilities: z.function().args().returns(z.array(z.string())),
+  getSystemPromptContributions: z.function().optional(),
 });
 
 // API payloads
@@ -1423,6 +1427,7 @@ export const ContainerInputSchema = z.object({
   agentToken: z.string(),
   thinkLevel: ThinkLevelSchema.optional(),
   context: AgentContextSchema.optional(),
+  extensionSystemPrompts: z.array(z.string()).optional(),
   onecli: z
     .object({
       enabled: z.boolean(),
