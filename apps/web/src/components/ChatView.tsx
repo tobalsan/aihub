@@ -39,6 +39,16 @@ import { extractBlockText } from "../lib/history";
 import { renderMarkdown } from "../lib/markdown";
 import { isExtensionEnabled } from "../lib/capabilities";
 import { getMaxContextTokens } from "@aihub/shared/model-context";
+import {
+  attachmentToFileBlock,
+  createPendingFile,
+  FILE_INPUT_ACCEPT,
+  formatFileSize,
+  isSupportedFile,
+  MAX_UPLOAD_SIZE_BYTES,
+  revokePendingFile,
+  type PendingFile,
+} from "../lib/attachments";
 
 function isEmoji(str: string): boolean {
   return /^\p{Emoji}/u.test(str) && str.length <= 4;
@@ -46,54 +56,6 @@ function isEmoji(str: string): boolean {
 
 // Threshold for auto-collapsing content
 const COLLAPSE_THRESHOLD = 200;
-const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
-const ACCEPTED_FILE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/svg+xml",
-  "application/pdf",
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-].join(",");
-const SUPPORTED_FILE_TYPES = new Set(ACCEPTED_FILE_TYPES.split(","));
-const SUPPORTED_FILE_EXTENSIONS = new Set([
-  "jpg",
-  "jpeg",
-  "png",
-  "gif",
-  "webp",
-  "svg",
-  "pdf",
-  "txt",
-  "md",
-  "markdown",
-  "csv",
-  "doc",
-  "docx",
-  "xls",
-  "xlsx",
-]);
-const FILE_INPUT_ACCEPT = [
-  ACCEPTED_FILE_TYPES,
-  ...Array.from(SUPPORTED_FILE_EXTENSIONS, (ext) => `.${ext}`),
-].join(",");
-
-type PendingFile = {
-  id: string;
-  file: File;
-  name: string;
-  mimeType: string;
-  size: number;
-  previewUrl?: string;
-};
-
 type DropZone = "history" | "composer" | "attach";
 
 type SimpleToolMessage = {
@@ -131,25 +93,6 @@ function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
 }
 
-function formatFileSize(size: number): string {
-  if (!Number.isFinite(size) || size <= 0) return "";
-  if (size < 1024) return `${size} B`;
-  const kb = size / 1024;
-  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
-}
-
-function isSupportedFile(file: File): boolean {
-  if (SUPPORTED_FILE_TYPES.has(file.type)) return true;
-  const ext = file.name.toLowerCase().split(".").pop();
-  return ext ? SUPPORTED_FILE_EXTENSIONS.has(ext) : false;
-}
-
-function isImageFile(file: File): boolean {
-  return file.type.startsWith("image/");
-}
-
 function getFileIcon(mimeType: string): string {
   if (mimeType.startsWith("image/")) return "IMG";
   if (mimeType === "application/pdf") return "PDF";
@@ -159,29 +102,6 @@ function getFileIcon(mimeType: string): string {
   if (mimeType === "text/csv") return "CSV";
   if (mimeType === "text/markdown") return "MD";
   return "FILE";
-}
-
-function getAttachmentFileId(attachment: FileAttachment): string {
-  const name = attachment.path.split(/[\\/]/).pop() ?? attachment.path;
-  return name.replace(/\.[^.]+$/, "");
-}
-
-function attachmentToFileBlock(
-  attachment: FileAttachment,
-  pending?: PendingFile
-): FileBlock {
-  return {
-    type: "file",
-    fileId: getAttachmentFileId(attachment),
-    filename:
-      pending?.name ??
-      attachment.filename ??
-      attachment.path.split(/[\\/]/).pop() ??
-      "file",
-    mimeType: pending?.mimeType || attachment.mimeType,
-    size: pending?.size ?? 0,
-    direction: "inbound",
-  };
 }
 
 function formatJson(args: unknown): string {
@@ -745,10 +665,6 @@ export function ChatView() {
     textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, maxHeight)}px`;
   };
 
-  const revokePendingFile = (item: PendingFile) => {
-    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-  };
-
   const clearPendingFiles = () => {
     setPendingFiles((prev) => {
       prev.forEach(revokePendingFile);
@@ -768,14 +684,7 @@ export function ChatView() {
         setUploadError(`File exceeds 25 MB: ${file.name}`);
         continue;
       }
-      next.push({
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        file,
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        previewUrl: isImageFile(file) ? URL.createObjectURL(file) : undefined,
-      });
+      next.push(createPendingFile(file));
     }
     if (next.length > 0) {
       setPendingFiles((prev) => [...prev, ...next]);

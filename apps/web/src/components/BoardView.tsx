@@ -22,10 +22,13 @@ import {
   streamMessage,
   subscribeToSubagentChanges,
   subscribeToSession,
+  uploadFiles,
 } from "../api/client";
 import type { ActiveTurn } from "../api/client";
 import type {
   Agent,
+  FileAttachment,
+  FileBlock,
   FullHistoryMessage,
   FullToolResultMessage,
   SubagentLogEvent,
@@ -35,6 +38,16 @@ import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
 import { renderMarkdown } from "../lib/markdown";
+import {
+  attachmentToFileBlock,
+  createPendingFile,
+  FILE_INPUT_ACCEPT,
+  formatFileSize,
+  isSupportedFile,
+  MAX_UPLOAD_SIZE_BYTES,
+  revokePendingFile,
+  type PendingFile,
+} from "../lib/attachments";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -44,6 +57,8 @@ interface CanvasState {
   panel: CanvasPanel;
   props?: Record<string, unknown>;
 }
+
+type DropZone = "history" | "composer" | "attach";
 
 // ── API helpers ─────────────────────────────────────────────────────
 
@@ -105,13 +120,23 @@ export function BoardView() {
   const [waitingForFirstText, setWaitingForFirstText] = createSignal(false);
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const [queuedMessages, setQueuedMessages] = createSignal<string[]>([]);
+  const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
+  const [uploadingFiles, setUploadingFiles] = createSignal(false);
+  const [uploadError, setUploadError] = createSignal("");
+  const [isFileDragActive, setIsFileDragActive] = createSignal(false);
+  const [activeDropZone, setActiveDropZone] = createSignal<DropZone | null>(
+    null
+  );
 
+  let boardChatEl: HTMLDivElement | undefined;
   let messagesEl: HTMLDivElement | undefined;
   let inputEl: HTMLTextAreaElement | undefined;
+  let fileInputEl: HTMLInputElement | undefined;
   let stopStream: (() => void) | null = null;
   let stopSubscription: (() => void) | null = null;
   let historyLoadVersion = 0;
   let activeQueuedMessage: string | null = null;
+  let fileDragDepth = 0;
 
   const selectedAgent = createMemo(() =>
     agents().find((a) => a.id === selectedAgentId())
@@ -140,6 +165,82 @@ export function BoardView() {
     if (inputEl) inputEl.style.height = "auto";
   }
 
+  function clearPendingFiles() {
+    setPendingFiles((prev) => {
+      prev.forEach(revokePendingFile);
+      return [];
+    });
+  }
+
+  function addPendingFiles(files: FileList | File[]) {
+    setUploadError("");
+    const next: PendingFile[] = [];
+    for (const file of Array.from(files)) {
+      if (!isSupportedFile(file)) {
+        setUploadError(`Unsupported file type: ${file.name}`);
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        setUploadError(`File exceeds 25 MB: ${file.name}`);
+        continue;
+      }
+      next.push(createPendingFile(file));
+    }
+    if (next.length > 0) {
+      setPendingFiles((prev) => [...prev, ...next]);
+    }
+  }
+
+  function removePendingFile(id: string) {
+    setPendingFiles((prev) => {
+      const removed = prev.find((item) => item.id === id);
+      if (removed) revokePendingFile(removed);
+      return prev.filter((item) => item.id !== id);
+    });
+  }
+
+  function canAttachFiles() {
+    return !isStreaming() && !uploadingFiles();
+  }
+
+  function getFileDropError() {
+    if (isStreaming()) {
+      return "Wait for the current response before attaching files.";
+    }
+    if (uploadingFiles()) {
+      return "Wait for the current upload to finish before attaching files.";
+    }
+    return "";
+  }
+
+  function isFileDragEvent(event: DragEvent) {
+    return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+  }
+
+  function getDropZone(target: EventTarget | null): DropZone | null {
+    const element = target instanceof Element ? target : null;
+    if (!element) return null;
+    if (element.closest(".board-chat-attach")) return "attach";
+    if (
+      element.closest(".board-chat-input-wrapper") ||
+      element.closest(".board-chat-input-area")
+    ) {
+      return "composer";
+    }
+    if (element.closest(".board-chat-messages")) return "history";
+    return null;
+  }
+
+  function resetFileDragState() {
+    fileDragDepth = 0;
+    setIsFileDragActive(false);
+    setActiveDropZone(null);
+  }
+
+  function updateDropZoneFromEvent(event: DragEvent) {
+    setActiveDropZone(getDropZone(event.target));
+  }
+
   function isNearBottom(el: HTMLElement) {
     return el.scrollHeight - el.scrollTop - el.clientHeight <= 48;
   }
@@ -152,10 +253,10 @@ export function BoardView() {
     });
   }
 
-  function appendUserLog(text: string) {
+  function appendUserLog(text: string, files?: FileBlock[]) {
     setLogItems((prev) => [
       ...prev,
-      { type: "text", role: "user", content: text },
+      { type: "text", role: "user", content: text, files },
     ]);
   }
 
@@ -428,6 +529,69 @@ export function BoardView() {
   onCleanup(() => {
     if (pollTimer) clearInterval(pollTimer);
     cleanupLiveConnections();
+    clearPendingFiles();
+    resetFileDragState();
+  });
+
+  createEffect(() => {
+    if (canAttachFiles()) return;
+    resetFileDragState();
+  });
+
+  createEffect(() => {
+    const root = boardChatEl;
+    if (!root) return;
+
+    const handleDragEnter = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent) || !canAttachFiles()) return;
+      dragEvent.preventDefault();
+      fileDragDepth += 1;
+      setIsFileDragActive(true);
+      updateDropZoneFromEvent(dragEvent);
+    };
+
+    const handleDragOver = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent) || !canAttachFiles()) return;
+      dragEvent.preventDefault();
+      if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "copy";
+      setIsFileDragActive(true);
+      updateDropZoneFromEvent(dragEvent);
+    };
+
+    const handleDragLeave = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent) || fileDragDepth === 0) return;
+      fileDragDepth = Math.max(0, fileDragDepth - 1);
+      if (fileDragDepth === 0) resetFileDragState();
+    };
+
+    const handleDrop = (event: Event) => {
+      const dragEvent = event as DragEvent;
+      if (!isFileDragEvent(dragEvent)) return;
+      dragEvent.preventDefault();
+      const files = dragEvent.dataTransfer?.files;
+      const dropError = getFileDropError();
+      resetFileDragState();
+      if (dropError) {
+        setUploadError(dropError);
+        return;
+      }
+      if (!files || files.length === 0) return;
+      addPendingFiles(files);
+    };
+
+    root.addEventListener("dragenter", handleDragEnter, true);
+    root.addEventListener("dragover", handleDragOver, true);
+    root.addEventListener("dragleave", handleDragLeave, true);
+    root.addEventListener("drop", handleDrop, true);
+    onCleanup(() => {
+      root.removeEventListener("dragenter", handleDragEnter, true);
+      root.removeEventListener("dragover", handleDragOver, true);
+      root.removeEventListener("dragleave", handleDragLeave, true);
+      root.removeEventListener("drop", handleDrop, true);
+    });
   });
 
   // ── Chat ──────────────────────────────────────────────────────────
@@ -457,7 +621,8 @@ export function BoardView() {
   function sendStreamMessage(
     agentId: string,
     text: string,
-    mode: "normal" | "queued"
+    mode: "normal" | "queued",
+    attachments?: FileAttachment[]
   ) {
     cleanupSubscription();
     setIsStreaming(true);
@@ -510,7 +675,8 @@ export function BoardView() {
         onToolResult(id, name, content, isError, details) {
           attachStreamingToolResult(id, name, content, isError, details);
         },
-      }
+      },
+      attachments?.length ? { attachments } : undefined
     );
   }
 
@@ -542,23 +708,56 @@ export function BoardView() {
     }
   }
 
-  function handleSend() {
+  async function handleSend() {
     const agentId = selectedAgentId();
     const text = chatInput().trim();
-    if (!agentId || !text) return;
+    const currentPendingFiles = pendingFiles();
+    const hasFiles = currentPendingFiles.length > 0;
+    if (!agentId || (!text && !hasFiles) || uploadingFiles()) return;
+
+    if (isStreaming() && hasFiles) {
+      setUploadError("Wait for the current response before attaching files.");
+      return;
+    }
+
+    let attachments: FileAttachment[] | undefined;
+    let inboundFiles: FileBlock[] = [];
+    if (hasFiles) {
+      setUploadingFiles(true);
+      setUploadError("");
+      try {
+        attachments = await uploadFiles(
+          currentPendingFiles.map((item) => item.file)
+        );
+        inboundFiles = attachments.map((attachment, index) =>
+          attachmentToFileBlock(attachment, currentPendingFiles[index])
+        );
+        clearPendingFiles();
+      } catch (error) {
+        setUploadError(
+          error instanceof Error ? error.message : "File upload failed"
+        );
+        setUploadingFiles(false);
+        return;
+      }
+      setUploadingFiles(false);
+    }
+
+    const messageText = text || "Attached file(s).";
+    const logText = messageText;
 
     setChatInput("");
     resetInputHeight();
 
     if (isStreaming()) {
-      setQueuedMessages((prev) => [...prev, text]);
+      setQueuedMessages((prev) => [...prev, messageText]);
       setStickToBottom(true);
       scrollToBottom(true);
       return;
     }
 
-    appendUserLog(text);
-    sendStreamMessage(agentId, text, "normal");
+    appendUserLog(logText, inboundFiles.length > 0 ? inboundFiles : undefined);
+    sendStreamMessage(agentId, messageText, "normal", attachments);
   }
 
   async function handleAbort() {
@@ -582,7 +781,7 @@ export function BoardView() {
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   }
 
@@ -594,12 +793,27 @@ export function BoardView() {
     target.style.height = Math.min(target.scrollHeight, 160) + "px";
   }
 
+  const fileDropHint = createMemo(() => {
+    if (!isFileDragActive()) return "";
+    if (activeDropZone() === "history") return "Drop files into the chat.";
+    if (activeDropZone() === "composer") {
+      return "Drop files to attach them to your next message.";
+    }
+    if (activeDropZone() === "attach")
+      return "Drop files on the attach button.";
+    return "Drop files to attach them.";
+  });
+
   // ── Render ────────────────────────────────────────────────────────
 
   return (
     <div class="board">
       {/* Left pane: Chat */}
-      <div class="board-chat">
+      <div
+        class="board-chat"
+        classList={{ "drop-active": isFileDragActive() }}
+        ref={boardChatEl}
+      >
         <div class="board-chat-header">
           <div class="board-chat-agent-info">
             <Show
@@ -635,6 +849,9 @@ export function BoardView() {
 
         <div
           class="board-chat-messages"
+          classList={{
+            "drop-target": isFileDragActive() && activeDropZone() === "history",
+          }}
           ref={messagesEl}
           onScroll={(e) => setStickToBottom(isNearBottom(e.currentTarget))}
         >
@@ -710,7 +927,90 @@ export function BoardView() {
         </div>
 
         <div class="board-chat-input-area">
-          <div class="board-chat-input-wrapper">
+          <Show when={isFileDragActive()}>
+            <div class="board-drop-banner">{fileDropHint()}</div>
+          </Show>
+          <Show when={uploadError()}>
+            {(error) => <div class="board-upload-error">{error()}</div>}
+          </Show>
+          <Show when={pendingFiles().length > 0}>
+            <div class="board-attachments">
+              <For each={pendingFiles()}>
+                {(item) => (
+                  <div class="board-attachment-pill">
+                    <Show when={item.previewUrl}>
+                      {(url) => (
+                        <img
+                          class="board-attachment-thumb"
+                          src={url()}
+                          alt=""
+                        />
+                      )}
+                    </Show>
+                    <span class="board-attachment-name" title={item.name}>
+                      {item.name}
+                    </span>
+                    <Show when={formatFileSize(item.size)}>
+                      {(size) => (
+                        <span class="board-attachment-size">{size()}</span>
+                      )}
+                    </Show>
+                    <button
+                      type="button"
+                      class="board-attachment-remove"
+                      aria-label={`Remove ${item.name}`}
+                      disabled={uploadingFiles()}
+                      onClick={() => removePendingFile(item.id)}
+                    >
+                      x
+                    </button>
+                  </div>
+                )}
+              </For>
+              <Show when={uploadingFiles()}>
+                <span class="board-uploading-label">Uploading...</span>
+              </Show>
+            </div>
+          </Show>
+          <div
+            class="board-chat-input-wrapper"
+            classList={{
+              "drop-target":
+                isFileDragActive() && activeDropZone() === "composer",
+            }}
+          >
+            <input
+              ref={fileInputEl}
+              class="board-file-input"
+              type="file"
+              accept={FILE_INPUT_ACCEPT}
+              multiple
+              onChange={(e) => {
+                if (isStreaming()) return;
+                const files = e.currentTarget.files;
+                if (!files || files.length === 0) return;
+                addPendingFiles(files);
+                e.currentTarget.value = "";
+              }}
+            />
+            <button
+              type="button"
+              class="board-chat-attach"
+              classList={{
+                "drop-target":
+                  isFileDragActive() && activeDropZone() === "attach",
+              }}
+              aria-label="Attach files"
+              disabled={isStreaming() || uploadingFiles()}
+              onClick={() => fileInputEl?.click()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M16.5 6.5v9.1a4.5 4.5 0 0 1-9 0V6.3a3.3 3.3 0 0 1 6.6 0v8.8a2.1 2.1 0 1 1-4.2 0V7.2h1.6v7.9a.5.5 0 1 0 1 0V6.3a1.7 1.7 0 0 0-3.4 0v9.3a2.9 2.9 0 0 0 5.8 0V6.5h1.6z"
+                />
+              </svg>
+            </button>
             <textarea
               class="board-chat-input"
               ref={inputEl}
@@ -725,9 +1025,12 @@ export function BoardView() {
               fallback={
                 <button
                   class="board-chat-send"
-                  onClick={handleSend}
+                  onClick={() => void handleSend()}
                   type="button"
-                  disabled={!chatInput().trim()}
+                  disabled={
+                    (!chatInput().trim() && pendingFiles().length === 0) ||
+                    uploadingFiles()
+                  }
                   aria-label="Send message"
                 >
                   <svg
@@ -839,6 +1142,10 @@ export function BoardView() {
           background: var(--bg-base);
         }
 
+        .board-chat.drop-active {
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-accent, #6366f1) 28%, transparent);
+        }
+
         /* Header */
         .board-chat-header {
           padding: 12px 20px;
@@ -907,6 +1214,12 @@ export function BoardView() {
           display: flex;
           flex-direction: column;
           gap: 24px;
+        }
+
+        .board-chat-messages.drop-target {
+          outline: 1px dashed color-mix(in srgb, var(--text-accent, #6366f1) 38%, transparent);
+          outline-offset: -8px;
+          background: linear-gradient(180deg, color-mix(in srgb, var(--text-accent, #6366f1) 5%, transparent), transparent 28%);
         }
 
         /* Empty state */
@@ -1003,6 +1316,84 @@ export function BoardView() {
           border-top: 1px solid var(--border-default);
         }
 
+        .board-drop-banner {
+          margin: 0 0 8px;
+          color: var(--text-accent, #6366f1);
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .board-upload-error {
+          margin: 0 0 8px;
+          color: #ef4444;
+          font-size: 12px;
+        }
+
+        .board-attachments {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .board-attachment-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          min-width: 0;
+          max-width: 100%;
+          padding: 5px 7px;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+          color: var(--text-secondary);
+          font-size: 12px;
+        }
+
+        .board-attachment-thumb {
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+          object-fit: cover;
+          border-radius: 4px;
+        }
+
+        .board-attachment-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .board-attachment-size,
+        .board-uploading-label {
+          flex-shrink: 0;
+          color: var(--text-secondary);
+          opacity: 0.7;
+          font-size: 11px;
+        }
+
+        .board-attachment-remove {
+          width: 18px;
+          height: 18px;
+          border: none;
+          border-radius: 4px;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+          line-height: 1;
+        }
+
+        .board-attachment-remove:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+          color: var(--text-primary);
+        }
+
+        .board-file-input {
+          display: none;
+        }
+
         .board-chat-input-wrapper {
           display: flex;
           align-items: flex-end;
@@ -1019,9 +1410,48 @@ export function BoardView() {
           box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-accent, #6366f1) 15%, transparent);
         }
 
+        .board-chat-input-wrapper.drop-target {
+          border-color: color-mix(in srgb, var(--text-accent, #6366f1) 52%, var(--border-default));
+          background: color-mix(in srgb, var(--text-accent, #6366f1) 6%, var(--bg-surface));
+        }
+
+        .board-chat-attach {
+          display: grid;
+          place-items: center;
+          width: 36px;
+          height: 36px;
+          margin: 4px 0 4px 4px;
+          border: none;
+          border-radius: 10px;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+
+        .board-chat-attach svg {
+          width: 19px;
+          height: 19px;
+        }
+
+        .board-chat-attach:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+          color: var(--text-primary);
+        }
+
+        .board-chat-attach.drop-target {
+          background: color-mix(in srgb, var(--text-accent, #6366f1) 12%, transparent);
+          color: var(--text-primary);
+        }
+
+        .board-chat-attach:disabled {
+          opacity: 0.35;
+          cursor: default;
+        }
+
         .board-chat-input {
           flex: 1;
-          padding: 12px 4px 12px 16px;
+          padding: 12px 4px;
           border: none;
           background: transparent;
           color: var(--text-primary);
@@ -1077,6 +1507,12 @@ export function BoardView() {
         }
 
         .board-chat-send:focus-visible {
+          outline: 2px solid var(--text-accent, #6366f1);
+          outline-offset: 2px;
+        }
+
+        .board-chat-attach:focus-visible,
+        .board-attachment-remove:focus-visible {
           outline: 2px solid var(--text-accent, #6366f1);
           outline-offset: 2px;
         }

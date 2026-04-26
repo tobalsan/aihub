@@ -1,10 +1,20 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
-import type { FullHistoryMessage, FullToolResultMessage } from "../api/types";
+import type {
+  FileBlock,
+  FullHistoryMessage,
+  FullToolResultMessage,
+} from "../api/types";
+import { formatFileSize } from "../lib/attachments";
 import { extractBlockText, getTextBlocks } from "../lib/history";
 import { renderMarkdown } from "../lib/markdown";
 
 export type BoardLogItem =
-  | { type: "text"; role: "user" | "assistant"; content: string }
+  | {
+      type: "text";
+      role: "user" | "assistant";
+      content: string;
+      files?: FileBlock[];
+    }
   | { type: "thinking"; content: string }
   | {
       type: "tool";
@@ -85,8 +95,16 @@ export function buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[] {
   for (const message of messages) {
     if (message.role === "user") {
       const content = getTextBlocks(message.content);
-      if (!content) continue;
-      items.push({ type: "text", role: "user", content });
+      const files = message.content.filter(
+        (block): block is FileBlock => block.type === "file"
+      );
+      if (!content && files.length === 0) continue;
+      items.push({
+        type: "text",
+        role: "user",
+        content: content || "Attached file(s).",
+        ...(files.length ? { files } : {}),
+      });
       continue;
     }
 
@@ -137,9 +155,7 @@ export function buildBoardLogs(messages: FullHistoryMessage[]): BoardLogItem[] {
   return items;
 }
 
-function ToolLog(props: {
-  item: Extract<BoardLogItem, { type: "tool" }>;
-}) {
+function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
   const argsText = () => formatJson(props.item.args);
   const resultText = () =>
     getToolResultText(props.item.result) || props.item.body || "";
@@ -232,10 +248,32 @@ function ThinkingLog(props: {
   );
 }
 
-function DiffLog(props: {
-  item: Extract<BoardLogItem, { type: "file" }>;
-}) {
+function DiffLog(props: { item: Extract<BoardLogItem, { type: "file" }> }) {
   return <pre class="board-log-pre">{props.item.content}</pre>;
+}
+
+function FileList(props: { files?: FileBlock[] }) {
+  return (
+    <Show when={props.files?.length}>
+      <div class="board-msg-files">
+        <For each={props.files}>
+          {(file) => (
+            <a
+              class="board-msg-file"
+              href={`/api/media/download/${file.fileId}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span class="board-msg-file-name">{file.filename}</span>
+              <Show when={formatFileSize(file.size ?? 0)}>
+                {(size) => <span class="board-msg-file-size">{size()}</span>}
+              </Show>
+            </a>
+          )}
+        </For>
+      </div>
+    </Show>
+  );
 }
 
 function TextLog(props: {
@@ -282,12 +320,20 @@ function TextLog(props: {
       </div>
       <Show
         when={props.item.role === "assistant"}
-        fallback={<div class="board-msg-content">{props.item.content}</div>}
+        fallback={
+          <>
+            <div class="board-msg-content">{props.item.content}</div>
+            <FileList files={props.item.files} />
+          </>
+        }
       >
-        <div
-          class="board-msg-content board-msg-markdown"
-          innerHTML={renderMarkdown(props.item.content)}
-        />
+        <>
+          <div
+            class="board-msg-content board-msg-markdown"
+            innerHTML={renderMarkdown(props.item.content)}
+          />
+          <FileList files={props.item.files} />
+        </>
       </Show>
     </div>
   );
@@ -377,6 +423,44 @@ export function BoardChatLog(props: {
         .board-msg-assistant .board-msg-content {
           padding: 0;
           background: transparent;
+        }
+
+        .board-msg-files {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .board-msg-file {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          max-width: 100%;
+          padding: 6px 8px;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+          color: var(--text-secondary);
+          font-size: 12px;
+          text-decoration: none;
+        }
+
+        .board-msg-file:hover {
+          color: var(--text-primary);
+          border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-default));
+        }
+
+        .board-msg-file-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .board-msg-file-size {
+          flex-shrink: 0;
+          opacity: 0.7;
         }
 
         .board-msg-markdown {
