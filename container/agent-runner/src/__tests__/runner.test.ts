@@ -178,7 +178,7 @@ describe("Pi runner", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("registers connector tools from connectorConfigs", async () => {
+  it("registers extension tools from extensionTools", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
     const workspaceDir = path.join(tempDir, "workspace");
     const sessionDir = path.join(tempDir, "sessions");
@@ -203,23 +203,7 @@ describe("Pi runner", () => {
       createInput({
         workspaceDir,
         sessionDir,
-        connectorConfigs: [
-          {
-            id: "github",
-            systemPrompt: "Use GitHub tools first.",
-            tools: [
-              {
-                name: "github.search",
-                description: "Search GitHub",
-                parameters: {
-                  type: "object",
-                  properties: { query: { type: "string" } },
-                  required: ["query"],
-                },
-              },
-            ],
-          },
-        ],
+        extensionSystemPrompts: ["Use extension tools first."],
         extensionTools: [
           {
             extensionId: "board",
@@ -243,9 +227,7 @@ describe("Pi runner", () => {
         }>;
         resourceLoader: {
           options?: {
-            agentsFilesOverride?: () => {
-              agentsFiles: Array<{ path: string; content: string }>;
-            };
+            appendSystemPrompt?: string[];
           };
         };
       },
@@ -263,7 +245,6 @@ describe("Pi runner", () => {
         "project_get",
         "project_update",
         "project_comment",
-        "github_search",
         "scratchpad_read",
         "send_file",
       ])
@@ -271,42 +252,17 @@ describe("Pi runner", () => {
     expect(
       customToolNames.every((name) => /^[a-zA-Z0-9_-]{1,128}$/.test(name))
     ).toBe(true);
-    const connectorTool = createAgentSessionArgs.customTools.find(
-      (tool) => tool.name === "github_search"
-    );
-
-    expect(connectorTool).toBeDefined();
-
-    await connectorTool?.execute("tool-1", { query: "aihub" });
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        href: expect.stringContaining("/connectors/tools"),
-      }),
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({
-          "content-type": "application/json",
-          "X-Agent-Id": "agent-1",
-          "X-Agent-Token": "token-1",
-        }),
-        body: JSON.stringify({
-          connectorId: "github",
-          tool: "github.search",
-          args: { query: "aihub" },
-          agentId: "agent-1",
-          agentToken: "token-1",
-        }),
-      })
-    );
-
-    vi.mocked(global.fetch).mockClear();
-    vi.mocked(global.fetch).mockResolvedValue(
-      Response.json({ content: "scratch" }, { status: 200 })
-    );
     const extensionTool = createAgentSessionArgs.customTools.find(
       (tool) => tool.name === "scratchpad_read"
     );
+
     expect(extensionTool).toBeDefined();
+    expect(extensionTool).toMatchObject({
+      promptSnippet: "Read scratchpad",
+    });
+    vi.mocked(global.fetch).mockResolvedValue(
+      Response.json({ content: "scratch" }, { status: 200 })
+    );
     await extensionTool?.execute("tool-2", {});
     expect(global.fetch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -328,17 +284,15 @@ describe("Pi runner", () => {
       })
     );
 
-    const contextFiles =
-      createAgentSessionArgs.resourceLoader.options?.agentsFilesOverride?.()
-        .agentsFiles ?? [];
-    expect(contextFiles).toEqual(
+    expect(createAgentSessionArgs.resourceLoader.options?.appendSystemPrompt).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          path: "CONNECTOR_github.md",
-          content: "Use GitHub tools first.",
-        }),
+        expect.stringContaining("isolated AIHub container"),
+        "Use extension tools first.",
       ])
     );
+    expect(
+      createAgentSessionArgs.resourceLoader.options
+    ).not.toHaveProperty("systemPromptOverride");
 
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -469,7 +423,7 @@ describe("Pi runner", () => {
 function createInput(paths: {
   workspaceDir: string;
   sessionDir: string;
-  connectorConfigs?: ContainerInput["connectorConfigs"];
+  extensionSystemPrompts?: ContainerInput["extensionSystemPrompts"];
   extensionTools?: ContainerInput["extensionTools"];
   context?: ContainerInput["context"];
 }): ContainerInput {
@@ -482,7 +436,7 @@ function createInput(paths: {
     ipcDir: "/ipc",
     gatewayUrl: "http://gateway:3000",
     agentToken: "token-1",
-    connectorConfigs: paths.connectorConfigs,
+    extensionSystemPrompts: paths.extensionSystemPrompts,
     extensionTools: paths.extensionTools,
     context: paths.context,
     sdkConfig: {

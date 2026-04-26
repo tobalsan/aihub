@@ -3,7 +3,6 @@ import type {
   GatewayConfig,
   ValidationResult,
 } from "@aihub/shared";
-import { initializeConnectors } from "../connectors/index.js";
 import { resolveConfigSecrets } from "./secrets.js";
 
 function uniqueAgentIdValidation(config: GatewayConfig): ValidationResult {
@@ -71,8 +70,12 @@ function validateComponentConfigs(
 
   for (const extension of extensions) {
     const rawConfig = getComponentConfig(config, extension);
-    const result = extension.validateConfig(rawConfig);
-    if (!result.valid) {
+    const results = [
+      extension.validateConfig(rawConfig),
+      extension.validateAgentConfigs?.(config),
+    ].filter((result): result is ValidationResult => Boolean(result));
+    for (const result of results) {
+      if (result.valid) continue;
       for (const error of result.errors) {
         errors.push(`Component "${extension.id}" config invalid: ${error}`);
       }
@@ -98,7 +101,6 @@ export async function prepareStartupConfig(
   extensions: Extension[],
   options?: {
     resolvedConfig?: GatewayConfig;
-    skipConnectorInitialization?: boolean;
   }
 ): Promise<{
   resolvedConfig: GatewayConfig;
@@ -107,10 +109,6 @@ export async function prepareStartupConfig(
   const resolvedConfig =
     options?.resolvedConfig ??
     (await resolveConfigSecrets(config));
-
-  if (!options?.skipConnectorInitialization) {
-    await initializeConnectors(resolvedConfig);
-  }
 
   const checks = [
     uniqueAgentIdValidation(resolvedConfig),

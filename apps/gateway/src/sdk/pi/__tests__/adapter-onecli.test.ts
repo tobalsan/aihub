@@ -12,8 +12,6 @@ const mockGetEnvApiKey = vi.fn(() => "env-api-key");
 const mockEnsureBootstrapFiles = vi.fn(async () => undefined);
 const mockLoadBootstrapFiles = vi.fn(async () => []);
 const mockBuildBootstrapContextFiles = vi.fn(() => []);
-const mockGetConnectorToolsForAgent = vi.fn(() => []);
-const mockGetConnectorPromptsForAgent = vi.fn(() => []);
 const mockGetLoadedExtensions = vi.fn<() => Partial<Extension>[]>(() => []);
 const mockGetExtensionAgentTools = vi.fn<() => Promise<unknown[]>>(
   async () => []
@@ -31,11 +29,6 @@ vi.mock("../../sessions/store.js", () => ({
 
 vi.mock("../../sessions/files.js", () => ({
   resolveSessionDataFile: vi.fn(async () => "/tmp/aihub-test/sessions/session-1.jsonl"),
-}));
-
-vi.mock("../../connectors/index.js", () => ({
-  getConnectorPromptsForAgent: mockGetConnectorPromptsForAgent,
-  getConnectorToolsForAgent: mockGetConnectorToolsForAgent,
 }));
 
 vi.mock("../../extensions/registry.js", () => ({
@@ -403,7 +396,7 @@ describe("pi adapter onecli env wiring", () => {
     const { piAdapter } = await import("../adapter.js");
     await piAdapter.run(makeRunParams(agent));
 
-    expect(mockGetExtensionAgentTools).toHaveBeenCalledWith(agent);
+    expect(mockGetExtensionAgentTools).toHaveBeenCalledWith(agent, config);
     const options = mockCreateAgentSession.mock.calls[0]?.[0] as {
       customTools?: Array<{
         name: string;
@@ -420,6 +413,6 @@ describe("pi adapter onecli env wiring", () => {
     );
     expect(tool).toBeDefined();
     await tool?.execute("tool-1", {});
-    expect(execute).toHaveBeenCalledWith({}, { agent });
+    expect(execute).toHaveBeenCalledWith({}, { agent, config });
   });
 });

@@ -25,7 +25,7 @@ aihub/
 Core TypeScript/Node.js application. Exports:
 
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub eval run`
-- **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + connectors + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
+- **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + extensions + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
@@ -40,8 +40,8 @@ Core TypeScript/Node.js application. Exports:
   - `langfuse` is an optional tracing component. Its registry entry is lazy-loaded, has no routes, validates `publicKey`/`secretKey` from component config or `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, and subscribes to `agentEventBus` stream/history events. `langfuse/tracer.ts` maps `agentId:sessionId` to traces, honors per-run trace context (`enabled`, explicit `surface`/`name`, metadata), buffers text/thinking into generations, maps HistoryEvent user/meta/tool_call/tool_result data into generation input/model/usage and tool spans, finalizes on `done`/`error`, catches flush/shutdown failures as warnings, and idle-cleans traces after 30 minutes.
   - `system_prompt` history events now capture the harness-assembled prompt text itself. Langfuse generation observations are emitted as chat-style input arrays (`system` + `user`), so the Langfuse UI shows the real system prompt section. `system_context` remains separate metadata for normalized Slack/Discord channel details.
   - `webhooks` is auto-loaded when any agent has `webhooks` config. It registers `/hooks/:agentId/:name/:secret`, stores generated URL secrets in `$AIHUB_HOME/webhook-secrets.json` with `0600` permissions, validates secrets from an mtime-cached file read so rotations take effect without restart, rotates them with `apm webhooks rotate <agentId> <webhookName>`, resolves inline or workspace-contained `.md`/`.txt` prompts relative to the agent workspace, interpolates `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, and `$WEBHOOK_PAYLOAD`, enforces per-webhook `maxPayloadSize` bytes (default 1MB) while streaming request bodies, and runs each invocation in a fresh `webhook:<agentId>:<name>:<requestId>` session with source/surface `webhook`. Optional `verification: { location: "header"|"payload", fieldName }` short-circuits setup requests containing that header or JSON payload key before signature verification or agent invocation; requests without the configured field continue through normal webhook handling. `langfuseTracing: false` disables Langfuse tracing for that webhook; async webhook failures emit traceable `agent.stream` error events when tracing is enabled. Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is configured, with `$env:VAR` resolution.
-- **Connectors** (`src/connectors/`): Gateway runtime glue that discovers external connectors, validates configured connector mounts, and exposes connector tools to Pi/Claude sessions.
-  - `src/connectors/http-client.ts` provides a connector-scoped fetch wrapper that can temporarily inject OneCLI proxy + CA env vars for outbound connector HTTP requests.
+- **Extensions** (`src/extensions/`): Gateway runtime glue that loads first-party and external extensions, validates config, appends prompt guidance, and exposes agent tools to Pi/container sessions.
+  - Tool-style extensions use `packages/shared/src/tool-extension.ts`; root `extensions.<id>` supplies defaults, and `agents[].extensions.<id>` opts an agent in unless `enabled: false`.
 
 ### apps/web
 
@@ -135,10 +135,10 @@ Container OneCLI proxy wiring:
 - Anthropic uses `ANTHROPIC_BASE_URL=<onecli url>`; OpenAI uses `OPENAI_BASE_URL=<onecli url>/v1`.
 - The OneCLI CA cert is mounted at `/usr/local/share/ca-certificates/onecli-ca.pem`.
 - `container/agent-runner/src/index.ts` configures the exported proxy client before the SDK run and forwards IPC follow-ups to the active run (`deliverAs: "steer"` for Pi, queued follow-up text for Claude CLI one-shot).
-- Gateway `apps/gateway/src/sdk/container/adapter.ts` now serializes resolved connector metadata into `ContainerInput.connectorConfigs` (connector id, optional system prompt, tool JSON Schemas) because container runner cannot access gateway connector registry directly.
+- Gateway `apps/gateway/src/sdk/container/adapter.ts` serializes extension prompt/tool metadata into `ContainerInput.extensionSystemPrompts` and `ContainerInput.extensionTools` because the container runner cannot access the gateway extension registry directly.
 - `ContainerInput.context` carries normalized Slack/Discord channel context into the runner. Both the Pi and Claude container paths append the rendered block to the true system prompt and emit a `system_context` history event before the user turn.
 - Container runs bind `$AIHUB_HOME/agents/<agentId>/data` to `/workspace/data` writable and session upload copies to `/workspace/uploads` read-only. `---AIHUB_EVENT---{"type":"file_output","path":"/workspace/data/..."}` copies the file to `$AIHUB_HOME/media/outbound`, registers metadata, emits `file_output`, and persists an assistant `FileBlock`.
-- Connector tools inside the container should use `container/agent-runner/src/http-client.ts#createContainerHttpClient()`, which attaches an undici `ProxyAgent` to each fetch. Without OneCLI config, it falls back to plain `fetch`. CA trust for HTTPS CONNECT tunneling relies on `NODE_EXTRA_CA_CERTS` (set via container env), not explicit `requestTls`, because passing `requestTls: { ca }` to undici's `ProxyAgent`/`EnvHttpProxyAgent` replaces the system CA chain instead of augmenting it.
+- Extension tool calls inside the container route back to the gateway through `/internal/tools`. LLM network egress still uses the OneCLI proxy env when configured; CA trust for HTTPS CONNECT tunneling relies on `NODE_EXTRA_CA_CERTS` (set via container env).
 - Gateway calls `ensureBootstrapFiles(workspaceDir)` on the host before spawning the container, so workspace template files (AGENTS.md, SOUL.md, etc.) are created for new agents even in sandbox mode.
 - Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
 
@@ -148,8 +148,8 @@ Zod schemas and TypeScript types:
 
 - Config types: `AgentConfig`, `GatewayConfig`, `Schedule`, `StreamEvent`
 - Modular runtime types: `Component`, `ComponentContext`, `ValidationResult`
-- Connector framework types/loader/registry/discovery now live under `packages/shared/src/connectors`
-- Browser consumers must import browser-safe subpaths like `@aihub/shared/types`, `@aihub/shared/model-context`, and `@aihub/shared/projectPrompt` instead of the package root, which also re-exports Node-only config/connectors helpers
+- Extension schemas and the tool-extension helper live under `packages/shared/src/types.ts` and `packages/shared/src/tool-extension.ts`
+- Browser consumers must import browser-safe subpaths like `@aihub/shared/types`, `@aihub/shared/model-context`, and `@aihub/shared/projectPrompt` instead of the package root, which also re-exports Node-only helpers
 - History types: `SimpleHistoryMessage`, `FullHistoryMessage`, `ContentBlock` (thinking/text/toolCall/file), `ModelMeta`, `ModelUsage`
 - API payloads and WebSocket protocol types
   - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
@@ -217,9 +217,9 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     heartbeat?: { every?, prompt?, ackMaxChars? },
     amsg?: { id?, enabled? },
     introMessage?: string,           // Custom intro for /new (default: "New conversation started.")
-    connectors?: Record<string, {
+    extensions?: Record<string, {
       enabled?: boolean
-      // connector-specific per-agent overrides
+      // extension-specific per-agent overrides
     }>,
     sandbox?: {
       enabled?: boolean,             // Default: false
@@ -242,10 +242,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
       blockedPatterns?: string[]      // Default: .ssh, .gnupg, .aws, .env
     }
   },
-  connectors?: {
-    path?: string                    // external connector directory
-    // connector-specific global config passthrough
-  },
+  extensions?: Record<string, unknown>, // extension-specific root defaults
+  extensionsPath?: string,              // external extension directory; default $AIHUB_HOME/extensions
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)
@@ -326,35 +324,31 @@ $AIHUB_HOME/
    - If `version` is absent, gateway auto-migrates legacy config into v2-style `components` in memory and logs warnings for ambiguous Discord migrations
    - Top-level `env` is copied into the gateway process when unset there already; safe entries are also forwarded into sandbox containers
 
-- Startup then loads enabled components via `apps/gateway/src/components/registry.ts`
-- Startup also initializes connectors from `apps/gateway/src/connectors/index.ts` after secret resolution and before component loading.
+- Startup then loads extensions via `apps/gateway/src/extensions/registry.ts` and enabled components via `apps/gateway/src/components/registry.ts`
   - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
   - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
   - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
 
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `AIHUB_HOME/models.json`
-3. **Connector Init**: Connector registry is rebuilt from built-ins + external `connectors.path`, then configured connector mounts are validated once during initialization for missing ids/config/secrets.
+3. **Extension Init**: Extension registry is rebuilt from first-party extensions plus external `extensionsPath` or `$AIHUB_HOME/extensions`, then configured extension mounts are validated for missing ids/config/secrets.
 4. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 5. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
 6. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
 7. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
 
-- Connector tools are injected at agent session start.
-- If `connectors.path` is unset, external connectors are discovered from `$AIHUB_HOME/connectors` (default `~/.aihub/connectors`).
-- External connector discovery accepts both real directories and symlinked directories.
-- Connector tool parameter schemas are object-only Zod schemas.
-- Pi adapter converts connector Zod parameter schemas to JSON Schema custom tools.
-- Enabled connectors can also append their optional `systemPrompt` guidance into Pi and Claude system prompts.
-- Loaded extensions can append agent system-prompt guidance through optional `Extension.getSystemPromptContributions(agent)`. Gateway collection lives in `apps/gateway/src/extensions/prompts.ts`; in-process Pi runs append the returned strings directly, while sandbox/container runs serialize them through `ContainerInput.extensionSystemPrompts` for the runner to append.
-- Loaded extensions can expose callable agent tools through optional `Extension.getAgentTools(agent)`. Gateway collection/dispatch lives in `apps/gateway/src/extensions/tools.ts`; in-process Pi runs mount them as `customTools`, while sandbox/container runs serialize definitions through `ContainerInput.extensionTools` and execute them through `/internal/tools`. Model-facing custom tool names are sanitized with `packages/shared/src/tool-names.ts` so providers that reject punctuation see aliases like `scratchpad_read`; gateway dispatch still uses the original extension/tool names.
-- Pi lead agents override the Pi SDK default system prompt with AIHub-specific gateway guidance while preserving SDK-appended project context, connector guidance, skills, date, and working directory sections.
+- Tool-style extensions are injected at agent session start when `agents[].extensions.<id>` is present and not `enabled: false`.
+- If `extensionsPath` is unset, external extensions are discovered from `$AIHUB_HOME/extensions` (default `~/.aihub/extensions`).
+- External extension discovery accepts both real directories and symlinked directories.
+- Tool-extension parameter schemas are object-only Zod schemas.
+- Pi adapter converts extension Zod parameter schemas to JSON Schema custom tools.
+- Loaded extensions can append agent system-prompt guidance through optional `Extension.getSystemPromptContributions(agent, { config })`. Gateway collection lives in `apps/gateway/src/extensions/prompts.ts`; in-process Pi runs append the returned strings directly, while sandbox/container runs serialize them through `ContainerInput.extensionSystemPrompts` for the runner to append.
+- Loaded extensions can expose callable agent tools through optional `Extension.getAgentTools(agent, { config })`. Gateway collection/dispatch lives in `apps/gateway/src/extensions/tools.ts`; in-process Pi runs mount them as `customTools`, while sandbox/container runs serialize definitions through `ContainerInput.extensionTools` and execute them through `/internal/tools`. Model-facing custom tool names are sanitized with `packages/shared/src/tool-names.ts` so providers that reject punctuation see aliases like `scratchpad_read`; gateway dispatch still uses the original extension/tool names.
+- Pi lead agents override the Pi SDK default system prompt with AIHub-specific gateway guidance while preserving SDK-appended project context, extension guidance, skills, date, and working directory sections.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
-- Claude adapter mounts connector tools through an in-process MCP server alongside subagent tools.
+- Sandbox Claude currently fails loudly when extension tools are present; Pi supports extension tool execution in and out of containers.
 - When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
-- Connector HTTP calls can opt into `apps/gateway/src/connectors/http-client.ts`, which applies the same scoped OneCLI proxy/token/CA wiring per request.
 - Sandbox container manager helpers in `apps/gateway/src/agents/container.ts` build Docker bind mounts, shadow workspace `.env` with `/dev/null`, validate custom mounts against the sandbox allowlist/blocklist, build `docker run -i --rm` args, and provide Docker network/orphan cleanup helpers. `apps/gateway/src/sdk/container/adapter.ts` now spawns ephemeral Docker containers, writes `ContainerInput` to stdin, parses `---AIHUB_OUTPUT_START---`/`---AIHUB_OUTPUT_END---` output, queues follow-ups through `$AIHUB_HOME/ipc/<agentId>/input/*.json`, and stops/kills containers on abort or timeout.
 - `apps/gateway/src/server/internal-tools.ts` handles container-to-gateway orchestration callbacks for `project.create`, `project.update`, `project.comment`, and `project.get` (subagent orchestration is CLI-driven via `apm start`).
-- Sandboxed container connector calls use `container/agent-runner/src/http-client.ts` instead of the gateway connector HTTP client, so connector HTTPS stays inside the container while credentials remain in OneCLI.
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status
@@ -776,7 +770,7 @@ Credentials are stored in `AIHUB_HOME/auth.json`:
 }
 ```
 
-## OpenClaw Connector
+## OpenClaw SDK
 
 The OpenClaw SDK adapter connects AIHub to an [OpenClaw](https://github.com/openclaw/openclaw) gateway via WebSocket, allowing you to interact with OpenClaw agents through the AIHub web UI.
 

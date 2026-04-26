@@ -1,11 +1,5 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import os from "node:os";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { GatewayConfigSchema } from "@aihub/shared";
-import { clearConnectors } from "@aihub/shared";
+import { GatewayConfigSchema, type Extension } from "@aihub/shared";
 import { loadExtensions } from "../../extensions/registry.js";
 import {
   logComponentSummary,
@@ -14,10 +8,8 @@ import {
   validateStartupConfig,
 } from "../validate.js";
 
-const require = createRequire(import.meta.url);
-
 describe("startup validation", () => {
-  it("warns for missing connectors without failing startup", async () => {
+  it("warns for missing agent extensions without failing startup", async () => {
     const warnings: string[] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => {
@@ -33,7 +25,7 @@ describe("startup validation", () => {
             name: "Main",
             workspace: "~/agents/main",
             model: { provider: "anthropic", model: "claude" },
-            connectors: {
+            extensions: {
               missing: {
                 enabled: true,
               },
@@ -48,12 +40,13 @@ describe("startup validation", () => {
         loaded: ["subagents", "scheduler", "heartbeat"],
         skipped: [],
       });
-      expect(warnings).toEqual([
-        '[connectors] agent "main" references unknown connector "missing"',
+      expect(
+        warnings.filter((warning) => warning.startsWith("[extensions]"))
+      ).toEqual([
+        '[extensions] agent "main" references unknown extension "missing"',
       ]);
     } finally {
       console.warn = originalWarn;
-      clearConnectors();
     }
   });
 
@@ -188,58 +181,44 @@ describe("startup validation", () => {
     delete process.env.TEST_RUNTIME_SECRET;
   });
 
-  it("fails early when a connector is missing a required secret", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "aihub-connectors-"));
-    const sampleDir = path.join(root, "sample");
-    const zodUrl = pathToFileURL(require.resolve("zod")).href;
-
-    try {
-      await mkdir(sampleDir);
-      await writeFile(
-        path.join(sampleDir, "package.json"),
-        JSON.stringify({ type: "module" })
-      );
-      await writeFile(
-        path.join(sampleDir, "index.js"),
-        [
-          `import { z } from ${JSON.stringify(zodUrl)};`,
-          "export default {",
-          '  id: "sample",',
-          '  displayName: "Sample",',
-          '  description: "Sample connector",',
-          "  configSchema: z.object({ apiKey: z.string().optional() }),",
-          "  requiredSecrets: ['apiKey'],",
-          "  createTools: () => [],",
-          "};",
-        ].join("\n")
-      );
-
-      const config = GatewayConfigSchema.parse({
-        version: 2,
-        agents: [
-          {
-            id: "main",
-            name: "Main",
-            workspace: "~/agents/main",
-            model: { provider: "anthropic", model: "claude" },
-            connectors: {
-              sample: {
-                enabled: true,
-              },
+  it("fails early when an extension rejects agent config", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+          extensions: {
+            sample: {
+              enabled: true,
             },
           },
-        ],
-        connectors: {
-          path: root,
         },
-      });
+      ],
+      extensions: {},
+    });
+    const extension: Extension = {
+      id: "sample",
+      displayName: "Sample",
+      description: "Sample extension",
+      dependencies: [],
+      configSchema: GatewayConfigSchema,
+      routePrefixes: [],
+      validateConfig: () => ({ valid: true, errors: [] }),
+      validateAgentConfigs: () => ({
+        valid: false,
+        errors: ['Extension "sample" for agent "main" missing required secret "apiKey"'],
+      }),
+      registerRoutes: () => undefined,
+      start: async () => undefined,
+      stop: async () => undefined,
+      capabilities: () => [],
+    };
 
-      await expect(prepareStartupConfig(config, [])).rejects.toThrow(
-        'Connector "sample" for agent "main" missing required secret "apiKey"'
-      );
-    } finally {
-      clearConnectors();
-      await rm(root, { recursive: true, force: true });
-    }
+    await expect(prepareStartupConfig(config, [extension])).rejects.toThrow(
+      'Extension "sample" for agent "main" missing required secret "apiKey"'
+    );
   });
 });

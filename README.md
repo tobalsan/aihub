@@ -35,7 +35,7 @@ The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
-Config also has a top-level `connectors` map plus per-agent `agent.connectors` overrides for stateless tool providers loaded from `packages/shared/src/connectors` or an external `connectors.path` directory.
+Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
 Startup now resolves `$env:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
@@ -219,20 +219,18 @@ Notes:
 - Sessions/history move to per-user paths under `$AIHUB_HOME/users/<userId>/`.
 - There is no migration for existing single-user session/history data. Treat enablement as a fresh start.
 
-### Connectors
+### Extensions
 
-Connectors are config-driven, stateless tool bundles mounted per agent.
+Extensions own optional gateway routes, lifecycle hooks, prompt contributions, and agent tools. Tool-style extensions are config-driven, stateless tool bundles mounted per agent.
 
-- Root `connectors` holds shared defaults plus optional `path` for external connector directories.
-- If `connectors.path` is omitted, external connectors are discovered from `$AIHUB_HOME/connectors` (default `~/.aihub/connectors`).
-- Discovery follows real directories and symlinked connector directories.
-- `agent.connectors.<id>` enables a connector for that agent and can override connector-specific config.
-- Shared connector framework exports live in `packages/shared/src/connectors`.
-- Gateway startup resolves connector secrets, discovers external connectors, validates configured mounts once during connector initialization, warns on missing connector ids, and fails early on invalid config or missing required connector secrets.
-- Connectors can optionally ship `systemPrompt` guidance; when the connector is enabled for an agent, that text is appended to the agent system prompt automatically.
-- Connector tool `parameters` must be Zod object schemas so Pi JSON Schema conversion and Claude MCP mounting share one contract.
-- Pi agents receive connector tools as custom tools; Claude agents receive them through an in-process MCP server.
-- Gateway now also exposes `apps/gateway/src/connectors/http-client.ts` so connectors can opt into OneCLI-scoped fetch proxy/CA env wiring instead of embedding raw credentials directly in requests.
+- Root `extensions.<id>` holds shared defaults for both first-party and external extensions.
+- `agents[].extensions.<id>` opts an agent into a tool-style extension and can override root defaults. Presence is enough to enable it unless `enabled: false`.
+- External extensions load from `extensionsPath` when set, otherwise `$AIHUB_HOME/extensions` (default `~/.aihub/extensions`).
+- Discovery follows real directories and symlinked extension directories.
+- The helper for migrated tool bundles exports from `packages/shared/src/tool-extension.ts`.
+- Gateway startup resolves extension secrets, validates configured mounts, warns on missing extension ids, and fails early on invalid config or missing required secrets.
+- Extensions can append system-prompt guidance and expose Zod-object-backed tools to Pi agents. Pi container runs serialize extension prompt/tool metadata and execute tools through `/internal/tools`; sandbox Claude fails loudly if extension tools are configured.
+- The Board extension stores user content in `$AIHUB_HOME` by default. Set `extensions.board.contentRoot` to use a custom content directory.
 
 ### OneCLI
 
@@ -255,7 +253,6 @@ Use top-level `onecli` for native gateway/proxy config:
 - `ca.source="file"` is used to propagate the same CA path to Node and Python trust env vars.
 - Per-agent proxy tokens are set via `onecliToken` on each agent config (see [Agent Options](#agent-options)).
 - Claude and Pi agent runs now use scoped proxy env injection when native `onecli` is enabled for that agent.
-- Connectors can use `apps/gateway/src/connectors/http-client.ts` to route outbound HTTP calls through the same OneCLI gateway path.
 - Legacy `$secret:` lookup is removed. Use `$env:` for config values and top-level `onecli` for native gateway/proxy wiring.
 
 ### Container Isolation
@@ -363,7 +360,7 @@ When `sandbox.enabled` is `true`, the gateway replaces the normal in-process age
 
 **Orchestration tools** (subagent spawn, project CRUD) call back to the gateway's `/internal/tools` endpoint from inside the container.
 
-**Connector tools** are serialized into `ContainerInput.connectorConfigs` by the gateway and registered inside the container. They route outbound HTTP through the OneCLI proxy.
+**Extension tools** are serialized into `ContainerInput.extensionTools` by the gateway and executed through `/internal/tools`. Extension system-prompt contributions are serialized through `ContainerInput.extensionSystemPrompts`.
 
 #### Network and credential model
 
@@ -594,7 +591,7 @@ pnpm aihub auth login anthropic
 
 Credentials stored in `$AIHUB_HOME/auth.json` (default: `~/.aihub/auth.json`). Tokens auto-refresh when expired.
 
-## OpenClaw Connector
+## OpenClaw SDK
 
 Connect to an [OpenClaw](https://github.com/openclaw/openclaw) gateway to use an OpenClaw agent from AIHub. This allows you to interact with OpenClaw agents through the AIHub web UI.
 

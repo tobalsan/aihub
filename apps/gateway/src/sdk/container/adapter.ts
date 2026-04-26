@@ -6,7 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import type {
   AgentConfig,
-  ContainerConnectorConfig,
   ContainerExtensionTool,
   ContainerInput,
   ContainerOutput,
@@ -14,7 +13,6 @@ import type {
   GatewayConfig,
 } from "@aihub/shared";
 import { renderAgentContext } from "@aihub/shared";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   buildContainerArgs,
   buildVolumeMounts,
@@ -25,10 +23,6 @@ import {
   getMountedOnecliCaPath,
 } from "../../agents/container.js";
 import { loadConfig } from "../../config/index.js";
-import {
-  getConnectorPromptsForAgent,
-  getConnectorToolGroupsForAgent,
-} from "../../connectors/index.js";
 import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
 import { getExtensionAgentTools } from "../../extensions/tools.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
@@ -400,48 +394,6 @@ function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
 }
 
-function buildConnectorConfigs(
-  params: SdkRunParams
-): ContainerConnectorConfig[] {
-  const config = loadConfig();
-  const prompts = new Map(
-    getConnectorPromptsForAgent(params.agent).map((prompt) => [
-      prompt.id,
-      prompt.prompt,
-    ])
-  );
-  const connectorConfigs = new Map<string, ContainerConnectorConfig>();
-
-  for (const [id, systemPrompt] of prompts) {
-    connectorConfigs.set(id, { id, systemPrompt, tools: [] });
-  }
-
-  for (const group of getConnectorToolGroupsForAgent(params.agent, config)) {
-    const existing = connectorConfigs.get(group.connectorId);
-    const connectorConfig =
-      existing ??
-      ({
-        id: group.connectorId,
-        systemPrompt: prompts.get(group.connectorId),
-        tools: [],
-      } satisfies ContainerConnectorConfig);
-
-    for (const tool of group.tools) {
-      connectorConfig.tools.push({
-        name: tool.name,
-        description: tool.description,
-        parameters: zodToJsonSchema(
-          tool.parameters,
-          `${tool.name}Parameters`
-        ) as Record<string, unknown>,
-      });
-    }
-    connectorConfigs.set(group.connectorId, connectorConfig);
-  }
-
-  return Array.from(connectorConfigs.values());
-}
-
 async function buildExtensionTools(
   params: SdkRunParams
 ): Promise<ContainerExtensionTool[]> {
@@ -524,7 +476,6 @@ async function buildInput(
   agentToken: string
 ): Promise<ContainerInput> {
   const config = loadConfig();
-  const connectorConfigs = buildConnectorConfigs(params);
   const extensionSystemPrompts =
     await getExtensionSystemPromptContributions(params.agent);
   const extensionTools = await buildExtensionTools(params);
@@ -554,8 +505,6 @@ async function buildInput(
             caPath: getMountedOnecliCaPath(config.onecli),
           }
         : undefined,
-    connectorConfigs:
-      connectorConfigs.length > 0 ? connectorConfigs : undefined,
     sdkConfig: {
       sdk: params.agent.sdk ?? getDefaultSdkId(),
       model: {

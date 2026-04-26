@@ -110,21 +110,12 @@ export const AgentAuthConfigSchema = z.object({
 });
 export type AgentAuthConfig = z.infer<typeof AgentAuthConfigSchema>;
 
-export const AgentConnectorConfigSchema = z
+export const ExtensionBaseConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
   })
   .passthrough();
-export type AgentConnectorConfig = z.infer<typeof AgentConnectorConfigSchema>;
-
-export const ConnectorsGlobalConfigSchema = z
-  .object({
-    path: z.string().optional(),
-  })
-  .passthrough();
-export type ConnectorsGlobalConfig = z.infer<
-  typeof ConnectorsGlobalConfigSchema
->;
+export type ExtensionBaseConfig = z.infer<typeof ExtensionBaseConfigSchema>;
 
 export const SandboxMountSchema = z.object({
   host: z.string(),
@@ -185,7 +176,7 @@ const AgentConfigBaseSchema = z.object({
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config
   webhooks: z.record(z.string(), WebhookConfigSchema).optional(),
   introMessage: z.string().optional(), // Custom intro for /new (default: "New conversation started.")
-  connectors: z.record(z.string(), AgentConnectorConfigSchema).optional(),
+  extensions: z.record(z.string(), ExtensionBaseConfigSchema).optional(),
   globalSkills: z.boolean().optional(), // Include ~/.agents/skills/ (default: false)
   onecliToken: z.string().optional(), // Per-agent OneCLI proxy token
   sandbox: AgentSandboxConfigSchema.optional(),
@@ -351,13 +342,6 @@ export const OnecliConfigSchema = z.object({
   sandbox: OnecliSandboxConfigSchema.optional(),
 });
 export type OnecliConfig = z.infer<typeof OnecliConfigSchema>;
-
-export const ExtensionBaseConfigSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-  })
-  .passthrough();
-export type ExtensionBaseConfig = z.infer<typeof ExtensionBaseConfigSchema>;
 
 export const DiscordExtensionChannelConfigSchema = z.object({
   agent: z.string(),
@@ -527,11 +511,12 @@ export const ExtensionsConfigSchema = z
     board: z
       .object({
         enabled: z.boolean().optional(),
-        root: z.string().optional(),
+        contentRoot: z.string().optional(),
         home: z.boolean().optional(),
       })
       .optional(),
   })
+  .passthrough()
   .optional();
 export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
 
@@ -574,8 +559,8 @@ export const GatewayConfigSchema = z.object({
   agents: z.array(AgentConfigSchema),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
-  connectors: ConnectorsGlobalConfigSchema.optional(),
   extensions: ExtensionsConfigSchema,
+  extensionsPath: z.string().optional(),
   server: z
     .object({
       host: z.string().optional(),
@@ -708,6 +693,7 @@ export interface ExtensionContext {
 
 export type ExtensionAgentToolContext = {
   agent: AgentConfig;
+  config: GatewayConfig;
 };
 
 export type ExtensionAgentTool = {
@@ -718,6 +704,10 @@ export type ExtensionAgentTool = {
     args: unknown,
     context: ExtensionAgentToolContext
   ): unknown | Promise<unknown>;
+};
+
+export type ExtensionHookContext = {
+  config: GatewayConfig;
 };
 
 export interface Extension {
@@ -733,26 +723,44 @@ export interface Extension {
   stop(): Promise<void>;
   capabilities(): string[];
   getSystemPromptContributions?(
-    agent: AgentConfig
+    agent: AgentConfig,
+    context?: ExtensionHookContext
   ): string | string[] | undefined | Promise<string | string[] | undefined>;
   getAgentTools?(
-    agent: AgentConfig
+    agent: AgentConfig,
+    context?: ExtensionHookContext
   ): ExtensionAgentTool[] | Promise<ExtensionAgentTool[]>;
+  validateAgentConfigs?(config: GatewayConfig): ValidationResult;
 }
+
+const isZodSchema = (value: unknown): value is z.ZodTypeAny =>
+  typeof value === "object" &&
+  value !== null &&
+  "safeParse" in value &&
+  typeof value.safeParse === "function";
+
+export const ZodSchemaSchema = z.custom<z.ZodTypeAny>(isZodSchema, {
+  message: "Expected Zod schema",
+});
 
 export const ExtensionDefinitionSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   description: z.string(),
   dependencies: z.array(z.string()),
+  configSchema: ZodSchemaSchema,
   routePrefixes: z.array(z.string()),
   validateConfig: z
     .function()
     .args(z.unknown())
     .returns(z.object({ valid: z.boolean(), errors: z.array(z.string()) })),
+  registerRoutes: z.function().args(z.unknown()).returns(z.void()),
+  start: z.function().args(z.unknown()).returns(z.promise(z.void())),
+  stop: z.function().args().returns(z.promise(z.void())),
   capabilities: z.function().args().returns(z.array(z.string())),
   getSystemPromptContributions: z.function().optional(),
   getAgentTools: z.function().optional(),
+  validateAgentConfigs: z.function().optional(),
 });
 
 // API payloads
@@ -1414,24 +1422,6 @@ export const AgentContextSchema = z
   })
   .passthrough();
 
-export const ContainerConnectorToolSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  parameters: z.record(z.unknown()),
-});
-export type ContainerConnectorTool = z.infer<
-  typeof ContainerConnectorToolSchema
->;
-
-export const ContainerConnectorConfigSchema = z.object({
-  id: z.string(),
-  systemPrompt: z.string().optional(),
-  tools: z.array(ContainerConnectorToolSchema),
-});
-export type ContainerConnectorConfig = z.infer<
-  typeof ContainerConnectorConfigSchema
->;
-
 export const ContainerExtensionToolSchema = z.object({
   extensionId: z.string(),
   name: z.string(),
@@ -1464,7 +1454,6 @@ export const ContainerInputSchema = z.object({
       caPath: z.string().optional(),
     })
     .optional(),
-  connectorConfigs: z.array(ContainerConnectorConfigSchema).optional(),
   sdkConfig: z.object({
     sdk: SdkIdSchema,
     model: AgentModelConfigSchema,

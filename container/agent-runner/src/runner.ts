@@ -77,15 +77,10 @@ const BOOTSTRAP_FILENAMES = [
   "BOOTSTRAP.md",
 ] as const;
 
-const AIHUB_PI_SYSTEM_PROMPT = `You are an AI agent running inside an isolated AIHub container. Use the mounted workspace as your working directory. Coding tools run inside this container. Orchestration tools call back to the gateway.
+const AIHUB_CONTAINER_SYSTEM_PROMPT = `You are an AI agent running inside an isolated AIHub container. Use the mounted workspace as your working directory. Coding tools run inside this container. Orchestration tools call back to the gateway.
 
 To share a file with the user, write it to /workspace/data/ then use the send_file tool. The file will appear as a downloadable card in the chat.
-
-Available tools:
-\${toolsList}
-
-Guidelines:
-\${guidelines}`;
+`;
 
 let activeSession: AgentSession | undefined;
 let pendingFollowUps: string[] = [];
@@ -195,8 +190,8 @@ export async function runAgent(
       agentDir: input.sessionDir,
       settingsManager,
       additionalSkillPaths: [path.join(input.workspaceDir, "skills")],
-      systemPromptOverride: () => AIHUB_PI_SYSTEM_PROMPT,
       appendSystemPrompt: [
+        AIHUB_CONTAINER_SYSTEM_PROMPT,
         orchestrationToolPrompt(),
         ...(input.extensionSystemPrompts ?? []),
         renderedContext || undefined,
@@ -210,7 +205,6 @@ export async function runAgent(
     const usedToolNames = new Set<string>();
     const customTools = [
       ...createOrchestrationTools(input, usedToolNames),
-      ...createConnectorTools(input, usedToolNames),
       ...createExtensionTools(input, usedToolNames),
       createSendFileTool(onStreamEvent, usedToolNames),
     ];
@@ -316,17 +310,7 @@ async function loadBootstrapContextFiles(
 async function loadContextFiles(
   input: ContainerInput
 ): Promise<Array<{ path: string; content: string }>> {
-  const contextFiles = await loadBootstrapContextFiles(input.workspaceDir);
-  for (const connector of input.connectorConfigs ?? []) {
-    if (!connector.systemPrompt?.trim()) {
-      continue;
-    }
-    contextFiles.push({
-      path: `CONNECTOR_${connector.id}.md`,
-      content: connector.systemPrompt,
-    });
-  }
-  return contextFiles;
+  return loadBootstrapContextFiles(input.workspaceDir);
 }
 
 function orchestrationToolPrompt(): string {
@@ -409,33 +393,6 @@ function createOrchestrationTools(
   ];
 }
 
-function createConnectorTools(
-  input: ContainerInput,
-  usedToolNames: Set<string>
-): ToolDefinition[] {
-  return (input.connectorConfigs ?? []).flatMap((connector) =>
-    connector.tools.map((tool) => ({
-      name: claimAgentToolName(tool.name, usedToolNames),
-      label: tool.description,
-      description: tool.description,
-      parameters: tool.parameters as ToolDefinition["parameters"],
-      execute: async (_toolCallId, params) => {
-        const result = await callConnectorTool(
-          input,
-          connector.id,
-          tool.name,
-          params,
-          input.agentId
-        );
-        return {
-          content: [{ type: "text", text: stringifyToolResult(result) }],
-          details: result,
-        };
-      },
-    }))
-  );
-}
-
 function createExtensionTools(
   input: ContainerInput,
   usedToolNames: Set<string>
@@ -494,44 +451,6 @@ function createSendFileTool(
   };
 }
 
-async function callConnectorTool(
-  input: ContainerInput,
-  connectorId: string,
-  tool: string,
-  args: unknown,
-  agentId: string
-): Promise<unknown> {
-  const url = new URL("/connectors/tools", input.gatewayUrl);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "X-Agent-Id": agentId,
-      "X-Agent-Token": input.agentToken,
-    },
-    body: JSON.stringify({
-      connectorId,
-      tool,
-      args,
-      agentId,
-      agentToken: input.agentToken,
-    }),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `Connector tool ${tool} failed with ${response.status}: ${text.slice(0, 200)}`
-    );
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Connector tool ${tool} returned non-JSON body: ${text.slice(0, 200)}`
-    );
-  }
-}
-
 function gatewayTool(
   input: ContainerInput,
   name: string,
@@ -544,6 +463,7 @@ function gatewayTool(
     name: claimAgentToolName(name, usedToolNames),
     label,
     description,
+    promptSnippet: description,
     parameters: parameters as ToolDefinition["parameters"],
     execute: async (_toolCallId, params) => {
       const result = await callGatewayTool(

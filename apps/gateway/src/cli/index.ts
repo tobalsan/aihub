@@ -21,8 +21,8 @@ import {
   prepareStartupConfig,
   resolveStartupConfig,
 } from "../config/validate.js";
-import { initializeConnectors } from "../connectors/index.js";
 import { startGatewayCommand } from "./gateway.js";
+import { loadExtensions } from "../extensions/registry.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -272,14 +272,11 @@ program
     try {
       const rawConfig = loadConfig();
       const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
-      await initializeConnectors(resolvedStartupConfig);
+      const extensions = await loadExtensions(resolvedStartupConfig);
       const { resolvedConfig: config } = await prepareStartupConfig(
         rawConfig,
-        [],
-        {
-          resolvedConfig: resolvedStartupConfig,
-          skipConnectorInitialization: true,
-        }
+        extensions,
+        { resolvedConfig: resolvedStartupConfig }
       );
       setLoadedConfig(config);
 

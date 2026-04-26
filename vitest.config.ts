@@ -8,6 +8,7 @@ const sharedSrc = fileURLToPath(
 const sharedSrcDir = fileURLToPath(
   new URL("./packages/shared/src/", import.meta.url)
 );
+const setupFile = fileURLToPath(new URL("./vitest.setup.ts", import.meta.url));
 
 // Extension source directories (for vitest to use src/ instead of dist/)
 const extSrc = (name: string, file = "index.ts") =>
@@ -41,7 +42,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    setupFiles: ["./vitest.setup.ts"],
+    setupFiles: [setupFile],
     fileParallelism: true,
     maxWorkers: 4,
     minWorkers: 1,

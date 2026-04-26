@@ -14,7 +14,6 @@ import {
   logComponentSummary,
   resolveStartupConfig,
 } from "../config/validate.js";
-import { initializeConnectors } from "../connectors/index.js";
 
 export type GatewayCommandOptions = {
   port?: string;
@@ -36,15 +35,11 @@ export async function startGatewayCommand(
 ): Promise<StartedGateway> {
   const rawConfig = loadConfig();
   const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
-  await initializeConnectors(resolvedStartupConfig);
   const extensions = await loadExtensions(resolvedStartupConfig);
   const { resolvedConfig: config, summary } = await prepareStartupConfig(
     rawConfig,
     extensions,
-    {
-      resolvedConfig: resolvedStartupConfig,
-      skipConnectorInitialization: true,
-    }
+    { resolvedConfig: resolvedStartupConfig }
   );
   logComponentSummary(summary);
   setLoadedConfig(config);

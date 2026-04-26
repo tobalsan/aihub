@@ -7,8 +7,8 @@ import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared
 // ── Config ──────────────────────────────────────────────────────────
 
 const BoardExtensionConfigSchema = z.object({
-  /** Custom board workspace path (defaults to $AIHUB_HOME/extensions/board) */
-  root: z.string().optional(),
+  /** Custom board user-content path (defaults to $AIHUB_HOME) */
+  contentRoot: z.string().optional(),
   /** If true, board claims the home route (/) */
   home: z.boolean().default(true),
 });
@@ -189,9 +189,9 @@ function insertScratchpadLines(params: {
 }
 
 function resolveBoardRoot(ctx: ExtensionContext, rawConfig: unknown): string {
-  const parsed = BoardExtensionConfigSchema.pick({ root: true }).parse(rawConfig);
-  if (parsed.root) return expandPath(parsed.root);
-  return path.join(ctx.getDataDir(), "extensions", "board");
+  const parsed = BoardExtensionConfigSchema.pick({ contentRoot: true }).parse(rawConfig);
+  if (parsed.contentRoot) return expandPath(parsed.contentRoot);
+  return ctx.getDataDir();
 }
 
 // ── Simplified project statuses ─────────────────────────────────────
@@ -214,6 +214,7 @@ function registerBoardRoutes(app: Hono): void {
     return c.json({
       id: "board",
       home: parsed.home,
+      contentRoot: getBoardRoot(),
       root: getBoardRoot(),
       statuses: BOARD_STATUSES,
     });

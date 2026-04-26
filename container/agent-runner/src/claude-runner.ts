@@ -28,6 +28,12 @@ export function abortClaudeAgent(): void {
 export async function runClaudeAgent(
   input: ContainerInput
 ): Promise<ContainerOutput> {
+  if ((input.extensionTools ?? []).length > 0) {
+    throw new Error(
+      "Sandbox Claude does not support extension tools yet; use Pi SDK or disable tool extensions for this agent."
+    );
+  }
+
   console.error(
     `[agent-runner] Running agent ${input.agentId} with SDK ${input.sdkConfig.sdk}`
   );
@@ -60,8 +66,14 @@ export async function runClaudeAgent(
   await fs.writeFile(promptPath, prompt, "utf8");
 
   const args = ["--print", "--output-format", "json"];
-  if (renderedContext) {
-    args.push("--append-system-prompt", renderedContext);
+  const appendedSystemPrompt = [
+    ...(input.extensionSystemPrompts ?? []),
+    renderedContext || undefined,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n\n");
+  if (appendedSystemPrompt) {
+    args.push("--append-system-prompt", appendedSystemPrompt);
   }
   args.push("-p", prompt);
   if (input.sdkConfig.model.model) {

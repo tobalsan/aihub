@@ -172,7 +172,8 @@ describe("internal tools", () => {
     expect(executeExtensionTool).toHaveBeenCalledWith(
       expect.objectContaining({ id: "agent-1" }),
       "scratchpad.read",
-      {}
+      {},
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} })
     );
   });
 

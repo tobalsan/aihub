@@ -123,6 +123,33 @@ let loadedExtensions: Extension[] = [];
 let loadedExtensionIds = new Set<string>();
 let homeExtensionId: string | undefined;
 
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function getRootExtensionConfig(
+  config: GatewayConfig,
+  id: string
+): Record<string, unknown> | undefined {
+  const extensions = config.extensions as Record<string, unknown> | undefined;
+  const value = extensions?.[id];
+  if (value === undefined) return undefined;
+  return toRecord(value);
+}
+
+function hasEnabledAgentExtensionConfig(
+  config: GatewayConfig,
+  id: string
+): boolean {
+  return config.agents.some((agent) => {
+    const extensions = agent.extensions as Record<string, unknown> | undefined;
+    if (!extensions || !(id in extensions)) return false;
+    return toRecord(extensions[id]).enabled !== false;
+  });
+}
+
 export function getKnownExtensionRouteMetadata(): Array<{
   id: string;
   routePrefixes: string[];
@@ -183,20 +210,19 @@ export async function loadExtensions(
   );
 
   for (const [id, registration] of registrations) {
-    const extensionConfig = registration.getConfig(config) as
-      | Record<string, unknown>
-      | undefined;
+    const extensionConfig = toRecord(registration.getConfig(config));
+    const hasConfig = registration.getConfig(config) !== undefined;
 
     // Skip if explicitly disabled
     if (extensionConfig?.enabled === false) continue;
 
     // Skip non-defaults that have no config
     const isDefault = BUILT_IN_DEFAULTS.has(id);
-    if (!extensionConfig && !isDefault) continue;
+    if (!hasConfig && !isDefault) continue;
 
     const extension = await registration.load();
     // For defaults with no config, pass empty object; validateConfig should accept it
-    const configToValidate = extensionConfig ?? {};
+    const configToValidate = hasConfig ? extensionConfig : {};
     const validation = extension.validateConfig(configToValidate);
     if (!validation.valid) {
       throw new Error(
@@ -209,27 +235,34 @@ export async function loadExtensions(
 
   // Discover external extensions
   const extensionsPath =
-    (config as GatewayConfig & { extensionsPath?: string }).extensionsPath ??
-    path.join(CONFIG_DIR, "extensions");
+    config.extensionsPath ?? path.join(CONFIG_DIR, "extensions");
   const external = await discoverExternalExtensions(extensionsPath);
   for (const { extension, id } of external) {
-    const extensionConfig = (
-      config.extensions as Record<string, unknown> | undefined
-    )?.[id];
-    if (
-      !extensionConfig ||
-      (extensionConfig as { enabled?: boolean }).enabled === false
-    )
-      continue;
+    if (EXTENSION_REGISTRY[id]) {
+      throw new Error(
+        `External extension "${id}" conflicts with a built-in extension id`
+      );
+    }
+    if (extensions.some((candidate) => candidate.id === id)) {
+      throw new Error(`Duplicate extension id "${id}"`);
+    }
 
-    const validation = extension.validateConfig(extensionConfig);
+    const extensionConfig = getRootExtensionConfig(config, id);
+    const hasAgentConfig = hasEnabledAgentExtensionConfig(config, id);
+    if (extensionConfig?.enabled === false) continue;
+    if (!extensionConfig && !hasAgentConfig) {
+      continue;
+    }
+
+    const configToValidate = extensionConfig ?? {};
+    const validation = extension.validateConfig(configToValidate);
     if (!validation.valid) {
       throw new Error(
         `Extension "${id}" config invalid: ${validation.errors.join(", ")}`
       );
     }
     extensions.push(extension);
-    rawConfigs.set(id, extensionConfig as Record<string, unknown>);
+    rawConfigs.set(id, configToValidate);
   }
 
   loadedExtensions = topoSort(extensions);
@@ -259,6 +292,19 @@ export async function loadExtensions(
     );
   }
   homeExtensionId = homeClaimants[0]?.id;
+
+  for (const agent of config.agents) {
+    const agentExtensions = agent.extensions as Record<string, unknown> | undefined;
+    if (!agentExtensions) continue;
+    for (const [id, value] of Object.entries(agentExtensions)) {
+      if (toRecord(value).enabled === false) continue;
+      if (!loadedExtensionIds.has(id)) {
+        console.warn(
+          `[extensions] agent "${agent.id}" references unknown extension "${id}"`
+        );
+      }
+    }
+  }
 
   return loadedExtensions;
 }

@@ -18,7 +18,6 @@ import {
   type AgentConfig,
   type GatewayConfig,
 } from "@aihub/shared";
-import { z } from "zod";
 import {
   clearConfigCacheForTests,
   setLoadedConfig,
@@ -27,20 +26,9 @@ import { getContainerAdapter } from "./adapter.js";
 import { validateContainerToken } from "./tokens.js";
 import type { SdkRunParams } from "../types.js";
 
-const mockGetConnectorToolGroupsForAgent = vi.hoisted(() =>
-  vi.fn<(agent: unknown, config: unknown) => unknown[]>(() => [])
-);
-const mockGetConnectorPromptsForAgent = vi.hoisted(() =>
-  vi.fn<(agent: unknown) => unknown[]>(() => [])
-);
 const mockGetExtensionAgentTools = vi.hoisted(() =>
   vi.fn<(agent: unknown) => unknown[]>(() => [])
 );
-
-vi.mock("../../connectors/index.js", () => ({
-  getConnectorToolGroupsForAgent: mockGetConnectorToolGroupsForAgent,
-  getConnectorPromptsForAgent: mockGetConnectorPromptsForAgent,
-}));
 
 vi.mock("../../extensions/tools.js", () => ({
   getExtensionAgentTools: mockGetExtensionAgentTools,
@@ -198,8 +186,6 @@ function mockExecFile(complete = true): MockInstance {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetConnectorToolGroupsForAgent.mockReturnValue([]);
-  mockGetConnectorPromptsForAgent.mockReturnValue([]);
   mockGetExtensionAgentTools.mockReturnValue([]);
   delete process.env.AIHUB_HOME;
 });
@@ -221,22 +207,6 @@ describe("container adapter", () => {
     process.env.AIHUB_HOME = aihubHome;
     const agent = createAgent(root);
     setConfig(agent, root);
-    mockGetConnectorToolGroupsForAgent.mockReturnValue([
-      {
-        connectorId: "github",
-        tools: [
-          {
-            name: "github_search",
-            description: "Search GitHub",
-            parameters: z.object({ query: z.string() }),
-            execute: async () => ({ ok: true }),
-          },
-        ],
-      },
-    ]);
-    mockGetConnectorPromptsForAgent.mockReturnValue([
-      { id: "github", prompt: "Use GitHub tools first." },
-    ]);
     mockGetExtensionAgentTools.mockResolvedValue([
       {
         extensionId: "board",
@@ -284,29 +254,6 @@ describe("container adapter", () => {
         url: "http://onecli:4141",
         caPath: "/usr/local/share/ca-certificates/onecli-ca.pem",
       },
-      connectorConfigs: [
-        {
-          id: "github",
-          systemPrompt: "Use GitHub tools first.",
-          tools: [
-            {
-              name: "github_search",
-              description: "Search GitHub",
-              parameters: expect.objectContaining({
-                $ref: "#/definitions/github_searchParameters",
-                definitions: expect.objectContaining({
-                  "github_searchParameters": expect.objectContaining({
-                    type: "object",
-                    properties: expect.objectContaining({
-                      query: expect.objectContaining({ type: "string" }),
-                    }),
-                  }),
-                }),
-              }),
-            },
-          ],
-        },
-      ],
       extensionTools: [
         {
           extensionId: "board",

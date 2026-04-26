@@ -10,7 +10,6 @@ const createExtensionContext = vi.fn();
 const prepareStartupConfig = vi.fn();
 const logComponentSummary = vi.fn();
 const resolveStartupConfig = vi.fn();
-const initializeConnectors = vi.fn();
 
 vi.mock("../config/index.js", () => ({
   loadConfig,
@@ -39,10 +38,6 @@ vi.mock("../config/validate.js", () => ({
   prepareStartupConfig,
   logComponentSummary,
   resolveStartupConfig,
-}));
-
-vi.mock("../connectors/index.js", () => ({
-  initializeConnectors,
 }));
 
 describe("startGatewayCommand", () => {
@@ -82,7 +77,6 @@ describe("startGatewayCommand", () => {
 
     loadConfig.mockReturnValue(rawConfig);
     resolveStartupConfig.mockResolvedValue(rawConfig);
-    initializeConnectors.mockResolvedValue(undefined);
     loadExtensions.mockResolvedValue(extensions);
     prepareStartupConfig.mockResolvedValue({
       resolvedConfig: config,
@@ -134,7 +128,6 @@ describe("startGatewayCommand", () => {
 
     loadConfig.mockReturnValue(rawConfig);
     resolveStartupConfig.mockResolvedValue(rawConfig);
-    initializeConnectors.mockResolvedValue(undefined);
     loadExtensions.mockResolvedValue(extensions);
     prepareStartupConfig.mockResolvedValue({
       resolvedConfig: config,

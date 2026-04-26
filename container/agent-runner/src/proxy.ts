@@ -6,13 +6,13 @@ import {
 
 export type OnecliProxyConfig = ContainerOnecliConfig;
 
-export type ConnectorHttpClient = ContainerHttpClient;
+export type ExtensionHttpClient = ContainerHttpClient;
 
-export let proxyClient: ConnectorHttpClient = createContainerHttpClient();
+export let proxyClient: ExtensionHttpClient = createContainerHttpClient();
 
 export function configureProxy(
   onecliConfig?: OnecliProxyConfig
-): ConnectorHttpClient {
+): ExtensionHttpClient {
   proxyClient = createContainerHttpClient(onecliConfig);
   return proxyClient;
 }

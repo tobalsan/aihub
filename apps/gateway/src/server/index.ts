@@ -12,7 +12,6 @@ import type {
   GatewayConfig,
 } from "@aihub/shared";
 import { api } from "./api.core.js";
-import { connectorTools } from "./connector-tools.js";
 import { internalTools } from "./internal-tools.js";
 import {
   cleanupOrphanContainers,
@@ -87,12 +86,13 @@ function isExtensionEnabled(
   config: GatewayConfig,
   extensionId: string
 ): boolean {
-  const extensionConfig =
+  const extensionConfig = (
     extensionId === "multiUser"
       ? config.extensions?.multiUser
       : config.extensions?.[
           extensionId as keyof NonNullable<GatewayConfig["extensions"]>
-        ];
+        ]
+  ) as { enabled?: boolean } | undefined;
   if (
     extensionConfig &&
     typeof extensionConfig === "object" &&
@@ -108,7 +108,6 @@ function isExtensionEnabled(
 app.use("*", cors());
 app.use("*", logger());
 app.route("/internal", internalTools);
-app.route("/connectors", connectorTools);
 app.use("/api/*", async (c, next) => {
   let config: GatewayConfig;
   try {

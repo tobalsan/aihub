@@ -130,7 +130,8 @@ async function dispatchInternalTool(
       const extensionResult = await deps.executeExtensionTool(
         agent,
         tool,
-        args
+        args,
+        config
       );
       if (extensionResult.found) return extensionResult.result;
       throw new Error(`Unknown tool: ${tool}`);

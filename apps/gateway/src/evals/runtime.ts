@@ -3,12 +3,12 @@
  *
  * Boots the absolute minimum needed to execute one agent turn loop:
  *   - load + resolve config
- *   - initialize connectors
+ *   - load extensions
  *   - call runAgent() with an event collector
  *
  * Skipped (vs `aihub gateway`):
  *   - HTTP server / WebSocket
- *   - Discord, amsg, scheduler, heartbeat, conversations, projects extensions
+ *   - HTTP routes and long-running extension services
  *   - multi-user auth
  *   - web UI
  *   - tailscale serve
@@ -19,7 +19,7 @@
 
 import { loadConfig, getAgent, setLoadedConfig } from "../config/index.js";
 import { resolveStartupConfig, prepareStartupConfig } from "../config/validate.js";
-import { initializeConnectors } from "../connectors/index.js";
+import { loadExtensions } from "../extensions/registry.js";
 import { runAgent } from "../agents/index.js";
 import type { StreamEvent } from "@aihub/shared";
 import { TrajectoryBuilder, type AtifTrajectory } from "./trajectory.js";
@@ -150,14 +150,11 @@ export async function runEval(opts: RunEvalOptions): Promise<RunEvalOutcome> {
   // 1. Load + resolve config (same path as `aihub send`)
   const rawConfig = loadConfig();
   const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
-  await initializeConnectors(resolvedStartupConfig);
+  const extensions = await loadExtensions(resolvedStartupConfig);
   const { resolvedConfig: config } = await prepareStartupConfig(
     rawConfig,
-    [],
-    {
-      resolvedConfig: resolvedStartupConfig,
-      skipConnectorInitialization: true,
-    }
+    extensions,
+    { resolvedConfig: resolvedStartupConfig }
   );
   setLoadedConfig(config);
 

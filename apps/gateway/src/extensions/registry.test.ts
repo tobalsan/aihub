@@ -1,3 +1,8 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GatewayConfigSchema, type Extension } from "@aihub/shared";
 import {
@@ -7,6 +12,8 @@ import {
   loadExtensions,
   topoSort,
 } from "./registry.js";
+
+const require = createRequire(import.meta.url);
 
 describe("extension registry", () => {
   it("sorts extensions by dependency order", () => {
@@ -234,5 +241,65 @@ describe("extension registry", () => {
     expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");
     expect(multiUser?.routePrefixes).toContain("/api/auth");
     expect(webhooks?.routePrefixes).toContain("/hooks");
+  });
+
+  it("loads external extensions from symlinked directories for agent config", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "aihub-extensions-"));
+    const target = await mkdtemp(
+      path.join(os.tmpdir(), "aihub-extension-target-")
+    );
+    const zodUrl = pathToFileURL(require.resolve("zod")).href;
+
+    try {
+      await writeFile(
+        path.join(target, "package.json"),
+        JSON.stringify({ type: "module" })
+      );
+      await writeFile(
+        path.join(target, "index.js"),
+        [
+          `import { z } from ${JSON.stringify(zodUrl)};`,
+          "export default {",
+          '  id: "sample",',
+          '  displayName: "Sample",',
+          '  description: "Sample extension",',
+          "  dependencies: [],",
+          "  configSchema: z.object({ apiKey: z.string() }),",
+          "  routePrefixes: [],",
+          "  validateConfig: () => ({ valid: true, errors: [] }),",
+          "  registerRoutes: () => undefined,",
+          "  start: async () => undefined,",
+          "  stop: async () => undefined,",
+          "  capabilities: () => [],",
+          "};",
+        ].join("\n")
+      );
+      await mkdir(root, { recursive: true });
+      await symlink(target, path.join(root, "sample"));
+
+      const config = GatewayConfigSchema.parse({
+        version: 2,
+        extensionsPath: root,
+        agents: [
+          {
+            id: "main",
+            name: "Main",
+            workspace: "~/agents/main",
+            model: { provider: "anthropic", model: "claude" },
+            extensions: {
+              sample: { apiKey: "test" },
+            },
+          },
+        ],
+        extensions: {},
+      });
+
+      const result = await loadExtensions(config);
+
+      expect(result.map((extension) => extension.id)).toContain("sample");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(target, { recursive: true, force: true });
+    }
   });
 });

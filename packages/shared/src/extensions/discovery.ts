@@ -38,6 +38,17 @@ export async function discoverExternalExtensions(
     const indexPath = path.join(entryPath, "index.js");
     try {
       await access(indexPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      console.warn(
+        `Failed to load extension at ${entryPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      continue;
+    }
+
+    try {
       const module = await import(pathToFileURL(indexPath).href);
       const raw = module.default ?? module;
       const result = ExtensionDefinitionSchema.safeParse(raw);

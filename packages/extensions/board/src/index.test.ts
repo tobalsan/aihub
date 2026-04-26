@@ -5,9 +5,12 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionContext } from "@aihub/shared";
 import { boardExtension } from "./index.js";
 
-function context(dataDir: string): ExtensionContext {
+function context(dataDir: string, contentRoot?: string): ExtensionContext {
   return {
-    getConfig: () => ({ agents: [], extensions: { board: {} } }),
+    getConfig: () => ({
+      agents: [],
+      extensions: { board: contentRoot ? { contentRoot } : {} },
+    }),
     getDataDir: () => dataDir,
     getAgent: () => undefined,
     getAgents: () => [],
@@ -130,6 +133,50 @@ describe("board extension system prompt contribution", () => {
     } finally {
       await boardExtension.stop();
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stores user content at AIHUB_HOME by default and supports contentRoot override", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-board-home-"));
+    const customDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "aihub-board-custom-")
+    );
+    try {
+      await boardExtension.start(context(dataDir));
+      const defaultTools = await boardExtension.getAgentTools?.({
+        id: "lead",
+        name: "Lead",
+        workspace: "/tmp/aihub-board-test",
+        sdk: "pi",
+        model: { model: "test" },
+        queueMode: "queue",
+      });
+      await defaultTools
+        ?.find((tool) => tool.name === "scratchpad.write")
+        ?.execute({ content: "home" }, { agent: {} as never });
+      expect(fs.existsSync(path.join(dataDir, "SCRATCHPAD.md"))).toBe(true);
+      expect(
+        fs.existsSync(path.join(dataDir, "extensions", "board", "SCRATCHPAD.md"))
+      ).toBe(false);
+      await boardExtension.stop();
+
+      await boardExtension.start(context(dataDir, customDir));
+      const customTools = await boardExtension.getAgentTools?.({
+        id: "lead",
+        name: "Lead",
+        workspace: "/tmp/aihub-board-test",
+        sdk: "pi",
+        model: { model: "test" },
+        queueMode: "queue",
+      });
+      await customTools
+        ?.find((tool) => tool.name === "scratchpad.write")
+        ?.execute({ content: "custom" }, { agent: {} as never });
+      expect(fs.existsSync(path.join(customDir, "SCRATCHPAD.md"))).toBe(true);
+    } finally {
+      await boardExtension.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+      fs.rmSync(customDir, { recursive: true, force: true });
     }
   });
 });

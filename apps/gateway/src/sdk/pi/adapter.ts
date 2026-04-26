@@ -7,7 +7,6 @@ import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
 import { claimAgentToolName, renderAgentContext } from "@aihub/shared";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import type {
   SdkAdapter,
   SdkRunParams,
@@ -23,10 +22,6 @@ import {
 } from "../../agents/workspace.js";
 import { getSessionCreatedAt } from "../../sessions/store.js";
 import { resolveSessionDataFile } from "../../sessions/files.js";
-import {
-  getConnectorPromptsForAgent,
-  getConnectorToolsForAgent,
-} from "../../connectors/index.js";
 import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
 import { getExtensionAgentTools } from "../../extensions/tools.js";
 import { repairOrphanedToolCalls } from "./session-repair.js";
@@ -44,7 +39,7 @@ const AIHUB_PI_SYSTEM_PROMPT = `You are an AI agent running inside AIHub, a self
 Available tools:
 \${toolsList}
 
-In addition to the tools above, you may have access to other custom tools provided by connectors or project configuration.
+In addition to the tools above, you may have access to other custom tools provided by extensions or project configuration.
 
 Guidelines:
 \${guidelines}`;
@@ -89,39 +84,18 @@ function stringifyToolResult(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result ?? null);
 }
 
-function createPiConnectorTools(
-  agent: AgentConfig,
-  usedToolNames: Set<string>
-): AgentTool[] {
-  return getConnectorToolsForAgent(agent, loadConfig()).map((tool) => ({
-    name: claimAgentToolName(tool.name, usedToolNames),
-    label: tool.description,
-    description: tool.description,
-    parameters: zodToJsonSchema(
-      tool.parameters,
-      `${tool.name}Parameters`
-    ) as unknown as AgentTool["parameters"],
-    execute: async (_toolCallId, params) => {
-      const result = await tool.execute(params);
-      return {
-        content: [{ type: "text", text: stringifyToolResult(result) }],
-        details: result,
-      };
-    },
-  }));
-}
-
 async function createPiExtensionTools(
   agent: AgentConfig,
   usedToolNames: Set<string>
 ): Promise<AgentTool[]> {
-  return (await getExtensionAgentTools(agent)).map((tool) => ({
+  const config = loadConfig();
+  return (await getExtensionAgentTools(agent, config)).map((tool) => ({
     name: claimAgentToolName(tool.name, usedToolNames),
     label: tool.description,
     description: tool.description,
     parameters: tool.parameters as unknown as AgentTool["parameters"],
     execute: async (_toolCallId, params) => {
-      const result = await tool.execute(params, { agent });
+      const result = await tool.execute(params, { agent, config });
       return {
         content: [{ type: "text", text: stringifyToolResult(result) }],
         details: result,
@@ -283,15 +257,9 @@ export const piAdapter: SdkAdapter = {
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
       const usedToolNames = new Set<string>();
-      const connectorTools = createPiConnectorTools(agent, usedToolNames);
       const extensionTools = await createPiExtensionTools(agent, usedToolNames);
       const extensionPrompts =
         await getExtensionSystemPromptContributions(agent);
-      const connectorPrompts = getConnectorPromptsForAgent(agent);
-      const connectorContextFiles = connectorPrompts.map((cp) => ({
-        path: `connector:${cp.id}`,
-        content: cp.prompt,
-      }));
       const renderedContext = params.context
         ? renderAgentContext(params.context)
         : "";
@@ -318,9 +286,7 @@ export const piAdapter: SdkAdapter = {
         appendSystemPrompt:
           allAppendedPrompts.length > 0 ? allAppendedPrompts : undefined,
         additionalSkillPaths: [workspaceSkillsDir],
-        agentsFilesOverride: () => ({
-          agentsFiles: [...contextFiles, ...connectorContextFiles],
-        }),
+        agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
         ...(!includeGlobalSkills && {
           skillsOverride: (result) => ({
             skills: result.skills.filter(
@@ -340,7 +306,7 @@ export const piAdapter: SdkAdapter = {
         model,
         ...(params.thinkLevel && { thinkingLevel: params.thinkLevel }),
         tools,
-        customTools: [...connectorTools, ...extensionTools],
+        customTools: extensionTools,
         resourceLoader,
         sessionManager,
         settingsManager,
