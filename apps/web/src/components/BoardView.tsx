@@ -39,6 +39,7 @@ import type { SubagentRun } from "@aihub/shared/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
+import { AreaSummaries } from "./AreaSummaries";
 import { renderMarkdown } from "../lib/markdown";
 import {
   attachmentToFileBlock,
@@ -1763,6 +1764,8 @@ function ProjectsPanel() {
           </label>
         </div>
       </div>
+
+      <AreaSummaries />
 
       <Show when={error()}>
         <div class="cp-error">{error()}</div>

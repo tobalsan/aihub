@@ -352,6 +352,15 @@ export type CommitResult = {
   error?: string;
 };
 
+export type AreaSummary = {
+  id: string;
+  title: string;
+  color: string;
+  order: number;
+  recentlyDone: string;
+  whatsNext: string;
+};
+
 export type BoardWorktree = {
   name: string;
   path: string;

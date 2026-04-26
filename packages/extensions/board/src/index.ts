@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared";
 import { scanProjects } from "./projects.js";
+import { scanAreaSummaries } from "./areas.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -255,6 +256,14 @@ function registerBoardRoutes(app: Hono): void {
       getContext().getConfig().projects?.root ?? "~/projects"
     );
     const items = await scanProjects(root, includeDone);
+    return c.json({ items });
+  });
+
+  app.get("/board/areas", async (c) => {
+    const root = expandPath(
+      getContext().getConfig().projects?.root ?? "~/projects"
+    );
+    const items = await scanAreaSummaries(root);
     return c.json({ items });
   });
 
