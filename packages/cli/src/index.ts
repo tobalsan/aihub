@@ -286,7 +286,7 @@ function fail(err: unknown): never {
 
 function formatComponentList(config: GatewayConfig): string {
   const extensions = Object.entries(config.extensions ?? {})
-    .filter(([, value]) => value && value.enabled !== false)
+    .filter(([, value]) => value && (value as Record<string, unknown>).enabled !== false)
     .map(([key]) => key);
   return extensions.length > 0 ? extensions.join(", ") : "none";
 }
