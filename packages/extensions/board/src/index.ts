@@ -3,6 +3,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
 import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared";
+import { scanProjects } from "./projects.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -248,9 +249,13 @@ function registerBoardRoutes(app: Hono): void {
     return c.json(state);
   });
 
-  // Project list (will be wired to board's own store)
   app.get("/board/projects", async (c) => {
-    return c.json({ items: [], statuses: BOARD_STATUSES });
+    const includeDone = c.req.query("include") === "done";
+    const root = expandPath(
+      getContext().getConfig().projects?.root ?? "~/projects"
+    );
+    const items = await scanProjects(root, includeDone);
+    return c.json({ items });
   });
 
   app.get("/board/agents", (c) => {
