@@ -14,6 +14,7 @@ import {
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import {
+  claimAgentToolName,
   renderAgentContext,
   type AgentContext,
   type ContainerInput,
@@ -206,11 +207,12 @@ export async function runAgent(
 
     const sessionManager = SessionManager.open(sessionFile, sessionRoot);
     const tools = createCodingTools(input.workspaceDir);
+    const usedToolNames = new Set<string>();
     const customTools = [
-      ...createOrchestrationTools(input),
-      ...createConnectorTools(input),
-      ...createExtensionTools(input),
-      createSendFileTool(onStreamEvent),
+      ...createOrchestrationTools(input, usedToolNames),
+      ...createConnectorTools(input, usedToolNames),
+      ...createExtensionTools(input, usedToolNames),
+      createSendFileTool(onStreamEvent, usedToolNames),
     ];
 
     const { session } = await createAgentSession({
@@ -330,14 +332,17 @@ async function loadContextFiles(
 function orchestrationToolPrompt(): string {
   return [
     "Additional orchestration tools:",
-    "- project.create { title, readme?, specs?, domain?, owner?, status? }",
-    "- project.get { projectId }",
-    "- project.update { projectId, updates }",
-    "- project.comment { projectId, author, message }",
+    "- project_create { title, readme?, specs?, domain?, owner?, status? }",
+    "- project_get { projectId }",
+    "- project_update { projectId, updates }",
+    "- project_comment { projectId, author, message }",
   ].join("\n");
 }
 
-function createOrchestrationTools(input: ContainerInput): ToolDefinition[] {
+function createOrchestrationTools(
+  input: ContainerInput,
+  usedToolNames: Set<string>
+): ToolDefinition[] {
   return [
     gatewayTool(
       input,
@@ -355,13 +360,21 @@ function createOrchestrationTools(input: ContainerInput): ToolDefinition[] {
           status: { type: "string" },
         },
         required: ["title"],
-      }
+      },
+      usedToolNames
     ),
-    gatewayTool(input, "project.get", "Get project", "Get an AIHub project", {
-      type: "object",
-      properties: { projectId: { type: "string" } },
-      required: ["projectId"],
-    }),
+    gatewayTool(
+      input,
+      "project.get",
+      "Get project",
+      "Get an AIHub project",
+      {
+        type: "object",
+        properties: { projectId: { type: "string" } },
+        required: ["projectId"],
+      },
+      usedToolNames
+    ),
     gatewayTool(
       input,
       "project.update",
@@ -374,7 +387,8 @@ function createOrchestrationTools(input: ContainerInput): ToolDefinition[] {
           updates: { type: "object" },
         },
         required: ["projectId"],
-      }
+      },
+      usedToolNames
     ),
     gatewayTool(
       input,
@@ -389,15 +403,19 @@ function createOrchestrationTools(input: ContainerInput): ToolDefinition[] {
           message: { type: "string" },
         },
         required: ["projectId", "author", "message"],
-      }
+      },
+      usedToolNames
     ),
   ];
 }
 
-function createConnectorTools(input: ContainerInput): ToolDefinition[] {
+function createConnectorTools(
+  input: ContainerInput,
+  usedToolNames: Set<string>
+): ToolDefinition[] {
   return (input.connectorConfigs ?? []).flatMap((connector) =>
     connector.tools.map((tool) => ({
-      name: tool.name,
+      name: claimAgentToolName(tool.name, usedToolNames),
       label: tool.description,
       description: tool.description,
       parameters: tool.parameters as ToolDefinition["parameters"],
@@ -418,23 +436,28 @@ function createConnectorTools(input: ContainerInput): ToolDefinition[] {
   );
 }
 
-function createExtensionTools(input: ContainerInput): ToolDefinition[] {
+function createExtensionTools(
+  input: ContainerInput,
+  usedToolNames: Set<string>
+): ToolDefinition[] {
   return (input.extensionTools ?? []).map((tool) =>
     gatewayTool(
       input,
       tool.name,
       tool.description,
       tool.description,
-      tool.parameters
+      tool.parameters,
+      usedToolNames
     )
   );
 }
 
 function createSendFileTool(
-  onStreamEvent?: (event: unknown) => void
+  onStreamEvent: ((event: unknown) => void) | undefined,
+  usedToolNames: Set<string>
 ): ToolDefinition {
   return {
-    name: "send_file",
+    name: claimAgentToolName("send_file", usedToolNames),
     label: "Send file to user",
     description:
       "Send a file from /workspace/data/ to the user. The file appears as a downloadable card in chat. Write the file first, then call this tool with its path.",
@@ -514,10 +537,11 @@ function gatewayTool(
   name: string,
   label: string,
   description: string,
-  parameters: unknown
+  parameters: unknown,
+  usedToolNames: Set<string>
 ): ToolDefinition {
   return {
-    name,
+    name: claimAgentToolName(name, usedToolNames),
     label,
     description,
     parameters: parameters as ToolDefinition["parameters"],

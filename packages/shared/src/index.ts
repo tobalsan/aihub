@@ -6,5 +6,6 @@ export * from "./projectPrompt.js";
 export * from "./config-migrate.js";
 export * from "./config-path.js";
 export * from "./network.js";
+export * from "./tool-names.js";
 export * from "./connectors/index.js";
 export * from "./extensions/index.js";

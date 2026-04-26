@@ -322,12 +322,12 @@ const boardExtension: Extension = {
   getSystemPromptContributions() {
     return [
       "Board scratchpad tools:",
-      "- scratchpad.read {} → Returns { content: string, updatedAt: string }. The shared scratchpad content.",
-      "- scratchpad.write { content: string } → Replaces scratchpad content. Use only when intentionally rewriting the full scratchpad.",
-      "- scratchpad.read_lines { startLine?, endLine? } → Returns numbered scratchpad lines.",
-      "- scratchpad.insert_lines { afterLine, content, expectedUpdatedAt? } → Inserts lines after a 1-based line number, or 0 for top.",
-      "- scratchpad.replace_lines { startLine, endLine, content, expectedContent?, expectedUpdatedAt? } → Replaces an inclusive line range.",
-      "- scratchpad.delete_lines { startLine, endLine, expectedContent?, expectedUpdatedAt? } → Deletes an inclusive line range.",
+      "- scratchpad_read {} → Returns { content: string, updatedAt: string }. The shared scratchpad content.",
+      "- scratchpad_write { content: string } → Replaces scratchpad content. Use only when intentionally rewriting the full scratchpad.",
+      "- scratchpad_read_lines { startLine?, endLine? } → Returns numbered scratchpad lines.",
+      "- scratchpad_insert_lines { afterLine, content, expectedUpdatedAt? } → Inserts lines after a 1-based line number, or 0 for top.",
+      "- scratchpad_replace_lines { startLine, endLine, content, expectedContent?, expectedUpdatedAt? } → Replaces an inclusive line range.",
+      "- scratchpad_delete_lines { startLine, endLine, expectedContent?, expectedUpdatedAt? } → Deletes an inclusive line range.",
       "Prefer line-level tools for edits to avoid clobbering concurrent scratchpad changes.",
     ].join("\n");
   },

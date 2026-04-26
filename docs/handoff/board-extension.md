@@ -49,12 +49,12 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
    - Emits `canvas.updated` and `scratchpad.updated` events for SSE subscribers
 
 2. **Scratchpad extension tools**
-   - `scratchpad.read {}` — returns `{ content, updatedAt }` from `$BOARD_ROOT/SCRATCHPAD.md`
-   - `scratchpad.write { content }` — atomic write (temp + rename) to scratchpad file
-   - `scratchpad.read_lines { startLine?, endLine? }` — returns numbered, 1-based lines plus `lineCount` and `updatedAt`
-   - `scratchpad.insert_lines { afterLine, content, expectedUpdatedAt? }` — inserts after a 1-based line number, or `0` for top
-   - `scratchpad.replace_lines { startLine, endLine, content, expectedContent?, expectedUpdatedAt? }` — replaces an inclusive line range
-   - `scratchpad.delete_lines { startLine, endLine, expectedContent?, expectedUpdatedAt? }` — deletes an inclusive line range
+   - `scratchpad_read {}` — returns `{ content, updatedAt }` from `$BOARD_ROOT/SCRATCHPAD.md`
+   - `scratchpad_write { content }` — atomic write (temp + rename) to scratchpad file
+   - `scratchpad_read_lines { startLine?, endLine? }` — returns numbered, 1-based lines plus `lineCount` and `updatedAt`
+   - `scratchpad_insert_lines { afterLine, content, expectedUpdatedAt? }` — inserts after a 1-based line number, or `0` for top
+   - `scratchpad_replace_lines { startLine, endLine, content, expectedContent?, expectedUpdatedAt? }` — replaces an inclusive line range
+   - `scratchpad_delete_lines { startLine, endLine, expectedContent?, expectedUpdatedAt? }` — deletes an inclusive line range
    - Board root resolved from `config.extensions.board.root`
    - Registered through `Extension.getAgentTools(agent)`
    - Container executions go through `/internal/tools`, which dispatches to enabled extension tool handlers
@@ -68,7 +68,7 @@ This is **not** a replacement of the `projects` extension. Board is a new, indep
 
 4. **Agent tool contribution**
    - Board implements the shared `Extension.getAgentTools(agent)` hook
-   - In-process Pi runs mount `scratchpad.read`/`scratchpad.write` as `customTools`
+   - In-process Pi runs mount board scratchpad tools as provider-safe `customTools` names such as `scratchpad_read`/`scratchpad_write`
    - Sandbox/container runs receive tool definitions as `ContainerInput.extensionTools`
    - Container tool calls execute through `/internal/tools`, which dispatches to enabled extension tool handlers
 
@@ -216,7 +216,7 @@ agent-browser wait --fn "document.querySelector('.board-msg-markdown') !== null"
 
 1. ~~**Markdown rendering**~~ ✅ — assistant messages render via `renderMarkdown()`
 2. ~~**Tool call rendering**~~ ✅ — collapsible entries with icons for read/bash/write, diffs, thinking blocks
-3. ~~**Collaborative scratchpad**~~ ✅ — contenteditable markdown editor on Overview panel, persisted to `SCRATCHPAD.md`, agent tools `scratchpad.read/write`, auto-save + polling
+3. ~~**Collaborative scratchpad**~~ ✅ — contenteditable markdown editor on Overview panel, persisted to `SCRATCHPAD.md`, agent tools `scratchpad_read`/`scratchpad_write`, auto-save + polling
 4. **Flesh out canvas panels** — project list with simplified statuses, agent monitor with live subagent status
 5. **Canvas command protocol** — define how agents emit structured canvas commands (tool? structured output?). Agent must always know current canvas state.
 6. **Project data model** — implement board's own project store with simplified statuses (intent/current/review/done). Folder-based, frontmatter, no domain/owner. Board root is now configured and auto-created — store should live under it.

@@ -50,8 +50,8 @@ describe("board extension system prompt contribution", () => {
     const text = Array.isArray(resolved) ? resolved.join("\n") : resolved ?? "";
 
     expect(text).toContain("Board scratchpad tools");
-    expect(text).toContain("scratchpad.read");
-    expect(text).toContain("scratchpad.write");
+    expect(text).toContain("scratchpad_read");
+    expect(text).toContain("scratchpad_write");
   });
 
   it("contributes scratchpad tools through the extension hook", async () => {

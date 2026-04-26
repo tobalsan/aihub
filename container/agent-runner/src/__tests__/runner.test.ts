@@ -254,8 +254,25 @@ describe("Pi runner", () => {
     if (!createAgentSessionArgs) {
       throw new Error("createAgentSession was not called");
     }
+    const customToolNames = createAgentSessionArgs.customTools.map(
+      (tool) => tool.name
+    );
+    expect(customToolNames).toEqual(
+      expect.arrayContaining([
+        "project_create",
+        "project_get",
+        "project_update",
+        "project_comment",
+        "github_search",
+        "scratchpad_read",
+        "send_file",
+      ])
+    );
+    expect(
+      customToolNames.every((name) => /^[a-zA-Z0-9_-]{1,128}$/.test(name))
+    ).toBe(true);
     const connectorTool = createAgentSessionArgs.customTools.find(
-      (tool) => tool.name === "github.search"
+      (tool) => tool.name === "github_search"
     );
 
     expect(connectorTool).toBeDefined();
@@ -287,7 +304,7 @@ describe("Pi runner", () => {
       Response.json({ content: "scratch" }, { status: 200 })
     );
     const extensionTool = createAgentSessionArgs.customTools.find(
-      (tool) => tool.name === "scratchpad.read"
+      (tool) => tool.name === "scratchpad_read"
     );
     expect(extensionTool).toBeDefined();
     await extensionTool?.execute("tool-2", {});

@@ -6,7 +6,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
 import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
-import { renderAgentContext } from "@aihub/shared";
+import { claimAgentToolName, renderAgentContext } from "@aihub/shared";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type {
   SdkAdapter,
@@ -89,9 +89,12 @@ function stringifyToolResult(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result ?? null);
 }
 
-function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
+function createPiConnectorTools(
+  agent: AgentConfig,
+  usedToolNames: Set<string>
+): AgentTool[] {
   return getConnectorToolsForAgent(agent, loadConfig()).map((tool) => ({
-    name: tool.name,
+    name: claimAgentToolName(tool.name, usedToolNames),
     label: tool.description,
     description: tool.description,
     parameters: zodToJsonSchema(
@@ -108,9 +111,12 @@ function createPiConnectorTools(agent: AgentConfig): AgentTool[] {
   }));
 }
 
-async function createPiExtensionTools(agent: AgentConfig): Promise<AgentTool[]> {
+async function createPiExtensionTools(
+  agent: AgentConfig,
+  usedToolNames: Set<string>
+): Promise<AgentTool[]> {
   return (await getExtensionAgentTools(agent)).map((tool) => ({
-    name: tool.name,
+    name: claimAgentToolName(tool.name, usedToolNames),
     label: tool.description,
     description: tool.description,
     parameters: tool.parameters as unknown as AgentTool["parameters"],
@@ -276,8 +282,9 @@ export const piAdapter: SdkAdapter = {
 
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
-      const connectorTools = createPiConnectorTools(agent);
-      const extensionTools = await createPiExtensionTools(agent);
+      const usedToolNames = new Set<string>();
+      const connectorTools = createPiConnectorTools(agent, usedToolNames);
+      const extensionTools = await createPiExtensionTools(agent, usedToolNames);
       const extensionPrompts =
         await getExtensionSystemPromptContributions(agent);
       const connectorPrompts = getConnectorPromptsForAgent(agent);
