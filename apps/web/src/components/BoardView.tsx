@@ -2182,6 +2182,16 @@ function toMonitorHistoryItem(
     return { tone: "error", title: "Error", body: text, bodyFormat: "mono" };
   }
 
+  if (event.type === "tool_call" || event.type === "tool_output") {
+    return {
+      tone: "tool",
+      title: event.type === "tool_call" ? "Tool call" : "Tool output",
+      meta: [event.tool?.name, event.tool?.id].filter(Boolean).join(" · "),
+      body: text,
+      bodyFormat: "mono",
+    };
+  }
+
   const parsed = parseJsonRecord(text);
   if (!parsed) {
     return {
@@ -2302,6 +2312,13 @@ function MonitorPanel(props: { agentId: string | null }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function refreshMonitor() {
+    await loadRuns();
+    await Promise.all(
+      [...expandedRunIds()].map((runId) => loadRunLogs(runId, false))
+    );
   }
 
   function rememberRunScroll(runId: string) {
@@ -2450,7 +2467,11 @@ function MonitorPanel(props: { agentId: string | null }) {
           <h2>Agent Monitor</h2>
           <p>{runningCount()} running</p>
         </div>
-        <button class="canvas-monitor-refresh" onClick={loadRuns} type="button">
+        <button
+          class="canvas-monitor-refresh"
+          onClick={refreshMonitor}
+          type="button"
+        >
           Refresh
         </button>
       </header>

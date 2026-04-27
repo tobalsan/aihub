@@ -303,16 +303,141 @@ function extractTextFromRawLine(line: string): string {
   return "";
 }
 
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function isNoisyStderr(text: string): boolean {
+  return (
+    text === "Reading additional input from stdin..." ||
+    /\b(?:WARN|ERROR) codex_/.test(text) ||
+    text.includes("Failed to terminate MCP process group")
+  );
+}
+
+function shouldHideParsedLog(parsed: Record<string, unknown>): boolean {
+  const type = typeof parsed.type === "string" ? parsed.type : "";
+  if (
+    type === "system" ||
+    type === "rate_limit_event" ||
+    type === "thread.started" ||
+    type === "turn.started" ||
+    type === "turn.completed"
+  ) {
+    return true;
+  }
+  if (type !== "item.started" && type !== "item.completed") return false;
+
+  const item = getRecord(parsed.item);
+  const itemType = typeof item?.type === "string" ? item.type : "";
+  if (itemType === "command_execution") return false;
+  if (itemType !== "agent_message") return true;
+  if (!item) return true;
+  return typeof item.text !== "string" || item.text.trim().length === 0;
+}
+
+function extractTextFromContentBlocks(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const block = part as Record<string, unknown>;
+      return block.type === "text" && typeof block.text === "string"
+        ? block.text
+        : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function firstContentBlock(
+  content: unknown,
+  blockType: string
+): Record<string, unknown> | undefined {
+  if (!Array.isArray(content)) return undefined;
+  return content.map(getRecord).find((block) => block?.type === blockType);
+}
+
+function normalizeParsedLog(
+  parsed: Record<string, unknown>,
+  raw: string
+): SubagentLogEvent | null {
+  if (shouldHideParsedLog(parsed)) return null;
+  const type = typeof parsed.type === "string" ? parsed.type : "message";
+  if (type === "stderr") {
+    const text = extractTextFromRawLine(raw);
+    if (isNoisyStderr(text || raw)) return null;
+    return { type, text: text || raw };
+  }
+  if (type === "result") {
+    const text = typeof parsed.result === "string" ? parsed.result : "";
+    return text ? { type: "assistant", text } : null;
+  }
+  if (type === "assistant") {
+    const message = getRecord(parsed.message);
+    const content = message?.content;
+    const text = extractTextFromContentBlocks(content);
+    if (text) return { type: "assistant", text };
+    const toolUse = firstContentBlock(content, "tool_use");
+    if (!toolUse) return null;
+    const name = typeof toolUse.name === "string" ? toolUse.name : "";
+    const id = typeof toolUse.id === "string" ? toolUse.id : "";
+    const input = toolUse.input;
+    const inputText =
+      input && typeof input === "object" ? JSON.stringify(input, null, 2) : "";
+    return { type: "tool_call", text: inputText || name, tool: { name, id } };
+  }
+  if (type === "user") {
+    const message = getRecord(parsed.message);
+    const toolResult = firstContentBlock(message?.content, "tool_result");
+    if (!toolResult) return null;
+    const content = toolResult.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : extractTextFromContentBlocks(content);
+    const id =
+      typeof toolResult.tool_use_id === "string" ? toolResult.tool_use_id : "";
+    return text ? { type: "tool_output", text, tool: { id } } : null;
+  }
+  if (type === "event_msg") {
+    const payload = getRecord(parsed.payload);
+    const payloadType = typeof payload?.type === "string" ? payload.type : "";
+    const message = typeof payload?.message === "string" ? payload.message : "";
+    if (payloadType === "user_message" && message) {
+      return { type: "user", text: message };
+    }
+    if (payloadType === "agent_message" && message) {
+      return { type: "assistant", text: message };
+    }
+    return null;
+  }
+
+  const text = extractTextFromRawLine(raw);
+  return { type, text: text || raw };
+}
+
 function normalizeLogLine(line: string): SubagentLogEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    const type = typeof parsed.type === "string" ? parsed.type : "message";
-    const text = extractTextFromRawLine(trimmed);
-    return { type, text: text || trimmed };
+    return normalizeParsedLog(parsed, trimmed);
   } catch {
     return { type: "stdout", text: trimmed };
+  }
+}
+
+function visibleOutputText(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed || isNoisyStderr(trimmed)) return undefined;
+  try {
+    return normalizeLogLine(trimmed)?.text?.trim() || undefined;
+  } catch {
+    return trimmed;
   }
 }
 
@@ -323,7 +448,7 @@ async function latestOutputFromLogs(
     const raw = await fs.readFile(logsPath, "utf8");
     const lines = raw.split(/\r?\n/).filter(Boolean).slice(-50).reverse();
     for (const line of lines) {
-      const text = extractTextFromRawLine(line).trim();
+      const text = normalizeLogLine(line)?.text?.trim();
       if (text) return text.slice(0, 500);
     }
   } catch {
@@ -360,7 +485,8 @@ async function toRun(
     startedAt: state?.startedAt ?? config.createdAt,
     lastActiveAt: progress?.lastActiveAt,
     latestOutput:
-      progress?.latestOutput ?? (await latestOutputFromLogs(paths.logs)),
+      visibleOutputText(progress?.latestOutput ?? "") ??
+      (await latestOutputFromLogs(paths.logs)),
     finishedAt: state?.finishedAt,
     exitCode: state?.exitCode ?? undefined,
     lastError: state?.lastError,
@@ -549,13 +675,14 @@ async function spawnRunProcess(
   const updateProgress = async (text: string): Promise<void> => {
     const latestOutput = text
       .split(/\r?\n/)
-      .map((line) => extractTextFromRawLine(line).trim())
+      .map((line) => normalizeLogLine(line)?.text?.trim() ?? "")
       .filter(Boolean)
       .at(-1);
     const lastActiveAt = new Date().toISOString();
+    const current = await readJson<StoredProgress>(paths.progress);
     await writeJson(paths.progress, {
       lastActiveAt,
-      latestOutput: latestOutput?.slice(0, 500),
+      latestOutput: latestOutput?.slice(0, 500) ?? current?.latestOutput,
     } satisfies StoredProgress);
     const now = Date.now();
     if (now - outputNotifyAt > 1000) {
