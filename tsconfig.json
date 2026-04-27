@@ -15,7 +15,6 @@
   "include": [],
   "references": [
     { "path": "packages/shared" },
-    { "path": "packages/cli" },
     { "path": "packages/extensions/discord" },
     { "path": "packages/extensions/heartbeat" },
     { "path": "packages/extensions/langfuse" },

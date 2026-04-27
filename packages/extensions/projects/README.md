@@ -1,15 +1,15 @@
-# apm CLI
+# aihub projects CLI
 
-`apm` is the standalone AIHub projects CLI package (`@aihub/cli`):
+`aihub projects` is the CLI command provided by the projects extension and mounted into the gateway CLI:
 
 ```
-apm <command> [options]
+aihub projects <command> [options]
 ```
 
 It can be run as:
 
 ```
-pnpm --dir /Users/thinh/code/aihub apm ...
+pnpm --dir /Users/thinh/code/aihub aihub projects ...
 ```
 
 Environment:
@@ -20,7 +20,7 @@ Environment:
 
 ## Commands
 
-### `apm list`
+### `aihub projects list`
 
 List projects (frontmatter only).
 
@@ -39,11 +39,11 @@ Domain values:
 
 - `life`, `admin`, `coding`.
 
-### `apm agent list`
+### `aihub projects agent list`
 
 List all configured AIHub agents (same output as `pnpm aihub agent list`).
 
-### `apm create`
+### `aihub projects create`
 
 Create a project.
 
@@ -63,7 +63,7 @@ Options:
 - `--area <area>`: optional area id. Validated against `GET /api/areas`; invalid values print the valid ids.
 - `-j, --json`: JSON output.
 
-### `apm get <id>`
+### `aihub projects get <id>`
 
 Fetch a single project (full README).
 
@@ -71,7 +71,7 @@ Options:
 
 - `-j, --json`: JSON output.
 
-### `apm update <id>`
+### `aihub projects update <id>`
 
 Update project fields and/or project docs content.
 
@@ -86,7 +86,7 @@ Options:
 - `--run-agent <agent>`: agent used by monitoring start.
   - `aihub:<agentId>` (AIHub agent)
   - `cli:claude|cli:codex|cli:pi` (external CLI)
-  - Use `apm agent list` to see configured AIHub agents.
+  - Use `aihub projects agent list` to see configured AIHub agents.
 - `--run-mode <mode>`: `main-run` or `worktree` (CLI runs only).
   - `main-run`: use the main repo working tree, slug is `main`.
   - `worktree`: create/use a git worktree at `projects/.workspaces/...`, slug required.
@@ -100,7 +100,7 @@ Notes:
 - To unset optional fields, pass empty string (e.g. `--owner ""`).
 - If stdin is piped and neither `--readme` nor `--specs` is provided, piped content is written to `SPECS.md`.
 
-### `apm move <id> <status>`
+### `aihub projects move <id> <status>`
 
 Shortcut for status update.
 
@@ -109,7 +109,7 @@ Options:
 - `--agent <name>`: agent name to record in the status change.
 - `-j, --json`: JSON output.
 
-### `apm start <id>`
+### `aihub projects start <id>`
 
 Start a project run.
 
@@ -133,12 +133,12 @@ Options:
 
 Subagent config mapping (`--subagent`) comes from the top-level `subagents` array in `aihub.json`.
 Each config can define `name`, `description`, `cli`, `model`, `reasoning`, `type`, and `runMode`.
-The web spawn form and `apm start --subagent <name>` both resolve through that same config source.
+The web spawn form and `aihub projects start --subagent <name>` both resolve through that same config source.
 
 Any explicit locked-field override requires `--allow-overrides`.
 Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions.
 
-### `apm ralph <id>`
+### `aihub projects ralph <id>`
 
 Start a Ralph loop run.
 
@@ -151,7 +151,7 @@ Options:
 - `--branch <branch>`: base branch for worktree mode.
 - `-j, --json`: JSON output.
 
-### `apm resume <id>`
+### `aihub projects resume <id>`
 
 Resume an existing run (same as sending a message in the monitoring panel).
 Resume sends only the follow-up message delta to the harness (no project summary re-prepend).
@@ -162,7 +162,7 @@ Options:
 - `--slug <slug>`: override slug for CLI worktree resumes.
 - `-j, --json`: JSON output.
 
-### `apm status <id>`
+### `aihub projects status <id>`
 
 Show run status and recent messages.
 
@@ -172,7 +172,7 @@ Options:
 - `--slug <slug>`: override slug for CLI worktree status.
 - `-j, --json`: JSON output.
 
-### `apm archive <id>`
+### `aihub projects archive <id>`
 
 Archive a project.
 
@@ -180,7 +180,7 @@ Options:
 
 - `-j, --json`: JSON output.
 
-### `apm unarchive <id>`
+### `aihub projects unarchive <id>`
 
 Unarchive a project.
 
@@ -188,114 +188,55 @@ Options:
 
 - `-j, --json`: JSON output.
 
-### `apm subagent spawn`
-
-Spawn a new subagent run directly.
-
-Options:
-
-- `-p, --project <id>`: required. Project ID.
-- `-s, --slug <slug>`: required. Subagent slug.
-- `-c, --cli <cli>`: required. CLI to use (`claude|codex|pi`).
-- `--prompt <text>`: required. Prompt to send.
-- `--mode <mode>`: run mode (`worktree|main-run`).
-- `--base <branch>`: base branch for worktree mode.
-- `--resume`: resume existing session instead of creating new.
-
-### `apm subagent status`
-
-Get status of a subagent run.
-
-Options:
-
-- `-p, --project <id>`: required. Project ID.
-- `-s, --slug <slug>`: required. Subagent slug.
-
-### `apm subagent logs`
-
-Get logs from a subagent run.
-
-Options:
-
-- `-p, --project <id>`: required. Project ID.
-- `-s, --slug <slug>`: required. Subagent slug.
-- `--since <cursor>`: byte cursor (default: 0).
-
-### `apm subagent interrupt`
-
-Interrupt a running subagent (sends SIGTERM).
-
-Options:
-
-- `-p, --project <id>`: required. Project ID.
-- `-s, --slug <slug>`: required. Subagent slug.
-
-### `apm subagent kill`
-
-Kill a subagent and clean up its workspace.
-
-Options:
-
-- `-p, --project <id>`: required. Project ID.
-- `-s, --slug <slug>`: required. Subagent slug.
-
 ## Examples
 
 ```bash
 # List coding projects
-apm list --domain coding
+aihub projects list --domain coding
 
 # Create with description
-apm create -t "Add kill tool" --domain coding "Implement a kill command for subagents"
+aihub projects create -t "Add kill tool" --domain coding "Implement a kill command for subagents"
 
 # Create with SPECS content
-apm create -t "Add kill tool" --specs "## Tasks\n- [ ] Implement"
+aihub projects create -t "Add kill tool" --specs "## Tasks\n- [ ] Implement"
 
 # Update run metadata
-apm update PRO-19 --run-agent cli:codex --repo ~/code/aihub --run-mode worktree
+aihub projects update PRO-19 --run-agent cli:codex --repo ~/code/aihub --run-mode worktree
 
 # Update README via stdin
-cat README.md | apm update PRO-19 --readme -
+cat README.md | aihub projects update PRO-19 --readme -
 
 # Update SPECS via stdin
-cat SPECS.md | apm update PRO-19 --specs -
+cat SPECS.md | aihub projects update PRO-19 --specs -
 
 # Default stdin update target is SPECS.md
-cat SPECS.md | apm update PRO-19
+cat SPECS.md | aihub projects update PRO-19
 
 # Start a run with a custom prompt
-apm start PRO-19 --custom-prompt "Focus on the rollout plan."
+aihub projects start PRO-19 --custom-prompt "Focus on the rollout plan."
 
 # Start a run with per-run config
-apm start PRO-19 --agent codex --mode worktree --branch main --slug my-run
+aihub projects start PRO-19 --agent codex --mode worktree --branch main --slug my-run
 
 # Start a config-defined Worker subagent run
-apm start PRO-19 --subagent Worker --slug worker-task-a
+aihub projects start PRO-19 --subagent Worker --slug worker-task-a
 
 # Start a config-defined Reviewer subagent run
-apm start PRO-19 --subagent Reviewer --slug reviewer-task-a
+aihub projects start PRO-19 --subagent Reviewer --slug reviewer-task-a
 
 # Start a lead-agent run on a configured AIHub agent
-apm start PRO-19 --agent aihub:cloud --custom-prompt "Plan the rollout."
+aihub projects start PRO-19 --agent aihub:cloud --custom-prompt "Plan the rollout."
 
 # Resume with a follow-up message
-apm resume PRO-19 --message "Continue from where you left off."
+aihub projects resume PRO-19 --message "Continue from where you left off."
 
 # Status with last 5 messages
-apm status PRO-19 --limit 5
+aihub projects status PRO-19 --limit 5
 
 # Archive a project
-apm archive PRO-19
+aihub projects archive PRO-19
 
 # Unarchive a project
-apm unarchive PRO-19
+aihub projects unarchive PRO-19
 
-# Spawn a subagent directly
-apm subagent spawn -p PRO-19 -s my-run -c codex --prompt "Implement feature X" --mode worktree --base main
-
-# Check subagent logs
-apm subagent logs -p PRO-19 -s my-run --since 0
-
-# Interrupt a running subagent
-apm subagent interrupt -p PRO-19 -s my-run
 ```

@@ -47,7 +47,9 @@ export function readLocalConfigFile(configPath?: string): LocalConfigFile {
   return { path: resolvedPath, raw, json };
 }
 
-export function validateLocalConfig(configPath?: string): ConfigValidationResult {
+export function validateLocalConfig(
+  configPath?: string
+): ConfigValidationResult {
   const file = readLocalConfigFile(configPath);
   const parsed = GatewayConfigSchema.parse(file.json);
   if (parsed.version === 2) {
@@ -85,7 +87,9 @@ function getBackupPath(configPath: string): string {
   return `${configPath}.v1.json`;
 }
 
-export function migrateLocalConfig(configPath?: string): ConfigMigrationActionResult {
+export function migrateLocalConfig(
+  configPath?: string
+): ConfigMigrationActionResult {
   const file = readLocalConfigFile(configPath);
   const parsed = GatewayConfigSchema.parse(file.json);
   const version: ConfigVersionInfo =
@@ -103,7 +107,10 @@ export function migrateLocalConfig(configPath?: string): ConfigMigrationActionRe
 
   if (changed) {
     fs.writeFileSync(backupPath, file.raw);
-    fs.writeFileSync(`${file.path}.tmp`, `${JSON.stringify(migratedConfig, null, 2)}\n`);
+    fs.writeFileSync(
+      `${file.path}.tmp`,
+      `${JSON.stringify(migratedConfig, null, 2)}\n`
+    );
     fs.renameSync(`${file.path}.tmp`, file.path);
   }
 
@@ -144,7 +151,8 @@ export function previewMigration(configPath?: string): {
     warnings: migration.warnings,
     version,
     changed:
-      JSON.stringify(parsed, null, 2) !== JSON.stringify(migratedConfig, null, 2),
+      JSON.stringify(parsed, null, 2) !==
+      JSON.stringify(migratedConfig, null, 2),
   };
 }
 
@@ -156,7 +164,9 @@ export function describeMigration(
 
   for (const agent of originalConfig.agents) {
     if (agent.discord?.token) {
-      actions.push(`Move agent "${agent.id}" discord config -> extensions.discord`);
+      actions.push(
+        `Move agent "${agent.id}" discord config -> extensions.discord`
+      );
     }
   }
 
@@ -184,10 +194,7 @@ export function describeMigration(
     actions.push("Add extensions.heartbeat");
   }
 
-  if (
-    originalConfig.version !== 2 &&
-    migratedConfig.version === 2
-  ) {
+  if (originalConfig.version !== 2 && migratedConfig.version === 2) {
     actions.unshift("Set version -> 2");
   }
 

@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { program } from "../../../../packages/cli/src/index.js";
+import { Command } from "commander";
+import {
+  createProjectsCommand,
+  registerProjectsCommands,
+} from "@aihub/extension-projects";
+
+function createTestProgram() {
+  const program = createProjectsCommand();
+  program.exitOverride();
+  return program;
+}
 
 describe("projects CLI", () => {
   let prevApiUrl: string | undefined;
@@ -25,7 +35,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -53,7 +63,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -80,7 +90,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -112,7 +122,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -141,7 +151,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -179,7 +189,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync(["node", "projects", "start", "PRO-10", "--json"]);
 
@@ -209,7 +219,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -248,7 +258,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -286,7 +296,7 @@ describe("projects CLI", () => {
     });
 
     vi.stubGlobal("fetch", fetchImpl);
-    program.exitOverride();
+    const program = createTestProgram();
 
     await program.parseAsync([
       "node",
@@ -301,5 +311,32 @@ describe("projects CLI", () => {
       "http://localhost:4000/api/projects/PRO-7/archive"
     );
     expect(calls[0].init?.method).toBe("POST");
+  });
+
+  it("registers commands under aihub projects", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "PRO-11", frontmatter: {} }), {
+        status: 200,
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchImpl);
+    const root = new Command();
+    root.name("aihub").exitOverride();
+    registerProjectsCommands(root.command("projects"));
+
+    await root.parseAsync([
+      "node",
+      "aihub",
+      "projects",
+      "get",
+      "pro-11",
+      "--json",
+    ]);
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://localhost:4000/api/projects/PRO-11");
   });
 });

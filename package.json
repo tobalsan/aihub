@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @aihub/shared --filter @aihub/cli --filter @aihub/extension-heartbeat --filter @aihub/extension-scheduler --filter @aihub/extension-langfuse --filter @aihub/extension-multi-user --filter @aihub/extension-discord --filter @aihub/extension-slack --filter @aihub/extension-webhooks --filter @aihub/extension-projects --filter @aihub/extension-board --filter @aihub/extension-subagents --filter @aihub/gateway --filter @aihub/agent-runner build",
+    "build": "pnpm --filter @aihub/shared --filter @aihub/extension-heartbeat --filter @aihub/extension-scheduler --filter @aihub/extension-langfuse --filter @aihub/extension-multi-user --filter @aihub/extension-discord --filter @aihub/extension-slack --filter @aihub/extension-webhooks --filter @aihub/extension-projects --filter @aihub/extension-board --filter @aihub/extension-subagents --filter @aihub/gateway --filter @aihub/agent-runner build",
     "build:web": "pnpm --filter @aihub/web build",
     "dev": "pnpm exec tsx scripts/dev.ts",
     "dev:gateway": "pnpm --filter @aihub/shared exec tsc --watch --preserveWatchOutput & AIHUB_WEB_DEV=1 pnpm --filter @aihub/gateway exec tsx watch --include '../../packages/shared/dist/**/*' src/cli/index.ts gateway",
@@ -15,10 +15,8 @@
     "test:web": "vitest run --dir apps/web/src",
     "test:gateway": "vitest run --dir apps/gateway/src",
     "test:shared": "vitest run --dir packages/shared/src",
-    "test:cli": "vitest run --dir packages/cli/src",
+    "test:cli": "vitest run --dir packages/extensions/projects/src/cli",
     "aihub": "node apps/gateway/dist/cli/index.js",
-    "projects": "pnpm --filter @aihub/cli exec node dist/index.js",
-    "apm": "pnpm --filter @aihub/cli exec node dist/index.js",
     "subagent": "pnpm --filter @aihub/gateway exec tsx src/cli/subagent.ts",
     "init-dev-config": "node scripts/create-local-config.js",
     "update-models": "tsx scripts/update-models.ts"

@@ -2,12 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-  runConfigMigrateCommand,
-  runConfigValidateCommand,
-} from "./index.js";
+import { runConfigMigrateCommand, runConfigValidateCommand } from "./index.js";
 
-describe("apm config commands", () => {
+describe("aihub projects config commands", () => {
   let prevHome: string | undefined;
   let prevConfig: string | undefined;
   let tmpHome = "";

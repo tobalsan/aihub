@@ -50,9 +50,6 @@ importers:
 
   apps/gateway:
     dependencies:
-      '@aihub/cli':
-        specifier: workspace:*
-        version: link:../../packages/cli
       '@aihub/extension-board':
         specifier: workspace:*
         version: link:../../packages/extensions/board
@@ -219,15 +216,6 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.0.8)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@2.0.1))(tsx@4.21.0)(yaml@2.8.2)
 
-  packages/cli:
-    dependencies:
-      '@aihub/shared':
-        specifier: workspace:*
-        version: link:../shared
-      commander:
-        specifier: ^12.1.0
-        version: 12.1.0
-
   packages/extensions/board:
     dependencies:
       '@aihub/shared':
@@ -309,6 +297,9 @@ importers:
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
       hono:
         specifier: ^4.11.4
         version: 4.11.4
@@ -2326,6 +2317,7 @@ packages:
   '@xmldom/xmldom@0.8.12':
     resolution: {integrity: sha512-9k/gHF6n/pAi/9tqr3m3aqkuiNosYTurLLUtc7xQ9sxB/wm7WPygCv8GYa6mS0fLJEHhqMC1ATYhz++U/lRHqg==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}

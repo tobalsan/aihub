@@ -14,7 +14,6 @@ aihub/
 ├── container/
 │   └── agent-runner/ # Standalone Docker entrypoint for sandboxed agents
 ├── packages/
-│   ├── cli/         # apm CLI package (HTTP client to gateway API)
 │   ├── extensions/  # First-party gateway extensions
 │   └── shared/      # Zod schemas, shared types
 └── ~/.aihub/        # Default AIHUB_HOME runtime config & data
@@ -24,7 +23,7 @@ aihub/
 
 Core TypeScript/Node.js application. Exports:
 
-- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub eval run`
+- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub projects ...`, `aihub subagents ...`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + extensions + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
@@ -39,7 +38,7 @@ Core TypeScript/Node.js application. Exports:
   - `multiUser` is an auth component that enables Better Auth + SQLite, guards `/api/*` and `/ws`, exposes `/api/auth/*`, `/api/me`, `/api/admin/*`, keeps session/history storage isolated per user, and must finish startup before the HTTP server begins accepting requests.
   - `langfuse` is an optional tracing component. Its registry entry is lazy-loaded, has no routes, validates `publicKey`/`secretKey` from component config or `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, and subscribes to `agentEventBus` stream/history events. `langfuse/tracer.ts` maps `agentId:sessionId` to traces, honors per-run trace context (`enabled`, explicit `surface`/`name`, metadata), buffers text/thinking into generations, maps HistoryEvent user/meta/tool_call/tool_result data into generation input/model/usage and tool spans, finalizes on `done`/`error`, catches flush/shutdown failures as warnings, and idle-cleans traces after 30 minutes.
   - `system_prompt` history events now capture the harness-assembled prompt text itself. Langfuse generation observations are emitted as chat-style input arrays (`system` + `user`), so the Langfuse UI shows the real system prompt section. `system_context` remains separate metadata for normalized Slack/Discord channel details.
-  - `webhooks` is auto-loaded when any agent has `webhooks` config. It registers `/hooks/:agentId/:name/:secret`, stores generated URL secrets in `$AIHUB_HOME/webhook-secrets.json` with `0600` permissions, validates secrets from an mtime-cached file read so rotations take effect without restart, rotates them with `apm webhooks rotate <agentId> <webhookName>`, resolves inline or workspace-contained `.md`/`.txt` prompts relative to the agent workspace, interpolates `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, and `$WEBHOOK_PAYLOAD`, enforces per-webhook `maxPayloadSize` bytes (default 1MB) while streaming request bodies, and runs each invocation in a fresh `webhook:<agentId>:<name>:<requestId>` session with source/surface `webhook`. Optional `verification: { location: "header"|"payload", fieldName }` short-circuits setup requests containing that header or JSON payload key before signature verification or agent invocation; requests without the configured field continue through normal webhook handling. `langfuseTracing: false` disables Langfuse tracing for that webhook; async webhook failures emit traceable `agent.stream` error events when tracing is enabled. Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is configured, with `$env:VAR` resolution.
+  - `webhooks` is auto-loaded when any agent has `webhooks` config. It registers `/hooks/:agentId/:name/:secret`, stores generated URL secrets in `$AIHUB_HOME/webhook-secrets.json` with `0600` permissions, validates secrets from an mtime-cached file read so rotations take effect without restart, rotates them with `aihub webhooks rotate <agentId> <webhookName>`, resolves inline or workspace-contained `.md`/`.txt` prompts relative to the agent workspace, interpolates `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, and `$WEBHOOK_PAYLOAD`, enforces per-webhook `maxPayloadSize` bytes (default 1MB) while streaming request bodies, and runs each invocation in a fresh `webhook:<agentId>:<name>:<requestId>` session with source/surface `webhook`. Optional `verification: { location: "header"|"payload", fieldName }` short-circuits setup requests containing that header or JSON payload key before signature verification or agent invocation; requests without the configured field continue through normal webhook handling. `langfuseTracing: false` disables Langfuse tracing for that webhook; async webhook failures emit traceable `agent.stream` error events when tracing is enabled. Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is configured, with `$env:VAR` resolution.
 - **Extensions** (`src/extensions/`): Gateway runtime glue that loads first-party and external extensions, validates config, appends prompt guidance, and exposes agent tools to Pi/container sessions.
   - Tool-style extensions use `packages/shared/src/tool-extension.ts`; root `extensions.<id>` supplies defaults, and `agents[].extensions.<id>` opts an agent in unless `enabled: false`.
 
@@ -97,7 +96,7 @@ Features:
 - Agent chat shows a red warning below the input when estimated context usage reaches 80%+, suggesting a wrap-up or handoff/new session
 - Agent `ChatView` full-mode assistant turns preserve emitted chronology for thinking, text, tool calls, and file blocks. Live streams use a block timeline, tool results attach only to their originating tool call, and successful local stream completion appends the streamed turn without re-fetching/re-sorting history.
 - Agent `ChatView` uses a centered transcript layout with quiet assistant text, soft user bubbles, compact single-card tool/result blocks, simplified Simple-mode tool rows, sticky blurred chrome, visible focus states, and reduced-motion fallbacks.
-- Subagent config updates are supported post-creation via `PATCH /api/projects/:id/subagents/:slug` (`name`, `model`, `reasoningEffort`, `thinking`); `apm rename` maps to this endpoint and AgentPanel exposes a per-harness model selector when the run is not active.
+- Subagent config updates are supported post-creation via `PATCH /api/projects/:id/subagents/:slug` (`name`, `model`, `reasoningEffort`, `thinking`); `aihub projects rename` maps to this endpoint and AgentPanel exposes a per-harness model selector when the run is not active.
 - Subagent chat polling guards prevent stale interval races on fast panel re-renders/remounts, preserving run-state UI (spinner, Stop visibility, optimistic queued follow-ups, enabled textarea) until meaningful assistant output arrives.
 - Project detail center-panel Activity tab intersperses two entry types in one timeline: thread comments (card-style) and synthesized subagent lifecycle events (plain rows). Start rows are concise (`<cli> started.`); completion/error rows can include short outcome snippets from recent subagent logs. Activity rows show compact relative time (`now|Xm|Xh|Xd ago`) appended after the event text.
 - Subagent shell tool cards render a warning state when exec/bash output is empty (`No output captured`) instead of appearing as blank success.
@@ -117,7 +116,7 @@ Features:
 - Changes tab branch diff header (`Branch: ... → ...` with aggregate +/- stats) is clickable when pending branch diff files exist, and toggles a compact per-file +/- breakdown list
 - Space Commit Log rows include relative elapsed commit time (`now`, `1m`, `2h`, `3d`) next to author metadata
 - `SPECS.md` task/acceptance parsing format for project detail is documented in `docs/specs-task-format.md` (use this when agents edit `## Tasks` and `## Acceptance Criteria`; optional `###` subgroup headings are supported inside both sections)
-- Coordinator prompt includes a preflight (`command -v apm && apm --version`), concise `apm start --subagent <name>` delegation examples, a reminder to choose an exact configured subagent name from the injected `## Available Subagent Types` list (or inspect AIHub config first if none are listed), explicit `apm status`/`apm resume` monitoring rules with a foreground poll-loop example, required project status moves (`in_progress` on dispatch, `review` when ready), Space-branch-only integration discipline including `space.json` commit-state updates on manual integration, and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
+- Coordinator prompt includes a preflight (`command -v aihub && aihub projects --version`), concise `aihub projects start --subagent <name>` delegation examples, a reminder to choose an exact configured subagent name from the injected `## Available Subagent Types` list (or inspect AIHub config first if none are listed), explicit `aihub projects status`/`aihub projects resume` monitoring rules with a foreground poll-loop example, required project status moves (`in_progress` on dispatch, `review` when ready), Space-branch-only integration discipline including `space.json` commit-state updates on manual integration, and a `SPECS.md` formatting reminder for parse-safe Tasks and Acceptance Criteria checklist updates
 - Coordinator prompt explicitly forbids self-performing code review; review/verification must be delegated to a reviewer subagent
 - Coordinator delegation guidance forbids adding locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless `--allow-overrides` is explicitly set
 - Worker prompt explicitly requires committing implementation after checks are green, and post-run comment instructions now use `--author <your name>` (the deprecated Cloud/openclaw follow-up step was removed)
@@ -156,12 +155,12 @@ Zod schemas and TypeScript types:
   - Projects payloads expose `repoValid` so the UI can block run creation when the resolved repo is missing or not a git repo
   - Coordinator prompts include the canonical repo root as read-only context and explicitly require workers to stay in dedicated worktrees/workspaces, never the main repo, unless explicitly required
 
-### packages/cli
+### packages/extensions/projects
 
-Standalone `apm` CLI package.
+Projects extension. Owns project APIs, project subagent orchestration, and the gateway-mounted `aihub projects` command.
 
 - Remote project/subagent commands talk to the gateway API over HTTP.
-- Local config commands (`apm config migrate`, `apm config validate`) read/write `aihub.json` directly.
+- Local config commands (`aihub projects config migrate`, `aihub projects config validate`) read/write `aihub.json` directly.
 - Env URL precedence for HTTP commands: `AIHUB_API_URL` > `AIHUB_URL` > `$AIHUB_HOME/aihub.json` (`apiUrl`, default home `~/.aihub/`)
 - Token precedence for HTTP commands: `AIHUB_TOKEN` > `$AIHUB_HOME/aihub.json` (`token`, default home `~/.aihub/`)
 - Local config path precedence: `--config` > `$AIHUB_HOME/aihub.json` (legacy fallback: derive home from `AIHUB_CONFIG`)
@@ -326,7 +325,7 @@ $AIHUB_HOME/
    - Top-level `env` is copied into the gateway process when unset there already; safe entries are also forwarded into sandbox containers
 
 - Startup then loads extensions via `apps/gateway/src/extensions/registry.ts` and enabled components via `apps/gateway/src/components/registry.ts`
-  - `apm config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
+  - `aihub projects config migrate` now uses the same shared `migrateConfigV1toV2()` helper to preview or persist the v1 -> v2 rewrite locally
   - Migration is intentionally conservative: it only adds component entries when legacy config explicitly implied them, so `amsg`/`conversations` are not auto-added merely because agents exist
   - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
 
@@ -349,7 +348,7 @@ $AIHUB_HOME/
 - Sandbox Claude currently fails loudly when extension tools are present; Pi supports extension tool execution in and out of containers.
 - When native `onecli` is enabled for an agent, Claude and Pi runs apply scoped `HTTP_PROXY`/`HTTPS_PROXY` plus CA env vars before the run and restore process env afterward.
 - Sandbox container manager helpers in `apps/gateway/src/agents/container.ts` build Docker bind mounts, shadow workspace `.env` with `/dev/null`, validate custom mounts against the sandbox allowlist/blocklist, build `docker run -i --rm` args, and provide Docker network/orphan cleanup helpers. `apps/gateway/src/sdk/container/adapter.ts` now spawns ephemeral Docker containers, writes `ContainerInput` to stdin, parses `---AIHUB_OUTPUT_START---`/`---AIHUB_OUTPUT_END---` output, queues follow-ups through `$AIHUB_HOME/ipc/<agentId>/input/*.json`, and stops/kills containers on abort or timeout.
-- `apps/gateway/src/server/internal-tools.ts` handles container-to-gateway orchestration callbacks for `project.create`, `project.update`, `project.comment`, and `project.get` (subagent orchestration is CLI-driven via `apm start`).
+- `apps/gateway/src/server/internal-tools.ts` handles container-to-gateway orchestration callbacks for `project.create`, `project.update`, `project.comment`, and `project.get` (subagent orchestration is CLI-driven via `aihub projects start`).
 - Any adapter/run failure that reaches the shared runner catch is logged to gateway stderr before the error event/HTTP 500 is returned. Pi-only post-prompt `stopReason:error` logging remains in the Pi adapter for extra context.
 
 ### Modular foundation status
@@ -663,7 +662,7 @@ Behavior:
   - Pi: `--model <id>` and `--thinking <off|low|medium|high|xhigh>`
 - Spawn payload supports optional `name` (custom run label). If omitted, UI/CLI fall back to slug/CLI naming.
 - Project-detail UI spawn form derives the slug from the displayed run name and de-dupes against existing project subagent slugs (`coordinator`, `worker-2`, etc.).
-- `apm start` supports these fields directly:
+- `aihub projects start` supports these fields directly:
   - `--agent <cli|aihub:id>`
   - `--subagent <name>`
   - `--name <run-name>`
@@ -675,11 +674,11 @@ Behavior:
   - `--include-default-prompt|--exclude-default-prompt`
   - `--include-role-instructions|--exclude-role-instructions`
   - `--include-post-run|--exclude-post-run`
-- `apm start --subagent <name>` sends the selected config subagent name; server resolves `cli`/model/reasoning/runMode/type from `aihub.json`.
+- `aihub projects start --subagent <name>` sends the selected config subagent name; server resolves `cli`/model/reasoning/runMode/type from `aihub.json`.
 - If `--allow-overrides` is set, CLI also sends the resolved defaults client-side and allows explicit override flags.
 - Locked fields can be overridden only with `--allow-overrides`.
 - Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions keyed as `project:<projectId>:<agentId>`.
-- `apm status <projectId> --list` prints the existing project subagent session slugs (including archived runs); `--json` returns the slug array.
+- `aihub projects status <projectId> --list` prints the existing project subagent session slugs (including archived runs); `--json` returns the slug array.
 
 ## Single-Agent Mode
 

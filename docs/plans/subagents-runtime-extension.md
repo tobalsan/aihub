@@ -2,7 +2,7 @@
 
 ## Problem
 
-AIHub currently has useful subagent lifecycle management, but it is owned by the `projects` extension. That makes `projects` responsible for process spawning, CLI harness behavior, logs, state, resume, interrupt, kill, archive, and project management. It also leaves the `apm` CLI as a separate project-specific command surface.
+AIHub currently has useful subagent lifecycle management, but it is owned by the `projects` extension. That makes `projects` responsible for process spawning, CLI harness behavior, logs, state, resume, interrupt, kill, archive, and project management. It also leaves the `aihub projects` CLI as a separate project-specific command surface.
 
 This should be split:
 
@@ -16,7 +16,7 @@ This should be split:
 - Make subagent runs project-agnostic and reusable by any extension.
 - Move subagent profiles from top-level config into `extensions.subagents.profiles`.
 - Store subagent session data under `$AIHUB_HOME/sessions/subagents/runs/<runId>`.
-- Replace `apm start ...` style usage with `aihub subagents ...` and eventually `aihub projects ...`.
+- Replace `aihub projects start ...` style usage with `aihub subagents ...` and eventually `aihub projects ...`.
 - Let ChatView show subagents scoped to the current chat session/parent.
 - Let Board and other extensions show subagent overviews without owning process/runtime logic.
 - Keep runtime actions HTTP-backed by default; offline CLI behavior is only for config/validation.

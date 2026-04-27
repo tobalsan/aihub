@@ -12,7 +12,6 @@
     "start": "node dist/cli/index.js gateway"
   },
   "dependencies": {
-    "@aihub/cli": "workspace:*",
     "@aihub/extension-discord": "workspace:*",
     "@aihub/extension-heartbeat": "workspace:*",
     "@aihub/extension-langfuse": "workspace:*",

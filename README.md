@@ -158,7 +158,7 @@ Example prompt templates live in `docs/examples/webhooks/`.
 Rotate a webhook URL secret with:
 
 ```bash
-apm webhooks rotate sales notion
+aihub webhooks rotate sales notion
 # or: aihub webhooks rotate sales notion
 ```
 
@@ -407,7 +407,7 @@ apps/
   gateway/    # Server, CLI, agent runtime, opt-in components
   web/        # Solid.js chat UI
 packages/
-  cli/        # apm CLI (gateway API + local config commands)
+  extensions/ # First-party gateway extensions
   shared/     # Types & schemas
 ```
 
@@ -442,19 +442,19 @@ pnpm aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
 pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
-# Projects CLI (apm; uses gateway API)
-pnpm apm list [--status <status>] [--owner <owner>] [--domain <domain>]
-pnpm apm create --title "My Project" [description] [--specs <text>|-] [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>] [--area <area>]
-pnpm apm get <id>
-pnpm apm update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
-pnpm apm move <id> <status>
-pnpm apm start <id> [--agent <cli|aihub:id>] [--subagent <name>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
-pnpm apm rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
-pnpm apm status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
+# Projects CLI (aihub projects; uses gateway API)
+pnpm aihub projects list [--status <status>] [--owner <owner>] [--domain <domain>]
+pnpm aihub projects create --title "My Project" [description] [--specs <text>|-] [--domain <domain>] [--owner <owner>] [--execution-mode <mode>] [--appetite <small|big>] [--status <status>] [--area <area>]
+pnpm aihub projects get <id>
+pnpm aihub projects update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
+pnpm aihub projects move <id> <status>
+pnpm aihub projects start <id> [--agent <cli|aihub:id>] [--subagent <name>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
+pnpm aihub projects rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
+pnpm aihub projects status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
 
 # Local config CLI
-pnpm apm config migrate [--config <path>] [--dry-run]
-pnpm apm config validate [--config <path>]
+pnpm aihub projects config migrate [--config <path>] [--dry-run]
+pnpm aihub projects config validate [--config <path>]
 
 # Note: v1 -> v2 migration only adds component entries when legacy config explicitly implied them.
 # It no longer auto-adds `components.amsg` or `components.conversations` just because agents exist.
@@ -465,25 +465,17 @@ pnpm apm config validate [--config <path>]
 # Lead agents launch with `--agent aihub:<id>` and use project-scoped sessions.
 
 # Override API URL (highest precedence)
-AIHUB_API_URL=http://127.0.0.1:4000 pnpm apm list
+AIHUB_API_URL=http://127.0.0.1:4000 pnpm aihub projects list
 # Backward-compatible alias
-AIHUB_URL=http://127.0.0.1:4000 pnpm apm list
+AIHUB_URL=http://127.0.0.1:4000 pnpm aihub projects list
 # Config file fallback ($AIHUB_HOME/aihub.json, default ~/.aihub/aihub.json): { "apiUrl": "http://127.0.0.1:4000" }
 # Local config commands honor: --config > $AIHUB_HOME/aihub.json
 # Legacy fallback: AIHUB_CONFIG still works, but only to derive AIHUB_HOME with a deprecation warning.
 # Dev launchers (`pnpm dev`, `pnpm dev:web`, gateway config loading) honor AIHUB_HOME too.
 
-# Global shortcut (apm)
-mkdir -p ~/.local/bin
-cat > ~/.local/bin/apm <<'EOF'
-#!/usr/bin/env sh
-exec pnpm --dir /Users/thinh/code/aihub apm "$@"
-EOF
-chmod +x ~/.local/bin/apm
-
-# Or install apm globally via pnpm link
-pnpm --filter @aihub/cli build
-cd packages/cli
+# Install the `aihub` command globally via pnpm link
+pnpm --filter @aihub/gateway build
+cd apps/gateway
 pnpm link --global
 
 # OAuth authentication (Pi SDK agents)
@@ -533,8 +525,8 @@ Coordinator prompts now include:
 - Canonical main repository path (not worker clone/worktree paths).
 - Project Space worktree path (`.workspaces/<projectId>/_space`) for integration context.
 - Available config-defined subagent types from `aihub.json`.
-- `apm` delegation preflight (`command -v apm && apm --version`) before `apm start --subagent ...`.
-- `apm start --subagent <name>` delegation examples that avoid locked flags unless `--allow-overrides` is set, plus a reminder to choose an exact configured subagent name from `## Available Subagent Types` (or inspect AIHub config first if none are listed).
+- `aihub projects` delegation preflight (`command -v aihub && aihub projects --version`) before `aihub projects start --subagent ...`.
+- `aihub projects start --subagent <name>` delegation examples that avoid locked flags unless `--allow-overrides` is set, plus a reminder to choose an exact configured subagent name from `## Available Subagent Types` (or inspect AIHub config first if none are listed).
 - Post-run comment instructions use `--author <your name>`; the deprecated Cloud/openclaw follow-up step was removed.
   Shell tool cards show a warning callout (`No output captured`) when exec/bash output is structurally empty.
   Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
@@ -1107,7 +1099,7 @@ Do not run `pnpm dev`, `pnpm dev:gateway`, or `pnpm aihub gateway` on machine A 
 
 | Setting                         | Used by                                         | Purpose                                                                                                             |
 | ------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `apiUrl` (or `AIHUB_API_URL`)   | `apm` CLI                                       | Direct base URL for CLI HTTP requests                                                                               |
+| `apiUrl` (or `AIHUB_API_URL`)   | `aihub projects` CLI                            | Direct base URL for CLI HTTP requests                                                                               |
 | `gateway.host` + `gateway.port` | Gateway server config; reused by `pnpm dev:web` | Gateway listen host/port for gateway process. In `pnpm dev:web`, these same values are reused as Vite proxy target. |
 
 In short: `apiUrl` controls CLI target. Web app uses relative `/api`/`/ws`; in `pnpm dev:web`, proxy target currently comes from `gateway.host`/`gateway.port`.

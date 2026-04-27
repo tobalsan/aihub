@@ -15,6 +15,7 @@ import {
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
+import { registerProjectsCommands } from "@aihub/extension-projects";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type UiConfig } from "@aihub/shared";
 import {
@@ -363,6 +364,12 @@ program
 
 registerSubagentCommands(program);
 registerWebhookCommands(program);
+registerProjectsCommands(
+  program
+    .command("projects")
+    .description("Manage AIHub projects")
+    .version("0.1.0")
+);
 registerEvalCommands(program);
 
 // Auth commands

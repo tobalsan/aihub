@@ -218,7 +218,7 @@ function parseShellExecutionResult(text: string): {
 function emptyShellOutputDiagnostic(command: string): string {
   return [
     `No output captured for shell command: ${command}`,
-    "Hint: run `command -v apm && apm --version` before delegation, then retry (`apm ...` or `pnpm apm ...`).",
+    "Hint: run `command -v aihub && aihub projects --version` before delegation, then retry (`aihub projects ...` or `pnpm aihub projects ...`).",
   ].join("\n");
 }
 
@@ -819,7 +819,10 @@ export async function listSubagents(
     let status: SubagentStatus = "idle";
     if (state?.last_error && state.last_error.trim()) {
       status = "error";
-    } else if (!isTerminal && isProcessAlive(state?.supervisor_pid, state?.started_at)) {
+    } else if (
+      !isTerminal &&
+      isProcessAlive(state?.supervisor_pid, state?.started_at)
+    ) {
       status = "running";
     } else if (outcome === "error") {
       status = "error";
@@ -1074,7 +1077,10 @@ export async function listAllSubagents(
       let status: SubagentStatus = "idle";
       if (state?.last_error && state.last_error.trim()) {
         status = "error";
-      } else if (!isTerminal && isProcessAlive(state?.supervisor_pid, state?.started_at)) {
+      } else if (
+        !isTerminal &&
+        isProcessAlive(state?.supervisor_pid, state?.started_at)
+      ) {
         status = "running";
       } else if (outcome === "error") {
         status = "error";

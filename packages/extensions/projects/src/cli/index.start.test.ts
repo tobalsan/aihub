@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildStartRequestBody } from "./index.js";
 
-describe("apm start request body mapping", () => {
+describe("aihub projects start request body mapping", () => {
   it("sends subagentTemplate when --subagent is provided (server applies defaults)", () => {
     const { body, errors } = buildStartRequestBody({
       subagent: "Worker",

@@ -3,6 +3,7 @@
 Date: 2026-01-25
 
 ## Goals
+
 - Live coding agent monitoring in project detail view (monitoring pane).
 - Allow main agents to dispatch subagents; monitor subagents (status/logs/diffs).
 - Combine AIHub session model with Subtask‑style worktrees + file‑based event sourcing.
@@ -12,21 +13,24 @@ Date: 2026-01-25
 ## Data Model
 
 ### Project Frontmatter (README.md)
+
 Add fields (optional unless noted):
 
 ```yaml
 sessionKeys:
   <agentId>: "project:<id>:<agentId>"
-repo: "/abs/path/to/repo"           # required when domain=coding
-runAgent: "aihub:<agentId>"        # or "cli:claude|codex|pi"
-runMode: "main-run|worktree"       # only for cli agents
+repo: "/abs/path/to/repo" # required when domain=coding
+runAgent: "aihub:<agentId>" # or "cli:claude|codex|pi"
+runMode: "main-run|worktree" # only for cli agents
 ```
 
 Notes:
+
 - `sessionKeys` stored in frontmatter for persistence across devices.
 - `runAgent`/`runMode` persisted to keep monitoring pane selection stable.
 
 ### Workspaces Layout
+
 Root: `{projects.root}/.workspaces/PRO-<id>/`
 
 ```
@@ -45,6 +49,7 @@ Root: `{projects.root}/.workspaces/PRO-<id>/`
 ```
 
 ### state.json (extended subtask schema)
+
 ```json
 {
   "session_id": "...",
@@ -53,32 +58,38 @@ Root: `{projects.root}/.workspaces/PRO-<id>/`
   "last_error": "",
   "cli": "claude|codex|pi",
   "run_mode": "main-run|worktree",
-  "worktree_path": "/abs/path" ,
+  "worktree_path": "/abs/path",
   "base_branch": "main"
 }
 ```
 
 ### history.jsonl (Subtask event schema)
+
 Events (append only):
+
 - `worker.started`
 - `worker.finished` (outcome: replied|error)
 - `worker.interrupt`
 
 ### progress.json
+
 ```json
 {
   "last_active": "2026-01-25T...Z",
   "tool_calls": 12
 }
 ```
+
 - Update `last_active` on **any log output**.
 
 ### logs.jsonl
+
 Raw CLI stdout stream (JSONL where supported). Keep raw lines to allow re‑parse.
 
 ---
 
 ## Session Keys (AIHub agents)
+
 - sessionKey format: `project:<id>:<agentId>`.
 - On first Start for aihub agent, set in frontmatter `sessionKeys[agentId]`.
 
@@ -87,11 +98,13 @@ Raw CLI stdout stream (JSONL where supported). Keep raw lines to allow re‑pars
 ## CLI Harnesses
 
 ### Supported CLIs
+
 - **claude**: `claude -p "<prompt>" --output-format stream-json`
 - **pi**: `pi --mode json "<prompt>"`
 - **codex**: `codex exec "<prompt>" --json`
 
 ### Resume / Follow‑up
+
 - Keep `session_id` in state.json.
 - Resume flags (from `session_resume.md`):
   - claude: `-r <session_id> -p "..."` (or `-c` continue last)
@@ -99,6 +112,7 @@ Raw CLI stdout stream (JSONL where supported). Keep raw lines to allow re‑pars
   - codex: `codex exec --json ... resume <session_id> <prompt>`
 
 ### CLI Resolution
+
 - Subtask style: PATH + common install locations + login shell fallback.
 
 ---
@@ -106,14 +120,17 @@ Raw CLI stdout stream (JSONL where supported). Keep raw lines to allow re‑pars
 ## Worktrees
 
 ### Base Branch
+
 - UI provides base‑branch dropdown (per run, not persisted).
 - Default to `main`.
 
 ### Branch Naming
+
 - Worktree branch name: `PRO-<id>/<slug>`.
 - Slug required; collision error.
 
 ### Run Modes
+
 - **main-run**: run in repo path directly, no worktree; still logs under `.workspaces/PRO-<id>/main`.
 - **worktree**: create worktree under `.workspaces/PRO-<id>/<slug>`.
 
@@ -122,6 +139,7 @@ Raw CLI stdout stream (JSONL where supported). Keep raw lines to allow re‑pars
 ## Prompts
 
 ### Start Prompt (main agent + subagents)
+
 ```
 Let's tackle the following project:
 
@@ -129,10 +147,11 @@ Let's tackle the following project:
 <status>
 <README body>
 
-Subagent orchestration runs through `apm start` CLI dispatch.
+Subagent orchestration runs through `aihub projects start` CLI dispatch.
 ```
 
 ### Follow‑up
+
 - Only user message (no re‑summary).
 - Resume/follow-up subagent runs are delta-only and do not append project summary or workspace-path suffixes.
 
@@ -141,14 +160,17 @@ Subagent orchestration runs through `apm start` CLI dispatch.
 ## APIs
 
 ### AIHub Agent Session
+
 - Use existing `/ws` + `/api/agents/:id/history` with sessionKey.
 
 ### Subagents (New)
 
 #### List subagents
+
 `GET /api/projects/:id/subagents`
 
 Response:
+
 ```json
 {
   "items": [
@@ -166,9 +188,11 @@ Response:
 ```
 
 #### Logs stream (poll)
+
 `GET /api/projects/:id/subagents/:slug/logs?since=<byte>`
 
 Response:
+
 ```json
 {
   "cursor": 12345,
@@ -185,13 +209,16 @@ Response:
 ```
 
 Notes:
+
 - `cursor` = byte offset into `logs.jsonl`.
 - Server parses raw JSONL into normalized events; on parse failure emit `type=stdout` with raw line.
 
 #### Branch list
+
 `GET /api/projects/:id/branches`
 
 Response:
+
 ```json
 { "branches": ["main", "dev", "feature/x"] }
 ```
@@ -200,7 +227,7 @@ Response:
 
 ## Tools (AIHub agents)
 
-No `subagent.*` internal tools are exposed. Subagent orchestration is CLI-driven via `apm start`.
+No `subagent.*` internal tools are exposed. Subagent orchestration is CLI-driven via `aihub projects start`.
 
 ---
 
@@ -220,6 +247,7 @@ Default `--mode` = `worktree`.
 ## Monitoring UI (Kanban Detail)
 
 ### Main agent panel
+
 - Dropdown: `runAgent` (aihub agents + cli agents).
 - Dropdown: `runMode` (main-run|worktree) for cli agents only.
 - Start button (disabled if missing repo for cli agents).
@@ -229,6 +257,7 @@ Default `--mode` = `worktree`.
   - External CLI: Logs + Diffs.
 
 ### Subagents panel
+
 - Subagent list (slug, cli, status, last active).
 - Click row to open logs + diff stats (computed on open).
 - Activity updates via `progress.json`.
@@ -236,6 +265,7 @@ Default `--mode` = `worktree`.
 ---
 
 ## Status Derivation (Subtask‑style)
+
 - Running if supervisor PID alive and not stale.
 - Error if `last_error` present or last history outcome is error.
 - Replied if last history outcome is replied.
@@ -244,6 +274,7 @@ Default `--mode` = `worktree`.
 ---
 
 ## Performance
+
 - Poll subagent list + logs every 2s (subtask default).
 - Cursor = byte offset for fast log tailing.
 - Diff stats computed on demand (row open).
@@ -251,6 +282,7 @@ Default `--mode` = `worktree`.
 ---
 
 ## Out of Scope (v1)
+
 - Auth/permissions for tools.
 - Drag/drop, filters, search (kanban).
 - Persisting base branch selection.

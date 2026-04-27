@@ -44,7 +44,7 @@ describe("getSubagentLogs shell diagnostics", () => {
         type: "tool_execution_start",
         toolCallId: "t1",
         toolName: "exec_command",
-        args: { cmd: "apm start PRO-1 --subagent Worker" },
+        args: { cmd: "aihub projects start PRO-1 --subagent Worker" },
       },
       {
         type: "tool_execution_end",
@@ -62,9 +62,11 @@ describe("getSubagentLogs shell diagnostics", () => {
     const warning = out.data.events.find((event) => event.type === "warning");
     expect(warning).toBeTruthy();
     expect(warning?.text).toContain(
-      "No output captured for shell command: apm start PRO-1 --subagent Worker"
+      "No output captured for shell command: aihub projects start PRO-1 --subagent Worker"
     );
-    expect(warning?.text).toContain("command -v apm && apm --version");
+    expect(warning?.text).toContain(
+      "command -v aihub && aihub projects --version"
+    );
   });
 
   it("does not emit warning event when stdout is present", async () => {
@@ -73,13 +75,13 @@ describe("getSubagentLogs shell diagnostics", () => {
         type: "tool_execution_start",
         toolCallId: "t2",
         toolName: "exec_command",
-        args: { cmd: "apm --version" },
+        args: { cmd: "aihub projects --version" },
       },
       {
         type: "tool_execution_end",
         toolCallId: "t2",
         toolName: "exec_command",
-        result: { stdout: "apm 1.2.3", stderr: "", is_error: false },
+        result: { stdout: "aihub projects 1.2.3", stderr: "", is_error: false },
         isError: false,
       },
     ]);

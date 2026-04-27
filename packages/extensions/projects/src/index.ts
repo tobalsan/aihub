@@ -2447,6 +2447,11 @@ export function registerProjectRoutes(app: Hono): void {
 // Re-exports for gateway/internal consumers
 export { recordCommentActivity } from "./activity/index.js";
 export * from "./projects/index.js";
+export {
+  createProjectCommentHandler,
+  createProjectsCommand,
+  registerProjectsCommands,
+} from "./cli/index.js";
 
 const projectsExtension: Extension = {
   id: "projects",

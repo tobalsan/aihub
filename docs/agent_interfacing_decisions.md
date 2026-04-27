@@ -3,11 +3,13 @@
 Date: 2026-01-25
 
 ## Context
+
 Goal: design live agent monitoring in project card details (monitoring pane) + subagent dispatch/monitoring. Two reference approaches: Vibe Kanban (process+WS streaming) and Subtask (event sourcing + file polling + worktrees). We’ll blend both.
 
 ## Decisions (Interview Log)
 
 ### Main agent in monitoring pane
+
 - Monitoring pane selects from configured AIHub agents, but **new runs**, not reusing `main` chat sessions.
 - Use **sessionKey per project per agent** (new sessions, same session system).
   - sessionKey format: `project:<id>:<agentId>`.
@@ -24,6 +26,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
     - `worktree`: requires slug; behaves like subagents (worktree).
 
 ### Project frontmatter
+
 - Store in frontmatter:
   - `sessionKeys` mapping (agentId -> sessionKey).
   - `repo` path for domain `coding`.
@@ -32,6 +35,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 - Frontmatter should be hidden in Kanban view (UI).
 
 ### External CLI agents
+
 - Supported CLIs (v1): `claude`, `codex`, `pi`.
   - Flags:
     - claude: `claude -p "<prompt>" --output-format stream-json`
@@ -44,6 +48,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 - Parsing: store raw JSONL `logs.jsonl` and parse into normalized events for UI; fallback to raw text if stream‑json unsupported.
 
 ### Subagents (external CLI only)
+
 - Subagents are **external CLIs**; AIHub agents only used as main agents.
 - Dispatch is **agent‑initiated** via tools; also exposed via CLI so external main agents can call shell.
 - Worktrees under per‑project pool:
@@ -58,6 +63,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
   - “Changes” (diff stats) computed **on row open** only.
 
 ### Files + status tracking (Subtask‑style)
+
 - Per subagent (and external main agent) use Subtask‑style files under workspaces:
   - `state.json` (extended with `cli`, `runMode`, `worktreePath`, `baseBranch`)
   - `history.jsonl` (Subtask event schema)
@@ -67,15 +73,17 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 - Polling (no WS) for subagent list/logs (Subtask‑like). 2s interval (subtask default).
 
 ### API + tools
+
 - Add API endpoints for subagents:
   - `GET /api/projects/:id/subagents` (status list)
   - `GET /api/projects/:id/subagents/:slug/logs?since=<byte>` (normalized events, with byte cursor)
 - `since` cursor = byte offset (fastest).
-- Subagent operations are dispatched via `apm start` CLI flows (not internal `subagent.*` tools).
+- Subagent operations are dispatched via `aihub projects start` CLI flows (not internal `subagent.*` tools).
 - Auth: none (keep simple).
 - Expose subagent tool calls in monitoring UI (full observability).
 
 ### Start prompt content
+
 - Start prompt template:
   - “Let’s tackle the following project:”
   - title
@@ -86,5 +94,6 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 - Resume/follow-up runs send delta-only user input (no project summary or repo/workspace suffix re-injection).
 
 ## Open Items
+
 - Exact CLI resume flags for claude/codex/pi to codify.
 - UI design specifics for tabs + log rendering.

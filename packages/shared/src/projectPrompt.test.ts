@@ -78,13 +78,15 @@ describe("role-based project prompts", () => {
     expect(out).toContain("## Canonical Repo Root");
     expect(out).toContain("Path: /tmp/repo");
     expect(out).not.toContain("Run relevant tests after changes.");
-    expect(out).not.toContain("apm move PRO-151 review");
+    expect(out).not.toContain("aihub projects move PRO-151 review");
     expect(out).toContain("primarily in /tmp/PRO-151/SPECS.md");
     expect(out).toContain("other relevant project markdown files");
     expect(out).toContain(
-      "Use `apm start` with configured subagents for delegation:"
+      "Use `aihub projects start` with configured subagents for delegation:"
     );
-    expect(out).toContain("Preflight first: `command -v apm && apm --version`");
+    expect(out).toContain(
+      "Preflight first: `command -v aihub && aihub projects --version`"
+    );
     expect(out).toContain("--subagent Worker --slug worker-<task>");
     expect(out).toContain("--subagent Reviewer --slug reviewer-<scope>");
     expect(out).not.toContain("cd /");
@@ -117,13 +119,13 @@ describe("role-based project prompts", () => {
     );
     expect(out).toContain("## Agent Management Rules");
     expect(out).toContain(
-      "Monitor agents with `apm status <project-id> --slug <agent>`."
+      "Monitor agents with `aihub projects status <project-id> --slug <agent>`."
     );
     expect(out).toContain(
-      'Resume agents with `apm resume <project-id> -m "..." --slug <agent>`.'
+      'Resume agents with `aihub projects resume <project-id> -m "..." --slug <agent>`.'
     );
     expect(out).toContain(
-      "while true; do apm status <project-id> --slug <agent> --json; sleep 30; done"
+      "while true; do aihub projects status <project-id> --slug <agent> --json; sleep 30; done"
     );
     expect(out).toContain(
       "Never use background tasks to monitor worker agents"
@@ -132,22 +134,22 @@ describe("role-based project prompts", () => {
       "Never merge commits directly into `main`. Route all changes through the Space branch first."
     );
     expect(out).toContain(
-      'Never act on a worker\'s changes until `apm status` shows the worker finished with status `"done"`.'
+      'Never act on a worker\'s changes until `aihub projects status` shows the worker finished with status `"done"`.'
     );
     expect(out).toContain(
       "Never implement fixes or run reviews yourself unless the user explicitly asks."
     );
     expect(out).toContain(
-      "Never spawn direct native subagents outside AIHub/apm for implementation work."
+      "Never spawn direct native subagents outside AIHub `aihub projects` for implementation work."
     );
     expect(out).toContain(
       "wait until the first worker's worktree has been integrated into the Space branch before dispatching the dependent worker."
     );
     expect(out).toContain(
-      "As soon as you dispatch workers, move the project to `in_progress` status using `apm update <project-id> --status in_progress`."
+      "As soon as you dispatch workers, move the project to `in_progress` status using `aihub projects update <project-id> --status in_progress`."
     );
     expect(out).toContain(
-      "As soon as implementation is complete and you are ready for review, move the project to `review` status using `apm update <project-id> --status review`."
+      "As soon as implementation is complete and you are ready for review, move the project to `review` status using `aihub projects update <project-id> --status review`."
     );
     expect(out).toContain(
       "update the project's `space.json` to mark those commits integrated."
@@ -185,7 +187,7 @@ describe("role-based project prompts", () => {
       subagentTypes: [],
     });
     expect(result).not.toContain(
-      "The following subagent types are configured and can be spawned via `apm start`:"
+      "The following subagent types are configured and can be spawned via `aihub projects start`:"
     );
   });
 
@@ -203,12 +205,12 @@ describe("role-based project prompts", () => {
     expect(out).toContain(
       "Once checks pass, commit the implementation before reporting completion."
     );
-    expect(out).not.toContain("apm move PRO-151 review");
+    expect(out).not.toContain("aihub projects move PRO-151 review");
     expect(out).toContain(
       "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."
     );
     expect(out).toContain(
-      'apm comment PRO-151 --message "<your summary>" --author <your name>'
+      'aihub projects comment PRO-151 --message "<your summary>" --author <your name>'
     );
   });
 
@@ -231,12 +233,12 @@ describe("role-based project prompts", () => {
     expect(out).toContain("## Active Worker Workspaces");
     expect(out).toContain("~/projects/.workspaces/PRO-151/worker-alpha/");
     expect(out).not.toContain("Run relevant tests after changes.");
-    expect(out).not.toContain("apm move PRO-151 review");
+    expect(out).not.toContain("aihub projects move PRO-151 review");
     expect(out).toContain(
       "Update task statuses and acceptance criteria notes in /tmp/PRO-151/SPECS.md."
     );
     expect(out).toContain(
-      'apm comment PRO-151 --message "<your summary>" --author <your name>'
+      'aihub projects comment PRO-151 --message "<your summary>" --author <your name>'
     );
   });
 
@@ -272,9 +274,9 @@ describe("role-based project prompts", () => {
     });
     expect(legacyOut).toContain("## Your Role");
     expect(legacyOut).toContain("## IMPORTANT: MUST DO AFTER IMPLEMENTATION");
-    expect(legacyOut).toContain("apm move <project_id> review");
+    expect(legacyOut).toContain("aihub projects move <project_id> review");
     expect(legacyOut).toContain(
-      'apm comment <project_id> --message "<your summary>" --author <your name>'
+      'aihub projects comment <project_id> --message "<your summary>" --author <your name>'
     );
   });
 

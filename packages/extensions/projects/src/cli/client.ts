@@ -91,10 +91,7 @@ export class ApiClient {
     return this.request(`/projects/${id}/start`, { method: "POST", body });
   }
 
-  listProjectSubagents(
-    id: string,
-    options?: { includeArchived?: boolean }
-  ) {
+  listProjectSubagents(id: string, options?: { includeArchived?: boolean }) {
     return this.request(`/projects/${id}/subagents`, {
       query: { includeArchived: options?.includeArchived ?? undefined },
     });

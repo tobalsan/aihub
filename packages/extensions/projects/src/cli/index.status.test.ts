@@ -7,7 +7,7 @@ vi.mock("./client.js", () => ({
 import { ApiClient } from "./client.js";
 import { program } from "./index.js";
 
-describe("apm status command", () => {
+describe("aihub projects status command", () => {
   const apiClientMock = vi.mocked(ApiClient);
   let logSpy: ReturnType<typeof vi.spyOn>;
 
@@ -22,11 +22,7 @@ describe("apm status command", () => {
 
   it("lists existing session slugs", async () => {
     const listProjectSubagents = vi.fn(async () => ({
-      items: [
-        { slug: "coordinator" },
-        { slug: "worker-1" },
-        { slug: " " },
-      ],
+      items: [{ slug: "coordinator" }, { slug: "worker-1" }, { slug: " " }],
     }));
     const getProject = vi.fn();
     apiClientMock.mockImplementation(

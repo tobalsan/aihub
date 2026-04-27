@@ -58,7 +58,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
 
 - PRO-198 modular architecture is integrated on `space/PRO-198`.
 - Gateway/runtime now support v2 modular components with resolved-config threading and component-declared disabled-route metadata.
-- Recent follow-up work tightened `apm config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
+- Recent follow-up work tightened `aihub projects config migrate` so it does not auto-add `components.amsg` or `components.conversations` unless legacy config explicitly implied them.
 - Local preview entrypoints now honor `AIHUB_HOME`, so `pnpm dev`/`pnpm dev:web` use the same config home as gateway local-config commands. Legacy `AIHUB_CONFIG` still falls back by deriving the home directory from its parent path.
 - Main server `/api` mounting now delegates to the live component-mutated router, fixing dev/runtime 404s where capabilities showed enabled components but their routes were unreachable.
 
@@ -291,34 +291,34 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
   - `pnpm build`
   - `pnpm lint`
 
-### 2026-04-02: PRO-198 apm config migrate/validate CLI
+### 2026-04-02: PRO-198 aihub projects config migrate/validate CLI
 
 - `packages/shared/src/config-migrate.ts`, `apps/gateway/src/config/migrate.ts`
-  - Moved the pure v1 -> v2 migration helper into `@aihub/shared` so gateway and `apm` reuse the same logic.
-- `packages/cli/src/local-config.ts`, `packages/cli/src/index.ts`
+  - Moved the pure v1 -> v2 migration helper into `@aihub/shared` so gateway and `aihub projects` reuse the same logic.
+- `packages/extensions/projects/src/cli/local-config.ts`, `packages/extensions/projects/src/cli/index.ts`
   - Added local config path resolution with `--config` > `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), with deprecated `AIHUB_CONFIG` fallback deriving the home directory from the legacy file path.
-  - Added `apm config migrate [--dry-run]` to preview or apply migration with backup creation.
-  - Added `apm config validate` to parse current config, auto-migrate legacy v1 in-memory for validation, and print agent/component summary.
+  - Added `aihub projects config migrate [--dry-run]` to preview or apply migration with backup creation.
+  - Added `aihub projects config validate` to parse current config, auto-migrate legacy v1 in-memory for validation, and print agent/component summary.
   - Follow-up on 2026-04-02: tightened migration so it does not auto-add `components.amsg` when legacy `agent.amsg` is absent, and does not auto-add `components.conversations` by default.
-- `packages/cli/src/config.commands.test.ts`
+- `packages/extensions/projects/src/cli/config.commands.test.ts`
   - Added coverage for dry-run output, persisted migration + backup, and validate output.
 - Docs:
   - Updated `README.md` and `docs/llms.md`.
 - Verification:
-  - `pnpm test -- packages/cli/src/config.commands.test.ts` (repo-wide Vitest run: `71/71` files, `620/620` tests)
+  - `pnpm test -- packages/extensions/projects/src/cli/config.commands.test.ts` (repo-wide Vitest run: `71/71` files, `620/620` tests)
   - `pnpm build`
   - `pnpm lint`
 
-### 2026-04-04: PRO-211 apm create area validation
+### 2026-04-04: PRO-211 aihub projects create area validation
 
-- `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
+- `packages/extensions/projects/src/cli/client.ts`, `packages/extensions/projects/src/cli/index.ts`
   - Added `ApiClient.listAreas()` for `GET /api/areas`.
-  - Added `apm create --area <area>`.
+  - Added `aihub projects create --area <area>`.
   - Validates `--area` against current area ids before project creation and prints valid ids on error.
-- `packages/cli/src/index.create.test.ts`
-  - Added coverage for valid and invalid `apm create --area` flows.
+- `packages/extensions/projects/src/cli/index.create.test.ts`
+  - Added coverage for valid and invalid `aihub projects create --area` flows.
 - Docs:
-  - Updated `README.md` and `docs/cli-apm.md`.
+  - Updated `README.md` and `packages/extensions/projects/README.md`.
 
 ### 2026-04-02: PRO-198 modular architecture Phase 3 + Phase 4
 
@@ -424,14 +424,14 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
   - Added `gpt-5.4` to the editable Codex model list for idle subagents.
 - `apps/web/src/components/AgentChat.tsx`
   - Added a context window entry for `gpt-5.4`.
-- `packages/cli/src/index.ts`
-  - Added `gpt-5.4` to `apm start` Codex model validation/mapping.
+- `packages/extensions/projects/src/cli/index.ts`
+  - Added `gpt-5.4` to `aihub projects start` Codex model validation/mapping.
 - `apps/gateway/src/server/api.ts`
   - Added `gpt-5.4` to server-side Codex model validation for subagent/project runs.
-- `packages/cli/src/index.start.test.ts`
+- `packages/extensions/projects/src/cli/index.start.test.ts`
   - Added CLI mapping coverage for `gpt-5.4`.
 - Docs:
-  - Updated `docs/llms.md` and `docs/cli-apm.md` Codex model lists.
+  - Updated `docs/llms.md` and `packages/extensions/projects/README.md` Codex model lists.
 
 ### 2026-03-09: PRO-162 areas overview homepage + filtered kanban
 
@@ -510,15 +510,15 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
   - `pnpm typecheck`
   - `pnpm test` (57 files, 552 tests passed)
 
-### 2026-03-09: Silent `apm exec` diagnostics surfaced for subagents (PRO-169)
+### 2026-03-09: Silent `aihub projects exec` diagnostics surfaced for subagents (PRO-169)
 
 - `apps/gateway/src/subagents/index.ts`
   - Added shell-result normalization for `exec_command`/`bash` runs.
   - When a shell tool output payload is structurally empty (`stdout=""`, `stderr=""`, `is_error=false`) and command is known, gateway now emits a `warning` log event with:
     - original command
-    - remediation hint (`command -v apm && apm --version`, then retry with `apm ...` or `pnpm apm ...`)
+    - remediation hint (`command -v aihub && aihub projects --version`, then retry with `aihub projects ...` or `pnpm aihub projects ...`)
 - `packages/shared/src/projectPrompt.ts`
-  - Coordinator delegation instructions now include path-agnostic `apm` preflight guidance before template dispatch.
+  - Coordinator delegation instructions now include path-agnostic `aihub projects` preflight guidance before template dispatch.
 - `apps/web/src/components/AgentChat.tsx`
   - Added warning tone/icon handling for `warning` log events.
   - Shell tool cards now show `No output captured` warning state instead of muted/blank success when output is empty.
@@ -593,7 +593,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
   - Added conflict-fix resume coverage asserting conflict instruction payload and no summary reinjection.
   - Added guardrail tests for both resume and start/spawn oversized prompt 400s.
 - Docs updated:
-  - `docs/cli-apm.md`
+  - `packages/extensions/projects/README.md`
   - `docs/agent_interfacing_decisions.md`
   - `docs/agent_interfacing_specs.md`
   - `docs/llms.md`
@@ -658,8 +658,8 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
 - `apps/gateway/src/server/api.ts`, `apps/gateway/src/subagents/index.ts`
   - Added `PATCH /api/projects/:id/subagents/:slug` for partial config updates (`name`, `model`, `reasoningEffort`, `thinking`).
   - Resume path now reuses saved config values when these fields are omitted from follow-up spawn requests.
-- `packages/cli/src/client.ts`, `packages/cli/src/index.ts`
-  - Added `apm rename <id> --slug <slug> [--name|--model|--reasoning-effort|--thinking]`.
+- `packages/extensions/projects/src/cli/client.ts`, `packages/extensions/projects/src/cli/index.ts`
+  - Added `aihub projects rename <id> --slug <slug> [--name|--model|--reasoning-effort|--thinking]`.
 - `apps/web/src/components/project/AgentPanel.tsx`, `apps/web/src/api/client.ts`
   - Added per-harness model selector in subagent cards (hidden while status is `running`) and PATCH persistence.
 - Tests:
@@ -670,7 +670,7 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
 
 - `apps/web/src/components/project/CenterPanel.tsx`
   - Chat agent selection now flows through a memoized signal (`chatSelectedAgent`) instead of recreating the chat branch with an inline IIFE.
-  - Prevents unnecessary `AgentChat` remounts when selected subagent metadata updates (e.g. status/cli sync ticks).
+  - Prevents unnecessary `AgentChat` remounts when selected subagent metadata updates (e.g. status/extension-projects sync ticks).
 - `apps/web/src/components/AgentChat.tsx`
   - Added setup-token guards around async subagent slug resolution + polling so stale/in-flight callbacks cannot attach orphan pollers after cleanup.
   - Chat runtime reset/setup is now keyed by stable chat identity (`lead:<id>` or `subagent:<projectId>:<slug>`) so status-only prop churn no longer tears down/recreates polling.
@@ -784,9 +784,9 @@ Repo: `/Users/thinh/projects/.workspaces/PRO-226/_space`
   - Removed duplicate left-sidebar rendering for `/projects/:id?` shell.
 - `apps/web/src/components/AgentSidebar.tsx`
   - Recents now come from view history (`aihub:recent-project-views`) instead of project sort fields.
-- `packages/cli/src/index.ts`
-  - `apm start --template` request body now omits locked profile fields unless `--allow-template-overrides` is set.
-- `packages/cli/package.json`
+- `packages/extensions/projects/src/cli/index.ts`
+  - `aihub projects start --template` request body now omits locked profile fields unless `--allow-template-overrides` is set.
+- `packages/extensions/projects/package.json`
   - Added direct `@aihub/shared` dependency to fix workspace build order/resolution.
 
 ## Older History (Compressed)

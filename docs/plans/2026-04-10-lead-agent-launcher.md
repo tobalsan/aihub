@@ -17,6 +17,7 @@
 ### Task 1: Add SubagentConfigSchema to shared types
 
 **Files:**
+
 - Modify: `packages/shared/src/types.ts`
 
 **Step 1: Add SubagentConfigSchema after existing schemas (~line 405)**
@@ -51,6 +52,7 @@ Run: `cd /Users/thinh/projects/.workspaces/aihub/sc-superfluid-fluxon-733d && pn
 ### Task 2: Update coordinator prompt to reference --subagent and include subagent types
 
 **Files:**
+
 - Modify: `packages/shared/src/projectPrompt.ts`
 
 **Step 1: Add `subagentTypes` to RolePromptInput (line ~45)**
@@ -66,22 +68,27 @@ subagentTypes?: Array<{ name: string; description?: string; harness: string; mod
 In the coordinator role instructions array (lines ~305-341), replace all `--template worker` and `--template reviewer` references with `--subagent Worker` and `--subagent Reviewer`. Specifically:
 
 Replace:
+
 ```
-'- Worker: `apm start <project_id> --template worker --slug worker-<task> --name "Worker <Name>" --custom-prompt "Implement <task>; update SPECS.md status."`',
-'- Reviewer: `apm start <project_id> --template reviewer --slug reviewer-<scope> --name "Reviewer <Name>" --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
+'- Worker: `aihub projects start <project_id> --template worker --slug worker-<task> --name "Worker <Name>" --custom-prompt "Implement <task>; update SPECS.md status."`',
+'- Reviewer: `aihub projects start <project_id> --template reviewer --slug reviewer-<scope> --name "Reviewer <Name>" --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
 ```
+
 With:
+
 ```
-'- Worker: `apm start <project_id> --subagent Worker --slug worker-<task> --custom-prompt "Implement <task>; update SPECS.md status."`',
-'- Reviewer: `apm start <project_id> --subagent Reviewer --slug reviewer-<scope> --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
+'- Worker: `aihub projects start <project_id> --subagent Worker --slug worker-<task> --custom-prompt "Implement <task>; update SPECS.md status."`',
+'- Reviewer: `aihub projects start <project_id> --subagent Reviewer --slug reviewer-<scope> --custom-prompt "Review worker workspaces; run tests; report pass/fail against acceptance criteria."`',
 ```
 
 Also replace references to `--template` in the "locked flags" note:
+
 ```
 "- When using `--subagent`, do NOT add locked flags (`--agent`, `--model`, `--reasoning-effort`, `--thinking`, `--mode`, `--branch`, `--prompt-role`) unless also using `--allow-template-overrides`.",
 ```
 
 Remove the line about agent names being auto-generated when using templates and replace with:
+
 ```
 '- Agent names use the subagent config name as prefix (e.g. "Worker Sage"). Use `--name "..."` to override.',
 ```
@@ -95,11 +102,11 @@ const subagentTypesBlock =
   includeRole && input.subagentTypes && input.subagentTypes.length > 0
     ? [
         "## Available Subagent Types",
-        "The following subagent types are configured and can be spawned via `apm start`:",
+        "The following subagent types are configured and can be spawned via `aihub projects start`:",
         "",
         ...input.subagentTypes.map(
           (s) =>
-            `- **${s.name}** (${s.harness} / ${s.model}, reasoning: ${s.reasoning}, mode: ${s.runMode})${s.description ? `: ${s.description}` : ""}\n  → \`apm start ${projectId} --subagent ${s.name} --custom-prompt "..."\``
+            `- **${s.name}** (${s.harness} / ${s.model}, reasoning: ${s.reasoning}, mode: ${s.runMode})${s.description ? `: ${s.description}` : ""}\n  → \`aihub projects start ${projectId} --subagent ${s.name} --custom-prompt "..."\``
         ),
       ].join("\n")
     : "";
@@ -112,6 +119,7 @@ Then include `subagentTypesBlock` in the `joinPromptParts()` call, between the r
 File: `packages/shared/src/projectPrompt.test.ts`
 
 Update the coordinator prompt test to verify:
+
 - `--subagent` appears instead of `--template`
 - When `subagentTypes` is provided, the "Available Subagent Types" section appears
 - When `subagentTypes` is empty/missing, no section appears
@@ -134,6 +142,7 @@ git commit -m "feat: add SubagentConfigSchema and update coordinator prompt for 
 ### Task 4: Gateway — expose subagents config and update start endpoint
 
 **Files:**
+
 - Modify: `apps/gateway/src/config/index.ts`
 - Modify: `apps/gateway/src/components/projects/index.ts`
 
@@ -168,6 +177,7 @@ Use `getActiveAgents()` for the agents list and `getSubagentTemplates()` for sub
 In the POST `/projects/:id/start` handler (line ~512), add logic to resolve `subagentTemplate` field:
 
 When the request includes `subagentTemplate` (string name):
+
 1. Look up the matching entry in `getSubagentTemplates()`
 2. Apply its harness/model/reasoning/runMode as defaults (same pattern as current template resolution)
 3. Map `type` to `promptRole` (worker → "worker", reviewer → "reviewer")
@@ -182,6 +192,7 @@ When building the coordinator prompt in the start handler, pass `subagentTypes: 
 **Step 5: Add lead agent session support**
 
 In the POST `/projects/:id/subagents` handler (line ~1414), add support for an `agentId` field:
+
 - When `agentId` is provided, route to `runAgent()` instead of `spawnSubagent()`
 - The prompt should be the coordinator prompt with subagent types included
 - The response shape should match the existing spawn response
@@ -193,16 +204,20 @@ Run: `pnpm test:gateway`
 ### Task 5: CLI — replace --template with --subagent
 
 **Files:**
-- Modify: `packages/cli/src/index.ts`
-- Modify: `packages/cli/src/index.start.test.ts`
+
+- Modify: `packages/extensions/projects/src/cli/index.ts`
+- Modify: `packages/extensions/projects/src/cli/index.start.test.ts`
 
 **Step 1: Replace --template flag with --subagent**
 
 In the start command definition (line ~1127), replace:
+
 ```typescript
 .option("--template <template>", "Prompt template (coordinator|worker|reviewer|custom)")
 ```
+
 With:
+
 ```typescript
 .option("--subagent <name>", "Subagent template name from aihub.json config (e.g. Worker, Reviewer)")
 ```
@@ -210,6 +225,7 @@ With:
 **Step 2: Update buildStartRequestBody**
 
 In `buildStartRequestBody()` (line ~215):
+
 - Replace all `template` references with `subagentTemplate`
 - When `--subagent` is provided, send it as `subagentTemplate` in the request body
 - Remove the `toStartTemplate()` validation (no longer enum-based, it's a freeform name)
@@ -223,7 +239,8 @@ Keep `template` as optional for backward compat but mark as deprecated.
 
 **Step 4: Update CLI tests**
 
-In `packages/cli/src/index.start.test.ts`:
+In `packages/extensions/projects/src/cli/index.start.test.ts`:
+
 - Update all tests that use `--template worker` to use `--subagent Worker`
 - Update expected request body to use `subagentTemplate` instead of `template`
 - Remove tests for template enum validation (it's now server-validated)
@@ -231,11 +248,12 @@ In `packages/cli/src/index.start.test.ts`:
 
 **Step 5: Run CLI tests**
 
-Run: `pnpm exec vitest run packages/cli/src/index.start.test.ts`
+Run: `pnpm exec vitest run packages/extensions/projects/src/cli/index.start.test.ts`
 
 ### Task 6: Web UI — redesign dropdown, form, and sidebar
 
 **Files:**
+
 - Modify: `apps/web/src/components/project/AgentPanel.tsx`
 - Modify: `apps/web/src/components/project/SpawnForm.tsx`
 - Modify: `apps/web/src/components/project/CenterPanel.tsx`
@@ -271,15 +289,19 @@ export type SpawnSubagentInput = {
 **Step 2: Update SpawnTemplate type**
 
 In SpawnForm.tsx (line 7), change:
+
 ```typescript
 export type SpawnTemplate = "coordinator" | "worker" | "reviewer" | "custom";
 ```
+
 To:
+
 ```typescript
 export type SpawnTemplate = "lead" | "custom";
 ```
 
 Update `SpawnPrefill` to add optional `agentId`:
+
 ```typescript
 export type SpawnPrefill = {
   // ... existing fields ...
@@ -299,17 +321,20 @@ Replace the 4 hardcoded template buttons (lines ~1022-1094) with:
 **Step 4: Create reduced form for lead agent template**
 
 In SpawnForm.tsx, when `props.template === "lead"`:
+
 - Hide the form grid (name, harness, model, reasoning, runMode fields)
 - Show only: prompt checkboxes, custom instructions textarea (if enabled), final prompt preview, Spawn/Cancel buttons
 - The prompt should use coordinator role with subagent types
 - Default checkbox values: includeDefaultPrompt=true, includeRoleInstructions=true, includePostRun=false (matching current coordinator defaults)
 
 When `props.template === "custom"`:
+
 - Show full form as today (unchanged)
 
 **Step 5: Update form submission for lead agents**
 
 In SpawnForm's submit handler, when template is "lead":
+
 - Include `agentId` in the spawn request
 - Don't send cli/model/reasoning/runMode (server knows from agent config)
 - Send prompt with coordinator role
@@ -321,6 +346,7 @@ In AgentPanel.tsx where subagent list items are rendered, when a session has an 
 **Step 7: Update SpawnForm tests**
 
 In `apps/web/src/components/project/SpawnForm.test.tsx`:
+
 - Update coordinator prefill test to use "lead" template
 - Add test for reduced form (lead template hides form grid)
 - Keep custom template tests mostly unchanged
@@ -336,6 +362,7 @@ Run: `pnpm test:web`
 ### Task 7: Remove deprecated template code
 
 **Files:**
+
 - Modify: `packages/shared/src/types.ts`
 
 **Step 1: Clean up START_TEMPLATE_PROFILES**

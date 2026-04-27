@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createProjectCommentHandler } from "../../../../packages/cli/src/index.js";
+import { createProjectCommentHandler } from "@aihub/extension-projects";
 
 describe("projects CLI comment", () => {
   it("posts comment to project thread endpoint", async () => {

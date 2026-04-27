@@ -29,20 +29,20 @@ WORKDIR /build
 # Copy workspace manifests first for better layer caching.
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages/shared/package.json packages/shared/
-COPY packages/cli/package.json packages/cli/
+COPY packages/extensions/projects/package.json packages/extensions/projects/
 COPY apps/gateway/package.json apps/gateway/
 COPY apps/web/package.json apps/web/
 
 RUN pnpm install --frozen-lockfile
 
-# Copy sources and build shared -> cli -> gateway.
+# Copy sources and build shared -> projects extension -> gateway.
 COPY tsconfig.json ./
 COPY packages/shared packages/shared
-COPY packages/cli packages/cli
+COPY packages/extensions/projects packages/extensions/projects
 COPY apps/gateway apps/gateway
 
 # Build via project references (composite: true) from repo root.
-# Using `tsc -b` sequences shared -> cli -> gateway correctly; running
+# Using `tsc -b` sequences shared -> projects extension -> gateway correctly; running
 # each package's `build` script individually fails to resolve workspace
 # .d.ts files inside a clean container for reasons that are not worth
 # debugging on the spike.
