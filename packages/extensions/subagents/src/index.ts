@@ -66,6 +66,10 @@ function resolveProfile(
   return profiles().find((profile) => profile.name === name);
 }
 
+function profileNames(): string[] {
+  return profiles().map((profile) => profile.name);
+}
+
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -106,7 +110,21 @@ function registerSubagentRoutes(app: Hono): void {
 
   app.post("/subagents", async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>;
-    const profile = resolveProfile(readOptionalString(body.profile));
+    const profileName = readOptionalString(body.profile);
+    const profile = resolveProfile(profileName);
+    if (profileName && !profile) {
+      const available = profileNames();
+      return c.json(
+        {
+          error: `Unknown subagent profile: ${profileName}${
+            available.length
+              ? `. Available profiles: ${available.join(", ")}`
+              : ""
+          }`,
+        },
+        400
+      );
+    }
     const cli = readOptionalString(body.cli) ?? profile?.cli;
     const cwd = readOptionalString(body.cwd);
     const prompt = readOptionalString(body.prompt);

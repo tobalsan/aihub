@@ -86,4 +86,42 @@ describe("subagents extension profile resolution", () => {
     });
     await subagentsExtension.stop();
   });
+
+  it("returns a clear error for unknown profiles", async () => {
+    const app = new Hono();
+    await subagentsExtension.start(
+      context({
+        agents: [],
+        sessions: { idleMinutes: 360 },
+        subagents: [
+          {
+            name: "Worker",
+            cli: "codex",
+            model: "gpt-5.3-codex",
+            reasoning: "medium",
+            type: "worker",
+            runMode: "worktree",
+          },
+        ],
+      })
+    );
+    subagentsExtension.registerRoutes(app);
+
+    const res = await app.request("/subagents", {
+      method: "POST",
+      body: JSON.stringify({
+        profile: "worker",
+        cwd: ".",
+        prompt: "test",
+        label: "test",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Unknown subagent profile: worker. Available profiles: Worker",
+    });
+    await subagentsExtension.stop();
+  });
 });

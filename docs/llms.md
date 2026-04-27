@@ -167,7 +167,7 @@ Standalone `apm` CLI package.
 - Local config path precedence: `--config` > `$AIHUB_HOME/aihub.json` (legacy fallback: derive home from `AIHUB_CONFIG`)
 - Gateway/web dev entrypoints now honor `AIHUB_HOME`, so `pnpm dev` and `pnpm dev:web` preview the same config home as local config commands
 - Project-agnostic subagent runtime commands live under the main gateway CLI: `aihub subagents start|list|status|logs|resume|interrupt|archive|unarchive|delete`.
-- Runtime `--profile <name>` resolves `extensions.subagents.profiles[]` first, then top-level `subagents[]` templates. Both config surfaces use `cli` (`codex`/`claude`/`pi`) for the CLI harness; top-level templates keep `reasoning` while runtime profiles use `reasoningEffort`.
+- Runtime `--profile <name>` resolves `extensions.subagents.profiles[]` first, then top-level `subagents[]` templates. Both config surfaces use `cli` (`codex`/`claude`/`pi`) for the CLI harness; top-level templates keep `reasoning` while runtime profiles use `reasoningEffort`. Unknown profile names fail with a profile-specific 400 error instead of falling through to missing CLI validation.
 
 ## Runtime Data
 
