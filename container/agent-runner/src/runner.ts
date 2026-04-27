@@ -195,7 +195,6 @@ export async function runAgent(
       additionalSkillPaths: [path.join(input.workspaceDir, "skills")],
       appendSystemPrompt: [
         AIHUB_CONTAINER_SYSTEM_PROMPT,
-        orchestrationToolPrompt(),
         ...(input.extensionSystemPrompts ?? []),
         renderedContext || undefined,
       ].filter((prompt): prompt is string => Boolean(prompt)),
@@ -207,7 +206,6 @@ export async function runAgent(
     const tools = createCodingTools(input.workspaceDir);
     const usedToolNames = new Set<string>();
     const customTools = [
-      ...createOrchestrationTools(input, usedToolNames),
       ...createExtensionTools(input, usedToolNames),
       createSendFileTool(onStreamEvent, usedToolNames),
     ];
@@ -316,86 +314,6 @@ async function loadContextFiles(
   return loadBootstrapContextFiles(input.workspaceDir);
 }
 
-function orchestrationToolPrompt(): string {
-  return [
-    "Additional orchestration tools:",
-    "- project_create { title, readme?, specs?, domain?, owner?, status? }",
-    "- project_get { projectId }",
-    "- project_update { projectId, updates }",
-    "- project_comment { projectId, author, message }",
-  ].join("\n");
-}
-
-function createOrchestrationTools(
-  input: ContainerInput,
-  usedToolNames: Set<string>
-): ToolDefinition[] {
-  return [
-    gatewayTool(
-      input,
-      "project.create",
-      "Create project",
-      "Create an AIHub project",
-      {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          readme: { type: "string" },
-          specs: { type: "string" },
-          domain: { type: "string" },
-          owner: { type: "string" },
-          status: { type: "string" },
-        },
-        required: ["title"],
-      },
-      usedToolNames
-    ),
-    gatewayTool(
-      input,
-      "project.get",
-      "Get project",
-      "Get an AIHub project",
-      {
-        type: "object",
-        properties: { projectId: { type: "string" } },
-        required: ["projectId"],
-      },
-      usedToolNames
-    ),
-    gatewayTool(
-      input,
-      "project.update",
-      "Update project",
-      "Update an AIHub project",
-      {
-        type: "object",
-        properties: {
-          projectId: { type: "string" },
-          updates: { type: "object" },
-        },
-        required: ["projectId"],
-      },
-      usedToolNames
-    ),
-    gatewayTool(
-      input,
-      "project.comment",
-      "Comment on project",
-      "Add a comment to an AIHub project",
-      {
-        type: "object",
-        properties: {
-          projectId: { type: "string" },
-          author: { type: "string" },
-          message: { type: "string" },
-        },
-        required: ["projectId", "author", "message"],
-      },
-      usedToolNames
-    ),
-  ];
-}
-
 function createExtensionTools(
   input: ContainerInput,
   usedToolNames: Set<string>
@@ -476,7 +394,12 @@ function gatewayTool(
         params,
         input.agentId
       );
-      const text = await formatGatewayToolResult(input, toolCallId, name, result);
+      const text = await formatGatewayToolResult(
+        input,
+        toolCallId,
+        name,
+        result
+      );
       return {
         content: [{ type: "text", text }],
         details: result,

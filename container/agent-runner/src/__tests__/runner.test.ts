@@ -239,14 +239,13 @@ describe("Pi runner", () => {
     const customToolNames = createAgentSessionArgs.customTools.map(
       (tool) => tool.name
     );
-    expect(customToolNames).toEqual(
+    expect(customToolNames).toEqual(["scratchpad_read", "send_file"]);
+    expect(customToolNames).not.toEqual(
       expect.arrayContaining([
         "project_create",
         "project_get",
         "project_update",
         "project_comment",
-        "scratchpad_read",
-        "send_file",
       ])
     );
     expect(

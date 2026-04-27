@@ -26,27 +26,16 @@ function createDeps() {
     ],
     extensions: {},
   } as unknown as GatewayConfig;
-  const projects = {
-    create: vi.fn(),
-    update: vi.fn(),
-    get: vi.fn().mockResolvedValue({
-      ok: true,
-      data: { id: "PRO-1", title: "Project One" },
-    }),
-    comment: vi.fn(),
-  };
-  const recordComment = vi.fn();
-  const executeExtensionTool = vi.fn().mockResolvedValue({ found: false });
+  const executeExtensionTool = vi.fn().mockResolvedValue({
+    found: true,
+    result: { id: "PRO-1", title: "Project One" },
+  });
 
   return {
     app: createInternalTools({
       getConfig: () => config,
-      projects,
-      recordComment,
       executeExtensionTool,
     }),
-    projects,
-    recordComment,
     executeExtensionTool,
   };
 }
@@ -79,7 +68,7 @@ afterEach(() => {
 
 describe("internal tools", () => {
   it("accepts a valid container token", async () => {
-    const { app, projects } = createDeps();
+    const { app, executeExtensionTool } = createDeps();
     registerToken("token-1");
 
     const response = await postTool(app, {
@@ -94,14 +83,16 @@ describe("internal tools", () => {
       id: "PRO-1",
       title: "Project One",
     });
-    expect(projects.get).toHaveBeenCalledWith(
-      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
-      "PRO-1"
+    expect(executeExtensionTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      "project.get",
+      { projectId: "PRO-1" },
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} })
     );
   });
 
   it("rejects an invalid token", async () => {
-    const { app, projects } = createDeps();
+    const { app, executeExtensionTool } = createDeps();
 
     const response = await postTool(app, {
       tool: "project.get",
@@ -112,11 +103,11 @@ describe("internal tools", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "Invalid agent token" });
-    expect(projects.get).not.toHaveBeenCalled();
+    expect(executeExtensionTool).not.toHaveBeenCalled();
   });
 
   it("rejects a token registered to another agent", async () => {
-    const { app, projects } = createDeps();
+    const { app, executeExtensionTool } = createDeps();
     registerToken("token-2", "agent-2");
 
     const response = await postTool(app, {
@@ -127,11 +118,11 @@ describe("internal tools", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(projects.get).not.toHaveBeenCalled();
+    expect(executeExtensionTool).not.toHaveBeenCalled();
   });
 
-  it("dispatches project tools", async () => {
-    const { app, projects } = createDeps();
+  it("dispatches tools through enabled extensions", async () => {
+    const { app, executeExtensionTool } = createDeps();
     registerToken("token-3");
 
     const response = await postTool(app, {
@@ -146,9 +137,11 @@ describe("internal tools", () => {
       id: "PRO-1",
       title: "Project One",
     });
-    expect(projects.get).toHaveBeenCalledWith(
-      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
-      "PRO-1"
+    expect(executeExtensionTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      "project.get",
+      { projectId: "PRO-1" },
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} })
     );
   });
 
@@ -178,11 +171,10 @@ describe("internal tools", () => {
   });
 
   it("returns 500 for tool execution errors", async () => {
-    const { app, projects } = createDeps();
-    vi.mocked(projects.get).mockResolvedValueOnce({
-      ok: false,
-      error: "Project not found: PRO-1",
-    });
+    const { app, executeExtensionTool } = createDeps();
+    executeExtensionTool.mockRejectedValueOnce(
+      new Error("Project not found: PRO-1")
+    );
     registerToken("token-4");
 
     const response = await postTool(app, {
@@ -199,7 +191,8 @@ describe("internal tools", () => {
   });
 
   it("returns 400 for unknown tools", async () => {
-    const { app } = createDeps();
+    const { app, executeExtensionTool } = createDeps();
+    executeExtensionTool.mockResolvedValueOnce({ found: false });
     registerToken("token-5");
 
     const response = await postTool(app, {

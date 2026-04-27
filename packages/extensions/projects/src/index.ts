@@ -16,6 +16,7 @@ import {
   buildRolePrompt,
   normalizeProjectStatus,
   type Extension,
+  type ExtensionAgentTool,
   type GatewayConfig,
   type PromptRole,
   type UpdateProjectRequest,
@@ -387,6 +388,118 @@ function slugifyTitle(value: string): string {
 function formatThreadDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function unwrapProjectToolResult<T>(
+  result: { ok: true; data: T } | { ok: false; error: string }
+): T {
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
+}
+
+function createProjectAgentTools(): ExtensionAgentTool[] {
+  return [
+    {
+      name: "project.create",
+      description: "Create an AIHub project",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          specs: { type: "string" },
+          domain: { type: "string" },
+          owner: { type: "string" },
+          executionMode: { type: "string" },
+          appetite: { type: "string" },
+          status: { type: "string" },
+          area: { type: "string" },
+        },
+        required: ["title"],
+      },
+      async execute(args, { config }) {
+        const parsed = CreateProjectRequestSchema.parse(args);
+        return unwrapProjectToolResult(await createProject(config, parsed));
+      },
+    },
+    {
+      name: "project.get",
+      description: "Get an AIHub project",
+      parameters: {
+        type: "object",
+        properties: { projectId: { type: "string" } },
+        required: ["projectId"],
+      },
+      async execute(args, { config }) {
+        const parsed = z.object({ projectId: z.string() }).parse(args);
+        return unwrapProjectToolResult(
+          await getProject(config, parsed.projectId)
+        );
+      },
+    },
+    {
+      name: "project.update",
+      description: "Update an AIHub project",
+      parameters: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          updates: { type: "object" },
+        },
+        required: ["projectId"],
+      },
+      async execute(args, { config }) {
+        const parsed = z
+          .object({
+            projectId: z.string(),
+            updates: UpdateProjectRequestSchema.optional(),
+          })
+          .passthrough()
+          .parse(args);
+        const { projectId, updates, ...rest } = parsed;
+        const body = updates ?? UpdateProjectRequestSchema.parse(rest);
+        return unwrapProjectToolResult(
+          await updateProject(config, projectId, body)
+        );
+      },
+    },
+    {
+      name: "project.comment",
+      description: "Add a comment to an AIHub project",
+      parameters: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          author: { type: "string" },
+          message: { type: "string" },
+        },
+        required: ["projectId", "author", "message"],
+      },
+      async execute(args, { config }) {
+        const parsed = z
+          .object({
+            projectId: z.string(),
+            author: z.string(),
+            message: z.string(),
+          })
+          .parse(args);
+        const comment = ProjectCommentRequestSchema.parse(parsed);
+        const data = unwrapProjectToolResult(
+          await appendProjectComment(config, parsed.projectId, {
+            author: comment.author,
+            date: formatThreadDate(new Date()),
+            body: comment.message,
+          })
+        );
+        await recordCommentActivity({
+          actor: comment.author,
+          projectId: parsed.projectId,
+          commentExcerpt: comment.message,
+        });
+        return data;
+      },
+    },
+  ];
 }
 
 function generateRalphLoopSlug(): string {
@@ -2490,6 +2603,9 @@ const projectsExtension: Extension = {
   },
   capabilities() {
     return ["projects", "subagents", "areas", "activity", "taskboard"];
+  },
+  getAgentTools() {
+    return createProjectAgentTools();
   },
 };
 

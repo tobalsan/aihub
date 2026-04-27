@@ -403,6 +403,18 @@ describe("pi adapter onecli env wiring", () => {
         execute: (_id: string, params: unknown) => Promise<unknown>;
       }>;
     };
+    const customToolNames = options.customTools?.map(
+      (candidate) => candidate.name
+    );
+    expect(customToolNames).toEqual(["scratchpad_read"]);
+    expect(customToolNames).not.toEqual(
+      expect.arrayContaining([
+        "project_create",
+        "project_get",
+        "project_update",
+        "project_comment",
+      ])
+    );
     expect(
       options.customTools?.every((candidate) =>
         /^[a-zA-Z0-9_-]{1,128}$/.test(candidate.name)
