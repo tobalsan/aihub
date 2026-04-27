@@ -1,12 +1,12 @@
 import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
-import { fetchAreaSummaries } from "../api/client";
+import { fetchAreaSummaries, toggleAreaHidden } from "../api/client";
 import { renderMarkdown } from "../lib/markdown";
 import type { AreaSummary } from "../api/types";
 
 export function AreaSummaries() {
   const [summaries, setSummaries] = createSignal<AreaSummary[]>([]);
   const [open, setOpen] = createSignal(true);
-  const [collapsedCards, setCollapsedCards] = createSignal<Set<string>>(new Set());
+  const [expandedCards, setExpandedCards] = createSignal<Set<string>>(new Set());
   const [error, setError] = createSignal<string | null>(null);
 
   async function load() {
@@ -25,19 +25,29 @@ export function AreaSummaries() {
     onCleanup(() => window.clearInterval(timer));
   });
 
-  const visible = () =>
-    summaries().filter(
-      (a) => a.recentlyDone.trim().length > 0 || a.whatsNext.trim().length > 0,
-    );
+  // All non-hidden areas are visible (even if empty)
+  const visible = () => summaries().filter((a) => !a.hidden);
+
+  const hasContent = (a: AreaSummary) =>
+    a.recentlyDone.trim().length > 0 || a.whatsNext.trim().length > 0;
 
   const toggleCard = (id: string) => {
-    setCollapsedCards((prev) => {
+    setExpandedCards((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
   };
+
+  async function hideArea(id: string) {
+    try {
+      await toggleAreaHidden(id, true);
+      await load();
+    } catch {
+      // silently fail
+    }
+  }
 
   return (
     <section class="area-summaries">
@@ -64,36 +74,48 @@ export function AreaSummaries() {
         <Show
           when={visible().length > 0}
           fallback={
-            <div class="as-empty">No area activity yet.</div>
+            <div class="as-empty">No areas configured yet.</div>
           }
         >
           <div class="as-grid">
             <For each={visible()}>
               {(area) => {
-                const isCollapsed = () => collapsedCards().has(area.id);
+                const isExpanded = () => expandedCards().has(area.id);
                 const hasDone = () => area.recentlyDone.trim().length > 0;
                 const hasNext = () => area.whatsNext.trim().length > 0;
+                const empty = () => !hasContent(area);
                 return (
                   <article
-                    class="as-card"
+                    class={`as-card ${empty() ? "as-card-empty" : ""}`}
                     style={{ "--area-color": area.color }}
                   >
                     <header class="as-card-header">
                       <button
                         class="as-card-toggle"
-                        onClick={() => toggleCard(area.id)}
-                        aria-expanded={!isCollapsed()}
+                        onClick={() => !empty() && toggleCard(area.id)}
+                        aria-expanded={isExpanded()}
+                        style={{ cursor: empty() ? "default" : "pointer" }}
                       >
                         <span class="as-dot" />
                         <span class="as-card-title">{area.title}</span>
                         <span class="as-card-id">{area.id}</span>
-                        <span class={`as-card-caret ${!isCollapsed() ? "open" : ""}`}>
-                          ▸
-                        </span>
+                        <Show when={!empty()}>
+                          <span class={`as-card-caret ${isExpanded() ? "open" : ""}`}>
+                            ▸
+                          </span>
+                        </Show>
+                      </button>
+                      <button
+                        class="as-hide-btn"
+                        onClick={() => hideArea(area.id)}
+                        title={`Hide ${area.title}`}
+                        aria-label={`Hide ${area.title}`}
+                      >
+                        ×
                       </button>
                     </header>
 
-                    <Show when={!isCollapsed()}>
+                    <Show when={isExpanded() && !empty()}>
                       <div class="as-card-body">
                         <Show when={hasDone()}>
                           <div class="as-section">
@@ -211,10 +233,12 @@ export function AreaSummaries() {
           font-size: 12px;
         }
 
+        /* Fixed grid: equal-height rows, cards don't push neighbours */
         .as-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
           gap: 10px;
+          align-items: start;
         }
 
         .as-card {
@@ -235,7 +259,13 @@ export function AreaSummaries() {
           opacity: 0.85;
         }
 
+        .as-card-empty {
+          opacity: 0.55;
+        }
+
         .as-card-header {
+          display: flex;
+          align-items: center;
           padding: 0;
         }
 
@@ -243,18 +273,45 @@ export function AreaSummaries() {
           display: flex;
           align-items: center;
           gap: 8px;
-          width: 100%;
-          padding: 10px 12px 8px;
+          flex: 1;
+          min-width: 0;
+          padding: 10px 4px 8px 12px;
           background: transparent;
           border: 0;
           color: var(--text-primary);
           font-family: inherit;
           font-size: 12px;
-          cursor: pointer;
           text-align: left;
         }
         .as-card-toggle:hover {
           background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+        }
+
+        .as-hide-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          margin: 4px 6px 0 0;
+          padding: 0;
+          background: transparent;
+          border: 0;
+          border-radius: 4px;
+          color: var(--text-secondary);
+          font-size: 14px;
+          line-height: 1;
+          cursor: pointer;
+          opacity: 0;
+          transition: opacity 120ms ease, background 120ms ease;
+        }
+        .as-card:hover .as-hide-btn {
+          opacity: 0.5;
+        }
+        .as-hide-btn:hover {
+          opacity: 1 !important;
+          background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+          color: var(--text-primary);
         }
 
         .as-dot {

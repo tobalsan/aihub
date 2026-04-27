@@ -6,6 +6,7 @@ export type AreaSummary = {
   title: string;
   color: string;
   order: number;
+  hidden: boolean;
   recentlyDone: string;
   whatsNext: string;
 };
@@ -68,6 +69,38 @@ function parseLoopFile(raw: string): {
 }
 
 /**
+ * Toggle the `hidden` field in an area's YAML config.
+ */
+export async function toggleAreaHidden(
+  projectsRoot: string,
+  areaId: string,
+  hidden: boolean,
+): Promise<void> {
+  const areasDir = path.join(projectsRoot, ".areas");
+  const yamlFile = path.join(areasDir, `${areaId}.yaml`);
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(yamlFile, "utf-8");
+  } catch {
+    throw new Error(`Area config not found: ${areaId}`);
+  }
+
+  // Remove existing hidden line if present
+  const lines = raw.split(/\r?\n/);
+  const filtered = lines.filter((l) => !l.match(/^hidden:\s/));
+
+  if (hidden) {
+    // Insert hidden: true after the last non-empty line
+    filtered.push("hidden: true");
+  }
+
+  // Ensure trailing newline
+  const output = filtered.join("\n").replace(/\n*$/, "\n");
+  await fs.writeFile(yamlFile, output, "utf-8");
+}
+
+/**
  * Scan ~/projects/.areas/ for *.yaml + *.loop.md pairs.
  * Returns area summaries sorted by order then title.
  */
@@ -107,6 +140,7 @@ export async function scanAreaSummaries(
     const color = config.color ?? "#6b7280";
     const order =
       config.order !== undefined ? Number.parseInt(config.order, 10) : 999;
+    const hidden = config.hidden === "true";
 
     // Read loop file (optional)
     let recentlyDone = "";
@@ -122,7 +156,7 @@ export async function scanAreaSummaries(
       // No loop file — that's fine
     }
 
-    summaries.push({ id, title, color, order, recentlyDone, whatsNext });
+    summaries.push({ id, title, color, order, hidden, recentlyDone, whatsNext });
   }
 
   // Sort by order, then title

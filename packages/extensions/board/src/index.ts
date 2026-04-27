@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared";
 import { scanProjects } from "./projects.js";
-import { scanAreaSummaries } from "./areas.js";
+import { scanAreaSummaries, toggleAreaHidden } from "./areas.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -265,6 +265,17 @@ function registerBoardRoutes(app: Hono): void {
     );
     const items = await scanAreaSummaries(root);
     return c.json({ items });
+  });
+
+  app.patch("/board/areas/:areaId/hidden", async (c) => {
+    const areaId = c.req.param("areaId");
+    const body = await c.req.json();
+    const hidden = body.hidden === true;
+    const root = expandPath(
+      getContext().getConfig().projects?.root ?? "~/projects"
+    );
+    await toggleAreaHidden(root, areaId, hidden);
+    return c.json({ ok: true, areaId, hidden });
   });
 
   app.get("/board/agents", (c) => {

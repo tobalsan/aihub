@@ -816,6 +816,18 @@ export async function fetchAreaSummaries(): Promise<AreaSummary[]> {
   return data.items ?? [];
 }
 
+export async function toggleAreaHidden(
+  areaId: string,
+  hidden: boolean,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/board/areas/${encodeURIComponent(areaId)}/hidden`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden }),
+  });
+  if (!res.ok) throw new Error("Failed to update area visibility");
+}
+
 // Projects API functions
 export async function fetchProjects(area?: string): Promise<ProjectListItem[]> {
   const params = new URLSearchParams();

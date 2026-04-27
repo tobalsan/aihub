@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { scanAreaSummaries } from "./areas.js";
+import { scanAreaSummaries, toggleAreaHidden } from "./areas.js";
 
 let tmpDir: string;
 
@@ -120,5 +120,50 @@ describe("scanAreaSummaries", () => {
     const result = await scanAreaSummaries(tmpDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("good");
+  });
+
+  it("reads hidden flag from yaml", async () => {
+    await writeArea(
+      "stale",
+      "id: stale\ntitle: Stale Project\ncolor: '#999'\nhidden: true\n",
+    );
+    await writeArea(
+      "active",
+      "id: active\ntitle: Active\ncolor: '#0f0'\n",
+    );
+
+    const result = await scanAreaSummaries(tmpDir);
+    const stale = result.find((a) => a.id === "stale");
+    const active = result.find((a) => a.id === "active");
+    expect(stale!.hidden).toBe(true);
+    expect(active!.hidden).toBe(false);
+  });
+});
+
+describe("toggleAreaHidden", () => {
+  it("sets hidden: true on an area", async () => {
+    await writeArea("test", "id: test\ntitle: Test\ncolor: '#fff'\n");
+    await toggleAreaHidden(tmpDir, "test", true);
+
+    const result = await scanAreaSummaries(tmpDir);
+    expect(result[0]!.hidden).toBe(true);
+  });
+
+  it("removes hidden when set to false", async () => {
+    await writeArea("test", "id: test\ntitle: Test\ncolor: '#fff'\nhidden: true\n");
+    await toggleAreaHidden(tmpDir, "test", false);
+
+    const result = await scanAreaSummaries(tmpDir);
+    expect(result[0]!.hidden).toBe(false);
+
+    // Verify the hidden line is actually gone from the file
+    const raw = await fs.readFile(path.join(tmpDir, ".areas", "test.yaml"), "utf-8");
+    expect(raw).not.toContain("hidden");
+  });
+
+  it("throws for missing area", async () => {
+    await expect(toggleAreaHidden(tmpDir, "nope", true)).rejects.toThrow(
+      "Area config not found",
+    );
   });
 });

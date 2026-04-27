@@ -357,6 +357,7 @@ export type AreaSummary = {
   title: string;
   color: string;
   order: number;
+  hidden: boolean;
   recentlyDone: string;
   whatsNext: string;
 };
