@@ -1136,7 +1136,7 @@ export function BoardView() {
         /* ── Chat pane ─────────────────────────────────────────── */
 
         .board-chat {
-          width: 520px;
+          width: 640px;
           min-width: 400px;
           max-width: 55%;
           display: flex;
