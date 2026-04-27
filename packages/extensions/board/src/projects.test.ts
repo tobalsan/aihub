@@ -50,8 +50,10 @@ describe("statusToGroup", () => {
     expect(statusToGroup("current")).toBe("active");
     expect(statusToGroup("todo")).toBe("active");
     expect(statusToGroup("shaping")).toBe("active");
+    expect(statusToGroup("in_progress")).toBe("active");
     expect(statusToGroup("review")).toBe("review");
     expect(statusToGroup("not_now")).toBe("stale");
+    expect(statusToGroup("maybe")).toBe("stale");
     expect(statusToGroup("done")).toBe("done");
     expect(statusToGroup("cancelled")).toBe("done");
   });
