@@ -92,18 +92,15 @@ export function AreaSummaries() {
                     <header class="as-card-header">
                       <button
                         class="as-card-toggle"
-                        onClick={() => !empty() && toggleCard(area.id)}
+                        onClick={() => toggleCard(area.id)}
                         aria-expanded={isExpanded()}
-                        style={{ cursor: empty() ? "default" : "pointer" }}
                       >
                         <span class="as-dot" />
                         <span class="as-card-title">{area.title}</span>
                         <span class="as-card-id">{area.id}</span>
-                        <Show when={!empty()}>
-                          <span class={`as-card-caret ${isExpanded() ? "open" : ""}`}>
-                            ▸
-                          </span>
-                        </Show>
+                        <span class={`as-card-caret ${isExpanded() ? "open" : ""}`}>
+                          ▸
+                        </span>
                       </button>
                       <button
                         class="as-hide-btn"
@@ -115,7 +112,7 @@ export function AreaSummaries() {
                       </button>
                     </header>
 
-                    <Show when={isExpanded() && !empty()}>
+                    <Show when={isExpanded()}>
                       <div class="as-card-body">
                         <Show when={hasDone()}>
                           <div class="as-section">
@@ -141,6 +138,10 @@ export function AreaSummaries() {
                               innerHTML={renderMarkdown(area.whatsNext)}
                             />
                           </div>
+                        </Show>
+
+                        <Show when={empty()}>
+                          <div class="as-empty-body">No activity yet</div>
                         </Show>
                       </div>
                     </Show>
@@ -260,7 +261,17 @@ export function AreaSummaries() {
         }
 
         .as-card-empty {
-          opacity: 0.55;
+          opacity: 0.6;
+        }
+        .as-card-empty:hover {
+          opacity: 0.8;
+        }
+
+        .as-empty-body {
+          color: var(--text-secondary);
+          font-size: 11px;
+          font-style: italic;
+          padding: 2px 0 4px;
         }
 
         .as-card-header {
