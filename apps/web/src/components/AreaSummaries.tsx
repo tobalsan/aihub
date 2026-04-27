@@ -1,12 +1,20 @@
-import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
-import { fetchAreaSummaries, toggleAreaHidden } from "../api/client";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
+import { fetchAreaSummaries, toggleAreaHidden, updateAreaLoop } from "../api/client";
 import { renderMarkdown } from "../lib/markdown";
 import type { AreaSummary } from "../api/types";
+
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export function AreaSummaries() {
   const [summaries, setSummaries] = createSignal<AreaSummary[]>([]);
   const [open, setOpen] = createSignal(true);
   const [expandedCards, setExpandedCards] = createSignal<Set<string>>(new Set());
+  const [editingCard, setEditingCard] = createSignal<string | null>(null);
+  const [editText, setEditText] = createSignal("");
+  const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   async function load() {
@@ -25,7 +33,6 @@ export function AreaSummaries() {
     onCleanup(() => window.clearInterval(timer));
   });
 
-  // All non-hidden areas are visible (even if empty)
   const visible = () => summaries().filter((a) => !a.hidden);
 
   const hasContent = (a: AreaSummary) =>
@@ -46,6 +53,56 @@ export function AreaSummaries() {
       await load();
     } catch {
       // silently fail
+    }
+  }
+
+  function startEditing(area: AreaSummary) {
+    // Build the textarea content from current state
+    let text = "";
+    if (area.recentlyDone.trim()) {
+      text += area.recentlyDone.trim() + "\n";
+    }
+    if (area.whatsNext.trim()) {
+      if (text) text += "\n";
+      text += "Next:\n" + area.whatsNext.trim() + "\n";
+    }
+    setEditText(text);
+    setEditingCard(area.id);
+    // Make sure card is expanded
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      next.add(area.id);
+      return next;
+    });
+  }
+
+  async function saveEdit(areaId: string) {
+    setSaving(true);
+    try {
+      await updateAreaLoop(areaId, todayStr(), editText().trim());
+      setEditingCard(null);
+      setEditText("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelEdit() {
+    setEditingCard(null);
+    setEditText("");
+  }
+
+  function handleKeyDown(e: KeyboardEvent, areaId: string) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void saveEdit(areaId);
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
     }
   }
 
@@ -81,12 +138,13 @@ export function AreaSummaries() {
             <For each={visible()}>
               {(area) => {
                 const isExpanded = () => expandedCards().has(area.id);
+                const isEditing = () => editingCard() === area.id;
                 const hasDone = () => area.recentlyDone.trim().length > 0;
                 const hasNext = () => area.whatsNext.trim().length > 0;
                 const empty = () => !hasContent(area);
                 return (
                   <article
-                    class={`as-card ${empty() ? "as-card-empty" : ""}`}
+                    class={`as-card ${empty() && !isEditing() ? "as-card-empty" : ""}`}
                     style={{ "--area-color": area.color }}
                   >
                     <header class="as-card-header">
@@ -102,48 +160,95 @@ export function AreaSummaries() {
                           ▸
                         </span>
                       </button>
-                      <button
-                        class="as-hide-btn"
-                        onClick={() => hideArea(area.id)}
-                        title={`Hide ${area.title}`}
-                        aria-label={`Hide ${area.title}`}
-                      >
-                        ×
-                      </button>
+                      <div class="as-card-actions">
+                        <Show when={!isEditing()}>
+                          <button
+                            class="as-action-btn as-edit-btn"
+                            onClick={() => startEditing(area)}
+                            title="Edit"
+                            aria-label={`Edit ${area.title}`}
+                          >
+                            ✎
+                          </button>
+                        </Show>
+                        <button
+                          class="as-action-btn as-hide-btn"
+                          onClick={() => hideArea(area.id)}
+                          title={`Hide ${area.title}`}
+                          aria-label={`Hide ${area.title}`}
+                        >
+                          ×
+                        </button>
+                      </div>
                     </header>
 
                     <Show when={isExpanded()}>
-                      <div class="as-card-body">
-                        <Show when={hasDone()}>
-                          <div class="as-section">
-                            <div class="as-section-label">
-                              <span class="as-label-dot as-label-dot-done" />
-                              Recently Done
-                            </div>
-                            <div
-                              class="as-section-content"
-                              innerHTML={renderMarkdown(area.recentlyDone)}
+                      <Show
+                        when={!isEditing()}
+                        fallback={
+                          <div class="as-card-body as-edit-body">
+                            <div class="as-edit-date">[[{todayStr()}]]</div>
+                            <textarea
+                              class="as-textarea"
+                              value={editText()}
+                              onInput={(e) => setEditText(e.currentTarget.value)}
+                              onKeyDown={(e) => handleKeyDown(e, area.id)}
+                              placeholder="What was done today?\n\nNext:\n- what's coming up"
+                              autofocus
+                              rows={8}
                             />
-                          </div>
-                        </Show>
-
-                        <Show when={hasNext()}>
-                          <div class="as-section">
-                            <div class="as-section-label">
-                              <span class="as-label-dot as-label-dot-next" />
-                              What's Next
+                            <div class="as-edit-actions">
+                              <span class="as-edit-hint">⌘↵ save · esc cancel</span>
+                              <button
+                                class="as-btn as-btn-cancel"
+                                onClick={cancelEdit}
+                                disabled={saving()}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                class="as-btn as-btn-save"
+                                onClick={() => void saveEdit(area.id)}
+                                disabled={saving()}
+                              >
+                                {saving() ? "Saving…" : "Save"}
+                              </button>
                             </div>
-                            <div
-                              class="as-section-content"
-                              innerHTML={renderMarkdown(area.whatsNext)}
-                            />
                           </div>
-                        </Show>
+                        }
+                      >
+                        <div class="as-card-body">
+                          <Show when={hasDone()}>
+                            <div class="as-section">
+                              <div class="as-section-label">
+                                <span class="as-label-dot as-label-dot-done" />
+                                Recently Done
+                              </div>
+                              <div
+                                class="as-section-content"
+                                innerHTML={renderMarkdown(area.recentlyDone)}
+                              />
+                            </div>
+                          </Show>
 
-                        <Show when={empty()}>
-                          <div class="as-empty-body">No activity yet</div>
-                        </Show>
-                      </div>
+                          <Show when={hasNext()}>
+                            <div class="as-section">
+                              <div class="as-section-label">
+                                <span class="as-label-dot as-label-dot-next" />
+                                What's Next
+                              </div>
+                              <div
+                                class="as-section-content"
+                                innerHTML={renderMarkdown(area.whatsNext)}
+                              />
+                            </div>
+                          </Show>
+
+                          <Show when={empty()}>
+                            <div class="as-empty-body">No activity yet</div>
+                          </Show>
+                        </div>
+                      </Show>
                     </Show>
                   </article>
                 );
@@ -234,7 +339,6 @@ export function AreaSummaries() {
           font-size: 12px;
         }
 
-        /* Fixed grid: equal-height rows, cards don't push neighbours */
         .as-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -292,19 +396,26 @@ export function AreaSummaries() {
           color: var(--text-primary);
           font-family: inherit;
           font-size: 12px;
+          cursor: pointer;
           text-align: left;
         }
         .as-card-toggle:hover {
           background: color-mix(in srgb, var(--text-primary) 4%, transparent);
         }
 
-        .as-hide-btn {
+        .as-card-actions {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          margin: 4px 6px 0 0;
+        }
+
+        .as-action-btn {
           display: flex;
           align-items: center;
           justify-content: center;
           width: 24px;
           height: 24px;
-          margin: 4px 6px 0 0;
           padding: 0;
           background: transparent;
           border: 0;
@@ -316,13 +427,17 @@ export function AreaSummaries() {
           opacity: 0;
           transition: opacity 120ms ease, background 120ms ease;
         }
-        .as-card:hover .as-hide-btn {
+        .as-card:hover .as-action-btn {
           opacity: 0.5;
         }
-        .as-hide-btn:hover {
+        .as-action-btn:hover {
           opacity: 1 !important;
           background: color-mix(in srgb, var(--text-primary) 8%, transparent);
           color: var(--text-primary);
+        }
+
+        .as-edit-btn {
+          font-size: 13px;
         }
 
         .as-dot {
@@ -361,6 +476,84 @@ export function AreaSummaries() {
           flex-direction: column;
           gap: 10px;
           padding: 4px 12px 12px;
+        }
+
+        /* Edit mode */
+        .as-edit-body {
+          gap: 8px;
+        }
+
+        .as-edit-date {
+          color: var(--text-secondary);
+          font-size: 11px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-weight: 500;
+        }
+
+        .as-textarea {
+          width: 100%;
+          min-height: 100px;
+          padding: 8px 10px;
+          background: var(--bg-raised, #1a1a2e);
+          color: var(--text-primary);
+          border: 1px solid var(--border-default);
+          border-radius: 4px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 12px;
+          line-height: 1.55;
+          resize: vertical;
+          box-sizing: border-box;
+        }
+        .as-textarea:focus {
+          outline: none;
+          border-color: var(--text-accent, #6366f1);
+        }
+        .as-textarea::placeholder {
+          color: var(--text-secondary);
+          opacity: 0.5;
+        }
+
+        .as-edit-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          justify-content: flex-end;
+        }
+
+        .as-edit-hint {
+          margin-right: auto;
+          color: var(--text-secondary);
+          font-size: 10px;
+          opacity: 0.7;
+        }
+
+        .as-btn {
+          padding: 4px 12px;
+          border: 1px solid var(--border-default);
+          border-radius: 4px;
+          font-family: inherit;
+          font-size: 12px;
+          cursor: pointer;
+          transition: background 120ms ease;
+        }
+        .as-btn:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+        .as-btn-cancel {
+          background: transparent;
+          color: var(--text-secondary);
+        }
+        .as-btn-cancel:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+        }
+        .as-btn-save {
+          background: var(--text-accent, #6366f1);
+          color: #fff;
+          border-color: transparent;
+        }
+        .as-btn-save:hover:not(:disabled) {
+          filter: brightness(1.1);
         }
 
         .as-section {

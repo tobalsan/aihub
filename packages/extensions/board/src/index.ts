@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared";
 import { scanProjects } from "./projects.js";
-import { scanAreaSummaries, toggleAreaHidden } from "./areas.js";
+import { scanAreaSummaries, toggleAreaHidden, updateLoopEntry } from "./areas.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -276,6 +276,21 @@ function registerBoardRoutes(app: Hono): void {
     );
     await toggleAreaHidden(root, areaId, hidden);
     return c.json({ ok: true, areaId, hidden });
+  });
+
+  app.put("/board/areas/:areaId/loop", async (c) => {
+    const areaId = c.req.param("areaId");
+    const body = await c.req.json();
+    const date = typeof body.date === "string" ? body.date : "";
+    const content = typeof body.body === "string" ? body.body : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "Invalid date format, expected YYYY-MM-DD" }, 400);
+    }
+    const root = expandPath(
+      getContext().getConfig().projects?.root ?? "~/projects"
+    );
+    await updateLoopEntry(root, areaId, date, content);
+    return c.json({ ok: true, areaId, date });
   });
 
   app.get("/board/agents", (c) => {

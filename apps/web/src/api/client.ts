@@ -828,6 +828,19 @@ export async function toggleAreaHidden(
   if (!res.ok) throw new Error("Failed to update area visibility");
 }
 
+export async function updateAreaLoop(
+  areaId: string,
+  date: string,
+  body: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/board/areas/${encodeURIComponent(areaId)}/loop`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, body }),
+  });
+  if (!res.ok) throw new Error("Failed to update area loop");
+}
+
 // Projects API functions
 export async function fetchProjects(area?: string): Promise<ProjectListItem[]> {
   const params = new URLSearchParams();
