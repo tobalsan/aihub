@@ -55,10 +55,6 @@ Options:
 
 - `-t, --title <title>`: required. Must contain at least two words.
 - `--specs <content>`: optional raw markdown for `SPECS.md`. Use `-` to read from stdin.
-- `--domain <domain>`: optional domain (`life|admin|coding`).
-- `--owner <owner>`: optional owner string.
-- `--execution-mode <mode>`: `subagent|ralph_loop`.
-- `--appetite <appetite>`: `small|big`.
 - `--status <status>`: initial status.
 - `--area <area>`: optional area id. Validated against `GET /api/areas`; invalid values print the valid ids.
 - `-j, --json`: JSON output.
@@ -195,7 +191,7 @@ Options:
 aihub projects list --domain coding
 
 # Create with description
-aihub projects create -t "Add kill tool" --domain coding "Implement a kill command for subagents"
+aihub projects create -t "Add kill tool" "Implement a kill command for subagents"
 
 # Create with SPECS content
 aihub projects create -t "Add kill tool" --specs "## Tasks\n- [ ] Implement"

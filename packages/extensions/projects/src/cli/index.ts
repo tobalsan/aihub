@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import os from "node:os";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -448,7 +448,7 @@ export function registerProjectsCommands(program: Command): Command {
     });
 
   program
-    .command("agent")
+    .command("agent", { hidden: true })
     .description("Manage agents")
     .command("list")
     .description("List all configured agents")
@@ -475,10 +475,19 @@ export function registerProjectsCommands(program: Command): Command {
     .argument("[description]", "Project description for README")
     .requiredOption("-t, --title <title>", "Project title")
     .option("--specs <content>", "SPECS content string or '-' for stdin")
-    .option("--domain <domain>", "Domain (life|admin|coding)")
-    .option("--owner <owner>", "Owner")
-    .option("--execution-mode <mode>", "Execution mode (subagent|ralph_loop)")
-    .option("--appetite <appetite>", "Appetite (small|big)")
+    .addOption(
+      new Option("--domain <domain>", "Domain (life|admin|coding)").hideHelp()
+    )
+    .addOption(new Option("--owner <owner>", "Owner").hideHelp())
+    .addOption(
+      new Option(
+        "--execution-mode <mode>",
+        "Execution mode (subagent|ralph_loop)"
+      ).hideHelp()
+    )
+    .addOption(
+      new Option("--appetite <appetite>", "Appetite (small|big)").hideHelp()
+    )
     .option("--status <status>", "Status")
     .option("--area <area>", "Area")
     .option("-j, --json", "JSON output")
