@@ -41,10 +41,12 @@ export function statusToGroup(status: string): BoardProjectGroup {
     case "current":
     case "todo":
     case "shaping":
+    case "in_progress":
       return "active";
     case "review":
       return "review";
     case "not_now":
+    case "maybe":
       return "stale";
     case "done":
     case "cancelled":
