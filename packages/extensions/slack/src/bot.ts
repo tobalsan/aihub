@@ -8,7 +8,7 @@ import type {
 } from "@aihub/shared";
 import { DEFAULT_MAIN_KEY } from "@aihub/shared";
 import { getSlackContext } from "./context.js";
-import { processMessage, type MessageData } from "./handlers/message.js";
+import { detectBangCommand, processMessage, type MessageData } from "./handlers/message.js";
 import {
   formatReactionMessage,
   processReaction,
@@ -361,12 +361,92 @@ function startThinkingStreamDisplay(params: {
   return { cleanup, setSessionId };
 }
 
+async function handleBangCommand(
+  data: MessageData,
+  client: SlackWebClient,
+  target: SlackMessageTarget,
+  bang: { command: "new" | "stop"; arg?: string }
+): Promise<boolean> {
+  if (!data.user) return false;
+
+  const sessionKey = target.isMainSession
+    ? DEFAULT_MAIN_KEY
+    : `slack:${data.channel}`;
+  const effectiveSessionKey = bang.arg || sessionKey;
+
+  if (bang.command === "new") {
+    try {
+      const ctx = getSlackContext();
+      const cleared = await ctx.clearSessionEntry(target.agent.id, effectiveSessionKey);
+      if (cleared) {
+        ctx.deleteSession(target.agent.id, cleared.sessionId);
+        await ctx.invalidateHistoryCache(target.agent.id, cleared.sessionId);
+      }
+      await client.chat.postEphemeral({
+        channel: data.channel,
+        user: data.user,
+        text: "Context cleared, new session started.",
+        mrkdwn: true,
+      });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Unknown error";
+      await client.chat.postEphemeral({
+        channel: data.channel,
+        user: data.user,
+        text: `Error: ${text}`,
+        mrkdwn: true,
+      });
+    }
+    return true;
+  }
+
+  if (bang.command === "stop") {
+    try {
+      const agentResult = await getSlackContext().runAgent({
+        agentId: target.agent.id,
+        message: "/stop",
+        sessionKey: effectiveSessionKey,
+        thinkLevel: target.agent.thinkLevel,
+        source: "slack",
+      });
+      await client.chat.postEphemeral({
+        channel: data.channel,
+        user: data.user,
+        text: agentResult.payloads[0]?.text ?? "Abort requested.",
+        mrkdwn: true,
+      });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Unknown error";
+      await client.chat.postEphemeral({
+        channel: data.channel,
+        user: data.user,
+        text: `Error: ${text}`,
+        mrkdwn: true,
+      });
+    }
+    return true;
+  }
+
+  return false;
+}
+
 async function handleSlackMessage(
   data: MessageData,
   client: SlackWebClient,
   target: SlackMessageTarget,
   botUserId: string | undefined
 ): Promise<void> {
+  // Detect bang commands on raw text before any normalization/mention gating.
+  // Bang commands bypass mention requirements — they're slash-command alternatives.
+  const rawBang = detectBangCommand(data.text?.trim() ?? "");
+  if (rawBang && (data.bot_id || (botUserId && data.user === botUserId))) {
+    return; // never process bot's own messages
+  }
+  if (rawBang) {
+    const handled = await handleBangCommand(data, client, target, rawBang);
+    if (handled) return;
+  }
+
   const result = processMessage(data, target.config, botUserId);
   const historyLimit = target.config.historyLimit ?? 20;
 
@@ -379,6 +459,14 @@ async function handleSlackMessage(
 
   const content = result.normalizedContent;
   if (!content) return;
+
+  // Also detect bang commands on normalized content (after mention stripping).
+  // This handles "@bot !new" where the raw text starts with a mention, not !.
+  const normalizedBang = rawBang ? undefined : detectBangCommand(content);
+  if (normalizedBang) {
+    const handled = await handleBangCommand(data, client, target, normalizedBang);
+    if (handled) return;
+  }
 
   const sessionKey = target.isMainSession
     ? DEFAULT_MAIN_KEY

@@ -30,6 +30,13 @@ export type SlackWebClient = {
       mrkdwn?: boolean;
     }): Promise<unknown>;
     delete(params: { channel: string; ts: string }): Promise<unknown>;
+    postEphemeral(params: {
+      channel: string;
+      user: string;
+      text: string;
+      mrkdwn?: boolean;
+      thread_ts?: string;
+    }): Promise<unknown>;
   };
   conversations: {
     info(params: {

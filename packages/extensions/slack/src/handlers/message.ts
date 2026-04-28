@@ -15,6 +15,22 @@ export type MessageData = {
   isAppMention?: boolean;
 };
 
+export type BangCommand = "new" | "stop";
+
+export type BangCommandMatch = {
+  command: BangCommand;
+  arg?: string;
+};
+
+export function detectBangCommand(content: string): BangCommandMatch | undefined {
+  const match = content.match(/^!(new|stop)\b(.*)/i);
+  if (!match) return undefined;
+  return {
+    command: match[1].toLowerCase() as BangCommand,
+    arg: match[2].trim() || undefined,
+  };
+}
+
 export type PipelineResult = {
   shouldReply: boolean;
   reason?: string;
@@ -134,9 +150,11 @@ export function processMessage(
     };
   }
 
+  const finalContent = cleanedContent || content;
+
   return {
     shouldReply: true,
-    normalizedContent: cleanedContent || content,
+    normalizedContent: finalContent,
     isDm,
     channelConfig,
   };

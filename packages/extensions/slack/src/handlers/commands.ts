@@ -119,6 +119,8 @@ export async function handleHelpCommand(
     "",
     "`/new [session]` - Start a new conversation",
     "`/stop [session]` - Stop the current run",
+    "`!new [session]` - Same as `/new` (works as a regular message)",
+    "`!stop [session]` - Same as `/stop` (works as a regular message)",
     "`/help` - Show this help message",
     "`/ping` - Health check",
     "",
