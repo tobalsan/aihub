@@ -56,6 +56,7 @@ describe("statusToGroup", () => {
     expect(statusToGroup("maybe")).toBe("stale");
     expect(statusToGroup("done")).toBe("done");
     expect(statusToGroup("cancelled")).toBe("done");
+    expect(statusToGroup("archived")).toBe("done");
   });
 
   it("falls back to stale for unknown statuses", () => {

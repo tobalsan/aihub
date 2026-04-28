@@ -50,6 +50,7 @@ export function statusToGroup(status: string): BoardProjectGroup {
       return "stale";
     case "done":
     case "cancelled":
+    case "archived":
       return "done";
     default:
       return "stale";
