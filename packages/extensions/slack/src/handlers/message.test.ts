@@ -1,6 +1,6 @@
 import type { SlackComponentConfig } from "@aihub/shared";
 import { describe, expect, it } from "vitest";
-import { processMessage, type MessageData } from "./message.js";
+import { processMessage, detectBangCommand, type MessageData } from "./message.js";
 
 function createMessage(overrides: Partial<MessageData> = {}): MessageData {
   return {
@@ -129,5 +129,72 @@ describe("processMessage", () => {
 
     expect(mentionResult.normalizedContent).toBe("help");
     expect(patternResult.normalizedContent).toBe("help");
+  });
+
+  describe("bang commands", () => {
+    it("detects !new at start of message", () => {
+      expect(detectBangCommand("!new")).toEqual({ command: "new" });
+    });
+
+    it("detects !stop at start of message", () => {
+      expect(detectBangCommand("!stop")).toEqual({ command: "stop" });
+    });
+
+    it("detects !new with session key argument", () => {
+      expect(detectBangCommand("!new custom-key")).toEqual({
+        command: "new",
+        arg: "custom-key",
+      });
+    });
+
+    it("detects !stop with session key argument", () => {
+      expect(detectBangCommand("!stop other-key")).toEqual({
+        command: "stop",
+        arg: "other-key",
+      });
+    });
+
+    it("is case-insensitive", () => {
+      expect(detectBangCommand("!NEW")?.command).toBe("new");
+      expect(detectBangCommand("!Stop")?.command).toBe("stop");
+    });
+
+    it("returns undefined for non-bang content", () => {
+      expect(detectBangCommand("hello")).toBeUndefined();
+    });
+
+    it("does not detect bang in the middle of a message", () => {
+      expect(detectBangCommand("hey !new stuff")).toBeUndefined();
+    });
+
+    it("does not detect unknown bang commands", () => {
+      expect(detectBangCommand("!help")).toBeUndefined();
+    });
+
+    it("does not detect !newslater as !new", () => {
+      expect(detectBangCommand("!newslater")).toBeUndefined();
+    });
+
+    it("detects bang after mention stripping in processMessage", () => {
+      const result = processMessage(
+        createMessage({ text: "<@Ubot> !new" }),
+        createConfig({ channels: { C1: { agent: "main" } } }),
+        "Ubot"
+      );
+      expect(result.shouldReply).toBe(true);
+      expect(result.normalizedContent).toBe("!new");
+      expect(detectBangCommand(result.normalizedContent)).toEqual({ command: "new" });
+    });
+
+    it("preserves !new in DM normalized content for downstream detection", () => {
+      const result = processMessage(
+        createMessage({ text: "!new", channel: "D1", channel_type: "im" }),
+        createConfig({ dm: { enabled: true, agent: "main", allowFrom: ["U1"] } }),
+        "Ubot"
+      );
+      expect(result.shouldReply).toBe(true);
+      expect(result.normalizedContent).toBe("!new");
+      expect(detectBangCommand(result.normalizedContent)).toEqual({ command: "new" });
+    });
   });
 });

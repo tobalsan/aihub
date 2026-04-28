@@ -19,6 +19,7 @@ type MockSlackApp = {
       postMessage: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
+      postEphemeral: ReturnType<typeof vi.fn>;
     };
     conversations: {
       info: ReturnType<typeof vi.fn>;
@@ -68,6 +69,7 @@ vi.mock("@slack/bolt", () => ({
           postMessage: vi.fn().mockResolvedValue({ ts: "reply-ts" }),
           update: vi.fn().mockResolvedValue({}),
           delete: vi.fn().mockResolvedValue({}),
+          postEphemeral: vi.fn().mockResolvedValue({}),
         },
         conversations: {
           info: vi.fn().mockResolvedValue({ channel: { name: "general" } }),
@@ -91,11 +93,17 @@ vi.mock("@slack/bolt", () => ({
 
 const mockRunAgent = vi.fn();
 const mockGetSessionEntry = vi.fn();
+const mockClearSessionEntry = vi.fn();
+const mockDeleteSession = vi.fn();
+const mockInvalidateHistoryCache = vi.fn();
 
 vi.mock("./context.js", () => ({
   getSlackContext: vi.fn(() => ({
     runAgent: mockRunAgent,
     getSessionEntry: mockGetSessionEntry,
+    clearSessionEntry: mockClearSessionEntry,
+    deleteSession: mockDeleteSession,
+    invalidateHistoryCache: mockInvalidateHistoryCache,
     subscribe: (_event: string, handler: (payload: unknown) => void) => {
       const wrapped = (event: MockStreamEvent) => handler(event);
       streamHandlers.push(wrapped);
@@ -146,6 +154,13 @@ describe("createSlackBot", () => {
     vi.clearAllMocks();
     clearAllHistory();
     mockGetSessionEntry.mockResolvedValue(undefined);
+    mockClearSessionEntry.mockResolvedValue({
+      sessionId: "session",
+      updatedAt: 1,
+      createdAt: 1,
+    });
+    mockDeleteSession.mockReturnValue(undefined);
+    mockInvalidateHistoryCache.mockResolvedValue(undefined);
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },
@@ -641,6 +656,265 @@ describe("createSlackBot", () => {
       expect.objectContaining({ text: expect.stringContaining("Thinking") })
     );
   });
+
+  describe("bang commands", () => {
+    it("handles !new by clearing session and responding ephemeral", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1");
+      expect(mockDeleteSession).toHaveBeenCalledWith("main", "session");
+      expect(mockInvalidateHistoryCache).toHaveBeenCalledWith("main", "session");
+      expect(mockRunAgent).not.toHaveBeenCalled();
+      expect(apps[0].client.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C1",
+          user: "U1",
+          text: "Context cleared, new session started.",
+        })
+      );
+    });
+
+    it("handles !new with custom session key", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new my-session",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "my-session");
+    });
+
+    it("handles !stop by running /stop control command", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!stop",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "/stop", sessionKey: "slack:C1" })
+      );
+      expect(mockClearSessionEntry).not.toHaveBeenCalled();
+      expect(apps[0].client.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C1",
+          user: "U1",
+          text: "ok",
+        })
+      );
+    });
+
+    it("handles !stop with custom session key", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!stop custom",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "/stop", sessionKey: "custom" })
+      );
+    });
+
+    it("does not treat mid-message !new as a bang command", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "hey !new stuff",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).not.toHaveBeenCalled();
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "hey !new stuff" })
+      );
+    });
+
+    it("handles !new after mention stripping", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], {
+        ...config,
+        channels: { C1: { agent: "main" } },
+      });
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "<@Ubot> !new",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1");
+      expect(mockRunAgent).not.toHaveBeenCalled();
+    });
+
+    it("responds with error on !new failure", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+      mockClearSessionEntry.mockRejectedValueOnce(new Error("boom"));
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(apps[0].client.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "Error: boom",
+        })
+      );
+    });
+
+    it("handles !new in DMs", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new",
+          channel: "D1",
+          user: "U1",
+          channel_type: "im",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "main");
+      expect(mockRunAgent).not.toHaveBeenCalled();
+      expect(apps[0].client.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "D1",
+          user: "U1",
+          text: "Context cleared, new session started.",
+        })
+      );
+    });
+
+    it("handles !new when requireMention is true and no mention present", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], {
+        ...config,
+        channels: { C1: { agent: "main" } }, // requireMention defaults to true
+      });
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1");
+      expect(mockRunAgent).not.toHaveBeenCalled();
+      expect(apps[0].client.chat.postEphemeral).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C1",
+          user: "U1",
+          text: "Context cleared, new session started.",
+        })
+      );
+    });
+
+    it("ignores !new from the bot itself", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], {
+        ...config,
+        channels: { C1: { agent: "main" } },
+      });
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new",
+          channel: "C1",
+          user: "Ubot",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).not.toHaveBeenCalled();
+      expect(mockRunAgent).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("createSlackAgentBot", () => {
@@ -650,6 +924,13 @@ describe("createSlackAgentBot", () => {
     vi.clearAllMocks();
     clearAllHistory();
     mockGetSessionEntry.mockResolvedValue(undefined);
+    mockClearSessionEntry.mockResolvedValue({
+      sessionId: "session",
+      updatedAt: 1,
+      createdAt: 1,
+    });
+    mockDeleteSession.mockReturnValue(undefined);
+    mockInvalidateHistoryCache.mockResolvedValue(undefined);
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },

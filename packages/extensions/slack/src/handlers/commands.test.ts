@@ -114,6 +114,8 @@ describe("Slack command handlers", () => {
 
     expect(helpRespond.mock.calls[0][0].text).toContain("/new");
     expect(helpRespond.mock.calls[0][0].text).toContain("/stop");
+    expect(helpRespond.mock.calls[0][0].text).toContain("!new");
+    expect(helpRespond.mock.calls[0][0].text).toContain("!stop");
     expect(helpRespond.mock.calls[0][0].text).not.toContain("/abort");
     expect(helpRespond.mock.calls[0][0].response_type).toBe("ephemeral");
     expect(pingRespond.mock.calls[0][0].text).toContain("Main");
