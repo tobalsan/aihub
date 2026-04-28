@@ -405,25 +405,30 @@ async function buildExtensionTools(
   }));
 }
 
-function attachExtraNetwork(containerName: string, network: string): void {
+async function attachExtraNetwork(
+  containerName: string,
+  network: string,
+  child: childProcess.ChildProcess,
+  getStderr: () => string
+): Promise<void> {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     try {
-      childProcess.execFileSync(
-        "docker",
-        ["network", "connect", network, containerName],
-        { stdio: "pipe" }
-      );
+      await execFile("docker", ["network", "connect", network, containerName]);
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/already exists|endpoint with name/.test(msg)) return;
       if (/No such container/.test(msg)) {
-        // container not yet running; brief retry
-        const until = Date.now() + 100;
-        while (Date.now() < until) {
-          /* spin */
+        if (child.exitCode !== null) {
+          const meaningfulStderr = getMeaningfulStderr(getStderr());
+          throw new Error(
+            meaningfulStderr ||
+              `Container ${containerName} exited before it could be connected to network ${network}`
+          );
         }
+        // container not yet running; brief retry
+        await delay(100);
         continue;
       }
       throw err;
@@ -432,6 +437,22 @@ function attachExtraNetwork(containerName: string, network: string): void {
   throw new Error(
     `Failed to connect container ${containerName} to network ${network}`
   );
+}
+
+function execFile(file: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile(file, args, { timeout: 10_000 }, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolveOnecliProxyUrl(
@@ -590,11 +611,26 @@ export function getContainerAdapter(): SdkAdapter {
       const child = childProcess.spawn("docker", args, {
         stdio: ["pipe", "pipe", "pipe"],
       });
+      let stderr = "";
+      child.stderr?.on("data", (chunk: Buffer | string) => {
+        const text = chunk.toString();
+        stderr += text;
+        console.error(`[container:${params.agentId}] ${text.trimEnd()}`);
+      });
       const extraNetwork = config.onecli?.sandbox?.network;
       if (extraNetwork) {
-        attachExtraNetwork(containerName, extraNetwork);
+        try {
+          await attachExtraNetwork(
+            containerName,
+            extraNetwork,
+            child,
+            () => stderr
+          );
+        } catch (error) {
+          removeContainerToken(agentToken);
+          throw error;
+        }
       }
-      let stderr = "";
       let timeoutKind: "idle" | "max" | undefined;
       let aborted = false;
       let settled = false;
@@ -810,11 +846,6 @@ export function getContainerAdapter(): SdkAdapter {
 
             handleProtocolEvent(rawEvent);
           }
-        });
-        child.stderr?.on("data", (chunk: Buffer | string) => {
-          const text = chunk.toString();
-          stderr += text;
-          console.error(`[container:${params.agentId}] ${text.trimEnd()}`);
         });
         child.once("error", (error) => {
           if (settled) return;

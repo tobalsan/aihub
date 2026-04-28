@@ -142,6 +142,7 @@ Container OneCLI proxy wiring:
 - Container extension tool results larger than 20KB are materialized as JSON files under `/workspace/data/tool-results/`; the model receives a compact pointer plus preview so scripts can consume large results by path instead of reserializing JSON through shell commands.
 - Gateway calls `ensureBootstrapFiles(workspaceDir)` on the host before spawning the container, so workspace template files (AGENTS.md, SOUL.md, etc.) are created for new agents even in sandbox mode.
 - Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
+- When `onecli.sandbox.network` is configured, the adapter attaches that extra Docker network asynchronously after `docker run` starts. If Docker rejects startup first (for example a missing bind-mount source), gateway logs now surface the captured `docker run` stderr instead of masking it as a network-connect failure.
 
 ### packages/shared
 

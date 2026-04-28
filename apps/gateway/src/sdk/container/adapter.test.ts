@@ -51,6 +51,7 @@ const EVENT_PREFIX = "---AIHUB_EVENT---";
 class FakeDockerProcess extends EventEmitter {
   stdout = new PassThrough();
   stderr = new PassThrough();
+  exitCode: number | null = null;
   stdinChunks: string[] = [];
   stdin = new Writable({
     write: (chunk, _encoding, callback) => {
@@ -77,6 +78,7 @@ class FakeDockerProcess extends EventEmitter {
   }
 
   finish(code: number): void {
+    this.exitCode = code;
     this.stdout.end();
     this.stderr.end();
     this.emit("exit", code, null);
@@ -123,7 +125,11 @@ function createAgent(
   });
 }
 
-function setConfig(agent: AgentConfig, root: string): void {
+function setConfig(
+  agent: AgentConfig,
+  root: string,
+  options: { onecliSandboxNetwork?: string } = {}
+): void {
   fs.writeFileSync(path.join(root, "onecli-ca.pem"), "cert");
   setLoadedConfig({
     agents: [agent],
@@ -136,6 +142,12 @@ function setConfig(agent: AgentConfig, root: string): void {
       mode: "proxy",
       gatewayUrl: "http://onecli:4141",
       ca: { source: "file", path: path.join(root, "onecli-ca.pem") },
+      sandbox: options.onecliSandboxNetwork
+        ? {
+            network: options.onecliSandboxNetwork,
+            url: "http://onecli:4141",
+          }
+        : undefined,
     },
     server: { baseUrl: "http://gateway:4000" },
   } as GatewayConfig);
@@ -281,6 +293,37 @@ describe("container adapter", () => {
     });
     expect(params.onEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "done" })
+    );
+  });
+
+  it("surfaces docker run stderr when extra network attach races a failed container start", async () => {
+    const root = tempDir();
+    process.env.AIHUB_HOME = path.join(root, "aihub");
+    const agent = createAgent(root);
+    setConfig(agent, root, { onecliSandboxNetwork: "config_onecli" });
+
+    const { processes } = mockSpawn();
+    vi.mocked(childProcess.execFile).mockImplementation(
+      (_file, _args, _options, callback) => {
+        setTimeout(() => {
+          if (typeof callback === "function") {
+            callback(new Error("No such container"), "", "No such container");
+          }
+        }, 10);
+        return new EventEmitter() as never;
+      }
+    );
+
+    const run = getContainerAdapter().run(createParams(agent));
+    await tick();
+
+    processes[0].stderr.write(
+      'docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: /missing/data\n'
+    );
+    processes[0].finish(125);
+
+    await expect(run).rejects.toThrow(
+      'invalid mount config for type "bind": bind source path does not exist: /missing/data'
     );
   });
 
