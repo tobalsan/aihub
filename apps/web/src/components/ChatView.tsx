@@ -2740,8 +2740,8 @@ export function ChatView() {
           color: color-mix(in srgb, var(--accent) 48%, var(--text-muted));
         }
 
-        .message.assistant:not(.full-message) .message-time {
-          text-align: right;
+        .message.assistant .message-time {
+          text-align: left;
         }
 
         .message-files {
@@ -2945,7 +2945,7 @@ export function ChatView() {
           padding: 0 14px 10px;
           font-size: 11px;
           color: var(--text-muted);
-          text-align: right;
+          text-align: left;
           font-variant-numeric: tabular-nums;
         }
 
