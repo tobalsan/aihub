@@ -186,11 +186,6 @@ function ToolBlock(props: {
   const failed = () => props.status === "error" || props.result?.isError;
   const summary = () =>
     truncateInline(getToolInputSummary(props.name, props.arguments));
-  const statusLabel = () => {
-    if (failed()) return "Failed";
-    if (props.status === "running" || !props.result) return "Running";
-    return "Ran";
-  };
   const preview = () => truncateInline(resultText() || argsText(), 120);
   const [collapsed, setCollapsed] = createSignal(Boolean(props.result));
   const [autoCollapsed, setAutoCollapsed] = createSignal(Boolean(props.result));
@@ -206,10 +201,8 @@ function ToolBlock(props: {
     <div class={`tool-block ${failed() ? "error" : ""}`}>
       <button class="tool-header" onClick={() => setCollapsed(!collapsed())}>
         <span class="collapse-icon">{collapsed() ? "▶" : "▼"}</span>
-        <span class="tool-title">
-          {statusLabel()} {summary()}
-        </span>
         <span class="tool-kind">{props.name}</span>
+        <span class="tool-title">{summary()}</span>
         <Show when={collapsed()}>
           <span class="tool-preview">{preview()}</span>
         </Show>

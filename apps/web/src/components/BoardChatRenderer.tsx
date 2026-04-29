@@ -161,11 +161,6 @@ function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
     getToolResultText(props.item.result) || props.item.body || "";
   const failed = () =>
     props.item.status === "error" || props.item.result?.isError;
-  const statusLabel = () => {
-    if (failed()) return "Failed";
-    if (props.item.status === "running" || !props.item.result) return "Running";
-    return "Ran";
-  };
   const summary = () =>
     truncateInline(getToolInputSummary(props.item.toolName, props.item.args));
   const preview = () => truncateInline(resultText() || argsText(), 120);
@@ -186,10 +181,8 @@ function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
         onClick={() => setCollapsed(!collapsed())}
       >
         <span class="board-collapse-icon">{collapsed() ? "▶" : "▼"}</span>
-        <span class="board-tool-title">
-          {statusLabel()} {summary()}
-        </span>
         <span class="board-tool-kind">{props.item.toolName}</span>
+        <span class="board-tool-title">{summary()}</span>
         <Show when={collapsed()}>
           <span class="board-tool-preview">{preview()}</span>
         </Show>
