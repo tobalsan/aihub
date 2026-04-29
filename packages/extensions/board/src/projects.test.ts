@@ -46,6 +46,49 @@ async function makeWorktree(
   return wt;
 }
 
+async function withGitLog(tmp: string): Promise<{
+  logPath: string;
+  restore: () => void;
+}> {
+  const { stdout } = await execFileAsync("which", ["git"]);
+  const realGit = stdout.trim();
+  const binDir = path.join(tmp, "_bin");
+  const logPath = path.join(tmp, "git.log");
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(
+    path.join(binDir, "git"),
+    `#!/bin/sh\nprintf '%s\\n' "$PWD|$*" >> "$GIT_LOG"\nexec "$REAL_GIT" "$@"\n`,
+    "utf8"
+  );
+  await fs.chmod(path.join(binDir, "git"), 0o755);
+  const prevPath = process.env.PATH;
+  const prevGitLog = process.env.GIT_LOG;
+  const prevRealGit = process.env.REAL_GIT;
+  process.env.PATH = `${binDir}${path.delimiter}${prevPath ?? ""}`;
+  process.env.GIT_LOG = logPath;
+  process.env.REAL_GIT = realGit;
+  return {
+    logPath,
+    restore: () => {
+      if (prevPath === undefined) delete process.env.PATH;
+      else process.env.PATH = prevPath;
+      if (prevGitLog === undefined) delete process.env.GIT_LOG;
+      else process.env.GIT_LOG = prevGitLog;
+      if (prevRealGit === undefined) delete process.env.REAL_GIT;
+      else process.env.REAL_GIT = prevRealGit;
+    },
+  };
+}
+
+async function readGitLog(logPath: string): Promise<string[]> {
+  try {
+    const raw = await fs.readFile(logPath, "utf8");
+    return raw.split(/\r?\n/).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 describe("statusToGroup", () => {
   it("maps known statuses", () => {
     expect(statusToGroup("current")).toBe("active");
@@ -124,6 +167,22 @@ describe("scanProjects", () => {
     expect(items[1]?.group).toBe("active");
   });
 
+  it("skips .done project folder", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    await makeProject(path.join(tmp, ".done"), "PRO-002", {
+      title: "Done",
+      status: "done",
+      created: "2026-01-02",
+    });
+
+    const items = await scanProjects(tmp, true, emptyWtRoot);
+    expect(items.map((p) => p.id)).toEqual(["PRO-001"]);
+  });
+
   it("filters out done projects unless includeDone", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "A",
@@ -166,7 +225,12 @@ describe("scanProjects", () => {
     });
 
     const items = await scanProjects(tmp, false, emptyWtRoot);
-    expect(items.map((p) => p.id)).toEqual(["PRO-C", "PRO-B", "PRO-A", "PRO-D"]);
+    expect(items.map((p) => p.id)).toEqual([
+      "PRO-C",
+      "PRO-B",
+      "PRO-A",
+      "PRO-D",
+    ]);
   });
 
   it("collects worktree info from worktreesRoot when branch matches space/{id}", async () => {
@@ -176,7 +240,12 @@ describe("scanProjects", () => {
       created: "2026-01-01",
     });
     const wtRoot = path.join(tmp, "_worktrees");
-    const wt = await makeWorktree(wtRoot, "aihub", "feature-x", "space/PRO-001");
+    const wt = await makeWorktree(
+      wtRoot,
+      "aihub",
+      "feature-x",
+      "space/PRO-001"
+    );
     await fs.writeFile(path.join(wt, "dirty"), "dirty", "utf-8");
 
     const items = await scanProjects(tmp, false, wtRoot);
@@ -220,12 +289,18 @@ describe("scanProjects", () => {
     const repoDir = path.join(tmp, "repo");
     await fs.mkdir(repoDir, { recursive: true });
     await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], {
+      cwd: repoDir,
+    });
     await execFileAsync("git", ["config", "user.name", "t"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "commit.gpgsign", "false"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
+      cwd: repoDir,
+    });
     await fs.writeFile(path.join(repoDir, "x"), "x", "utf-8");
     await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], {
+      cwd: repoDir,
+    });
 
     const wtPath = path.join(tmp, "elsewhere", "feat");
     await execFileAsync(
@@ -253,12 +328,18 @@ describe("scanProjects", () => {
     const repoDir = path.join(tmp, "repo");
     await fs.mkdir(repoDir, { recursive: true });
     await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], {
+      cwd: repoDir,
+    });
     await execFileAsync("git", ["config", "user.name", "t"], { cwd: repoDir });
-    await execFileAsync("git", ["config", "commit.gpgsign", "false"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
+      cwd: repoDir,
+    });
     await fs.writeFile(path.join(repoDir, "x"), "x", "utf-8");
     await execFileAsync("git", ["add", "."], { cwd: repoDir });
-    await execFileAsync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], {
+      cwd: repoDir,
+    });
 
     const wtRoot = path.join(tmp, "_wts");
     const wtPath = path.join(wtRoot, "aihub", "feat");
@@ -280,6 +361,88 @@ describe("scanProjects", () => {
     const wts = items[0]?.worktrees ?? [];
     expect(wts).toHaveLength(1);
     expect(wts[0]?.branch).toBe("space/PRO-001");
+  });
+
+  it("builds the root worktree index once for multiple projects", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    await makeProject(tmp, "PRO-002", {
+      title: "Beta",
+      status: "current",
+      created: "2026-01-02",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(wtRoot, "aihub", "alpha", "space/PRO-001");
+    await makeWorktree(wtRoot, "aihub", "beta", "space/PRO-002");
+
+    const gitLog = await withGitLog(tmp);
+    try {
+      const items = await scanProjects(tmp, false, wtRoot);
+      expect(items).toHaveLength(2);
+    } finally {
+      gitLog.restore();
+    }
+
+    const log = await readGitLog(gitLog.logPath);
+    const branchReads = log.filter((line) =>
+      line.endsWith("|rev-parse --abbrev-ref HEAD")
+    );
+    expect(branchReads).toHaveLength(2);
+  });
+
+  it("runs git worktree list once per unique repo", async () => {
+    const repoDir = path.join(tmp, "repo");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "x"), "x", "utf-8");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], {
+      cwd: repoDir,
+    });
+    await execFileAsync(
+      "git",
+      ["worktree", "add", "-b", "space/PRO-001", path.join(tmp, "wt-1")],
+      {
+        cwd: repoDir,
+      }
+    );
+
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+      repo: repoDir,
+    });
+    await makeProject(tmp, "PRO-002", {
+      title: "Beta",
+      status: "current",
+      created: "2026-01-02",
+      repo: repoDir,
+    });
+
+    const gitLog = await withGitLog(tmp);
+    try {
+      const items = await scanProjects(tmp, false, path.join(tmp, "missing"));
+      expect(items).toHaveLength(2);
+    } finally {
+      gitLog.restore();
+    }
+
+    const log = await readGitLog(gitLog.logPath);
+    const worktreeLists = log.filter((line) =>
+      line.endsWith("|worktree list --porcelain")
+    );
+    expect(worktreeLists).toHaveLength(1);
   });
 
   it("uses dir name as id when frontmatter id missing", async () => {

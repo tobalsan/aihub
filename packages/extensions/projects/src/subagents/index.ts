@@ -9,7 +9,7 @@ import {
   type ModelUsage,
   type SubagentGlobalListItem,
 } from "@aihub/shared";
-import { findProjectDir } from "../projects/store.js";
+import { findProjectLocation } from "../projects/store.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { migrateLegacySessions } from "./migrate.js";
 import { dirExists } from "../util/fs.js";
@@ -764,12 +764,12 @@ export async function listSubagents(
   includeArchived = false
 ): Promise<SubagentListResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   await migrateLegacySessions(root, projectId, projectDir);
   const sessionsRoot = getSessionsRoot(projectDir);
   if (!(await dirExists(sessionsRoot))) {
@@ -909,12 +909,12 @@ async function resolveSubagentConfigPath(
   { ok: true; data: { configPath: string } } | { ok: false; error: string }
 > {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   await migrateLegacySessions(root, projectId, projectDir);
   const sessionDir = path.join(getSessionsRoot(projectDir), slug);
   if (!(await dirExists(sessionDir))) {
@@ -1028,90 +1028,94 @@ export async function listAllSubagents(
   const root = getProjectsRoot(config);
   if (!(await dirExists(root))) return [];
 
-  const projectDirs = await fs.readdir(root, { withFileTypes: true });
   const items: SubagentGlobalListItem[] = [];
 
-  for (const entry of projectDirs) {
-    if (!entry.isDirectory()) continue;
-    if (!entry.name.startsWith("PRO-")) continue;
-    const projectId = entry.name.split("_")[0];
-    const projectDir = path.join(root, entry.name);
-    await migrateLegacySessions(root, projectId, projectDir);
-    const sessionsRoot = getSessionsRoot(projectDir);
-    if (!(await dirExists(sessionsRoot))) continue;
+  const roots = [root, path.join(root, ".done")];
+  for (const scanRoot of roots) {
+    if (!(await dirExists(scanRoot))) continue;
+    const projectDirs = await fs.readdir(scanRoot, { withFileTypes: true });
+    for (const entry of projectDirs) {
+      if (!entry.isDirectory()) continue;
+      if (!entry.name.startsWith("PRO-")) continue;
+      const projectId = entry.name.split("_")[0];
+      const projectDir = path.join(scanRoot, entry.name);
+      await migrateLegacySessions(root, projectId, projectDir);
+      const sessionsRoot = getSessionsRoot(projectDir);
+      if (!(await dirExists(sessionsRoot))) continue;
 
-    const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
-    for (const workspace of entries) {
-      if (!workspace.isDirectory()) continue;
-      const slug = workspace.name;
-      const dir = path.join(sessionsRoot, slug);
-      const configData = await readJson<{
-        type?: "subagent" | "ralph_loop";
-        cli?: string;
-        name?: string;
-        model?: string;
-        reasoningEffort?: string;
-        thinking?: string;
-        runMode?: string;
-        baseBranch?: string;
-        archived?: boolean;
-        iterations?: number;
-      }>(path.join(dir, "config.json"));
-      const state = await readJson<{
-        supervisor_pid?: number;
-        last_error?: string;
-        cli?: string;
-        run_mode?: string;
-        worktree_path?: string;
-        started_at?: string;
-        outcome?: string;
-        finished_at?: string;
-      }>(path.join(dir, "state.json"));
-      const progress = await readJson<{ last_active?: string }>(
-        path.join(dir, "progress.json")
-      );
-      const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
+      const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
+      for (const workspace of entries) {
+        if (!workspace.isDirectory()) continue;
+        const slug = workspace.name;
+        const dir = path.join(sessionsRoot, slug);
+        const configData = await readJson<{
+          type?: "subagent" | "ralph_loop";
+          cli?: string;
+          name?: string;
+          model?: string;
+          reasoningEffort?: string;
+          thinking?: string;
+          runMode?: string;
+          baseBranch?: string;
+          archived?: boolean;
+          iterations?: number;
+        }>(path.join(dir, "config.json"));
+        const state = await readJson<{
+          supervisor_pid?: number;
+          last_error?: string;
+          cli?: string;
+          run_mode?: string;
+          worktree_path?: string;
+          started_at?: string;
+          outcome?: string;
+          finished_at?: string;
+        }>(path.join(dir, "state.json"));
+        const progress = await readJson<{ last_active?: string }>(
+          path.join(dir, "progress.json")
+        );
+        const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
 
-      const isTerminal = state?.outcome === "done" || state?.finished_at;
+        const isTerminal = state?.outcome === "done" || state?.finished_at;
 
-      let status: SubagentStatus = "idle";
-      if (state?.last_error && state.last_error.trim()) {
-        status = "error";
-      } else if (
-        !isTerminal &&
-        isProcessAlive(state?.supervisor_pid, state?.started_at)
-      ) {
-        status = "running";
-      } else if (outcome === "error") {
-        status = "error";
-      } else if (outcome === "replied") {
-        status = "replied";
+        let status: SubagentStatus = "idle";
+        if (state?.last_error && state.last_error.trim()) {
+          status = "error";
+        } else if (
+          !isTerminal &&
+          isProcessAlive(state?.supervisor_pid, state?.started_at)
+        ) {
+          status = "running";
+        } else if (outcome === "error") {
+          status = "error";
+        } else if (outcome === "replied") {
+          status = "replied";
+        }
+
+        if (configData?.archived) {
+          continue;
+        }
+
+        items.push({
+          projectId,
+          slug,
+          type: configData?.type ?? "subagent",
+          cli: configData?.cli ?? state?.cli,
+          name: configData?.name,
+          model: configData?.model,
+          reasoningEffort: configData?.reasoningEffort,
+          thinking: configData?.thinking,
+          runMode: configData?.runMode ?? state?.run_mode,
+          baseBranch: configData?.baseBranch,
+          worktreePath: state?.worktree_path,
+          iterations:
+            typeof configData?.iterations === "number"
+              ? configData.iterations
+              : undefined,
+          status,
+          lastActive: progress?.last_active,
+          runStartedAt: state?.started_at,
+        });
       }
-
-      if (configData?.archived) {
-        continue;
-      }
-
-      items.push({
-        projectId,
-        slug,
-        type: configData?.type ?? "subagent",
-        cli: configData?.cli ?? state?.cli,
-        name: configData?.name,
-        model: configData?.model,
-        reasoningEffort: configData?.reasoningEffort,
-        thinking: configData?.thinking,
-        runMode: configData?.runMode ?? state?.run_mode,
-        baseBranch: configData?.baseBranch,
-        worktreePath: state?.worktree_path,
-        iterations:
-          typeof configData?.iterations === "number"
-            ? configData.iterations
-            : undefined,
-        status,
-        lastActive: progress?.last_active,
-        runStartedAt: state?.started_at,
-      });
     }
   }
 
@@ -1125,12 +1129,12 @@ export async function getSubagentLogs(
   since: number
 ): Promise<SubagentLogsResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   await migrateLegacySessions(root, projectId, projectDir);
   const sessionDir = path.join(getSessionsRoot(projectDir), slug);
   const logsPath = path.join(sessionDir, "logs.jsonl");
@@ -1274,13 +1278,17 @@ export async function listProjectBranches(
   projectId: string
 ): Promise<ProjectBranchesResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const readmePath = path.join(root, dirName, "README.md");
-  const specsPath = path.join(root, dirName, "SPECS.md");
+  const readmePath = path.join(
+    location.baseRoot,
+    location.dirName,
+    "README.md"
+  );
+  const specsPath = path.join(location.baseRoot, location.dirName, "SPECS.md");
   let frontmatter: Record<string, unknown> = {};
   try {
     if (await pathExists(readmePath)) {

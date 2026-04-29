@@ -66,7 +66,8 @@ Features:
   - Right context panel tabs: `Agents` (lead agents + subagents with live status), `Chat`, `Feed`
   - Recent projects live at the bottom of the right context panel
   - Collapsed sidebars hover-expand as overlays above the main pane instead of reflowing it
-  - Archived projects section is toggled from the projects header `Archived` button (top-right)
+- Archived projects section is toggled from the projects header `Archived` button (top-right)
+- Board project scanning builds one per-request worktree index: `~/.worktrees` is scanned once, `git worktree list --porcelain` is deduped by repo, and completed/cancelled project folders live under `~/projects/.done` while remaining resolvable through the Projects extension.
 - `/` is the Areas overview homepage (grid of area cards + aggregate "All Projects" card)
 - Areas homepage includes a quick-create flow with slugified ids from title and a native color picker
 - Area cards show per-status project counts and support inline area editing (`title`, `color`, `order`, `repo`)
