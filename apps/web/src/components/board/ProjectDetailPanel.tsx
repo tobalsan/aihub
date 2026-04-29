@@ -135,12 +135,15 @@ export function ProjectDetailPanel(props: ProjectDetailPanelProps) {
           <Switch>
             <Match when={activeTab() === "TASKS"}>
               <TasksEditor
+                projectId={props.projectId}
                 content={detail()!.docs?.TASKS ?? ""}
                 onSave={(content: string) => saveDoc("TASKS", content)}
               />
             </Match>
             <Match when={true}>
               <DocEditor
+                projectId={props.projectId}
+                docKey={activeTab()}
                 content={detail()!.docs?.[activeTab()] ?? ""}
                 onSave={(content: string) => saveDoc(activeTab(), content)}
               />
@@ -242,9 +245,6 @@ export function ProjectDetailPanel(props: ProjectDetailPanelProps) {
           min-height: 0;
           display: flex;
           flex-direction: column;
-          background: var(--bg-surface);
-          border: 1px solid var(--border-default);
-          border-radius: 8px;
           overflow: hidden;
         }
         .pdp-loading {

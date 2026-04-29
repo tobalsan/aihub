@@ -39,6 +39,7 @@ import type { SubagentRun } from "@aihub/shared/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
+import { ProjectDetailPanel } from "./board/ProjectDetailPanel";
 import { AreaSummaries } from "./AreaSummaries";
 import { renderMarkdown } from "../lib/markdown";
 import {
@@ -54,7 +55,13 @@ import {
 
 // ── Types ───────────────────────────────────────────────────────────
 
-type CanvasPanel = "overview" | "projects" | "agents" | "spec" | "monitor";
+type CanvasPanel =
+  | "overview"
+  | "projects"
+  | "projects:detail"
+  | "agents"
+  | "spec"
+  | "monitor";
 
 interface CanvasState {
   panel: CanvasPanel;
@@ -1120,7 +1127,15 @@ export function BoardView() {
         </div>
 
         <div class="board-canvas-content">
-          <CanvasPanelRenderer state={canvas()} agentId={selectedAgentId()} />
+          <CanvasPanelRenderer
+            state={canvas()}
+            agentId={selectedAgentId()}
+            onNavigate={(panel, panelProps) => {
+              setCanvas({ panel, props: panelProps });
+              if (selectedAgentId())
+                setCanvasState(selectedAgentId()!, panel, panelProps);
+            }}
+          />
         </div>
       </div>
 
@@ -1592,6 +1607,7 @@ export function BoardView() {
 function CanvasPanelRenderer(props: {
   state: CanvasState;
   agentId: string | null;
+  onNavigate: (panel: CanvasPanel, panelProps?: Record<string, unknown>) => void;
 }) {
   return (
     <Switch fallback={<OverviewPanel />}>
@@ -1599,7 +1615,17 @@ function CanvasPanelRenderer(props: {
         <OverviewPanel />
       </Match>
       <Match when={props.state.panel === "projects"}>
-        <ProjectsPanel />
+        <ProjectsPanel
+          onOpen={(id) =>
+            props.onNavigate("projects:detail", { projectId: id })
+          }
+        />
+      </Match>
+      <Match when={props.state.panel === "projects:detail"}>
+        <ProjectDetailPanel
+          projectId={props.state.props?.projectId as string}
+          onBack={() => props.onNavigate("projects")}
+        />
       </Match>
       <Match
         when={props.state.panel === "agents" || props.state.panel === "monitor"}
@@ -1664,7 +1690,7 @@ const GROUP_EMPTY: Record<ProjectGroup, string> = {
   done: "No done projects.",
 };
 
-function ProjectsPanel() {
+function ProjectsPanel(props: { onOpen: (id: string) => void }) {
   const [projects, setProjects] = createSignal<BoardProject[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -1810,6 +1836,40 @@ function ProjectsPanel() {
                             <span class="cp-id">{project.id}</span>
                             <span class="cp-title">{project.title}</span>
                             <span class="cp-area">{project.area}</span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              class="cp-open"
+                              title="Open project detail"
+                              aria-label="Open project detail"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onOpen(project.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  props.onOpen(project.id);
+                                }
+                              }}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M14 3h7v7" />
+                                <path d="M10 14L21 3" />
+                                <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                              </svg>
+                            </span>
                             <span class={`cp-dot cp-dot-${project.group}`} />
                           </button>
                           <Show when={expanded()[project.id]}>
@@ -1981,7 +2041,7 @@ function ProjectsPanel() {
         }
         .cp-row {
           display: grid;
-          grid-template-columns: 14px auto 1fr auto 10px;
+          grid-template-columns: 14px auto 1fr auto 24px 10px;
           align-items: center;
           gap: 10px;
           width: 100%;
@@ -2030,6 +2090,25 @@ function ProjectsPanel() {
           color: var(--text-secondary);
           border: 1px solid var(--border-default);
           text-transform: lowercase;
+        }
+        .cp-open {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          border-radius: 4px;
+          color: var(--text-secondary);
+          cursor: pointer;
+          transition: background 0.12s, color 0.12s;
+        }
+        .cp-open:hover {
+          background: var(--bg-raised);
+          color: var(--text-primary);
+        }
+        .cp-open:focus-visible {
+          outline: none;
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-accent, #6366f1) 35%, transparent);
         }
         .cp-dot {
           width: 8px;
