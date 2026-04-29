@@ -1,7 +1,7 @@
 import { createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { fetchAgents } from "../api/client";
-import { isExtensionEnabled } from "../lib/capabilities";
+import { capabilities, isExtensionEnabled } from "../lib/capabilities";
 
 function shortenPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/)?.[0];
@@ -20,7 +20,10 @@ export function AgentList() {
     <div class="agent-list">
       <header class="header">
         <A class="home-link" href="/projects">
-          AIHub
+          <Show when={capabilities.branding?.logo}>
+            <img class="home-brand-logo" src={capabilities.branding!.logo} alt="" />
+          </Show>
+          {capabilities.branding?.name ?? "AIHub"}
         </A>
         <Show when={isExtensionEnabled("projects")}>
           <A
@@ -115,10 +118,19 @@ export function AgentList() {
         }
 
         .home-link {
+          display: flex;
+          align-items: center;
+          gap: 10px;
           font-size: 24px;
           font-weight: 600;
           color: var(--text-primary);
           text-decoration: none;
+        }
+
+        .home-brand-logo {
+          height: 28px;
+          width: auto;
+          object-fit: contain;
         }
 
         .home-link:hover {

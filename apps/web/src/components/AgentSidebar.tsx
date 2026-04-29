@@ -40,8 +40,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
       <div class="agent-sidebar-shell">
         <div class="sidebar-header">
           <A class="sidebar-logo" href="/">
-            <span class="logo-full">AIHub</span>
-            <span class="logo-short">AI</span>
+            <Show when={capabilities.branding?.logo}>
+              <img class="sidebar-brand-logo" src={capabilities.branding!.logo} alt="" />
+            </Show>
+            <span class="logo-full">{capabilities.branding?.name ?? "AIHub"}</span>
+            <span class="logo-short">{capabilities.branding?.name?.substring(0, 2).toUpperCase() ?? "AI"}</span>
           </A>
           <Show when={import.meta.env.VITE_AIHUB_DEV === "true"}>
             <span class="dev-badge">DEV</span>
@@ -247,7 +250,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         }
 
         .sidebar-logo {
-          display: inline-block;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
           color: var(--text-primary);
           text-decoration: none;
           font-size: 20px;
@@ -257,6 +262,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
           transition: opacity 0.2s ease, transform 0.2s ease;
           transform-origin: left center;
           white-space: nowrap;
+        }
+
+        .sidebar-brand-logo {
+          height: 22px;
+          width: auto;
+          object-fit: contain;
         }
 
         .sidebar-logo:hover {
