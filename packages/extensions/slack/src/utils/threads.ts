@@ -67,6 +67,44 @@ export function resolveReplyThreadTs(
   }
 }
 
+const SESSION_PREFIX = "slack";
+
+export function buildSlackSessionKey(
+  channel: string,
+  threadTs?: string
+): string {
+  return threadTs ? `${SESSION_PREFIX}:${channel}:${threadTs}` : `${SESSION_PREFIX}:${channel}`;
+}
+
+export function buildSlackHistoryKey(
+  channel: string,
+  threadTs?: string
+): string {
+  return threadTs ? `${channel}:${threadTs}` : channel;
+}
+
+export async function lookupReactionThreadTs(
+  client: SlackWebClient,
+  channel: string,
+  messageTs: string
+): Promise<string | undefined> {
+  try {
+    const result = await client.conversations.history({
+      channel,
+      latest: messageTs,
+      inclusive: true,
+      limit: 1,
+    });
+    const msg = result.messages?.[0];
+    if (!msg) return undefined;
+    if (msg.thread_ts && msg.thread_ts !== msg.ts) return msg.thread_ts;
+    if ((msg.reply_count ?? 0) > 0) return msg.ts;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function clearThreadParentCache(channel?: string, threadTs?: string): void {
   if (channel && threadTs) {
     threadParentCache.delete(cacheKey(channel, threadTs));

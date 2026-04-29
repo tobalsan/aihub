@@ -7,6 +7,7 @@ export type ReactionData = {
   item: {
     channel?: string;
     ts?: string;
+    thread_ts?: string;
   };
 };
 

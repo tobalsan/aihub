@@ -28,7 +28,13 @@ import { splitMessage } from "./utils/chunk.js";
 import { buildSlackContext } from "./utils/context.js";
 import { clearHistory, getHistory, recordMessage } from "./utils/history.js";
 import { markdownToMrkdwn } from "./utils/mrkdwn.js";
-import { getThreadParent, resolveReplyThreadTs } from "./utils/threads.js";
+import {
+  buildSlackHistoryKey,
+  buildSlackSessionKey,
+  getThreadParent,
+  lookupReactionThreadTs,
+  resolveReplyThreadTs,
+} from "./utils/threads.js";
 import {
   startThinkingReaction,
   stopAllThinkingReactions,
@@ -123,6 +129,7 @@ function toReactionData(raw: unknown): ReactionData | null {
     item: {
       channel: asString(item.channel),
       ts: asString(item.ts),
+      thread_ts: asString(item.thread_ts),
     },
   };
 }
@@ -371,7 +378,7 @@ async function handleBangCommand(
 
   const sessionKey = target.isMainSession
     ? DEFAULT_MAIN_KEY
-    : `slack:${data.channel}`;
+    : buildSlackSessionKey(data.channel, data.thread_ts);
   const effectiveSessionKey = bang.arg || sessionKey;
 
   if (bang.command === "new") {
@@ -470,7 +477,8 @@ async function handleSlackMessage(
 
   const sessionKey = target.isMainSession
     ? DEFAULT_MAIN_KEY
-    : `slack:${data.channel}`;
+    : buildSlackSessionKey(data.channel, data.thread_ts);
+  const historyKey = buildSlackHistoryKey(data.channel, data.thread_ts);
   const replyThreadTs = resolveReplyThreadTs(
     target.channelConfig?.threadPolicy ?? target.dmConfig?.threadPolicy,
     data.ts,
@@ -500,7 +508,7 @@ async function handleSlackMessage(
     ]);
     const sender = senderName ?? data.user ?? "unknown";
     recordMessage(
-      data.channel,
+      historyKey,
       {
         author: sender,
         content: data.text ?? "",
@@ -533,7 +541,7 @@ async function handleSlackMessage(
       channelTopic: channelMeta.topic,
       threadName,
       threadParent: threadParent ?? undefined,
-      history: getHistory(data.channel, historyLimit),
+      history: getHistory(historyKey, historyLimit),
     });
 
     const agentResult = await getSlackContext().runAgent({
@@ -559,7 +567,7 @@ async function handleSlackMessage(
     );
 
     if (target.config.clearHistoryAfterReply === true) {
-      clearHistory(data.channel);
+      clearHistory(historyKey);
     }
     await thinkingDisplay?.cleanup();
     await stopThinkingReaction(client, data.channel, data.ts);
@@ -595,10 +603,14 @@ async function handleSlackReaction(
   });
 
   try {
+    const directThreadTs = data.item.thread_ts;
+    const reactionThreadTs =
+      directThreadTs ??
+      (await lookupReactionThreadTs(client, result.channel, result.messageTs));
     await getSlackContext().runAgent({
       agentId: target.agent.id,
       message: formatReactionMessage(data, action),
-      sessionKey: `slack:${result.channel}`,
+      sessionKey: buildSlackSessionKey(result.channel, reactionThreadTs),
       thinkLevel: target.agent.thinkLevel,
       source: "slack",
       context,

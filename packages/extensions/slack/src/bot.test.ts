@@ -1,6 +1,6 @@
 import type { AgentConfig, SlackComponentConfig } from "@aihub/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllHistory, getHistory } from "./utils/history.js";
+import { clearAllHistory, getHistory, recordMessage } from "./utils/history.js";
 
 type MockStreamEvent = {
   type: "thinking" | "done" | "error";
@@ -46,6 +46,11 @@ type SlackCommandCallback = (args: {
   command: { channel_id: string; user_id: string; text?: string };
   ack: () => Promise<unknown>;
   respond: (message: unknown) => Promise<unknown>;
+}) => Promise<void>;
+
+type SlackEventCallback = (args: {
+  event: Record<string, unknown>;
+  client: MockSlackApp["client"];
 }) => Promise<void>;
 
 const apps: MockSlackApp[] = [];
@@ -134,6 +139,14 @@ const config: SlackComponentConfig = {
 
 function getMessageHandler(app: MockSlackApp): SlackMessageCallback {
   return app.message.mock.calls[0]?.[0] as SlackMessageCallback;
+}
+
+function getEventHandler(
+  app: MockSlackApp,
+  name: "reaction_added" | "reaction_removed" | "app_mention"
+): SlackEventCallback {
+  const call = app.event.mock.calls.find(([eventName]) => eventName === name);
+  return call?.[1] as SlackEventCallback;
 }
 
 function getCommandHandler(
@@ -891,6 +904,198 @@ describe("createSlackBot", () => {
       );
     });
 
+    it("uses per-thread session key when thread_ts present", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "2.2",
+          thread_ts: "1.1",
+          text: "<@Ubot> reply",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: "slack:C1:1.1" })
+      );
+    });
+
+    it("isolates sibling threads in the same channel", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "2.2",
+          thread_ts: "1.1",
+          text: "thread A",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+      await messageHandler({
+        message: {
+          ts: "4.4",
+          thread_ts: "3.3",
+          text: "thread B",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      const keys = mockRunAgent.mock.calls.map(
+        ([params]) => (params as { sessionKey: string }).sessionKey
+      );
+      expect(keys).toEqual(["slack:C1:1.1", "slack:C1:3.3"]);
+    });
+
+    it("!new inside a thread clears the thread-scoped session", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "2.2",
+          thread_ts: "1.1",
+          text: "!new",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1:1.1");
+    });
+
+    it("!new at top level still clears slack:C1", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "!new",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1");
+    });
+
+    it("isolates thread history from channel history", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "1.1",
+          text: "top",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+      await messageHandler({
+        message: {
+          ts: "2.2",
+          thread_ts: "1.1",
+          text: "in thread",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(getHistory("C1", 10)).toEqual([
+        expect.objectContaining({ content: "top" }),
+      ]);
+      expect(getHistory("C1:1.1", 10)).toEqual([
+        expect.objectContaining({ content: "in thread" }),
+      ]);
+    });
+
+    it("DM threads still use main session key", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "2.2",
+          thread_ts: "1.1",
+          text: "hello",
+          channel: "D1",
+          user: "U1",
+          channel_type: "im",
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: "main" })
+      );
+    });
+
+    it("clearHistoryAfterReply scopes to the thread", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], {
+        ...config,
+        clearHistoryAfterReply: true,
+      });
+      await bot?.start();
+
+      recordMessage(
+        "C1",
+        { author: "U1", content: "top-level", timestamp: 1 },
+        50,
+        "top"
+      );
+
+      const messageHandler = getMessageHandler(apps[0]);
+      await messageHandler({
+        message: {
+          ts: "2.2",
+          thread_ts: "1.1",
+          text: "in thread",
+          channel: "C1",
+          user: "U1",
+          channel_type: "channel",
+        },
+        client: apps[0].client,
+      });
+
+      expect(getHistory("C1", 10)).toEqual([
+        expect.objectContaining({ content: "top-level" }),
+      ]);
+      expect(getHistory("C1:1.1", 10)).toEqual([]);
+    });
+
     it("ignores !new from the bot itself", async () => {
       const { createSlackBot } = await import("./bot.js");
       const bot = createSlackBot([agent], {
@@ -913,6 +1118,114 @@ describe("createSlackBot", () => {
 
       expect(mockClearSessionEntry).not.toHaveBeenCalled();
       expect(mockRunAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("reactions", () => {
+    it("scopes reaction session by thread_ts looked up via conversations.history", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      apps[0].client.conversations.history.mockResolvedValueOnce({
+        messages: [{ ts: "2.2", thread_ts: "1.1" }],
+      });
+
+      const reactionHandler = getEventHandler(apps[0], "reaction_added");
+      await reactionHandler({
+        event: {
+          reaction: "eyes",
+          user: "U1",
+          item: { type: "message", channel: "C1", ts: "2.2" },
+        },
+        client: apps[0].client,
+      });
+
+      expect(apps[0].client.conversations.history).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C1",
+          latest: "2.2",
+          inclusive: true,
+          limit: 1,
+        })
+      );
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: "slack:C1:1.1" })
+      );
+    });
+
+    it("scopes reaction by item.thread_ts when present and skips lookup", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      const reactionHandler = getEventHandler(apps[0], "reaction_added");
+      await reactionHandler({
+        event: {
+          reaction: "eyes",
+          user: "U1",
+          item: {
+            type: "message",
+            channel: "C1",
+            ts: "2.2",
+            thread_ts: "1.1",
+          },
+        },
+        client: apps[0].client,
+      });
+
+      expect(apps[0].client.conversations.history).not.toHaveBeenCalled();
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: "slack:C1:1.1" })
+      );
+    });
+
+    it("scopes reaction on a thread parent by item.ts", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      apps[0].client.conversations.history.mockResolvedValueOnce({
+        messages: [{ ts: "1.1", reply_count: 3 }],
+      });
+
+      const reactionHandler = getEventHandler(apps[0], "reaction_added");
+      await reactionHandler({
+        event: {
+          reaction: "eyes",
+          user: "U1",
+          item: { type: "message", channel: "C1", ts: "1.1" },
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: "slack:C1:1.1" })
+      );
+    });
+
+    it("falls back to channel-only session for standalone reactions", async () => {
+      const { createSlackBot } = await import("./bot.js");
+      const bot = createSlackBot([agent], config);
+      await bot?.start();
+
+      apps[0].client.conversations.history.mockResolvedValueOnce({
+        messages: [{ ts: "1.1" }],
+      });
+
+      const reactionHandler = getEventHandler(apps[0], "reaction_added");
+      await reactionHandler({
+        event: {
+          reaction: "eyes",
+          user: "U1",
+          item: { type: "message", channel: "C1", ts: "1.1" },
+        },
+        client: apps[0].client,
+      });
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: "slack:C1" })
+      );
     });
   });
 });

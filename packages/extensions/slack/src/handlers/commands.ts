@@ -5,6 +5,7 @@ import type {
 } from "@aihub/shared";
 import { DEFAULT_MAIN_KEY } from "@aihub/shared";
 import { getSlackContext } from "../context.js";
+import { buildSlackSessionKey } from "../utils/threads.js";
 
 export type SlackCommandData = {
   channel_id: string;
@@ -23,8 +24,11 @@ export type SlackRespond = (
   message: string | { text: string; response_type?: "ephemeral" | "in_channel" }
 ) => Promise<unknown>;
 
+// NOTE: Slack slash commands do not include thread_ts in their payload, so /new
+// and /stop default to the channel-scoped session. Use !new / !stop from inside
+// a thread to target the per-thread session.
 function defaultSessionKey(target: SlackCommandTarget, command: SlackCommandData): string {
-  return target.isDm ? DEFAULT_MAIN_KEY : `slack:${command.channel_id}`;
+  return target.isDm ? DEFAULT_MAIN_KEY : buildSlackSessionKey(command.channel_id);
 }
 
 function commandSessionKey(
@@ -119,8 +123,8 @@ export async function handleHelpCommand(
     "",
     "`/new [session]` - Start a new conversation",
     "`/stop [session]` - Stop the current run",
-    "`!new [session]` - Same as `/new` (works as a regular message)",
-    "`!stop [session]` - Same as `/stop` (works as a regular message)",
+    "`!new [session]` - Same as `/new` but works inside threads (per-thread session)",
+    "`!stop [session]` - Same as `/stop` but works inside threads",
     "`/help` - Show this help message",
     "`/ping` - Health check",
     "",

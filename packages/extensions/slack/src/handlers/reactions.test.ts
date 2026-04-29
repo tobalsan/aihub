@@ -64,6 +64,15 @@ describe("processReaction", () => {
       messageTs: "1.1",
     });
   });
+
+  it("accepts item.thread_ts on the reaction payload", () => {
+    const reaction = createReaction({
+      item: { channel: "C1", ts: "2.2", thread_ts: "1.1" },
+    });
+    expect(reaction.item.thread_ts).toBe("1.1");
+    const result = processReaction(reaction, createConfig());
+    expect(result.shouldProcess).toBe(true);
+  });
 });
 
 describe("formatReactionMessage", () => {

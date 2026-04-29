@@ -55,6 +55,8 @@ export type SlackWebClient = {
         username?: string;
         text?: string;
         ts?: string;
+        thread_ts?: string;
+        reply_count?: number;
       }>;
     }>;
   };
