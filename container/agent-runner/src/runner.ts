@@ -21,11 +21,6 @@ import {
   type ContainerOutput,
 } from "@aihub/shared";
 import { callGatewayTool } from "./gateway-client.js";
-import {
-  abortClaudeAgent,
-  runClaudeAgent,
-  sendClaudeFollowUpMessage,
-} from "./claude-runner.js";
 
 type HistoryEvent =
   | {
@@ -87,14 +82,8 @@ const LARGE_TOOL_RESULT_PREVIEW_LENGTH = 2_000;
 
 let activeSession: AgentSession | undefined;
 let pendingFollowUps: string[] = [];
-let activeSdk: "pi" | "claude" | undefined;
 
 export async function sendFollowUpMessage(message: unknown): Promise<void> {
-  if (activeSdk === "claude") {
-    await sendClaudeFollowUpMessage(message);
-    return;
-  }
-
   const text = getIpcMessageText(message);
   if (!text) return;
 
@@ -107,10 +96,6 @@ export async function sendFollowUpMessage(message: unknown): Promise<void> {
 }
 
 export function abortActiveAgent(): void {
-  if (activeSdk === "claude") {
-    abortClaudeAgent();
-    return;
-  }
   void activeSession?.abort();
 }
 
@@ -118,174 +103,159 @@ export async function runAgent(
   input: ContainerInput,
   onStreamEvent?: (event: unknown) => void
 ): Promise<ContainerOutput> {
-  if (input.sdkConfig.sdk === "claude") {
-    activeSdk = "claude";
-    try {
-      return await runClaudeAgent(input);
-    } finally {
-      activeSdk = undefined;
-    }
-  }
-
   if (input.sdkConfig.sdk !== "pi") {
     throw new Error(`Unsupported sandbox SDK: ${input.sdkConfig.sdk}`);
   }
 
-  activeSdk = "pi";
+  console.error(
+    `[agent-runner] Running agent ${input.agentId} with SDK ${input.sdkConfig.sdk}`
+  );
+
+  activeSession = undefined;
+
+  const provider = input.sdkConfig.model.provider;
+  if (!provider) {
+    throw new Error(
+      `Pi SDK requires model.provider for agent: ${input.agentId}`
+    );
+  }
+
+  const history: HistoryEvent[] = [];
+  const context = input.context as AgentContext | undefined;
+  const renderedContext = context ? renderAgentContext(context) : "";
+  const promptText = renderedContext
+    ? `${renderedContext}\n\n${input.message}`
+    : input.message;
+  if (renderedContext && context) {
+    const systemContextEvent: HistoryEvent = {
+      type: "system_context",
+      context,
+      rendered: renderedContext,
+      timestamp: Date.now(),
+    };
+    history.push(systemContextEvent);
+    onStreamEvent?.(systemContextEvent);
+  }
+  history.push({ type: "user", text: input.message, timestamp: Date.now() });
+  let aborted = false;
+
+  await fs.mkdir(input.sessionDir, { recursive: true });
+  const sessionFile = path.join(input.sessionDir, `${input.sessionId}.jsonl`);
+
+  const authStorage = AuthStorage.inMemory();
+  authStorage.setRuntimeApiKey(provider, "onecli-proxy-managed");
+  const modelRegistry = ModelRegistry.create(
+    authStorage,
+    path.join(input.sessionDir, "models.json")
+  );
+  const model = modelRegistry.find(provider, input.sdkConfig.model.model);
+  if (!model) {
+    throw new Error(
+      `Model not found: ${provider}/${input.sdkConfig.model.model}`
+    );
+  }
+
+  const contextFiles = await loadContextFiles(input);
+  const settingsManager = SettingsManager.create(
+    input.workspaceDir,
+    input.sessionDir
+  );
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: input.workspaceDir,
+    agentDir: input.sessionDir,
+    settingsManager,
+    additionalSkillPaths: [path.join(input.workspaceDir, "skills")],
+    appendSystemPrompt: [
+      AIHUB_CONTAINER_SYSTEM_PROMPT,
+      ...(input.extensionSystemPrompts ?? []),
+      renderedContext || undefined,
+    ].filter((prompt): prompt is string => Boolean(prompt)),
+    agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
+  });
+  await resourceLoader.reload();
+
+  const sessionManager = SessionManager.open(sessionFile, input.sessionDir);
+  const tools = createCodingTools(input.workspaceDir);
+  const usedToolNames = new Set<string>();
+  const customTools = [
+    ...createExtensionTools(input, usedToolNames),
+    createSendFileTool(onStreamEvent, usedToolNames),
+  ];
+
+  const { session } = await createAgentSession({
+    cwd: input.workspaceDir,
+    agentDir: input.sessionDir,
+    authStorage,
+    modelRegistry,
+    model,
+    ...(input.thinkLevel && { thinkingLevel: input.thinkLevel }),
+    tools,
+    customTools,
+    resourceLoader,
+    sessionManager,
+    settingsManager,
+  });
+  activeSession = session;
+
+  const systemPrompt = session.agent.state.systemPrompt;
+  if (typeof systemPrompt === "string" && systemPrompt.trim().length > 0) {
+    const systemPromptEvent: HistoryEvent = {
+      type: "system_prompt",
+      text: systemPrompt,
+      timestamp: Date.now(),
+    };
+    history.push(systemPromptEvent);
+    onStreamEvent?.(systemPromptEvent);
+  }
+
+  const unsubscribe = session.subscribe((evt) => {
+    const collectedEvents = collectHistoryEvent(evt, history);
+    for (const event of collectedEvents) {
+      onStreamEvent?.(event);
+    }
+  });
 
   try {
-    console.error(
-      `[agent-runner] Running agent ${input.agentId} with SDK ${input.sdkConfig.sdk}`
-    );
-
-    activeSession = undefined;
-
-    const provider = input.sdkConfig.model.provider;
-    if (!provider) {
-      throw new Error(
-        `Pi SDK requires model.provider for agent: ${input.agentId}`
-      );
+    for (const message of pendingFollowUps.splice(0)) {
+      await session.sendUserMessage(message, { deliverAs: "steer" });
     }
 
-    const history: HistoryEvent[] = [];
-    const context = input.context as AgentContext | undefined;
-    const renderedContext = context ? renderAgentContext(context) : "";
-    const promptText = renderedContext
-      ? `${renderedContext}\n\n${input.message}`
-      : input.message;
-    if (renderedContext && context) {
-      const systemContextEvent: HistoryEvent = {
-        type: "system_context",
-        context,
-        rendered: renderedContext,
-        timestamp: Date.now(),
-      };
-      history.push(systemContextEvent);
-      onStreamEvent?.(systemContextEvent);
-    }
-    history.push({ type: "user", text: input.message, timestamp: Date.now() });
-    let aborted = false;
-
-    await fs.mkdir(input.sessionDir, { recursive: true });
-    const sessionFile = path.join(input.sessionDir, `${input.sessionId}.jsonl`);
-
-    const authStorage = AuthStorage.inMemory();
-    authStorage.setRuntimeApiKey(provider, "onecli-proxy-managed");
-    const modelRegistry = ModelRegistry.create(
-      authStorage,
-      path.join(input.sessionDir, "models.json")
-    );
-    const model = modelRegistry.find(provider, input.sdkConfig.model.model);
-    if (!model) {
-      throw new Error(
-        `Model not found: ${provider}/${input.sdkConfig.model.model}`
-      );
-    }
-
-    const contextFiles = await loadContextFiles(input);
-    const settingsManager = SettingsManager.create(
-      input.workspaceDir,
-      input.sessionDir
-    );
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: input.workspaceDir,
-      agentDir: input.sessionDir,
-      settingsManager,
-      additionalSkillPaths: [path.join(input.workspaceDir, "skills")],
-      appendSystemPrompt: [
-        AIHUB_CONTAINER_SYSTEM_PROMPT,
-        ...(input.extensionSystemPrompts ?? []),
-        renderedContext || undefined,
-      ].filter((prompt): prompt is string => Boolean(prompt)),
-      agentsFilesOverride: () => ({ agentsFiles: contextFiles }),
-    });
-    await resourceLoader.reload();
-
-    const sessionManager = SessionManager.open(sessionFile, input.sessionDir);
-    const tools = createCodingTools(input.workspaceDir);
-    const usedToolNames = new Set<string>();
-    const customTools = [
-      ...createExtensionTools(input, usedToolNames),
-      createSendFileTool(onStreamEvent, usedToolNames),
-    ];
-
-    const { session } = await createAgentSession({
-      cwd: input.workspaceDir,
-      agentDir: input.sessionDir,
-      authStorage,
-      modelRegistry,
-      model,
-      ...(input.thinkLevel && { thinkingLevel: input.thinkLevel }),
-      tools,
-      customTools,
-      resourceLoader,
-      sessionManager,
-      settingsManager,
-    });
-    activeSession = session;
-
-    const systemPrompt = session.agent.state.systemPrompt;
-    if (typeof systemPrompt === "string" && systemPrompt.trim().length > 0) {
-      const systemPromptEvent: HistoryEvent = {
-        type: "system_prompt",
-        text: systemPrompt,
-        timestamp: Date.now(),
-      };
-      history.push(systemPromptEvent);
-      onStreamEvent?.(systemPromptEvent);
-    }
-
-    const unsubscribe = session.subscribe((evt) => {
-      const collectedEvents = collectHistoryEvent(evt, history);
-      for (const event of collectedEvents) {
-        onStreamEvent?.(event);
-      }
-    });
-
-    try {
-      for (const message of pendingFollowUps.splice(0)) {
-        await session.sendUserMessage(message, { deliverAs: "steer" });
-      }
-
-      await session.prompt(promptText, await loadPromptOptions(input));
-    } catch (error) {
-      if (isAbortLikeError(error)) {
-        aborted = true;
-      } else {
-        session.dispose();
-        activeSession = undefined;
-        pendingFollowUps = [];
-        throw error;
-      }
-    } finally {
-      unsubscribe();
-    }
-
-    const lastAssistant = findLastAssistant(session.messages);
-    const lastAssistantRecord = lastAssistant as
-      | (Record<string, unknown> & AssistantMessage)
-      | undefined;
-    if (lastAssistantRecord?.stopReason === "error") {
-      const message =
-        typeof lastAssistantRecord.errorMessage === "string" &&
-        lastAssistantRecord.errorMessage
-          ? lastAssistantRecord.errorMessage
-          : "unknown error";
+    await session.prompt(promptText, await loadPromptOptions(input));
+  } catch (error) {
+    if (isAbortLikeError(error)) {
+      aborted = true;
+    } else {
       session.dispose();
       activeSession = undefined;
       pendingFollowUps = [];
-      throw new Error(`Agent error: ${message}`);
+      throw error;
     }
+  } finally {
+    unsubscribe();
+  }
 
-    const text = lastAssistant ? extractAssistantText(lastAssistant) : "";
+  const lastAssistant = findLastAssistant(session.messages);
+  const lastAssistantRecord = lastAssistant as
+    | (Record<string, unknown> & AssistantMessage)
+    | undefined;
+  if (lastAssistantRecord?.stopReason === "error") {
+    const message =
+      typeof lastAssistantRecord.errorMessage === "string" &&
+      lastAssistantRecord.errorMessage
+        ? lastAssistantRecord.errorMessage
+        : "unknown error";
     session.dispose();
     activeSession = undefined;
     pendingFollowUps = [];
-
-    return { text, aborted, history };
-  } finally {
-    activeSdk = undefined;
+    throw new Error(`Agent error: ${message}`);
   }
+
+  const text = lastAssistant ? extractAssistantText(lastAssistant) : "";
+  session.dispose();
+  activeSession = undefined;
+  pendingFollowUps = [];
+
+  return { text, aborted, history };
 }
 
 async function loadBootstrapContextFiles(
