@@ -114,7 +114,7 @@ const configuredHostnames = [
   extractHostname(config.server?.baseUrl),
   extractHostname(config.web?.baseUrl),
   tailnetHostname,
-].filter((value, index, values): value is string => !!value && values.indexOf(value) === index);
+,"thinhs-mac-studio.catla-powan.ts.net","thinhs-mac-studio.catla-powan.ts.net"].filter((value, index, values): value is string => !!value && values.indexOf(value) === index);
 const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 
 // Resolve gateway target for proxy

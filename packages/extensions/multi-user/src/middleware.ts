@@ -139,7 +139,11 @@ export function forwardAuthContextToRequest(
 }
 
 function shouldSkipAuth(path: string): boolean {
-  return path === "/api/auth" || path.startsWith("/api/auth/");
+  if (path === "/api/auth" || path.startsWith("/api/auth/")) return true;
+  if (path === "/api/capabilities") return true;
+  if (path === "/api/branding/logo") return true;
+  if (path === "/api/theme.css") return true;
+  return false;
 }
 
 async function getValidatedAuthContext(
