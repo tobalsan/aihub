@@ -8,6 +8,7 @@ import {
   getActiveAgents,
   getAgent,
   isAgentActive,
+  loadConfig,
   resolveWorkspaceDir,
 } from "../config/index.js";
 import {
@@ -113,6 +114,35 @@ api.get("/theme.css", async (c) => {
   }
 });
 
+api.get("/branding/logo", async (c) => {
+  const logo = loadConfig().branding?.logo;
+  if (!logo) return c.json({ error: "Not found" }, 404);
+  const homeDir = resolveHomeDir();
+  const filePath = path.resolve(homeDir, logo);
+  if (!filePath.startsWith(homeDir)) {
+    return c.json({ error: "Invalid path" }, 400);
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return c.json({ error: "Not found" }, 404);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".svg": "image/svg+xml",
+      ".webp": "image/webp",
+    };
+    const contentType = mimeMap[ext] ?? "application/octet-stream";
+    const stream = createReadStream(filePath);
+    c.header("Content-Type", contentType);
+    c.header("Cache-Control", "public, max-age=3600");
+    return c.body(Readable.toWeb(stream) as unknown as ReadableStream);
+  } catch {
+    return c.json({ error: "Not found" }, 404);
+  }
+});
+
 api.get("/capabilities", async (c) => {
   const extensions = Object.fromEntries(
     getLoadedExtensions().map((extension) => [extension.id, true])
@@ -120,6 +150,7 @@ api.get("/capabilities", async (c) => {
   const isMultiUserEnabled = isExtensionLoaded("multiUser");
   const authContext = isMultiUserEnabled ? await getRequestAuthContext(c) : null;
   const agents = await getVisibleAgents(c);
+  const branding = loadConfig().branding;
 
   return c.json({
     version: 2,
@@ -134,6 +165,14 @@ api.get("/capabilities", async (c) => {
             name: authContext.user.name ?? null,
             email: authContext.user.email ?? null,
             role: authContext.user.role ?? null,
+          },
+        }
+      : {}),
+    ...(branding
+      ? {
+          branding: {
+            name: branding.name,
+            logo: branding.logo ? "/api/branding/logo" : undefined,
           },
         }
       : {}),

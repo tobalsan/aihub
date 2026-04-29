@@ -49,15 +49,29 @@ export default function LoginPage() {
       <main class="login-page">
         <section class="login-card">
           <div class="login-brand">
-            <div class="login-mark">AI</div>
+            <Show
+              when={capabilities.branding?.logo}
+              fallback={
+                <div class="login-mark">
+                  {capabilities.branding?.name?.substring(0, 2).toUpperCase() ??
+                    "AI"}
+                </div>
+              }
+            >
+              <img
+                class="login-logo"
+                src={capabilities.branding?.logo}
+                alt={capabilities.branding?.name ?? "AIHub"}
+              />
+            </Show>
             <div>
-              <p class="login-eyebrow">AIHub</p>
+              <p class="login-eyebrow">
+                {capabilities.branding?.name ?? "AIHub"}
+              </p>
               <h1>Sign in with Google</h1>
             </div>
           </div>
-          <p class="login-copy">
-            Multi-user mode is enabled. Use your Google account to continue.
-          </p>
+          <p class="login-copy">Use your Google account to continue.</p>
           <button
             class="login-google-button"
             type="button"
@@ -118,6 +132,13 @@ export default function LoginPage() {
           color: var(--text-primary);
           background: color-mix(in srgb, var(--bg-raised) 82%, transparent);
           border: 1px solid var(--border-default);
+        }
+
+        .login-logo {
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
+          object-fit: contain;
         }
 
         .login-eyebrow {

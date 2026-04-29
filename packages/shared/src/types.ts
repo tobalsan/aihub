@@ -561,6 +561,12 @@ export const GatewayConfigSchema = z.object({
   onecli: OnecliConfigSchema.optional(),
   extensions: ExtensionsConfigSchema,
   extensionsPath: z.string().optional(),
+  branding: z
+    .object({
+      name: z.string().optional(),
+      logo: z.string().optional(),
+    })
+    .optional(),
   server: z
     .object({
       host: z.string().optional(),
@@ -797,6 +803,12 @@ export const CapabilitiesResponseSchema = z.object({
   multiUser: z.boolean(),
   home: z.string().optional(),
   user: CapabilitiesUserSchema.optional(),
+  branding: z
+    .object({
+      name: z.string().optional(),
+      logo: z.string().optional(),
+    })
+    .optional(),
 });
 export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 
