@@ -1865,9 +1865,8 @@ function ProjectsPanel(props: { onOpen: (id: string) => void }) {
                                 stroke-linejoin="round"
                                 aria-hidden="true"
                               >
-                                <path d="M14 3h7v7" />
-                                <path d="M10 14L21 3" />
-                                <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M10 8l4 4-4 4" />
                               </svg>
                             </span>
                             <span class={`cp-dot cp-dot-${project.group}`} />
