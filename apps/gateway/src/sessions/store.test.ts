@@ -133,6 +133,35 @@ describe("getSessionEntry", () => {
   });
 });
 
+describe("session id format", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("generates UUIDv7 session ids that sort by creation time", async () => {
+    const { resolveSessionId } = await import("./store.js");
+
+    const first = await resolveSessionId({
+      agentId: "agent-a",
+      sessionKey: "main",
+      message: "hello",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await resolveSessionId({
+      agentId: "agent-b",
+      sessionKey: "main",
+      message: "hello",
+    });
+
+    const uuidv7Re =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(first.sessionId).toMatch(uuidv7Re);
+    expect(second.sessionId).toMatch(uuidv7Re);
+    expect(first.sessionId < second.sessionId).toBe(true);
+  });
+});
+
 describe("session store isolation", () => {
   beforeEach(() => {
     vi.resetModules();

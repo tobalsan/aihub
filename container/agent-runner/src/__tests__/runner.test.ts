@@ -10,6 +10,7 @@ const proxyFetchMock = vi.hoisted(() => vi.fn());
 const piMock = vi.hoisted(() => {
   const subscribers: Array<(event: unknown) => void> = [];
   const setRuntimeApiKey = vi.fn();
+  const sessionManagerOpen = vi.fn(() => ({}));
   const model = {
     provider: "anthropic",
     id: "claude-sonnet-4-6",
@@ -35,6 +36,7 @@ const piMock = vi.hoisted(() => {
   return {
     subscribers,
     setRuntimeApiKey,
+    sessionManagerOpen,
     model,
     session,
     createAgentSession: vi.fn(async (_options: unknown) => ({ session })),
@@ -53,6 +55,7 @@ const piMock = vi.hoisted(() => {
       this.createCodingTools.mockClear();
       this.resourceReload.mockClear();
       setRuntimeApiKey.mockClear();
+      sessionManagerOpen.mockClear();
     },
   };
 });
@@ -69,7 +72,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
     })),
   },
   SessionManager: {
-    open: vi.fn(() => ({})),
+    open: piMock.sessionManagerOpen,
   },
   SettingsManager: {
     create: vi.fn(() => ({})),
@@ -406,6 +409,30 @@ describe("Pi runner", () => {
     expect(piMock.session.sendUserMessage).toHaveBeenCalledWith(
       "already queued",
       { deliverAs: "steer" }
+    );
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("writes the session file directly under sessionDir as .jsonl", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    piMock.session.prompt.mockImplementationOnce(async () => {
+      piMock.session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      });
+    });
+
+    await runAgent(createInput({ workspaceDir, sessionDir }));
+
+    expect(piMock.sessionManagerOpen).toHaveBeenCalledWith(
+      path.join(sessionDir, "session-1.jsonl"),
+      sessionDir
     );
 
     await fs.rm(tempDir, { recursive: true, force: true });

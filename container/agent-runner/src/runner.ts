@@ -166,9 +166,8 @@ export async function runAgent(
     history.push({ type: "user", text: input.message, timestamp: Date.now() });
     let aborted = false;
 
-    const sessionRoot = path.join(input.sessionDir, input.agentId);
-    await fs.mkdir(sessionRoot, { recursive: true });
-    const sessionFile = path.join(sessionRoot, `${input.sessionId}.json`);
+    await fs.mkdir(input.sessionDir, { recursive: true });
+    const sessionFile = path.join(input.sessionDir, `${input.sessionId}.jsonl`);
 
     const authStorage = AuthStorage.inMemory();
     authStorage.setRuntimeApiKey(provider, "onecli-proxy-managed");
@@ -202,7 +201,7 @@ export async function runAgent(
     });
     await resourceLoader.reload();
 
-    const sessionManager = SessionManager.open(sessionFile, sessionRoot);
+    const sessionManager = SessionManager.open(sessionFile, input.sessionDir);
     const tools = createCodingTools(input.workspaceDir);
     const usedToolNames = new Set<string>();
     const customTools = [

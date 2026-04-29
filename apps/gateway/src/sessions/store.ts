@@ -11,6 +11,25 @@ import { getUserSessionsPath } from "@aihub/extension-multi-user/isolation";
 
 export { formatSessionTimestamp } from "./files.js";
 
+/**
+ * Generate a UUIDv7 (RFC 9562): 48-bit unix_ts_ms + 4-bit version + 12-bit rand_a
+ * + 2-bit variant + 62-bit rand_b. Sortable by creation time.
+ */
+function uuidv7(): string {
+  const bytes = crypto.randomBytes(16);
+  const ts = Date.now();
+  bytes[0] = (ts / 2 ** 40) & 0xff;
+  bytes[1] = (ts / 2 ** 32) & 0xff;
+  bytes[2] = (ts >>> 24) & 0xff;
+  bytes[3] = (ts >>> 16) & 0xff;
+  bytes[4] = (ts >>> 8) & 0xff;
+  bytes[5] = ts & 0xff;
+  bytes[6] = (bytes[6]! & 0x0f) | 0x70;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export { DEFAULT_MAIN_KEY } from "@aihub/shared";
 export type { SessionEntry } from "@aihub/shared";
 
@@ -170,7 +189,7 @@ export async function resolveSessionId(
   let sessionId: string;
   let createdAt: number;
   if (shouldCreateNew) {
-    sessionId = crypto.randomUUID();
+    sessionId = uuidv7();
     createdAt = now;
   } else {
     sessionId = entry.sessionId;
@@ -289,7 +308,7 @@ export async function setSessionThinkLevel(
     // Create entry if missing (use provided sessionId or generate new)
     const now = Date.now();
     state.store[storeKey] = {
-      sessionId: sessionId ?? crypto.randomUUID(),
+      sessionId: sessionId ?? uuidv7(),
       updatedAt: now,
       createdAt: now,
       thinkLevel: level,
