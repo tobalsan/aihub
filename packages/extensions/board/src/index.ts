@@ -252,10 +252,12 @@ function registerBoardRoutes(app: Hono): void {
 
   app.get("/board/projects", async (c) => {
     const includeDone = c.req.query("include") === "done";
-    const root = expandPath(
-      getContext().getConfig().projects?.root ?? "~/projects"
+    const projectsConfig = getContext().getConfig().projects;
+    const root = expandPath(projectsConfig?.root ?? "~/projects");
+    const worktreesRoot = expandPath(
+      projectsConfig?.worktrees ?? "~/.worktrees"
     );
-    const items = await scanProjects(root, includeDone);
+    const items = await scanProjects(root, includeDone, worktreesRoot);
     return c.json({ items });
   });
 

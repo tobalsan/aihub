@@ -27,13 +27,14 @@ async function makeProject(
 }
 
 async function makeWorktree(
-  root: string,
-  id: string,
-  name: string
+  worktreesRoot: string,
+  projectDirName: string,
+  name: string,
+  branch: string
 ): Promise<string> {
-  const wt = path.join(root, ".workspaces", id, name);
+  const wt = path.join(worktreesRoot, projectDirName, name);
   await fs.mkdir(wt, { recursive: true });
-  await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: wt });
+  await execFileAsync("git", ["init", "-q", "-b", branch], { cwd: wt });
   await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: wt });
   await execFileAsync("git", ["config", "user.name", "t"], { cwd: wt });
   await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
@@ -84,9 +85,11 @@ describe("splitFrontmatter", () => {
 
 describe("scanProjects", () => {
   let tmp: string;
+  let emptyWtRoot: string;
 
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "board-projects-"));
+    emptyWtRoot = path.join(tmp, "__empty_wts");
   });
 
   afterEach(async () => {
@@ -115,7 +118,7 @@ describe("scanProjects", () => {
     await fs.mkdir(path.join(tmp, ".archive"), { recursive: true });
     await fs.mkdir(path.join(tmp, "not-a-project"), { recursive: true });
 
-    const items = await scanProjects(tmp, false);
+    const items = await scanProjects(tmp, false, emptyWtRoot);
     expect(items.map((p) => p.id)).toEqual(["PRO-002", "PRO-001"]);
     expect(items[0]?.group).toBe("review");
     expect(items[1]?.group).toBe("active");
@@ -133,10 +136,10 @@ describe("scanProjects", () => {
       created: "2026-01-02",
     });
 
-    const without = await scanProjects(tmp, false);
+    const without = await scanProjects(tmp, false, emptyWtRoot);
     expect(without.map((p) => p.id)).toEqual(["PRO-001"]);
 
-    const withDone = await scanProjects(tmp, true);
+    const withDone = await scanProjects(tmp, true, emptyWtRoot);
     expect(withDone.map((p) => p.id).sort()).toEqual(["PRO-001", "PRO-002"]);
   });
 
@@ -162,27 +165,41 @@ describe("scanProjects", () => {
       created: "2026-04-01",
     });
 
-    const items = await scanProjects(tmp, false);
+    const items = await scanProjects(tmp, false, emptyWtRoot);
     expect(items.map((p) => p.id)).toEqual(["PRO-C", "PRO-B", "PRO-A", "PRO-D"]);
   });
 
-  it("collects worktree info from .workspaces/{id}", async () => {
+  it("collects worktree info from worktreesRoot when branch matches space/{id}", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",
       status: "current",
       created: "2026-01-01",
     });
-    const wt = await makeWorktree(tmp, "PRO-001", "main");
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "aihub", "feature-x", "space/PRO-001");
     await fs.writeFile(path.join(wt, "dirty"), "dirty", "utf-8");
 
-    const items = await scanProjects(tmp, false);
+    const items = await scanProjects(tmp, false, wtRoot);
     expect(items).toHaveLength(1);
     const wts = items[0]?.worktrees ?? [];
     expect(wts).toHaveLength(1);
-    expect(wts[0]?.name).toBe("main");
-    expect(wts[0]?.branch).toBe("main");
+    expect(wts[0]?.name).toBe("feature-x");
+    expect(wts[0]?.branch).toBe("space/PRO-001");
     expect(wts[0]?.dirty).toBe(true);
     expect(wts[0]?.ahead).toBe(0);
+  });
+
+  it("ignores worktrees whose branch does not match the project", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(wtRoot, "aihub", "other", "space/PRO-999");
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    expect(items[0]?.worktrees).toEqual([]);
   });
 
   it("handles non-git worktree subdirs gracefully", async () => {
@@ -191,13 +208,78 @@ describe("scanProjects", () => {
       status: "current",
       created: "2026-01-01",
     });
-    await fs.mkdir(path.join(tmp, ".workspaces", "PRO-001", "garbage"), {
-      recursive: true,
-    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await fs.mkdir(path.join(wtRoot, "aihub", "garbage"), { recursive: true });
 
-    const items = await scanProjects(tmp, false);
+    const items = await scanProjects(tmp, false, wtRoot);
     expect(items).toHaveLength(1);
     expect(items[0]?.worktrees).toEqual([]);
+  });
+
+  it("discovers worktrees via repo frontmatter using git worktree list", async () => {
+    const repoDir = path.join(tmp, "repo");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "x"), "x", "utf-8");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+
+    const wtPath = path.join(tmp, "elsewhere", "feat");
+    await execFileAsync(
+      "git",
+      ["worktree", "add", "-b", "space/PRO-001", wtPath],
+      { cwd: repoDir }
+    );
+
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+      repo: repoDir,
+    });
+
+    const items = await scanProjects(tmp, false, path.join(tmp, "missing"));
+    expect(items).toHaveLength(1);
+    const wts = items[0]?.worktrees ?? [];
+    const found = wts.find((w) => w.branch === "space/PRO-001");
+    expect(found).toBeTruthy();
+    expect(await fs.realpath(found!.path)).toBe(await fs.realpath(wtPath));
+  });
+
+  it("dedupes worktrees discovered by both root scan and git worktree list", async () => {
+    const repoDir = path.join(tmp, "repo");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.name", "t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], { cwd: repoDir });
+    await fs.writeFile(path.join(repoDir, "x"), "x", "utf-8");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+
+    const wtRoot = path.join(tmp, "_wts");
+    const wtPath = path.join(wtRoot, "aihub", "feat");
+    await fs.mkdir(path.dirname(wtPath), { recursive: true });
+    await execFileAsync(
+      "git",
+      ["worktree", "add", "-b", "space/PRO-001", wtPath],
+      { cwd: repoDir }
+    );
+
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+      repo: repoDir,
+    });
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    const wts = items[0]?.worktrees ?? [];
+    expect(wts).toHaveLength(1);
+    expect(wts[0]?.branch).toBe("space/PRO-001");
   });
 
   it("uses dir name as id when frontmatter id missing", async () => {
@@ -206,13 +288,13 @@ describe("scanProjects", () => {
       status: "current",
       created: "2026-01-01",
     });
-    const items = await scanProjects(tmp, false);
+    const items = await scanProjects(tmp, false, emptyWtRoot);
     expect(items[0]?.id).toBe("PRO-X");
   });
 
   it("skips dirs without README.md", async () => {
     await fs.mkdir(path.join(tmp, "PRO-empty"), { recursive: true });
-    const items = await scanProjects(tmp, false);
+    const items = await scanProjects(tmp, false, emptyWtRoot);
     expect(items).toEqual([]);
   });
 });

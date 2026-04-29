@@ -284,6 +284,7 @@ export type TaskboardConfig = z.infer<typeof TaskboardConfigSchema>;
 // Projects config
 export const ProjectsConfigSchema = z.object({
   root: z.string().optional(),
+  worktrees: z.string().optional(),
 });
 export type ProjectsConfig = z.infer<typeof ProjectsConfigSchema>;
 
