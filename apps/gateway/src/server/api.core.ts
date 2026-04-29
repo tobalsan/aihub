@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
-import { SendMessageRequestSchema } from "@aihub/shared";
+import { SendMessageRequestSchema, resolveHomeDir } from "@aihub/shared";
 import {
   getActiveAgents,
   getAgent,
@@ -100,6 +100,18 @@ function isWithinDir(filePath: string, dir: string): boolean {
 function contentDispositionFilename(filename: string): string {
   return filename.replace(/["\\\r\n]/g, "_");
 }
+
+api.get("/theme.css", async (c) => {
+  const themePath = path.join(resolveHomeDir(), "theme.css");
+  try {
+    const css = await fs.readFile(themePath, "utf8");
+    c.header("Content-Type", "text/css");
+    c.header("Cache-Control", "no-cache");
+    return c.body(css);
+  } catch {
+    return c.body(null, 204);
+  }
+});
 
 api.get("/capabilities", async (c) => {
   const extensions = Object.fromEntries(
