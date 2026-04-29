@@ -21,9 +21,8 @@ describe("projects store", () => {
     process.env.USERPROFILE = tmpDir;
 
     vi.resetModules();
-    const { setProjectsContext, clearProjectsContext } = await import(
-      "../context.js"
-    );
+    const { setProjectsContext, clearProjectsContext } =
+      await import("../context.js");
     clearProjectsContextForTest = clearProjectsContext;
     setProjectsContext({
       getConfig: () => ({
@@ -127,7 +126,9 @@ describe("projects store", () => {
     const ids = listResult.data.map((item) => item.id);
     expect(ids).toContain("PRO-1");
     expect(ids).toContain("PRO-2");
-    expect(listResult.data.every((item) => item.repoValid === false)).toBe(true);
+    expect(listResult.data.every((item) => item.repoValid === false)).toBe(
+      true
+    );
 
     const getResult = await getProject(config, firstResult.data.id);
     if (!getResult.ok) throw new Error(getResult.error);
@@ -229,6 +230,56 @@ describe("projects store", () => {
       "utf8"
     );
     expect(activeReadme).toContain('status: "maybe"');
+  });
+
+  it("moves completed projects to .done and keeps them resolvable", async () => {
+    const { createProject, updateProject, getProject, listProjects } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, {
+      title: "Complete Me Project",
+    });
+    if (!created.ok) throw new Error(created.error);
+
+    const done = await updateProject(config, created.data.id, {
+      status: "done",
+    });
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(done.data.path).toBe(path.join(".done", created.data.path));
+
+    const donePath = path.join(projectsRoot, done.data.path);
+    await expect(
+      fs.access(path.join(projectsRoot, created.data.path))
+    ).rejects.toBeDefined();
+    await expect(fs.stat(donePath)).resolves.toBeDefined();
+
+    const detail = await getProject(config, created.data.id);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.data.path).toBe(path.join(".done", created.data.path));
+
+    const list = await listProjects(config);
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    expect(list.data.map((item) => item.path)).toContain(
+      path.join(".done", created.data.path)
+    );
+
+    const reopened = await updateProject(config, created.data.id, {
+      status: "maybe",
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.data.path).toBe(created.data.path);
+    await expect(
+      fs.stat(path.join(projectsRoot, created.data.path))
+    ).resolves.toBeDefined();
   });
 
   it("updates thread comments preserving author and date", async () => {
@@ -396,8 +447,12 @@ describe("projects store", () => {
   });
 
   it("includes repoValid in archived project list items", async () => {
-    const { createProject, updateProject, archiveProject, listArchivedProjects } =
-      await import("./store.js");
+    const {
+      createProject,
+      updateProject,
+      archiveProject,
+      listArchivedProjects,
+    } = await import("./store.js");
     const config = {
       agents: [],
       sessions: { idleMinutes: 360 },

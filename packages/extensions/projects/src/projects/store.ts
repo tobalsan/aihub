@@ -19,8 +19,10 @@ function getProjectsStatePath(): string {
 }
 const THREAD_FILE = "THREAD.md";
 const ARCHIVE_DIR = ".archive";
+const DONE_DIR = ".done";
 const TRASH_DIR = ".trash";
 const LEGACY_TRASH_DIRS = ["Trash", "trash"];
+const DONE_STATUSES = new Set(["done", "cancelled"]);
 
 export type ProjectListItem = {
   id: string;
@@ -115,6 +117,12 @@ function slugifyTitle(title: string): string {
 }
 
 type ProjectsState = { lastId: number };
+
+type ProjectLocation = {
+  dirName: string;
+  baseRoot: string;
+  path: string;
+};
 
 async function readProjectsState(): Promise<ProjectsState> {
   try {
@@ -244,6 +252,59 @@ async function findArchivedProjectDir(
   return findProjectDir(path.join(root, ARCHIVE_DIR), id);
 }
 
+async function findDoneProjectDir(
+  root: string,
+  id: string
+): Promise<string | null> {
+  return findProjectDir(path.join(root, DONE_DIR), id);
+}
+
+function projectRelativePath(
+  root: string,
+  baseRoot: string,
+  dirName: string
+): string {
+  const prefix = path.relative(root, baseRoot);
+  return prefix ? path.join(prefix, dirName) : dirName;
+}
+
+export async function findProjectLocation(
+  root: string,
+  id: string,
+  options?: { includeDone?: boolean; includeArchived?: boolean }
+): Promise<ProjectLocation | null> {
+  const activeDir = await findProjectDir(root, id);
+  if (activeDir) {
+    return { dirName: activeDir, baseRoot: root, path: activeDir };
+  }
+
+  if (options?.includeDone !== false) {
+    const doneRoot = path.join(root, DONE_DIR);
+    const doneDir = await findDoneProjectDir(root, id);
+    if (doneDir) {
+      return {
+        dirName: doneDir,
+        baseRoot: doneRoot,
+        path: path.join(DONE_DIR, doneDir),
+      };
+    }
+  }
+
+  if (options?.includeArchived) {
+    const archiveRoot = path.join(root, ARCHIVE_DIR);
+    const archivedDir = await findArchivedProjectDir(root, id);
+    if (archivedDir) {
+      return {
+        dirName: archivedDir,
+        baseRoot: archiveRoot,
+        path: path.join(ARCHIVE_DIR, archivedDir),
+      };
+    }
+  }
+
+  return null;
+}
+
 function toStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -271,26 +332,20 @@ function resolveProjectRepo(
   return areaRepoMap.get(areaId);
 }
 
-export async function listProjects(
-  config: GatewayConfig,
-  options?: { area?: string }
-): Promise<ProjectListResult> {
-  const root = getProjectsRoot(config);
-  if (!(await dirExists(root))) {
-    return { ok: true, data: [] };
-  }
-  await migrateTrashRoot(root);
-  const areaRepoMap = await getAreaRepoMap(config);
-  const areaFilter = options?.area?.trim();
-
-  const entries = await fs.readdir(root, { withFileTypes: true });
+async function listProjectItemsFromRoot(
+  scanRoot: string,
+  pathPrefix: string,
+  areaRepoMap: Map<string, string>,
+  areaFilter?: string
+): Promise<ProjectListItem[]> {
+  if (!(await dirExists(scanRoot))) return [];
+  const entries = await fs.readdir(scanRoot, { withFileTypes: true });
   const projects: ProjectListItem[] = [];
-
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const dirName = entry.name;
     if (dirName.startsWith(".")) continue;
-    const dirPath = path.join(root, dirName);
+    const dirPath = path.join(scanRoot, dirName);
     try {
       const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
       const mdFiles = dirEntries
@@ -335,7 +390,7 @@ export async function listProjects(
       projects.push({
         id,
         title: resolvedTitle,
-        path: dirName,
+        path: pathPrefix ? path.join(pathPrefix, dirName) : dirName,
         absolutePath: dirPath,
         repoValid,
         frontmatter: resolvedFrontmatter,
@@ -344,6 +399,29 @@ export async function listProjects(
       // Skip invalid project folder
     }
   }
+  return projects;
+}
+
+export async function listProjects(
+  config: GatewayConfig,
+  options?: { area?: string }
+): Promise<ProjectListResult> {
+  const root = getProjectsRoot(config);
+  if (!(await dirExists(root))) {
+    return { ok: true, data: [] };
+  }
+  await migrateTrashRoot(root);
+  const areaRepoMap = await getAreaRepoMap(config);
+  const areaFilter = options?.area?.trim();
+  const projects = [
+    ...(await listProjectItemsFromRoot(root, "", areaRepoMap, areaFilter)),
+    ...(await listProjectItemsFromRoot(
+      path.join(root, DONE_DIR),
+      DONE_DIR,
+      areaRepoMap,
+      areaFilter
+    )),
+  ];
 
   return { ok: true, data: projects };
 }
@@ -357,63 +435,11 @@ export async function listArchivedProjects(
     return { ok: true, data: [] };
   }
   const areaRepoMap = await getAreaRepoMap(config);
-
-  const entries = await fs.readdir(archiveRoot, { withFileTypes: true });
-  const projects: ProjectListItem[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const dirName = entry.name;
-    if (dirName.startsWith(".")) continue;
-    const dirPath = path.join(archiveRoot, dirName);
-    try {
-      const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
-      const mdFiles = dirEntries
-        .filter(
-          (e) => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE
-        )
-        .map((e) => e.name);
-      if (mdFiles.length === 0) continue;
-
-      let frontmatter: Record<string, unknown> = {};
-      let title = dirName;
-      const specsFile = mdFiles.find((f) => f.toUpperCase() === "SPECS.MD");
-      const readmeFile = mdFiles.find((f) => f.toUpperCase() === "README.MD");
-      const primaryFile = readmeFile ?? specsFile ?? mdFiles[0];
-      if (primaryFile) {
-        const parsed = await readMarkdownIfExists(
-          path.join(dirPath, primaryFile)
-        );
-        if (parsed) {
-          frontmatter = parsed.frontmatter;
-          title = parsed.title;
-        }
-      }
-
-      const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
-      const resolvedTitle = toStringField(frontmatter.title) ?? title;
-      const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
-      const repoValid = await isValidGitRepo(resolvedRepo);
-      const resolvedFrontmatter: Record<string, unknown> = {
-        ...frontmatter,
-        id,
-        title: resolvedTitle,
-      };
-      if (resolvedRepo) {
-        resolvedFrontmatter.repo = resolvedRepo;
-      }
-      projects.push({
-        id,
-        title: resolvedTitle,
-        path: path.join(ARCHIVE_DIR, dirName),
-        absolutePath: dirPath,
-        repoValid,
-        frontmatter: resolvedFrontmatter,
-      });
-    } catch {
-      // Skip invalid project folder
-    }
-  }
+  const projects = await listProjectItemsFromRoot(
+    archiveRoot,
+    ARCHIVE_DIR,
+    areaRepoMap
+  );
 
   return { ok: true, data: projects };
 }
@@ -425,18 +451,13 @@ export async function getProject(
   const root = getProjectsRoot(config);
   const areaRepoMap = await getAreaRepoMap(config);
   await migrateTrashRoot(root);
-  let dirName = await findProjectDir(root, id);
-  let baseRoot = root;
-  if (!dirName) {
-    const archivedDir = await findArchivedProjectDir(root, id);
-    if (archivedDir) {
-      dirName = archivedDir;
-      baseRoot = path.join(root, ARCHIVE_DIR);
-    }
-  }
-  if (!dirName) {
+  const location = await findProjectLocation(root, id, {
+    includeArchived: true,
+  });
+  if (!location) {
     return { ok: false, error: `Project not found: ${id}` };
   }
+  const { dirName, baseRoot } = location;
 
   const dirPath = path.join(baseRoot, dirName);
   const threadPath = path.join(dirPath, THREAD_FILE);
@@ -498,7 +519,7 @@ export async function getProject(
     data: {
       id: resolvedId,
       title: resolvedTitle,
-      path: baseRoot === root ? dirName : path.join(ARCHIVE_DIR, dirName),
+      path: projectRelativePath(root, baseRoot, dirName),
       absolutePath: dirPath,
       repoValid,
       frontmatter: resolvedFrontmatter,
@@ -581,12 +602,13 @@ export async function updateProject(
 ): Promise<ProjectItemResult> {
   const root = getProjectsRoot(config);
   await migrateTrashRoot(root);
-  const dirName = await findProjectDir(root, id);
-  if (!dirName) {
+  const location = await findProjectLocation(root, id);
+  if (!location) {
     return { ok: false, error: `Project not found: ${id}` };
   }
 
-  const dirPath = path.join(root, dirName);
+  const { dirName, baseRoot } = location;
+  const dirPath = path.join(baseRoot, dirName);
   const currentSpecsPath = path.join(dirPath, "SPECS.md");
   const currentReadmePath = path.join(dirPath, "README.md");
   const parsedSpecs = await readMarkdownIfExists(currentSpecsPath);
@@ -601,18 +623,28 @@ export async function updateProject(
   const nextTitle = input.title ?? currentTitle;
   const nextSlug = slugifyTitle(nextTitle);
   const nextDirName = `${id}_${nextSlug}`;
+  const nextStatus = input.status ?? toStringField(currentFrontmatter.status);
+  const nextBaseRoot =
+    nextStatus && DONE_STATUSES.has(nextStatus)
+      ? path.join(root, DONE_DIR)
+      : input.status && baseRoot === path.join(root, DONE_DIR)
+        ? root
+        : baseRoot;
   let finalDirName = dirName;
+  let finalBaseRoot = baseRoot;
 
-  if (nextDirName !== dirName) {
-    const targetPath = path.join(root, nextDirName);
+  if (nextDirName !== dirName || nextBaseRoot !== baseRoot) {
+    await ensureDir(nextBaseRoot);
+    const targetPath = path.join(nextBaseRoot, nextDirName);
     if (await dirExists(targetPath)) {
       return { ok: false, error: `Project already exists: ${nextDirName}` };
     }
     await fs.rename(dirPath, targetPath);
     finalDirName = nextDirName;
+    finalBaseRoot = nextBaseRoot;
   }
 
-  const finalDirPath = path.join(root, finalDirName);
+  const finalDirPath = path.join(finalBaseRoot, finalDirName);
 
   const nextFrontmatter: Record<string, unknown> = {
     ...currentFrontmatter,
@@ -723,7 +755,7 @@ export async function updateProject(
     data: {
       id,
       title: nextTitle,
-      path: finalDirName,
+      path: projectRelativePath(root, finalBaseRoot, finalDirName),
       absolutePath: finalDirPath,
       repoValid,
       frontmatter: resolvedFrontmatter,
@@ -738,8 +770,8 @@ export async function deleteProject(
   id: string
 ): Promise<DeleteProjectResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, id);
-  if (!dirName) {
+  const location = await findProjectLocation(root, id);
+  if (!location) {
     return { ok: false, error: `Project not found: ${id}` };
   }
 
@@ -747,17 +779,24 @@ export async function deleteProject(
   const trashRoot = path.join(root, TRASH_DIR);
   await ensureDir(trashRoot);
 
-  const sourcePath = path.join(root, dirName);
-  const targetPath = path.join(trashRoot, dirName);
+  const sourcePath = path.join(location.baseRoot, location.dirName);
+  const targetPath = path.join(trashRoot, location.dirName);
   if (await dirExists(targetPath)) {
-    return { ok: false, error: `Trash already contains project: ${dirName}` };
+    return {
+      ok: false,
+      error: `Trash already contains project: ${location.dirName}`,
+    };
   }
 
   await fs.rename(sourcePath, targetPath);
 
   return {
     ok: true,
-    data: { id, path: dirName, trashedPath: path.join(TRASH_DIR, dirName) },
+    data: {
+      id,
+      path: location.path,
+      trashedPath: path.join(TRASH_DIR, location.dirName),
+    },
   };
 }
 
@@ -766,18 +805,20 @@ export async function archiveProject(
   id: string
 ): Promise<ArchiveProjectResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, id);
-  if (!dirName) {
+  const location = await findProjectLocation(root, id);
+  if (!location) {
     return { ok: false, error: `Project not found: ${id}` };
   }
 
   const archiveRoot = path.join(root, ARCHIVE_DIR);
   await ensureDir(archiveRoot);
 
-  const sourcePath = path.join(root, dirName);
-  const targetPath = path.join(archiveRoot, dirName);
+  const targetPath = path.join(archiveRoot, location.dirName);
   if (await dirExists(targetPath)) {
-    return { ok: false, error: `Archive already contains project: ${dirName}` };
+    return {
+      ok: false,
+      error: `Archive already contains project: ${location.dirName}`,
+    };
   }
 
   const updated = await updateProject(config, id, { status: "archived" });
@@ -785,6 +826,8 @@ export async function archiveProject(
     return { ok: false, error: updated.error };
   }
 
+  const sourcePath = updated.data.absolutePath;
+  const dirName = path.basename(sourcePath);
   await fs.rename(sourcePath, targetPath);
 
   return {
@@ -830,12 +873,16 @@ export async function appendProjectComment(
   entry: ProjectThreadEntry
 ): Promise<ProjectCommentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const threadPath = path.join(root, dirName, THREAD_FILE);
+  const threadPath = path.join(
+    location.baseRoot,
+    location.dirName,
+    THREAD_FILE
+  );
   const formatted = formatThreadEntry(entry);
   if (!(await fileExists(threadPath))) {
     const initial = formatThreadFrontmatter(projectId) + formatted;
@@ -893,12 +940,16 @@ export async function saveAttachments(
   files: Array<{ name: string; data: Buffer }>
 ): Promise<SaveAttachmentsResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const attachmentsDir = path.join(root, dirName, "attachments");
+  const attachmentsDir = path.join(
+    location.baseRoot,
+    location.dirName,
+    "attachments"
+  );
   await ensureDir(attachmentsDir);
 
   const results: UploadedAttachment[] = [];
@@ -934,8 +985,8 @@ export async function resolveAttachmentFile(
   fileName: string
 ): Promise<ResolveAttachmentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
   if (!fileName || fileName === "." || fileName === "..") {
@@ -949,7 +1000,11 @@ export async function resolveAttachmentFile(
     return { ok: false, error: "Invalid attachment name" };
   }
 
-  const attachmentsDir = path.join(root, dirName, "attachments");
+  const attachmentsDir = path.join(
+    location.baseRoot,
+    location.dirName,
+    "attachments"
+  );
   const filePath = path.join(attachmentsDir, fileName);
   if (!(await fileExists(filePath))) {
     return { ok: false, error: "Attachment not found" };
@@ -964,12 +1019,16 @@ export async function updateProjectComment(
   body: string
 ): Promise<ProjectCommentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const threadPath = path.join(root, dirName, THREAD_FILE);
+  const threadPath = path.join(
+    location.baseRoot,
+    location.dirName,
+    THREAD_FILE
+  );
   if (!(await fileExists(threadPath))) {
     return { ok: false, error: "Thread file not found" };
   }
@@ -1008,12 +1067,16 @@ export async function deleteProjectComment(
   index: number
 ): Promise<DeleteCommentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const threadPath = path.join(root, dirName, THREAD_FILE);
+  const threadPath = path.join(
+    location.baseRoot,
+    location.dirName,
+    THREAD_FILE
+  );
   if (!(await fileExists(threadPath))) {
     return { ok: false, error: "Thread file not found" };
   }

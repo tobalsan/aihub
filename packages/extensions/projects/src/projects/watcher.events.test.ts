@@ -116,6 +116,30 @@ describe("project watcher file debounce", () => {
 
     await watcher.close();
   });
+
+  it("emits file changes for projects in .done", async () => {
+    const watcher = startProjectWatcher({
+      projects: { root: "/tmp/projects" },
+    } as GatewayConfig);
+
+    const markdownWatcher = mockWatchers[0];
+    expect(markdownWatcher).toBeDefined();
+
+    markdownWatcher.emitAll(
+      "change",
+      "/tmp/projects/.done/PRO-233_done_project/README.md"
+    );
+
+    vi.advanceTimersByTime(300);
+
+    expect(agentEventBus.emitFileChanged).toHaveBeenCalledWith({
+      type: "file_changed",
+      projectId: "PRO-233",
+      file: ".done/PRO-233_done_project/README.md",
+    });
+
+    await watcher.close();
+  });
 });
 
 describe("project watcher agent_changed events", () => {
@@ -178,6 +202,30 @@ describe("project watcher agent_changed events", () => {
     expect(agentEventBus.emitAgentChanged).toHaveBeenCalledWith({
       type: "agent_changed",
       projectId: "PRO-200",
+    });
+
+    await watcher.close();
+  });
+
+  it("emits agent_changed for projects in .done", async () => {
+    const watcher = startProjectWatcher({
+      projects: { root: "/tmp/projects" },
+    } as GatewayConfig);
+
+    const sessionsWatcher = mockWatchers[1];
+    expect(sessionsWatcher).toBeDefined();
+
+    sessionsWatcher.emitAll(
+      "change",
+      "/tmp/projects/.done/PRO-233_done_project/sessions/worker-a/state.json"
+    );
+
+    vi.advanceTimersByTime(300);
+
+    expect(agentEventBus.emitAgentChanged).toHaveBeenCalledTimes(1);
+    expect(agentEventBus.emitAgentChanged).toHaveBeenCalledWith({
+      type: "agent_changed",
+      projectId: "PRO-233",
     });
 
     await watcher.close();

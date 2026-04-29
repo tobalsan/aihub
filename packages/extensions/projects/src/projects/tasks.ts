@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { GatewayConfig, Task } from "@aihub/shared";
 import { TaskSchema } from "@aihub/shared";
 import { getProjectsRoot } from "../util/paths.js";
-import { findProjectDir } from "./store.js";
+import { findProjectLocation } from "./store.js";
 
 function parseMetadata(raw: string): {
   status?: Task["status"];
@@ -237,9 +237,9 @@ export async function readSpec(
   projectId: string
 ): Promise<string> {
   const root = getProjectsRoot(config);
-  const projectDir = await findProjectDir(root, projectId);
-  if (!projectDir) return "";
-  const filePath = path.join(root, projectDir, "SPECS.md");
+  const location = await findProjectLocation(root, projectId);
+  if (!location) return "";
+  const filePath = path.join(location.baseRoot, location.dirName, "SPECS.md");
   try {
     return await fs.readFile(filePath, "utf8");
   } catch {
@@ -253,10 +253,10 @@ export async function writeSpec(
   content: string
 ): Promise<void> {
   const root = getProjectsRoot(config);
-  const projectDir = await findProjectDir(root, projectId);
-  if (!projectDir) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     throw new Error(`Project not found: ${projectId}`);
   }
-  const filePath = path.join(root, projectDir, "SPECS.md");
+  const filePath = path.join(location.baseRoot, location.dirName, "SPECS.md");
   await fs.writeFile(filePath, content, "utf8");
 }

@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
 import { buildRalphPromptFromTemplate, expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
-import { findProjectDir, getProject } from "../projects/store.js";
+import { findProjectLocation, getProject } from "../projects/store.js";
 import {
   ensureProjectSpace,
   recordWorkerDelivery,
@@ -508,12 +508,12 @@ export async function spawnSubagent(
   const cli = input.cli;
 
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, input.projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, input.projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${input.projectId}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   const sessionsRoot = path.join(projectDir, "sessions");
   const sessionDir = path.join(sessionsRoot, input.slug);
   let frontmatter: Record<string, unknown> = {};
@@ -1070,8 +1070,8 @@ export async function spawnRalphLoop(
   input: SpawnRalphLoopInput
 ): Promise<SpawnSubagentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, input.projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, input.projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${input.projectId}` };
   }
 
@@ -1088,7 +1088,7 @@ export async function spawnRalphLoop(
     return { ok: false, error: `Ralph script not found: ${scriptPath}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   const readmePath = path.join(projectDir, "README.md");
   const readmeExists = await fs
     .stat(readmePath)
@@ -1346,12 +1346,12 @@ export async function interruptSubagent(
   slug: string
 ): Promise<InterruptSubagentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   const sessionDir = path.join(projectDir, "sessions", slug);
   const statePath = path.join(sessionDir, "state.json");
   const historyPath = path.join(sessionDir, "history.jsonl");
@@ -1398,12 +1398,12 @@ export async function killSubagent(
   slug: string
 ): Promise<KillSubagentResult> {
   const root = getProjectsRoot(config);
-  const dirName = await findProjectDir(root, projectId);
-  if (!dirName) {
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
     return { ok: false, error: `Project not found: ${projectId}` };
   }
 
-  const projectDir = path.join(root, dirName);
+  const projectDir = path.join(location.baseRoot, location.dirName);
   const sessionDir = path.join(projectDir, "sessions", slug);
   if (!(await dirExists(sessionDir))) {
     return { ok: false, error: `Subagent not found: ${slug}` };

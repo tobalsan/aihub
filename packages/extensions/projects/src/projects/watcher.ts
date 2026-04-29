@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { GatewayConfig } from "@aihub/shared";
@@ -5,6 +6,7 @@ import { getProjectsContext } from "../context.js";
 import { getProjectsRoot } from "../util/paths.js";
 
 const DEBOUNCE_MS = 300;
+const COLLECTION_DIRS = new Set([".archive", ".done"]);
 
 export function inferProjectIdFromDirName(dirName: string): string {
   const match = /^(PRO-\d+)/.exec(dirName);
@@ -20,12 +22,14 @@ function parseProjectPath(
   const relativePath = path.relative(projectsRoot, targetPath);
   if (!relativePath || relativePath.startsWith("..")) return null;
   const parts = relativePath.split(path.sep).filter(Boolean);
-  const projectId = inferProjectIdFromDirName(parts[0] ?? "");
+  const projectOffset = COLLECTION_DIRS.has(parts[0] ?? "") ? 1 : 0;
+  const projectParts = parts.slice(projectOffset);
+  const projectId = inferProjectIdFromDirName(projectParts[0] ?? "");
   if (!projectId || projectId.startsWith(".")) return null;
   return {
     projectId,
     relativePath: parts.join("/"),
-    parts,
+    parts: projectParts,
   };
 }
 
@@ -36,12 +40,64 @@ function isAgentSessionEvent(event: string, parts: string[]): boolean {
   }
   if (
     (event === "add" || event === "change" || event === "unlink") &&
-    parts.length >= 4 &&
-    parts[parts.length - 1] === "state.json"
+    parts.length === 4 &&
+    parts[3] === "state.json"
   ) {
     return true;
   }
   return false;
+}
+
+function shouldIgnoreSessionPath(
+  projectsRoot: string,
+  targetPath: string,
+  stats?: fs.Stats
+): boolean {
+  if (!stats) return false;
+  const parsed = parseProjectPath(projectsRoot, targetPath);
+  if (!parsed || parsed.parts[1] !== "sessions") return true;
+  if (stats.isDirectory()) {
+    return parsed.parts.length !== 2 && parsed.parts.length !== 3;
+  }
+  return parsed.parts.length !== 4 || parsed.parts[3] !== "state.json";
+}
+
+function readSessionDirs(scanRoot: string): string[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(scanRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const sessionDirs: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("PRO-")) continue;
+    const sessionsDir = path.join(scanRoot, entry.name, "sessions");
+    try {
+      if (fs.statSync(sessionsDir).isDirectory()) {
+        sessionDirs.push(sessionsDir);
+      }
+    } catch {
+      // Missing sessions dirs are normal for projects without agents.
+    }
+  }
+  return sessionDirs;
+}
+
+function discoverSessionDirs(projectsRoot: string): string[] {
+  return [
+    projectsRoot,
+    ...[...COLLECTION_DIRS].map((dir) => path.join(projectsRoot, dir)),
+  ].flatMap(readSessionDirs);
+}
+
+function closeOnWatcherError(watcher: FSWatcher) {
+  watcher.on("error", (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[watcher] file watcher error, disabling realtime:", message);
+    watcher.close().catch(() => {});
+  });
 }
 
 export type ProjectWatcher = {
@@ -90,9 +146,18 @@ export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
   };
 
   const markdownWatcher: FSWatcher = chokidar.watch(
-    path.join(projectsRoot, "**/*.md"),
-    { ignoreInitial: true }
+    [
+      path.join(projectsRoot, "**/*.md"),
+      ...[...COLLECTION_DIRS].map((dir) =>
+        path.join(projectsRoot, dir, "**/*.md")
+      ),
+    ],
+    {
+      ignoreInitial: true,
+      ignored: ["**/sessions/**", "**/.git/**", "**/.*"],
+    }
   );
+  closeOnWatcherError(markdownWatcher);
 
   markdownWatcher.on("all", (event, changedPath) => {
     if (event !== "add" && event !== "change" && event !== "unlink") return;
@@ -101,10 +166,17 @@ export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
     queueFileChanged(parsed.projectId, parsed.relativePath);
   });
 
-  const sessionsWatcher: FSWatcher = chokidar.watch(projectsRoot, {
-    ignoreInitial: true,
-    depth: 4,
-  });
+  const sessionsWatcher: FSWatcher = chokidar.watch(
+    discoverSessionDirs(projectsRoot),
+    {
+      ignoreInitial: true,
+      depth: 1,
+      ignored: (targetPath, stats) =>
+        shouldIgnoreSessionPath(projectsRoot, targetPath, stats),
+      usePolling: true,
+    }
+  );
+  closeOnWatcherError(sessionsWatcher);
 
   sessionsWatcher.on("all", (event, changedPath) => {
     const parsed = parseProjectPath(projectsRoot, changedPath);
