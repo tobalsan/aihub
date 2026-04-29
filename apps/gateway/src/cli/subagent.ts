@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { resolveBindHost } from "@aihub/shared";
+import { resolveBindHost, type SubagentRuntimeProfile } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -80,6 +80,14 @@ type RuntimeHandlers = {
   archive: (args: RuntimeRunArgs) => Promise<Response>;
   unarchive: (args: RuntimeRunArgs) => Promise<Response>;
   delete: (args: RuntimeRunArgs) => Promise<Response>;
+};
+
+type SubagentProfileRow = {
+  name?: string;
+  cli?: string;
+  model?: string;
+  type?: string;
+  runMode?: string;
 };
 
 function normalizeProjectId(id: string): string {
@@ -254,6 +262,47 @@ async function printResponse(res: Response, json: boolean): Promise<void> {
   console.log(text);
 }
 
+function profileCell(value: string | undefined): string {
+  return value?.trim() ? value : "-";
+}
+
+function formatProfileRows(profiles: SubagentProfileRow[]): string[] {
+  const rows = profiles.map((profile) => [
+    profileCell(profile.name),
+    profileCell(profile.cli),
+    profileCell(profile.model),
+    profileCell(profile.type),
+    profileCell(profile.runMode),
+  ]);
+  const widths = [0, 1, 2, 3, 4].map((index) =>
+    Math.max(...rows.map((row) => row[index].length))
+  );
+  return rows.map((row) =>
+    row.map((cell, index) => cell.padEnd(widths[index])).join("  ").trimEnd()
+  );
+}
+
+export function printSubagentProfiles(json: boolean): void {
+  const profiles =
+    (loadConfig().extensions?.subagents?.profiles as
+      | SubagentRuntimeProfile[]
+      | undefined) ?? [];
+
+  if (json) {
+    console.log(JSON.stringify(profiles));
+    return;
+  }
+
+  if (profiles.length === 0) {
+    console.log("No profiles configured");
+    return;
+  }
+
+  for (const row of formatProfileRows(profiles)) {
+    console.log(row);
+  }
+}
+
 export function registerSubagentCommands(program: Command): void {
   const handlers = createSubagentHandlers();
   const runtimeHandlers = createRuntimeSubagentHandlers();
@@ -261,6 +310,14 @@ export function registerSubagentCommands(program: Command): void {
   const runtime = program
     .command("subagents")
     .description("Manage CLI subagent runtime runs");
+
+  runtime
+    .command("profiles")
+    .description("List configured subagent profiles")
+    .option("--json", "Print raw JSON")
+    .action((opts) => {
+      printSubagentProfiles(Boolean(opts.json));
+    });
 
   runtime
     .command("start")

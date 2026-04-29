@@ -1,8 +1,46 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { Command } from "commander";
+import { GatewayConfigSchema, type GatewayConfig } from "@aihub/shared";
+import {
+  clearConfigCacheForTests,
+  setLoadedConfig,
+} from "../config/index.js";
 import {
   createRuntimeSubagentHandlers,
   createSubagentHandlers,
+  printSubagentProfiles,
+  registerSubagentCommands,
 } from "./subagent.js";
+
+function stubConsoleLog(): string[] {
+  const lines: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+    lines.push(String(line ?? ""));
+  });
+  return lines;
+}
+
+function setTestConfig(
+  extensions?: GatewayConfig["extensions"]
+): void {
+  setLoadedConfig(GatewayConfigSchema.parse({
+    agents: [],
+    extensions,
+  }));
+}
+
+let previousApiUrl: string | undefined;
+
+beforeEach(() => {
+  previousApiUrl = process.env.AIHUB_API_URL;
+});
+
+afterEach(() => {
+  if (previousApiUrl === undefined) delete process.env.AIHUB_API_URL;
+  else process.env.AIHUB_API_URL = previousApiUrl;
+  clearConfigCacheForTests();
+  vi.restoreAllMocks();
+});
 
 describe("subagent CLI handlers", () => {
   it("spawn posts to subagent endpoint", async () => {
@@ -135,5 +173,80 @@ describe("runtime subagents CLI handlers", () => {
     expect(calls[0].url).toBe(
       "http://localhost:4000/api/subagents?parent=board%3Amain&status=running&includeArchived=true"
     );
+  });
+});
+
+describe("runtime subagents profiles CLI", () => {
+  it("outputs configured profiles", async () => {
+    setTestConfig({
+      subagents: {
+        profiles: [
+          {
+            name: "Worker",
+            cli: "codex",
+            model: "gpt-5.3-codex",
+            type: "worker",
+            runMode: "worktree",
+          },
+        ],
+      },
+    });
+    const lines = stubConsoleLog();
+    const program = new Command();
+    program.exitOverride();
+    process.env.AIHUB_API_URL = "http://localhost:4000";
+    registerSubagentCommands(program);
+
+    await program.parseAsync(["node", "aihub", "subagents", "profiles"]);
+
+    expect(lines).toEqual([
+      "Worker  codex  gpt-5.3-codex  worker  worktree",
+    ]);
+  });
+
+  it("outputs raw profile JSON", () => {
+    setTestConfig({
+      subagents: {
+        profiles: [
+          {
+            name: "Reviewer",
+            cli: "claude",
+            model: "claude-sonnet",
+            type: "reviewer",
+            runMode: "none",
+          },
+        ],
+      },
+    });
+    const lines = stubConsoleLog();
+
+    printSubagentProfiles(true);
+
+    expect(JSON.parse(lines[0])).toEqual([
+      {
+        name: "Reviewer",
+        cli: "claude",
+        model: "claude-sonnet",
+        type: "reviewer",
+        runMode: "none",
+      },
+    ]);
+  });
+
+  it("handles missing or empty profiles", () => {
+    setTestConfig();
+    const missingLines = stubConsoleLog();
+
+    printSubagentProfiles(false);
+
+    expect(missingLines).toEqual(["No profiles configured"]);
+    vi.restoreAllMocks();
+
+    setTestConfig({ subagents: { profiles: [] } });
+    const emptyLines = stubConsoleLog();
+
+    printSubagentProfiles(false);
+
+    expect(emptyLines).toEqual(["No profiles configured"]);
   });
 });

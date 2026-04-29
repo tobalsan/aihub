@@ -169,8 +169,9 @@ Projects extension. Owns project APIs, project subagent orchestration, and the g
 - Gateway/web dev entrypoints now honor `AIHUB_HOME`, so `pnpm dev` and `pnpm dev:web` preview the same config home as local config commands
 - `aihub projects --help` hides deprecated agent-management helpers; project-agnostic runtime run management is documented under `aihub subagents`.
 - `aihub projects create --help` only advertises active create flags (`--title`, `--specs`, `--status`, `--area`, `--json`); legacy metadata flags remain hidden for compatibility.
-- Project-agnostic subagent runtime commands live under the main gateway CLI: `aihub subagents start|list|status|logs|resume|interrupt|archive|unarchive|delete`.
-- Runtime `--profile <name>` resolves `extensions.subagents.profiles[]` first, then top-level `subagents[]` templates. Both config surfaces use `cli` (`codex`/`claude`/`pi`) for the CLI harness; top-level templates keep `reasoning` while runtime profiles use `reasoningEffort`. Unknown profile names fail with a profile-specific 400 error instead of falling through to missing CLI validation.
+- Project-agnostic subagent runtime commands live under the main gateway CLI: `aihub subagents start|profiles|list|status|logs|resume|interrupt|archive|unarchive|delete`.
+- `aihub subagents profiles` reads local config only and lists `extensions.subagents.profiles[]` as `name cli model type runMode`; `--json` prints the raw profiles array.
+- Runtime `--profile <name>` resolves `extensions.subagents.profiles[]` first, then top-level `subagents[]` templates. Both config surfaces use `cli` (`codex`/`claude`/`pi`) for the CLI harness; top-level templates keep `reasoning` while runtime profiles can carry `reasoning`/`reasoningEffort`. Unknown profile names fail with a profile-specific 400 error instead of falling through to missing CLI validation.
 
 ## Runtime Data
 

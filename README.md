@@ -512,6 +512,7 @@ Project Space model:
 Project subagent CLIs:
 
 - Supported: `claude`, `codex`, `pi`
+- List configured runtime profiles with `aihub subagents profiles` or `aihub subagents profiles --json`.
 - Removed: `droid`, `gemini` (API returns validation error)
 - Lead agents continue to run through the embedded Pi SDK; project subagents run as external CLIs.
 

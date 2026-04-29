@@ -463,10 +463,14 @@ export type SubagentRuntimeCli = z.infer<typeof SubagentRuntimeCliSchema>;
 
 export const SubagentRuntimeProfileSchema = z.object({
   name: z.string(),
+  description: z.string().optional(),
   cli: SubagentRuntimeCliSchema,
   model: z.string().optional(),
+  reasoning: z.string().optional(),
   reasoningEffort: z.string().optional(),
   labelPrefix: z.string().optional(),
+  type: z.string().optional(),
+  runMode: z.string().optional(),
 });
 export type SubagentRuntimeProfile = z.infer<
   typeof SubagentRuntimeProfileSchema
