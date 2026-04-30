@@ -51,6 +51,28 @@ async function makeWorktree(
   return wt;
 }
 
+function makeSpace(
+  worktreePath: string,
+  queue: Array<{
+    id: string;
+    workerSlug: string;
+    worktreePath: string;
+    status: "pending" | "integrated" | "conflict" | "skipped" | "stale_worker";
+    createdAt?: string;
+    integratedAt?: string;
+    startSha?: string;
+    endSha?: string;
+  }> = []
+) {
+  return {
+    worktreePath,
+    queue: queue.map((entry) => ({
+      ...entry,
+      createdAt: entry.createdAt ?? "2026-04-30T00:00:00.000Z",
+    })),
+  };
+}
+
 async function withGitLog(
   tmp: string,
   statusSleepSeconds?: string
@@ -323,6 +345,197 @@ describe("scanProjects", () => {
     expect(items[0]?.worktrees).toEqual([]);
   });
 
+  it("returns no worktrees when a project has no space or repo", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+
+    const items = await scanProjects(tmp, false, emptyWtRoot, {
+      getSpace: async () => null,
+    });
+
+    expect(items[0]?.worktrees).toEqual([]);
+  });
+
+  it("adds a main worktree for repo projects with no space queue", async () => {
+    const repoDir = await makeWorktree(tmp, "repos", "alpha", "main");
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+      repo: repoDir,
+    });
+
+    const items = await scanProjects(tmp, false, emptyWtRoot, {
+      getSpace: async () => null,
+    });
+
+    expect(items[0]?.worktrees).toMatchObject([
+      {
+        id: "PRO-001:main",
+        workerSlug: "main",
+        worktreePath: repoDir,
+        path: repoDir,
+        branch: "main",
+        queueStatus: null,
+        agentRun: null,
+      },
+    ]);
+  });
+
+  it("joins space queue entries into project worktrees", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const alphaPath = path.join(tmp, "alpha");
+    const spacePath = path.join(tmp, "_space");
+
+    const items = await scanProjects(tmp, false, emptyWtRoot, {
+      getSpace: async () =>
+        makeSpace(spacePath, [
+          {
+            id: "entry-alpha",
+            workerSlug: "alpha",
+            worktreePath: alphaPath,
+            status: "pending",
+            startSha: "aaa",
+            endSha: "bbb",
+          },
+        ]),
+    });
+
+    expect(items[0]?.worktrees).toMatchObject([
+      {
+        id: "entry-alpha",
+        workerSlug: "alpha",
+        worktreePath: alphaPath,
+        branch: null,
+        queueStatus: "pending",
+        startedAt: "2026-04-30T00:00:00.000Z",
+        startSha: "aaa",
+        endSha: "bbb",
+      },
+      {
+        id: "PRO-001:_space",
+        workerSlug: "_space",
+        worktreePath: spacePath,
+        branch: null,
+        queueStatus: null,
+      },
+    ]);
+  });
+
+  it("populates running agent runs by worktree path", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const alphaPath = path.join(tmp, "alpha");
+    const startedAt = "2026-04-30T01:00:00.000Z";
+    const updatedAt = "2026-04-30T01:01:00.000Z";
+
+    const items = await scanProjects(tmp, false, emptyWtRoot, {
+      getSpace: async () =>
+        makeSpace("", [
+          {
+            id: "entry-alpha",
+            workerSlug: "alpha",
+            worktreePath: alphaPath,
+            status: "pending",
+          },
+        ]),
+      runsByCwd: new Map([
+        [
+          path.resolve(alphaPath),
+          {
+            runId: "sar_1",
+            label: "Alpha Worker",
+            cli: "codex",
+            status: "running",
+            startedAt,
+            updatedAt,
+          },
+        ],
+      ]),
+    });
+
+    expect(items[0]?.worktrees[0]?.agentRun).toEqual({
+      runId: "sar_1",
+      label: "Alpha Worker",
+      cli: "codex",
+      status: "running",
+      startedAt,
+      updatedAt,
+    });
+  });
+
+  it("preserves all queue statuses", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const statuses = [
+      "pending",
+      "integrated",
+      "conflict",
+      "skipped",
+      "stale_worker",
+    ] as const;
+
+    const items = await scanProjects(tmp, false, emptyWtRoot, {
+      getSpace: async () =>
+        makeSpace(
+          "",
+          statuses.map((status) => ({
+            id: `entry-${status}`,
+            workerSlug: status,
+            worktreePath: path.join(tmp, status),
+            status,
+          }))
+        ),
+    });
+
+    expect(items[0]?.worktrees.map((wt) => wt.queueStatus)).toEqual(statuses);
+  });
+
+  it("refreshes joined project cache after space invalidation", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    let workerSlug = "alpha";
+    const options = {
+      cacheTtlMs: 60_000,
+      getSpace: async () =>
+        makeSpace("", [
+          {
+            id: `entry-${workerSlug}`,
+            workerSlug,
+            worktreePath: path.join(tmp, workerSlug),
+            status: "pending" as const,
+          },
+        ]),
+    };
+
+    const first = await scanProjects(tmp, false, emptyWtRoot, options);
+    expect(first[0]?.worktrees[0]?.workerSlug).toBe("alpha");
+
+    workerSlug = "beta";
+    const cached = await scanProjects(tmp, false, emptyWtRoot, options);
+    expect(cached[0]?.worktrees[0]?.workerSlug).toBe("alpha");
+
+    invalidateProjectCache(tmp);
+    const refreshed = await scanProjects(tmp, false, emptyWtRoot, options);
+    expect(refreshed[0]?.worktrees[0]?.workerSlug).toBe("beta");
+  });
+
   it("discovers worktrees via repo frontmatter using git worktree list", async () => {
     const repoDir = path.join(tmp, "repo");
     await fs.mkdir(repoDir, { recursive: true });
@@ -386,18 +599,15 @@ describe("scanProjects", () => {
     const bareDir = path.join(tmp, "repo.git");
     await execFileAsync("git", ["clone", "--bare", sourceDir, bareDir]);
     const wtPath = path.join(tmp, "bare-wt");
-    await execFileAsync(
-      "git",
-      [
-        `--git-dir=${bareDir}`,
-        "worktree",
-        "add",
-        "-b",
-        "space/PRO-001",
-        wtPath,
-        "main",
-      ]
-    );
+    await execFileAsync("git", [
+      `--git-dir=${bareDir}`,
+      "worktree",
+      "add",
+      "-b",
+      "space/PRO-001",
+      wtPath,
+      "main",
+    ]);
 
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",

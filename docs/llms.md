@@ -68,6 +68,7 @@ Features:
   - Collapsed sidebars hover-expand as overlays above the main pane instead of reflowing it
 - Archived projects section is toggled from the projects header `Archived` button (top-right)
 - Board project scanning is cached in-process: `/api/board/projects` uses in-flight dedupe, a 10s stale-while-revalidate endpoint cache, startup warmup, and `README.md` watcher invalidation. Worktree branch discovery reads `.git/HEAD`/`.git/worktrees/*` directly; only dirty/ahead still use git and are TTL-cached with `.git/index` watcher invalidation. Pass `?profile=true` to get `X-Profile-Ms`.
+- `/api/board/projects` enriches each project with `worktrees[]` from cached Space queue data plus live subagent runtime state matched by exact `cwd`/worktree path. Space cache watcher and subagent change events invalidate the board endpoint cache; live run lookup uses the subagents extension's in-memory `getLiveSubagentRunsByCwd()` helper.
 - `/` is the Areas overview homepage (grid of area cards + aggregate "All Projects" card)
 - Areas homepage includes a quick-create flow with slugified ids from title and a native color picker
 - Area cards show per-status project counts and support inline area editing (`title`, `color`, `order`, `repo`)

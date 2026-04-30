@@ -16,6 +16,7 @@ const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<SpaceFile | null>>();
 const watchers = new Map<string, FSWatcher>();
 const generations = new Map<string, number>();
+const changeListeners = new Set<(projectId: string) => void>();
 
 function isMissingFile(error: unknown): boolean {
   return (
@@ -53,6 +54,12 @@ function invalidateGeneration(projectId: string): void {
     bumpGeneration(projectId);
   } else {
     generations.delete(projectId);
+  }
+}
+
+function notifySpaceChanged(projectId: string): void {
+  for (const listener of changeListeners) {
+    listener(projectId);
   }
 }
 
@@ -119,7 +126,10 @@ export async function getCachedSpace(
   projectId: string
 ): Promise<SpaceFile | null> {
   const entry = cache.get(projectId);
-  if (entry && (entry.expiresAt === undefined || entry.expiresAt > Date.now())) {
+  if (
+    entry &&
+    (entry.expiresAt === undefined || entry.expiresAt > Date.now())
+  ) {
     return entry.value;
   }
 
@@ -163,10 +173,15 @@ export function invalidateSpaceCache(projectId?: string): void {
     watcher.close();
     watchers.delete(projectId);
   }
+  notifySpaceChanged(projectId);
 }
 
-export function startSpaceCacheWatcher(config: GatewayConfig): () => void {
+export function startSpaceCacheWatcher(
+  config: GatewayConfig,
+  onChange?: (projectId: string) => void
+): () => void {
   let stopped = false;
+  if (onChange) changeListeners.add(onChange);
 
   void listProjects(config).then((result) => {
     if (stopped || !result.ok) return;
@@ -177,6 +192,7 @@ export function startSpaceCacheWatcher(config: GatewayConfig): () => void {
 
   return () => {
     stopped = true;
+    if (onChange) changeListeners.delete(onChange);
     invalidateSpaceCache();
   };
 }

@@ -9,6 +9,7 @@ import type {
 import { SubagentsExtensionConfigSchema } from "@aihub/shared";
 import {
   deleteSubagentRun,
+  getLiveSubagentRunsByCwd,
   getSubagentLogs,
   getSubagentRun,
   isSupportedSubagentCli,
@@ -299,4 +300,4 @@ const subagentsExtension: Extension = {
   },
 };
 
-export { subagentsExtension };
+export { getLiveSubagentRunsByCwd, subagentsExtension };

@@ -18,6 +18,34 @@ export type BoardWorktree = {
   ahead: number;
 };
 
+export type BoardAgentRunView = {
+  runId: string;
+  label: string;
+  cli: string;
+  status: "running" | "done" | "failed" | "interrupted" | string;
+  startedAt: string;
+  updatedAt: string;
+};
+
+export type BoardWorktreeView = Omit<BoardWorktree, "branch"> & {
+  id: string;
+  workerSlug: string;
+  worktreePath: string;
+  branch: string | null;
+  queueStatus:
+    | "pending"
+    | "integrated"
+    | "conflict"
+    | "skipped"
+    | "stale_worker"
+    | null;
+  agentRun: BoardAgentRunView | null;
+  startedAt?: string;
+  integratedAt?: string;
+  startSha?: string;
+  endSha?: string;
+};
+
 export type BoardProject = {
   id: string;
   title: string;
@@ -25,7 +53,7 @@ export type BoardProject = {
   status: string;
   group: BoardProjectGroup;
   created: string;
-  worktrees: BoardWorktree[];
+  worktrees: BoardWorktreeView[];
 };
 
 const PROJECT_DIR_PATTERN = /^PRO-/;
@@ -48,6 +76,34 @@ export type ScanProjectsOptions = {
   repoWorktreeTtlMs?: number;
   branchTtlMs?: number;
   dirtyAheadTtlMs?: number;
+  getSpace?: (projectId: string) => Promise<SpaceView | null>;
+  runsByCwd?: Map<string, AgentRunSummaryView>;
+};
+
+type SpaceQueueEntryView = {
+  id: string;
+  workerSlug: string;
+  worktreePath: string;
+  status: BoardWorktreeView["queueStatus"];
+  createdAt: string;
+  integratedAt?: string;
+  startSha?: string;
+  endSha?: string;
+};
+
+type SpaceView = {
+  worktreePath: string;
+  queue: SpaceQueueEntryView[];
+};
+
+type AgentRunSummaryView = {
+  runId: string;
+  label: string;
+  cli: string;
+  cwd?: string;
+  status: string;
+  startedAt: string;
+  updatedAt: string;
 };
 
 type ProjectCacheEntry = {
@@ -144,9 +200,11 @@ function dirtyAheadTtlMs(options?: ScanProjectsOptions): number {
 function scanCacheKey(
   projectsRoot: string,
   worktreesRoot: string,
-  includeDone: boolean
+  includeDone: boolean,
+  options?: ScanProjectsOptions
 ): string {
-  return `${projectsRoot}\0${worktreesRoot}\0${includeDone ? "1" : "0"}`;
+  const variant = options?.getSpace || options?.runsByCwd ? "joined" : "base";
+  return `${projectsRoot}\0${worktreesRoot}\0${includeDone ? "1" : "0"}\0${variant}`;
 }
 
 export function invalidateProjectCache(projectsRoot?: string): void {
@@ -445,6 +503,140 @@ async function readWorktreeDetails(
   return { name, path: worktreePath, branch, dirty, ahead };
 }
 
+function agentRunForPath(
+  worktreePath: string,
+  runsByCwd?: Map<string, AgentRunSummaryView>
+): BoardAgentRunView | null {
+  const run = runsByCwd?.get(path.resolve(worktreePath));
+  if (!run) return null;
+  return {
+    runId: run.runId,
+    label: run.label,
+    cli: run.cli,
+    status: run.status === "error" ? "failed" : run.status,
+    startedAt: run.startedAt,
+    updatedAt: run.updatedAt,
+  };
+}
+
+async function readWorktreeView(params: {
+  id: string;
+  workerSlug: string;
+  worktreePath: string;
+  queueStatus: BoardWorktreeView["queueStatus"];
+  name?: string;
+  startedAt?: string;
+  integratedAt?: string;
+  startSha?: string;
+  endSha?: string;
+  runsByCwd?: Map<string, AgentRunSummaryView>;
+  options?: ScanProjectsOptions;
+}): Promise<BoardWorktreeView> {
+  const branch = await readWorktreeBranch(params.worktreePath, params.options);
+  const worktreeKey = await canonicalPath(params.worktreePath);
+  const dirtyAhead = branch
+    ? await readDirtyAheadCached(
+        params.worktreePath,
+        worktreeKey,
+        params.options
+      )
+    : { dirty: false, ahead: 0 };
+  const name =
+    params.name ?? (params.workerSlug || path.basename(params.worktreePath));
+  return {
+    name,
+    path: params.worktreePath,
+    branch,
+    dirty: dirtyAhead.dirty,
+    ahead: dirtyAhead.ahead,
+    id: params.id,
+    workerSlug: params.workerSlug,
+    worktreePath: params.worktreePath,
+    queueStatus: params.queueStatus,
+    agentRun: agentRunForPath(params.worktreePath, params.runsByCwd),
+    startedAt: params.startedAt,
+    integratedAt: params.integratedAt,
+    startSha: params.startSha,
+    endSha: params.endSha,
+  };
+}
+
+async function buildProjectWorktreeViews(
+  meta: ProjectMeta,
+  legacyWorktrees: BoardWorktree[],
+  options?: ScanProjectsOptions
+): Promise<BoardWorktreeView[]> {
+  const getSpace = options?.getSpace;
+  const space = getSpace ? await getSpace(meta.id) : null;
+  const views: BoardWorktreeView[] = [];
+  const covered = new Set<string>();
+  const addCovered = async (worktreePath: string): Promise<void> => {
+    covered.add(await canonicalPath(worktreePath));
+  };
+
+  if (space) {
+    for (const entry of space.queue) {
+      views.push(
+        await readWorktreeView({
+          id: entry.id,
+          workerSlug: entry.workerSlug,
+          worktreePath: entry.worktreePath,
+          queueStatus: entry.status,
+          startedAt: entry.createdAt,
+          integratedAt: entry.integratedAt,
+          startSha: entry.startSha,
+          endSha: entry.endSha,
+          runsByCwd: options?.runsByCwd,
+          options,
+        })
+      );
+      await addCovered(entry.worktreePath);
+    }
+    if (
+      space.worktreePath &&
+      !covered.has(await canonicalPath(space.worktreePath))
+    ) {
+      views.push(
+        await readWorktreeView({
+          id: `${meta.id}:_space`,
+          workerSlug: "_space",
+          worktreePath: space.worktreePath,
+          queueStatus: null,
+          runsByCwd: options?.runsByCwd,
+          options,
+        })
+      );
+    }
+    return views;
+  }
+
+  for (const wt of legacyWorktrees) {
+    views.push({
+      ...wt,
+      id: `${meta.id}:${wt.name}`,
+      workerSlug: wt.name,
+      worktreePath: wt.path,
+      queueStatus: null,
+      agentRun: agentRunForPath(wt.path, options?.runsByCwd),
+    });
+  }
+  if (views.length > 0) return views;
+
+  if (!meta.repo) return [];
+  const worktreePath = expandPath(meta.repo);
+  return [
+    await readWorktreeView({
+      id: `${meta.id}:main`,
+      workerSlug: "main",
+      worktreePath,
+      queueStatus: null,
+      name: "main",
+      runsByCwd: options?.runsByCwd,
+      options,
+    }),
+  ];
+}
+
 function branchMatchesProject(branch: string, id: string): boolean {
   return (
     branch === `space/${id}` ||
@@ -703,7 +895,7 @@ export async function scanProjects(
   options?: ScanProjectsOptions
 ): Promise<BoardProject[]> {
   const wtRoot = worktreesRoot ?? expandPath("~/.worktrees");
-  const key = scanCacheKey(projectsRoot, wtRoot, includeDone);
+  const key = scanCacheKey(projectsRoot, wtRoot, includeDone, options);
   const cached = projectResultCache.get(key);
   if (cached) {
     await invalidateChangedIndexCaches();
@@ -728,13 +920,7 @@ export async function scanProjects(
     }
     return current.value;
   }
-  return refreshProjectCache(
-    key,
-    projectsRoot,
-    includeDone,
-    wtRoot,
-    options
-  );
+  return refreshProjectCache(key, projectsRoot, includeDone, wtRoot, options);
 }
 
 function refreshProjectCache(
@@ -803,7 +989,11 @@ async function scanProjectsUncached(
   for (const meta of metas) {
     const group = statusToGroup(meta.status);
     if (!includeDone && group === "done") continue;
-    const worktrees = await lookupWorktrees(worktreeIndex, meta.id);
+    const worktrees = await buildProjectWorktreeViews(
+      meta,
+      await lookupWorktrees(worktreeIndex, meta.id),
+      options
+    );
     projects.push({
       id: meta.id,
       title: meta.title,

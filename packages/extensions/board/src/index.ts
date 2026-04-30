@@ -8,6 +8,11 @@ import {
   type ExtensionContext,
 } from "@aihub/shared";
 import {
+  getCachedSpace,
+  startSpaceCacheWatcher,
+} from "@aihub/extension-projects";
+import { getLiveSubagentRunsByCwd } from "@aihub/extension-subagents";
+import {
   invalidateProjectCache,
   resetProjectCaches,
   scanProjects,
@@ -30,6 +35,8 @@ const BoardExtensionConfigSchema = z.object({
 let extensionContext: ExtensionContext | null = null;
 let boardRoot: string | null = null;
 let unsubscribeFileChanged: (() => void) | null = null;
+let stopSpaceCacheWatcher: (() => void) | null = null;
+let unsubscribeSubagentChanged: (() => void) | null = null;
 
 function getContext(): ExtensionContext {
   if (!extensionContext) throw new Error("Board extension not started");
@@ -292,7 +299,11 @@ function registerBoardRoutes(app: Hono): void {
     const startedAt = profile ? Date.now() : 0;
     const includeDone = c.req.query("include") === "done";
     const { root, worktreesRoot } = resolveProjectRoots(getContext());
-    const items = await scanProjects(root, includeDone, worktreesRoot);
+    const config = getContext().getConfig();
+    const items = await scanProjects(root, includeDone, worktreesRoot, {
+      getSpace: (projectId) => getCachedSpace(config, projectId),
+      runsByCwd: getLiveSubagentRunsByCwd(),
+    });
     if (profile) c.header("X-Profile-Ms", String(Date.now() - startedAt));
     return c.json({ items });
   });
@@ -394,7 +405,16 @@ const boardExtension: Extension = {
       if (!isReadmeChange(payload)) return;
       invalidateProjectCache(root);
     });
-    void scanProjects(root, false, worktreesRoot).catch((error: unknown) => {
+    stopSpaceCacheWatcher = startSpaceCacheWatcher(config, () => {
+      invalidateProjectCache(root);
+    });
+    unsubscribeSubagentChanged = ctx.subscribe("subagent.changed", () => {
+      invalidateProjectCache(root);
+    });
+    void scanProjects(root, false, worktreesRoot, {
+      getSpace: (projectId) => getCachedSpace(config, projectId),
+      runsByCwd: getLiveSubagentRunsByCwd(),
+    }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       ctx.logger.warn("[board] failed to warm project cache:", message);
     });
@@ -402,7 +422,11 @@ const boardExtension: Extension = {
   },
   async stop() {
     unsubscribeFileChanged?.();
+    stopSpaceCacheWatcher?.();
+    unsubscribeSubagentChanged?.();
     unsubscribeFileChanged = null;
+    stopSpaceCacheWatcher = null;
+    unsubscribeSubagentChanged = null;
     resetProjectCaches();
     extensionContext = null;
     boardRoot = null;

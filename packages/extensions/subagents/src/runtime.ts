@@ -64,6 +64,16 @@ type RuntimeOptions = {
   emit: (event: SubagentChangedEvent) => void;
 };
 
+export type LiveSubagentRunSummary = {
+  runId: string;
+  label: string;
+  cli: SubagentRuntimeCli;
+  cwd: string;
+  status: SubagentRunStatus;
+  startedAt: string;
+  updatedAt: string;
+};
+
 type RunPaths = {
   dir: string;
   config: string;
@@ -75,6 +85,7 @@ type RunPaths = {
 };
 
 const activeChildren = new Map<string, ChildProcess>();
+const liveRunsById = new Map<string, LiveSubagentRunSummary>();
 
 function runsRoot(dataDir: string): string {
   return path.join(dataDir, "sessions", "subagents", "runs");
@@ -524,6 +535,17 @@ export function getUnsupportedSubagentCliError(value: string): string {
   return `Unsupported CLI: ${value}. Supported CLIs: ${SUPPORTED_SUBAGENT_CLIS.join(", ")}.`;
 }
 
+export function getLiveSubagentRunsByCwd(): Map<
+  string,
+  LiveSubagentRunSummary
+> {
+  const byCwd = new Map<string, LiveSubagentRunSummary>();
+  for (const run of liveRunsById.values()) {
+    byCwd.set(run.cwd, run);
+  }
+  return byCwd;
+}
+
 export async function listSubagentRuns(
   options: RuntimeOptions,
   filters: {
@@ -654,6 +676,15 @@ async function spawnRunProcess(
   };
   await writeJson(paths.state, state);
   await writeJson(paths.progress, { lastActiveAt: startedAt });
+  liveRunsById.set(runId, {
+    runId,
+    label: config.label,
+    cli: config.cli,
+    cwd: config.cwd,
+    status: "starting",
+    startedAt,
+    updatedAt: startedAt,
+  });
   await appendJsonl(paths.logs, {
     type: "event_msg",
     payload: { type: "user_message", message: prompt },
@@ -669,6 +700,15 @@ async function spawnRunProcess(
     pid: child.pid,
     status: "running",
   } satisfies StoredState);
+  liveRunsById.set(runId, {
+    runId,
+    label: config.label,
+    cli: config.cli,
+    cwd: config.cwd,
+    status: "running",
+    startedAt,
+    updatedAt: new Date().toISOString(),
+  });
   await notifyChanged(options, runId, "running");
 
   let outputNotifyAt = 0;
@@ -679,6 +719,10 @@ async function spawnRunProcess(
       .filter(Boolean)
       .at(-1);
     const lastActiveAt = new Date().toISOString();
+    const currentLive = liveRunsById.get(runId);
+    if (currentLive) {
+      liveRunsById.set(runId, { ...currentLive, updatedAt: lastActiveAt });
+    }
     const current = await readJson<StoredProgress>(paths.progress);
     await writeJson(paths.progress, {
       lastActiveAt,
@@ -790,6 +834,14 @@ async function finishRun(
   const current = await readJson<StoredState>(paths.state);
   if (current?.status === "interrupted" && patch.status === "error") return;
   const finishedAt = new Date().toISOString();
+  const currentLive = liveRunsById.get(runId);
+  if (currentLive) {
+    liveRunsById.set(runId, {
+      ...currentLive,
+      status: patch.status,
+      updatedAt: finishedAt,
+    });
+  }
   await writeJson(paths.state, {
     ...(current ?? { startedAt: finishedAt }),
     ...patch,
@@ -801,6 +853,7 @@ async function finishRun(
     data: patch,
   });
   await notifyChanged(options, runId, patch.status);
+  liveRunsById.delete(runId);
 }
 
 export async function interruptSubagentRun(

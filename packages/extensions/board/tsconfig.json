@@ -3,5 +3,9 @@
   "compilerOptions": { "rootDir": "src", "outDir": "dist", "composite": true },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../../shared" }]
+  "references": [
+    { "path": "../../shared" },
+    { "path": "../projects" },
+    { "path": "../subagents" }
+  ]
 }

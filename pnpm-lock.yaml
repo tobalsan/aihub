@@ -218,6 +218,12 @@ importers:
 
   packages/extensions/board:
     dependencies:
+      '@aihub/extension-projects':
+        specifier: workspace:*
+        version: link:../projects
+      '@aihub/extension-subagents':
+        specifier: workspace:*
+        version: link:../subagents
       '@aihub/shared':
         specifier: workspace:*
         version: link:../../shared
