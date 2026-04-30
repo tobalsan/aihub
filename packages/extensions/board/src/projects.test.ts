@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { scanProjects, statusToGroup } from "./projects.js";
+import {
+  invalidateProjectCache,
+  resetProjectCaches,
+  scanProjects,
+  statusToGroup,
+} from "./projects.js";
 import { splitFrontmatter } from "./frontmatter.js";
 
 const execFileAsync = promisify(execFile);
@@ -46,7 +51,10 @@ async function makeWorktree(
   return wt;
 }
 
-async function withGitLog(tmp: string): Promise<{
+async function withGitLog(
+  tmp: string,
+  statusSleepSeconds?: string
+): Promise<{
   logPath: string;
   restore: () => void;
 }> {
@@ -57,16 +65,18 @@ async function withGitLog(tmp: string): Promise<{
   await fs.mkdir(binDir, { recursive: true });
   await fs.writeFile(
     path.join(binDir, "git"),
-    `#!/bin/sh\nprintf '%s\\n' "$PWD|$*" >> "$GIT_LOG"\nexec "$REAL_GIT" "$@"\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$PWD|$*" >> "$GIT_LOG"\nif [ -n "$GIT_STATUS_SLEEP" ] && [ "$1" = "status" ]; then sleep "$GIT_STATUS_SLEEP"; fi\nexec "$REAL_GIT" "$@"\n`,
     "utf8"
   );
   await fs.chmod(path.join(binDir, "git"), 0o755);
   const prevPath = process.env.PATH;
   const prevGitLog = process.env.GIT_LOG;
   const prevRealGit = process.env.REAL_GIT;
+  const prevStatusSleep = process.env.GIT_STATUS_SLEEP;
   process.env.PATH = `${binDir}${path.delimiter}${prevPath ?? ""}`;
   process.env.GIT_LOG = logPath;
   process.env.REAL_GIT = realGit;
+  if (statusSleepSeconds) process.env.GIT_STATUS_SLEEP = statusSleepSeconds;
   return {
     logPath,
     restore: () => {
@@ -76,6 +86,8 @@ async function withGitLog(tmp: string): Promise<{
       else process.env.GIT_LOG = prevGitLog;
       if (prevRealGit === undefined) delete process.env.REAL_GIT;
       else process.env.REAL_GIT = prevRealGit;
+      if (prevStatusSleep === undefined) delete process.env.GIT_STATUS_SLEEP;
+      else process.env.GIT_STATUS_SLEEP = prevStatusSleep;
     },
   };
 }
@@ -87,6 +99,18 @@ async function readGitLog(logPath: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+async function waitFor(
+  check: () => Promise<boolean>,
+  timeoutMs = 2_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(await check()).toBe(true);
 }
 
 describe("statusToGroup", () => {
@@ -136,6 +160,7 @@ describe("scanProjects", () => {
   });
 
   afterEach(async () => {
+    resetProjectCaches();
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
@@ -258,6 +283,19 @@ describe("scanProjects", () => {
     expect(wts[0]?.ahead).toBe(0);
   });
 
+  it("keeps active project worktree roots with hyphenated suffixes", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(wtRoot, "PRO-001-worker", "feat", "space/PRO-001");
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    expect(items[0]?.worktrees.map((wt) => wt.name)).toEqual(["feat"]);
+  });
+
   it("ignores worktrees whose branch does not match the project", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",
@@ -324,7 +362,59 @@ describe("scanProjects", () => {
     expect(await fs.realpath(found!.path)).toBe(await fs.realpath(wtPath));
   });
 
-  it("dedupes worktrees discovered by both root scan and git worktree list", async () => {
+  it("discovers worktrees from bare repo metadata", async () => {
+    const sourceDir = path.join(tmp, "source");
+    await fs.mkdir(sourceDir, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "main"], {
+      cwd: sourceDir,
+    });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], {
+      cwd: sourceDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "t"], {
+      cwd: sourceDir,
+    });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
+      cwd: sourceDir,
+    });
+    await fs.writeFile(path.join(sourceDir, "x"), "x", "utf-8");
+    await execFileAsync("git", ["add", "."], { cwd: sourceDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], {
+      cwd: sourceDir,
+    });
+
+    const bareDir = path.join(tmp, "repo.git");
+    await execFileAsync("git", ["clone", "--bare", sourceDir, bareDir]);
+    const wtPath = path.join(tmp, "bare-wt");
+    await execFileAsync(
+      "git",
+      [
+        `--git-dir=${bareDir}`,
+        "worktree",
+        "add",
+        "-b",
+        "space/PRO-001",
+        wtPath,
+        "main",
+      ]
+    );
+
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+      repo: bareDir,
+    });
+
+    const items = await scanProjects(tmp, false, path.join(tmp, "missing"));
+    const found = items[0]?.worktrees.find(
+      (wt) => wt.branch === "space/PRO-001"
+    );
+    expect(found).toBeTruthy();
+    expect(await fs.realpath(found!.path)).toBe(await fs.realpath(wtPath));
+  });
+
+  it("dedupes worktrees discovered by both root scan and repo metadata", async () => {
     const repoDir = path.join(tmp, "repo");
     await fs.mkdir(repoDir, { recursive: true });
     await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
@@ -342,7 +432,7 @@ describe("scanProjects", () => {
     });
 
     const wtRoot = path.join(tmp, "_wts");
-    const wtPath = path.join(wtRoot, "aihub", "feat");
+    const wtPath = path.join(wtRoot, "repo", "feat");
     await fs.mkdir(path.dirname(wtPath), { recursive: true });
     await execFileAsync(
       "git",
@@ -363,7 +453,7 @@ describe("scanProjects", () => {
     expect(wts[0]?.branch).toBe("space/PRO-001");
   });
 
-  it("builds the root worktree index once for multiple projects", async () => {
+  it("reads root worktree branches without git rev-parse", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",
       status: "current",
@@ -390,10 +480,10 @@ describe("scanProjects", () => {
     const branchReads = log.filter((line) =>
       line.endsWith("|rev-parse --abbrev-ref HEAD")
     );
-    expect(branchReads).toHaveLength(2);
+    expect(branchReads).toHaveLength(0);
   });
 
-  it("runs git worktree list once per unique repo", async () => {
+  it("discovers repo worktrees without git worktree list", async () => {
     const repoDir = path.join(tmp, "repo");
     await fs.mkdir(repoDir, { recursive: true });
     await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
@@ -442,7 +532,138 @@ describe("scanProjects", () => {
     const worktreeLists = log.filter((line) =>
       line.endsWith("|worktree list --porcelain")
     );
-    expect(worktreeLists).toHaveLength(1);
+    expect(worktreeLists).toHaveLength(0);
+  });
+
+  it("dedupes concurrent scans for the same project root", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "aihub", "alpha", "space/PRO-001");
+    await fs.writeFile(path.join(wt, "dirty"), "dirty", "utf-8");
+
+    const gitLog = await withGitLog(tmp);
+    try {
+      const [first, second] = await Promise.all([
+        scanProjects(tmp, false, wtRoot),
+        scanProjects(tmp, false, wtRoot),
+      ]);
+      expect(first).toHaveLength(1);
+      expect(second).toHaveLength(1);
+    } finally {
+      gitLog.restore();
+    }
+
+    const log = await readGitLog(gitLog.logPath);
+    const statusReads = log.filter((line) =>
+      line.endsWith("|status --porcelain")
+    );
+    expect(statusReads).toHaveLength(1);
+  });
+
+  it("keeps endpoint cache entries separate by worktreesRoot", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(wtRoot, "aihub", "alpha", "space/PRO-001");
+
+    const withWorktree = await scanProjects(tmp, false, wtRoot);
+    expect(withWorktree[0]?.worktrees).toHaveLength(1);
+
+    const withoutWorktree = await scanProjects(
+      tmp,
+      false,
+      path.join(tmp, "missing")
+    );
+    expect(withoutWorktree[0]?.worktrees).toEqual([]);
+  });
+
+  it("clears in-flight scans when invalidating a project root", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(wtRoot, "aihub", "alpha", "space/PRO-001");
+
+    const gitLog = await withGitLog(tmp, "0.3");
+    let first: Promise<Awaited<ReturnType<typeof scanProjects>>>;
+    try {
+      first = scanProjects(tmp, false, wtRoot, { cacheTtlMs: 60_000 });
+      await waitFor(async () => {
+        const log = await readGitLog(gitLog.logPath);
+        return log.some((line) => line.endsWith("|status --porcelain"));
+      });
+
+      await makeProject(tmp, "PRO-001", {
+        title: "Beta",
+        status: "current",
+        created: "2026-01-01",
+      });
+      invalidateProjectCache(tmp);
+      const second = await scanProjects(tmp, false, wtRoot, {
+        cacheTtlMs: 60_000,
+      });
+
+      expect((await first)[0]?.title).toBe("Alpha");
+      expect(second[0]?.title).toBe("Beta");
+    } finally {
+      gitLog.restore();
+    }
+  });
+
+  it("clears endpoint cache when a watched git index changes", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "aihub", "alpha", "space/PRO-001");
+    const options = { cacheTtlMs: 60_000, dirtyAheadTtlMs: 60_000 };
+
+    const clean = await scanProjects(tmp, false, wtRoot, options);
+    expect(clean[0]?.worktrees[0]?.dirty).toBe(false);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await fs.writeFile(path.join(wt, "x"), "changed", "utf-8");
+    await execFileAsync("git", ["add", "x"], { cwd: wt });
+
+    await waitFor(async () => {
+      const items = await scanProjects(tmp, false, wtRoot, options);
+      return items[0]?.worktrees[0]?.dirty === true;
+    });
+  });
+
+  it("serves cached project results until invalidated", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+
+    const first = await scanProjects(tmp, false, emptyWtRoot);
+    expect(first[0]?.title).toBe("Alpha");
+
+    await makeProject(tmp, "PRO-001", {
+      title: "Beta",
+      status: "current",
+      created: "2026-01-01",
+    });
+
+    const cached = await scanProjects(tmp, false, emptyWtRoot);
+    expect(cached[0]?.title).toBe("Alpha");
+
+    invalidateProjectCache(tmp);
+    const refreshed = await scanProjects(tmp, false, emptyWtRoot);
+    expect(refreshed[0]?.title).toBe("Beta");
   });
 
   it("uses dir name as id when frontmatter id missing", async () => {

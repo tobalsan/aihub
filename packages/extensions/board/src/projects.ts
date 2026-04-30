@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { watch, type FSWatcher } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -36,6 +37,144 @@ const GROUP_ORDER: Record<BoardProjectGroup, number> = {
   stale: 2,
   done: 3,
 };
+
+const DEFAULT_PROJECT_CACHE_TTL_MS = 10_000;
+const DEFAULT_REPO_WORKTREE_TTL_MS = 30_000;
+const DEFAULT_BRANCH_CACHE_TTL_MS = 30_000;
+const DEFAULT_DIRTY_AHEAD_TTL_MS = 15_000;
+
+export type ScanProjectsOptions = {
+  cacheTtlMs?: number;
+  repoWorktreeTtlMs?: number;
+  branchTtlMs?: number;
+  dirtyAheadTtlMs?: number;
+};
+
+type ProjectCacheEntry = {
+  value: BoardProject[];
+  expiresAt: number;
+};
+
+type RepoWorktreeCacheEntry = {
+  value: Array<{ path: string; name: string }>;
+  expiresAt: number;
+};
+
+type BranchCacheEntry = {
+  branch: string | null;
+  headPath: string;
+  mtimeMs: number;
+  expiresAt: number;
+};
+
+type DirtyAheadCacheEntry = {
+  dirty: boolean;
+  ahead: number;
+  expiresAt: number;
+};
+
+type GitMetadata = {
+  gitDir: string;
+  commonGitDir: string;
+  headPath: string;
+  indexPath: string;
+};
+
+const projectResultCache = new Map<string, ProjectCacheEntry>();
+const inFlightScans = new Map<string, Promise<BoardProject[]>>();
+
+// These process-local caches keep the hot board endpoint free of filesystem
+// and git work on repeat requests while still allowing event-driven invalidation.
+const repoWorktreeCache = new Map<string, RepoWorktreeCacheEntry>();
+const branchCache = new Map<string, BranchCacheEntry>();
+const dirtyAheadCache = new Map<string, DirtyAheadCacheEntry>();
+const indexWatchers = new Map<
+  string,
+  { watcher?: FSWatcher; worktreeKey: string; mtimeMs: number }
+>();
+let projectCacheVersion = 0;
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function projectCacheTtlMs(options?: ScanProjectsOptions): number {
+  return (
+    options?.cacheTtlMs ??
+    readPositiveIntEnv(
+      "AIHUB_BOARD_PROJECTS_CACHE_TTL_MS",
+      DEFAULT_PROJECT_CACHE_TTL_MS
+    )
+  );
+}
+
+function repoWorktreeTtlMs(options?: ScanProjectsOptions): number {
+  return (
+    options?.repoWorktreeTtlMs ??
+    readPositiveIntEnv(
+      "AIHUB_BOARD_REPO_WORKTREE_TTL_MS",
+      DEFAULT_REPO_WORKTREE_TTL_MS
+    )
+  );
+}
+
+function branchTtlMs(options?: ScanProjectsOptions): number {
+  return (
+    options?.branchTtlMs ??
+    readPositiveIntEnv(
+      "AIHUB_BOARD_BRANCH_CACHE_TTL_MS",
+      DEFAULT_BRANCH_CACHE_TTL_MS
+    )
+  );
+}
+
+function dirtyAheadTtlMs(options?: ScanProjectsOptions): number {
+  return (
+    options?.dirtyAheadTtlMs ??
+    readPositiveIntEnv(
+      "AIHUB_BOARD_DIRTY_AHEAD_TTL_MS",
+      DEFAULT_DIRTY_AHEAD_TTL_MS
+    )
+  );
+}
+
+function scanCacheKey(
+  projectsRoot: string,
+  worktreesRoot: string,
+  includeDone: boolean
+): string {
+  return `${projectsRoot}\0${worktreesRoot}\0${includeDone ? "1" : "0"}`;
+}
+
+export function invalidateProjectCache(projectsRoot?: string): void {
+  projectCacheVersion++;
+  if (!projectsRoot) {
+    projectResultCache.clear();
+    inFlightScans.clear();
+    return;
+  }
+  const prefix = `${projectsRoot}\0`;
+  for (const key of projectResultCache.keys()) {
+    if (key.startsWith(prefix)) projectResultCache.delete(key);
+  }
+  for (const key of inFlightScans.keys()) {
+    if (key.startsWith(prefix)) inFlightScans.delete(key);
+  }
+}
+
+export function resetProjectCaches(): void {
+  projectCacheVersion++;
+  projectResultCache.clear();
+  inFlightScans.clear();
+  repoWorktreeCache.clear();
+  branchCache.clear();
+  dirtyAheadCache.clear();
+  for (const { watcher } of indexWatchers.values()) watcher?.close();
+  indexWatchers.clear();
+}
 
 export function statusToGroup(status: string): BoardProjectGroup {
   switch (status) {
@@ -98,23 +237,172 @@ async function gitText(args: string[], cwd: string): Promise<string> {
   return stdout;
 }
 
-async function readWorktreeBranch(
-  worktreePath: string
-): Promise<string | null> {
+async function pathExists(targetPath: string): Promise<boolean> {
   try {
-    return (
-      await gitText(["rev-parse", "--abbrev-ref", "HEAD"], worktreePath)
-    ).trim();
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveGitPath(baseDir: string, rawPath: string): string {
+  const trimmed = rawPath.trim();
+  return path.isAbsolute(trimmed) ? trimmed : path.resolve(baseDir, trimmed);
+}
+
+async function resolveGitMetadata(worktreePath: string): Promise<GitMetadata> {
+  const dotGitPath = path.join(worktreePath, ".git");
+  const stat = await fs.stat(dotGitPath);
+  let gitDir: string;
+  if (stat.isDirectory()) {
+    gitDir = dotGitPath;
+  } else {
+    const raw = await fs.readFile(dotGitPath, "utf-8");
+    const prefix = "gitdir:";
+    if (!raw.startsWith(prefix)) throw new Error("Invalid .git file");
+    gitDir = resolveGitPath(worktreePath, raw.slice(prefix.length));
+  }
+
+  let commonGitDir = gitDir;
+  try {
+    const commonRaw = await fs.readFile(
+      path.join(gitDir, "commondir"),
+      "utf-8"
+    );
+    commonGitDir = resolveGitPath(gitDir, commonRaw);
+  } catch {
+    // Main worktrees do not have commondir; their git dir is the common dir.
+  }
+
+  return {
+    gitDir,
+    commonGitDir,
+    headPath: path.join(gitDir, "HEAD"),
+    indexPath: path.join(gitDir, "index"),
+  };
+}
+
+function parseBranchFromHead(raw: string): string | null {
+  const head = raw.trim();
+  const headsPrefix = "ref: refs/heads/";
+  if (head.startsWith(headsPrefix)) return head.slice(headsPrefix.length);
+  return null;
+}
+
+async function readWorktreeBranch(
+  worktreePath: string,
+  options?: ScanProjectsOptions
+): Promise<string | null> {
+  const key = path.resolve(worktreePath);
+  const now = Date.now();
+  const cached = branchCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.branch;
+
+  try {
+    const metadata = await resolveGitMetadata(worktreePath);
+    const stat = await fs.stat(metadata.headPath);
+    if (
+      cached &&
+      cached.headPath === metadata.headPath &&
+      cached.mtimeMs === stat.mtimeMs
+    ) {
+      cached.expiresAt = now + branchTtlMs(options);
+      return cached.branch;
+    }
+    const branch = parseBranchFromHead(
+      await fs.readFile(metadata.headPath, "utf-8")
+    );
+    branchCache.set(key, {
+      branch,
+      headPath: metadata.headPath,
+      mtimeMs: stat.mtimeMs,
+      expiresAt: now + branchTtlMs(options),
+    });
+    return branch;
   } catch {
     return null;
   }
 }
 
-async function readWorktreeDetails(
+function watchIndexForDirtyInvalidation(
+  indexPath: string,
+  worktreeKey: string,
+  mtimeMs: number
+): void {
+  if (indexWatchers.has(indexPath)) return;
+  indexWatchers.set(indexPath, { worktreeKey, mtimeMs });
+  try {
+    const indexName = path.basename(indexPath);
+    const watcher = watch(path.dirname(indexPath), (_event, filename) => {
+      const changedName = typeof filename === "string" ? filename : undefined;
+      if (
+        changedName &&
+        changedName !== indexName &&
+        changedName !== `${indexName}.lock`
+      ) {
+        return;
+      }
+      dirtyAheadCache.delete(worktreeKey);
+      invalidateProjectCache();
+      void fs
+        .stat(indexPath)
+        .then((stat) => {
+          const entry = indexWatchers.get(indexPath);
+          if (entry) entry.mtimeMs = stat.mtimeMs;
+        })
+        .catch(() => undefined);
+    });
+    watcher.on("error", () => {
+      watcher.close();
+      const entry = indexWatchers.get(indexPath);
+      if (entry) entry.watcher = undefined;
+    });
+    const entry = indexWatchers.get(indexPath);
+    if (entry) entry.watcher = watcher;
+  } catch {
+    // Some repos have no index yet or disallow watching; TTL remains fallback.
+  }
+}
+
+async function invalidateChangedIndexCaches(): Promise<void> {
+  for (const [indexPath, entry] of indexWatchers) {
+    try {
+      const stat = await fs.stat(indexPath);
+      if (stat.mtimeMs === entry.mtimeMs) continue;
+      entry.mtimeMs = stat.mtimeMs;
+      dirtyAheadCache.delete(entry.worktreeKey);
+      invalidateProjectCache();
+    } catch {
+      dirtyAheadCache.delete(entry.worktreeKey);
+      invalidateProjectCache();
+    }
+  }
+}
+
+async function readDirtyAheadCached(
   worktreePath: string,
-  name: string,
-  branch: string
-): Promise<BoardWorktree> {
+  worktreeKey: string,
+  options?: ScanProjectsOptions
+): Promise<{ dirty: boolean; ahead: number }> {
+  const now = Date.now();
+  const cached = dirtyAheadCache.get(worktreeKey);
+  if (cached && cached.expiresAt > now) {
+    return { dirty: cached.dirty, ahead: cached.ahead };
+  }
+
+  try {
+    const metadata = await resolveGitMetadata(worktreePath);
+    const stat = await fs.stat(metadata.indexPath);
+    watchIndexForDirtyInvalidation(
+      metadata.indexPath,
+      worktreeKey,
+      stat.mtimeMs
+    );
+  } catch {
+    // Dirty/ahead are best-effort status decorations.
+  }
+
   let dirty = false;
   try {
     const status = await gitText(["status", "--porcelain"], worktreePath);
@@ -133,6 +421,27 @@ async function readWorktreeDetails(
   } catch {
     ahead = 0;
   }
+
+  dirtyAheadCache.set(worktreeKey, {
+    dirty,
+    ahead,
+    expiresAt: now + dirtyAheadTtlMs(options),
+  });
+  return { dirty, ahead };
+}
+
+async function readWorktreeDetails(
+  worktreePath: string,
+  name: string,
+  branch: string,
+  options?: ScanProjectsOptions
+): Promise<BoardWorktree> {
+  const worktreeKey = await canonicalPath(worktreePath);
+  const { dirty, ahead } = await readDirtyAheadCached(
+    worktreePath,
+    worktreeKey,
+    options
+  );
   return { name, path: worktreePath, branch, dirty, ahead };
 }
 
@@ -145,12 +454,7 @@ function branchMatchesProject(branch: string, id: string): boolean {
 }
 
 async function isGitWorktree(dir: string): Promise<boolean> {
-  try {
-    await fs.access(path.join(dir, ".git"));
-    return true;
-  } catch {
-    return false;
-  }
+  return pathExists(path.join(dir, ".git"));
 }
 
 type ProjectMeta = {
@@ -180,8 +484,21 @@ function addWorktreeToIndex(index: WorktreeIndex, wt: BoardWorktree): void {
   index.set(wt.branch, existing);
 }
 
+function startsWithInactiveProjectId(
+  name: string,
+  activeProjectIds: Set<string>
+): boolean {
+  if (!name.startsWith("PRO-")) return false;
+  for (const projectId of activeProjectIds) {
+    if (name === projectId || name.startsWith(`${projectId}-`)) return false;
+  }
+  return true;
+}
+
 async function scanWorktreePathsFromRoot(
-  worktreesRoot: string
+  worktreesRoot: string,
+  activeProjectIds: Set<string>,
+  activeRepoNames?: Set<string>
 ): Promise<Array<{ path: string; name: string }>> {
   let projectDirs: import("node:fs").Dirent[];
   try {
@@ -193,6 +510,14 @@ async function scanWorktreePathsFromRoot(
   for (const proj of projectDirs) {
     if (!proj.isDirectory()) continue;
     if (SKIP_DIRS.has(proj.name)) continue;
+    if (startsWithInactiveProjectId(proj.name, activeProjectIds)) continue;
+    if (
+      activeRepoNames &&
+      !proj.name.startsWith("PRO-") &&
+      !activeRepoNames.has(proj.name)
+    ) {
+      continue;
+    }
     const projPath = path.join(worktreesRoot, proj.name);
     let inner: import("node:fs").Dirent[];
     try {
@@ -202,6 +527,7 @@ async function scanWorktreePathsFromRoot(
     }
     for (const entry of inner) {
       if (!entry.isDirectory()) continue;
+      if (startsWithInactiveProjectId(entry.name, activeProjectIds)) continue;
       const wtPath = path.join(projPath, entry.name);
       if (!(await isGitWorktree(wtPath))) continue;
       out.push({ path: wtPath, name: entry.name });
@@ -211,33 +537,59 @@ async function scanWorktreePathsFromRoot(
 }
 
 async function scanWorktreeRefsFromRepo(
-  repo: string
-): Promise<Array<{ path: string; name: string; branch: string }>> {
+  repo: string,
+  options?: ScanProjectsOptions
+): Promise<Array<{ path: string; name: string }>> {
   const repoPath = expandPath(repo);
-  let raw: string;
+  const now = Date.now();
+  const cached = repoWorktreeCache.get(repoPath);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const out: Array<{ path: string; name: string }> = [];
   try {
-    raw = await gitText(["worktree", "list", "--porcelain"], repoPath);
+    let commonGitDir: string;
+    if (
+      (await pathExists(path.join(repoPath, "HEAD"))) &&
+      (await pathExists(path.join(repoPath, "objects")))
+    ) {
+      commonGitDir = repoPath;
+    } else {
+      const metadata = await resolveGitMetadata(repoPath);
+      commonGitDir = metadata.commonGitDir;
+      out.push({ path: repoPath, name: path.basename(repoPath) });
+    }
+
+    const worktreesDir = path.join(commonGitDir, "worktrees");
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(worktreesDir, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const metadataDir = path.join(worktreesDir, entry.name);
+      let gitdirRaw: string;
+      try {
+        gitdirRaw = await fs.readFile(
+          path.join(metadataDir, "gitdir"),
+          "utf-8"
+        );
+      } catch {
+        continue;
+      }
+      const gitdirPath = resolveGitPath(metadataDir, gitdirRaw);
+      const worktreePath = path.dirname(gitdirPath);
+      out.push({ path: worktreePath, name: path.basename(worktreePath) });
+    }
   } catch {
     return [];
   }
-  const out: Array<{ path: string; name: string; branch: string }> = [];
-  const blocks = raw.split(/\n\s*\n/);
-  for (const block of blocks) {
-    let wtPath: string | undefined;
-    let branch: string | undefined;
-    for (const line of block.split("\n")) {
-      if (line.startsWith("worktree ")) {
-        wtPath = line.slice("worktree ".length).trim();
-      } else if (line.startsWith("branch ")) {
-        const ref = line.slice("branch ".length).trim();
-        branch = ref.startsWith("refs/heads/")
-          ? ref.slice("refs/heads/".length)
-          : ref;
-      }
-    }
-    if (!wtPath || !branch) continue;
-    out.push({ path: wtPath, name: path.basename(wtPath), branch });
-  }
+  repoWorktreeCache.set(repoPath, {
+    value: out,
+    expiresAt: now + repoWorktreeTtlMs(options),
+  });
   return out;
 }
 
@@ -251,25 +603,31 @@ async function canonicalPath(p: string): Promise<string> {
 
 async function buildWorktreeIndex(
   metas: ProjectMeta[],
-  worktreesRoot: string
+  worktreesRoot: string,
+  options?: ScanProjectsOptions
 ): Promise<WorktreeIndex> {
-  const activeProjectIds = new Set(
-    metas
-      .filter((meta) => statusToGroup(meta.status) !== "done")
-      .map((meta) => meta.id)
+  const activeMetas = metas.filter(
+    (meta) => statusToGroup(meta.status) !== "done"
   );
+  const activeProjectIds = new Set(activeMetas.map((meta) => meta.id));
   if (activeProjectIds.size === 0) return new Map();
 
   const repos = [
     ...new Set(
-      metas
-        .filter((meta) => statusToGroup(meta.status) !== "done")
+      activeMetas
         .map((meta) => meta.repo)
         .filter(
           (repo): repo is string => typeof repo === "string" && repo !== ""
         )
     ),
   ];
+  const activeRepoNames =
+    repos.length > 0 &&
+    activeMetas.every(
+      (meta) => typeof meta.repo === "string" && meta.repo !== ""
+    )
+      ? new Set(repos.map((repo) => path.basename(expandPath(repo))))
+      : undefined;
 
   const index: WorktreeIndex = new Map();
   const detailsByPath = new Map<string, BoardWorktree>();
@@ -283,15 +641,19 @@ async function buildWorktreeIndex(
     const key = await canonicalPath(worktreePath);
     const cached = detailsByPath.get(key);
     if (cached) return cached;
-    const wt = await readWorktreeDetails(worktreePath, name, branch);
+    const wt = await readWorktreeDetails(worktreePath, name, branch, options);
     detailsByPath.set(key, wt);
     return wt;
   };
 
-  const rootPaths = await scanWorktreePathsFromRoot(worktreesRoot);
+  const rootPaths = await scanWorktreePathsFromRoot(
+    worktreesRoot,
+    activeProjectIds,
+    activeRepoNames
+  );
   const rootWorktrees = await Promise.all(
     rootPaths.map(async (candidate) => {
-      const branch = await readWorktreeBranch(candidate.path);
+      const branch = await readWorktreeBranch(candidate.path, options);
       if (!branch) return null;
       return readMatchedWorktree(candidate.path, candidate.name, branch);
     })
@@ -301,12 +663,14 @@ async function buildWorktreeIndex(
   }
 
   const repoRefs = await Promise.all(
-    repos.map((repo) => scanWorktreeRefsFromRepo(repo))
+    repos.map((repo) => scanWorktreeRefsFromRepo(repo, options))
   );
   const repoWorktrees = await Promise.all(
-    repoRefs
-      .flat()
-      .map((ref) => readMatchedWorktree(ref.path, ref.name, ref.branch))
+    repoRefs.flat().map(async (ref) => {
+      const branch = await readWorktreeBranch(ref.path, options);
+      if (!branch) return null;
+      return readMatchedWorktree(ref.path, ref.name, branch);
+    })
   );
   for (const wt of repoWorktrees) {
     if (wt) addWorktreeToIndex(index, wt);
@@ -335,7 +699,83 @@ async function lookupWorktrees(
 export async function scanProjects(
   projectsRoot: string,
   includeDone: boolean,
-  worktreesRoot?: string
+  worktreesRoot?: string,
+  options?: ScanProjectsOptions
+): Promise<BoardProject[]> {
+  const wtRoot = worktreesRoot ?? expandPath("~/.worktrees");
+  const key = scanCacheKey(projectsRoot, wtRoot, includeDone);
+  const cached = projectResultCache.get(key);
+  if (cached) {
+    await invalidateChangedIndexCaches();
+    const current = projectResultCache.get(key);
+    if (!current) {
+      return refreshProjectCache(
+        key,
+        projectsRoot,
+        includeDone,
+        wtRoot,
+        options
+      );
+    }
+    if (current.expiresAt <= Date.now()) {
+      void refreshProjectCache(
+        key,
+        projectsRoot,
+        includeDone,
+        wtRoot,
+        options
+      ).catch(() => undefined);
+    }
+    return current.value;
+  }
+  return refreshProjectCache(
+    key,
+    projectsRoot,
+    includeDone,
+    wtRoot,
+    options
+  );
+}
+
+function refreshProjectCache(
+  key: string,
+  projectsRoot: string,
+  includeDone: boolean,
+  worktreesRoot?: string,
+  options?: ScanProjectsOptions
+): Promise<BoardProject[]> {
+  const inFlight = inFlightScans.get(key);
+  if (inFlight) return inFlight;
+
+  const version = projectCacheVersion;
+  const promise = scanProjectsUncached(
+    projectsRoot,
+    includeDone,
+    worktreesRoot,
+    options
+  )
+    .then((items) => {
+      if (version === projectCacheVersion) {
+        projectResultCache.set(key, {
+          value: items,
+          expiresAt: Date.now() + projectCacheTtlMs(options),
+        });
+      }
+      return items;
+    })
+    .finally(() => {
+      if (inFlightScans.get(key) === promise) inFlightScans.delete(key);
+    });
+
+  inFlightScans.set(key, promise);
+  return promise;
+}
+
+async function scanProjectsUncached(
+  projectsRoot: string,
+  includeDone: boolean,
+  worktreesRoot?: string,
+  options?: ScanProjectsOptions
 ): Promise<BoardProject[]> {
   let entries: import("node:fs").Dirent[];
   try {
@@ -357,7 +797,7 @@ export async function scanProjects(
       projectEntries.map((entry) => readProjectMeta(projectsRoot, entry.name))
     )
   ).filter((meta): meta is ProjectMeta => meta !== null);
-  const worktreeIndex = await buildWorktreeIndex(metas, wtRoot);
+  const worktreeIndex = await buildWorktreeIndex(metas, wtRoot, options);
 
   const projects: BoardProject[] = [];
   for (const meta of metas) {

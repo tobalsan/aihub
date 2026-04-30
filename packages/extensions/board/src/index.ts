@@ -2,9 +2,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
-import { expandPath, type Extension, type ExtensionContext } from "@aihub/shared";
-import { scanProjects } from "./projects.js";
-import { scanAreaSummaries, toggleAreaHidden, updateLoopEntry } from "./areas.js";
+import {
+  expandPath,
+  type Extension,
+  type ExtensionContext,
+} from "@aihub/shared";
+import {
+  invalidateProjectCache,
+  resetProjectCaches,
+  scanProjects,
+} from "./projects.js";
+import {
+  scanAreaSummaries,
+  toggleAreaHidden,
+  updateLoopEntry,
+} from "./areas.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -15,9 +27,9 @@ const BoardExtensionConfigSchema = z.object({
   home: z.boolean().default(true),
 });
 
-
 let extensionContext: ExtensionContext | null = null;
 let boardRoot: string | null = null;
+let unsubscribeFileChanged: (() => void) | null = null;
 
 function getContext(): ExtensionContext {
   if (!extensionContext) throw new Error("Board extension not started");
@@ -191,9 +203,31 @@ function insertScratchpadLines(params: {
 }
 
 function resolveBoardRoot(ctx: ExtensionContext, rawConfig: unknown): string {
-  const parsed = BoardExtensionConfigSchema.pick({ contentRoot: true }).parse(rawConfig);
+  const parsed = BoardExtensionConfigSchema.pick({ contentRoot: true }).parse(
+    rawConfig
+  );
   if (parsed.contentRoot) return expandPath(parsed.contentRoot);
   return ctx.getDataDir();
+}
+
+function resolveProjectRoots(ctx: ExtensionContext): {
+  root: string;
+  worktreesRoot: string;
+} {
+  const projectsConfig = ctx.getConfig().projects;
+  return {
+    root: expandPath(projectsConfig?.root ?? "~/projects"),
+    worktreesRoot: expandPath(projectsConfig?.worktrees ?? "~/.worktrees"),
+  };
+}
+
+function isReadmeChange(payload: unknown): boolean {
+  if (typeof payload !== "object" || payload === null) return false;
+  const file = (payload as { file?: unknown }).file;
+  return (
+    typeof file === "string" &&
+    (file === "README.md" || file.endsWith("/README.md"))
+  );
 }
 
 // ── Simplified project statuses ─────────────────────────────────────
@@ -225,7 +259,10 @@ function registerBoardRoutes(app: Hono): void {
   // Canvas commands — agent tells the UI what to show
   // These are stored in a simple in-memory map per session
   // (Will evolve to persistent store later)
-  const canvasState = new Map<string, { panel: string; props?: Record<string, unknown> }>();
+  const canvasState = new Map<
+    string,
+    { panel: string; props?: Record<string, unknown> }
+  >();
 
   app.post("/board/canvas/:agentId", async (c) => {
     const agentId = c.req.param("agentId");
@@ -233,7 +270,7 @@ function registerBoardRoutes(app: Hono): void {
     const panel = typeof body.panel === "string" ? body.panel : "overview";
     const props =
       typeof body.props === "object" && body.props !== null
-        ? body.props as Record<string, unknown>
+        ? (body.props as Record<string, unknown>)
         : undefined;
 
     canvasState.set(agentId, { panel, props });
@@ -251,13 +288,12 @@ function registerBoardRoutes(app: Hono): void {
   });
 
   app.get("/board/projects", async (c) => {
+    const profile = c.req.query("profile") === "true";
+    const startedAt = profile ? Date.now() : 0;
     const includeDone = c.req.query("include") === "done";
-    const projectsConfig = getContext().getConfig().projects;
-    const root = expandPath(projectsConfig?.root ?? "~/projects");
-    const worktreesRoot = expandPath(
-      projectsConfig?.worktrees ?? "~/.worktrees"
-    );
+    const { root, worktreesRoot } = resolveProjectRoots(getContext());
     const items = await scanProjects(root, includeDone, worktreesRoot);
+    if (profile) c.header("X-Profile-Ms", String(Date.now() - startedAt));
     return c.json({ items });
   });
 
@@ -332,9 +368,7 @@ const boardExtension: Extension = {
     "Two-pane workspace: agent chat + reactive canvas. Simplified project tracking for solo operators.",
   dependencies: [],
   configSchema: BoardExtensionConfigSchema,
-  routePrefixes: [
-    "/api/board",
-  ],
+  routePrefixes: ["/api/board"],
   validateConfig(raw) {
     const result = BoardExtensionConfigSchema.safeParse(raw);
     return {
@@ -355,9 +389,21 @@ const boardExtension: Extension = {
     boardRoot = resolveBoardRoot(ctx, raw);
 
     fs.mkdirSync(boardRoot, { recursive: true });
+    const { root, worktreesRoot } = resolveProjectRoots(ctx);
+    unsubscribeFileChanged = ctx.subscribe("file.changed", (payload) => {
+      if (!isReadmeChange(payload)) return;
+      invalidateProjectCache(root);
+    });
+    void scanProjects(root, false, worktreesRoot).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.logger.warn("[board] failed to warm project cache:", message);
+    });
     console.log(`[board] extension started (root: ${boardRoot})`);
   },
   async stop() {
+    unsubscribeFileChanged?.();
+    unsubscribeFileChanged = null;
+    resetProjectCaches();
     extensionContext = null;
     boardRoot = null;
     console.log("[board] extension stopped");

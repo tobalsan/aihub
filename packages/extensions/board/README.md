@@ -130,6 +130,12 @@ GET /api/board/canvas/:agentId
 POST /api/board/canvas/:agentId
 ```
 
+`GET /api/board/projects?profile=true` adds an `X-Profile-Ms` header with
+handler wall time. Project scans are cached in memory with stale refresh; tune
+the defaults with `AIHUB_BOARD_PROJECTS_CACHE_TTL_MS`,
+`AIHUB_BOARD_REPO_WORKTREE_TTL_MS`, `AIHUB_BOARD_BRANCH_CACHE_TTL_MS`, and
+`AIHUB_BOARD_DIRTY_AHEAD_TTL_MS`.
+
 ## Agent Tools
 
 Board contributes scratchpad guidance and tools to agents:
