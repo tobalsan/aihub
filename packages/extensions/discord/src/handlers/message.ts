@@ -5,12 +5,15 @@
  */
 
 import type { DiscordConfig } from "@aihub/shared";
+import { MessageType } from "discord-api-types/v10";
 import { matchesUserAllowlist } from "../utils/allowlist.js";
 
 export type MessageData = {
   id: string;
   content: string;
+  type?: number;
   channel_id: string;
+  parent_channel_id?: string;
   guild_id?: string;
   author: {
     id: string;
@@ -105,6 +108,22 @@ export function processMessage(
   // 1. Ignore bots
   if (data.author.bot) {
     return { shouldReply: false, reason: "author_is_bot", normalizedContent: content, isDm };
+  }
+
+  // Discord emits system messages such as THREAD_CREATED into the parent
+  // channel. Only user-authored default messages and replies should invoke
+  // agents.
+  if (
+    data.type !== undefined &&
+    data.type !== MessageType.Default &&
+    data.type !== MessageType.Reply
+  ) {
+    return {
+      shouldReply: false,
+      reason: "unsupported_message_type",
+      normalizedContent: content,
+      isDm,
+    };
   }
 
   // 2. DM gating

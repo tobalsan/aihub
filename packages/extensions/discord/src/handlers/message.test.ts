@@ -38,6 +38,41 @@ describe("processMessage", () => {
       expect(result.shouldReply).toBe(false);
       expect(result.reason).toBe("author_is_bot");
     });
+
+    it("rejects Discord system messages such as thread-created events", () => {
+      const msg = createMessage({ type: 18, content: "New thread title" });
+      const result = processMessage(
+        msg,
+        createConfig({
+          guilds: {
+            "guild-1": {
+              requireMention: false,
+              reactionNotifications: "off",
+            },
+          },
+        }),
+        "bot-id"
+      );
+      expect(result.shouldReply).toBe(false);
+      expect(result.reason).toBe("unsupported_message_type");
+    });
+
+    it("allows Discord reply messages", () => {
+      const msg = createMessage({ type: 19, content: "A normal user reply" });
+      const result = processMessage(
+        msg,
+        createConfig({
+          guilds: {
+            "guild-1": {
+              requireMention: false,
+              reactionNotifications: "off",
+            },
+          },
+        }),
+        "bot-id"
+      );
+      expect(result.shouldReply).toBe(true);
+    });
   });
 
   describe("DM gating", () => {

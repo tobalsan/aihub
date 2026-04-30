@@ -1,4 +1,5 @@
 import type { CommandInteraction } from "@buape/carbon";
+import { MessageType } from "discord-api-types/v10";
 import type {
   AgentConfig,
   AgentStreamEvent,
@@ -14,6 +15,7 @@ import {
   type MessageHandler,
   type ReactionHandler,
   type ReadyHandler,
+  type ThreadHandler,
 } from "./client.js";
 import { processMessage, type MessageData } from "./handlers/message.js";
 import { processReaction, formatEmoji, type ReactionData } from "./handlers/reactions.js";
@@ -62,6 +64,13 @@ type DiscordBotFactoryOptions = {
   createCommands?: () => ReturnType<typeof createSlashCommands> | undefined;
   acceptsAgent: (agentId: string) => boolean;
   getBroadcastChannel: (agentId: string) => string | undefined;
+};
+
+type DiscordChannelInfo = {
+  id: string;
+  type?: number;
+  parent_id?: string | null;
+  guild_id?: string;
 };
 
 function buildComponentDmConfig(enabled: boolean): DiscordConfig["dm"] {
@@ -307,6 +316,112 @@ async function handleDiscordReaction(
   }
 }
 
+function toMessageData(data: {
+  id: string;
+  content?: string | null;
+  type?: number;
+  channel_id: string;
+  guild_id?: string;
+  author: {
+    id: string;
+    username?: string;
+    discriminator?: string;
+    bot?: boolean;
+  };
+  mentions?: Array<{ id: string }>;
+}): MessageData {
+  return {
+    id: data.id,
+    content: data.content ?? "",
+    type: data.type,
+    channel_id: data.channel_id,
+    guild_id: data.guild_id,
+    author: {
+      id: data.author.id,
+      username: data.author.username,
+      discriminator: data.author.discriminator,
+      bot: data.author.bot,
+    },
+    mentions: data.mentions,
+  };
+}
+
+async function enrichThreadParent(
+  data: MessageData,
+  client: CarbonClient
+): Promise<MessageData> {
+  if (!data.guild_id) return data;
+
+  try {
+    const channel = (await client.rest.get(
+      `/channels/${data.channel_id}`
+    )) as DiscordChannelInfo;
+    if (!isDiscordThreadType(channel.type) || !channel.parent_id) return data;
+    return {
+      ...data,
+      parent_channel_id: channel.parent_id,
+    };
+  } catch {
+    return data;
+  }
+}
+
+async function resolveTargetForMessage(
+  data: MessageData,
+  client: CarbonClient,
+  resolveMessageTarget: DiscordBotFactoryOptions["resolveMessageTarget"]
+): Promise<{ data: MessageData; target: ResolvedDiscordMessageTarget | null }> {
+  const target = resolveMessageTarget(data);
+  if (target || !data.guild_id) return { data, target };
+
+  const enriched = await enrichThreadParent(data, client);
+  if (enriched === data) return { data, target: null };
+  return {
+    data: enriched,
+    target: resolveMessageTarget(enriched),
+  };
+}
+
+async function getLatestThreadMessage(
+  client: CarbonClient,
+  threadId: string
+): Promise<{
+  id: string;
+  content?: string;
+  type?: number;
+  channel_id: string;
+  guild_id?: string;
+  author: {
+    id: string;
+    username?: string;
+    discriminator?: string;
+    bot?: boolean;
+  };
+  mentions?: Array<{ id: string }>;
+} | null> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const messages = (await client.rest.get(
+      `/channels/${threadId}/messages?limit=1`
+    )) as Array<{
+      id: string;
+      content?: string;
+      type?: number;
+      channel_id: string;
+      guild_id?: string;
+      author: {
+        id: string;
+        username?: string;
+        discriminator?: string;
+        bot?: boolean;
+      };
+      mentions?: Array<{ id: string }>;
+    }>;
+    if (messages[0]) return messages[0];
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return null;
+}
+
 async function resolveDiscordClientId(
   token: string,
   applicationId: string | undefined,
@@ -436,25 +551,80 @@ async function createConfiguredDiscordBot(
   options: DiscordBotFactoryOptions
 ): Promise<DiscordBot | null> {
   const textAccumulators = new Map<string, string>();
+  const handledMessageIds = new Set<string>();
+  const handledThreadIds = new Set<string>();
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
 
-  const handleMessage: MessageHandler = async (data, client) => {
-    const msgData: MessageData = {
-      id: data.id,
-      content: data.content ?? "",
-      channel_id: data.channel_id,
-      guild_id: data.guild_id,
-      author: {
-        id: data.author.id,
-        username: data.author.username,
-        discriminator: data.author.discriminator,
-        bot: data.author.bot,
-      },
-      mentions: data.mentions,
-    };
+  const handleCreatedThread = async (
+    thread: { id: string; guildId?: string; parentId?: string | null; join?: () => Promise<void> },
+    client: CarbonClient
+  ) => {
+    if (handledThreadIds.has(thread.id)) return;
+    handledThreadIds.add(thread.id);
 
-    const target = options.resolveMessageTarget(msgData);
+    try {
+      await thread.join?.();
+    } catch {
+      // Already joined, not joinable, or missing permissions. Message routing can
+      // still work for threads Discord delivers to the gateway.
+    }
+
+    try {
+      const message = await getLatestThreadMessage(client, thread.id);
+      if (!message) return;
+      if (handledMessageIds.has(message.id)) return;
+      handledMessageIds.add(message.id);
+
+      const msgData: MessageData = {
+        ...toMessageData({
+          ...message,
+          guild_id: message.guild_id ?? thread.guildId,
+        }),
+        parent_channel_id: thread.parentId ?? undefined,
+      };
+      const target = options.resolveMessageTarget(msgData);
+      if (!target) return;
+
+      await handleDiscordMessage(
+        msgData,
+        client,
+        target,
+        botUserId,
+        target.config.historyLimit ?? 20,
+        target.config.clearHistoryAfterReply ?? true,
+        target.config.replyToMode ?? "off"
+      );
+    } catch (err) {
+      console.debug(`${options.logPrefix} Thread create ignored: ${err}`);
+    }
+  };
+
+  const handleMessage: MessageHandler = async (data, client) => {
+    if (data.type === MessageType.ThreadCreated) {
+      await handleCreatedThread(
+        {
+          id: data.id,
+          guildId: data.guild_id,
+          parentId: data.channel_id,
+          join: async () => {
+            await client.rest.put(`/channels/${data.id}/thread-members/@me`);
+          },
+        },
+        client
+      );
+      return;
+    }
+
+    if (handledMessageIds.has(data.id)) return;
+    handledMessageIds.add(data.id);
+
+    const resolved = await resolveTargetForMessage(
+      toMessageData(data),
+      client,
+      options.resolveMessageTarget
+    );
+    const { data: msgData, target } = resolved;
     if (!target) return;
 
     await handleDiscordMessage(
@@ -466,6 +636,10 @@ async function createConfiguredDiscordBot(
       target.config.clearHistoryAfterReply ?? true,
       target.config.replyToMode ?? "off"
     );
+  };
+
+  const handleThreadCreate: ThreadHandler = async (data, client) => {
+    await handleCreatedThread(data.thread, client);
   };
 
   const handleReaction: ReactionHandler = async (data, client, added) => {
@@ -512,6 +686,7 @@ async function createConfiguredDiscordBot(
     clientId,
     commands,
     onMessage: handleMessage,
+    onThreadCreate: handleThreadCreate,
     onReaction: handleReaction,
     onReady: handleReady,
   });
@@ -533,6 +708,8 @@ async function createConfiguredDiscordBot(
       cleanupBroadcasts?.();
       cleanupBroadcasts = null;
       textAccumulators.clear();
+      handledMessageIds.clear();
+      handledThreadIds.clear();
       stopAllTyping();
       const gateway = getGatewayPlugin(client);
       if (gateway) {
@@ -637,7 +814,11 @@ function resolveMessageTarget(
     };
   }
 
-  const route = componentConfig.channels?.[data.channel_id];
+  const route =
+    componentConfig.channels?.[data.channel_id] ??
+    (data.parent_channel_id
+      ? componentConfig.channels?.[data.parent_channel_id]
+      : undefined);
   if (!route) return null;
 
   const agent = agentsById.get(route.agent);

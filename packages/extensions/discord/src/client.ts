@@ -11,6 +11,7 @@ import {
   MessageReactionAddListener,
   MessageReactionRemoveListener,
   ReadyListener,
+  ThreadCreateListener,
   type ListenerEventData,
   GatewayDispatchEvents,
 } from "@buape/carbon";
@@ -20,6 +21,7 @@ export type { Client as CarbonClient };
 
 // Event handler types
 export type MessageHandler = (data: ListenerEventData[typeof GatewayDispatchEvents.MessageCreate], client: Client) => Promise<void>;
+export type ThreadHandler = (data: ListenerEventData[typeof GatewayDispatchEvents.ThreadCreate], client: Client) => Promise<void>;
 export type ReactionHandler = (
   data: ListenerEventData[typeof GatewayDispatchEvents.MessageReactionAdd] | ListenerEventData[typeof GatewayDispatchEvents.MessageReactionRemove],
   client: Client,
@@ -33,6 +35,7 @@ export interface DiscordClientConfig {
   publicKey?: string;
   commands?: Command[];
   onMessage?: MessageHandler;
+  onThreadCreate?: ThreadHandler;
   onReaction?: ReactionHandler;
   onReady?: ReadyHandler;
 }
@@ -41,6 +44,14 @@ export interface DiscordClientConfig {
 function createMessageListener(handler: MessageHandler): MessageCreateListener {
   return new (class extends MessageCreateListener {
     async handle(data: ListenerEventData[typeof GatewayDispatchEvents.MessageCreate], client: Client) {
+      await handler(data, client);
+    }
+  })();
+}
+
+function createThreadCreateListener(handler: ThreadHandler): ThreadCreateListener {
+  return new (class extends ThreadCreateListener {
+    async handle(data: ListenerEventData[typeof GatewayDispatchEvents.ThreadCreate], client: Client) {
       await handler(data, client);
     }
   })();
@@ -79,6 +90,10 @@ export function createCarbonClient(config: DiscordClientConfig): Client {
   // Add message listener if handler provided
   if (config.onMessage) {
     listeners.push(createMessageListener(config.onMessage));
+  }
+
+  if (config.onThreadCreate) {
+    listeners.push(createThreadCreateListener(config.onThreadCreate));
   }
 
   // Add reaction listeners if handler provided
