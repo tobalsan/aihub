@@ -19,6 +19,8 @@ import { GatewayPlugin, GatewayIntents } from "@buape/carbon/gateway";
 
 export type { Client as CarbonClient };
 
+const DISCORD_GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
+
 // Event handler types
 export type MessageHandler = (data: ListenerEventData[typeof GatewayDispatchEvents.MessageCreate], client: Client) => Promise<void>;
 export type ThreadHandler = (data: ListenerEventData[typeof GatewayDispatchEvents.ThreadCreate], client: Client) => Promise<void>;
@@ -117,15 +119,18 @@ export function createCarbonClient(config: DiscordClientConfig): Client {
     disableEventsRoute: true,
   };
 
-  const gatewayPlugin = new GatewayPlugin({
-    intents:
-      GatewayIntents.Guilds |
-      GatewayIntents.GuildMessages |
-      GatewayIntents.MessageContent |
-      GatewayIntents.DirectMessages |
-      GatewayIntents.GuildMessageReactions,
-    autoInteractions: Boolean(config.commands?.length),
-  });
+  const gatewayPlugin = new GatewayPlugin(
+    {
+      intents:
+        GatewayIntents.Guilds |
+        GatewayIntents.GuildMessages |
+        GatewayIntents.MessageContent |
+        GatewayIntents.DirectMessages |
+        GatewayIntents.GuildMessageReactions,
+      autoInteractions: Boolean(config.commands?.length),
+    },
+    { url: DISCORD_GATEWAY_URL } as ConstructorParameters<typeof GatewayPlugin>[1]
+  );
 
   const client = new Client(
     clientOptions,
