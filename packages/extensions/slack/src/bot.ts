@@ -117,6 +117,48 @@ function toMessageData(raw: unknown, isAppMention = false): MessageData | null {
   };
 }
 
+function slackThreadUnlockKey(
+  data: MessageData,
+  includeRoot = false
+): string | undefined {
+  const threadTs = data.thread_ts ?? (includeRoot ? data.ts : undefined);
+  return threadTs ? `${data.channel}:${threadTs}` : undefined;
+}
+
+function mentionsSlackBot(
+  data: MessageData,
+  botUserId: string | undefined
+): boolean {
+  return Boolean(
+    data.isAppMention ||
+      (botUserId && new RegExp(`<@${botUserId}>`).test(data.text ?? ""))
+  );
+}
+
+function withoutSlackMentionRequirement(
+  target: SlackMessageTarget,
+  channel: string
+): SlackMessageTarget {
+  const channelConfig = target.config.channels?.[channel];
+  const effectiveChannelConfig: SlackComponentChannelConfig = {
+    ...channelConfig,
+    agent: channelConfig?.agent ?? target.agent.id,
+    requireMention: false,
+  };
+
+  return {
+    ...target,
+    config: {
+      ...target.config,
+      channels: {
+        ...target.config.channels,
+        [channel]: effectiveChannelConfig,
+      },
+    },
+    channelConfig: effectiveChannelConfig,
+  };
+}
+
 function toReactionData(raw: unknown): ReactionData | null {
   const event = asRecord(raw);
   const item = asRecord(event.item);
@@ -769,6 +811,7 @@ export function createSlackBot(
   );
   const client = app.client as unknown as SlackWebClient;
   const textAccumulators = new Map<string, string>();
+  const unlockedThreadKeys = new Set<string>();
   const logPrefix = "[slack]";
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
@@ -834,10 +877,20 @@ export function createSlackBot(
     if (!data) return;
     const target = resolveMessageTarget(data);
     if (!target) return;
+    const mentioned = mentionsSlackBot(data, botUserId);
+    const unlockKey = slackThreadUnlockKey(data, mentioned);
+    if (unlockKey && mentioned) {
+      unlockedThreadKeys.add(unlockKey);
+    }
+    const threadKey = slackThreadUnlockKey(data);
+    const effectiveTarget =
+      threadKey && unlockedThreadKeys.has(threadKey)
+        ? withoutSlackMentionRequirement(target, data.channel)
+        : target;
     await handleSlackMessage(
       data,
       eventClient as unknown as SlackWebClient,
-      target,
+      effectiveTarget,
       botUserId
     );
   });
@@ -847,10 +900,19 @@ export function createSlackBot(
     if (!data) return;
     const target = resolveMessageTarget(data);
     if (!target) return;
+    const unlockKey = slackThreadUnlockKey(data, true);
+    if (unlockKey) {
+      unlockedThreadKeys.add(unlockKey);
+    }
+    const threadKey = slackThreadUnlockKey(data);
+    const effectiveTarget =
+      threadKey && unlockedThreadKeys.has(threadKey)
+        ? withoutSlackMentionRequirement(target, data.channel)
+        : target;
     await handleSlackMessage(
       data,
       eventClient as unknown as SlackWebClient,
-      target,
+      effectiveTarget,
       botUserId
     );
   });
@@ -949,6 +1011,7 @@ export function createSlackBot(
       cleanupBroadcasts?.();
       cleanupBroadcasts = null;
       textAccumulators.clear();
+      unlockedThreadKeys.clear();
       stopAllThinkingReactions();
       await app.stop();
     },
@@ -966,6 +1029,7 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
   );
   const client = app.client as unknown as SlackWebClient;
   const textAccumulators = new Map<string, string>();
+  const unlockedThreadKeys = new Set<string>();
   const logPrefix = `[slack:${agent.id}]`;
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
@@ -1093,10 +1157,20 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
     if (!data) return;
     const target = resolveMessageTarget(data);
     if (!target) return;
+    const mentioned = mentionsSlackBot(data, botUserId);
+    const unlockKey = slackThreadUnlockKey(data, mentioned);
+    if (unlockKey && mentioned) {
+      unlockedThreadKeys.add(unlockKey);
+    }
+    const threadKey = slackThreadUnlockKey(data);
+    const effectiveTarget =
+      threadKey && unlockedThreadKeys.has(threadKey)
+        ? withoutSlackMentionRequirement(target, data.channel)
+        : target;
     await handleSlackMessage(
       data,
       eventClient as unknown as SlackWebClient,
-      target,
+      effectiveTarget,
       botUserId
     );
   });
@@ -1106,10 +1180,19 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
     if (!data) return;
     const target = resolveMessageTarget(data);
     if (!target) return;
+    const unlockKey = slackThreadUnlockKey(data, true);
+    if (unlockKey) {
+      unlockedThreadKeys.add(unlockKey);
+    }
+    const threadKey = slackThreadUnlockKey(data);
+    const effectiveTarget =
+      threadKey && unlockedThreadKeys.has(threadKey)
+        ? withoutSlackMentionRequirement(target, data.channel)
+        : target;
     await handleSlackMessage(
       data,
       eventClient as unknown as SlackWebClient,
-      target,
+      effectiveTarget,
       botUserId
     );
   });
@@ -1203,6 +1286,7 @@ export function createSlackAgentBot(agent: AgentConfig): SlackBot | null {
       cleanupBroadcasts?.();
       cleanupBroadcasts = null;
       textAccumulators.clear();
+      unlockedThreadKeys.clear();
       stopAllThinkingReactions();
       await app.stop();
     },
