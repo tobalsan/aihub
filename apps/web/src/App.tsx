@@ -43,9 +43,9 @@ const LazyBoardView = lazy(() =>
     default: mod.BoardView,
   }))
 );
-const LazyProjectsBoard = lazy(() =>
-  import("./components/ProjectsBoard").then((mod) => ({
-    default: mod.ProjectsBoard,
+const LazyProjectsOverview = lazy(() =>
+  import("./components/ProjectsOverview").then((mod) => ({
+    default: mod.ProjectsOverview,
   }))
 );
 const LazyProjectDetailPage = lazy(() =>
@@ -313,17 +313,18 @@ function ProjectsRouteShell() {
   }
 
   const params = useParams();
+  const location = useLocation();
   const showDetail = createMemo(
-    () => typeof params.id === "string" && params.id.length > 0
+    () =>
+      typeof params.id === "string" &&
+      params.id.length > 0 &&
+      new URLSearchParams(location.search).get("detail") === "1"
   );
   return (
     <LeftNavShell>
       <Suspense>
         <div class="projects-route-shell">
-          <LazyProjectsBoard
-            withSidebar={false}
-            suspendProjectRealtime={showDetail()}
-          />
+          <LazyProjectsOverview />
           <Show when={showDetail()}>
             <div class="projects-route-detail-layer">
               <LazyProjectDetailPage />

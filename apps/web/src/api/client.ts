@@ -1129,6 +1129,31 @@ export async function interruptRuntimeSubagent(
   return { ok: true, data: (await res.json()) as SubagentRun };
 }
 
+export type ResumeRuntimeSubagentResult =
+  | { ok: true; data: SubagentRun }
+  | { ok: false; error: string };
+
+export async function resumeRuntimeSubagent(
+  runId: string,
+  prompt: string
+): Promise<ResumeRuntimeSubagentResult> {
+  const res = await fetch(
+    `${API_BASE}/subagents/${encodeURIComponent(runId)}/resume`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to resume subagent" }));
+    return { ok: false, error: data.error ?? "Failed to resume subagent" };
+  }
+  return { ok: true, data: (await res.json()) as SubagentRun };
+}
+
 export type ArchiveRuntimeSubagentResult =
   | { ok: true; data: SubagentRun }
   | { ok: false; error: string };

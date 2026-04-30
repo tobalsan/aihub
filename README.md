@@ -416,14 +416,13 @@ packages/
 - Left sidebar: AIHub logo + primary links (`Chats` always; `Projects` and `Conversations` only when those components are enabled)
 - Main route: `/` for Areas overview (new homepage)
 - Areas homepage supports quick area creation with auto-generated ids and color picker selection
-- Kanban routes: `/projects` for all projects, `/projects?area=<id>` for area-filtered kanban
+- Project routes: `/projects` and `/projects/:id` show the two-pane Projects Overview with client-side filters/search and worktree run state from `/api/board/projects`
 - Right sidebar tabs: `Agents`, `Chat`, `Feed`
 - Collapsed left/right sidebars hover-expand as overlays instead of pushing the main content
 - Legacy direct-chat agent list remains at `/agents`
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
-- Project detail overlay on `/projects/:id` keeps the same single left sidebar as `/projects`
-- The right context panel stays visible on `/projects/:id`, with recent projects moved to the bottom of that sidebar
+- The full project editor remains available from the overview through `?detail=1`; it opens `ProjectDetailPage` over the overview for README editing, chat, activity, changes, and spec work
 - Project detail is mobile/tablet responsive: `<=768px` uses a single-column `Overview | Chat | Activity | Changes | Spec` tabbed view, and `769px-1199px` uses a `280px` left rail with merged center/right tabs
 - In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
 - Right context panel `Recent` list shows the 5 most recently viewed projects from browser localStorage

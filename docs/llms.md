@@ -76,7 +76,8 @@ Features:
 - Left sidebar nav shell is reused on `/projects`, `/agents`, `/conversations`, and `/chat/:agentId/:view?` routes for consistent navigation
 - Web app fetches `/api/capabilities` on boot; if `projects` is disabled, `/` falls back to the core agent list instead of the Areas route
 - When `/api/capabilities` reports `multiUser: true`, the app gates protected routes behind Better Auth session checks, exposes `/login`, and shows admin pages for `/admin/users` and `/admin/agents`
-- `/projects/:id?` uses the shared `LeftNavShell`; `ProjectsBoard` can be rendered with `withSidebar={false}` to avoid duplicate sidebars while the right context panel stays visible on project detail overlay
+- `/projects/:id?` uses `ProjectsOverview`, a two-pane SolidJS overview with client-side Active/Done/Archived filtering, search, inline title edits, lightweight project creation, Mark done, and worktree rows sourced from `/api/board/projects` enriched `worktrees[]`.
+- Project overview worktree rows combine Space `queueStatus` with live `agentRun.status` into working/failed/conflict/stale/pending/skipped/integrated/idle pills and expose Logs, Stop, Resume, and Open diff actions. `?detail=1` opens the existing `ProjectDetailPage` overlay for the full editor/Changes surface.
 - `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
 - Right context panel shows last 5 recently viewed projects (from `localStorage`) at the bottom, with truncated titles and relative viewed timestamps
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled

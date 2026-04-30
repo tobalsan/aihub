@@ -6,38 +6,26 @@ import { BoardView } from "./BoardView";
 const {
   fetchAgentsMock,
   fetchFullHistoryMock,
-  fetchRuntimeSubagentLogsMock,
-  fetchRuntimeSubagentsMock,
   getSessionKeyMock,
   streamMessageMock,
   subscribeToSessionMock,
-  subscribeToSubagentChangesMock,
   uploadFilesMock,
 } = vi.hoisted(() => ({
   fetchAgentsMock: vi.fn(),
   fetchFullHistoryMock: vi.fn(),
-  fetchRuntimeSubagentLogsMock: vi.fn(),
-  fetchRuntimeSubagentsMock: vi.fn(),
   getSessionKeyMock: vi.fn(),
   streamMessageMock: vi.fn(),
   subscribeToSessionMock: vi.fn(),
-  subscribeToSubagentChangesMock: vi.fn(),
   uploadFilesMock: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
-  archiveRuntimeSubagent: vi.fn(),
-  deleteRuntimeSubagent: vi.fn(),
   fetchAgents: fetchAgentsMock,
   fetchFullHistory: fetchFullHistoryMock,
-  fetchRuntimeSubagentLogs: fetchRuntimeSubagentLogsMock,
-  fetchRuntimeSubagents: fetchRuntimeSubagentsMock,
   getSessionKey: getSessionKeyMock,
-  interruptRuntimeSubagent: vi.fn(),
   postAbort: vi.fn(),
   streamMessage: streamMessageMock,
   subscribeToSession: subscribeToSessionMock,
-  subscribeToSubagentChanges: subscribeToSubagentChangesMock,
   uploadFiles: uploadFilesMock,
 }));
 
@@ -88,15 +76,9 @@ describe("BoardView attachments", () => {
       isStreaming: false,
       activeTurn: null,
     });
-    fetchRuntimeSubagentsMock.mockResolvedValue({ items: [] });
-    fetchRuntimeSubagentLogsMock.mockResolvedValue({
-      events: [],
-      nextCursor: 0,
-    });
     getSessionKeyMock.mockReturnValue("main");
     streamMessageMock.mockImplementation(() => () => {});
     subscribeToSessionMock.mockImplementation(() => () => {});
-    subscribeToSubagentChangesMock.mockImplementation(() => () => {});
     uploadFilesMock.mockResolvedValue([
       {
         path: "/tmp/uploaded/report.pdf",

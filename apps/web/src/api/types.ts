@@ -355,11 +355,33 @@ export type AreaSummary = {
 };
 
 export type BoardWorktree = {
+  id: string;
   name: string;
   path: string;
-  branch: string;
+  workerSlug: string;
+  worktreePath: string;
+  branch: string | null;
   dirty: boolean;
   ahead: number;
+  queueStatus:
+    | "pending"
+    | "integrated"
+    | "conflict"
+    | "skipped"
+    | "stale_worker"
+    | null;
+  agentRun: {
+    runId: string;
+    label: string;
+    cli: string;
+    status: "running" | "done" | "failed" | "interrupted" | string;
+    startedAt: string;
+    updatedAt: string;
+  } | null;
+  startedAt?: string;
+  integratedAt?: string;
+  startSha?: string;
+  endSha?: string;
 };
 
 export type BoardProject = {
