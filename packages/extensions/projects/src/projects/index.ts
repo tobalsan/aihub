@@ -34,6 +34,7 @@ export type {
 export {
   ensureProjectSpace,
   getProjectSpace,
+  parseSpaceFile,
   clearProjectSpaceRebaseConflict,
   getProjectSpaceCommitLog,
   getProjectSpaceContribution,
@@ -52,11 +53,18 @@ export {
   acquireProjectSpaceWriteLease,
   releaseProjectSpaceWriteLease,
 } from "./space.js";
+export {
+  getCachedSpace,
+  invalidateSpaceCache,
+  startSpaceCacheWatcher,
+} from "./space-cache.js";
 export type {
   ProjectSpace,
+  SpaceFile,
   SpaceRebaseConflict,
   ProjectSpaceResult,
   IntegrationEntry,
+  SpaceQueueEntry,
   IntegrationStatus,
   RecordWorkerDeliveryInput,
   SpaceCommitSummary,

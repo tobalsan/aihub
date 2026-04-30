@@ -44,6 +44,8 @@ export type ProjectSpace = {
   updatedAt: string;
 };
 
+export type SpaceFile = ProjectSpace;
+
 export type SpaceRebaseConflict = {
   baseSha: string;
   error: string;
@@ -62,6 +64,8 @@ export type SpaceContribution = {
   diff: string;
   conflictFiles: string[];
 };
+
+export type SpaceQueueEntry = IntegrationEntry;
 
 export type SpaceWriteLease = {
   holder: string;
@@ -240,10 +244,8 @@ async function resolveProjectContext(
   };
 }
 
-async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+export function parseSpaceFile(raw: string): ProjectSpace | null {
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
     const projectId =
       typeof parsed.projectId === "string" ? parsed.projectId.trim() : "";
     const branch =
@@ -264,21 +266,27 @@ async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
             error: (rawRebaseConflict as Record<string, string>).error,
           }
         : undefined;
-    if (!projectId || !branch || !worktreePath) return null;
-    return {
-      version: 1,
-      projectId,
-      branch,
-      worktreePath,
-      baseBranch: baseBranch || "main",
-      rebaseConflict,
-      integrationBlocked: parsed.integrationBlocked === true,
-      queue: normalizeQueue(parsed.queue),
-      updatedAt:
-        typeof parsed.updatedAt === "string"
-          ? parsed.updatedAt
-          : new Date().toISOString(),
-    };
+  if (!projectId || !branch || !worktreePath) return null;
+  return {
+    version: 1,
+    projectId,
+    branch,
+    worktreePath,
+    baseBranch: baseBranch || "main",
+    rebaseConflict,
+    integrationBlocked: parsed.integrationBlocked === true,
+    queue: normalizeQueue(parsed.queue),
+    updatedAt:
+      typeof parsed.updatedAt === "string"
+        ? parsed.updatedAt
+        : new Date().toISOString(),
+  };
+}
+
+async function readSpaceFile(filePath: string): Promise<ProjectSpace | null> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return parseSpaceFile(raw);
   } catch {
     return null;
   }
