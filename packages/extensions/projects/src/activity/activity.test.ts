@@ -281,7 +281,7 @@ describe("activity persistence", () => {
     const progressPath = await setupSubagentRun({
       projectPath: created.path,
       slug: "main",
-      startedAt: "2026-02-07T10:00:00.000Z",
+      startedAt: new Date().toISOString(),
       lastActive: "2026-02-07T10:00:01.000Z",
     });
 
@@ -322,7 +322,7 @@ describe("activity persistence", () => {
     const progressPath = await setupSubagentRun({
       projectPath: created.path,
       slug: "main",
-      startedAt: "2026-02-07T11:00:00.000Z",
+      startedAt: new Date().toISOString(),
       lastActive: "2026-02-07T11:00:01.000Z",
     });
 
@@ -394,7 +394,7 @@ describe("activity persistence", () => {
     const progressPath = await setupSubagentRun({
       projectPath: created.path,
       slug,
-      startedAt: "2026-02-07T12:00:00.000Z",
+      startedAt: new Date().toISOString(),
       lastActive: "2026-02-07T12:00:01.000Z",
     });
     const statePath = path.join(sessionDir, "state.json");
@@ -407,7 +407,7 @@ describe("activity persistence", () => {
       JSON.stringify(
         {
           supervisor_pid: process.pid,
-          started_at: "2026-02-07T12:30:00.000Z",
+          started_at: new Date(Date.now() + 1000).toISOString(),
           cli: "codex",
         },
         null,

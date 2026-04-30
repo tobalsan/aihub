@@ -26,7 +26,7 @@ vi.mock("../api/client", () => ({
       title: "Alpha Project",
       path: "PRO-1_alpha-project",
       absolutePath: "/tmp/PRO-1_alpha-project",
-      frontmatter: { status: "maybe", domain: "coding" },
+      frontmatter: { status: "maybe" },
     },
   ]),
   fetchAreas: vi.fn(async () => []),
@@ -69,7 +69,6 @@ vi.mock("../api/client", () => ({
   updateProjectComment: vi.fn(async () => ({})),
   deleteProjectComment: vi.fn(async () => ({})),
   startProjectRun: vi.fn(async () => ({ ok: true })),
-  spawnRalphLoop: vi.fn(async () => ({ ok: true })),
   subscribeToFileChanges: vi.fn(() => () => {}),
 }));
 

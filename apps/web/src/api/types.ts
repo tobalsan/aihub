@@ -152,10 +152,6 @@ export type UnarchiveProjectResponse = {
 
 export type ProjectUpdatePayload = {
   title?: string;
-  domain?: string;
-  owner?: string;
-  executionMode?: string;
-  appetite?: string;
   status?: string;
   area?: string;
   readme?: string;
@@ -193,23 +189,19 @@ export type RuntimeSubagentListResponse = {
 
 export type SubagentListItem = {
   slug: string;
-  type?: "subagent" | "ralph_loop";
+  type?: "subagent";
   cli?: string;
   name?: string;
   model?: string;
   reasoningEffort?: string;
   thinking?: string;
   runMode?: string;
-  role?: "supervisor" | "worker";
-  parentSlug?: string;
-  groupKey?: string;
   status: SubagentStatus;
   lastActive?: string;
   baseBranch?: string;
   worktreePath?: string;
   lastError?: string;
   archived?: boolean;
-  iterations?: number;
   agentId?: string;
 };
 

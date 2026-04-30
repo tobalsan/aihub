@@ -136,10 +136,6 @@ export class ApiClient {
     return this.request(`/projects/${id}/unarchive`, { method: "POST" });
   }
 
-  startRalphLoop(id: string, body: Record<string, unknown>) {
-    return this.request(`/projects/${id}/ralph-loop`, { method: "POST", body });
-  }
-
   listAgents() {
     return this.request("/agents");
   }

@@ -36,7 +36,6 @@ import {
   updateProjectComment,
   deleteProjectComment,
   startProjectRun,
-  spawnRalphLoop,
   subscribeToFileChanges,
 } from "../api/client";
 import type {
@@ -773,10 +772,7 @@ type LogItem = {
 type AgentRunItem = {
   key: string;
   type: "subagent" | "aihub";
-  executionType?: "subagent" | "ralph_loop";
-  role?: "supervisor" | "worker";
-  parentSlug?: string;
-  groupKey?: string;
+  executionType?: "subagent";
   label: string;
   status: "running" | "replied" | "error" | "idle";
   time?: number;
@@ -784,7 +780,6 @@ type AgentRunItem = {
   agentId?: string;
   sessionKey?: string;
   archived?: boolean;
-  iterations?: number;
 };
 
 type AgentRunGroup = {
@@ -793,13 +788,6 @@ type AgentRunGroup = {
   children: AgentRunItem[];
   displayStatus: AgentRunItem["status"];
 };
-
-function runStatusRank(status: AgentRunItem["status"]): number {
-  if (status === "running") return 3;
-  if (status === "error") return 2;
-  if (status === "replied") return 1;
-  return 0;
-}
 
 function logTone(
   type: string
@@ -970,11 +958,6 @@ function normalizeStatus(raw?: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
-function normalizeMode(raw?: string): string {
-  if (!raw) return "";
-  return raw.trim().toLowerCase().replace(/\s+/g, "_");
-}
-
 function getStatusLabel(status: string): string {
   if (status === "cancelled") return "Cancelled";
   if (status === "archived") return "Archived";
@@ -1050,16 +1033,7 @@ export function ProjectsBoard(props: {
     readExpandedFromStorage()
   );
   const [detailStatus, setDetailStatus] = createSignal("maybe");
-  const [detailDomain, setDetailDomain] = createSignal("");
-  const [detailOwner, setDetailOwner] = createSignal("");
-  const [detailMode, setDetailMode] = createSignal("");
-  const [detailAppetite, setDetailAppetite] = createSignal("");
   const [detailRunAgent, setDetailRunAgent] = createSignal("");
-  const [detailRalphCli, setDetailRalphCli] = createSignal<"codex" | "claude">(
-    "codex"
-  );
-  const [detailRalphIterations, setDetailRalphIterations] = createSignal("20");
-  const [detailRalphPromptFile, setDetailRalphPromptFile] = createSignal("");
   const [detailRunMode, setDetailRunMode] = createSignal("clone");
   const [detailRepo, setDetailRepo] = createSignal("");
   const [repoStatus, setRepoStatus] = createSignal<
@@ -1105,7 +1079,7 @@ export function ProjectsBoard(props: {
   const [runLogAtBottom, setRunLogAtBottom] = createSignal(true);
   const [initialRunScroll, setInitialRunScroll] = createSignal(false);
   const [openMenu, setOpenMenu] = createSignal<
-    "status" | "appetite" | "domain" | "owner" | "mode" | null
+    "status" | null
   >(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [createTitle, setCreateTitle] = createSignal("");
@@ -1252,11 +1226,6 @@ export function ProjectsBoard(props: {
     if (!exists) setSelectedAgent(null);
   });
 
-  const ownerOptions = createMemo(() => {
-    const names = (agents() ?? []).map((agent) => agent.name);
-    return ["Thinh", ...names.filter((name) => name !== "Thinh")];
-  });
-
   const runAgentOptions = createMemo(() => {
     // Only show CLI agents (not lead agents) since UI v2
     return CLI_OPTIONS;
@@ -1272,13 +1241,7 @@ export function ProjectsBoard(props: {
     return null;
   });
 
-  const isRalphLoopMode = createMemo(() => detailMode() === "ralph_loop");
-
   const canStart = createMemo(() => {
-    if (isRalphLoopMode()) {
-      const iterations = Number(detailRalphIterations());
-      return Number.isFinite(iterations) && iterations >= 1;
-    }
     const agent = selectedRunAgent();
     if (!agent) return false;
     if (agent.type === "aihub") return true;
@@ -1373,18 +1336,11 @@ export function ProjectsBoard(props: {
         key: `subagent:${item.slug}`,
         type: "subagent",
         executionType: item.type ?? "subagent",
-        role: item.role,
-        parentSlug: item.parentSlug,
-        groupKey: item.groupKey,
-        label:
-          item.role === "worker"
-            ? `${project.id}/${item.slug}`
-            : `${project.id}/${item.cli ?? item.slug}`,
+        label: `${project.id}/${item.cli ?? item.slug}`,
         status: item.status,
         time: Number.isNaN(time) ? undefined : time,
         slug: item.slug,
         archived: item.archived ?? false,
-        iterations: item.iterations,
       });
     }
     const sessionKeys = detailSessionKeys();
@@ -1413,46 +1369,12 @@ export function ProjectsBoard(props: {
     subagents().some((item) => item.archived)
   );
   const groupedAgentRuns = createMemo<AgentRunGroup[]>(() => {
-    const runs = agentRuns();
-    const grouped = new Map<
-      string,
-      { primary?: AgentRunItem; children: AgentRunItem[] }
-    >();
-    const groupedRunKeys = new Set<string>();
-    const result: AgentRunGroup[] = [];
-
-    for (const run of runs) {
-      if (run.type !== "subagent" || !run.groupKey) continue;
-      const existing = grouped.get(run.groupKey) ?? { children: [] };
-      if (run.role === "supervisor") existing.primary = run;
-      if (run.role === "worker") existing.children.push(run);
-      grouped.set(run.groupKey, existing);
-      groupedRunKeys.add(run.key);
-    }
-
-    for (const [key, value] of grouped.entries()) {
-      const primary = value.primary ?? value.children[0];
-      const children = value.primary ? value.children : value.children.slice(1);
-      if (!primary) continue;
-      const statuses = [
-        primary.status,
-        ...children.map((child) => child.status),
-      ];
-      const displayStatus = statuses.reduce((best, status) =>
-        runStatusRank(status) > runStatusRank(best) ? status : best
-      );
-      result.push({ key, primary, children, displayStatus });
-    }
-
-    for (const run of runs) {
-      if (groupedRunKeys.has(run.key)) continue;
-      result.push({
-        key: run.key,
-        primary: run,
-        children: [],
-        displayStatus: run.status,
-      });
-    }
+    const result = agentRuns().map((run) => ({
+      key: run.key,
+      primary: run,
+      children: [],
+      displayStatus: run.status,
+    }));
 
     return result;
   });
@@ -1485,18 +1407,11 @@ export function ProjectsBoard(props: {
         const projectArea = getFrontmatterString(item.frontmatter, "area");
         if (projectArea !== areaId) continue;
       }
-      // Filter by title OR domain OR project ID
+      // Filter by title or project ID
       if (filter) {
         const id = (item.id ?? "").toLowerCase();
         const title = (item.title ?? "").toLowerCase();
-        const domain = (
-          getFrontmatterString(item.frontmatter, "domain") ?? ""
-        ).toLowerCase();
-        if (
-          !id.includes(filter) &&
-          !title.includes(filter) &&
-          !domain.includes(filter)
-        ) {
+        if (!id.includes(filter) && !title.includes(filter)) {
           continue;
         }
       }
@@ -1528,27 +1443,13 @@ export function ProjectsBoard(props: {
       if (!query) return 100;
       const id = item.id.toLowerCase();
       const title = item.title.toLowerCase();
-      const domain = (
-        getFrontmatterString(item.frontmatter, "domain") ?? ""
-      ).toLowerCase();
-      const owner = (
-        getFrontmatterString(item.frontmatter, "owner") ?? ""
-      ).toLowerCase();
       if (id === query) return 0;
       if (id.startsWith(query)) return 1;
-      if (
-        title.startsWith(query) ||
-        domain.startsWith(query) ||
-        owner.startsWith(query)
-      ) {
+      if (title.startsWith(query)) {
         return 2;
       }
       if (id.includes(query)) return 3;
-      if (
-        title.includes(query) ||
-        domain.includes(query) ||
-        owner.includes(query)
-      ) {
+      if (title.includes(query)) {
         return 4;
       }
       return Number.POSITIVE_INFINITY;
@@ -1610,18 +1511,6 @@ export function ProjectsBoard(props: {
       setDetailStatus(
         normalizeStatus(getFrontmatterString(current.frontmatter, "status"))
       );
-      setDetailDomain(
-        getFrontmatterString(current.frontmatter, "domain") ?? ""
-      );
-      setDetailOwner(getFrontmatterString(current.frontmatter, "owner") ?? "");
-      setDetailMode(
-        normalizeMode(
-          getFrontmatterString(current.frontmatter, "executionMode")
-        )
-      );
-      setDetailAppetite(
-        getFrontmatterString(current.frontmatter, "appetite") ?? ""
-      );
       setDetailRunAgent("");
       setDetailRunMode("clone");
       const repo = getFrontmatterString(current.frontmatter, "repo") ?? "";
@@ -1664,9 +1553,6 @@ export function ProjectsBoard(props: {
     setSubagentLogs([]);
     setShowArchivedRuns(false);
     setSelectedRunKey(null);
-    setDetailRalphCli("codex");
-    setDetailRalphIterations("20");
-    setDetailRalphPromptFile("");
     setAihubRunMeta({});
     setAihubRunLogs({});
     setDetailSlug("");
@@ -1922,34 +1808,6 @@ export function ProjectsBoard(props: {
     await refetchDetail();
   };
 
-  const handleDomainChange = async (id: string, domain: string) => {
-    setDetailDomain(domain);
-    await updateProject(id, { domain });
-    await refetch();
-    await refetchDetail();
-  };
-
-  const handleOwnerChange = async (id: string, owner: string) => {
-    setDetailOwner(owner);
-    await updateProject(id, { owner });
-    await refetch();
-    await refetchDetail();
-  };
-
-  const handleModeChange = async (id: string, mode: string) => {
-    setDetailMode(mode);
-    await updateProject(id, { executionMode: mode });
-    await refetch();
-    await refetchDetail();
-  };
-
-  const handleAppetiteChange = async (id: string, appetite: string) => {
-    setDetailAppetite(appetite);
-    await updateProject(id, { appetite });
-    await refetch();
-    await refetchDetail();
-  };
-
   const handleRunAgentChange = (runAgent: string) => {
     setDetailRunAgent(runAgent);
   };
@@ -1960,30 +1818,6 @@ export function ProjectsBoard(props: {
 
   const handleStart = async (projectId: string) => {
     setStartError("");
-    if (isRalphLoopMode()) {
-      const iterations = Number(detailRalphIterations());
-      if (!Number.isFinite(iterations) || iterations < 1) {
-        setStartError("Iterations must be a number >= 1");
-        return;
-      }
-      const result = await spawnRalphLoop(projectId, {
-        cli: detailRalphCli(),
-        iterations,
-        promptFile: detailRalphPromptFile().trim() || undefined,
-      });
-      if (!result.ok) {
-        setStartError(result.error);
-        return;
-      }
-      if (detailStatus() === "todo") {
-        setDetailStatus("in_progress");
-        await updateProject(projectId, { status: "in_progress" });
-      }
-      await refetch();
-      await refetchDetail();
-      return;
-    }
-
     const custom = customStartEnabled()
       ? customStartPrompt().trim()
       : undefined;
@@ -2580,7 +2414,7 @@ export function ProjectsBoard(props: {
               class="command-input"
               type="text"
               value={commandQuery()}
-              placeholder="Search projects by ID, title, domain, owner..."
+              placeholder="Search projects by ID or title..."
               onInput={(e) => setCommandQuery(e.currentTarget.value)}
               onKeyDown={(e) => {
                 const items = commandResults();
@@ -2627,10 +2461,6 @@ export function ProjectsBoard(props: {
                 <For each={commandResults()}>
                   {(item, index) => {
                     const isActive = () => commandSelectedIndex() === index();
-                    const domain =
-                      getFrontmatterString(item.frontmatter, "domain") ?? "";
-                    const owner =
-                      getFrontmatterString(item.frontmatter, "owner") ?? "";
                     const status = getStatus(item);
                     return (
                       <button
@@ -2656,12 +2486,6 @@ export function ProjectsBoard(props: {
                           >
                             {getStatusLabel(status)}
                           </span>
-                          <Show when={domain}>
-                            <span>{renderCommandMatch(domain)}</span>
-                          </Show>
-                          <Show when={owner}>
-                            <span>{renderCommandMatch(owner)}</span>
-                          </Show>
                         </div>
                       </button>
                     );
@@ -2714,7 +2538,7 @@ export function ProjectsBoard(props: {
             <input
               class="filter-input"
               type="text"
-              placeholder="Filter by title or domain..."
+              placeholder="Filter by title or ID..."
               value={filterText()}
               onInput={(e) => setFilterText(e.currentTarget.value)}
             />
@@ -2832,16 +2656,6 @@ export function ProjectsBoard(props: {
                         <For each={items()}>
                           {(item) => {
                             const fm = item.frontmatter ?? {};
-                            const owner = getFrontmatterString(fm, "owner");
-                            const domain = getFrontmatterString(fm, "domain");
-                            const mode = getFrontmatterString(
-                              fm,
-                              "executionMode"
-                            );
-                            const appetite = getFrontmatterString(
-                              fm,
-                              "appetite"
-                            );
                             const created = getFrontmatterString(fm, "created");
                             return (
                               <div
@@ -2867,20 +2681,6 @@ export function ProjectsBoard(props: {
                               >
                                 <div class="card-id">{item.id}</div>
                                 <div class="card-title">{item.title}</div>
-                                <div class="card-meta">
-                                  <Show when={owner}>
-                                    <span>{owner}</span>
-                                  </Show>
-                                  <Show when={domain}>
-                                    <span>{domain}</span>
-                                  </Show>
-                                  <Show when={mode}>
-                                    <span>{mode}</span>
-                                  </Show>
-                                  <Show when={appetite}>
-                                    <span>{appetite}</span>
-                                  </Show>
-                                </div>
                                 <div class="card-footer">
                                   <span>
                                     {created
@@ -3158,120 +2958,6 @@ export function ProjectsBoard(props: {
                                   getFrontmatterString(fm, "created")
                                 )}
                               </span>
-                              <div class="meta-field">
-                                <button
-                                  class="meta-button"
-                                  onClick={() =>
-                                    setOpenMenu(
-                                      openMenu() === "appetite"
-                                        ? null
-                                        : "appetite"
-                                    )
-                                  }
-                                >
-                                  <svg
-                                    class="meta-icon"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                  >
-                                    <path d="M12 3v18" />
-                                    <path d="M7 8h10" />
-                                    <path d="M6 13h12" />
-                                    <path d="M5 18h14" />
-                                  </svg>
-                                  {detailAppetite() || "appetite"}
-                                </button>
-                                <Show when={openMenu() === "appetite"}>
-                                  <div class="meta-menu">
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleAppetiteChange(project.id, "")
-                                      }
-                                    >
-                                      unset
-                                    </button>
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleAppetiteChange(
-                                          project.id,
-                                          "small"
-                                        )
-                                      }
-                                    >
-                                      small
-                                    </button>
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleAppetiteChange(project.id, "big")
-                                      }
-                                    >
-                                      big
-                                    </button>
-                                  </div>
-                                </Show>
-                              </div>
-                              <div class="meta-field">
-                                <button
-                                  class="meta-button"
-                                  onClick={() =>
-                                    setOpenMenu(
-                                      openMenu() === "domain" ? null : "domain"
-                                    )
-                                  }
-                                >
-                                  <svg
-                                    class="meta-icon"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                  >
-                                    <path d="M20 7H10l-6 5 6 5h10l-4-5z" />
-                                  </svg>
-                                  {detailDomain() || "domain"}
-                                </button>
-                                <Show when={openMenu() === "domain"}>
-                                  <div class="meta-menu">
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleDomainChange(project.id, "")
-                                      }
-                                    >
-                                      unset
-                                    </button>
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleDomainChange(project.id, "life")
-                                      }
-                                    >
-                                      life
-                                    </button>
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleDomainChange(project.id, "admin")
-                                      }
-                                    >
-                                      admin
-                                    </button>
-                                    <button
-                                      class="meta-item"
-                                      onClick={() =>
-                                        handleDomainChange(project.id, "coding")
-                                      }
-                                    >
-                                      coding
-                                    </button>
-                                  </div>
-                                </Show>
-                              </div>
                             </div>
                             <div class="detail-docs">
                               <Show when={docKeys().length > 1}>
@@ -3585,145 +3271,37 @@ export function ProjectsBoard(props: {
                   </div>
                   <div class="monitoring">
                     <div class="monitoring-meta">
-                      <div class="meta-field">
-                        <button
-                          class="meta-button"
-                          onClick={() =>
-                            setOpenMenu(openMenu() === "owner" ? null : "owner")
-                          }
-                        >
-                          <svg
-                            class="meta-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                          >
-                            <circle cx="12" cy="8" r="4" />
-                            <path d="M4 20c2.5-4 13.5-4 16 0" />
-                          </svg>
-                          {detailOwner() || "owner"}
-                        </button>
-                        <Show when={openMenu() === "owner"}>
-                          <div class="meta-menu">
-                            <button
-                              class="meta-item"
-                              onClick={() =>
-                                handleOwnerChange(activeProjectId() ?? "", "")
-                              }
-                            >
-                              unset
-                            </button>
-                            <For each={ownerOptions()}>
-                              {(owner) => (
-                                <button
-                                  class="meta-item"
-                                  onClick={() =>
-                                    handleOwnerChange(
-                                      activeProjectId() ?? "",
-                                      owner
-                                    )
-                                  }
-                                >
-                                  {owner}
-                                </button>
-                              )}
-                            </For>
-                          </div>
-                        </Show>
-                      </div>
                       <Show when={!isMonitoringHidden()}>
-                        <div class="meta-field">
-                          <button
-                            class="meta-button"
-                            onClick={() =>
-                              setOpenMenu(openMenu() === "mode" ? null : "mode")
+                        <div class="meta-field meta-field-wide meta-field-stack">
+                          <label class="meta-label">Repo</label>
+                          <input
+                            class="meta-input"
+                            value={detailRepo()}
+                            onInput={(e) => setDetailRepo(e.currentTarget.value)}
+                            onBlur={() =>
+                              handleRepoSave(activeProjectId() ?? "")
+                            }
+                            placeholder="/abs/path/to/repo"
+                          />
+                          <Show
+                            when={
+                              repoStatusVisible() &&
+                              repoStatus() !== "idle" &&
+                              detailRepo().trim()
                             }
                           >
-                            <svg
-                              class="meta-icon"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                            >
-                              <path d="M4 6h16M8 6v12M16 12v6" />
-                            </svg>
-                            {detailMode()
-                              ? detailMode().replace(/_/g, " ")
-                              : "execution mode"}
-                          </button>
-                          <Show when={openMenu() === "mode"}>
-                            <div class="meta-menu">
-                              <button
-                                class="meta-item"
-                                onClick={() =>
-                                  handleModeChange(activeProjectId() ?? "", "")
-                                }
-                              >
-                                unset
-                              </button>
-                              <button
-                                class="meta-item"
-                                onClick={() =>
-                                  handleModeChange(
-                                    activeProjectId() ?? "",
-                                    "subagent"
-                                  )
-                                }
-                              >
-                                subagent
-                              </button>
-                              <button
-                                class="meta-item"
-                                onClick={() =>
-                                  handleModeChange(
-                                    activeProjectId() ?? "",
-                                    "ralph_loop"
-                                  )
-                                }
-                              >
-                                ralph loop
-                              </button>
+                            <div class={`repo-status ${repoStatus()}`}>
+                              {repoStatus() === "checking"
+                                ? "Checking repo..."
+                                : repoStatusMessage()}
                             </div>
                           </Show>
                         </div>
-                        <Show when={detailDomain() === "coding"}>
-                          <div class="meta-field meta-field-wide meta-field-stack">
-                            <label class="meta-label">Repo</label>
-                            <input
-                              class="meta-input"
-                              value={detailRepo()}
-                              onInput={(e) =>
-                                setDetailRepo(e.currentTarget.value)
-                              }
-                              onBlur={() =>
-                                handleRepoSave(activeProjectId() ?? "")
-                              }
-                              placeholder="/abs/path/to/repo"
-                            />
-                            <Show
-                              when={
-                                repoStatusVisible() &&
-                                repoStatus() !== "idle" &&
-                                detailRepo().trim()
-                              }
-                            >
-                              <div class={`repo-status ${repoStatus()}`}>
-                                {repoStatus() === "checking"
-                                  ? "Checking repo..."
-                                  : repoStatusMessage()}
-                              </div>
-                            </Show>
-                          </div>
-                        </Show>
                       </Show>
                     </div>
                     <div class="runs-panel">
                       <div class="runs-header">
-                        <h3 class="runs-title">
-                          {isRalphLoopMode() ? "Ralph Loops" : "Agent Runs"}
-                        </h3>
+                        <h3 class="runs-title">Agent Runs</h3>
                         <div class="runs-header-actions">
                           <Show when={hasArchivedRuns()}>
                             <button
@@ -3741,20 +3319,18 @@ export function ProjectsBoard(props: {
                           <Show when={!isMonitoringHidden()}>
                             <div class="runs-actions">
                               <Show when={!runningAgent()}>
-                                <Show when={!isRalphLoopMode()}>
-                                  <label class="start-custom-toggle">
-                                    <input
-                                      type="checkbox"
-                                      checked={customStartEnabled()}
-                                      onChange={(e) =>
-                                        setCustomStartEnabled(
-                                          e.currentTarget.checked
-                                        )
-                                      }
-                                    />
-                                    <span>custom</span>
-                                  </label>
-                                </Show>
+                                <label class="start-custom-toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={customStartEnabled()}
+                                    onChange={(e) =>
+                                      setCustomStartEnabled(
+                                        e.currentTarget.checked
+                                      )
+                                    }
+                                  />
+                                  <span>custom</span>
+                                </label>
                               </Show>
                               <Show
                                 when={runningAgent()}
@@ -3783,7 +3359,7 @@ export function ProjectsBoard(props: {
                           </Show>
                         </div>
                       </div>
-                      <Show when={!isMonitoringHidden() && !isRalphLoopMode()}>
+                      <Show when={!isMonitoringHidden()}>
                         <div class="runs-config">
                           <div class="runs-config-field">
                             <label class="meta-label">Agent</label>
@@ -3859,52 +3435,7 @@ export function ProjectsBoard(props: {
                           </div>
                         </div>
                       </Show>
-                      <Show when={!isMonitoringHidden() && isRalphLoopMode()}>
-                        <div class="runs-config">
-                          <div class="runs-config-field">
-                            <label class="meta-label">CLI</label>
-                            <select
-                              class="meta-select"
-                              value={detailRalphCli()}
-                              onChange={(e) =>
-                                setDetailRalphCli(
-                                  e.currentTarget.value === "claude"
-                                    ? "claude"
-                                    : "codex"
-                                )
-                              }
-                            >
-                              <option value="codex">codex</option>
-                              <option value="claude">claude</option>
-                            </select>
-                          </div>
-                          <div class="runs-config-field">
-                            <label class="meta-label">Iterations</label>
-                            <input
-                              class="meta-input"
-                              type="number"
-                              min="1"
-                              value={detailRalphIterations()}
-                              onInput={(e) =>
-                                setDetailRalphIterations(e.currentTarget.value)
-                              }
-                              placeholder="20"
-                            />
-                          </div>
-                          <div class="runs-config-field">
-                            <label class="meta-label">Prompt file</label>
-                            <input
-                              class="meta-input"
-                              value={detailRalphPromptFile()}
-                              onInput={(e) =>
-                                setDetailRalphPromptFile(e.currentTarget.value)
-                              }
-                              placeholder="(default) <project>/prompt.md"
-                            />
-                          </div>
-                        </div>
-                      </Show>
-                      <Show when={customStartEnabled() && !isRalphLoopMode()}>
+                      <Show when={customStartEnabled()}>
                         <textarea
                           class="custom-start-textarea"
                           rows={2}
@@ -3943,11 +3474,6 @@ export function ProjectsBoard(props: {
                                   ? `Started ${relative}`
                                   : relative
                                 : "No activity yet";
-                              const loopMeta =
-                                run.executionType === "ralph_loop" &&
-                                run.iterations
-                                  ? `${run.iterations} iterations`
-                                  : "";
                               return (
                                 <>
                                   <button
@@ -3965,9 +3491,6 @@ export function ProjectsBoard(props: {
                                       <div class="run-title">{run.label}</div>
                                       <div class="run-time">
                                         {statusLabel} • {timeLabel}
-                                        <Show when={loopMeta}>
-                                          <span> • {loopMeta}</span>
-                                        </Show>
                                       </div>
                                     </div>
                                     <Show
@@ -4013,21 +3536,15 @@ export function ProjectsBoard(props: {
                                           class="kill-btn"
                                           type="button"
                                           title={
-                                            run.executionType === "ralph_loop"
-                                              ? "Kill loop"
-                                              : "Kill subagent"
+                                            "Kill subagent"
                                           }
                                           onClick={async (e) => {
                                             e.stopPropagation();
                                             const projectId = detail()?.id;
                                             if (!projectId || !run.slug) return;
-                                            const label =
-                                              run.executionType === "ralph_loop"
-                                                ? "loop"
-                                                : "subagent";
                                             if (
                                               !window.confirm(
-                                                `Kill ${label} ${run.slug}? This removes all workspace data.`
+                                                `Kill subagent ${run.slug}? This removes all workspace data.`
                                               )
                                             )
                                               return;

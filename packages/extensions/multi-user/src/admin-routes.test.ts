@@ -49,6 +49,7 @@ vi.mock("../../../../apps/gateway/src/extensions/registry.js", () => ({
     getLoadedExtensions().some(
       (extension: { id?: string }) => extension.id === id
     ),
+  getHomeExtension: () => undefined,
 }));
 
 type MockSession = {

@@ -108,7 +108,7 @@ Features:
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
 - Worker/reviewer prompts stay scoped to their own run workspace (`clone`/`worktree`/`main-run`/`none`).
 - SpawnForm worker prompt preview is mode-aware: when run mode is `clone` or `worktree`, `## Implementation Repository` points to `~/projects/.workspaces/<projectId>/<slug>` (not the main repo path).
-- Runner repo lookup for subagent/ralph non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
+- Runner repo lookup for subagent non-`none` modes falls back to area repo (`.areas/<id>.yaml`) when project `frontmatter.repo` is not set.
 - Project detail left panel agent list uses card rows with muted last-message excerpts and top-right relative elapsed timestamps; `+ Create new agent` is a minimalist text action placed above the list
 - Project detail page is responsive: at `<=768px` it switches to a single-column `Overview | Chat | Activity | Changes | Spec` tabbed layout, moving `AgentPanel` into `Overview`; at `769px-1199px` it keeps the merged center/right tabs with a fixed `280px` left rail
 - Project detail blocks new agent creation when `repoValid` is false and shows a clear message: `No repo configured` or `Repo path not found: <path>`
@@ -614,12 +614,6 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | POST   | `/api/projects/:id/commit`                       | Commit project changes in resolved source                  |
 | GET    | `/api/projects/:id/pr-target`                    | Get PR compare target for current resolved branch          |
 
-## Projects Execution Modes
-
-- `subagent`: spawn and monitor CLI subagent runs.
-- `ralph_loop`: spawn and monitor Ralph loop iterations/logs.
-- unset (`""`): no execution mode selected.
-
 ### Space-First Workspace Model
 
 - Project Space branch: `space/<projectId>`
@@ -658,7 +652,7 @@ Behavior:
 - Legacy subagent CLIs `droid` and `gemini` are rejected by API validation.
 - Runtime split:
   - Lead agents (`sdk: "pi"`) use embedded Pi SDK sessions.
-  - Project subagents (`executionMode: subagent`) run as external CLI processes.
+  - Project subagents run as external CLI processes.
 - Pi subagent harness uses JSON event mode:
   - Spawn: `pi --mode json --session <session_file> "<prompt>"`
   - Resume: reuses the same `--session <session_file>`.

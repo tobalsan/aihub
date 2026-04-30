@@ -27,13 +27,6 @@ export function buildStartPrompt(summary: string): string {
   return summary;
 }
 
-export type RalphPromptTemplateVars = {
-  PROJECT_FILE: string;
-  SCOPES_FILE: string;
-  PROGRESS_FILE: string;
-  SOURCE_DIR: string;
-};
-
 export type PromptRole = "coordinator" | "worker" | "reviewer" | "legacy";
 
 export type WorkerWorkspaceRef = {
@@ -51,7 +44,6 @@ export type RolePromptInput = {
   repo?: string;
   customPrompt?: string;
   runAgentLabel?: string;
-  owner?: string;
   specsPath?: string;
   content?: string;
   projectFiles?: readonly string[];
@@ -79,26 +71,6 @@ export function renderTemplate(
     output = output.split(`{{${key}}}`).join(value);
   }
   return output;
-}
-
-export function buildRalphPromptFromTemplate(input: {
-  template: string;
-  vars: Partial<RalphPromptTemplateVars>;
-}): string {
-  const requiredKeys: Array<keyof RalphPromptTemplateVars> = [
-    "PROJECT_FILE",
-    "SCOPES_FILE",
-    "PROGRESS_FILE",
-    "SOURCE_DIR",
-  ];
-  const missing = requiredKeys.filter((key) => {
-    const value = input.vars[key];
-    return typeof value !== "string" || value.length === 0;
-  });
-  if (missing.length > 0) {
-    throw new Error(`Missing required template vars: ${missing.join(", ")}`);
-  }
-  return renderTemplate(input.template, input.vars as Record<string, string>);
 }
 
 export function buildProjectStartPrompt(input: {

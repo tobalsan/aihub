@@ -19,23 +19,19 @@ export type SubagentStatus = "running" | "replied" | "error" | "idle";
 
 export type SubagentListItem = {
   slug: string;
-  type?: "subagent" | "ralph_loop";
+  type?: "subagent";
   cli?: string;
   name?: string;
   model?: string;
   reasoningEffort?: string;
   thinking?: string;
   runMode?: string;
-  role?: "supervisor" | "worker";
-  parentSlug?: string;
-  groupKey?: string;
   status: SubagentStatus;
   lastActive?: string;
   baseBranch?: string;
   worktreePath?: string;
   lastError?: string;
   archived?: boolean;
-  iterations?: number;
 };
 
 export type SubagentLogEvent = {
@@ -66,17 +62,6 @@ export type SubagentLogsResult =
 export type ProjectBranchesResult =
   | { ok: true; data: { branches: string[] } }
   | { ok: false; error: string };
-
-type RalphLinkable = {
-  projectId?: string;
-  slug: string;
-  type?: "subagent" | "ralph_loop";
-  runMode?: string;
-  worktreePath?: string;
-  role?: "supervisor" | "worker";
-  parentSlug?: string;
-  groupKey?: string;
-};
 
 async function pathExists(filePath: string): Promise<boolean> {
   try {
@@ -155,11 +140,6 @@ async function readLastOutcome(
     return null;
   }
   return null;
-}
-
-function buildRalphGroupKey(item: RalphLinkable): string {
-  const projectPart = item.projectId ? `${item.projectId}:` : "";
-  return `${projectPart}${item.slug}`;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -348,60 +328,6 @@ function computeContextEstimate(
     basis: "claude_prompt_tokens",
     available: true,
   };
-}
-
-function attachRalphMetadata<T extends RalphLinkable>(items: T[]): T[] {
-  const next = items.map((item) => ({ ...item }));
-  const supervisors = next.filter((item) => item.type === "ralph_loop");
-  const supervisorByWorktree = new Map<string, T>();
-  const singleMainSupervisorByProject = new Map<string, T>();
-
-  for (const supervisor of supervisors) {
-    supervisor.role = "supervisor";
-    supervisor.groupKey = buildRalphGroupKey(supervisor);
-    const worktree = supervisor.worktreePath?.trim();
-    if (worktree) {
-      supervisorByWorktree.set(
-        supervisor.projectId ? `${supervisor.projectId}:${worktree}` : worktree,
-        supervisor
-      );
-    }
-  }
-
-  const mainSupervisorBuckets = new Map<string, T[]>();
-  for (const supervisor of supervisors) {
-    if (supervisor.runMode !== "main-run") continue;
-    const projectKey = supervisor.projectId ?? "__single_project__";
-    const bucket = mainSupervisorBuckets.get(projectKey) ?? [];
-    bucket.push(supervisor);
-    mainSupervisorBuckets.set(projectKey, bucket);
-  }
-  for (const [projectKey, bucket] of mainSupervisorBuckets.entries()) {
-    if (bucket.length === 1)
-      singleMainSupervisorByProject.set(projectKey, bucket[0]);
-  }
-
-  for (const item of next) {
-    if (item.type === "ralph_loop") continue;
-    const worktree = item.worktreePath?.trim();
-    const projectKey = item.projectId ?? "__single_project__";
-    const key = worktree
-      ? item.projectId
-        ? `${item.projectId}:${worktree}`
-        : worktree
-      : "";
-    const matched =
-      (key ? supervisorByWorktree.get(key) : undefined) ??
-      (item.runMode === "main-run"
-        ? singleMainSupervisorByProject.get(projectKey)
-        : undefined);
-    if (!matched) continue;
-    item.role = "worker";
-    item.parentSlug = matched.slug;
-    item.groupKey = matched.groupKey;
-  }
-
-  return next;
 }
 
 function normalizeLogLine(line: string): SubagentLogEvent | SubagentLogEvent[] {
@@ -784,7 +710,7 @@ export async function listSubagents(
     const slug = entry.name;
     const dir = path.join(sessionsRoot, slug);
     const configData = await readJson<{
-      type?: "subagent" | "ralph_loop";
+      type?: "subagent";
       cli?: string;
       name?: string;
       model?: string;
@@ -793,7 +719,6 @@ export async function listSubagents(
       runMode?: string;
       baseBranch?: string;
       archived?: boolean;
-      iterations?: number;
     }>(path.join(dir, "config.json"));
     const state = await readJson<{
       supervisor_pid?: number;
@@ -849,14 +774,10 @@ export async function listSubagents(
       worktreePath: state?.worktree_path,
       lastError: state?.last_error,
       archived: configData?.archived ?? false,
-      iterations:
-        typeof configData?.iterations === "number"
-          ? configData.iterations
-          : undefined,
     });
   }
 
-  return { ok: true, data: { items: attachRalphMetadata(items) } };
+  return { ok: true, data: { items } };
 }
 
 export type ArchiveSubagentResult =
@@ -864,7 +785,7 @@ export type ArchiveSubagentResult =
   | { ok: false; error: string };
 
 type SubagentStoredConfig = {
-  type?: "subagent" | "ralph_loop";
+  type?: "subagent";
   cli?: string;
   name?: string;
   model?: string;
@@ -874,7 +795,6 @@ type SubagentStoredConfig = {
   baseBranch?: string;
   created?: string;
   archived?: boolean;
-  iterations?: number;
 } & Record<string, unknown>;
 
 export type ReadSubagentConfigResult =
@@ -1049,7 +969,7 @@ export async function listAllSubagents(
         const slug = workspace.name;
         const dir = path.join(sessionsRoot, slug);
         const configData = await readJson<{
-          type?: "subagent" | "ralph_loop";
+          type?: "subagent";
           cli?: string;
           name?: string;
           model?: string;
@@ -1058,7 +978,6 @@ export async function listAllSubagents(
           runMode?: string;
           baseBranch?: string;
           archived?: boolean;
-          iterations?: number;
         }>(path.join(dir, "config.json"));
         const state = await readJson<{
           supervisor_pid?: number;
@@ -1107,10 +1026,6 @@ export async function listAllSubagents(
           runMode: configData?.runMode ?? state?.run_mode,
           baseBranch: configData?.baseBranch,
           worktreePath: state?.worktree_path,
-          iterations:
-            typeof configData?.iterations === "number"
-              ? configData.iterations
-              : undefined,
           status,
           lastActive: progress?.last_active,
           runStartedAt: state?.started_at,
@@ -1119,7 +1034,7 @@ export async function listAllSubagents(
     }
   }
 
-  return attachRalphMetadata(items);
+  return items;
 }
 
 export async function getSubagentLogs(

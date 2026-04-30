@@ -19,7 +19,7 @@ Add fields (optional unless noted):
 ```yaml
 sessionKeys:
   <agentId>: "project:<id>:<agentId>"
-repo: "/abs/path/to/repo" # required when domain=coding
+repo: "/abs/path/to/repo"
 runAgent: "aihub:<agentId>" # or "cli:claude|codex|pi"
 runMode: "main-run|worktree" # only for cli agents
 ```

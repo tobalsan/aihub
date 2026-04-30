@@ -242,7 +242,6 @@ export function SpawnForm(props: SpawnFormProps) {
   const preparedPrompt = createMemo(() => {
     const status =
       getFrontmatterString(props.project.frontmatter, "status") || "unknown";
-    const owner = getFrontmatterString(props.project.frontmatter, "owner");
     const cli = addAgentCli();
     const author =
       addAgentName().trim() ||
@@ -256,7 +255,6 @@ export function SpawnForm(props: SpawnFormProps) {
       projectId: props.projectId,
       repo: effectiveRepoPath(),
       runAgentLabel: author,
-      owner,
       customPrompt: includeCustomInstructions()
         ? addAgentCustomInstructions().trim()
         : "",

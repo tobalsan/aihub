@@ -5,7 +5,7 @@ import os from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
-import { buildRalphPromptFromTemplate, expandPath } from "@aihub/shared";
+import { expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { findProjectLocation, getProject } from "../projects/store.js";
 import {
@@ -23,7 +23,6 @@ const execFileAsync = promisify(execFile);
 
 export const SUPPORTED_SUBAGENT_CLIS = ["claude", "codex", "pi"] as const;
 export type SubagentCli = (typeof SUPPORTED_SUBAGENT_CLIS)[number];
-export type RalphLoopCli = "claude" | "codex";
 export type SubagentMode = "main-run" | "worktree" | "clone" | "none";
 
 export type SpawnSubagentInput = {
@@ -40,16 +39,6 @@ export type SpawnSubagentInput = {
   resume?: boolean;
   replaces?: string[];
   attachments?: Array<{ path: string; mimeType: string; filename?: string }>;
-};
-
-export type SpawnRalphLoopInput = {
-  projectId: string;
-  slug: string;
-  cli: RalphLoopCli;
-  iterations: number;
-  promptFile?: string;
-  mode?: SubagentMode;
-  baseBranch?: string;
 };
 
 export type SpawnSubagentResult =
@@ -299,16 +288,6 @@ function commonCandidatePaths(execName: string): string[] {
   }
 
   return Array.from(new Set(candidates));
-}
-
-function ralphScriptPath(cli: RalphLoopCli): string {
-  return expandPath(`~/.agents/skills/ralphup/scripts/ralph_${cli}.sh`);
-}
-
-function ralphPromptTemplatePath(cli: RalphLoopCli): string {
-  return expandPath(
-    `~/.agents/skills/ralphup/assets/prompt.${cli}.template.md`
-  );
 }
 
 async function resolveCliCommand(
@@ -1060,281 +1039,6 @@ export async function spawnSubagent(
       }).catch(() => {});
     }
     await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
-  });
-
-  return { ok: true, data: { slug: input.slug } };
-}
-
-export async function spawnRalphLoop(
-  config: GatewayConfig,
-  input: SpawnRalphLoopInput
-): Promise<SpawnSubagentResult> {
-  const root = getProjectsRoot(config);
-  const location = await findProjectLocation(root, input.projectId);
-  if (!location) {
-    return { ok: false, error: `Project not found: ${input.projectId}` };
-  }
-
-  if (!Number.isFinite(input.iterations) || input.iterations < 1) {
-    return { ok: false, error: "iterations must be >= 1" };
-  }
-
-  const scriptPath = ralphScriptPath(input.cli);
-  const scriptExists = await fs
-    .stat(scriptPath)
-    .then((st) => st.isFile())
-    .catch(() => false);
-  if (!scriptExists) {
-    return { ok: false, error: `Ralph script not found: ${scriptPath}` };
-  }
-
-  const projectDir = path.join(location.baseRoot, location.dirName);
-  const readmePath = path.join(projectDir, "README.md");
-  const readmeExists = await fs
-    .stat(readmePath)
-    .then((st) => st.isFile())
-    .catch(() => false);
-  if (!readmeExists) {
-    return { ok: false, error: `README.md not found: ${readmePath}` };
-  }
-  const { frontmatter } = await parseMarkdownFile(readmePath);
-  const repo = await resolveProjectRepo(config, input.projectId, frontmatter);
-  if (!repo) {
-    return { ok: false, error: "Project repo not set in frontmatter" };
-  }
-
-  const mode: SubagentMode = input.mode ?? "clone";
-  const repoHasGit = await fs
-    .stat(path.join(repo, ".git"))
-    .then(() => true)
-    .catch(() => false);
-  if (mode !== "main-run" && !repoHasGit) {
-    return { ok: false, error: "Project repo is not a git repo" };
-  }
-
-  const sessionsRoot = path.join(projectDir, "sessions");
-  const sessionDir = path.join(sessionsRoot, input.slug);
-  if (await dirExists(sessionDir)) {
-    return { ok: false, error: `Subagent already exists: ${input.slug}` };
-  }
-  await fs.mkdir(sessionDir, { recursive: true });
-
-  const workspacesRoot = path.join(root, ".workspaces", input.projectId);
-  const worktreeDir = path.join(workspacesRoot, input.slug);
-  const baseBranch = input.baseBranch ?? "main";
-  let workspacePath = repo;
-  if (mode === "worktree" || mode === "clone") {
-    const branch = `${input.projectId}/${input.slug}`;
-    workspacePath = worktreeDir;
-    await fs.mkdir(workspacesRoot, { recursive: true });
-    const worktreeGitExists = await fs
-      .stat(path.join(worktreeDir, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    if (!worktreeGitExists) {
-      await ensureRunnerBaseBranch(config, input.projectId, baseBranch);
-      if (mode === "worktree") {
-        await createWorktree(repo, worktreeDir, branch, baseBranch);
-      } else {
-        await createClone(repo, worktreeDir, branch, baseBranch);
-      }
-    }
-    if (mode === "clone") {
-      await ensureCloneRemote(repo, input.projectId, workspacePath);
-    }
-  }
-
-  const providedPromptFile = input.promptFile?.trim();
-  let promptFilePath = "";
-  let generatedPrompt = false;
-  let promptTemplate: string | undefined;
-
-  if (providedPromptFile) {
-    promptFilePath = expandPath(providedPromptFile);
-    const promptExists = await fs
-      .stat(promptFilePath)
-      .then((st) => st.isFile())
-      .catch(() => false);
-    if (!promptExists) {
-      return { ok: false, error: `Prompt file not found: ${promptFilePath}` };
-    }
-  } else {
-    const scopesPath = path.join(projectDir, "SCOPES.md");
-    const scopesExists = await fs
-      .stat(scopesPath)
-      .then((st) => st.isFile())
-      .catch(() => false);
-    if (!scopesExists) {
-      return { ok: false, error: `SCOPES.md not found: ${scopesPath}` };
-    }
-
-    const progressFilePath = path.join(projectDir, "progress.md");
-    const progressExists = await fs
-      .stat(progressFilePath)
-      .then((st) => st.isFile())
-      .catch(() => false);
-    if (!progressExists) {
-      await fs.writeFile(progressFilePath, "", "utf8");
-    }
-
-    promptTemplate = ralphPromptTemplatePath(input.cli);
-    const templateContent = await fs
-      .readFile(promptTemplate, "utf8")
-      .catch(() => null);
-    if (templateContent === null) {
-      return {
-        ok: false,
-        error: `Ralph prompt template not found: ${promptTemplate}`,
-      };
-    }
-
-    const prompt = buildRalphPromptFromTemplate({
-      template: templateContent,
-      vars: {
-        PROJECT_FILE: readmePath,
-        SCOPES_FILE: scopesPath,
-        PROGRESS_FILE: progressFilePath,
-        SOURCE_DIR: workspacePath,
-      },
-    });
-
-    promptFilePath = path.join(projectDir, "prompt.md");
-    await fs.writeFile(promptFilePath, prompt, "utf8");
-    generatedPrompt = true;
-  }
-
-  const statePath = path.join(sessionDir, "state.json");
-  const historyPath = path.join(sessionDir, "history.jsonl");
-  const progressPath = path.join(sessionDir, "progress.json");
-  const logsPath = path.join(sessionDir, "logs.jsonl");
-  const configPath = path.join(sessionDir, "config.json");
-
-  const startedAt = new Date().toISOString();
-  const child = spawn(
-    "bash",
-    [scriptPath, String(input.iterations), workspacePath, promptFilePath],
-    {
-      cwd: workspacePath,
-      stdio: ["ignore", "pipe", "pipe"],
-    }
-  );
-
-  child.on("error", async (err) => {
-    const finishedAt = new Date().toISOString();
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data: {
-        run_id: `${Date.now()}`,
-        outcome: "error",
-        error_message:
-          err instanceof Error
-            ? `spawn failed: ${err.message}`
-            : "spawn failed",
-      },
-    });
-  });
-
-  await writeJson(configPath, {
-    type: "ralph_loop",
-    cli: input.cli,
-    runMode: mode,
-    baseBranch,
-    iterations: input.iterations,
-    promptFile: promptFilePath,
-    generatedPrompt,
-    promptTemplate,
-    created: startedAt,
-    archived: false,
-  });
-  let state: Record<string, unknown> = {
-    supervisor_pid: child.pid ?? 0,
-    started_at: startedAt,
-    last_error: "",
-    cli: input.cli,
-    run_mode: mode,
-    worktree_path: workspacePath,
-    base_branch: baseBranch,
-  };
-  await writeJson(statePath, state);
-  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
-  await fs.appendFile(logsPath, "", "utf8");
-  await appendHistory(historyPath, {
-    ts: startedAt,
-    type: "worker.started",
-    data: { action: "started", harness: `ralph_${input.cli}`, session_id: "" },
-  });
-
-  child.stdout?.on("data", async (chunk: Buffer) => {
-    const lines = chunk
-      .toString("utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
-    if (lines.length > 0) {
-      const stamped = lines
-        .map((line) => JSON.stringify({ type: "stdout", text: line }))
-        .join("\n");
-      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-      await writeJson(progressPath, {
-        last_active: new Date().toISOString(),
-        tool_calls: 0,
-      });
-    }
-  });
-
-  child.stderr?.on("data", async (chunk: Buffer) => {
-    const lines = chunk
-      .toString("utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
-    if (lines.length > 0) {
-      const stamped = lines
-        .map((line) => JSON.stringify({ type: "stderr", text: line }))
-        .join("\n");
-      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-      await writeJson(progressPath, {
-        last_active: new Date().toISOString(),
-        tool_calls: 0,
-      });
-    }
-  });
-
-  child.on("exit", async (code, signal) => {
-    const finishedAt = new Date().toISOString();
-    const outcome = code === 0 ? "replied" : "error";
-    const exitMessage =
-      code !== null && code !== 0
-        ? `process exited (code ${code})`
-        : signal
-          ? `process exited (signal ${signal})`
-          : "process exited";
-    const data: Record<string, unknown> = {
-      run_id: `${Date.now()}`,
-      duration_ms: 0,
-      tool_calls: 0,
-      outcome,
-    };
-    if (outcome === "error") {
-      data.error_message = exitMessage;
-    }
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data,
-    });
-    if (outcome === "error") {
-      try {
-        const raw = await fs.readFile(statePath, "utf8");
-        const current = JSON.parse(raw) as Record<string, unknown>;
-        current.last_error = exitMessage;
-        await writeJson(statePath, current);
-      } catch {
-        // ignore
-      }
-      return;
-    }
-    state = { ...state, finished_at: finishedAt, outcome: "done" };
-    await writeJson(statePath, state);
   });
 
   return { ok: true, data: { slug: input.slug } };

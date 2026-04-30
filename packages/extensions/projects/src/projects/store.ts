@@ -556,10 +556,6 @@ export async function createProject(
     status: input.status ?? "maybe",
     created,
   };
-  if (input.domain) frontmatter.domain = input.domain;
-  if (input.owner) frontmatter.owner = input.owner;
-  if (input.executionMode) frontmatter.executionMode = input.executionMode;
-  if (input.appetite) frontmatter.appetite = input.appetite;
   if (input.area) frontmatter.area = input.area;
   const readmeBody = input.description
     ? `# ${trimmedTitle}\n\n${input.description}\n`
@@ -651,18 +647,7 @@ export async function updateProject(
     id,
     title: nextTitle,
     ...(input.status ? { status: input.status } : {}),
-    ...(input.appetite ? { appetite: input.appetite } : {}),
   };
-
-  if (input.domain === "") delete nextFrontmatter.domain;
-  else if (input.domain) nextFrontmatter.domain = input.domain;
-
-  if (input.owner === "") delete nextFrontmatter.owner;
-  else if (input.owner) nextFrontmatter.owner = input.owner;
-
-  if (input.executionMode === "") delete nextFrontmatter.executionMode;
-  else if (input.executionMode)
-    nextFrontmatter.executionMode = input.executionMode;
 
   if (input.repo === "") delete nextFrontmatter.repo;
   else if (input.repo) nextFrontmatter.repo = input.repo;
@@ -672,9 +657,6 @@ export async function updateProject(
 
   if (input.sessionKeys === null) delete nextFrontmatter.sessionKeys;
   else if (input.sessionKeys) nextFrontmatter.sessionKeys = input.sessionKeys;
-
-  if (input.appetite === "") delete nextFrontmatter.appetite;
-  else if (input.appetite) nextFrontmatter.appetite = input.appetite;
 
   // Handle docs updates (new format)
   if (input.docs) {

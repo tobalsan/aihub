@@ -166,19 +166,6 @@ describe("projects API", () => {
   });
 
   it("rejects invalid create payloads", async () => {
-    const invalidDomain = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "Valid Project",
-          domain: "invalid",
-        }),
-      })
-    );
-
-    expect(invalidDomain.status).toBe(400);
-
     const invalidTitle = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
@@ -196,19 +183,15 @@ describe("projects API", () => {
     );
   });
 
-  it("creates project with metadata", async () => {
+  it("creates project with active fields", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: "Metadata Project",
-          description: "Track the new form fields.",
+          description: "Track the active form fields.",
           specs: "## Tasks\n- [ ] Add field",
-          domain: "admin",
-          owner: "ops",
-          executionMode: "ralph_loop",
-          appetite: "small",
           status: "todo",
         }),
       })
@@ -216,10 +199,6 @@ describe("projects API", () => {
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
-    expect(created.frontmatter.domain).toBe("admin");
-    expect(created.frontmatter.owner).toBe("ops");
-    expect(created.frontmatter.executionMode).toBe("ralph_loop");
-    expect(created.frontmatter.appetite).toBe("small");
     expect(created.frontmatter.status).toBe("todo");
 
     const readmePath = path.join(projectsRoot, created.path, "README.md");
@@ -227,12 +206,8 @@ describe("projects API", () => {
     const readme = await fs.readFile(readmePath, "utf8");
     const specs = await fs.readFile(specsPath, "utf8");
     expect(readme).toContain("# Metadata Project");
-    expect(readme).toContain("Track the new form fields.");
+    expect(readme).toContain("Track the active form fields.");
     expect(specs).toContain("## Tasks");
-    expect(readme).toContain('domain: "admin"');
-    expect(readme).toContain('owner: "ops"');
-    expect(readme).toContain('executionMode: "ralph_loop"');
-    expect(readme).toContain('appetite: "small"');
     expect(readme).toContain('status: "todo"');
   });
 

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import os from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { Hono } from "hono";
 
 const execFileAsync = promisify(execFile);
 let clearProjectsContextForTest: (() => void) | undefined;
@@ -97,17 +98,16 @@ describe("subagents API", () => {
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
 
-    const { clearConfigCacheForTests, loadConfig } = await import(
+    const { clearConfigCacheForTests } = await import(
       "../../../../../apps/gateway/src/config/index.js"
     );
     clearConfigCacheForTests();
-    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
-    api = mod.api;
-    const extensions = await loadExtensions(loadConfig());
-    for (const extension of extensions) {
-      extension.registerRoutes(api as never);
-    }
+    const { registerProjectRoutes } = await import("../index.js");
+    api = new Hono();
+    api.get("/agents/status", (c) =>
+      c.json({ statuses: { "test-agent": "idle" } })
+    );
+    registerProjectRoutes(api as never);
   });
 
   afterAll(async () => {
@@ -126,37 +126,6 @@ describe("subagents API", () => {
       retryDelay: 100,
     });
   });
-
-  const writeRalphScript = async (cli: "codex" | "claude", lines: string[]) => {
-    const scriptDir = path.join(
-      tmpDir,
-      ".agents",
-      "skills",
-      "ralphup",
-      "scripts"
-    );
-    await fs.mkdir(scriptDir, { recursive: true });
-    const scriptPath = path.join(scriptDir, `ralph_${cli}.sh`);
-    await fs.writeFile(scriptPath, lines.join("\n"), { mode: 0o755 });
-  };
-
-  const writeRalphTemplate = async (
-    cli: "codex" | "claude",
-    content: string
-  ) => {
-    const assetsDir = path.join(
-      tmpDir,
-      ".agents",
-      "skills",
-      "ralphup",
-      "assets"
-    );
-    await fs.mkdir(assetsDir, { recursive: true });
-    await fs.writeFile(
-      path.join(assetsDir, `prompt.${cli}.template.md`),
-      content
-    );
-  };
 
   const createRepoCopy = async (name: string) => {
     const repoDir = path.join(tmpDir, name);
@@ -181,7 +150,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -199,11 +168,10 @@ describe("subagents API", () => {
       path.join(sessionDir, "config.json"),
       JSON.stringify(
         {
-          type: "ralph_loop",
+          type: "subagent",
           cli: "codex",
           runMode: "worktree",
           baseBranch: "main",
-          iterations: 20,
           created: now,
         },
         null,
@@ -247,8 +215,7 @@ describe("subagents API", () => {
     expect(list.items[0].slug).toBe("alpha");
     expect(list.items[0].status).toBe("replied");
     expect(list.items[0].cli).toBe("codex");
-    expect(list.items[0].type).toBe("ralph_loop");
-    expect(list.items[0].iterations).toBe(20);
+    expect(list.items[0].type).toBe("subagent");
 
     const logsRes = await Promise.resolve(
       api.request(`/projects/${created.id}/subagents/alpha/logs?since=0`)
@@ -580,446 +547,6 @@ describe("subagents API", () => {
     expect(match?.type).toBe("subagent");
   });
 
-  it("adds supervisor/worker grouping metadata for ralph runs", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Ralph Group Metadata" }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const sharedWorktree = path.join(tmpDir, "shared-worktree");
-    const now = new Date().toISOString();
-    const projectSessions = path.join(projectsRoot, created.path, "sessions");
-    const supervisorDir = path.join(projectSessions, "ralph-1");
-    const workerDir = path.join(projectSessions, "worker-1");
-    await fs.mkdir(supervisorDir, { recursive: true });
-    await fs.mkdir(workerDir, { recursive: true });
-
-    await fs.writeFile(
-      path.join(supervisorDir, "config.json"),
-      JSON.stringify(
-        {
-          type: "ralph_loop",
-          cli: "codex",
-          runMode: "worktree",
-          created: now,
-        },
-        null,
-        2
-      )
-    );
-    await fs.writeFile(
-      path.join(supervisorDir, "state.json"),
-      JSON.stringify(
-        {
-          supervisor_pid: 0,
-          last_error: "",
-          cli: "codex",
-          run_mode: "worktree",
-          worktree_path: sharedWorktree,
-        },
-        null,
-        2
-      )
-    );
-    await fs.writeFile(
-      path.join(supervisorDir, "progress.json"),
-      JSON.stringify({ last_active: now }, null, 2)
-    );
-    await fs.writeFile(path.join(supervisorDir, "history.jsonl"), "");
-
-    await fs.writeFile(
-      path.join(workerDir, "config.json"),
-      JSON.stringify(
-        {
-          type: "subagent",
-          cli: "codex",
-          runMode: "worktree",
-          created: now,
-        },
-        null,
-        2
-      )
-    );
-    await fs.writeFile(
-      path.join(workerDir, "state.json"),
-      JSON.stringify(
-        {
-          supervisor_pid: 0,
-          last_error: "",
-          cli: "codex",
-          run_mode: "worktree",
-          worktree_path: sharedWorktree,
-        },
-        null,
-        2
-      )
-    );
-    await fs.writeFile(
-      path.join(workerDir, "progress.json"),
-      JSON.stringify({ last_active: now }, null, 2)
-    );
-    await fs.writeFile(path.join(workerDir, "history.jsonl"), "");
-
-    const listRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/subagents?includeArchived=true`)
-    );
-    expect(listRes.status).toBe(200);
-    const list = await listRes.json();
-    const supervisor = list.items.find(
-      (item: { slug: string }) => item.slug === "ralph-1"
-    );
-    const worker = list.items.find(
-      (item: { slug: string }) => item.slug === "worker-1"
-    );
-    expect(supervisor?.role).toBe("supervisor");
-    expect(worker?.role).toBe("worker");
-    expect(worker?.parentSlug).toBe("ralph-1");
-    expect(worker?.groupKey).toBe(supervisor?.groupKey);
-
-    const globalRes = await Promise.resolve(api.request("/subagents"));
-    expect(globalRes.status).toBe(200);
-    const global = await globalRes.json();
-    const globalWorker = global.items.find(
-      (item: { projectId: string; slug: string }) =>
-        item.projectId === created.id && item.slug === "worker-1"
-    );
-    expect(globalWorker?.role).toBe("worker");
-  });
-
-  it("spawns ralph loop via API and writes stdout/stderr logs", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Ralph Loop Spawn" }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const repoDir = await createRepoCopy("repo-ralph");
-
-    const patchRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
-      })
-    );
-    expect(patchRes.status).toBe(200);
-
-    const promptPath = path.join(projectsRoot, created.path, "prompt.md");
-    await fs.writeFile(promptPath, "Do work.\n");
-
-    await writeRalphScript("codex", [
-      "#!/bin/sh",
-      'echo "=== Ralph iteration 1/2 ==="',
-      'echo "stdout line"',
-      'echo "stderr line" 1>&2',
-    ]);
-
-    const prevHome2 = process.env.HOME;
-    const prevUserProfile2 = process.env.USERPROFILE;
-    process.env.HOME = tmpDir;
-    process.env.USERPROFILE = tmpDir;
-
-    const spawnRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/ralph-loop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cli: "codex",
-          iterations: 2,
-          promptFile: promptPath,
-        }),
-      })
-    );
-    expect(spawnRes.status).toBe(201);
-    const spawned = await spawnRes.json();
-    expect(typeof spawned.slug).toBe("string");
-
-    const sessionDir = path.join(
-      projectsRoot,
-      created.path,
-      "sessions",
-      spawned.slug
-    );
-    const historyPath = path.join(sessionDir, "history.jsonl");
-    const logsPath = path.join(sessionDir, "logs.jsonl");
-
-    const start = Date.now();
-    while (Date.now() - start < 3000) {
-      try {
-        const history = await fs.readFile(historyPath, "utf8");
-        if (history.includes('"worker.finished"')) break;
-      } catch {
-        // wait
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-
-    const config = JSON.parse(
-      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
-    );
-    expect(config.type).toBe("ralph_loop");
-    expect(config.cli).toBe("codex");
-    expect(config.iterations).toBe(2);
-    expect(config.generatedPrompt).toBe(false);
-    expect(config.promptTemplate).toBeUndefined();
-
-    const logs = await fs.readFile(logsPath, "utf8");
-    expect(logs).toContain('"type":"stdout"');
-    expect(logs).toContain("Ralph iteration 1/2");
-    expect(logs).toContain('"type":"stderr"');
-    expect(logs).toContain("stderr line");
-
-    if (prevHome2 === undefined) delete process.env.HOME;
-    else process.env.HOME = prevHome2;
-    if (prevUserProfile2 === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = prevUserProfile2;
-  }, 15000);
-
-  it("generates prompt from template when promptFile is omitted", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Ralph Loop Generate Prompt" }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const repoDir = await createRepoCopy("repo-ralph-generate");
-
-    const patchRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
-      })
-    );
-    expect(patchRes.status).toBe(200);
-
-    const projectDir = path.join(projectsRoot, created.path);
-    await fs.writeFile(path.join(projectDir, "SCOPES.md"), "# Scope\n");
-    await writeRalphScript("codex", ["#!/bin/sh", 'echo "template run"']);
-    await writeRalphTemplate(
-      "codex",
-      [
-        "Project: {{PROJECT_FILE}}",
-        "Scopes: {{SCOPES_FILE}}",
-        "Progress: {{PROGRESS_FILE}}",
-        "Repo: {{SOURCE_DIR}}",
-      ].join("\n")
-    );
-
-    const spawnRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/ralph-loop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cli: "codex",
-          iterations: 2,
-        }),
-      })
-    );
-    expect(spawnRes.status).toBe(201);
-    const spawned = await spawnRes.json();
-
-    const generatedPromptPath = path.join(projectDir, "prompt.md");
-    const generatedPrompt = await fs.readFile(generatedPromptPath, "utf8");
-    expect(generatedPrompt).toContain(path.join(projectDir, "README.md"));
-    expect(generatedPrompt).toContain(path.join(projectDir, "SCOPES.md"));
-    expect(generatedPrompt).toContain(path.join(projectDir, "progress.md"));
-    const workspaceDir = path.join(
-      projectsRoot,
-      ".workspaces",
-      created.id,
-      spawned.slug
-    );
-    expect(generatedPrompt).toContain(workspaceDir);
-
-    const progressFilePath = path.join(projectDir, "progress.md");
-    await expect(fs.stat(progressFilePath)).resolves.toBeDefined();
-
-    const config = JSON.parse(
-      await fs.readFile(
-        path.join(projectDir, "sessions", spawned.slug, "config.json"),
-        "utf8"
-      )
-    );
-    expect(config.generatedPrompt).toBe(true);
-    expect(config.promptTemplate).toContain("prompt.codex.template.md");
-    expect(config.promptFile).toBe(generatedPromptPath);
-  }, 15000);
-
-  it("returns error when explicit prompt file is missing", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Ralph Missing Prompt" }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const repoDir = await createRepoCopy("repo-ralph-missing-prompt");
-
-    const patchRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
-      })
-    );
-    expect(patchRes.status).toBe(200);
-
-    await writeRalphScript("codex", ["#!/bin/sh", "exit 0"]);
-    const missingPrompt = path.join(projectsRoot, created.path, "missing.md");
-    const spawnRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/ralph-loop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cli: "codex",
-          iterations: 2,
-          promptFile: missingPrompt,
-        }),
-      })
-    );
-    expect(spawnRes.status).toBe(400);
-    const body = await spawnRes.json();
-    expect(body.error).toContain("Prompt file not found");
-  }, 15000);
-
-  it("returns error when SCOPES.md is missing in generation mode", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Ralph Missing Scopes" }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const repoDir = await createRepoCopy("repo-ralph-missing-scopes");
-
-    const patchRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
-      })
-    );
-    expect(patchRes.status).toBe(200);
-
-    await writeRalphScript("codex", ["#!/bin/sh", "exit 0"]);
-    await writeRalphTemplate("codex", "Test {{SCOPES_FILE}}");
-
-    const spawnRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/ralph-loop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cli: "codex",
-          iterations: 2,
-        }),
-      })
-    );
-    expect(spawnRes.status).toBe(400);
-    const body = await spawnRes.json();
-    expect(body.error).toContain("SCOPES.md not found");
-  }, 15000);
-
-  it("dispatches ralph_loop from /projects/:id/start when executionMode is set", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "Ralph Start Dispatch",
-          executionMode: "ralph_loop",
-          status: "todo",
-        }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-
-    const repoDir = await createRepoCopy("repo-ralph-start");
-
-    const patchRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
-      })
-    );
-    expect(patchRes.status).toBe(200);
-
-    const projectDir = path.join(projectsRoot, created.path);
-    await fs.writeFile(path.join(projectDir, "SCOPES.md"), "# Scope\n");
-    await writeRalphTemplate(
-      "codex",
-      "Project {{PROJECT_FILE}} Scope {{SCOPES_FILE}} Progress {{PROGRESS_FILE}} Repo {{SOURCE_DIR}}"
-    );
-    await writeRalphScript("codex", ["#!/bin/sh", 'echo "start loop"']);
-
-    const prevHome2 = process.env.HOME;
-    const prevUserProfile2 = process.env.USERPROFILE;
-    process.env.HOME = tmpDir;
-    process.env.USERPROFILE = tmpDir;
-
-    const startRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runAgent: "cli:codex" }),
-      })
-    );
-    expect(startRes.status).toBe(200);
-    const started = await startRes.json();
-    expect(started.ok).toBe(true);
-    expect(started.type).toBe("ralph_loop");
-    expect(typeof started.slug).toBe("string");
-
-    const sessionDir = path.join(
-      projectsRoot,
-      created.path,
-      "sessions",
-      started.slug
-    );
-    const config = JSON.parse(
-      await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
-    );
-    expect(config.type).toBe("ralph_loop");
-    expect(config.cli).toBe("codex");
-    expect(config.runMode).toBe("clone");
-    expect(config.baseBranch).toBe("main");
-    expect(config.iterations).toBe(20);
-    expect(config.generatedPrompt).toBe(true);
-
-    const projectRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`)
-    );
-    expect(projectRes.status).toBe(200);
-    const project = await projectRes.json();
-    expect(project.frontmatter.status).toBe("in_progress");
-
-    if (prevHome2 === undefined) delete process.env.HOME;
-    else process.env.HOME = prevHome2;
-    if (prevUserProfile2 === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = prevUserProfile2;
-  }, 15000);
-
   it("uses frontmatter runAgent but ignores frontmatter runMode for /projects/:id/start", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
@@ -1037,7 +564,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -1121,7 +648,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -1254,7 +781,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -1402,7 +929,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -1892,7 +1419,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -1991,7 +1518,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2106,7 +1633,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2205,7 +1732,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2459,7 +1986,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2542,7 +2069,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2642,7 +2169,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2746,7 +2273,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2858,7 +2385,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2910,7 +2437,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -2961,7 +2488,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -3050,7 +2577,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ area: "qa", domain: "coding" }),
+        body: JSON.stringify({ area: "qa" }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -3117,7 +2644,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -3194,7 +2721,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -3274,7 +2801,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -3456,7 +2983,7 @@ describe("subagents API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+        body: JSON.stringify({ repo: repoDir }),
       })
     );
     expect(patchRes.status).toBe(200);

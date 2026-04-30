@@ -248,44 +248,6 @@ describe("projects CLI", () => {
     });
   });
 
-  it("ralph command posts to ralph-loop endpoint", async () => {
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
-      return new Response(JSON.stringify({ slug: "ralph-abc" }), {
-        status: 201,
-      });
-    });
-
-    vi.stubGlobal("fetch", fetchImpl);
-    const program = createTestProgram();
-
-    await program.parseAsync([
-      "node",
-      "projects",
-      "ralph",
-      "pro-75",
-      "--cli",
-      "claude",
-      "--iterations",
-      "12",
-      "--prompt-file",
-      "/tmp/prompt.md",
-      "--json",
-    ]);
-
-    expect(calls.length).toBe(1);
-    expect(calls[0].url).toBe(
-      "http://localhost:4000/api/projects/PRO-75/ralph-loop"
-    );
-    const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
-    expect(body).toEqual({
-      cli: "claude",
-      iterations: 12,
-      promptFile: "/tmp/prompt.md",
-    });
-  });
-
   it("archive command posts to project archive endpoint", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {

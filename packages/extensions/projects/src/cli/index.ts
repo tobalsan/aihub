@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command, Option } from "commander";
+import { Command } from "commander";
 import os from "node:os";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -41,10 +41,6 @@ function normalizeItem(item: ProjectItem) {
     id: item.id ?? (fm.id as string | undefined) ?? "",
     title: item.title ?? (fm.title as string | undefined) ?? "",
     status: (fm.status as string | undefined) ?? "",
-    domain: (fm.domain as string | undefined) ?? "",
-    owner: (fm.owner as string | undefined) ?? "",
-    executionMode: (fm.executionMode as string | undefined) ?? "",
-    appetite: (fm.appetite as string | undefined) ?? "",
     created: (fm.created as string | undefined) ?? "",
     path: item.path ?? "",
   };
@@ -55,10 +51,6 @@ function renderTable(items: ProjectItem[]): string {
     "id",
     "title",
     "status",
-    "domain",
-    "owner",
-    "executionMode",
-    "appetite",
     "created",
     "path",
   ];
@@ -414,8 +406,6 @@ export function registerProjectsCommands(program: Command): Command {
   program
     .command("list")
     .option("--status <status>", "Filter by status")
-    .option("--owner <owner>", "Filter by owner")
-    .option("--domain <domain>", "Filter by domain")
     .option("-j, --json", "JSON output")
     .action(async (opts) => {
       try {
@@ -426,17 +416,6 @@ export function registerProjectsCommands(program: Command): Command {
             (item) => String(item.frontmatter?.status ?? "") === opts.status
           );
         }
-        if (opts.owner) {
-          filtered = filtered.filter(
-            (item) => String(item.frontmatter?.owner ?? "") === opts.owner
-          );
-        }
-        if (opts.domain) {
-          filtered = filtered.filter(
-            (item) => String(item.frontmatter?.domain ?? "") === opts.domain
-          );
-        }
-
         if (opts.json) {
           console.log(JSON.stringify(filtered, null, 2));
           return;
@@ -475,19 +454,6 @@ export function registerProjectsCommands(program: Command): Command {
     .argument("[description]", "Project description for README")
     .requiredOption("-t, --title <title>", "Project title")
     .option("--specs <content>", "SPECS content string or '-' for stdin")
-    .addOption(
-      new Option("--domain <domain>", "Domain (life|admin|coding)").hideHelp()
-    )
-    .addOption(new Option("--owner <owner>", "Owner").hideHelp())
-    .addOption(
-      new Option(
-        "--execution-mode <mode>",
-        "Execution mode (subagent|ralph_loop)"
-      ).hideHelp()
-    )
-    .addOption(
-      new Option("--appetite <appetite>", "Appetite (small|big)").hideHelp()
-    )
     .option("--status <status>", "Status")
     .option("--area <area>", "Area")
     .option("-j, --json", "JSON output")
@@ -499,10 +465,6 @@ export function registerProjectsCommands(program: Command): Command {
         if (opts.specs !== undefined) {
           body.specs = opts.specs === "-" ? await readStdin() : opts.specs;
         }
-        if (opts.domain) body.domain = opts.domain;
-        if (opts.owner) body.owner = opts.owner;
-        if (opts.executionMode) body.executionMode = opts.executionMode;
-        if (opts.appetite) body.appetite = opts.appetite;
         if (opts.status) body.status = opts.status;
         const area = await resolveCreateArea(client, opts.area);
         if (area) body.area = area;
@@ -547,10 +509,6 @@ export function registerProjectsCommands(program: Command): Command {
     .command("update")
     .argument("<id>", "Project ID")
     .option("--title <title>", "Title")
-    .option("--domain <domain>", "Domain (life|admin|coding)")
-    .option("--owner <owner>", "Owner")
-    .option("--execution-mode <mode>", "Execution mode (subagent|ralph_loop)")
-    .option("--appetite <appetite>", "Appetite (small|big)")
     .option("--status <status>", "Status")
     .option("--repo <path>", "Repo path")
     .option("--readme <content>", "README content string or '-' for stdin")
@@ -561,10 +519,6 @@ export function registerProjectsCommands(program: Command): Command {
         const normalizedId = normalizeProjectId(id);
         const body: Record<string, unknown> = {};
         if (opts.title) body.title = opts.title;
-        if (opts.domain) body.domain = opts.domain;
-        if (opts.owner) body.owner = opts.owner;
-        if (opts.executionMode) body.executionMode = opts.executionMode;
-        if (opts.appetite) body.appetite = opts.appetite;
         if (opts.status) body.status = opts.status;
         if (opts.repo !== undefined) body.repo = opts.repo;
         let stdinContent: string | undefined;
@@ -967,49 +921,6 @@ export function registerProjectsCommands(program: Command): Command {
           return;
         }
         console.log(`Unarchived project ${normalizedId}`);
-      } catch (err) {
-        fail(err);
-      }
-    });
-
-  program
-    .command("ralph")
-    .argument("<id>", "Project ID")
-    .option("--cli <cli>", "CLI (codex|claude)", "codex")
-    .option("--iterations <n>", "Number of loop iterations", "20")
-    .option(
-      "--prompt-file <path>",
-      "Prompt file path (optional; otherwise generated from ralph template)"
-    )
-    .option("--mode <mode>", "Run mode (main-run|clone|worktree|none)")
-    .option("--branch <branch>", "Base branch for clone/worktree")
-    .option("-j, --json", "JSON output")
-    .action(async (id, opts) => {
-      try {
-        const normalizedId = normalizeProjectId(id);
-        const iterations = Number(opts.iterations);
-        const body: Record<string, unknown> = {
-          cli: opts.cli,
-          iterations: Number.isFinite(iterations) ? iterations : 20,
-        };
-        if (typeof opts.promptFile === "string" && opts.promptFile.trim()) {
-          body.promptFile = opts.promptFile.trim();
-        }
-        if (typeof opts.mode === "string" && opts.mode.trim()) {
-          body.mode = opts.mode.trim();
-        }
-        if (typeof opts.branch === "string" && opts.branch.trim()) {
-          body.baseBranch = opts.branch.trim();
-        }
-
-        const data = (await getClient().startRalphLoop(normalizedId, body)) as {
-          slug?: string;
-        };
-        if (opts.json) {
-          console.log(JSON.stringify(data, null, 2));
-          return;
-        }
-        console.log(`Started Ralph loop (slug: ${data.slug})`);
       } catch (err) {
         fail(err);
       }

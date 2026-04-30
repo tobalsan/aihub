@@ -832,15 +832,6 @@ export const ProjectStatusSchema = z.enum([
 ]);
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 
-export const ProjectDomainSchema = z.enum(["life", "admin", "coding"]);
-export type ProjectDomain = z.infer<typeof ProjectDomainSchema>;
-
-export const ProjectExecutionModeSchema = z.enum(["subagent", "ralph_loop"]);
-export type ProjectExecutionMode = z.infer<typeof ProjectExecutionModeSchema>;
-
-export const ProjectAppetiteSchema = z.enum(["small", "big"]);
-export type ProjectAppetite = z.infer<typeof ProjectAppetiteSchema>;
-
 export const AreaSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -866,10 +857,6 @@ export const CreateProjectRequestSchema = z.object({
   title: z.string(),
   description: z.string().optional(),
   specs: z.string().optional(),
-  domain: ProjectDomainSchema.optional(),
-  owner: z.string().optional(),
-  executionMode: ProjectExecutionModeSchema.optional(),
-  appetite: ProjectAppetiteSchema.optional(),
   status: ProjectStatusSchema.optional(),
   area: z.string().optional(),
 });
@@ -877,12 +864,6 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
 export const UpdateProjectRequestSchema = z.object({
   title: z.string().optional(),
-  domain: z.union([ProjectDomainSchema, z.literal("")]).optional(),
-  owner: z.union([z.string(), z.literal("")]).optional(),
-  executionMode: z
-    .union([ProjectExecutionModeSchema, z.literal("")])
-    .optional(),
-  appetite: z.union([ProjectAppetiteSchema, z.literal("")]).optional(),
   status: ProjectStatusSchema.optional(),
   agent: z.string().optional(),
   readme: z.string().optional(),
@@ -946,19 +927,15 @@ export type StartProjectRunRequest = z.infer<
 export type SubagentGlobalListItem = {
   projectId: string;
   slug: string;
-  type?: "subagent" | "ralph_loop";
+  type?: "subagent";
   cli?: string;
   name?: string;
   model?: string;
   reasoningEffort?: string;
   thinking?: string;
   runMode?: string;
-  role?: "supervisor" | "worker";
-  parentSlug?: string;
-  groupKey?: string;
   baseBranch?: string;
   worktreePath?: string;
-  iterations?: number;
   status: "running" | "replied" | "error" | "idle";
   lastActive?: string;
   runStartedAt?: string;

@@ -90,7 +90,6 @@ import {
   interruptSubagent,
   isSupportedSubagentCli,
   killSubagent,
-  spawnRalphLoop,
   spawnSubagent,
 } from "./subagents/runner.js";
 import { getTaskboardItem, scanTaskboard } from "./taskboard/index.js";
@@ -408,10 +407,6 @@ function createProjectAgentTools(): ExtensionAgentTool[] {
           title: { type: "string" },
           description: { type: "string" },
           specs: { type: "string" },
-          domain: { type: "string" },
-          owner: { type: "string" },
-          executionMode: { type: "string" },
-          appetite: { type: "string" },
           status: { type: "string" },
           area: { type: "string" },
         },
@@ -500,12 +495,6 @@ function createProjectAgentTools(): ExtensionAgentTool[] {
       },
     },
   ];
-}
-
-function generateRalphLoopSlug(): string {
-  const now = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `ralph-${now}-${rand}`;
 }
 
 function attachmentContentType(name: string): string {
@@ -873,8 +862,6 @@ export function registerProjectRoutes(app: Hono): void {
       runAgentLabel,
       workerWorkspaces: reviewerWorkspaces,
       subagentTypes: getProjectsContext().getSubagentTemplates(),
-      owner:
-        typeof frontmatter.owner === "string" ? frontmatter.owner : undefined,
       includeDefaultPrompt: startInput.includeDefaultPrompt,
       includeRoleInstructions: startInput.includeRoleInstructions,
       includePostRun: startInput.includePostRun,
@@ -937,50 +924,6 @@ export function registerProjectRoutes(app: Hono): void {
     );
     if (!resolvedCliOptions.ok) {
       return c.json({ error: resolvedCliOptions.error }, 400);
-    }
-
-    if (frontmatter.executionMode === "ralph_loop") {
-      if (!["claude", "codex"].includes(runCli)) {
-        return c.json(
-          { error: `Unsupported CLI for ralph_loop: ${runCli}` },
-          400
-        );
-      }
-      const ralphCli = runCli as "claude" | "codex";
-      const ralphIterationsRaw =
-        typeof frontmatter.iterations === "number"
-          ? frontmatter.iterations
-          : Number(frontmatter.iterations);
-      const ralphIterations =
-        Number.isFinite(ralphIterationsRaw) && ralphIterationsRaw >= 1
-          ? ralphIterationsRaw
-          : 20;
-      const ralphMode = resolvedRunMode;
-      const ralphBaseBranch = hasText(startInput.baseBranch)
-        ? startInput.baseBranch.trim()
-        : "main";
-      const ralphSlug = generateRalphLoopSlug();
-
-      const result = await spawnRalphLoop(config, {
-        projectId: project.id,
-        slug: ralphSlug,
-        cli: ralphCli,
-        iterations: ralphIterations,
-        mode: ralphMode,
-        baseBranch: ralphBaseBranch,
-      });
-      if (!result.ok) {
-        return c.json({ error: result.error }, 400);
-      }
-
-      if (normalizedStatus === "todo") {
-        updates.status = "in_progress";
-      }
-      if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
-        await updateProject(config, project.id, updates);
-      }
-
-      return c.json({ ok: true, type: "ralph_loop", slug: ralphSlug });
     }
 
     const runModeValue = runMode ?? "main-run";
@@ -1687,8 +1630,6 @@ export function registerProjectRoutes(app: Hono): void {
 
       const repo =
         typeof frontmatter.repo === "string" ? frontmatter.repo : undefined;
-      const owner =
-        typeof frontmatter.owner === "string" ? frontmatter.owner : undefined;
       const status =
         typeof frontmatter.status === "string" ? frontmatter.status : "";
 
@@ -1707,7 +1648,6 @@ export function registerProjectRoutes(app: Hono): void {
           ...docKeys.map((key) => `${key}.md`),
         ],
         repo,
-        owner,
         runAgentLabel: agent.name,
         customPrompt: prompt || undefined,
         subagentTypes: getProjectsContext().getSubagentTemplates(),
@@ -1856,44 +1796,6 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: result.error }, status);
     }
     return c.json(result.data);
-  });
-
-  app.post("/projects/:id/ralph-loop", async (c) => {
-    const id = c.req.param("id");
-    const body = await c.req.json();
-    const cli = typeof body.cli === "string" ? body.cli : "";
-    const iterations =
-      typeof body.iterations === "number"
-        ? body.iterations
-        : Number(body.iterations);
-    const promptFile =
-      typeof body.promptFile === "string" ? body.promptFile : undefined;
-    const mode = typeof body.mode === "string" ? body.mode : undefined;
-    const baseBranch =
-      typeof body.baseBranch === "string" ? body.baseBranch : undefined;
-
-    if (!["codex", "claude"].includes(cli)) {
-      return c.json({ error: "cli must be codex or claude" }, 400);
-    }
-    if (!Number.isFinite(iterations) || iterations < 1) {
-      return c.json({ error: "iterations must be >= 1" }, 400);
-    }
-
-    const config = getProjectsConfig();
-    const result = await spawnRalphLoop(config, {
-      projectId: id,
-      slug: generateRalphLoopSlug(),
-      cli: cli as "codex" | "claude",
-      iterations,
-      promptFile,
-      mode: mode as "main-run" | "worktree" | "clone" | "none" | undefined,
-      baseBranch,
-    });
-    if (!result.ok) {
-      const status = result.error.startsWith("Project not found") ? 404 : 400;
-      return c.json({ error: result.error }, status);
-    }
-    return c.json(result.data, 201);
   });
 
   app.post("/projects/:id/subagents/:slug/interrupt", async (c) => {

@@ -29,7 +29,7 @@ Goal: design live agent monitoring in project card details (monitoring pane) + s
 
 - Store in frontmatter:
   - `sessionKeys` mapping (agentId -> sessionKey).
-  - `repo` path for domain `coding`.
+  - `repo` path for project runs.
   - `runAgent` (selected agent), `runMode` (main-run|worktree).
 - Field names chosen: `sessionKeys`, `repo`, `runAgent`, `runMode`.
 - Frontmatter should be hidden in Kanban view (UI).

@@ -19,7 +19,6 @@ import {
   fetchSubagents,
   fetchSubagentLogs,
   spawnSubagent,
-  spawnRalphLoop,
   interruptSubagent,
   archiveSubagent,
   unarchiveSubagent,
@@ -529,30 +528,6 @@ describe("api client (projects/subagents)", () => {
 
     expectFetchCall("/api/projects/PRO-3/subagents/main/interrupt", {
       method: "POST",
-    });
-    expect(res.ok).toBe(true);
-  });
-
-  it("spawns ralph loop", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({ slug: "ralph-1" }),
-    });
-
-    const res = await spawnRalphLoop("PRO-2", {
-      cli: "codex",
-      iterations: 20,
-      promptFile: "/tmp/prompt.md",
-    });
-
-    expectFetchCall("/api/projects/PRO-2/ralph-loop", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cli: "codex",
-        iterations: 20,
-        promptFile: "/tmp/prompt.md",
-      }),
     });
     expect(res.ok).toBe(true);
   });

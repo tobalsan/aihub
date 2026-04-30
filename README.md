@@ -443,7 +443,7 @@ pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
 # Projects CLI (aihub projects; uses gateway API)
-pnpm aihub projects list [--status <status>] [--owner <owner>] [--domain <domain>]
+pnpm aihub projects list [--status <status>]
 pnpm aihub projects create --title "My Project" [description] [--specs <text>|-] [--status <status>] [--area <area>]
 pnpm aihub projects get <id>
 pnpm aihub projects update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
@@ -484,12 +484,6 @@ pnpm aihub auth login anthropic # Login to specific provider
 pnpm aihub auth status          # Show authenticated providers
 pnpm aihub auth logout <provider>
 ```
-
-Projects execution modes:
-
-- `subagent`: default coding-agent run mode in monitoring panel.
-- `ralph_loop`: iterative Ralph loop monitoring mode.
-- unset: no execution mode selected.
 
 Project Space model:
 
@@ -533,7 +527,7 @@ Coordinator prompts now include:
   Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
   Worker prompts explicitly require committing implementation once checks pass.
 
-Repo resolution for subagent/ralph runner modes (`clone`/`worktree`/`main-run`) now falls back to the project area's `repo` when project `frontmatter.repo` is unset.
+Repo resolution for subagent runner modes (`clone`/`worktree`/`main-run`) now falls back to the project area's `repo` when project `frontmatter.repo` is unset.
 
 Use the canonical guide:
 

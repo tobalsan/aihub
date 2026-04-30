@@ -25,10 +25,8 @@ id: "PRO-1"
 title: "My Project"
 status: "maybe"           # not_now|maybe|shaping|todo|in_progress|review|done
 created: "2026-01-25T13:22:10.123Z"
-domain: "coding"          # life|admin|coding
-owner: "Thinh"
-executionMode: "manual"   # manual|exploratory|auto|full_auto
-appetite: "small"         # small|big
+area: "aihub"
+repo: "~/code/aihub"
 ```
 
 ## Endpoints
@@ -45,15 +43,12 @@ Body:
 ```json
 {
   "title": "Project Mgmt API",
-  "domain": "coding",
-  "owner": "Thinh",
-  "executionMode": "exploratory",
-  "appetite": "small",
-  "status": "maybe"
+  "status": "maybe",
+  "area": "aihub"
 }
 ```
 
-Only `title` is required. Omitted fields are left unset in frontmatter.
+Only `title` is required. Omitted optional fields are left unset in frontmatter.
 
 ### Get project
 `GET /api/projects/:id`

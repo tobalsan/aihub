@@ -27,17 +27,11 @@ List projects (frontmatter only).
 Options:
 
 - `--status <status>`: filter by status.
-- `--owner <owner>`: filter by owner.
-- `--domain <domain>`: filter by domain.
 - `-j, --json`: JSON output instead of table.
 
 Status values:
 
 - `not_now`, `maybe`, `shaping`, `todo`, `in_progress`, `review`, `done`.
-
-Domain values:
-
-- `life`, `admin`, `coding`.
 
 ### `aihub projects agent list`
 
@@ -74,10 +68,6 @@ Update project fields and/or project docs content.
 Options:
 
 - `--title <title>`: update title (renames folder).
-- `--domain <domain>`: `life|admin|coding`.
-- `--owner <owner>`: owner string.
-- `--execution-mode <mode>`: `subagent|ralph_loop`.
-- `--appetite <appetite>`: `small|big`.
 - `--status <status>`: `not_now|maybe|shaping|todo|in_progress|review|done`.
 - `--run-agent <agent>`: agent used by monitoring start.
   - `aihub:<agentId>` (AIHub agent)
@@ -93,7 +83,7 @@ Options:
 
 Notes:
 
-- To unset optional fields, pass empty string (e.g. `--owner ""`).
+- To unset optional fields, pass empty string.
 - If stdin is piped and neither `--readme` nor `--specs` is provided, piped content is written to `SPECS.md`.
 
 ### `aihub projects move <id> <status>`
@@ -134,15 +124,6 @@ The web spawn form and `aihub projects start --subagent <name>` both resolve thr
 Any explicit locked-field override requires `--allow-overrides`.
 Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions.
 
-### `aihub projects ralph <id>`
-
-Start a Ralph loop run.
-
-Options:
-
-- `--cli <cli>`: `codex|claude` (default `codex`).
-- `--iterations <n>`: loop iterations (default `20`).
-- `--prompt-file <path>`: prompt file path (default project `prompt.md`).
 - `--mode <mode>`: `main-run|worktree`.
 - `--branch <branch>`: base branch for worktree mode.
 - `-j, --json`: JSON output.
@@ -187,9 +168,6 @@ Options:
 ## Examples
 
 ```bash
-# List coding projects
-aihub projects list --domain coding
-
 # Create with description
 aihub projects create -t "Add kill tool" "Implement a kill command for subagents"
 

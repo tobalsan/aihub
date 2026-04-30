@@ -1710,37 +1710,6 @@ export async function updateSubagent(
   return { ok: true, data };
 }
 
-export type SpawnRalphLoopInput = {
-  cli: "codex" | "claude";
-  iterations: number;
-  promptFile?: string;
-  mode?: "main-run" | "worktree" | "clone" | "none";
-  baseBranch?: string;
-};
-
-export type SpawnRalphLoopResult =
-  | { ok: true; data: { slug: string } }
-  | { ok: false; error: string };
-
-export async function spawnRalphLoop(
-  projectId: string,
-  input: SpawnRalphLoopInput
-): Promise<SpawnRalphLoopResult> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/ralph-loop`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) {
-    const data = await res
-      .json()
-      .catch(() => ({ error: "Failed to spawn ralph loop" }));
-    return { ok: false, error: data.error ?? "Failed to spawn ralph loop" };
-  }
-  const data = (await res.json()) as { slug: string };
-  return { ok: true, data };
-}
-
 export type InterruptSubagentResult =
   | { ok: true; data: { slug: string } }
   | { ok: false; error: string };

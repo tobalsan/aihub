@@ -65,13 +65,6 @@ Transform AIHub from a project-centric tool into an agent-centric command center
 - **Working** = CLI process running
 - **Idle** = finished or interrupted
 
-### Project Ownership
-
-- `owner` field = human OR lead agent (who manages the project)
-- `agent` field = subagent assigned to execute work
-
----
-
 ## Left Sidebar: Agents
 
 ### Structure

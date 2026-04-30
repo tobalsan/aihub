@@ -78,10 +78,6 @@ describe("projects store", () => {
     const firstResult = await createProject(config, {
       title: "Alpha Project",
       description: "Ship it.",
-      domain: "coding",
-      owner: "me",
-      executionMode: "subagent",
-      appetite: "big",
       status: "todo",
     });
     if (!firstResult.ok) throw new Error(firstResult.error);
@@ -106,10 +102,6 @@ describe("projects store", () => {
     );
     const readme = await fs.readFile(readmePath, "utf8");
     const thread = await fs.readFile(threadPath, "utf8");
-    expect(readme).toContain('domain: "coding"');
-    expect(readme).toContain('owner: "me"');
-    expect(readme).toContain('executionMode: "subagent"');
-    expect(readme).toContain('appetite: "big"');
     expect(readme).toContain('status: "todo"');
     expect(readme).toContain("# Alpha Project");
     expect(readme).toContain("Ship it.");
@@ -133,7 +125,6 @@ describe("projects store", () => {
     const getResult = await getProject(config, firstResult.data.id);
     if (!getResult.ok) throw new Error(getResult.error);
     expect(getResult.data.repoValid).toBe(false);
-    expect(getResult.data.frontmatter.domain).toBe("coding");
     expect(getResult.data.docs.README).toContain("Ship it.");
     expect(getResult.data.thread.length).toBe(0);
   });
