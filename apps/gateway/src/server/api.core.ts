@@ -41,9 +41,8 @@ import {
   UploadTypeError,
 } from "../media/upload.js";
 import {
-  getMediaInboundDir,
-  getMediaOutboundDir,
   getMediaFileMetadata,
+  resolveMediaFilePath,
 } from "../media/metadata.js";
 
 const api = new Hono();
@@ -88,14 +87,6 @@ async function getVisibleAgents(c: Context) {
 
   const { getAgentFilter } = await loadMultiUserApiDeps();
   return getAgentFilter(authContext.user.id, authContext.user.role)(agents);
-}
-
-function isWithinDir(filePath: string, dir: string): boolean {
-  const relative = path.relative(dir, filePath);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
 }
 
 function contentDispositionFilename(filename: string): string {
@@ -495,30 +486,9 @@ api.get("/media/download/:id", async (c) => {
     return c.json({ error: "File not found" }, 404);
   }
 
-  if (path.basename(metadata.storedFilename) !== metadata.storedFilename) {
-    return c.json({ error: "File not found" }, 404);
-  }
-
-  const baseDir =
-    metadata.direction === "outbound"
-      ? getMediaOutboundDir()
-      : getMediaInboundDir();
-  const candidatePath = path.join(baseDir, metadata.storedFilename);
-
   try {
-    const [realBaseDir, realFilePath] = await Promise.all([
-      fs.realpath(baseDir),
-      fs.realpath(candidatePath),
-    ]);
-
-    if (!isWithinDir(realFilePath, realBaseDir)) {
-      return c.json({ error: "File not found" }, 404);
-    }
-
+    const realFilePath = await resolveMediaFilePath(metadata);
     const stat = await fs.stat(realFilePath);
-    if (!stat.isFile()) {
-      return c.json({ error: "File not found" }, 404);
-    }
 
     c.header("Content-Type", metadata.mimeType);
     c.header("Content-Length", String(stat.size));

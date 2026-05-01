@@ -65,6 +65,57 @@ export async function getMediaFileMetadata(
   return metadata[fileId] ?? null;
 }
 
+function isPathWithinDir(filePath: string, dir: string): boolean {
+  const relative = path.relative(dir, filePath);
+  return (
+    relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+export async function resolveMediaFilePath(
+  metadata: MediaFileMetadata
+): Promise<string> {
+  if (path.basename(metadata.storedFilename) !== metadata.storedFilename) {
+    throw new Error("Media file not found");
+  }
+
+  const baseDir =
+    metadata.direction === "outbound"
+      ? getMediaOutboundDir()
+      : getMediaInboundDir();
+  const candidatePath = path.join(baseDir, metadata.storedFilename);
+  let realBaseDir: string;
+  let realFilePath: string;
+  let realMetadataPath: string;
+  try {
+    [realBaseDir, realFilePath, realMetadataPath] = await Promise.all([
+      fs.realpath(baseDir),
+      fs.realpath(candidatePath),
+      fs.realpath(metadata.path),
+    ]);
+  } catch {
+    throw new Error("Media file not found");
+  }
+
+  if (
+    !isPathWithinDir(realFilePath, realBaseDir) ||
+    !isPathWithinDir(realMetadataPath, realBaseDir) ||
+    realMetadataPath !== realFilePath
+  ) {
+    throw new Error("Media file not found");
+  }
+
+  const stat = await fs.stat(realFilePath).catch(() => null);
+  if (!stat) {
+    throw new Error("Media file not found");
+  }
+  if (!stat.isFile()) {
+    throw new Error("Media file not found");
+  }
+
+  return realFilePath;
+}
+
 export async function registerMediaFile(input: {
   direction: MediaDirection;
   filename: string;

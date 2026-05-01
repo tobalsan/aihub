@@ -805,14 +805,14 @@ See [docs/discord.md](docs/discord.md) for the full config reference including g
 
 ### Slack
 
-Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). Supports channel messages, DMs, thread replies, reactions, and slash commands.
+Connect your agent to Slack via Bolt.js + Socket Mode (no public URL required). Supports channel messages, DMs, thread replies, reactions, slash commands, inbound file attachments, and outbound agent file uploads.
 
 **Prerequisites:**
 
 1. Create a Slack app at https://api.slack.com/apps
 2. Enable **Socket Mode** and generate an **App-Level Token** (`xapp-`) with `connections:write` scope
 3. Install the app to your workspace and copy the **Bot Token** (`xoxb-`)
-4. Add bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `commands`, `im:history`, `im:read`, `im:write`, `reactions:read`, `reactions:write`, `users:read`
+4. Add bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `commands`, `files:read`, `files:write`, `im:history`, `im:read`, `im:write`, `reactions:read`, `reactions:write`, `users:read`
 5. Enable **Socket Mode** in the app settings
 
 Inbound Slack messages inject the same normalized channel-context block into the real agent system prompt, using Slack display names when available and id fallbacks otherwise.
@@ -941,6 +941,8 @@ oauth_config:
       - channels:read
       - chat:write
       - commands
+      - files:read
+      - files:write
       - im:history
       - im:read
       - im:write

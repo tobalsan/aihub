@@ -2,6 +2,7 @@ import type {
   SlackComponentChannelConfig,
   SlackComponentConfig,
 } from "@aihub/shared";
+import type { SlackFile } from "../utils/attachments.js";
 import { matchesUserAllowlist } from "../utils/allowlist.js";
 
 export type MessageData = {
@@ -13,6 +14,7 @@ export type MessageData = {
   channel_type?: string;
   thread_ts?: string;
   isAppMention?: boolean;
+  files?: SlackFile[];
 };
 
 export type BangCommand = "new" | "stop";
@@ -22,7 +24,9 @@ export type BangCommandMatch = {
   arg?: string;
 };
 
-export function detectBangCommand(content: string): BangCommandMatch | undefined {
+export function detectBangCommand(
+  content: string
+): BangCommandMatch | undefined {
   const match = content.match(/^!(new|stop)\b(.*)/i);
   if (!match) return undefined;
   return {
