@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { WebSocketServer, type WebSocket } from "ws";
-import { resolveBindHost } from "@aihub/shared";
+import { buildUserContext, resolveBindHost } from "@aihub/shared";
 import type {
   WsClientMessage,
   WsServerMessage,
@@ -377,6 +377,10 @@ function handleWsConnection(
           sessionKey: resolvedSession ? undefined : (msg.sessionKey ?? "main"),
           resolvedSession,
           thinkLevel: msg.thinkLevel,
+          context: authContext
+            ? buildUserContext({ name: authContext.user.name })
+            : undefined,
+          source: "web",
           onEvent: (event) => sendWs(ws, event),
         });
       } catch (err) {

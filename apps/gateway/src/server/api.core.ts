@@ -3,7 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
-import { SendMessageRequestSchema, resolveHomeDir } from "@aihub/shared";
+import {
+  SendMessageRequestSchema,
+  buildUserContext,
+  resolveHomeDir,
+} from "@aihub/shared";
 import {
   getActiveAgents,
   getAgent,
@@ -298,7 +302,11 @@ api.post("/agents/:id/messages", async (c) => {
   }
 
   try {
-    const userId = await getRequestUserId(c);
+    const authContext = await getRequestAuthContext(c);
+    const userId = authContext?.session.userId;
+    const context = authContext
+      ? buildUserContext({ name: authContext.user.name })
+      : undefined;
     // Handle /abort - skip session resolution to avoid creating new session
     if (isAbortTrigger(parsed.data.message)) {
       const result = await runAgent({
@@ -344,6 +352,8 @@ api.post("/agents/:id/messages", async (c) => {
         : (parsed.data.sessionKey ?? "main"),
       resolvedSession,
       thinkLevel: parsed.data.thinkLevel,
+      context,
+      source: "web",
     });
     return c.json(result);
   } catch (err) {

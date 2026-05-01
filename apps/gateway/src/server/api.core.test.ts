@@ -15,6 +15,13 @@ const resolveSessionId = vi.fn();
 const getSessionEntry = vi.fn();
 const isAbortTrigger = vi.fn();
 const getSessionThinkLevel = vi.fn();
+const multiUserState = vi.hoisted(() => ({
+  loaded: false,
+  authContext: null as null | {
+    user: { id: string; name?: string };
+    session: { id: string; userId: string };
+  },
+}));
 
 vi.mock("../config/index.js", () => ({
   getAgent,
@@ -25,7 +32,13 @@ vi.mock("../config/index.js", () => ({
 
 vi.mock("../extensions/registry.js", () => ({
   getLoadedExtensions: () => [],
-  isExtensionLoaded: () => false,
+  isExtensionLoaded: (extensionId: string) =>
+    extensionId === "multiUser" && multiUserState.loaded,
+}));
+
+vi.mock("@aihub/extension-multi-user", () => ({
+  getForwardedAuthContext: vi.fn(() => multiUserState.authContext),
+  getAgentFilter: vi.fn(() => (agents: unknown[]) => agents),
 }));
 
 vi.mock("../agents/index.js", () => ({
@@ -69,6 +82,8 @@ describe("api core session resolution", () => {
     getActiveAgents.mockReturnValue([]);
     isAgentActive.mockReturnValue(true);
     isAbortTrigger.mockReturnValue(false);
+    multiUserState.loaded = false;
+    multiUserState.authContext = null;
     runAgent.mockResolvedValue({
       payloads: [],
       meta: { durationMs: 0, sessionId: "resolved-1" },
@@ -110,6 +125,37 @@ describe("api core session resolution", () => {
         isNew: true,
       },
       thinkLevel: undefined,
+      context: undefined,
+      source: "web",
     });
+  });
+
+  it("passes web user context to runAgent in multi-user mode", async () => {
+    multiUserState.loaded = true;
+    multiUserState.authContext = {
+      user: { id: "user-1", name: "Thinh" },
+      session: { id: "session-1", userId: "user-1" },
+    };
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(
+      new Request("http://localhost/agents/alpha/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "hello",
+          sessionKey: "main",
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        context: { kind: "web", name: "Thinh" },
+        source: "web",
+      })
+    );
   });
 });
