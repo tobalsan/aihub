@@ -11,7 +11,6 @@ import {
 } from "solid-js";
 import {
   fetchAgents,
-  fetchBoardProjects,
   fetchFullHistory,
   getSessionKey,
   postAbort,
@@ -22,7 +21,6 @@ import {
 import type { ActiveTurn } from "../api/client";
 import type {
   Agent,
-  BoardProject,
   FileAttachment,
   FileBlock,
   FullHistoryMessage,
@@ -32,7 +30,7 @@ import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
 import { ProjectDetailPanel } from "./board/ProjectDetailPanel";
-import { AreaSummaries } from "./AreaSummaries";
+import { ProjectsOverview } from "./ProjectsOverview";
 import {
   attachmentToFileBlock,
   createPendingFile,
@@ -1102,7 +1100,12 @@ export function BoardView() {
           </button>
         </div>
 
-        <div class="board-canvas-content">
+        <div
+          class="board-canvas-content"
+          classList={{
+            "board-canvas-content-projects": canvas().panel === "projects",
+          }}
+        >
           <CanvasPanelRenderer
             state={canvas()}
             agentId={selectedAgentId()}
@@ -1559,6 +1562,12 @@ export function BoardView() {
           flex: 1;
           overflow-y: auto;
           padding: 24px;
+          min-height: 0;
+        }
+
+        .board-canvas-content-projects {
+          overflow: hidden;
+          padding: 0;
         }
 
         @media (max-width: 768px) {
@@ -1645,520 +1654,15 @@ function OverviewPanel() {
   );
 }
 
-type ProjectGroup = BoardProject["group"];
-
-const GROUP_ORDER: ProjectGroup[] = ["review", "active", "stale", "done"];
-const GROUP_LABEL: Record<ProjectGroup, string> = {
-  review: "Review",
-  active: "Active",
-  stale: "Stale",
-  done: "Done",
-};
-const GROUP_EMPTY: Record<ProjectGroup, string> = {
-  review: "No projects in review.",
-  active: "No active projects.",
-  stale: "No stale projects.",
-  done: "No done projects.",
-};
-
 function ProjectsPanel(props: { onOpen: (id: string) => void }) {
-  const [projects, setProjects] = createSignal<BoardProject[]>([]);
-  const [error, setError] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(true);
-  const [includeDone, setIncludeDone] = createSignal(false);
-  const [filterChanged, setFilterChanged] = createSignal(false);
-  const [areaFilter, setAreaFilter] = createSignal<string>("all");
-  const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
-  const [initialised, setInitialised] = createSignal(false);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const items = await fetchBoardProjects(includeDone());
-      setProjects(items);
-      setError(null);
-      if (!initialised()) {
-        const initial: Record<string, boolean> = {};
-        for (const p of items) {
-          initial[p.id] = p.group === "active" || p.group === "review";
-        }
-        setExpanded((prev) => ({ ...initial, ...prev }));
-        setInitialised(true);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-      setFilterChanged(false);
-    }
-  }
-
-  createEffect(() => {
-    includeDone();
-    void load();
-  });
-
-  onMount(() => {
-    const timer = window.setInterval(() => void load(), 10000);
-    onCleanup(() => window.clearInterval(timer));
-  });
-
-  const areas = createMemo(() => {
-    const set = new Set<string>();
-    for (const p of projects()) set.add(p.area);
-    return Array.from(set).sort();
-  });
-
-  const filtered = createMemo(() => {
-    const a = areaFilter();
-    return a === "all" ? projects() : projects().filter((p) => p.area === a);
-  });
-
-  const grouped = createMemo(() => {
-    const out: Record<ProjectGroup, BoardProject[]> = {
-      review: [],
-      active: [],
-      stale: [],
-      done: [],
-    };
-    for (const p of filtered()) out[p.group].push(p);
-    return out;
-  });
-
-  const visibleGroups = createMemo<ProjectGroup[]>(() =>
-    GROUP_ORDER.filter((g) => g !== "done" || includeDone())
-  );
-
-  function toggleProject(id: string) {
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
   return (
-    <div class="canvas-projects">
-      <div class="cp-header">
-        <h2>Projects</h2>
-        <div class="cp-controls">
-          <select
-            class="cp-select"
-            value={areaFilter()}
-            onChange={(e) => setAreaFilter(e.currentTarget.value)}
-          >
-            <option value="all">All areas</option>
-            <For each={areas()}>
-              {(area) => <option value={area}>{area}</option>}
-            </For>
-          </select>
-          <label class="cp-toggle">
-            <input
-              type="checkbox"
-              checked={includeDone()}
-              onChange={(e) => {
-                setFilterChanged(true);
-                setIncludeDone(e.currentTarget.checked);
-              }}
-            />
-            <span>Show done</span>
-          </label>
-        </div>
-      </div>
-
-      <AreaSummaries />
-
-      <Show when={error()}>
-        <div class="cp-error">{error()}</div>
-      </Show>
-
-      <Show when={loading() && (projects().length === 0 || filterChanged())}>
-        <div class="cp-loading">
-          <div class="cp-spinner" />
-          <span>Loading projects…</span>
-        </div>
-      </Show>
-
-      <div class="cp-sections">
-        <For each={visibleGroups()}>
-          {(group) => {
-            const items = () => grouped()[group];
-            return (
-              <section class="cp-section">
-                <header class="cp-section-header">
-                  <span class={`cp-dot cp-dot-${group}`} />
-                  <span class="cp-section-label">{GROUP_LABEL[group]}</span>
-                  <span class="cp-section-count">({items().length})</span>
-                </header>
-                <Show
-                  when={items().length > 0}
-                  fallback={
-                    <div class="cp-empty">{GROUP_EMPTY[group]}</div>
-                  }
-                >
-                  <ul class="cp-list">
-                    <For each={items()}>
-                      {(project) => (
-                        <li class="cp-item">
-                          <button
-                            type="button"
-                            class="cp-row"
-                            onClick={() => toggleProject(project.id)}
-                          >
-                            <span class={`cp-caret ${expanded()[project.id] ? "open" : ""}`}>
-                              ▸
-                            </span>
-                            <span class="cp-id">{project.id}</span>
-                            <span class="cp-title">{project.title}</span>
-                            <span class="cp-area">{project.area}</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              class="cp-open"
-                              title="Open project detail"
-                              aria-label="Open project detail"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                props.onOpen(project.id);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  props.onOpen(project.id);
-                                }
-                              }}
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                aria-hidden="true"
-                              >
-                                <circle cx="12" cy="12" r="10" />
-                                <path d="M10 8l4 4-4 4" />
-                              </svg>
-                            </span>
-                            <span class={`cp-dot cp-dot-${project.group}`} />
-                          </button>
-                          <Show when={expanded()[project.id]}>
-                            <Show
-                              when={project.worktrees.length > 0}
-                              fallback={
-                                <div class="cp-worktrees-empty">(no worktrees)</div>
-                              }
-                            >
-                              <ul class="cp-worktrees">
-                                <For each={project.worktrees}>
-                                  {(wt) => (
-                                    <li class="cp-worktree">
-                                      <span class="cp-wt-name">{wt.name}</span>
-                                      <span class="cp-wt-branch">{wt.branch}</span>
-                                      <Show when={wt.ahead > 0}>
-                                        <span class="cp-ahead">+{wt.ahead}</span>
-                                      </Show>
-                                      <span
-                                        class={`cp-wt-status ${wt.dirty ? "dirty" : "clean"}`}
-                                        title={wt.dirty ? "Uncommitted changes" : "Clean"}
-                                      >
-                                        <span class="cp-wt-status-dot" />
-                                        {wt.dirty ? "dirty" : "clean"}
-                                      </span>
-                                    </li>
-                                  )}
-                                </For>
-                              </ul>
-                            </Show>
-                          </Show>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </Show>
-              </section>
-            );
-          }}
-        </For>
-      </div>
-
+    <div class="canvas-projects-overview">
+      <ProjectsOverview embedded onOpenProject={props.onOpen} />
       <style>{`
-        .canvas-projects {
+        .canvas-projects-overview {
           width: 100%;
           height: 100%;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          color: var(--text-primary);
-        }
-        .cp-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .canvas-projects h2 {
-          margin: 0;
-          font-size: 22px;
-          color: var(--text-primary);
-        }
-        .cp-controls {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .cp-select {
-          background: var(--bg-raised);
-          color: var(--text-primary);
-          border: 1px solid var(--border-default);
-          border-radius: 6px;
-          padding: 6px 10px;
-          font-size: 13px;
-          font-family: inherit;
-        }
-        .cp-select:focus {
-          outline: none;
-          border-color: var(--text-accent, #6366f1);
-        }
-        .cp-toggle {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          color: var(--text-secondary);
-          cursor: pointer;
-          user-select: none;
-        }
-        .cp-toggle input {
-          accent-color: var(--text-accent, #6366f1);
-          margin: 0;
-        }
-        .cp-error {
-          color: #f87171;
-          font-size: 13px;
-          padding: 8px 12px;
-          border: 1px solid color-mix(in srgb, #f87171 35%, var(--border-default));
-          border-radius: 6px;
-          background: color-mix(in srgb, #f87171 8%, var(--bg-surface));
-        }
-        .cp-loading {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          padding: 48px 0;
-          color: var(--text-secondary);
-          font-size: 13px;
-        }
-        .cp-spinner {
-          width: 18px;
-          height: 18px;
-          border: 2px solid var(--border-default);
-          border-top-color: var(--text-accent, #6366f1);
-          border-radius: 50%;
-          animation: cp-spin 0.7s linear infinite;
-        }
-        @keyframes cp-spin {
-          to { transform: rotate(360deg); }
-        }
-        .cp-sections {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          overflow-y: auto;
-          flex: 1;
           min-height: 0;
-        }
-        .cp-section {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .cp-section-header {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-size: 11px;
-          color: var(--text-secondary);
-        }
-        .cp-section-label {
-          font-weight: 600;
-        }
-        .cp-section-count {
-          color: var(--text-secondary);
-          opacity: 0.7;
-        }
-        .cp-empty {
-          font-size: 13px;
-          color: var(--text-secondary);
-          opacity: 0.7;
-          padding: 6px 4px 0 20px;
-        }
-        .cp-list {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .cp-item {
-          display: flex;
-          flex-direction: column;
-        }
-        .cp-row {
-          display: grid;
-          grid-template-columns: 14px auto 1fr auto 24px 10px;
-          align-items: center;
-          gap: 10px;
-          width: 100%;
-          padding: 8px 10px;
-          background: transparent;
-          color: var(--text-primary);
-          border: 1px solid transparent;
-          border-radius: 6px;
-          cursor: pointer;
-          text-align: left;
-          font-family: inherit;
-          font-size: 13px;
-        }
-        .cp-row:hover {
-          background: var(--bg-raised);
-          border-color: var(--border-default);
-        }
-        .cp-caret {
-          display: inline-block;
-          color: var(--text-secondary);
-          font-size: 10px;
-          transition: transform 120ms ease;
-          width: 14px;
-          text-align: center;
-        }
-        .cp-caret.open {
-          transform: rotate(90deg);
-        }
-        .cp-id {
-          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-size: 12px;
-          color: var(--text-secondary);
-          letter-spacing: 0.02em;
-        }
-        .cp-title {
-          color: var(--text-primary);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .cp-area {
-          font-size: 11px;
-          padding: 2px 8px;
-          border-radius: 999px;
-          background: var(--bg-raised);
-          color: var(--text-secondary);
-          border: 1px solid var(--border-default);
-          text-transform: lowercase;
-        }
-        .cp-open {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 24px;
-          height: 24px;
-          border-radius: 4px;
-          color: var(--text-secondary);
-          cursor: pointer;
-          transition: background 0.12s, color 0.12s;
-        }
-        .cp-open:hover {
-          background: var(--bg-raised);
-          color: var(--text-primary);
-        }
-        .cp-open:focus-visible {
-          outline: none;
-          box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-accent, #6366f1) 35%, transparent);
-        }
-        .cp-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 999px;
-          background: var(--text-secondary);
-          flex-shrink: 0;
-          display: inline-block;
-        }
-        .cp-dot-active { background: #3b82f6; }
-        .cp-dot-review { background: #f59e0b; }
-        .cp-dot-stale  { background: #6b7280; }
-        .cp-dot-done   { background: #10b981; }
-        .cp-worktrees {
-          list-style: none;
-          margin: 4px 0 4px 24px;
-          padding: 4px 0 4px 12px;
-          border-left: 1px solid var(--border-default);
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-        .cp-worktrees-empty {
-          margin: 4px 0 4px 24px;
-          padding-left: 12px;
-          font-size: 12px;
-          color: var(--text-secondary);
-          opacity: 0.7;
-          border-left: 1px solid var(--border-default);
-        }
-        .cp-worktree {
-          display: grid;
-          grid-template-columns: minmax(120px, max-content) 1fr auto auto;
-          align-items: center;
-          gap: 12px;
-          padding: 4px 6px;
-          font-size: 12px;
-          border-radius: 4px;
-        }
-        .cp-worktree:hover {
-          background: var(--bg-raised);
-        }
-        .cp-wt-name {
-          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          color: var(--text-primary);
-        }
-        .cp-wt-branch {
-          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          color: var(--text-secondary);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .cp-ahead {
-          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-size: 11px;
-          padding: 1px 6px;
-          border-radius: 999px;
-          background: color-mix(in srgb, var(--text-accent, #6366f1) 14%, transparent);
-          color: var(--text-accent, #6366f1);
-        }
-        .cp-wt-status {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 11px;
-          color: var(--text-secondary);
-        }
-        .cp-wt-status-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 999px;
-          background: #10b981;
-          display: inline-block;
-        }
-        .cp-wt-status.dirty {
-          color: #f59e0b;
-        }
-        .cp-wt-status.dirty .cp-wt-status-dot {
-          background: #f59e0b;
         }
       `}</style>
     </div>

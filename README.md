@@ -416,7 +416,7 @@ packages/
 - Left sidebar: AIHub logo + primary links (`Chats` always; `Projects` and `Conversations` only when those components are enabled)
 - Main route: `/` for Areas overview (new homepage)
 - Areas homepage supports quick area creation with auto-generated ids and color picker selection
-- Project routes: `/projects` and `/projects/:id` show the two-pane Projects Overview with client-side filters/search and worktree run state from `/api/board/projects`
+- Project routes: `/projects` and `/projects/:id` show the kanban Projects Board; the Board extension's `Projects` tab embeds the two-pane Projects Overview with client-side filters/search and worktree run state from `/api/board/projects`
 - Right sidebar tabs: `Agents`, `Chat`, `Feed`
 - Collapsed left/right sidebars hover-expand as overlays instead of pushing the main content
 - Legacy direct-chat agent list remains at `/agents`

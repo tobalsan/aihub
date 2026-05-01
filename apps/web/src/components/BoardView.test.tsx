@@ -5,27 +5,47 @@ import { BoardView } from "./BoardView";
 
 const {
   fetchAgentsMock,
+  fetchBoardProjectsMock,
   fetchFullHistoryMock,
+  fetchProjectMock,
   getSessionKeyMock,
   streamMessageMock,
   subscribeToSessionMock,
+  subscribeToFileChangesMock,
   uploadFilesMock,
 } = vi.hoisted(() => ({
   fetchAgentsMock: vi.fn(),
+  fetchBoardProjectsMock: vi.fn(),
   fetchFullHistoryMock: vi.fn(),
+  fetchProjectMock: vi.fn(),
   getSessionKeyMock: vi.fn(),
   streamMessageMock: vi.fn(),
   subscribeToSessionMock: vi.fn(),
+  subscribeToFileChangesMock: vi.fn(),
   uploadFilesMock: vi.fn(),
 }));
 
+vi.mock("@solidjs/router", () => ({
+  useParams: () => ({}),
+  useNavigate: () => vi.fn(),
+  useSearchParams: () => [{}, vi.fn()],
+}));
+
 vi.mock("../api/client", () => ({
+  createProject: vi.fn(),
   fetchAgents: fetchAgentsMock,
+  fetchBoardProjects: fetchBoardProjectsMock,
   fetchFullHistory: fetchFullHistoryMock,
+  fetchProject: fetchProjectMock,
+  fetchRuntimeSubagentLogs: vi.fn(),
   getSessionKey: getSessionKeyMock,
+  interruptRuntimeSubagent: vi.fn(),
   postAbort: vi.fn(),
+  resumeRuntimeSubagent: vi.fn(),
   streamMessage: streamMessageMock,
+  subscribeToFileChanges: subscribeToFileChangesMock,
   subscribeToSession: subscribeToSessionMock,
+  updateProject: vi.fn(),
   uploadFiles: uploadFilesMock,
 }));
 
@@ -76,9 +96,31 @@ describe("BoardView attachments", () => {
       isStreaming: false,
       activeTurn: null,
     });
+    fetchBoardProjectsMock.mockResolvedValue([
+      {
+        id: "PRO-1",
+        title: "Embedded Overview Project",
+        area: "platform",
+        status: "maybe",
+        group: "active",
+        created: "2026-04-30T10:00:00.000Z",
+        worktrees: [],
+      },
+    ]);
+    fetchProjectMock.mockResolvedValue({
+      id: "PRO-1",
+      title: "Embedded Overview Project",
+      path: "PRO-1",
+      absolutePath: "/tmp/PRO-1",
+      repoValid: true,
+      frontmatter: { status: "maybe" },
+      docs: { README: "# Embedded Overview Project\n\nBoard tab content." },
+      thread: [],
+    });
     getSessionKeyMock.mockReturnValue("main");
     streamMessageMock.mockImplementation(() => () => {});
     subscribeToSessionMock.mockImplementation(() => () => {});
+    subscribeToFileChangesMock.mockReturnValue(() => {});
     uploadFilesMock.mockResolvedValue([
       {
         path: "/tmp/uploaded/report.pdf",
@@ -178,6 +220,24 @@ describe("BoardView attachments", () => {
     expect(
       container.querySelector(".board-attachment-name")?.textContent
     ).toContain("screenshot.png");
+
+    dispose();
+  });
+
+  it("renders ProjectsOverview in the Projects tab", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Projects");
+    projectsTab?.click();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".projects-overview")).not.toBeNull();
+    expect(container.textContent).toContain("Embedded Overview Project");
 
     dispose();
   });

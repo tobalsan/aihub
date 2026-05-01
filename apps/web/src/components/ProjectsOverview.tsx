@@ -120,10 +120,16 @@ function logText(event: SubagentLogEvent): string {
   ).trim();
 }
 
-export function ProjectsOverview() {
+export function ProjectsOverview(props: {
+  embedded?: boolean;
+  onOpenProject?: (id: string) => void;
+} = {}) {
   const params = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [embeddedProjectId, setEmbeddedProjectId] = createSignal<string | null>(
+    null
+  );
   const [filter, setFilter] = createSignal<FilterMode>("active");
   const [query, setQuery] = createSignal("");
   const [createOpen, setCreateOpen] = createSignal(false);
@@ -137,9 +143,10 @@ export function ProjectsOverview() {
   const [projects, { mutate, refetch }] = createResource(() =>
     fetchBoardProjects(true)
   );
-  const selectedProjectId = createMemo(() =>
-    typeof params.id === "string" && params.id.trim() ? params.id : null
-  );
+  const selectedProjectId = createMemo(() => {
+    if (props.embedded) return embeddedProjectId();
+    return typeof params.id === "string" && params.id.trim() ? params.id : null;
+  });
   const selectedProject = createMemo(() => {
     const id = selectedProjectId();
     return (projects() ?? []).find((project) => project.id === id) ?? null;
@@ -167,7 +174,12 @@ export function ProjectsOverview() {
   createEffect(() => {
     if (selectedProjectId() || projects.loading) return;
     const first = filteredProjects()[0];
-    if (first) navigate(`/projects/${first.id}`, { replace: true });
+    if (!first) return;
+    if (props.embedded) {
+      setEmbeddedProjectId(first.id);
+    } else {
+      navigate(`/projects/${first.id}`, { replace: true });
+    }
   });
 
   createEffect(() => {
@@ -195,7 +207,11 @@ export function ProjectsOverview() {
   });
 
   function selectProject(id: string) {
-    navigate(`/projects/${id}`);
+    if (props.embedded) {
+      setEmbeddedProjectId(id);
+    } else {
+      navigate(`/projects/${id}`);
+    }
   }
 
   function replaceProject(project: BoardProject) {
@@ -272,7 +288,11 @@ export function ProjectsOverview() {
       setCreateOpen(false);
       setCreateTitle("");
       setFilter("active");
-      navigate(`/projects/${created.id}`);
+      if (props.embedded) {
+        setEmbeddedProjectId(created.id);
+      } else {
+        navigate(`/projects/${created.id}`);
+      }
       void refetch();
     } finally {
       setCreating(false);
@@ -317,6 +337,10 @@ export function ProjectsOverview() {
   function openDetail(tab: "chat" | "activity" | "changes" = "chat") {
     const project = selectedProject();
     if (!project) return;
+    if (props.onOpenProject) {
+      props.onOpenProject(project.id);
+      return;
+    }
     try {
       localStorage.setItem(
         `aihub:project:${project.id}:center-view`,
@@ -329,7 +353,10 @@ export function ProjectsOverview() {
   }
 
   return (
-    <div class="projects-overview">
+    <div
+      class="projects-overview"
+      classList={{ "projects-overview-embedded": Boolean(props.embedded) }}
+    >
       <aside class="po-list-pane">
         <header class="po-list-header">
           <div>
@@ -605,10 +632,15 @@ export function ProjectsOverview() {
       <style>{`
         .projects-overview {
           height: 100%;
+          min-height: 0;
           display: grid;
           grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
           background: var(--surface-primary);
           color: var(--text-primary);
+        }
+        .projects-overview-embedded {
+          min-width: 0;
+          background: transparent;
         }
         .po-list-pane,
         .po-detail-pane {
