@@ -625,19 +625,26 @@ async function buildProjectWorktreeViews(
           options,
         })
       );
+      await addCovered(space.worktreePath);
     }
-    return views;
   }
 
   for (const wt of legacyWorktrees) {
+    if (covered.has(await canonicalPath(wt.path))) continue;
+    const isMainRepo =
+      meta.repo &&
+      (await canonicalPath(wt.path)) ===
+        (await canonicalPath(expandPath(meta.repo)));
+    const workerSlug = isMainRepo ? "main" : wt.name || path.basename(wt.path);
     views.push({
       ...wt,
-      id: `${meta.id}:${wt.name}`,
-      workerSlug: wt.name,
+      id: `${meta.id}:${workerSlug}`,
+      workerSlug,
       worktreePath: wt.path,
       queueStatus: null,
       agentRun: agentRunForPath(wt.path, options?.runsByCwd),
     });
+    await addCovered(wt.path);
   }
   if (views.length > 0) return views;
 

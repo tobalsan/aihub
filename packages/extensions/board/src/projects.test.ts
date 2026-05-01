@@ -429,6 +429,50 @@ describe("scanProjects", () => {
     ]);
   });
 
+  it("includes git-discovered worktrees that are not in the space queue", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const queuedPath = path.join(tmp, "queued");
+    const gitOnlyPath = await makeWorktree(
+      wtRoot,
+      "PRO-001",
+      "git-only",
+      "space/PRO-001/git-only"
+    );
+
+    const items = await scanProjects(tmp, false, wtRoot, {
+      getSpace: async () =>
+        makeSpace("", [
+          {
+            id: "entry-queued",
+            workerSlug: "queued",
+            worktreePath: queuedPath,
+            status: "pending",
+          },
+        ]),
+    });
+
+    expect(items[0]?.worktrees).toMatchObject([
+      {
+        id: "entry-queued",
+        workerSlug: "queued",
+        worktreePath: queuedPath,
+        queueStatus: "pending",
+      },
+      {
+        id: "PRO-001:git-only",
+        workerSlug: "git-only",
+        worktreePath: gitOnlyPath,
+        branch: "space/PRO-001/git-only",
+        queueStatus: null,
+      },
+    ]);
+  });
+
   it("dedupes space queue worktrees by latest queue entry", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",

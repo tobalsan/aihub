@@ -22,7 +22,6 @@ import {
 import type {
   BoardProject,
   BoardWorktree,
-  ProjectDetail,
   SubagentLogEvent,
 } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
@@ -423,7 +422,10 @@ export function ProjectsOverview(props: {
                   type="button"
                   onClick={() => selectProject(project.id)}
                 >
-                  <span class="po-project-title">{project.title}</span>
+                  <span class="po-project-heading">
+                    <span class="po-project-id">{project.id}</span>
+                    <span class="po-project-title">{project.title}</span>
+                  </span>
                   <span class="po-count">{project.worktrees.length} wt</span>
                   <span class="po-area">{project.area || "No area"}</span>
                   <span class={`po-status status-${project.status}`}>
@@ -796,8 +798,25 @@ export function ProjectsOverview(props: {
           border-color: var(--border-default);
           background: var(--surface-primary);
         }
-        .po-project-title {
+        .po-project-heading {
           grid-area: title;
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .po-project-id {
+          flex: 0 0 auto;
+          border-radius: 999px;
+          background: var(--surface-secondary);
+          color: var(--text-secondary);
+          padding: 1px 5px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-size: 10px;
+          line-height: 1.5;
+        }
+        .po-project-title {
+          min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
