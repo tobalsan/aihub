@@ -335,6 +335,85 @@ describe("scanProjects", () => {
     expect(items[0]?.worktrees).toEqual([]);
   });
 
+  it("attributes worktrees by active project id in the path", async () => {
+    await makeProject(tmp, "PRO-235", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "PRO-235", "foo", "feat/foo");
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    expect(items[0]?.worktrees).toMatchObject([
+      {
+        name: "foo",
+        path: wt,
+        branch: "feat/foo",
+      },
+    ]);
+  });
+
+  it("attributes worktrees by active project id in the branch token", async () => {
+    await makeProject(tmp, "PRO-235", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(
+      wtRoot,
+      "aihub",
+      "cleanup",
+      "feat/PRO-235-cleanup"
+    );
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    expect(items[0]?.worktrees).toMatchObject([
+      {
+        name: "cleanup",
+        path: wt,
+        branch: "feat/PRO-235-cleanup",
+      },
+    ]);
+  });
+
+  it("prefers explicit frontmatter over path attribution", async () => {
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "PRO-001", "foo", "feat/foo");
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    await makeProject(tmp, "PRO-002", {
+      title: "Beta",
+      status: "current",
+      created: "2026-01-02",
+      worktrees: [`{"path":"${wt}","branch":"feat/foo"}`],
+    });
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    const alpha = items.find((item) => item.id === "PRO-001");
+    const beta = items.find((item) => item.id === "PRO-002");
+    expect(alpha?.worktrees).toEqual([]);
+    expect(beta?.worktrees.map((worktree) => worktree.path)).toEqual([wt]);
+  });
+
+  it("does not attribute inactive or nonexistent project tokens", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(wtRoot, "aihub", "ghost", "feat/PRO-999-thing");
+    await makeWorktree(wtRoot, "PRO-999", "PRO-001-old-archive", "feat/foo");
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    expect(items[0]?.worktrees).toEqual([]);
+  });
+
   it("handles non-git worktree subdirs gracefully", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",
