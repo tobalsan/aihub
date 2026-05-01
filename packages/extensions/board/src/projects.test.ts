@@ -477,6 +477,51 @@ describe("scanProjects", () => {
     ]);
   });
 
+  it("dedupes space and git-discovered worktrees by project worker slug", async () => {
+    await makeProject(tmp, "PRO-227", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    await makeWorktree(
+      wtRoot,
+      "PRO-227",
+      "worker-foundation",
+      "space/PRO-227/worker-foundation"
+    );
+    await makeWorktree(wtRoot, "PRO-227", "_space", "space/PRO-227");
+    const staleRoot = path.join(tmp, "projects", ".workspaces", "PRO-227");
+
+    const items = await scanProjects(tmp, false, wtRoot, {
+      getSpace: async () =>
+        makeSpace(path.join(staleRoot, "_space"), [
+          {
+            id: "entry-worker-foundation",
+            workerSlug: "worker-foundation",
+            worktreePath: path.join(staleRoot, "worker-foundation"),
+            status: "integrated",
+          },
+        ]),
+    });
+
+    expect(items[0]?.worktrees).toMatchObject([
+      {
+        id: "entry-worker-foundation",
+        workerSlug: "worker-foundation",
+        worktreePath: path.join(staleRoot, "worker-foundation"),
+        queueStatus: "integrated",
+      },
+      {
+        id: "PRO-227:_space",
+        workerSlug: "_space",
+        worktreePath: path.join(staleRoot, "_space"),
+        queueStatus: null,
+      },
+    ]);
+    expect(items[0]?.worktrees).toHaveLength(2);
+  });
+
   it("dedupes space queue worktrees by latest queue entry", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",

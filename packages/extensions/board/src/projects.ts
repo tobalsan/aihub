@@ -204,6 +204,14 @@ function dirtyAheadTtlMs(options?: ScanProjectsOptions): number {
   );
 }
 
+function boardWorktreeDiagnosticsEnabled(): boolean {
+  return process.env.AIHUB_BOARD_WORKTREE_DIAGNOSTICS === "1";
+}
+
+function normalizeSlug(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function scanCacheKey(
   projectsRoot: string,
   worktreesRoot: string,
@@ -603,14 +611,60 @@ async function buildProjectWorktreeViews(
   const space = getSpace ? await getSpace(meta.id) : null;
   const views: BoardWorktreeView[] = [];
   const covered = new Set<string>();
-  const addCovered = async (worktreePath: string): Promise<void> => {
-    covered.add(await canonicalPath(worktreePath));
+  const diagnostics = boardWorktreeDiagnosticsEnabled();
+  const logWorktreePath = async (
+    source: string,
+    worktreePath: string
+  ): Promise<string> => {
+    const canonical = await canonicalPath(worktreePath);
+    if (diagnostics) {
+      console.warn(
+        `[board] worktree ${meta.id} ${source}: raw=${worktreePath} canonical=${canonical}`
+      );
+    }
+    return canonical;
+  };
+  const worktreeKeys = (
+    worktreePath: string,
+    workerSlug?: string,
+    branch?: string | null
+  ): string[] => {
+    const keys = [`path:${worktreePath}`];
+    const slug = workerSlug || workerSlugFromBranch(branch, meta.id);
+    if (slug) keys.push(`worker:${meta.id}:${normalizeSlug(slug)}`);
+    return keys;
+  };
+  const coveredHas = async (
+    source: string,
+    worktreePath: string,
+    workerSlug?: string,
+    branch?: string | null
+  ): Promise<boolean> => {
+    const canonical = await logWorktreePath(source, worktreePath);
+    return worktreeKeys(canonical, workerSlug, branch).some((key) =>
+      covered.has(key)
+    );
+  };
+  const addCovered = async (
+    source: string,
+    worktreePath: string,
+    workerSlug?: string,
+    branch?: string | null
+  ): Promise<void> => {
+    const canonical = await logWorktreePath(source, worktreePath);
+    for (const key of worktreeKeys(canonical, workerSlug, branch)) {
+      covered.add(key);
+    }
   };
 
   if (space) {
     const latestByPath = new Map<string, SpaceQueueEntryView>();
     for (const entry of space.queue) {
-      const key = await canonicalPath(entry.worktreePath);
+      await logWorktreePath(
+        `space-queue:${entry.workerSlug}`,
+        entry.worktreePath
+      );
+      const key = `worker:${meta.id}:${normalizeSlug(entry.workerSlug)}`;
       const current = latestByPath.get(key);
       if (!current) {
         latestByPath.set(key, entry);
@@ -642,11 +696,15 @@ async function buildProjectWorktreeViews(
           options,
         })
       );
-      await addCovered(entry.worktreePath);
+      await addCovered(
+        `space-queue:${entry.workerSlug}`,
+        entry.worktreePath,
+        entry.workerSlug
+      );
     }
     if (
       space.worktreePath &&
-      !covered.has(await canonicalPath(space.worktreePath))
+      !(await coveredHas("space-root", space.worktreePath, "_space"))
     ) {
       views.push(
         await readWorktreeView({
@@ -658,15 +716,19 @@ async function buildProjectWorktreeViews(
           options,
         })
       );
-      await addCovered(space.worktreePath);
+      await addCovered("space-root", space.worktreePath, "_space");
     }
   }
 
   for (const ref of meta.worktrees) {
     if (!ref.path) continue;
     const worktreePath = expandPath(ref.path);
-    if (covered.has(await canonicalPath(worktreePath))) continue;
     const name = ref.name ?? path.basename(worktreePath);
+    if (
+      await coveredHas(`frontmatter:${name}`, worktreePath, name, ref.branch)
+    ) {
+      continue;
+    }
     views.push(
       await readWorktreeView({
         id: `${meta.id}:${name}`,
@@ -678,11 +740,14 @@ async function buildProjectWorktreeViews(
         options,
       })
     );
-    await addCovered(worktreePath);
+    await addCovered(`frontmatter:${name}`, worktreePath, name, ref.branch);
   }
 
   for (const wt of legacyWorktrees) {
-    if (covered.has(await canonicalPath(wt.path))) continue;
+    const legacySlug = workerSlugFromBranch(wt.branch, meta.id) ?? wt.name;
+    if (await coveredHas(`git:${legacySlug}`, wt.path, legacySlug, wt.branch)) {
+      continue;
+    }
     const isMainRepo =
       meta.repo &&
       (await canonicalPath(wt.path)) ===
@@ -696,7 +761,7 @@ async function buildProjectWorktreeViews(
       queueStatus: null,
       agentRun: agentRunForPath(wt.path, options?.runsByCwd),
     });
-    await addCovered(wt.path);
+    await addCovered(`git:${workerSlug}`, wt.path, workerSlug, wt.branch);
   }
   if (views.length > 0) return views;
 
@@ -721,6 +786,20 @@ function branchMatchesProject(branch: string, id: string): boolean {
     branch.startsWith(`space/${id}/`) ||
     branch.startsWith(`${id}/`)
   );
+}
+
+function workerSlugFromBranch(
+  branch: string | null | undefined,
+  id: string
+): string | null {
+  if (!branch) return null;
+  if (branch === `space/${id}`) return "_space";
+  const spacePrefix = `space/${id}/`;
+  if (branch.startsWith(spacePrefix)) return branch.slice(spacePrefix.length);
+  const projectPrefix = `${id}/`;
+  if (branch.startsWith(projectPrefix))
+    return branch.slice(projectPrefix.length);
+  return null;
 }
 
 async function isGitWorktree(dir: string): Promise<boolean> {
@@ -912,10 +991,11 @@ async function scanWorktreeRefsFromRepo(
 }
 
 async function canonicalPath(p: string): Promise<string> {
+  const expanded = expandPath(p);
   try {
-    return await fs.realpath(p);
+    return await fs.realpath(expanded);
   } catch {
-    return path.resolve(p);
+    return path.resolve(expanded);
   }
 }
 
@@ -935,7 +1015,9 @@ async function buildWorktreeIndex(
       [
         ...activeMetas.map((meta) => meta.repo),
         ...explicitWorktreeRepos(activeMetas),
-      ].filter((repo): repo is string => typeof repo === "string" && repo !== "")
+      ].filter(
+        (repo): repo is string => typeof repo === "string" && repo !== ""
+      )
     ),
   ];
   const activeRepoNames =
