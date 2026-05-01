@@ -241,4 +241,57 @@ describe("BoardView attachments", () => {
 
     dispose();
   });
+
+  it("keeps project row selection out of board canvas state", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([
+      {
+        id: "PRO-1",
+        title: "Embedded Overview Project",
+        area: "platform",
+        status: "maybe",
+        group: "active",
+        created: "2026-04-30T10:00:00.000Z",
+        worktrees: [],
+      },
+      {
+        id: "PRO-2",
+        title: "Second Embedded Project",
+        area: "platform",
+        status: "maybe",
+        group: "active",
+        created: "2026-04-30T10:00:00.000Z",
+        worktrees: [],
+      },
+    ]);
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Projects");
+    projectsTab?.click();
+    await tick();
+    await tick();
+
+    vi.mocked(fetch).mockClear();
+    const row = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-project-row")
+    ).find((button) => button.textContent?.includes("Second Embedded Project"));
+    row?.click();
+    await tick();
+
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([, init]) =>
+          String(init?.body ?? "").includes("projects:detail")
+        )
+    ).toBe(false);
+    expect(container.querySelector(".po-detail")?.textContent).toContain(
+      "Second Embedded Project"
+    );
+
+    dispose();
+  });
 });

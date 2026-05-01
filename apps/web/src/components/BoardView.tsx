@@ -27,7 +27,6 @@ import type {
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
-import { ProjectDetailPanel } from "./board/ProjectDetailPanel";
 import { ProjectsOverview } from "./ProjectsOverview";
 import {
   attachmentToFileBlock,
@@ -83,7 +82,7 @@ function writeSelectedAgentId(agentId: string | null): void {
 async function getCanvasState(agentId: string): Promise<CanvasState> {
   const res = await fetch(`${API_BASE}/canvas/${encodeURIComponent(agentId)}`);
   if (!res.ok) return { panel: "overview" };
-  return res.json();
+  return normalizeCanvasState(await res.json());
 }
 
 async function setCanvasState(
@@ -96,6 +95,10 @@ async function setCanvasState(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ panel, props }),
   });
+}
+
+function normalizeCanvasState(state: CanvasState): CanvasState {
+  return state.panel === "projects:detail" ? { panel: "projects" } : state;
 }
 
 // ── BoardView ───────────────────────────────────────────────────────
@@ -1106,12 +1109,6 @@ export function BoardView() {
         >
           <CanvasPanelRenderer
             state={canvas()}
-            agentId={selectedAgentId()}
-            onNavigate={(panel, panelProps) => {
-              setCanvas({ panel, props: panelProps });
-              if (selectedAgentId())
-                setCanvasState(selectedAgentId()!, panel, panelProps);
-            }}
           />
         </div>
       </div>
@@ -1589,8 +1586,6 @@ export function BoardView() {
 
 function CanvasPanelRenderer(props: {
   state: CanvasState;
-  agentId: string | null;
-  onNavigate: (panel: CanvasPanel, panelProps?: Record<string, unknown>) => void;
 }) {
   return (
     <>
@@ -1604,18 +1599,8 @@ function CanvasPanelRenderer(props: {
         class="canvas-panel"
         style={{ display: props.state.panel === "projects" ? "block" : "none" }}
       >
-        <ProjectsPanel
-          onOpen={(id) =>
-            props.onNavigate("projects:detail", { projectId: id })
-          }
-        />
+        <ProjectsPanel />
       </div>
-      <Show when={props.state.panel === "projects:detail"}>
-        <ProjectDetailPanel
-          projectId={props.state.props?.projectId as string}
-          onBack={() => props.onNavigate("projects")}
-        />
-      </Show>
       <style>{`
         .canvas-panel {
           width: 100%;
@@ -1665,10 +1650,10 @@ function OverviewPanel() {
   );
 }
 
-function ProjectsPanel(props: { onOpen: (id: string) => void }) {
+function ProjectsPanel() {
   return (
     <div class="canvas-projects-overview">
-      <ProjectsOverview embedded onOpenProject={props.onOpen} />
+      <ProjectsOverview embedded />
       <style>{`
         .canvas-projects-overview {
           width: 100%;

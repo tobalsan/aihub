@@ -183,6 +183,44 @@ describe("ProjectsOverview", () => {
     dispose();
   });
 
+  it("embedded row selection stays local", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([
+      project("PRO-1", "Alpha Project", "maybe"),
+      project("PRO-4", "Gamma Project", "maybe"),
+    ]);
+    const { container, dispose, onOpenProject } = renderEmbeddedOverview();
+    await tick();
+    await tick();
+
+    const row = Array.from(container.querySelectorAll<HTMLButtonElement>(".po-project-row")).find(
+      (button) => button.textContent?.includes("Gamma Project")
+    );
+    row?.click();
+    await tick();
+
+    expect(onOpenProject).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(container.querySelector(".po-detail")?.textContent).toContain("Gamma Project");
+    dispose();
+  });
+
+  it("embedded detail actions stay inside the overview pane", async () => {
+    const { container, dispose, onOpenProject } = renderEmbeddedOverview();
+    await tick();
+    await tick();
+
+    const openDiff = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Open diff"
+    );
+    openDiff?.click();
+    await tick();
+
+    expect(onOpenProject).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(container.querySelector(".pdp")).not.toBeNull();
+    dispose();
+  });
+
   it("filter toggle works", async () => {
     const { container, dispose } = renderOverview();
     await tick();

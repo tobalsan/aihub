@@ -349,7 +349,7 @@ export function ProjectsOverview(props: {
   function openDetail(tab: "chat" | "activity" | "changes" = "chat") {
     const project = selectedProject();
     if (!project) return;
-    if (props.embedded && tab === "chat") {
+    if (props.embedded) {
       setEmbeddedEditorProjectId(project.id);
       window.history.pushState(
         { aihubProjectEditor: project.id },
