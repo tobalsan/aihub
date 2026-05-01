@@ -96,6 +96,13 @@ type SpaceView = {
   queue: SpaceQueueEntryView[];
 };
 
+type ProjectWorktreeRef = {
+  path?: string;
+  repo?: string;
+  branch?: string;
+  name?: string;
+};
+
 type AgentRunSummaryView = {
   runId: string;
   label: string;
@@ -261,6 +268,30 @@ function asString(value: unknown): string | undefined {
   return undefined;
 }
 
+function readProjectWorktreeRefs(value: unknown): ProjectWorktreeRef[] {
+  if (!Array.isArray(value)) return [];
+  const refs: ProjectWorktreeRef[] = [];
+  for (const item of value) {
+    if (typeof item === "string") {
+      refs.push({ path: item });
+      continue;
+    }
+    if (typeof item !== "object" || item === null) continue;
+    const raw = item as Record<string, unknown>;
+    const rawPath = asString(raw.path ?? raw.worktreePath);
+    const repo = asString(raw.repo);
+    const branch = asString(raw.branch);
+    const name = asString(raw.name);
+    const ref: ProjectWorktreeRef = {};
+    if (rawPath) ref.path = rawPath;
+    if (repo) ref.repo = repo;
+    if (branch) ref.branch = branch;
+    if (name) ref.name = name;
+    if (ref.path || ref.branch) refs.push(ref);
+  }
+  return refs;
+}
+
 async function readProjectMeta(
   projectsRoot: string,
   dirName: string
@@ -271,6 +302,7 @@ async function readProjectMeta(
   status: string;
   created: string;
   repo?: string;
+  worktrees: ProjectWorktreeRef[];
 } | null> {
   const projectDir = path.join(projectsRoot, dirName);
   const readmePath = path.join(projectDir, "README.md");
@@ -287,7 +319,8 @@ async function readProjectMeta(
   const status = asString(frontmatter.status) ?? "";
   const created = asString(frontmatter.created) ?? "";
   const repo = asString(frontmatter.repo);
-  return { id, title, area, status, created, repo };
+  const worktrees = readProjectWorktreeRefs(frontmatter.worktrees);
+  return { id, title, area, status, created, repo, worktrees };
 }
 
 async function gitText(args: string[], cwd: string): Promise<string> {
@@ -629,6 +662,25 @@ async function buildProjectWorktreeViews(
     }
   }
 
+  for (const ref of meta.worktrees) {
+    if (!ref.path) continue;
+    const worktreePath = expandPath(ref.path);
+    if (covered.has(await canonicalPath(worktreePath))) continue;
+    const name = ref.name ?? path.basename(worktreePath);
+    views.push(
+      await readWorktreeView({
+        id: `${meta.id}:${name}`,
+        workerSlug: name,
+        worktreePath,
+        queueStatus: null,
+        name,
+        runsByCwd: options?.runsByCwd,
+        options,
+      })
+    );
+    await addCovered(worktreePath);
+  }
+
   for (const wt of legacyWorktrees) {
     if (covered.has(await canonicalPath(wt.path))) continue;
     const isMainRepo =
@@ -682,18 +734,66 @@ type ProjectMeta = {
   status: string;
   created: string;
   repo?: string;
+  worktrees: ProjectWorktreeRef[];
 };
 
 type WorktreeIndex = Map<string, BoardWorktree[]>;
 
 function branchMatchesAnyProject(
   branch: string,
-  projectIds: Set<string>
+  projectIds: Set<string>,
+  metas: ProjectMeta[]
 ): boolean {
   for (const id of projectIds) {
     if (branchMatchesProject(branch, id)) return true;
   }
+  return metas.some((meta) =>
+    meta.worktrees.some((ref) => ref.branch === branch)
+  );
+}
+
+function branchMatchesExplicitRef(branch: string, meta: ProjectMeta): boolean {
+  return meta.worktrees.some((ref) => ref.branch === branch);
+}
+
+async function worktreeMatchesExplicitRef(
+  worktreePath: string,
+  branch: string,
+  meta: ProjectMeta
+): Promise<boolean> {
+  for (const ref of meta.worktrees) {
+    if (ref.branch !== branch) continue;
+    if (!ref.repo) return true;
+    try {
+      const worktreeGit = await resolveGitMetadata(worktreePath);
+      const repoPath = expandPath(ref.repo);
+      const repoGit =
+        (await pathExists(path.join(repoPath, "HEAD"))) &&
+        (await pathExists(path.join(repoPath, "objects")))
+          ? { commonGitDir: repoPath }
+          : await resolveGitMetadata(repoPath);
+      if (
+        (await canonicalPath(worktreeGit.commonGitDir)) ===
+        (await canonicalPath(repoGit.commonGitDir))
+      ) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
   return false;
+}
+
+function explicitWorktreeRepos(metas: ProjectMeta[]): string[] {
+  const repos = new Set<string>();
+  for (const meta of metas) {
+    for (const ref of meta.worktrees) {
+      if (ref.repo) repos.add(ref.repo);
+      else if (ref.branch && meta.repo) repos.add(meta.repo);
+    }
+  }
+  return [...repos];
 }
 
 function addWorktreeToIndex(index: WorktreeIndex, wt: BoardWorktree): void {
@@ -832,11 +932,10 @@ async function buildWorktreeIndex(
 
   const repos = [
     ...new Set(
-      activeMetas
-        .map((meta) => meta.repo)
-        .filter(
-          (repo): repo is string => typeof repo === "string" && repo !== ""
-        )
+      [
+        ...activeMetas.map((meta) => meta.repo),
+        ...explicitWorktreeRepos(activeMetas),
+      ].filter((repo): repo is string => typeof repo === "string" && repo !== "")
     ),
   ];
   const activeRepoNames =
@@ -855,7 +954,9 @@ async function buildWorktreeIndex(
     name: string,
     branch: string
   ): Promise<BoardWorktree | null> => {
-    if (!branchMatchesAnyProject(branch, activeProjectIds)) return null;
+    if (!branchMatchesAnyProject(branch, activeProjectIds, activeMetas)) {
+      return null;
+    }
     const key = await canonicalPath(worktreePath);
     const cached = detailsByPath.get(key);
     if (cached) return cached;
@@ -899,12 +1000,20 @@ async function buildWorktreeIndex(
 
 async function lookupWorktrees(
   index: WorktreeIndex,
-  id: string
+  meta: ProjectMeta
 ): Promise<BoardWorktree[]> {
   const dedup = new Map<string, BoardWorktree>();
   for (const [branch, worktrees] of index) {
-    if (!branchMatchesProject(branch, id)) continue;
+    const matchesProjectBranch = branchMatchesProject(branch, meta.id);
+    const matchesExplicitBranch = branchMatchesExplicitRef(branch, meta);
+    if (!matchesProjectBranch && !matchesExplicitBranch) continue;
     for (const wt of worktrees) {
+      if (
+        !matchesProjectBranch &&
+        !(await worktreeMatchesExplicitRef(wt.path, branch, meta))
+      ) {
+        continue;
+      }
       const key = await canonicalPath(wt.path);
       if (!dedup.has(key)) dedup.set(key, wt);
     }
@@ -1017,7 +1126,7 @@ async function scanProjectsUncached(
     if (!includeDone && group === "done") continue;
     const worktrees = await buildProjectWorktreeViews(
       meta,
-      await lookupWorktrees(worktreeIndex, meta.id),
+      await lookupWorktrees(worktreeIndex, meta),
       options
     );
     projects.push({

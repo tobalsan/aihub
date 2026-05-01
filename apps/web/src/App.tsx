@@ -573,6 +573,14 @@ export default function App() {
         )}
       />
       <Route
+        path="/board"
+        component={() => (
+          <GuardedRoute>
+            <BoardRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
         path="/projects/:id?"
         component={() => (
           <GuardedRoute>

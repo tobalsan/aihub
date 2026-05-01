@@ -17,12 +17,16 @@ const execFileAsync = promisify(execFile);
 async function makeProject(
   root: string,
   dir: string,
-  frontmatter: Record<string, string>
+  frontmatter: Record<string, string | string[]>
 ): Promise<void> {
   const projDir = path.join(root, dir);
   await fs.mkdir(projDir, { recursive: true });
   const fm = Object.entries(frontmatter)
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) =>
+      Array.isArray(v)
+        ? `${k}:\n${v.map((item) => `  - ${item}`).join("\n")}`
+        : `${k}: ${v}`
+    )
     .join("\n");
   await fs.writeFile(
     path.join(projDir, "README.md"),
@@ -663,6 +667,57 @@ describe("scanProjects", () => {
     const found = wts.find((w) => w.branch === "space/PRO-001");
     expect(found).toBeTruthy();
     expect(await fs.realpath(found!.path)).toBe(await fs.realpath(wtPath));
+  });
+
+  it("assigns explicitly declared repo branches to only that project", async () => {
+    const repoDir = path.join(tmp, "repo");
+    await fs.mkdir(repoDir, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "user.email", "t@t.t"], {
+      cwd: repoDir,
+    });
+    await execFileAsync("git", ["config", "user.name", "t"], { cwd: repoDir });
+    await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
+      cwd: repoDir,
+    });
+    await fs.writeFile(path.join(repoDir, "x"), "x", "utf-8");
+    await execFileAsync("git", ["add", "."], { cwd: repoDir });
+    await execFileAsync("git", ["commit", "-q", "-m", "init"], {
+      cwd: repoDir,
+    });
+
+    const wtPath = path.join(tmp, "elsewhere", "loosen-project-phase1");
+    await execFileAsync(
+      "git",
+      ["worktree", "add", "-b", "feat/loosen-project-phase1", wtPath],
+      { cwd: repoDir }
+    );
+
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+      repo: repoDir,
+      worktrees: [
+        `{"repo":"${repoDir}","branch":"feat/loosen-project-phase1"}`,
+      ],
+    });
+    await makeProject(tmp, "PRO-002", {
+      title: "Beta",
+      status: "current",
+      created: "2026-01-02",
+      repo: repoDir,
+    });
+
+    const items = await scanProjects(tmp, false, path.join(tmp, "missing"));
+    const alpha = items.find((item) => item.id === "PRO-001");
+    const beta = items.find((item) => item.id === "PRO-002");
+    expect(alpha?.worktrees.map((wt) => wt.branch)).toContain(
+      "feat/loosen-project-phase1"
+    );
+    expect(beta?.worktrees.map((wt) => wt.branch)).not.toContain(
+      "feat/loosen-project-phase1"
+    );
   });
 
   it("discovers worktrees from bare repo metadata", async () => {

@@ -6,8 +6,6 @@ import {
   createMemo,
   Show,
   For,
-  Switch,
-  Match,
 } from "solid-js";
 import {
   fetchAgents,
@@ -1595,24 +1593,37 @@ function CanvasPanelRenderer(props: {
   onNavigate: (panel: CanvasPanel, panelProps?: Record<string, unknown>) => void;
 }) {
   return (
-    <Switch fallback={<OverviewPanel />}>
-      <Match when={props.state.panel === "overview"}>
+    <>
+      <div
+        class="canvas-panel"
+        style={{ display: props.state.panel === "overview" ? "block" : "none" }}
+      >
         <OverviewPanel />
-      </Match>
-      <Match when={props.state.panel === "projects"}>
+      </div>
+      <div
+        class="canvas-panel"
+        style={{ display: props.state.panel === "projects" ? "block" : "none" }}
+      >
         <ProjectsPanel
           onOpen={(id) =>
             props.onNavigate("projects:detail", { projectId: id })
           }
         />
-      </Match>
-      <Match when={props.state.panel === "projects:detail"}>
+      </div>
+      <Show when={props.state.panel === "projects:detail"}>
         <ProjectDetailPanel
           projectId={props.state.props?.projectId as string}
           onBack={() => props.onNavigate("projects")}
         />
-      </Match>
-    </Switch>
+      </Show>
+      <style>{`
+        .canvas-panel {
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+        }
+      `}</style>
+    </>
   );
 }
 
