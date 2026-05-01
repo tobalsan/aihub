@@ -1,12 +1,18 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { ExtensionContext, GatewayConfig } from "@aihub/shared";
 import { subagentsExtension } from "./index.js";
 
-function context(config: GatewayConfig): ExtensionContext {
+function context(
+  config: GatewayConfig,
+  dataDir = "/tmp/aihub-subagents-test"
+): ExtensionContext {
   return {
     getConfig: () => config,
-    getDataDir: () => "/tmp/aihub-subagents-test",
+    getDataDir: () => dataDir,
     getAgent: () => undefined,
     getAgents: () => [],
     isAgentActive: () => false,
@@ -34,6 +40,39 @@ function context(config: GatewayConfig): ExtensionContext {
   };
 }
 
+async function writeRun(
+  dataDir: string,
+  runId: string,
+  cwd: string,
+  archived = false
+) {
+  const runDir = path.join(dataDir, "sessions", "subagents", "runs", runId);
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "config.json"),
+    JSON.stringify({
+      id: runId,
+      label: runId,
+      cli: "codex",
+      cwd,
+      prompt: "test",
+      createdAt: "2026-04-27T00:00:00.000Z",
+      archived,
+    }),
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(runDir, "state.json"),
+    JSON.stringify({
+      startedAt: "2026-04-27T00:00:00.000Z",
+      status: "done",
+      exitCode: 0,
+    }),
+    "utf8"
+  );
+  await fs.writeFile(path.join(runDir, "logs.jsonl"), "", "utf8");
+}
+
 describe("subagents extension profile resolution", () => {
   it("contributes subagent command guidance to the system prompt", async () => {
     const contribution = subagentsExtension.getSystemPromptContributions?.({
@@ -45,7 +84,9 @@ describe("subagents extension profile resolution", () => {
       queueMode: "queue",
     });
     const resolved = await Promise.resolve(contribution);
-    const text = Array.isArray(resolved) ? resolved.join("\n") : resolved ?? "";
+    const text = Array.isArray(resolved)
+      ? resolved.join("\n")
+      : (resolved ?? "");
 
     expect(text).toContain("aihub subagents start");
     expect(text).toContain("aihub subagents list");
@@ -123,5 +164,67 @@ describe("subagents extension profile resolution", () => {
       error: "Unknown subagent profile: worker. Available profiles: Worker",
     });
     await subagentsExtension.stop();
+  });
+
+  it("filters listed runs by canonical cwd query", async () => {
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-subagents-")
+    );
+    const realDir = await fs.mkdtemp(path.join(dataDir, "real-"));
+    const linkDir = path.join(dataDir, "link");
+    const otherDir = await fs.mkdtemp(path.join(dataDir, "other-"));
+    await fs.symlink(realDir, linkDir);
+    await writeRun(dataDir, "run-match", linkDir);
+    await writeRun(dataDir, "run-other", otherDir);
+    const app = new Hono();
+    try {
+      await subagentsExtension.start(
+        context({ agents: [], sessions: { idleMinutes: 360 } }, dataDir)
+      );
+      subagentsExtension.registerRoutes(app);
+
+      const res = await app.request(
+        `/subagents?cwd=${encodeURIComponent(realDir)}`
+      );
+      const data = (await res.json()) as { items: Array<{ id: string }> };
+
+      expect(data.items.map((run) => run.id)).toEqual(["run-match"]);
+    } finally {
+      await subagentsExtension.stop();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports cwd home expansion and includeArchived=1", async () => {
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-subagents-")
+    );
+    const homeDir = await fs.mkdtemp(
+      path.join(os.homedir(), ".aihub-subagents-home-")
+    );
+    const app = new Hono();
+    try {
+      const cwd = path.join(homeDir, "home-run");
+      await fs.mkdir(cwd, { recursive: true });
+      await writeRun(dataDir, "run-home", cwd, true);
+      await writeRun(dataDir, "run-other", dataDir, true);
+      await subagentsExtension.start(
+        context({ agents: [], sessions: { idleMinutes: 360 } }, dataDir)
+      );
+      subagentsExtension.registerRoutes(app);
+
+      const res = await app.request(
+        `/subagents?includeArchived=1&cwd=${encodeURIComponent(
+          `~/${path.relative(os.homedir(), cwd)}`
+        )}`
+      );
+      const data = (await res.json()) as { items: Array<{ id: string }> };
+
+      expect(data.items.map((run) => run.id)).toEqual(["run-home"]);
+    } finally {
+      await subagentsExtension.stop();
+      await fs.rm(dataDir, { recursive: true, force: true });
+      await fs.rm(homeDir, { recursive: true, force: true });
+    }
   });
 });

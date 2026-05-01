@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { expandPath } from "@aihub/shared";
 import type {
   SubagentChangedEvent,
   SubagentLogEvent,
@@ -106,6 +107,15 @@ function runPaths(dataDir: string, runId: string): RunPaths {
 
 function parentKey(parent?: SubagentParent): string {
   return parent ? `${parent.type}:${parent.id}` : "";
+}
+
+async function canonicalPath(rawPath: string): Promise<string> {
+  const expanded = expandPath(rawPath);
+  try {
+    return await fs.realpath(expanded);
+  } catch {
+    return path.resolve(expanded);
+  }
 }
 
 function parseParent(value: string | undefined): SubagentParent | undefined {
@@ -552,6 +562,7 @@ export async function listSubagentRuns(
     parent?: SubagentParent;
     status?: SubagentRunStatus;
     includeArchived?: boolean;
+    cwd?: string;
   } = {}
 ): Promise<SubagentRun[]> {
   await fs.mkdir(runsRoot(options.dataDir), { recursive: true });
@@ -559,6 +570,7 @@ export async function listSubagentRuns(
     withFileTypes: true,
   });
   const runs: SubagentRun[] = [];
+  const cwd = filters.cwd ? await canonicalPath(filters.cwd) : undefined;
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const run = await toRun(options.dataDir, entry.name);
@@ -568,6 +580,7 @@ export async function listSubagentRuns(
       continue;
     }
     if (filters.status && run.status !== filters.status) continue;
+    if (cwd && (await canonicalPath(run.cwd)) !== cwd) continue;
     runs.push(run);
   }
   return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));

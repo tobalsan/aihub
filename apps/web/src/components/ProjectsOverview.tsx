@@ -13,19 +13,13 @@ import {
   createProject,
   fetchBoardProjects,
   fetchProject,
-  fetchRuntimeSubagentLogs,
-  interruptRuntimeSubagent,
-  resumeRuntimeSubagent,
   subscribeToFileChanges,
   updateProject,
 } from "../api/client";
-import type {
-  BoardProject,
-  BoardWorktree,
-  SubagentLogEvent,
-} from "../api/types";
+import type { BoardProject, BoardWorktree } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 import { ProjectDetailPanel } from "./board/ProjectDetailPanel";
+import { SubagentRunsPanel } from "./SubagentRunsPanel";
 
 type FilterMode = "active" | "done" | "archived";
 type WorktreeTone = "green" | "red" | "yellow" | "muted" | "idle";
@@ -34,13 +28,6 @@ type WorktreeStatus = {
   label: string;
   tone: WorktreeTone;
   working: boolean;
-};
-
-type LogState = {
-  worktree: BoardWorktree;
-  loading: boolean;
-  error: string | null;
-  events: SubagentLogEvent[];
 };
 
 const TERMINAL_STATUSES = new Set(["archived", "trashed", "cancelled"]);
@@ -94,8 +81,12 @@ function getWorktreeStatus(worktree: BoardWorktree): WorktreeStatus {
   return { label: "idle", tone: "idle", working: false };
 }
 
-function projectMatchesFilter(project: BoardProject, mode: FilterMode): boolean {
-  if (mode === "done") return project.status === "done" || project.group === "done";
+function projectMatchesFilter(
+  project: BoardProject,
+  mode: FilterMode
+): boolean {
+  if (mode === "done")
+    return project.status === "done" || project.group === "done";
   if (mode === "archived") return TERMINAL_STATUSES.has(project.status);
   return (
     !TERMINAL_STATUSES.has(project.status) &&
@@ -105,26 +96,21 @@ function projectMatchesFilter(project: BoardProject, mode: FilterMode): boolean 
 }
 
 function firstParagraph(markdown: string): string {
-  return markdown
-    .replace(/^---[\s\S]*?---\s*/m, "")
-    .split(/\n{2,}/)
-    .map((part) => part.trim())
-    .find((part) => part && !part.startsWith("#")) ?? "";
-}
-
-function logText(event: SubagentLogEvent): string {
   return (
-    event.text ??
-    event.diff?.summary ??
-    event.tool?.name ??
-    String(event.type)
-  ).trim();
+    markdown
+      .replace(/^---[\s\S]*?---\s*/m, "")
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .find((part) => part && !part.startsWith("#")) ?? ""
+  );
 }
 
-export function ProjectsOverview(props: {
-  embedded?: boolean;
-  onOpenProject?: (id: string) => void;
-} = {}) {
+export function ProjectsOverview(
+  props: {
+    embedded?: boolean;
+    onOpenProject?: (id: string) => void;
+  } = {}
+) {
   const params = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,9 +126,12 @@ export function ProjectsOverview(props: {
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [draftTitle, setDraftTitle] = createSignal("");
   const [actionError, setActionError] = createSignal("");
-  const [logState, setLogState] = createSignal<LogState | null>(null);
-  const [embeddedEditorProjectId, setEmbeddedEditorProjectId] =
-    createSignal<string | null>(null);
+  const [expandedWorktrees, setExpandedWorktrees] = createSignal<Set<string>>(
+    new Set()
+  );
+  const [embeddedEditorProjectId, setEmbeddedEditorProjectId] = createSignal<
+    string | null
+  >(null);
   const [projects, { mutate, refetch }] = createResource(() =>
     fetchBoardProjects(true)
   );
@@ -158,7 +147,8 @@ export function ProjectsOverview(props: {
     id ? fetchProject(id) : null
   );
   const preview = createMemo(() => {
-    const readme = detail()?.docs?.README ?? detail()?.docs?.["README.md"] ?? "";
+    const readme =
+      detail()?.docs?.README ?? detail()?.docs?.["README.md"] ?? "";
     return firstParagraph(readme);
   });
   const filteredProjects = createMemo(() => {
@@ -227,8 +217,9 @@ export function ProjectsOverview(props: {
   }
 
   function replaceProject(project: BoardProject) {
-    mutate((current) =>
-      current?.map((item) => (item.id === project.id ? project : item)) ?? []
+    mutate(
+      (current) =>
+        current?.map((item) => (item.id === project.id ? project : item)) ?? []
     );
   }
 
@@ -246,7 +237,9 @@ export function ProjectsOverview(props: {
       replaceProject({ ...project, title });
       setEditingTitle(false);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Failed to save title");
+      setActionError(
+        error instanceof Error ? error.message : "Failed to save title"
+      );
     }
   }
 
@@ -259,7 +252,9 @@ export function ProjectsOverview(props: {
       replaceProject({ ...project, status: "done", group: "done" });
       setFilter("done");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Failed to mark done");
+      setActionError(
+        error instanceof Error ? error.message : "Failed to mark done"
+      );
     }
   }
 
@@ -311,41 +306,6 @@ export function ProjectsOverview(props: {
     }
   }
 
-  async function openLogs(worktree: BoardWorktree) {
-    const runId = worktree.agentRun?.runId;
-    if (!runId) return;
-    setLogState({ worktree, loading: true, error: null, events: [] });
-    try {
-      const data = await fetchRuntimeSubagentLogs(runId, 0);
-      setLogState({ worktree, loading: false, error: null, events: data.events });
-    } catch (error) {
-      setLogState({
-        worktree,
-        loading: false,
-        error: error instanceof Error ? error.message : "Failed to load logs",
-        events: [],
-      });
-    }
-  }
-
-  async function stopRun(worktree: BoardWorktree) {
-    const runId = worktree.agentRun?.runId;
-    if (!runId) return;
-    setActionError("");
-    const result = await interruptRuntimeSubagent(runId);
-    if (!result.ok) setActionError(result.error);
-    void refetch();
-  }
-
-  async function resumeRun(worktree: BoardWorktree) {
-    const runId = worktree.agentRun?.runId;
-    if (!runId) return;
-    setActionError("");
-    const result = await resumeRuntimeSubagent(runId, "Continue from the latest state.");
-    if (!result.ok) setActionError(result.error);
-    void refetch();
-  }
-
   function openDetail(tab: "chat" | "activity" | "changes" = "chat") {
     const project = selectedProject();
     if (!project) return;
@@ -373,6 +333,23 @@ export function ProjectsOverview(props: {
     setSearchParams({ ...searchParams, detail: "1" });
   }
 
+  function worktreeExpansionKey(worktree: BoardWorktree): string {
+    return worktree.worktreePath || worktree.path;
+  }
+
+  function toggleWorktree(worktree: BoardWorktree) {
+    const key = worktreeExpansionKey(worktree);
+    setExpandedWorktrees((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
   return (
     <div
       class="projects-overview"
@@ -384,7 +361,11 @@ export function ProjectsOverview(props: {
             <h1>Projects</h1>
             <p>{filteredProjects().length} visible</p>
           </div>
-          <button class="po-primary" type="button" onClick={() => setCreateOpen(true)}>
+          <button
+            class="po-primary"
+            type="button"
+            onClick={() => setCreateOpen(true)}
+          >
             + New
           </button>
         </header>
@@ -456,148 +437,166 @@ export function ProjectsOverview(props: {
         <Show when={!embeddedEditorProjectId()}>
           <Show
             when={selectedProject()}
-            fallback={<section class="po-detail-empty">Select a project.</section>}
+            fallback={
+              <section class="po-detail-empty">Select a project.</section>
+            }
           >
             {(project) => (
-            <section class="po-detail">
-              <header class="po-detail-header">
-                <div class="po-title-wrap">
+              <section class="po-detail">
+                <header class="po-detail-header">
+                  <div class="po-title-wrap">
+                    <Show
+                      when={editingTitle()}
+                      fallback={
+                        <button
+                          class="po-title-button"
+                          type="button"
+                          onClick={() => setEditingTitle(true)}
+                        >
+                          {project().title}
+                        </button>
+                      }
+                    >
+                      <input
+                        class="po-title-input"
+                        value={draftTitle()}
+                        autofocus
+                        onInput={(event) =>
+                          setDraftTitle(event.currentTarget.value)
+                        }
+                        onBlur={() => void saveTitle()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") void saveTitle();
+                          if (event.key === "Escape") {
+                            setDraftTitle(project().title);
+                            setEditingTitle(false);
+                          }
+                        }}
+                      />
+                    </Show>
+                    <div class="po-detail-meta">
+                      <span class={`po-status status-${project().status}`}>
+                        {statusLabel(project().status)}
+                      </span>
+                      <span>{project().area || "No area"}</span>
+                    </div>
+                  </div>
+                  <button class="po-secondary" type="button" onClick={markDone}>
+                    Mark done
+                  </button>
+                </header>
+                <Show when={actionError()}>
+                  {(message) => <p class="po-error">{message()}</p>}
+                </Show>
+
+                <details class="po-readme">
+                  <summary>
+                    <span>README / SPECS</span>
+                    <button
+                      class="po-link-button"
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        openDetail("chat");
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </summary>
                   <Show
-                    when={editingTitle()}
+                    when={preview()}
                     fallback={
-                      <button
-                        class="po-title-button"
-                        type="button"
-                        onClick={() => setEditingTitle(true)}
-                      >
-                        {project().title}
-                      </button>
+                      <p class="po-muted">No README description yet.</p>
                     }
                   >
-                    <input
-                      class="po-title-input"
-                      value={draftTitle()}
-                      autofocus
-                      onInput={(event) => setDraftTitle(event.currentTarget.value)}
-                      onBlur={() => void saveTitle()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void saveTitle();
-                        if (event.key === "Escape") {
-                          setDraftTitle(project().title);
-                          setEditingTitle(false);
-                        }
-                      }}
-                    />
+                    {(body) => (
+                      <div
+                        class="po-readme-preview"
+                        innerHTML={renderMarkdown(body())}
+                      />
+                    )}
                   </Show>
-                  <div class="po-detail-meta">
-                    <span class={`po-status status-${project().status}`}>
-                      {statusLabel(project().status)}
-                    </span>
-                    <span>{project().area || "No area"}</span>
-                  </div>
-                </div>
-                <button class="po-secondary" type="button" onClick={markDone}>
-                  Mark done
-                </button>
-              </header>
-              <Show when={actionError()}>
-                {(message) => <p class="po-error">{message()}</p>}
-              </Show>
+                </details>
 
-              <details class="po-readme">
-                <summary>
-                  <span>README / SPECS</span>
-                  <button
-                    class="po-link-button"
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      openDetail("chat");
-                    }}
+                <section class="po-worktrees">
+                  <div class="po-section-title">
+                    <h2>Worktrees</h2>
+                    <span>{project().worktrees.length}</span>
+                  </div>
+                  <Show
+                    when={project().worktrees.length > 0}
+                    fallback={<div class="po-empty compact">No worktrees.</div>}
                   >
-                    Edit
-                  </button>
-                </summary>
-                <Show
-                  when={preview()}
-                  fallback={<p class="po-muted">No README description yet.</p>}
-                >
-                  {(body) => (
-                    <div
-                      class="po-readme-preview"
-                      innerHTML={renderMarkdown(body())}
-                    />
-                  )}
-                </Show>
-              </details>
-
-              <section class="po-worktrees">
-                <div class="po-section-title">
-                  <h2>Worktrees</h2>
-                  <span>{project().worktrees.length}</span>
-                </div>
-                <Show
-                  when={project().worktrees.length > 0}
-                  fallback={<div class="po-empty compact">No worktrees.</div>}
-                >
-                  <div class="po-worktree-list">
-                    <For each={project().worktrees}>
-                      {(worktree) => {
-                        const wtStatus = createMemo(() =>
-                          getWorktreeStatus(worktree)
-                        );
-                        return (
-                          <article class="po-worktree-row">
-                            <div class="po-worktree-main">
-                              <div class="po-worktree-title">
-                                <strong>{worktree.workerSlug || worktree.name}</strong>
-                                <span>{shortPath(worktree.worktreePath || worktree.path)}</span>
+                    <div class="po-worktree-list">
+                      <For each={project().worktrees}>
+                        {(worktree) => {
+                          const wtStatus = createMemo(() =>
+                            getWorktreeStatus(worktree)
+                          );
+                          const expanded = createMemo(() =>
+                            expandedWorktrees().has(
+                              worktreeExpansionKey(worktree)
+                            )
+                          );
+                          return (
+                            <article class="po-worktree-item">
+                              <div class="po-worktree-row">
+                                <div class="po-worktree-main">
+                                  <div class="po-worktree-title">
+                                    <strong>
+                                      {worktree.workerSlug || worktree.name}
+                                    </strong>
+                                    <span>
+                                      {shortPath(
+                                        worktree.worktreePath || worktree.path
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div class="po-worktree-meta">
+                                    <span>
+                                      {worktree.branch ?? "no branch"}
+                                    </span>
+                                    <span>
+                                      {relativeTime(
+                                        worktree.agentRun?.updatedAt ??
+                                          worktree.integratedAt ??
+                                          worktree.startedAt
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span
+                                  class={`po-worktree-status tone-${wtStatus().tone}`}
+                                  classList={{ working: wtStatus().working }}
+                                >
+                                  <span class="po-status-dot" />
+                                  {wtStatus().label}
+                                </span>
+                                <button
+                                  aria-expanded={expanded()}
+                                  aria-label={`${expanded() ? "Collapse" : "Expand"} ${worktree.workerSlug || worktree.name} runs`}
+                                  class="po-worktree-toggle"
+                                  type="button"
+                                  onClick={() => toggleWorktree(worktree)}
+                                >
+                                  <span classList={{ open: expanded() }}>
+                                    ›
+                                  </span>
+                                </button>
                               </div>
-                              <div class="po-worktree-meta">
-                                <span>{worktree.branch ?? "no branch"}</span>
-                                <span>{relativeTime(worktree.agentRun?.updatedAt ?? worktree.integratedAt ?? worktree.startedAt)}</span>
-                              </div>
-                            </div>
-                            <span
-                              class={`po-worktree-status tone-${wtStatus().tone}`}
-                              classList={{ working: wtStatus().working }}
-                            >
-                              <span class="po-status-dot" />
-                              {wtStatus().label}
-                            </span>
-                            <div class="po-worktree-actions">
-                              <Show when={worktree.agentRun}>
-                                <button type="button" onClick={() => void openLogs(worktree)}>
-                                  Logs
-                                </button>
+                              <Show when={expanded()}>
+                                <div class="po-worktree-runs">
+                                  <SubagentRunsPanel cwd={worktree.path} />
+                                </div>
                               </Show>
-                              <Show when={worktree.agentRun?.status === "running"}>
-                                <button type="button" onClick={() => void stopRun(worktree)}>
-                                  Stop
-                                </button>
-                              </Show>
-                              <Show
-                                when={
-                                  worktree.agentRun &&
-                                  worktree.agentRun.status !== "running"
-                                }
-                              >
-                                <button type="button" onClick={() => void resumeRun(worktree)}>
-                                  Resume
-                                </button>
-                              </Show>
-                              <button type="button" onClick={() => openDetail("changes")}>
-                                Open diff
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </Show>
+                            </article>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                </section>
               </section>
-            </section>
             )}
           </Show>
         </Show>
@@ -632,43 +631,6 @@ export function ProjectsOverview(props: {
           </form>
         </div>
       </Show>
-
-      <Show when={logState()}>
-        {(state) => (
-          <div class="po-modal-backdrop" onClick={() => setLogState(null)}>
-            <section
-              class="po-modal po-log-modal"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header class="po-log-header">
-                <h2>{state().worktree.workerSlug} logs</h2>
-                <button type="button" onClick={() => setLogState(null)}>
-                  Close
-                </button>
-              </header>
-              <Show when={state().error}>
-                {(message) => <p class="po-error">{message()}</p>}
-              </Show>
-              <Show
-                when={!state().loading}
-                fallback={<p class="po-muted">Loading logs...</p>}
-              >
-                <Show
-                  when={state().events.length > 0}
-                  fallback={<p class="po-muted">No logs yet.</p>}
-                >
-                  <div class="po-log-list">
-                    <For each={state().events}>
-                      {(event) => <pre>{logText(event)}</pre>}
-                    </For>
-                  </div>
-                </Show>
-              </Show>
-            </section>
-          </div>
-        )}
-      </Show>
-
       <style>{`
         .projects-overview {
           height: 100%;
@@ -699,7 +661,6 @@ export function ProjectsOverview(props: {
         .po-detail-header,
         .po-section-title,
         .po-worktree-row,
-        .po-log-header,
         .po-modal-actions {
           display: flex;
           align-items: center;
@@ -726,7 +687,7 @@ export function ProjectsOverview(props: {
         .po-primary,
         .po-secondary,
         .po-filter,
-        .po-worktree-actions button,
+        .po-worktree-toggle,
         .po-modal-actions button,
         .po-link-button {
           border: 1px solid var(--border-default);
@@ -919,11 +880,14 @@ export function ProjectsOverview(props: {
           flex-direction: column;
           gap: 8px;
         }
-        .po-worktree-row {
+        .po-worktree-item {
           border: 1px solid var(--border-default);
           border-radius: 8px;
-          padding: 12px;
           background: var(--surface-secondary);
+          overflow: hidden;
+        }
+        .po-worktree-row {
+          padding: 12px;
         }
         .po-worktree-main {
           min-width: 0;
@@ -968,17 +932,28 @@ export function ProjectsOverview(props: {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.45; transform: scale(0.82); }
         }
-        .po-worktree-actions {
-          display: flex;
+        .po-worktree-toggle {
+          display: inline-flex;
           align-items: center;
-          gap: 6px;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-        .po-worktree-actions button {
+          justify-content: center;
+          width: 28px;
+          height: 28px;
           background: var(--surface-primary);
           color: var(--text-primary);
-          padding: 6px 8px;
+          padding: 0;
+        }
+        .po-worktree-toggle span {
+          display: inline-block;
+          font-size: 18px;
+          line-height: 1;
+          transition: transform 120ms ease;
+        }
+        .po-worktree-toggle span.open {
+          transform: rotate(90deg);
+        }
+        .po-worktree-runs {
+          border-top: 1px solid var(--border-default);
+          padding: 12px;
         }
         .po-empty,
         .po-detail-empty {
@@ -1016,27 +991,6 @@ export function ProjectsOverview(props: {
           flex-direction: column;
           gap: 12px;
         }
-        .po-log-modal {
-          width: min(780px, 100%);
-          max-height: min(720px, 90vh);
-        }
-        .po-log-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          overflow: auto;
-        }
-        .po-log-list pre {
-          margin: 0;
-          border: 1px solid var(--border-default);
-          border-radius: 6px;
-          padding: 8px;
-          background: var(--surface-secondary);
-          color: var(--text-primary);
-          white-space: pre-wrap;
-          overflow-wrap: anywhere;
-          font-size: 12px;
-        }
         @media (max-width: 900px) {
           .projects-overview {
             grid-template-columns: 1fr;
@@ -1056,9 +1010,6 @@ export function ProjectsOverview(props: {
           }
           .po-worktree-status {
             min-width: 0;
-          }
-          .po-worktree-actions {
-            justify-content: flex-start;
           }
         }
       `}</style>

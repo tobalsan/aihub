@@ -8,10 +8,7 @@ const {
   createProjectMock,
   fetchBoardProjectsMock,
   fetchProjectMock,
-  fetchRuntimeSubagentLogsMock,
-  interruptRuntimeSubagentMock,
   navigateMock,
-  resumeRuntimeSubagentMock,
   setSearchParamsMock,
   subscribeToFileChangesMock,
   updateProjectMock,
@@ -19,10 +16,7 @@ const {
   createProjectMock: vi.fn(),
   fetchBoardProjectsMock: vi.fn(),
   fetchProjectMock: vi.fn(),
-  fetchRuntimeSubagentLogsMock: vi.fn(),
-  interruptRuntimeSubagentMock: vi.fn(),
   navigateMock: vi.fn(),
-  resumeRuntimeSubagentMock: vi.fn(),
   setSearchParamsMock: vi.fn(),
   subscribeToFileChangesMock: vi.fn(),
   updateProjectMock: vi.fn(),
@@ -44,11 +38,14 @@ vi.mock("../api/client", () => ({
   createProject: createProjectMock,
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchProject: fetchProjectMock,
-  fetchRuntimeSubagentLogs: fetchRuntimeSubagentLogsMock,
-  interruptRuntimeSubagent: interruptRuntimeSubagentMock,
-  resumeRuntimeSubagent: resumeRuntimeSubagentMock,
   subscribeToFileChanges: subscribeToFileChangesMock,
   updateProject: updateProjectMock,
+}));
+
+vi.mock("./SubagentRunsPanel", () => ({
+  SubagentRunsPanel: (props: { cwd: string }) => (
+    <div class="mock-subagent-runs">runs for {props.cwd}</div>
+  ),
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -145,15 +142,14 @@ describe("ProjectsOverview", () => {
       project("PRO-2", "Beta Project", "done"),
       project("PRO-3", "Archived Project", "archived"),
     ]);
-    fetchProjectMock.mockImplementation((id: string) => Promise.resolve(detail(id)));
-    createProjectMock.mockResolvedValue({ ok: true, data: detail("PRO-9", "New Project") });
-    updateProjectMock.mockResolvedValue(detail("PRO-1"));
-    fetchRuntimeSubagentLogsMock.mockResolvedValue({
-      cursor: 1,
-      events: [{ type: "stdout", text: "hello logs" }],
+    fetchProjectMock.mockImplementation((id: string) =>
+      Promise.resolve(detail(id))
+    );
+    createProjectMock.mockResolvedValue({
+      ok: true,
+      data: detail("PRO-9", "New Project"),
     });
-    interruptRuntimeSubagentMock.mockResolvedValue({ ok: true, data: {} });
-    resumeRuntimeSubagentMock.mockResolvedValue({ ok: true, data: {} });
+    updateProjectMock.mockResolvedValue(detail("PRO-1"));
     subscribeToFileChangesMock.mockReturnValue(() => {});
   });
 
@@ -174,12 +170,14 @@ describe("ProjectsOverview", () => {
   it("selecting a project updates the URL and selected detail pane", async () => {
     const { container, dispose } = renderOverview("PRO-1");
     await tick();
-    const row = Array.from(container.querySelectorAll<HTMLButtonElement>(".po-project-row")).find(
-      (button) => button.textContent?.includes("Alpha Project")
-    );
+    const row = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-project-row")
+    ).find((button) => button.textContent?.includes("Alpha Project"));
     row?.click();
     expect(navigateMock).toHaveBeenCalledWith("/projects/PRO-1");
-    expect(container.querySelector(".po-detail")?.textContent).toContain("Alpha Project");
+    expect(container.querySelector(".po-detail")?.textContent).toContain(
+      "Alpha Project"
+    );
     dispose();
   });
 
@@ -192,41 +190,37 @@ describe("ProjectsOverview", () => {
     await tick();
     await tick();
 
-    const row = Array.from(container.querySelectorAll<HTMLButtonElement>(".po-project-row")).find(
-      (button) => button.textContent?.includes("Gamma Project")
-    );
+    const row = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-project-row")
+    ).find((button) => button.textContent?.includes("Gamma Project"));
     row?.click();
     await tick();
 
     expect(onOpenProject).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
-    expect(container.querySelector(".po-detail")?.textContent).toContain("Gamma Project");
+    expect(container.querySelector(".po-detail")?.textContent).toContain(
+      "Gamma Project"
+    );
     dispose();
   });
 
-  it("embedded detail actions stay inside the overview pane", async () => {
+  it("does not render the removed Open diff action", async () => {
     const { container, dispose, onOpenProject } = renderEmbeddedOverview();
     await tick();
     await tick();
 
-    const openDiff = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent === "Open diff"
-    );
-    openDiff?.click();
-    await tick();
-
+    expect(container.textContent).not.toContain("Open diff");
     expect(onOpenProject).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
-    expect(container.querySelector(".pdp")).not.toBeNull();
     dispose();
   });
 
   it("filter toggle works", async () => {
     const { container, dispose } = renderOverview();
     await tick();
-    const done = Array.from(container.querySelectorAll<HTMLButtonElement>(".po-filter")).find(
-      (button) => button.textContent === "Done"
-    );
+    const done = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-filter")
+    ).find((button) => button.textContent === "Done");
     done?.click();
     await tick();
     expect(container.textContent).toContain("Beta Project");
@@ -257,17 +251,20 @@ describe("ProjectsOverview", () => {
   it("+ New creates a project and selects it", async () => {
     const { container, dispose } = renderOverview();
     await tick();
-    const newButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent === "+ New"
-    );
+    const newButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button")
+    ).find((button) => button.textContent === "+ New");
     newButton?.click();
     await tick();
-    const input = container.querySelector<HTMLInputElement>(".po-create-title")!;
+    const input =
+      container.querySelector<HTMLInputElement>(".po-create-title")!;
     input.value = "New Project";
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    container.querySelector<HTMLFormElement>(".po-modal")?.dispatchEvent(
-      new SubmitEvent("submit", { bubbles: true, cancelable: true })
-    );
+    container
+      .querySelector<HTMLFormElement>(".po-modal")
+      ?.dispatchEvent(
+        new SubmitEvent("submit", { bubbles: true, cancelable: true })
+      );
     await tick();
     expect(createProjectMock).toHaveBeenCalledWith({ title: "New Project" });
     expect(navigateMock).toHaveBeenCalledWith("/projects/PRO-9");
@@ -289,9 +286,9 @@ describe("ProjectsOverview", () => {
     ]);
     const { container, dispose } = renderOverview("PRO-1");
     await tick();
-    const statuses = Array.from(container.querySelectorAll(".po-worktree-status")).map(
-      (node) => node.textContent?.trim()
-    );
+    const statuses = Array.from(
+      container.querySelectorAll(".po-worktree-status")
+    ).map((node) => node.textContent?.trim());
     expect(statuses).toEqual([
       "working",
       "failed",
@@ -310,9 +307,9 @@ describe("ProjectsOverview", () => {
     await tick();
     await tick();
 
-    const edit = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent === "Edit"
-    );
+    const edit = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button")
+    ).find((button) => button.textContent === "Edit");
     edit?.click();
     await tick();
     await tick();
@@ -331,30 +328,24 @@ describe("ProjectsOverview", () => {
     dispose();
   });
 
-  it("action buttons call the matching APIs", async () => {
+  it("expands worktree rows locally to show subagent runs", async () => {
     fetchBoardProjectsMock.mockResolvedValue([
       project("PRO-1", "Alpha Project", "maybe", [
         worktree("running", null, "running"),
-        worktree("done", "integrated", "done"),
       ]),
     ]);
     const { container, dispose } = renderOverview("PRO-1");
     await tick();
-    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>(".po-worktree-actions button"));
-    buttons.find((button) => button.textContent === "Logs")?.click();
+
+    expect(container.querySelector(".mock-subagent-runs")).toBeNull();
+    container.querySelector<HTMLButtonElement>(".po-worktree-toggle")?.click();
     await tick();
-    buttons.find((button) => button.textContent === "Stop")?.click();
-    await tick();
-    buttons.find((button) => button.textContent === "Resume")?.click();
-    await tick();
-    buttons.find((button) => button.textContent === "Open diff")?.click();
-    expect(fetchRuntimeSubagentLogsMock).toHaveBeenCalledWith("run-running", 0);
-    expect(interruptRuntimeSubagentMock).toHaveBeenCalledWith("run-running");
-    expect(resumeRuntimeSubagentMock).toHaveBeenCalledWith(
-      "run-done",
-      "Continue from the latest state."
-    );
-    expect(setSearchParamsMock).toHaveBeenCalledWith({ detail: "1" });
+
+    expect(
+      container.querySelector(".mock-subagent-runs")?.textContent
+    ).toContain("/tmp/worktrees/running");
+    expect(navigateMock).not.toHaveBeenCalledWith("/projects/PRO-1");
+    expect(setSearchParamsMock).not.toHaveBeenCalled();
     dispose();
   });
 });

@@ -1087,11 +1087,13 @@ export async function fetchRuntimeSubagents(filters?: {
   parent?: string;
   status?: SubagentRunStatus;
   includeArchived?: boolean;
+  cwd?: string;
 }): Promise<RuntimeSubagentListResponse> {
   const params = new URLSearchParams();
   if (filters?.parent) params.set("parent", filters.parent);
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.includeArchived) params.set("includeArchived", "true");
+  if (filters?.includeArchived) params.set("includeArchived", "1");
+  if (filters?.cwd) params.set("cwd", filters.cwd);
   const query = params.toString();
   const res = await fetch(`${API_BASE}/subagents${query ? `?${query}` : ""}`);
   if (!res.ok) throw new Error("Failed to fetch subagents");

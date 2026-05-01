@@ -100,11 +100,15 @@ function registerSubagentRoutes(app: Hono): void {
   app.get("/subagents", async (c) => {
     const parent = parseSubagentParent(c.req.query("parent"));
     const status = statusFromQuery(c.req.query("status"));
-    const includeArchived = c.req.query("includeArchived") === "true";
+    const includeArchived = ["1", "true"].includes(
+      c.req.query("includeArchived") ?? ""
+    );
+    const cwd = readOptionalString(c.req.query("cwd"));
     const items = await listSubagentRuns(runtimeOptions(), {
       parent,
       status,
       includeArchived,
+      cwd,
     });
     return c.json({ items });
   });

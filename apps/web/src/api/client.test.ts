@@ -15,6 +15,7 @@ import {
   archiveRuntimeSubagent,
   deleteRuntimeSubagent,
   fetchAllSubagents,
+  fetchRuntimeSubagents,
   fetchRuntimeSubagentLogs,
   fetchSubagents,
   fetchSubagentLogs,
@@ -195,6 +196,22 @@ describe("api client (projects/subagents)", () => {
 
     expectFetchCall("/api/subagents/sar_1/logs?since=12");
     expect(res.cursor).toBe(42);
+  });
+
+  it("fetches runtime subagents with cwd filters", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] }),
+    });
+
+    await fetchRuntimeSubagents({
+      cwd: "/tmp/worktrees/worker",
+      includeArchived: true,
+    });
+
+    expectFetchCall(
+      "/api/subagents?includeArchived=1&cwd=%2Ftmp%2Fworktrees%2Fworker"
+    );
   });
 
   it("archives runtime subagent", async () => {

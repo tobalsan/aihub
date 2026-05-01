@@ -14,7 +14,9 @@ const runtimeOptions = () => ({
 async function writeRun(
   runId: string,
   lines: string[],
-  progress?: { latestOutput?: string }
+  progress?: { latestOutput?: string },
+  configOverrides: Record<string, unknown> = {},
+  stateOverrides: Record<string, unknown> = {}
 ) {
   const runDir = path.join(tempDir, "sessions", "subagents", "runs", runId);
   await fs.mkdir(runDir, { recursive: true });
@@ -28,6 +30,7 @@ async function writeRun(
       prompt: "test",
       createdAt: "2026-04-27T00:00:00.000Z",
       archived: false,
+      ...configOverrides,
     }),
     "utf8"
   );
@@ -37,6 +40,7 @@ async function writeRun(
       startedAt: "2026-04-27T00:00:00.000Z",
       status: "done",
       exitCode: 0,
+      ...stateOverrides,
     }),
     "utf8"
   );
@@ -150,6 +154,39 @@ describe("subagent runtime logs", () => {
     const runs = await listSubagentRuns(runtimeOptions());
 
     expect(runs[0]?.latestOutput).toBe("Useful result.");
+  });
+
+  it("filters runs by canonical cwd", async () => {
+    const realDir = await fs.mkdtemp(path.join(tempDir, "real-"));
+    const linkDir = path.join(tempDir, "link");
+    const otherDir = await fs.mkdtemp(path.join(tempDir, "other-"));
+    await fs.symlink(realDir, linkDir);
+    await writeRun("run-match", [], undefined, { cwd: linkDir });
+    await writeRun("run-other", [], undefined, { cwd: otherDir });
+
+    const runs = await listSubagentRuns(runtimeOptions(), { cwd: realDir });
+
+    expect(runs.map((run) => run.id)).toEqual(["run-match"]);
+  });
+
+  it("filters cwd with home expansion", async () => {
+    const homeDir = await fs.mkdtemp(
+      path.join(os.homedir(), ".aihub-subagents-home-")
+    );
+    try {
+      const cwd = path.join(homeDir, "home-run");
+      await fs.mkdir(cwd, { recursive: true });
+      await writeRun("run-home", [], undefined, { cwd });
+      await writeRun("run-other", [], undefined, { cwd: tempDir });
+
+      const runs = await listSubagentRuns(runtimeOptions(), {
+        cwd: `~/${path.relative(os.homedir(), cwd)}`,
+      });
+
+      expect(runs.map((run) => run.id)).toEqual(["run-home"]);
+    } finally {
+      await fs.rm(homeDir, { recursive: true, force: true });
+    }
   });
 
   it("normalizes Claude JSONL envelopes into displayable events", async () => {
