@@ -301,14 +301,18 @@ function commonCandidatePaths(execName: string): string[] {
   return Array.from(new Set(candidates));
 }
 
+function ralphupRoot(): string {
+  return process.env.AIHUB_RALPHUP_ROOT
+    ? expandPath(process.env.AIHUB_RALPHUP_ROOT)
+    : expandPath("~/.agents/skills/ralphup");
+}
+
 function ralphScriptPath(cli: RalphLoopCli): string {
-  return expandPath(`~/.agents/skills/ralphup/scripts/ralph_${cli}.sh`);
+  return path.join(ralphupRoot(), "scripts", `ralph_${cli}.sh`);
 }
 
 function ralphPromptTemplatePath(cli: RalphLoopCli): string {
-  return expandPath(
-    `~/.agents/skills/ralphup/assets/prompt.${cli}.template.md`
-  );
+  return path.join(ralphupRoot(), "assets", `prompt.${cli}.template.md`);
 }
 
 async function resolveCliCommand(
@@ -795,6 +799,8 @@ export async function spawnSubagent(
     markIoReady = resolve;
   });
   let stdoutProcessing = Promise.resolve();
+  let stderrProcessing = Promise.resolve();
+  const gitHead = { start: undefined as string | undefined };
 
   child.stdout?.on("data", (chunk: Buffer) => {
     stdoutProcessing = stdoutProcessing.then(async () => {
@@ -855,33 +861,32 @@ export async function spawnSubagent(
     });
   });
 
-  child.stderr?.on("data", async (chunk: Buffer) => {
-    await ioReady;
-    try {
-      const text = chunk.toString("utf8");
-      const lines = text
-        .split(/\r?\n/)
-        .filter((line) => line.trim().length > 0);
-      if (lines.length === 0) return;
-      const stamped = lines
-        .map((line) => JSON.stringify({ type: "stderr", text: line }))
-        .join("\n");
-      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-      await writeJson(progressPath, {
-        last_active: new Date().toISOString(),
-        tool_calls: 0,
-      });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderrProcessing = stderrProcessing.then(async () => {
+      await ioReady;
+      try {
+        const text = chunk.toString("utf8");
+        const lines = text
+          .split(/\r?\n/)
+          .filter((line) => line.trim().length > 0);
+        if (lines.length === 0) return;
+        const stamped = lines
+          .map((line) => JSON.stringify({ type: "stderr", text: line }))
+          .join("\n");
+        await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+        await writeJson(progressPath, {
+          last_active: new Date().toISOString(),
+          tool_calls: 0,
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
+      }
+    });
   });
-  const startHeadSha =
-    mode === "worktree" || mode === "clone"
-      ? await getGitHead(worktreePath)
-      : undefined;
 
   child.on("error", async (err) => {
+    await ioReady;
     const finishedAt = new Date().toISOString();
     await appendHistory(historyPath, {
       ts: finishedAt,
@@ -902,79 +907,9 @@ export async function spawnSubagent(
     }
   });
 
-  const startedAt = new Date().toISOString();
-  let createdAt = startedAt;
-  let archived = false;
-  const persistedReplaces = normalizeReplaces(input.replaces);
-  try {
-    const raw = await fs.readFile(configPath, "utf8");
-    const existing = JSON.parse(raw) as {
-      created?: string;
-      archived?: boolean;
-      replaces?: string[];
-    };
-    if (
-      typeof existing.created === "string" &&
-      existing.created.trim().length > 0
-    ) {
-      createdAt = existing.created;
-    }
-    if (typeof existing.archived === "boolean") {
-      archived = existing.archived;
-    }
-  } catch {
-    // ignore
-  }
-  state = {
-    session_id:
-      cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
-    session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
-    supervisor_pid: child.pid ?? 0,
-    started_at: startedAt,
-    last_error: "",
-    cli,
-    run_mode: mode,
-    worktree_path: worktreePath,
-    base_branch: baseBranch,
-    start_head_sha: startHeadSha ?? "",
-    end_head_sha: "",
-    commit_range: "",
-  };
-  await writeJson(configPath, {
-    name: input.name,
-    cli,
-    model: input.model,
-    reasoningEffort: input.reasoningEffort,
-    thinking: input.thinking,
-    runMode: mode,
-    baseBranch,
-    replaces: persistedReplaces,
-    created: createdAt,
-    archived,
-  });
-  await persistState(state);
-  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
-  await fs.appendFile(logsPath, "", "utf8");
-  if (input.prompt.trim().length > 0) {
-    const userLine = JSON.stringify({
-      type: "event_msg",
-      payload: { type: "user_message", message: input.prompt },
-    });
-    await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
-  }
-  markIoReady();
-  await appendHistory(historyPath, {
-    ts: startedAt,
-    type: "worker.started",
-    data: {
-      action: input.resume ? "follow_up" : "started",
-      harness: cli,
-      session_id: state.session_id,
-    },
-  });
-
   child.on("exit", async (code, signal) => {
-    await stdoutProcessing;
+    await ioReady;
+    await Promise.all([stdoutProcessing, stderrProcessing]);
     const finishedAt = new Date().toISOString();
     const outcome: "replied" | "error" = code === 0 ? "replied" : "error";
     const exitMessage =
@@ -1024,14 +959,14 @@ export async function spawnSubagent(
 
     await persistState({ ...state, finished_at: finishedAt, outcome: "done" });
 
-    if ((mode === "worktree" || mode === "clone") && startHeadSha) {
+    if ((mode === "worktree" || mode === "clone") && gitHead.start) {
       const endHeadSha = await getGitHead(worktreePath);
       await persistState({
         ...state,
         end_head_sha: endHeadSha ?? "",
         commit_range:
-          endHeadSha && endHeadSha !== startHeadSha
-            ? `${startHeadSha}..${endHeadSha}`
+          endHeadSha && endHeadSha !== gitHead.start
+            ? `${gitHead.start}..${endHeadSha}`
             : "",
       });
       if (endHeadSha) {
@@ -1048,7 +983,7 @@ export async function spawnSubagent(
           workerSlug: input.slug,
           runMode: mode,
           worktreePath,
-          startSha: startHeadSha,
+          startSha: gitHead.start,
           endSha: endHeadSha,
           replaces: replacesFromConfig,
         }).catch(() => {});
@@ -1060,6 +995,82 @@ export async function spawnSubagent(
       }).catch(() => {});
     }
     await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
+  });
+
+  gitHead.start =
+    mode === "worktree" || mode === "clone"
+      ? await getGitHead(worktreePath)
+      : undefined;
+
+  const startedAt = new Date().toISOString();
+  let createdAt = startedAt;
+  let archived = false;
+  const persistedReplaces = normalizeReplaces(input.replaces);
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const existing = JSON.parse(raw) as {
+      created?: string;
+      archived?: boolean;
+      replaces?: string[];
+    };
+    if (
+      typeof existing.created === "string" &&
+      existing.created.trim().length > 0
+    ) {
+      createdAt = existing.created;
+    }
+    if (typeof existing.archived === "boolean") {
+      archived = existing.archived;
+    }
+  } catch {
+    // ignore
+  }
+  state = {
+    session_id:
+      cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
+    session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
+    supervisor_pid: child.pid ?? 0,
+    started_at: startedAt,
+    last_error: "",
+    cli,
+    run_mode: mode,
+    worktree_path: worktreePath,
+    base_branch: baseBranch,
+    start_head_sha: gitHead.start ?? "",
+    end_head_sha: "",
+    commit_range: "",
+  };
+  await writeJson(configPath, {
+    name: input.name,
+    cli,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+    thinking: input.thinking,
+    runMode: mode,
+    baseBranch,
+    replaces: persistedReplaces,
+    created: createdAt,
+    archived,
+  });
+  await persistState(state);
+  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
+  await fs.appendFile(logsPath, "", "utf8");
+  if (input.prompt.trim().length > 0) {
+    const userLine = JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: input.prompt },
+    });
+    await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
+  }
+  markIoReady();
+  await appendHistory(historyPath, {
+    ts: startedAt,
+    type: "worker.started",
+    data: {
+      action: input.resume ? "follow_up" : "started",
+      harness: cli,
+      session_id: state.session_id,
+    },
   });
 
   return { ok: true, data: { slug: input.slug } };
@@ -1210,6 +1221,15 @@ export async function spawnRalphLoop(
   const configPath = path.join(sessionDir, "config.json");
 
   const startedAt = new Date().toISOString();
+  let state: Record<string, unknown> = {
+    supervisor_pid: 0,
+    started_at: startedAt,
+    last_error: "",
+    cli: input.cli,
+    run_mode: mode,
+    worktree_path: workspacePath,
+    base_branch: baseBranch,
+  };
   const child = spawn(
     "bash",
     [scriptPath, String(input.iterations), workspacePath, promptFilePath],
@@ -1218,6 +1238,52 @@ export async function spawnRalphLoop(
       stdio: ["ignore", "pipe", "pipe"],
     }
   );
+  let markIoReady!: () => void;
+  const ioReady = new Promise<void>((resolve) => {
+    markIoReady = resolve;
+  });
+  let stdoutProcessing = Promise.resolve();
+  let stderrProcessing = Promise.resolve();
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdoutProcessing = stdoutProcessing.then(async () => {
+      await ioReady;
+      const lines = chunk
+        .toString("utf8")
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0);
+      if (lines.length > 0) {
+        const stamped = lines
+          .map((line) => JSON.stringify({ type: "stdout", text: line }))
+          .join("\n");
+        await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+        await writeJson(progressPath, {
+          last_active: new Date().toISOString(),
+          tool_calls: 0,
+        });
+      }
+    });
+  });
+
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderrProcessing = stderrProcessing.then(async () => {
+      await ioReady;
+      const lines = chunk
+        .toString("utf8")
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0);
+      if (lines.length > 0) {
+        const stamped = lines
+          .map((line) => JSON.stringify({ type: "stderr", text: line }))
+          .join("\n");
+        await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
+        await writeJson(progressPath, {
+          last_active: new Date().toISOString(),
+          tool_calls: 0,
+        });
+      }
+    });
+  });
 
   child.on("error", async (err) => {
     const finishedAt = new Date().toISOString();
@@ -1235,72 +1301,10 @@ export async function spawnRalphLoop(
     });
   });
 
-  await writeJson(configPath, {
-    type: "ralph_loop",
-    cli: input.cli,
-    runMode: mode,
-    baseBranch,
-    iterations: input.iterations,
-    promptFile: promptFilePath,
-    generatedPrompt,
-    promptTemplate,
-    created: startedAt,
-    archived: false,
-  });
-  let state: Record<string, unknown> = {
-    supervisor_pid: child.pid ?? 0,
-    started_at: startedAt,
-    last_error: "",
-    cli: input.cli,
-    run_mode: mode,
-    worktree_path: workspacePath,
-    base_branch: baseBranch,
-  };
-  await writeJson(statePath, state);
-  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
-  await fs.appendFile(logsPath, "", "utf8");
-  await appendHistory(historyPath, {
-    ts: startedAt,
-    type: "worker.started",
-    data: { action: "started", harness: `ralph_${input.cli}`, session_id: "" },
-  });
-
-  child.stdout?.on("data", async (chunk: Buffer) => {
-    const lines = chunk
-      .toString("utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
-    if (lines.length > 0) {
-      const stamped = lines
-        .map((line) => JSON.stringify({ type: "stdout", text: line }))
-        .join("\n");
-      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-      await writeJson(progressPath, {
-        last_active: new Date().toISOString(),
-        tool_calls: 0,
-      });
-    }
-  });
-
-  child.stderr?.on("data", async (chunk: Buffer) => {
-    const lines = chunk
-      .toString("utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
-    if (lines.length > 0) {
-      const stamped = lines
-        .map((line) => JSON.stringify({ type: "stderr", text: line }))
-        .join("\n");
-      await fs.appendFile(logsPath, `${stamped}\n`, "utf8");
-      await writeJson(progressPath, {
-        last_active: new Date().toISOString(),
-        tool_calls: 0,
-      });
-    }
-  });
-
   child.on("exit", async (code, signal) => {
     const finishedAt = new Date().toISOString();
+    await ioReady;
+    await Promise.all([stdoutProcessing, stderrProcessing]);
     const outcome = code === 0 ? "replied" : "error";
     const exitMessage =
       code !== null && code !== 0
@@ -1336,6 +1340,37 @@ export async function spawnRalphLoop(
     state = { ...state, finished_at: finishedAt, outcome: "done" };
     await writeJson(statePath, state);
   });
+
+  await writeJson(configPath, {
+    type: "ralph_loop",
+    cli: input.cli,
+    runMode: mode,
+    baseBranch,
+    iterations: input.iterations,
+    promptFile: promptFilePath,
+    generatedPrompt,
+    promptTemplate,
+    created: startedAt,
+    archived: false,
+  });
+  state = {
+    supervisor_pid: child.pid ?? 0,
+    started_at: startedAt,
+    last_error: "",
+    cli: input.cli,
+    run_mode: mode,
+    worktree_path: workspacePath,
+    base_branch: baseBranch,
+  };
+  await writeJson(statePath, state);
+  await writeJson(progressPath, { last_active: startedAt, tool_calls: 0 });
+  await fs.appendFile(logsPath, "", "utf8");
+  await appendHistory(historyPath, {
+    ts: startedAt,
+    type: "worker.started",
+    data: { action: "started", harness: `ralph_${input.cli}`, session_id: "" },
+  });
+  markIoReady();
 
   return { ok: true, data: { slug: input.slug } };
 }

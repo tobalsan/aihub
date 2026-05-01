@@ -123,7 +123,8 @@ describe("multi-user integration", () => {
       clearConfigCacheForTests();
 
       const config = loadConfig();
-      const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+      const { api } =
+        await import("../../../../apps/gateway/src/server/api.core.js");
       const {
         createAuthMiddleware,
         getRequestAuthContext,
@@ -237,7 +238,8 @@ describe("multi-user integration", () => {
       clearConfigCacheForTests();
 
       const config = loadConfig();
-      const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+      const { api } =
+        await import("../../../../apps/gateway/src/server/api.core.js");
       const {
         createAuthMiddleware,
         getRequestAuthContext,
@@ -312,20 +314,22 @@ describe("multi-user integration", () => {
         await import("../../../../apps/gateway/src/config/index.js");
       clearConfigCacheForTests();
 
-      const { loadExtensions } = await import("../../../../apps/gateway/src/extensions/registry.js");
+      const { loadExtensions } =
+        await import("../../../../apps/gateway/src/extensions/registry.js");
       await loadExtensions(loadConfig());
 
-      const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
-      await expect(import("../../../../apps/gateway/src/server/index.js")).resolves.toHaveProperty(
-        "startServer"
-      );
+      const { api } =
+        await import("../../../../apps/gateway/src/server/api.core.js");
+      await expect(
+        import("../../../../apps/gateway/src/server/index.js")
+      ).resolves.toHaveProperty("startServer");
 
       const response = await api.request("/capabilities");
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
         version: 2,
-        // scheduler and heartbeat load by default
-        extensions: { scheduler: true, heartbeat: true },
+        // scheduler, heartbeat, and subagents load by default
+        extensions: { scheduler: true, heartbeat: true, subagents: true },
         agents: ["main"],
         multiUser: false,
       });
