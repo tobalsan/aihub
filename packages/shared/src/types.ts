@@ -694,6 +694,19 @@ export interface ExtensionContext {
     sessionId: string
   ): Promise<HistoryMessage[]>;
 
+  // Media
+  saveMediaFile?(
+    data: Uint8Array | ArrayBuffer,
+    mimeType: string,
+    filename?: string
+  ): Promise<FileAttachment>;
+  readMediaFile?(fileId: string): Promise<{
+    data: Uint8Array;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }>;
+
   // Events
   subscribe(event: string, handler: (payload: unknown) => void): () => void;
   emit(event: string, payload: unknown): void;

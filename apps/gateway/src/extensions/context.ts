@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import type {
   Extension,
   ExtensionContext,
@@ -5,6 +6,7 @@ import type {
   AgentHistoryEvent,
   ProjectFileChangedEvent,
   ProjectAgentChangedEvent,
+  GatewayConfig,
 } from "@aihub/shared";
 import {
   CONFIG_DIR,
@@ -24,7 +26,11 @@ import {
 import { deleteSession } from "../agents/sessions.js";
 import { invalidateResolvedHistoryFile } from "../history/store.js";
 import { getSessionHistory } from "../agents/runner.js";
-import type { GatewayConfig } from "@aihub/shared";
+import { saveUploadedFile } from "../media/upload.js";
+import {
+  getMediaFileMetadata,
+  resolveMediaFilePath,
+} from "../media/metadata.js";
 
 export function createExtensionContext(
   resolvedConfig: GatewayConfig
@@ -63,6 +69,37 @@ export function createExtensionContext(
     },
     getSessionHistory: (agentId: string, sessionId: string) =>
       getSessionHistory(agentId, sessionId),
+    saveMediaFile: async (
+      data: Uint8Array | ArrayBuffer,
+      mimeType: string,
+      filename?: string
+    ) => {
+      const result = await saveUploadedFile(
+        data instanceof ArrayBuffer ? data : Buffer.from(data),
+        mimeType,
+        filename
+      );
+      return {
+        path: result.path,
+        mimeType: result.mimeType,
+        filename: filename ?? result.filename,
+        size: result.size,
+      };
+    },
+    readMediaFile: async (fileId: string) => {
+      const metadata = await getMediaFileMetadata(fileId);
+      if (!metadata) {
+        throw new Error(`Media file not found: ${fileId}`);
+      }
+      const mediaPath = await resolveMediaFilePath(metadata);
+      const data = await fs.readFile(mediaPath);
+      return {
+        data,
+        filename: metadata.filename,
+        mimeType: metadata.mimeType,
+        size: metadata.size,
+      };
+    },
     subscribe: (event: string, handler: (payload: unknown) => void) => {
       switch (event) {
         case "agent.stream":

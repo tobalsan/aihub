@@ -1,6 +1,8 @@
 import { App, SocketModeReceiver } from "@slack/bolt";
 import type {
   AgentConfig,
+  FileAttachment,
+  FileOutputEvent,
   SlackAgentConfig,
   SlackComponentChannelConfig,
   SlackComponentConfig,
@@ -8,7 +10,21 @@ import type {
 } from "@aihub/shared";
 import { DEFAULT_MAIN_KEY } from "@aihub/shared";
 import { getSlackContext } from "./context.js";
-import { detectBangCommand, processMessage, type MessageData } from "./handlers/message.js";
+import {
+  detectBangCommand,
+  processMessage,
+  type MessageData,
+} from "./handlers/message.js";
+import {
+  MAX_UPLOAD_SIZE_BYTES,
+  downloadSlackFile,
+  extractSnippetText,
+  formatSlackFileError,
+  isSlackSnippet,
+  isSupportedSlackFile,
+  uploadSlackFileToMedia,
+  type SlackFile,
+} from "./utils/attachments.js";
 import {
   formatReactionMessage,
   processReaction,
@@ -93,6 +109,34 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function toSlackFiles(value: unknown): SlackFile[] {
+  if (!Array.isArray(value)) return [];
+  const files: SlackFile[] = [];
+  for (const item of value) {
+    const file = asRecord(item);
+    if (Object.keys(file).length === 0) continue;
+    files.push({
+      id: asString(file.id),
+      name: asString(file.name),
+      title: asString(file.title),
+      mimetype: asString(file.mimetype),
+      filetype: asString(file.filetype),
+      size: asNumber(file.size),
+      url_private_download: asString(file.url_private_download),
+      subtype: asString(file.subtype),
+      mode: asString(file.mode),
+      preview: asString(file.preview),
+    });
+  }
+  return files;
+}
+
 function slackTsToMs(ts: string | undefined): number {
   if (!ts) return Date.now();
   const parsed = Number(ts) * 1000;
@@ -114,6 +158,7 @@ function toMessageData(raw: unknown, isAppMention = false): MessageData | null {
     channel_type: asString(event.channel_type),
     thread_ts: asString(event.thread_ts),
     isAppMention,
+    files: toSlackFiles(event.files),
   };
 }
 
@@ -131,7 +176,7 @@ function mentionsSlackBot(
 ): boolean {
   return Boolean(
     data.isAppMention ||
-      (botUserId && new RegExp(`<@${botUserId}>`).test(data.text ?? ""))
+    (botUserId && new RegExp(`<@${botUserId}>`).test(data.text ?? ""))
   );
 }
 
@@ -251,6 +296,134 @@ async function sendSlackError(
   });
 }
 
+async function sendSlackFileError(
+  client: SlackWebClient,
+  channel: string,
+  threadTs: string | undefined,
+  text: string
+): Promise<void> {
+  await client.chat.postMessage({
+    channel,
+    text,
+    mrkdwn: true,
+    thread_ts: threadTs,
+    unfurl_links: false,
+    unfurl_media: false,
+  });
+}
+
+async function collectSlackAttachments(params: {
+  data: MessageData;
+  client: SlackWebClient;
+  botToken: string;
+  threadTs?: string;
+}): Promise<{ contentSuffix: string; attachments: FileAttachment[] }> {
+  const { data, client, botToken, threadTs } = params;
+  const files = data.files ?? [];
+  if (files.length === 0) return { contentSuffix: "", attachments: [] };
+
+  const saveMediaFile = getSlackContext().saveMediaFile;
+  if (!saveMediaFile) {
+    throw new Error(
+      "Media upload is not available in the Slack extension context"
+    );
+  }
+
+  const snippets: string[] = [];
+  const attachments: FileAttachment[] = [];
+
+  for (const file of files) {
+    if (isSlackSnippet(file)) {
+      const snippet = extractSnippetText(file);
+      if (snippet) snippets.push(snippet);
+      continue;
+    }
+
+    if (file.size && file.size > MAX_UPLOAD_SIZE_BYTES) {
+      await sendSlackFileError(
+        client,
+        data.channel,
+        threadTs,
+        formatSlackFileError(file, "File exceeds the 25MB upload limit")
+      );
+      continue;
+    }
+
+    if (!isSupportedSlackFile(file)) {
+      await sendSlackFileError(
+        client,
+        data.channel,
+        threadTs,
+        formatSlackFileError(
+          file,
+          `Unsupported file type ${file.mimetype ?? file.filetype ?? "unknown"}`
+        )
+      );
+      continue;
+    }
+
+    try {
+      const downloaded = await downloadSlackFile(file, botToken);
+      attachments.push(await uploadSlackFileToMedia(downloaded, saveMediaFile));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "Download failed";
+      await sendSlackFileError(
+        client,
+        data.channel,
+        threadTs,
+        formatSlackFileError(file, reason)
+      );
+    }
+  }
+
+  return {
+    contentSuffix: snippets.join("\n\n"),
+    attachments,
+  };
+}
+
+function withContentSuffix(content: string, suffix: string): string {
+  const trimmed = content.trim();
+  if (!suffix) return trimmed;
+  return trimmed ? `${trimmed}\n\n${suffix}` : suffix;
+}
+
+async function uploadSlackFileOutput(params: {
+  client: SlackWebClient;
+  channel: string;
+  threadTs?: string;
+  event: FileOutputEvent;
+}): Promise<void> {
+  const { client, channel, threadTs, event } = params;
+  try {
+    const readMediaFile = getSlackContext().readMediaFile;
+    if (!readMediaFile) {
+      throw new Error(
+        "Media download is not available in the Slack extension context"
+      );
+    }
+    if (!client.files?.uploadV2) {
+      throw new Error("Slack file upload API is not available");
+    }
+    const media = await readMediaFile(event.fileId);
+    await client.files.uploadV2({
+      channel_id: channel,
+      thread_ts: threadTs,
+      file: media.data,
+      filename: media.filename || event.filename,
+      title: media.filename || event.filename,
+    });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "Upload failed";
+    await sendSlackFileError(
+      client,
+      channel,
+      threadTs,
+      `Could not upload ${event.filename} to Slack: ${reason}`
+    );
+  }
+}
+
 function formatThinkingMessage(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
   const truncated =
@@ -258,9 +431,7 @@ function formatThinkingMessage(text: string): string {
       ? trimmed.slice(0, MAX_THINKING_CHARS) + "…"
       : trimmed;
   // Break into lines after sentences (.) and dashes (-)
-  const formatted = truncated
-    .replace(/\.\s+/g, ".\n")
-    .replace(/ - /g, "\n- ");
+  const formatted = truncated.replace(/\.\s+/g, ".\n").replace(/ - /g, "\n- ");
   return `🧠 Thinking:\n${formatted}`;
 }
 
@@ -355,7 +526,10 @@ function startThinkingStreamDisplay(params: {
     // Throttle updates: if enough time has passed, update now
     const elapsed = Date.now() - lastUpdateTime;
     if (elapsed >= THINKING_UPDATE_INTERVAL_MS) {
-      if (throttleTimer) { clearTimeout(throttleTimer); throttleTimer = null; }
+      if (throttleTimer) {
+        clearTimeout(throttleTimer);
+        throttleTimer = null;
+      }
       await doUpdate(text);
     } else if (!throttleTimer) {
       // Schedule a trailing update
@@ -372,7 +546,10 @@ function startThinkingStreamDisplay(params: {
     if (closed) return;
     closed = true;
     unsubscribe();
-    if (throttleTimer) { clearTimeout(throttleTimer); throttleTimer = null; }
+    if (throttleTimer) {
+      clearTimeout(throttleTimer);
+      throttleTimer = null;
+    }
     await pendingPost;
     if (!deleteOnComplete || !messageTs) return;
     try {
@@ -426,7 +603,10 @@ async function handleBangCommand(
   if (bang.command === "new") {
     try {
       const ctx = getSlackContext();
-      const cleared = await ctx.clearSessionEntry(target.agent.id, effectiveSessionKey);
+      const cleared = await ctx.clearSessionEntry(
+        target.agent.id,
+        effectiveSessionKey
+      );
       if (cleared) {
         ctx.deleteSession(target.agent.id, cleared.sessionId);
         await ctx.invalidateHistoryCache(target.agent.id, cleared.sessionId);
@@ -506,17 +686,6 @@ async function handleSlackMessage(
     return;
   }
 
-  const content = result.normalizedContent;
-  if (!content) return;
-
-  // Also detect bang commands on normalized content (after mention stripping).
-  // This handles "@bot !new" where the raw text starts with a mention, not !.
-  const normalizedBang = rawBang ? undefined : detectBangCommand(content);
-  if (normalizedBang) {
-    const handled = await handleBangCommand(data, client, target, normalizedBang);
-    if (handled) return;
-  }
-
   const sessionKey = target.isMainSession
     ? DEFAULT_MAIN_KEY
     : buildSlackSessionKey(data.channel, data.thread_ts);
@@ -526,23 +695,53 @@ async function handleSlackMessage(
     data.ts,
     data.thread_ts
   );
+  const fileThreadTs = data.thread_ts ?? data.ts;
 
-  await startThinkingReaction(client, data.channel, data.ts, target.agent.id, {
-    sessionKey,
-  });
-  const thinkingDisplay = target.config.showThinking
-    ? startThinkingStreamDisplay({
-        client,
-        channel: data.channel,
-        threadTs: replyThreadTs ?? data.ts,
-        agentId: target.agent.id,
-        sessionKey,
-        deleteOnComplete: target.config.deleteThinkingOnComplete !== false,
-        logPrefix: target.logPrefix,
-      })
-    : null;
-
+  let thinkingDisplay: ThinkingStreamDisplay | null = null;
   try {
+    const { contentSuffix, attachments } = await collectSlackAttachments({
+      data,
+      client,
+      botToken: target.config.token ?? "",
+      threadTs: fileThreadTs,
+    });
+    const content = withContentSuffix(result.normalizedContent, contentSuffix);
+    if (!content && attachments.length === 0) return;
+
+    // Also detect bang commands on normalized content (after mention stripping).
+    // This handles "@bot !new" where the raw text starts with a mention, not !.
+    const normalizedBang = rawBang ? undefined : detectBangCommand(content);
+    if (normalizedBang && attachments.length === 0) {
+      const handled = await handleBangCommand(
+        data,
+        client,
+        target,
+        normalizedBang
+      );
+      if (handled) return;
+    }
+
+    await startThinkingReaction(
+      client,
+      data.channel,
+      data.ts,
+      target.agent.id,
+      {
+        sessionKey,
+      }
+    );
+    thinkingDisplay = target.config.showThinking
+      ? startThinkingStreamDisplay({
+          client,
+          channel: data.channel,
+          threadTs: replyThreadTs ?? data.ts,
+          agentId: target.agent.id,
+          sessionKey,
+          deleteOnComplete: target.config.deleteThinkingOnComplete !== false,
+          logPrefix: target.logPrefix,
+        })
+      : null;
+
     const [channelMeta, threadParent, senderName] = await Promise.all([
       getChannelMetadata(client, data.channel),
       getThreadParent(client, data.channel, data.thread_ts, data.ts),
@@ -586,13 +785,26 @@ async function handleSlackMessage(
       history: getHistory(historyKey, historyLimit),
     });
 
+    const fileUploads: Promise<void>[] = [];
     const agentResult = await getSlackContext().runAgent({
       agentId: target.agent.id,
       message: content,
+      attachments,
       sessionKey,
       thinkLevel: target.agent.thinkLevel,
       source: "slack",
       context,
+      onEvent: (event) => {
+        if (event.type !== "file_output") return;
+        fileUploads.push(
+          uploadSlackFileOutput({
+            client,
+            channel: data.channel,
+            threadTs: fileThreadTs,
+            event,
+          })
+        );
+      },
     });
     thinkingDisplay?.setSessionId(agentResult.meta.sessionId);
 
@@ -607,6 +819,7 @@ async function handleSlackMessage(
       agentResult.payloads,
       replyThreadTs
     );
+    await Promise.all(fileUploads);
 
     if (target.config.clearHistoryAfterReply === true) {
       clearHistory(historyKey);

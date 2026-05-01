@@ -1,6 +1,10 @@
 import type { SlackComponentConfig } from "@aihub/shared";
 import { describe, expect, it } from "vitest";
-import { processMessage, detectBangCommand, type MessageData } from "./message.js";
+import {
+  processMessage,
+  detectBangCommand,
+  type MessageData,
+} from "./message.js";
 
 function createMessage(overrides: Partial<MessageData> = {}): MessageData {
   return {
@@ -68,7 +72,11 @@ describe("processMessage", () => {
   });
 
   it("rejects unconfigured channels when channel routes exist", () => {
-    const result = processMessage(createMessage({ channel: "C2" }), createConfig(), "Ubot");
+    const result = processMessage(
+      createMessage({ channel: "C2" }),
+      createConfig(),
+      "Ubot"
+    );
     expect(result.shouldReply).toBe(false);
     expect(result.reason).toBe("channel_not_configured");
   });
@@ -86,7 +94,11 @@ describe("processMessage", () => {
   it("rejects users outside channel allowlist", () => {
     const result = processMessage(
       createMessage({ user: "U2" }),
-      createConfig({ channels: { C1: { agent: "main", requireMention: false, users: ["U1"] } } }),
+      createConfig({
+        channels: {
+          C1: { agent: "main", requireMention: false, users: ["U1"] },
+        },
+      }),
       "Ubot"
     );
     expect(result.shouldReply).toBe(false);
@@ -110,6 +122,20 @@ describe("processMessage", () => {
       "Ubot"
     );
     expect(result.shouldReply).toBe(true);
+  });
+
+  it("allows file-only messages after route gating", () => {
+    const result = processMessage(
+      createMessage({
+        text: "",
+        files: [{ name: "screen.png", mimetype: "image/png" }],
+      }),
+      createConfig(),
+      "Ubot"
+    );
+
+    expect(result.shouldReply).toBe(true);
+    expect(result.normalizedContent).toBe("");
   });
 
   it("removes bot mention and mention patterns", () => {
@@ -183,18 +209,24 @@ describe("processMessage", () => {
       );
       expect(result.shouldReply).toBe(true);
       expect(result.normalizedContent).toBe("!new");
-      expect(detectBangCommand(result.normalizedContent)).toEqual({ command: "new" });
+      expect(detectBangCommand(result.normalizedContent)).toEqual({
+        command: "new",
+      });
     });
 
     it("preserves !new in DM normalized content for downstream detection", () => {
       const result = processMessage(
         createMessage({ text: "!new", channel: "D1", channel_type: "im" }),
-        createConfig({ dm: { enabled: true, agent: "main", allowFrom: ["U1"] } }),
+        createConfig({
+          dm: { enabled: true, agent: "main", allowFrom: ["U1"] },
+        }),
         "Ubot"
       );
       expect(result.shouldReply).toBe(true);
       expect(result.normalizedContent).toBe("!new");
-      expect(detectBangCommand(result.normalizedContent)).toEqual({ command: "new" });
+      expect(detectBangCommand(result.normalizedContent)).toEqual({
+        command: "new",
+      });
     });
   });
 });

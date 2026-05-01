@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 let clearProjectsContextForTest: (() => void) | undefined;
+let stopSubagentsForTest: (() => Promise<void>) | undefined;
 
 describe("subagents API", () => {
   let tmpDir: string;
@@ -20,6 +21,7 @@ describe("subagents API", () => {
   };
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
+  let prevRalphupRoot: string | undefined;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-subagents-"));
@@ -27,8 +29,15 @@ describe("subagents API", () => {
 
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    prevRalphupRoot = process.env.AIHUB_RALPHUP_ROOT;
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
+    process.env.AIHUB_RALPHUP_ROOT = path.join(
+      tmpDir,
+      ".agents",
+      "skills",
+      "ralphup"
+    );
 
     const configDir = path.join(tmpDir, ".aihub");
     await fs.mkdir(configDir, { recursive: true });
@@ -53,7 +62,9 @@ describe("subagents API", () => {
 
     repoTemplateDir = path.join(tmpDir, "repo-template");
     await fs.mkdir(repoTemplateDir, { recursive: true });
-    await execFileAsync("git", ["init", "-b", "main"], { cwd: repoTemplateDir });
+    await execFileAsync("git", ["init", "-b", "main"], {
+      cwd: repoTemplateDir,
+    });
     await execFileAsync("git", ["config", "user.email", "test@example.com"], {
       cwd: repoTemplateDir,
     });
@@ -71,11 +82,10 @@ describe("subagents API", () => {
     await execFileAsync("git", ["checkout", "main"], { cwd: repoTemplateDir });
 
     vi.resetModules();
-    const { setProjectsContext, clearProjectsContext } = await import(
-      "../context.js"
-    );
+    const { setProjectsContext, clearProjectsContext } =
+      await import("../context.js");
     clearProjectsContextForTest = clearProjectsContext;
-    setProjectsContext({
+    const extensionContext = {
       getConfig: () => config,
       getDataDir: () => path.join(tmpDir, ".aihub"),
       getAgents: () => config.agents,
@@ -95,22 +105,30 @@ describe("subagents API", () => {
       subscribe: () => () => {},
       emit: () => {},
       logger: { info: () => {}, warn: () => {}, error: () => {} },
-    } as never);
+    } as never;
+    setProjectsContext(extensionContext);
 
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../../../../../apps/gateway/src/config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../../../../../apps/gateway/src/config/index.js");
     clearConfigCacheForTests();
-    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
+    const { loadExtensions } =
+      await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod =
+      await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
+      if (extension.id === "subagents") {
+        await extension.start(extensionContext);
+        stopSubagentsForTest = extension.stop;
+      }
       extension.registerRoutes(api as never);
     }
   });
 
   afterAll(async () => {
+    await stopSubagentsForTest?.();
+    stopSubagentsForTest = undefined;
     clearProjectsContextForTest?.();
     clearProjectsContextForTest = undefined;
 
@@ -118,6 +136,8 @@ describe("subagents API", () => {
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = prevUserProfile;
+    if (prevRalphupRoot === undefined) delete process.env.AIHUB_RALPHUP_ROOT;
+    else process.env.AIHUB_RALPHUP_ROOT = prevRalphupRoot;
 
     await fs.rm(tmpDir, {
       recursive: true,
@@ -569,12 +589,13 @@ describe("subagents API", () => {
       }) + "\n"
     );
 
-    const listRes = await Promise.resolve(api.request("/subagents"));
+    const listRes = await Promise.resolve(
+      api.request(`/projects/${created.id}/subagents`)
+    );
     expect(listRes.status).toBe(200);
     const list = await listRes.json();
     const match = list.items.find(
-      (item: { projectId: string; slug: string }) =>
-        item.projectId === created.id
+      (item: { slug: string }) => item.slug === "main"
     );
     expect(match?.slug).toBe("main");
     expect(match?.type).toBe("subagent");
@@ -681,14 +702,7 @@ describe("subagents API", () => {
     expect(worker?.parentSlug).toBe("ralph-1");
     expect(worker?.groupKey).toBe(supervisor?.groupKey);
 
-    const globalRes = await Promise.resolve(api.request("/subagents"));
-    expect(globalRes.status).toBe(200);
-    const global = await globalRes.json();
-    const globalWorker = global.items.find(
-      (item: { projectId: string; slug: string }) =>
-        item.projectId === created.id && item.slug === "worker-1"
-    );
-    expect(globalWorker?.role).toBe("worker");
+    expect(worker?.role).toBe("worker");
   });
 
   it("spawns ralph loop via API and writes stdout/stderr logs", async () => {
@@ -772,7 +786,13 @@ describe("subagents API", () => {
     expect(config.generatedPrompt).toBe(false);
     expect(config.promptTemplate).toBeUndefined();
 
-    const logs = await fs.readFile(logsPath, "utf8");
+    let logs = "";
+    const logsStart = Date.now();
+    while (Date.now() - logsStart < 3000) {
+      logs = await fs.readFile(logsPath, "utf8").catch(() => "");
+      if (logs.includes('"type":"stdout"')) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     expect(logs).toContain('"type":"stdout"');
     expect(logs).toContain("Ralph iteration 1/2");
     expect(logs).toContain('"type":"stderr"');
@@ -2089,6 +2109,84 @@ describe("subagents API", () => {
     process.env.PATH = prevPath;
   });
 
+  it("captures immediate subagent exit and output", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Immediate Exit" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const repoDir = await createRepoCopy("repo-immediate-exit");
+
+    const patchRes = await Promise.resolve(
+      api.request(`/projects/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, domain: "coding" }),
+      })
+    );
+    expect(patchRes.status).toBe(200);
+
+    const binDir = path.join(tmpDir, "bin-immediate-exit");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"fast-s1"}\'',
+      'echo "fast stderr" 1>&2',
+      "exit 0",
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const spawnRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/subagents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug: "fast",
+            cli: "codex",
+            name: "Fast Worker",
+            prompt: "hi",
+            mode: "main-run",
+          }),
+        })
+      );
+      expect(spawnRes.status).toBe(201);
+
+      const sessionDir = path.join(
+        projectsRoot,
+        created.path,
+        "sessions",
+        "fast"
+      );
+      const historyPath = path.join(sessionDir, "history.jsonl");
+      const logsPath = path.join(sessionDir, "logs.jsonl");
+
+      let history = "";
+      const start = Date.now();
+      while (Date.now() - start < 3000) {
+        history = await fs.readFile(historyPath, "utf8").catch(() => "");
+        if (history.includes('"worker.finished"')) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(history).toContain('"worker.finished"');
+      expect(history).toContain('"outcome":"replied"');
+
+      const logs = await fs.readFile(logsPath, "utf8");
+      expect(logs).toContain("fast-s1");
+      expect(logs).toContain("fast stderr");
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
   it("spawns pi subagent and records JSON mode output", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {
@@ -2238,39 +2336,56 @@ describe("subagents API", () => {
       })
     );
     expect(seedSpaceRes.status).toBe(201);
-    const seedWorkerRes = await Promise.resolve(
-      api.request(`/projects/${created.id}/subagents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slug: "alpha",
-          cli: "codex",
-          prompt: "seed worker",
-          mode: "worktree",
-        }),
-      })
-    );
-    expect(seedWorkerRes.status).toBe(201);
-
     const projectDir = path.join(projectsRoot, created.path);
-    const workerStatePath = path.join(
+    const workerSessionDir = path.join(
       projectDir,
       "sessions",
-      "alpha",
-      "state.json"
+      "alpha"
     );
-    const workerStateWaitStart = Date.now();
-    while (Date.now() - workerStateWaitStart < 5000) {
-      try {
-        const state = JSON.parse(
-          await fs.readFile(workerStatePath, "utf8")
-        ) as { session_id?: string };
-        if (state.session_id === "s1") break;
-      } catch {
-        // wait
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    const workerWorktreePath = path.join(
+      projectsRoot,
+      ".workspaces",
+      created.id,
+      "alpha"
+    );
+    await fs.mkdir(workerSessionDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workerSessionDir, "config.json"),
+      JSON.stringify(
+        {
+          cli: "codex",
+          runMode: "worktree",
+          baseBranch: "main",
+          created: new Date().toISOString(),
+        },
+        null,
+        2
+      )
+    );
+    await fs.writeFile(
+      path.join(workerSessionDir, "state.json"),
+      JSON.stringify(
+        {
+          session_id: "s1",
+          supervisor_pid: 0,
+          started_at: new Date().toISOString(),
+          last_error: "",
+          cli: "codex",
+          run_mode: "worktree",
+          worktree_path: workerWorktreePath,
+          base_branch: "main",
+        },
+        null,
+        2
+      )
+    );
+    await fs.writeFile(
+      path.join(workerSessionDir, "progress.json"),
+      JSON.stringify({ last_active: new Date().toISOString(), tool_calls: 0 })
+    );
+    await fs.writeFile(path.join(workerSessionDir, "history.jsonl"), "");
+    await fs.writeFile(path.join(workerSessionDir, "logs.jsonl"), "");
+
     const spacePath = path.join(projectDir, "space.json");
     const rawSpace = JSON.parse(await fs.readFile(spacePath, "utf8")) as {
       worktreePath: string;
@@ -2284,7 +2399,7 @@ describe("subagents API", () => {
       id: "conflict-1",
       workerSlug: "alpha",
       runMode: "worktree",
-      worktreePath: path.join(projectsRoot, ".workspaces", created.id, "alpha"),
+      worktreePath: workerWorktreePath,
       startSha: "a",
       endSha: "b",
       shas: ["abc123"],

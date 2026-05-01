@@ -48,15 +48,15 @@ describe("activity persistence", () => {
     );
 
     vi.resetModules();
-    const { setProjectsContext, clearProjectsContext } = await import(
-      "../context.js"
-    );
+    const { setProjectsContext, clearProjectsContext } =
+      await import("../context.js");
     clearProjectsContextForTest = clearProjectsContext;
     setProjectsContext({
       getConfig: () => config,
       getDataDir: () => path.join(tmpDir, ".aihub"),
       getAgents: () => [agentConfig],
-      getAgent: (id: string) => (id === agentConfig.id ? agentConfig : undefined),
+      getAgent: (id: string) =>
+        id === agentConfig.id ? agentConfig : undefined,
       isAgentActive: () => true,
       isAgentStreaming: () => false,
       resolveWorkspaceDir: () => tmpDir,
@@ -74,12 +74,13 @@ describe("activity persistence", () => {
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
 
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../../../../../apps/gateway/src/config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../../../../../apps/gateway/src/config/index.js");
     clearConfigCacheForTests();
-    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
+    const { loadExtensions } =
+      await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod =
+      await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -116,7 +117,6 @@ describe("activity persistence", () => {
   async function setupSubagentRun(params: {
     projectPath: string;
     slug: string;
-    startedAt: string;
     lastActive: string;
   }): Promise<string> {
     const sessionDir = path.join(
@@ -135,7 +135,7 @@ describe("activity persistence", () => {
       JSON.stringify(
         {
           supervisor_pid: process.pid,
-          started_at: params.startedAt,
+          started_at: new Date().toISOString(),
           cli: "codex",
         },
         null,
@@ -185,7 +185,8 @@ describe("activity persistence", () => {
       }),
       getDataDir: () => path.join(tmpDir, ".aihub"),
       getAgents: () => [agentConfig],
-      getAgent: (id: string) => (id === agentConfig.id ? agentConfig : undefined),
+      getAgent: (id: string) =>
+        id === agentConfig.id ? agentConfig : undefined,
       isAgentActive: () => true,
       isAgentStreaming: () => false,
       resolveWorkspaceDir: () => tmpDir,
@@ -202,9 +203,12 @@ describe("activity persistence", () => {
       emit: () => {},
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
-    const { loadConfig } = await import("../../../../../apps/gateway/src/config/index.js");
-    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
+    const { loadConfig } =
+      await import("../../../../../apps/gateway/src/config/index.js");
+    const { loadExtensions } =
+      await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod =
+      await import("../../../../../apps/gateway/src/server/api.core.js");
     const api2 = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -281,7 +285,6 @@ describe("activity persistence", () => {
     const progressPath = await setupSubagentRun({
       projectPath: created.path,
       slug: "main",
-      startedAt: "2026-02-07T10:00:00.000Z",
       lastActive: "2026-02-07T10:00:01.000Z",
     });
 
@@ -322,7 +325,6 @@ describe("activity persistence", () => {
     const progressPath = await setupSubagentRun({
       projectPath: created.path,
       slug: "main",
-      startedAt: "2026-02-07T11:00:00.000Z",
       lastActive: "2026-02-07T11:00:01.000Z",
     });
 
@@ -339,7 +341,8 @@ describe("activity persistence", () => {
       }),
       getDataDir: () => path.join(tmpDir, ".aihub"),
       getAgents: () => [agentConfig],
-      getAgent: (id: string) => (id === agentConfig.id ? agentConfig : undefined),
+      getAgent: (id: string) =>
+        id === agentConfig.id ? agentConfig : undefined,
       isAgentActive: () => true,
       isAgentStreaming: () => false,
       resolveWorkspaceDir: () => tmpDir,
@@ -356,9 +359,12 @@ describe("activity persistence", () => {
       emit: () => {},
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
-    const { loadConfig } = await import("../../../../../apps/gateway/src/config/index.js");
-    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
+    const { loadConfig } =
+      await import("../../../../../apps/gateway/src/config/index.js");
+    const { loadExtensions } =
+      await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod =
+      await import("../../../../../apps/gateway/src/server/api.core.js");
     const api2 = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -394,7 +400,6 @@ describe("activity persistence", () => {
     const progressPath = await setupSubagentRun({
       projectPath: created.path,
       slug,
-      startedAt: "2026-02-07T12:00:00.000Z",
       lastActive: "2026-02-07T12:00:01.000Z",
     });
     const statePath = path.join(sessionDir, "state.json");
@@ -407,7 +412,7 @@ describe("activity persistence", () => {
       JSON.stringify(
         {
           supervisor_pid: process.pid,
-          started_at: "2026-02-07T12:30:00.000Z",
+          started_at: new Date().toISOString(),
           cli: "codex",
         },
         null,

@@ -38,10 +38,17 @@ export type SlackWebClient = {
       thread_ts?: string;
     }): Promise<unknown>;
   };
+  files?: {
+    uploadV2(params: {
+      channel_id: string;
+      thread_ts?: string;
+      file: Buffer | Uint8Array;
+      filename: string;
+      title?: string;
+    }): Promise<unknown>;
+  };
   conversations: {
-    info(params: {
-      channel: string;
-    }): Promise<{
+    info(params: { channel: string }): Promise<{
       channel?: { name?: string; topic?: { value?: string } };
     }>;
     history(params: {
