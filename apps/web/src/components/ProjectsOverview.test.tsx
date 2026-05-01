@@ -107,7 +107,10 @@ function detail(id: string, title = "Alpha Project"): ProjectDetail {
     absolutePath: `/tmp/${id}`,
     repoValid: true,
     frontmatter: { id, title, status: "maybe" },
-    docs: { README: `# ${title}\n\nReadable preview.` },
+    docs: {
+      README: `# ${title}\n\nReadable preview.`,
+      SPECS: "Spec content.",
+    },
     thread: [],
   };
 }
@@ -118,6 +121,17 @@ function renderOverview(id?: string) {
   document.body.appendChild(container);
   const dispose = render(() => <ProjectsOverview />, container);
   return { container, dispose };
+}
+
+function renderEmbeddedOverview(onOpenProject = vi.fn()) {
+  routeId = undefined;
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const dispose = render(
+    () => <ProjectsOverview embedded onOpenProject={onOpenProject} />,
+    container
+  );
+  return { container, dispose, onOpenProject };
 }
 
 describe("ProjectsOverview", () => {
@@ -250,6 +264,32 @@ describe("ProjectsOverview", () => {
       "integrated",
       "idle",
     ]);
+    dispose();
+  });
+
+  it("opens README/SPECS editor inline without unmounting the list", async () => {
+    const { container, dispose, onOpenProject } = renderEmbeddedOverview();
+    await tick();
+    await tick();
+
+    const edit = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Edit"
+    );
+    edit?.click();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".po-project-list")).not.toBeNull();
+    expect(container.querySelector(".pdp")).not.toBeNull();
+    expect(container.textContent).toContain("README");
+    expect(container.textContent).toContain("SPECS");
+    expect(onOpenProject).not.toHaveBeenCalled();
+    expect(setSearchParamsMock).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await tick();
+    expect(container.querySelector(".po-project-list")).not.toBeNull();
+    expect(container.querySelector(".pdp")).toBeNull();
     dispose();
   });
 

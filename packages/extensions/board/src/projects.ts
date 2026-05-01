@@ -575,7 +575,26 @@ async function buildProjectWorktreeViews(
   };
 
   if (space) {
+    const latestByPath = new Map<string, SpaceQueueEntryView>();
     for (const entry of space.queue) {
+      const key = await canonicalPath(entry.worktreePath);
+      const current = latestByPath.get(key);
+      if (!current) {
+        latestByPath.set(key, entry);
+        continue;
+      }
+      const currentTime = Date.parse(current.createdAt);
+      const entryTime = Date.parse(entry.createdAt);
+      if (
+        !Number.isFinite(currentTime) ||
+        !Number.isFinite(entryTime) ||
+        entryTime >= currentTime
+      ) {
+        latestByPath.set(key, entry);
+      }
+    }
+
+    for (const entry of latestByPath.values()) {
       views.push(
         await readWorktreeView({
           id: entry.id,

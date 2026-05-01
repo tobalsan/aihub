@@ -429,6 +429,52 @@ describe("scanProjects", () => {
     ]);
   });
 
+  it("dedupes space queue worktrees by latest queue entry", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const alphaPath = path.join(tmp, "alpha");
+
+    const items = await scanProjects(tmp, false, emptyWtRoot, {
+      getSpace: async () =>
+        makeSpace("", [
+          {
+            id: "entry-old",
+            workerSlug: "alpha",
+            worktreePath: alphaPath,
+            status: "pending",
+            createdAt: "2026-04-30T00:00:00.000Z",
+            startSha: "old-start",
+            endSha: "old-end",
+          },
+          {
+            id: "entry-new",
+            workerSlug: "alpha",
+            worktreePath: alphaPath,
+            status: "integrated",
+            createdAt: "2026-04-30T01:00:00.000Z",
+            integratedAt: "2026-04-30T02:00:00.000Z",
+            startSha: "new-start",
+            endSha: "new-end",
+          },
+        ]),
+    });
+
+    expect(items[0]?.worktrees).toHaveLength(1);
+    expect(items[0]?.worktrees[0]).toMatchObject({
+      id: "entry-new",
+      workerSlug: "alpha",
+      worktreePath: alphaPath,
+      queueStatus: "integrated",
+      startedAt: "2026-04-30T01:00:00.000Z",
+      integratedAt: "2026-04-30T02:00:00.000Z",
+      startSha: "new-start",
+      endSha: "new-end",
+    });
+  });
+
   it("populates running agent runs by worktree path", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",

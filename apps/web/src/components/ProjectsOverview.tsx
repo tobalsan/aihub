@@ -7,6 +7,7 @@ import {
   createResource,
   createSignal,
   onCleanup,
+  onMount,
 } from "solid-js";
 import {
   createProject,
@@ -25,6 +26,7 @@ import type {
   SubagentLogEvent,
 } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
+import { ProjectDetailPanel } from "./board/ProjectDetailPanel";
 
 type FilterMode = "active" | "done" | "archived";
 type WorktreeTone = "green" | "red" | "yellow" | "muted" | "idle";
@@ -140,6 +142,8 @@ export function ProjectsOverview(props: {
   const [draftTitle, setDraftTitle] = createSignal("");
   const [actionError, setActionError] = createSignal("");
   const [logState, setLogState] = createSignal<LogState | null>(null);
+  const [embeddedEditorProjectId, setEmbeddedEditorProjectId] =
+    createSignal<string | null>(null);
   const [projects, { mutate, refetch }] = createResource(() =>
     fetchBoardProjects(true)
   );
@@ -169,6 +173,14 @@ export function ProjectsOverview(props: {
   createEffect(() => {
     const project = selectedProject();
     if (project && !editingTitle()) setDraftTitle(project.title);
+  });
+
+  onMount(() => {
+    const onPopState = () => {
+      if (embeddedEditorProjectId()) setEmbeddedEditorProjectId(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    onCleanup(() => window.removeEventListener("popstate", onPopState));
   });
 
   createEffect(() => {
@@ -207,6 +219,7 @@ export function ProjectsOverview(props: {
   });
 
   function selectProject(id: string) {
+    setEmbeddedEditorProjectId(null);
     if (props.embedded) {
       setEmbeddedProjectId(id);
     } else {
@@ -337,6 +350,15 @@ export function ProjectsOverview(props: {
   function openDetail(tab: "chat" | "activity" | "changes" = "chat") {
     const project = selectedProject();
     if (!project) return;
+    if (props.embedded && tab === "chat") {
+      setEmbeddedEditorProjectId(project.id);
+      window.history.pushState(
+        { aihubProjectEditor: project.id },
+        "",
+        window.location.href
+      );
+      return;
+    }
     if (props.onOpenProject) {
       props.onOpenProject(project.id);
       return;
@@ -401,12 +423,12 @@ export function ProjectsOverview(props: {
                   type="button"
                   onClick={() => selectProject(project.id)}
                 >
-                  <span class={`po-status status-${project.status}`}>
-                    {statusLabel(project.status)}
-                  </span>
                   <span class="po-project-title">{project.title}</span>
                   <span class="po-count">{project.worktrees.length} wt</span>
                   <span class="po-area">{project.area || "No area"}</span>
+                  <span class={`po-status status-${project.status}`}>
+                    {statusLabel(project.status)}
+                  </span>
                 </button>
               )}
             </For>
@@ -415,11 +437,26 @@ export function ProjectsOverview(props: {
       </aside>
 
       <main class="po-detail-pane">
-        <Show
-          when={selectedProject()}
-          fallback={<section class="po-detail-empty">Select a project.</section>}
-        >
-          {(project) => (
+        <Show when={embeddedEditorProjectId()}>
+          {(projectId) => (
+            <ProjectDetailPanel
+              projectId={projectId()}
+              onBack={() => {
+                if (window.history.state?.aihubProjectEditor === projectId()) {
+                  window.history.back();
+                } else {
+                  setEmbeddedEditorProjectId(null);
+                }
+              }}
+            />
+          )}
+        </Show>
+        <Show when={!embeddedEditorProjectId()}>
+          <Show
+            when={selectedProject()}
+            fallback={<section class="po-detail-empty">Select a project.</section>}
+          >
+            {(project) => (
             <section class="po-detail">
               <header class="po-detail-header">
                 <div class="po-title-wrap">
@@ -467,7 +504,7 @@ export function ProjectsOverview(props: {
 
               <details class="po-readme">
                 <summary>
-                  <span>Description / README</span>
+                  <span>README / SPECS</span>
                   <button
                     class="po-link-button"
                     type="button"
@@ -559,7 +596,8 @@ export function ProjectsOverview(props: {
                 </Show>
               </section>
             </section>
-          )}
+            )}
+          </Show>
         </Show>
       </main>
 
@@ -739,10 +777,10 @@ export function ProjectsOverview(props: {
         }
         .po-project-row {
           display: grid;
-          grid-template-columns: auto minmax(0, 1fr) auto;
+          grid-template-columns: minmax(0, 1fr) auto;
           grid-template-areas:
-            "status title count"
-            "area area area";
+            "title count"
+            "area status";
           gap: 6px 8px;
           width: 100%;
           text-align: left;
@@ -767,6 +805,7 @@ export function ProjectsOverview(props: {
         }
         .po-count {
           grid-area: count;
+          justify-self: end;
           color: var(--text-secondary);
           font-size: 12px;
         }
@@ -777,6 +816,7 @@ export function ProjectsOverview(props: {
         }
         .po-status {
           grid-area: status;
+          justify-self: end;
           width: fit-content;
           border: 1px solid var(--border-default);
           border-radius: 999px;
