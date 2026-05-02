@@ -146,11 +146,16 @@ export function ProjectsOverview(
   const [detail] = createResource(selectedProjectId, async (id) =>
     id ? fetchProject(id) : null
   );
-  const preview = createMemo(() => {
-    const readme =
-      detail()?.docs?.README ?? detail()?.docs?.["README.md"] ?? "";
-    return firstParagraph(readme);
+  const [lastPreview, setLastPreview] = createSignal("");
+  createEffect(() => {
+    const resolvedDetail = detail.latest;
+    if (resolvedDetail) {
+      const readme =
+        resolvedDetail.docs?.README ?? resolvedDetail.docs?.["README.md"] ?? "";
+      setLastPreview(firstParagraph(readme));
+    }
   });
+  const preview = createMemo(() => lastPreview());
   const filteredProjects = createMemo(() => {
     const needle = query().trim().toLowerCase();
     return (projects() ?? []).filter((project) => {

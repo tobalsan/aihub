@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Suspense } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { ProjectsOverview } from "./ProjectsOverview";
 import type { BoardProject, BoardWorktree, ProjectDetail } from "../api/types";
@@ -49,6 +50,14 @@ vi.mock("./SubagentRunsPanel", () => ({
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 function worktree(
   id: string,
@@ -201,6 +210,48 @@ describe("ProjectsOverview", () => {
     expect(container.querySelector(".po-detail")?.textContent).toContain(
       "Gamma Project"
     );
+    dispose();
+  });
+
+  it("keeps the overview visible while selected project detail is loading", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([
+      project("PRO-1", "Alpha Project", "maybe"),
+      project("PRO-4", "Gamma Project", "maybe"),
+    ]);
+    const gammaDetail = deferred<ProjectDetail>();
+    fetchProjectMock.mockImplementation((id: string) => {
+      if (id === "PRO-4") return gammaDetail.promise;
+      return Promise.resolve(detail(id));
+    });
+
+    routeId = undefined;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Suspense fallback={<div class="suspense-fallback">Loading</div>}>
+          <ProjectsOverview embedded />
+        </Suspense>
+      ),
+      container
+    );
+    await tick();
+    await tick();
+
+    const row = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-project-row")
+    ).find((button) => button.textContent?.includes("Gamma Project"));
+    row?.click();
+    await tick();
+
+    expect(container.querySelector(".suspense-fallback")).toBeNull();
+    expect(container.querySelector(".po-detail")).not.toBeNull();
+    expect(container.querySelector(".po-detail")?.textContent).toContain(
+      "Gamma Project"
+    );
+
+    gammaDetail.resolve(detail("PRO-4", "Gamma Project"));
+    await tick();
     dispose();
   });
 
