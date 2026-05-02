@@ -382,9 +382,9 @@ export function SubagentRunsPanel(props: {
       <Show
         when={runs().length > 0}
         fallback={
-          <p class="canvas-monitor-empty">
-            {loading() ? "Loading subagents..." : "No subagent runs."}
-          </p>
+          <Show when={loading()}>
+            <p class="canvas-monitor-empty">Loading subagents...</p>
+          </Show>
         }
       >
         <div class="canvas-monitor-list">
