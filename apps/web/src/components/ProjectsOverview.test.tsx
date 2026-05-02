@@ -338,7 +338,7 @@ describe("ProjectsOverview", () => {
     await tick();
 
     expect(container.querySelector(".mock-subagent-runs")).toBeNull();
-    container.querySelector<HTMLButtonElement>(".po-worktree-toggle")?.click();
+    container.querySelector<HTMLButtonElement>(".po-worktree-row")?.click();
     await tick();
 
     expect(

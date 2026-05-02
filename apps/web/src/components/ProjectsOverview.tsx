@@ -540,7 +540,13 @@ export function ProjectsOverview(
                           );
                           return (
                             <article class="po-worktree-item">
-                              <div class="po-worktree-row">
+                              <button
+                                type="button"
+                                class="po-worktree-row"
+                                aria-expanded={expanded()}
+                                aria-label={`${expanded() ? "Collapse" : "Expand"} ${worktree.workerSlug || worktree.name} runs`}
+                                onClick={() => toggleWorktree(worktree)}
+                              >
                                 <div class="po-worktree-main">
                                   <div class="po-worktree-title">
                                     <strong>
@@ -572,18 +578,12 @@ export function ProjectsOverview(
                                   <span class="po-status-dot" />
                                   {wtStatus().label}
                                 </span>
-                                <button
-                                  aria-expanded={expanded()}
-                                  aria-label={`${expanded() ? "Collapse" : "Expand"} ${worktree.workerSlug || worktree.name} runs`}
-                                  class="po-worktree-toggle"
-                                  type="button"
-                                  onClick={() => toggleWorktree(worktree)}
-                                >
+                                <span class="po-worktree-chevron" aria-hidden="true">
                                   <span classList={{ open: expanded() }}>
                                     ›
                                   </span>
-                                </button>
-                              </div>
+                                </span>
+                              </button>
                               <Show when={expanded()}>
                                 <div class="po-worktree-runs">
                                   <SubagentRunsPanel cwd={worktree.path} />
@@ -887,7 +887,24 @@ export function ProjectsOverview(
           overflow: hidden;
         }
         .po-worktree-row {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 12px;
           padding: 12px;
+          background: transparent;
+          border: 0;
+          color: inherit;
+          text-align: left;
+          font: inherit;
+          cursor: pointer;
+        }
+        .po-worktree-row:hover {
+          background: var(--surface-primary);
+        }
+        .po-worktree-row:focus-visible {
+          outline: 2px solid var(--focus-ring, #6366f1);
+          outline-offset: -2px;
         }
         .po-worktree-main {
           min-width: 0;
@@ -932,23 +949,22 @@ export function ProjectsOverview(
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.45; transform: scale(0.82); }
         }
-        .po-worktree-toggle {
+        .po-worktree-chevron {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 28px;
-          height: 28px;
-          background: var(--surface-primary);
-          color: var(--text-primary);
-          padding: 0;
+          width: 24px;
+          height: 24px;
+          color: var(--text-secondary);
+          flex-shrink: 0;
         }
-        .po-worktree-toggle span {
+        .po-worktree-chevron span {
           display: inline-block;
           font-size: 18px;
           line-height: 1;
           transition: transform 120ms ease;
         }
-        .po-worktree-toggle span.open {
+        .po-worktree-chevron span.open {
           transform: rotate(90deg);
         }
         .po-worktree-runs {
