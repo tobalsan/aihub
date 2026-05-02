@@ -56,6 +56,8 @@ export type BoardProject = {
   worktrees: BoardWorktreeView[];
 };
 
+export const UNASSIGNED_PROJECT_ID = "__unassigned";
+
 const PROJECT_DIR_PATTERN = /^PRO-/;
 const SKIP_DIRS = new Set([".workspaces", ".archive", ".done", ".trash"]);
 
@@ -849,6 +851,11 @@ type ProjectMeta = {
 
 type WorktreeIndex = Map<string, BoardWorktree[]>;
 
+type WorktreeIndexResult = {
+  attributed: WorktreeIndex;
+  unassigned: BoardWorktree[];
+};
+
 async function worktreeMatchesExplicitRef(
   worktreePath: string,
   branch: string,
@@ -1021,12 +1028,11 @@ async function buildWorktreeIndex(
   metas: ProjectMeta[],
   worktreesRoot: string,
   options?: ScanProjectsOptions
-): Promise<WorktreeIndex> {
+): Promise<WorktreeIndexResult> {
   const activeMetas = metas.filter(
     (meta) => statusToGroup(meta.status) !== "done"
   );
   const activeProjectIds = new Set(activeMetas.map((meta) => meta.id));
-  if (activeProjectIds.size === 0) return new Map();
 
   const repos = [
     ...new Set(
@@ -1047,6 +1053,7 @@ async function buildWorktreeIndex(
       : undefined;
 
   const index: WorktreeIndex = new Map();
+  const unassigned: BoardWorktree[] = [];
   const detailsByPath = new Map<string, BoardWorktree>();
 
   const explicitProjectIdForWorktree = async (
@@ -1079,9 +1086,8 @@ async function buildWorktreeIndex(
     worktreePath: string,
     name: string,
     branch: string
-  ): Promise<{ projectId: string; wt: BoardWorktree } | null> => {
+  ): Promise<{ projectId: string | null; wt: BoardWorktree } | null> => {
     const projectId = await projectIdForWorktree(worktreePath, branch);
-    if (!projectId) return null;
     const key = await canonicalPath(worktreePath);
     const cached = detailsByPath.get(key);
     if (cached) return { projectId, wt: cached };
@@ -1103,7 +1109,9 @@ async function buildWorktreeIndex(
     })
   );
   for (const match of rootWorktrees) {
-    if (match) addWorktreeToIndex(index, match.projectId, match.wt);
+    if (!match) continue;
+    if (match.projectId) addWorktreeToIndex(index, match.projectId, match.wt);
+    else unassigned.push(match.wt);
   }
 
   const repoRefs = await Promise.all(
@@ -1117,10 +1125,12 @@ async function buildWorktreeIndex(
     })
   );
   for (const match of repoWorktrees) {
-    if (match) addWorktreeToIndex(index, match.projectId, match.wt);
+    if (!match) continue;
+    if (match.projectId) addWorktreeToIndex(index, match.projectId, match.wt);
+    else unassigned.push(match.wt);
   }
 
-  return index;
+  return { attributed: index, unassigned };
 }
 
 async function lookupWorktrees(
@@ -1135,6 +1145,29 @@ async function lookupWorktrees(
   const result = [...dedup.values()];
   result.sort((a, b) => a.name.localeCompare(b.name));
   return result;
+}
+
+async function buildUnassignedProject(
+  worktrees: BoardWorktree[],
+  options?: ScanProjectsOptions
+): Promise<BoardProject> {
+  const meta: ProjectMeta = {
+    id: UNASSIGNED_PROJECT_ID,
+    title: "Unassigned",
+    area: "",
+    status: "unassigned",
+    created: "",
+    worktrees: [],
+  };
+  return {
+    id: UNASSIGNED_PROJECT_ID,
+    title: "Unassigned",
+    area: "",
+    status: "unassigned",
+    group: "active",
+    created: "",
+    worktrees: await buildProjectWorktreeViews(meta, worktrees, options),
+  };
 }
 
 export async function scanProjects(
@@ -1216,7 +1249,7 @@ async function scanProjectsUncached(
   try {
     entries = await fs.readdir(projectsRoot, { withFileTypes: true });
   } catch {
-    return [];
+    return [await buildUnassignedProject([], options)];
   }
 
   const wtRoot = worktreesRoot ?? expandPath("~/.worktrees");
@@ -1240,7 +1273,7 @@ async function scanProjectsUncached(
     if (!includeDone && group === "done") continue;
     const worktrees = await buildProjectWorktreeViews(
       meta,
-      await lookupWorktrees(worktreeIndex, meta),
+      await lookupWorktrees(worktreeIndex.attributed, meta),
       options
     );
     projects.push({
@@ -1259,6 +1292,10 @@ async function scanProjectsUncached(
     if (g !== 0) return g;
     return b.created.localeCompare(a.created);
   });
+
+  projects.push(
+    await buildUnassignedProject(worktreeIndex.unassigned, options)
+  );
 
   return projects;
 }

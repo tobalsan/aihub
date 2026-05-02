@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  UNASSIGNED_PROJECT_ID,
   invalidateProjectCache,
   resetProjectCaches,
   scanProjects,
@@ -190,9 +191,9 @@ describe("scanProjects", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  it("returns empty when root is missing", async () => {
+  it("returns unassigned when root is missing", async () => {
     const items = await scanProjects(path.join(tmp, "nope"), false);
-    expect(items).toEqual([]);
+    expect(items).toMatchObject([{ id: UNASSIGNED_PROJECT_ID, worktrees: [] }]);
   });
 
   it("scans projects, skips reserved dirs and non-PRO dirs", async () => {
@@ -213,7 +214,11 @@ describe("scanProjects", () => {
     await fs.mkdir(path.join(tmp, "not-a-project"), { recursive: true });
 
     const items = await scanProjects(tmp, false, emptyWtRoot);
-    expect(items.map((p) => p.id)).toEqual(["PRO-002", "PRO-001"]);
+    expect(items.map((p) => p.id)).toEqual([
+      "PRO-002",
+      "PRO-001",
+      UNASSIGNED_PROJECT_ID,
+    ]);
     expect(items[0]?.group).toBe("review");
     expect(items[1]?.group).toBe("active");
   });
@@ -231,7 +236,7 @@ describe("scanProjects", () => {
     });
 
     const items = await scanProjects(tmp, true, emptyWtRoot);
-    expect(items.map((p) => p.id)).toEqual(["PRO-001"]);
+    expect(items.map((p) => p.id)).toEqual(["PRO-001", UNASSIGNED_PROJECT_ID]);
   });
 
   it("filters out done projects unless includeDone", async () => {
@@ -247,10 +252,17 @@ describe("scanProjects", () => {
     });
 
     const without = await scanProjects(tmp, false, emptyWtRoot);
-    expect(without.map((p) => p.id)).toEqual(["PRO-001"]);
+    expect(without.map((p) => p.id)).toEqual([
+      "PRO-001",
+      UNASSIGNED_PROJECT_ID,
+    ]);
 
     const withDone = await scanProjects(tmp, true, emptyWtRoot);
-    expect(withDone.map((p) => p.id).sort()).toEqual(["PRO-001", "PRO-002"]);
+    expect(withDone.map((p) => p.id).sort()).toEqual([
+      "PRO-001",
+      "PRO-002",
+      UNASSIGNED_PROJECT_ID,
+    ]);
   });
 
   it("sorts by group then created desc", async () => {
@@ -281,6 +293,7 @@ describe("scanProjects", () => {
       "PRO-B",
       "PRO-A",
       "PRO-D",
+      UNASSIGNED_PROJECT_ID,
     ]);
   });
 
@@ -300,7 +313,7 @@ describe("scanProjects", () => {
     await fs.writeFile(path.join(wt, "dirty"), "dirty", "utf-8");
 
     const items = await scanProjects(tmp, false, wtRoot);
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
     const wts = items[0]?.worktrees ?? [];
     expect(wts).toHaveLength(1);
     expect(wts[0]?.name).toBe("feature-x");
@@ -335,6 +348,31 @@ describe("scanProjects", () => {
     expect(items[0]?.worktrees).toEqual([]);
   });
 
+  it("places worktrees without a project token under unassigned", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "aihub", "flash-fix", "feat/flash");
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    const unassigned = items.find((item) => item.id === UNASSIGNED_PROJECT_ID);
+    expect(unassigned).toMatchObject({
+      title: "Unassigned",
+      status: "unassigned",
+      area: "",
+    });
+    expect(unassigned?.worktrees).toMatchObject([
+      {
+        name: "flash-fix",
+        path: wt,
+        branch: "feat/flash",
+      },
+    ]);
+  });
+
   it("attributes worktrees by active project id in the path", async () => {
     await makeProject(tmp, "PRO-235", {
       title: "Alpha",
@@ -345,7 +383,9 @@ describe("scanProjects", () => {
     const wt = await makeWorktree(wtRoot, "PRO-235", "foo", "feat/foo");
 
     const items = await scanProjects(tmp, false, wtRoot);
-    expect(items[0]?.worktrees).toMatchObject([
+    expect(
+      items.find((item) => item.id === "PRO-235")?.worktrees
+    ).toMatchObject([
       {
         name: "foo",
         path: wt,
@@ -369,7 +409,9 @@ describe("scanProjects", () => {
     );
 
     const items = await scanProjects(tmp, false, wtRoot);
-    expect(items[0]?.worktrees).toMatchObject([
+    expect(
+      items.find((item) => item.id === "PRO-235")?.worktrees
+    ).toMatchObject([
       {
         name: "cleanup",
         path: wt,
@@ -400,18 +442,59 @@ describe("scanProjects", () => {
     expect(beta?.worktrees.map((worktree) => worktree.path)).toEqual([wt]);
   });
 
-  it("does not attribute inactive or nonexistent project tokens", async () => {
+  it("places inactive or nonexistent project tokens under unassigned", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",
       status: "current",
       created: "2026-01-01",
     });
     const wtRoot = path.join(tmp, "_worktrees");
-    await makeWorktree(wtRoot, "aihub", "ghost", "feat/PRO-999-thing");
-    await makeWorktree(wtRoot, "PRO-999", "PRO-001-old-archive", "feat/foo");
+    const ghost = await makeWorktree(
+      wtRoot,
+      "aihub",
+      "ghost",
+      "feat/PRO-999-thing"
+    );
 
     const items = await scanProjects(tmp, false, wtRoot);
-    expect(items[0]?.worktrees).toEqual([]);
+    const unassigned = items.find((item) => item.id === UNASSIGNED_PROJECT_ID);
+    expect(items.find((item) => item.id === "PRO-001")?.worktrees).toEqual([]);
+    expect(unassigned?.worktrees.map((worktree) => worktree.path)).toEqual([
+      ghost,
+    ]);
+  });
+
+  it("does not place attributed worktrees under unassigned", async () => {
+    await makeProject(tmp, "PRO-227", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+    const wtRoot = path.join(tmp, "_worktrees");
+    const wt = await makeWorktree(wtRoot, "PRO-227", "foo", "feat/foo");
+
+    const items = await scanProjects(tmp, false, wtRoot);
+    expect(
+      items.find((item) => item.id === "PRO-227")?.worktrees[0]?.path
+    ).toBe(wt);
+    expect(
+      items.find((item) => item.id === UNASSIGNED_PROJECT_ID)?.worktrees
+    ).toEqual([]);
+  });
+
+  it("always includes the unassigned project", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "Alpha",
+      status: "current",
+      created: "2026-01-01",
+    });
+
+    const items = await scanProjects(tmp, false, emptyWtRoot);
+    expect(items.at(-1)).toMatchObject({
+      id: UNASSIGNED_PROJECT_ID,
+      title: "Unassigned",
+      worktrees: [],
+    });
   });
 
   it("handles non-git worktree subdirs gracefully", async () => {
@@ -424,7 +507,7 @@ describe("scanProjects", () => {
     await fs.mkdir(path.join(wtRoot, "aihub", "garbage"), { recursive: true });
 
     const items = await scanProjects(tmp, false, wtRoot);
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
     expect(items[0]?.worktrees).toEqual([]);
   });
 
@@ -786,7 +869,7 @@ describe("scanProjects", () => {
     });
 
     const items = await scanProjects(tmp, false, path.join(tmp, "missing"));
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
     const wts = items[0]?.worktrees ?? [];
     const found = wts.find((w) => w.branch === "space/PRO-001");
     expect(found).toBeTruthy();
@@ -950,7 +1033,7 @@ describe("scanProjects", () => {
     const gitLog = await withGitLog(tmp);
     try {
       const items = await scanProjects(tmp, false, wtRoot);
-      expect(items).toHaveLength(2);
+      expect(items).toHaveLength(3);
     } finally {
       gitLog.restore();
     }
@@ -1002,7 +1085,7 @@ describe("scanProjects", () => {
     const gitLog = await withGitLog(tmp);
     try {
       const items = await scanProjects(tmp, false, path.join(tmp, "missing"));
-      expect(items).toHaveLength(2);
+      expect(items).toHaveLength(3);
     } finally {
       gitLog.restore();
     }
@@ -1030,8 +1113,8 @@ describe("scanProjects", () => {
         scanProjects(tmp, false, wtRoot),
         scanProjects(tmp, false, wtRoot),
       ]);
-      expect(first).toHaveLength(1);
-      expect(second).toHaveLength(1);
+      expect(first).toHaveLength(2);
+      expect(second).toHaveLength(2);
     } finally {
       gitLog.restore();
     }
@@ -1158,6 +1241,6 @@ describe("scanProjects", () => {
   it("skips dirs without README.md", async () => {
     await fs.mkdir(path.join(tmp, "PRO-empty"), { recursive: true });
     const items = await scanProjects(tmp, false, emptyWtRoot);
-    expect(items).toEqual([]);
+    expect(items).toMatchObject([{ id: UNASSIGNED_PROJECT_ID, worktrees: [] }]);
   });
 });

@@ -77,6 +77,7 @@ describe("SubagentRunsPanel", () => {
     expect(fetchRuntimeSubagentsMock).toHaveBeenCalledWith({
       cwd: "/tmp/worktrees/worker",
       parent: undefined,
+      status: undefined,
       includeArchived: undefined,
     });
     expect(container.textContent).toContain("Worker");
@@ -91,6 +92,64 @@ describe("SubagentRunsPanel", () => {
 
     expect(fetchRuntimeSubagentLogsMock).toHaveBeenCalledWith("sar_1", 0);
     expect(container.textContent).toContain("Finished work.");
+    dispose();
+  });
+
+  it("renders only active unassigned runs outside excluded cwds", async () => {
+    fetchRuntimeSubagentsMock.mockResolvedValue({
+      items: [
+        {
+          id: "sar_1",
+          label: "Loose",
+          cli: "codex",
+          cwd: "/tmp/worktrees/loose",
+          prompt: "test",
+          status: "running",
+          startedAt: "2026-04-30T10:00:00.000Z",
+        },
+        {
+          id: "sar_2",
+          label: "Tracked",
+          cli: "codex",
+          cwd: "/tmp/worktrees/tracked",
+          prompt: "test",
+          status: "running",
+          startedAt: "2026-04-30T10:00:00.000Z",
+        },
+        {
+          id: "sar_3",
+          label: "Done",
+          cli: "codex",
+          cwd: "/tmp/worktrees/done",
+          prompt: "test",
+          status: "done",
+          startedAt: "2026-04-30T10:00:00.000Z",
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <SubagentRunsPanel
+          mode="unassigned"
+          excludeCwds={["/tmp/worktrees/tracked"]}
+        />
+      ),
+      container
+    );
+    await tick();
+    await tick();
+
+    expect(fetchRuntimeSubagentsMock).toHaveBeenCalledWith({
+      cwd: undefined,
+      parent: undefined,
+      status: undefined,
+      includeArchived: undefined,
+    });
+    expect(container.textContent).toContain("Loose");
+    expect(container.textContent).not.toContain("Tracked");
+    expect(container.textContent).not.toContain("Done");
     dispose();
   });
 });

@@ -44,8 +44,15 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("./SubagentRunsPanel", () => ({
-  SubagentRunsPanel: (props: { cwd: string }) => (
-    <div class="mock-subagent-runs">runs for {props.cwd}</div>
+  SubagentRunsPanel: (props: {
+    cwd?: string;
+    mode?: string;
+    excludeCwds?: string[];
+  }) => (
+    <div class="mock-subagent-runs">
+      runs for {props.cwd ?? props.mode} excluding{" "}
+      {(props.excludeCwds ?? []).join(",")}
+    </div>
   ),
 }));
 
@@ -105,6 +112,18 @@ function project(
   };
 }
 
+function unassigned(worktrees: BoardWorktree[] = []): BoardProject {
+  return {
+    id: "__unassigned",
+    title: "Unassigned",
+    area: "",
+    status: "unassigned",
+    group: "active",
+    created: "",
+    worktrees,
+  };
+}
+
 function detail(id: string, title = "Alpha Project"): ProjectDetail {
   return {
     id,
@@ -150,6 +169,7 @@ describe("ProjectsOverview", () => {
       ]),
       project("PRO-2", "Beta Project", "done"),
       project("PRO-3", "Archived Project", "archived"),
+      unassigned(),
     ]);
     fetchProjectMock.mockImplementation((id: string) =>
       Promise.resolve(detail(id))
@@ -173,6 +193,38 @@ describe("ProjectsOverview", () => {
     expect(container.textContent).toContain("Alpha Project");
     expect(container.textContent).toContain("1 wt");
     expect(container.textContent).toContain("platform");
+    dispose();
+  });
+
+  it("pins unassigned outside filters and renders read-only detail", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([
+      project("PRO-1", "Alpha Project", "maybe", [worktree("worker-a", null)]),
+      unassigned([worktree("loose", null)]),
+    ]);
+    const { container, dispose } = renderOverview("__unassigned");
+    await tick();
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-project-row")
+    );
+    expect(rows.at(-1)?.classList.contains("unassigned")).toBe(true);
+    expect(rows.at(-1)?.textContent).toContain("Unassigned");
+    expect(container.querySelector(".po-detail h1")?.textContent).toBe(
+      "Unassigned"
+    );
+    expect(container.textContent).not.toContain("Mark done");
+    expect(container.textContent).not.toContain("README / SPECS");
+    expect(
+      container.querySelector(".mock-subagent-runs")?.textContent
+    ).toContain("runs for unassigned excluding /tmp/worktrees/worker-a");
+    expect(fetchProjectMock).not.toHaveBeenCalledWith("__unassigned");
+
+    const done = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".po-filter")
+    ).find((button) => button.textContent === "Done");
+    done?.click();
+    await tick();
+    expect(container.textContent).toContain("Unassigned");
     dispose();
   });
 

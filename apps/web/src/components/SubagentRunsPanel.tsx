@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import type { SubagentRun } from "@aihub/shared/types";
+import type { SubagentRunStatus } from "@aihub/shared/types";
 import {
   archiveRuntimeSubagent,
   deleteRuntimeSubagent,
@@ -179,9 +180,12 @@ function MonitorHistoryBody(props: { item: MonitorHistoryItem }) {
 }
 
 export function SubagentRunsPanel(props: {
-  cwd: string;
+  cwd?: string;
   parent?: string;
   includeArchived?: boolean;
+  mode?: "cwd" | "unassigned";
+  excludeCwds?: string[];
+  status?: SubagentRunStatus;
 }) {
   const [runs, setRuns] = createSignal<SubagentRun[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -196,14 +200,26 @@ export function SubagentRunsPanel(props: {
   const scrollPositions = new Map<string, number>();
 
   async function loadRuns() {
+    const filters = {
+      cwd: props.cwd,
+      parent: props.parent,
+      status: props.status,
+      includeArchived: props.includeArchived,
+    };
+    const mode = props.mode;
+    const excludeCwds = new Set(props.excludeCwds ?? []);
     setLoading(true);
     try {
-      const data = await fetchRuntimeSubagents({
-        cwd: props.cwd,
-        parent: props.parent,
-        includeArchived: props.includeArchived,
-      });
-      setRuns(data.items);
+      const data = await fetchRuntimeSubagents(filters);
+      const items =
+        mode === "unassigned"
+          ? data.items.filter(
+              (run) =>
+                (run.status === "running" || run.status === "starting") &&
+                (!run.cwd || !excludeCwds.has(run.cwd))
+            )
+          : data.items;
+      setRuns(items);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -339,8 +355,6 @@ export function SubagentRunsPanel(props: {
   }
 
   createEffect(() => {
-    props.cwd;
-    props.parent;
     void loadRuns();
   });
 

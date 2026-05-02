@@ -30,6 +30,7 @@ type WorktreeStatus = {
   working: boolean;
 };
 
+const UNASSIGNED_PROJECT_ID = "__unassigned";
 const TERMINAL_STATUSES = new Set(["archived", "trashed", "cancelled"]);
 
 function shortPath(path: string): string {
@@ -95,6 +96,10 @@ function projectMatchesFilter(
   );
 }
 
+function isUnassignedProject(project: Pick<BoardProject, "id">): boolean {
+  return project.id === UNASSIGNED_PROJECT_ID;
+}
+
 function firstParagraph(markdown: string): string {
   return (
     markdown
@@ -144,7 +149,7 @@ export function ProjectsOverview(
     return (projects() ?? []).find((project) => project.id === id) ?? null;
   });
   const [detail] = createResource(selectedProjectId, async (id) =>
-    id ? fetchProject(id) : null
+    id && id !== UNASSIGNED_PROJECT_ID ? fetchProject(id) : null
   );
   const [lastPreview, setLastPreview] = createSignal("");
   createEffect(() => {
@@ -158,10 +163,26 @@ export function ProjectsOverview(
   const preview = createMemo(() => lastPreview());
   const filteredProjects = createMemo(() => {
     const needle = query().trim().toLowerCase();
-    return (projects() ?? []).filter((project) => {
+    const matched = (projects() ?? []).filter((project) => {
+      if (isUnassignedProject(project)) return true;
       if (!projectMatchesFilter(project, filter())) return false;
       return !needle || project.title.toLowerCase().includes(needle);
     });
+    const realProjects = matched.filter(
+      (project) => !isUnassignedProject(project)
+    );
+    const unassigned = matched.filter(isUnassignedProject);
+    return [...realProjects, ...unassigned];
+  });
+  const trackedWorktreeCwds = createMemo(() => {
+    const paths = new Set<string>();
+    for (const project of projects() ?? []) {
+      if (isUnassignedProject(project)) continue;
+      for (const worktree of project.worktrees) {
+        paths.add(worktree.worktreePath || worktree.path);
+      }
+    }
+    return [...paths];
   });
 
   createEffect(() => {
@@ -231,7 +252,12 @@ export function ProjectsOverview(
   async function saveTitle() {
     const project = selectedProject();
     const title = draftTitle().trim();
-    if (!project || title.length === 0 || title === project.title) {
+    if (
+      !project ||
+      isUnassignedProject(project) ||
+      title.length === 0 ||
+      title === project.title
+    ) {
       setEditingTitle(false);
       setDraftTitle(project?.title ?? "");
       return;
@@ -250,7 +276,7 @@ export function ProjectsOverview(
 
   async function markDone() {
     const project = selectedProject();
-    if (!project) return;
+    if (!project || isUnassignedProject(project)) return;
     setActionError("");
     try {
       await updateProject(project.id, { status: "done" });
@@ -313,7 +339,7 @@ export function ProjectsOverview(
 
   function openDetail(tab: "chat" | "activity" | "changes" = "chat") {
     const project = selectedProject();
-    if (!project) return;
+    if (!project || isUnassignedProject(project)) return;
     if (props.embedded) {
       setEmbeddedEditorProjectId(project.id);
       window.history.pushState(
@@ -403,17 +429,24 @@ export function ProjectsOverview(
                 <button
                   classList={{
                     "po-project-row": true,
+                    unassigned: isUnassignedProject(project),
                     selected: selectedProjectId() === project.id,
                   }}
                   type="button"
                   onClick={() => selectProject(project.id)}
                 >
                   <span class="po-project-heading">
-                    <span class="po-project-id">{project.id}</span>
+                    <span class="po-project-id">
+                      {isUnassignedProject(project) ? "box" : project.id}
+                    </span>
                     <span class="po-project-title">{project.title}</span>
                   </span>
                   <span class="po-count">{project.worktrees.length} wt</span>
-                  <span class="po-area">{project.area || "No area"}</span>
+                  <span class="po-area">
+                    {isUnassignedProject(project)
+                      ? "Not tied to a project"
+                      : project.area || "No area"}
+                  </span>
                   <span class={`po-status status-${project.status}`}>
                     {statusLabel(project.status)}
                   </span>
@@ -451,15 +484,22 @@ export function ProjectsOverview(
                 <header class="po-detail-header">
                   <div class="po-title-wrap">
                     <Show
-                      when={editingTitle()}
+                      when={!isUnassignedProject(project()) && editingTitle()}
                       fallback={
-                        <button
-                          class="po-title-button"
-                          type="button"
-                          onClick={() => setEditingTitle(true)}
+                        <Show
+                          when={isUnassignedProject(project())}
+                          fallback={
+                            <button
+                              class="po-title-button"
+                              type="button"
+                              onClick={() => setEditingTitle(true)}
+                            >
+                              {project().title}
+                            </button>
+                          }
                         >
-                          {project().title}
-                        </button>
+                          <h1>{project().title}</h1>
+                        </Show>
                       }
                     >
                       <input
@@ -479,49 +519,71 @@ export function ProjectsOverview(
                         }}
                       />
                     </Show>
-                    <div class="po-detail-meta">
-                      <span class={`po-status status-${project().status}`}>
-                        {statusLabel(project().status)}
-                      </span>
-                      <span>{project().area || "No area"}</span>
-                    </div>
+                    <Show when={!isUnassignedProject(project())}>
+                      <div class="po-detail-meta">
+                        <span class={`po-status status-${project().status}`}>
+                          {statusLabel(project().status)}
+                        </span>
+                        <span>{project().area || "No area"}</span>
+                      </div>
+                    </Show>
                   </div>
-                  <button class="po-secondary" type="button" onClick={markDone}>
-                    Mark done
-                  </button>
+                  <Show when={!isUnassignedProject(project())}>
+                    <button
+                      class="po-secondary"
+                      type="button"
+                      onClick={markDone}
+                    >
+                      Mark done
+                    </button>
+                  </Show>
                 </header>
                 <Show when={actionError()}>
                   {(message) => <p class="po-error">{message()}</p>}
                 </Show>
 
-                <details class="po-readme">
-                  <summary>
-                    <span>README / SPECS</span>
-                    <button
-                      class="po-link-button"
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        openDetail("chat");
-                      }}
+                <Show when={!isUnassignedProject(project())}>
+                  <details class="po-readme">
+                    <summary>
+                      <span>README / SPECS</span>
+                      <button
+                        class="po-link-button"
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          openDetail("chat");
+                        }}
+                      >
+                        Edit
+                      </button>
+                    </summary>
+                    <Show
+                      when={preview()}
+                      fallback={
+                        <p class="po-muted">No README description yet.</p>
+                      }
                     >
-                      Edit
-                    </button>
-                  </summary>
-                  <Show
-                    when={preview()}
-                    fallback={
-                      <p class="po-muted">No README description yet.</p>
-                    }
-                  >
-                    {(body) => (
-                      <div
-                        class="po-readme-preview"
-                        innerHTML={renderMarkdown(body())}
-                      />
-                    )}
-                  </Show>
-                </details>
+                      {(body) => (
+                        <div
+                          class="po-readme-preview"
+                          innerHTML={renderMarkdown(body())}
+                        />
+                      )}
+                    </Show>
+                  </details>
+                </Show>
+
+                <Show when={isUnassignedProject(project())}>
+                  <section class="po-unassigned-runs">
+                    <div class="po-section-title">
+                      <h2>Active runs not tied to a worktree</h2>
+                    </div>
+                    <SubagentRunsPanel
+                      mode="unassigned"
+                      excludeCwds={trackedWorktreeCwds()}
+                    />
+                  </section>
+                </Show>
 
                 <section class="po-worktrees">
                   <div class="po-section-title">
@@ -583,7 +645,10 @@ export function ProjectsOverview(
                                   <span class="po-status-dot" />
                                   {wtStatus().label}
                                 </span>
-                                <span class="po-worktree-chevron" aria-hidden="true">
+                                <span
+                                  class="po-worktree-chevron"
+                                  aria-hidden="true"
+                                >
                                   <span classList={{ open: expanded() }}>
                                     ›
                                   </span>
@@ -764,6 +829,12 @@ export function ProjectsOverview(
           border-color: var(--border-default);
           background: var(--surface-primary);
         }
+        .po-project-row.unassigned {
+          color: var(--text-secondary);
+        }
+        .po-project-row.unassigned .po-project-title {
+          color: var(--text-secondary);
+        }
         .po-project-heading {
           grid-area: title;
           min-width: 0;
@@ -814,7 +885,8 @@ export function ProjectsOverview(
         .status-done { color: #86efac; border-color: rgba(34, 197, 94, 0.35); }
         .status-archived,
         .status-trashed,
-        .status-cancelled { color: #cbd5e1; }
+        .status-cancelled,
+        .status-unassigned { color: #cbd5e1; }
         .po-detail-pane {
           padding: 24px;
         }
@@ -875,6 +947,11 @@ export function ProjectsOverview(
           line-height: 1.55;
         }
         .po-worktrees {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .po-unassigned-runs {
           display: flex;
           flex-direction: column;
           gap: 10px;
