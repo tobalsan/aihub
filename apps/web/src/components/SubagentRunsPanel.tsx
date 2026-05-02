@@ -357,14 +357,17 @@ export function SubagentRunsPanel(props: {
 
   const runningCount = () =>
     runs().filter((run) => run.status === "running").length;
+  const runningLabel = () => {
+    const n = runningCount();
+    if (n === 0) return "No agent running";
+    if (n === 1) return "One agent running";
+    return `${n} agents running`;
+  };
 
   return (
     <div class="canvas-monitor">
       <header class="canvas-monitor-header">
-        <div>
-          <h2>Agent Monitor</h2>
-          <p>{runningCount()} running</p>
-        </div>
+        <p>{runningLabel()}</p>
         <button
           class="canvas-monitor-refresh"
           onClick={refreshMonitor}
