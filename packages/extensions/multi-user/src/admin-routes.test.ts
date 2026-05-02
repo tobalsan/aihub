@@ -28,19 +28,26 @@ vi.mock("./index.js", async () => {
   };
 });
 
-vi.mock("../../../../apps/gateway/src/config/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../apps/gateway/src/config/index.js")>();
-  return {
-    ...actual,
-    getAgent,
-    getActiveAgents,
-    isAgentActive: () => true,
-    resolveWorkspaceDir: (workspace: string) => workspace,
-  };
-});
+vi.mock(
+  "../../../../apps/gateway/src/config/index.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../../apps/gateway/src/config/index.js")
+      >();
+    return {
+      ...actual,
+      getAgent,
+      getActiveAgents,
+      isAgentActive: () => true,
+      resolveWorkspaceDir: (workspace: string) => workspace,
+    };
+  }
+);
 
 vi.mock("../../../../apps/gateway/src/extensions/registry.js", () => ({
   getLoadedExtensions,
+  getHomeExtension: () => undefined,
   isMultiUserLoaded: () =>
     getLoadedExtensions().some(
       (extension: { id?: string }) => extension.id === "multiUser"
@@ -511,7 +518,8 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+    const { api } =
+      await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/agents", {
         headers: {
@@ -541,7 +549,8 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+    const { api } =
+      await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/agents", {
         headers: {
@@ -572,7 +581,8 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+    const { api } =
+      await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/agents/status", {
         headers: {
@@ -604,7 +614,8 @@ describe("multi-user api core", () => {
     runtime.assignmentStore.seed("agent-b", ["user-1"]);
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
-    const { api } = await import("../../../../apps/gateway/src/server/api.core.js");
+    const { api } =
+      await import("../../../../apps/gateway/src/server/api.core.js");
     const response = await api.request(
       new Request("http://localhost/capabilities", {
         headers: {

@@ -346,6 +346,39 @@ function toMessageData(data: {
   };
 }
 
+function mentionsBot(data: MessageData, botUserId: string | undefined): boolean {
+  return Boolean(botUserId && data.mentions?.some((mention) => mention.id === botUserId));
+}
+
+function withoutMentionRequirement(
+  config: DiscordConfig,
+  guildId: string | undefined,
+  channelId: string
+): DiscordConfig {
+  if (!guildId) return config;
+
+  const guildConfig = config.guilds?.[guildId];
+  return {
+    ...config,
+    guilds: {
+      ...config.guilds,
+      [guildId]: {
+        ...guildConfig,
+        requireMention: false,
+        reactionNotifications: guildConfig?.reactionNotifications ?? "off",
+        channels: {
+          ...guildConfig?.channels,
+          [channelId]: {
+            ...guildConfig?.channels?.[channelId],
+            enabled: guildConfig?.channels?.[channelId]?.enabled ?? true,
+            requireMention: false,
+          },
+        },
+      },
+    },
+  };
+}
+
 async function enrichThreadParent(
   data: MessageData,
   client: CarbonClient
@@ -553,6 +586,7 @@ async function createConfiguredDiscordBot(
   const textAccumulators = new Map<string, string>();
   const handledMessageIds = new Set<string>();
   const handledThreadIds = new Set<string>();
+  const unlockedThreadIds = new Set<string>();
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
 
@@ -585,15 +619,29 @@ async function createConfiguredDiscordBot(
       };
       const target = options.resolveMessageTarget(msgData);
       if (!target) return;
+      if (mentionsBot(msgData, botUserId)) {
+        unlockedThreadIds.add(msgData.channel_id);
+      }
+      const effectiveTarget =
+        unlockedThreadIds.has(msgData.channel_id)
+          ? {
+              ...target,
+              config: withoutMentionRequirement(
+                target.config,
+                msgData.guild_id,
+                msgData.channel_id
+              ),
+            }
+          : target;
 
       await handleDiscordMessage(
         msgData,
         client,
-        target,
+        effectiveTarget,
         botUserId,
-        target.config.historyLimit ?? 20,
-        target.config.clearHistoryAfterReply ?? true,
-        target.config.replyToMode ?? "off"
+        effectiveTarget.config.historyLimit ?? 20,
+        effectiveTarget.config.clearHistoryAfterReply ?? true,
+        effectiveTarget.config.replyToMode ?? "off"
       );
     } catch (err) {
       console.debug(`${options.logPrefix} Thread create ignored: ${err}`);
@@ -627,14 +675,35 @@ async function createConfiguredDiscordBot(
     const { data: msgData, target } = resolved;
     if (!target) return;
 
+    const shouldUnlockThread = mentionsBot(msgData, botUserId);
+    const threadMessage =
+      unlockedThreadIds.has(msgData.channel_id) || shouldUnlockThread
+        ? await enrichThreadParent(msgData, client)
+        : msgData;
+    const isThreadMessage = Boolean(threadMessage.parent_channel_id);
+    if (isThreadMessage && shouldUnlockThread) {
+      unlockedThreadIds.add(threadMessage.channel_id);
+    }
+    const effectiveTarget =
+      isThreadMessage && unlockedThreadIds.has(threadMessage.channel_id)
+        ? {
+            ...target,
+            config: withoutMentionRequirement(
+              target.config,
+              threadMessage.guild_id,
+              threadMessage.channel_id
+            ),
+          }
+        : target;
+
     await handleDiscordMessage(
-      msgData,
+      threadMessage,
       client,
-      target,
+      effectiveTarget,
       botUserId,
-      target.config.historyLimit ?? 20,
-      target.config.clearHistoryAfterReply ?? true,
-      target.config.replyToMode ?? "off"
+      effectiveTarget.config.historyLimit ?? 20,
+      effectiveTarget.config.clearHistoryAfterReply ?? true,
+      effectiveTarget.config.replyToMode ?? "off"
     );
   };
 
@@ -710,6 +779,7 @@ async function createConfiguredDiscordBot(
       textAccumulators.clear();
       handledMessageIds.clear();
       handledThreadIds.clear();
+      unlockedThreadIds.clear();
       stopAllTyping();
       const gateway = getGatewayPlugin(client);
       if (gateway) {

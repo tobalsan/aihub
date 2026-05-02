@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearAllHistory, getHistory, recordMessage } from "./utils/history.js";
 
 type MockStreamEvent = {
-  type: "thinking" | "done" | "error";
+  type: "thinking" | "done" | "error" | "file_output";
   data?: string;
+  fileId?: string;
+  filename?: string;
+  mimeType?: string;
+  size?: number;
   agentId: string;
   sessionId: string;
   sessionKey?: string;
@@ -20,6 +24,9 @@ type MockSlackApp = {
       update: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
       postEphemeral: ReturnType<typeof vi.fn>;
+    };
+    files: {
+      uploadV2: ReturnType<typeof vi.fn>;
     };
     conversations: {
       info: ReturnType<typeof vi.fn>;
@@ -76,6 +83,9 @@ vi.mock("@slack/bolt", () => ({
           delete: vi.fn().mockResolvedValue({}),
           postEphemeral: vi.fn().mockResolvedValue({}),
         },
+        files: {
+          uploadV2: vi.fn().mockResolvedValue({}),
+        },
         conversations: {
           info: vi.fn().mockResolvedValue({ channel: { name: "general" } }),
           history: vi.fn().mockResolvedValue({ messages: [] }),
@@ -101,10 +111,14 @@ const mockGetSessionEntry = vi.fn();
 const mockClearSessionEntry = vi.fn();
 const mockDeleteSession = vi.fn();
 const mockInvalidateHistoryCache = vi.fn();
+const mockSaveMediaFile = vi.fn();
+const mockReadMediaFile = vi.fn();
 
 vi.mock("./context.js", () => ({
   getSlackContext: vi.fn(() => ({
     runAgent: mockRunAgent,
+    saveMediaFile: mockSaveMediaFile,
+    readMediaFile: mockReadMediaFile,
     getSessionEntry: mockGetSessionEntry,
     clearSessionEntry: mockClearSessionEntry,
     deleteSession: mockDeleteSession,
@@ -174,10 +188,25 @@ describe("createSlackBot", () => {
     });
     mockDeleteSession.mockReturnValue(undefined);
     mockInvalidateHistoryCache.mockResolvedValue(undefined);
+    mockSaveMediaFile.mockImplementation(
+      async (data: Uint8Array, mimeType: string, filename?: string) => ({
+        path: `/media/inbound/${filename ?? "file"}`,
+        mimeType,
+        filename,
+        size: data.byteLength,
+      })
+    );
+    mockReadMediaFile.mockResolvedValue({
+      data: Buffer.from([4, 5, 6]),
+      filename: "summary.pdf",
+      mimeType: "application/pdf",
+      size: 3,
+    });
     mockRunAgent.mockResolvedValue({
       payloads: [{ text: "ok" }],
       meta: { durationMs: 1, sessionId: "session" },
     });
+    vi.unstubAllGlobals();
   });
 
   it("creates a Bolt Socket Mode app and registers handlers", async () => {
@@ -291,6 +320,438 @@ describe("createSlackBot", () => {
         text: "*ok* <https://example.com|docs>",
       })
     );
+  });
+
+  it("passes Slack file_share image files as agent attachments", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+        )
+    );
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        subtype: "file_share",
+        text: "what is wrong?",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "screen.png",
+            mimetype: "image/png",
+            size: 3,
+            url_private_download: "https://files.slack.test/screen.png",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockSaveMediaFile).toHaveBeenCalledWith(
+      Buffer.from([1, 2, 3]),
+      "image/png",
+      "screen.png"
+    );
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "what is wrong?",
+        attachments: [
+          {
+            path: "/media/inbound/screen.png",
+            mimeType: "image/png",
+            filename: "screen.png",
+            size: 3,
+          },
+        ],
+      })
+    );
+  });
+
+  it("invokes the agent for a file-only Slack message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+        )
+    );
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "doc.pdf",
+            mimetype: "application/pdf",
+            size: 3,
+            url_private_download: "https://files.slack.test/doc.pdf",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "",
+        attachments: [expect.objectContaining({ filename: "doc.pdf" })],
+      })
+    );
+  });
+
+  it("passes downloaded Slack docx and xlsx files through the message handler", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+        )
+        .mockResolvedValueOnce(
+          new Response(new Uint8Array([4, 5, 6, 7]), { status: 200 })
+        )
+    );
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "read these",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "brief.docx",
+            mimetype:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size: 3,
+            url_private_download: "https://files.slack.test/brief.docx",
+          },
+          {
+            id: "F2",
+            name: "budget.xlsx",
+            mimetype:
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            size: 4,
+            url_private_download: "https://files.slack.test/budget.xlsx",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockSaveMediaFile).toHaveBeenCalledWith(
+      Buffer.from([1, 2, 3]),
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "brief.docx"
+    );
+    expect(mockSaveMediaFile).toHaveBeenCalledWith(
+      Buffer.from([4, 5, 6, 7]),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "budget.xlsx"
+    );
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "read these",
+        attachments: [
+          expect.objectContaining({ filename: "brief.docx" }),
+          expect.objectContaining({ filename: "budget.xlsx" }),
+        ],
+      })
+    );
+  });
+
+  it("inlines Slack snippets into the agent message", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "explain this",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "example.ts",
+            mode: "snippet",
+            mimetype: "text/plain",
+            preview: "const x = 1;",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockSaveMediaFile).not.toHaveBeenCalled();
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("const x = 1;"),
+        attachments: [],
+      })
+    );
+  });
+
+  it("posts a threaded error for oversized Slack files", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "large.pdf",
+            mimetype: "application/pdf",
+            size: 26 * 1024 * 1024,
+            url_private_download: "https://files.slack.test/large.pdf",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_ts: "1.1",
+        text: expect.stringContaining("large.pdf"),
+      })
+    );
+  });
+
+  it("posts a threaded error for unsupported Slack files", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "archive.zip",
+            mimetype: "application/zip",
+            size: 3,
+            url_private_download: "https://files.slack.test/archive.zip",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_ts: "1.1",
+        text: expect.stringContaining("Unsupported file type"),
+      })
+    );
+  });
+
+  it("posts a threaded error for supported extensions with mismatched MIME", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "report.pdf",
+            mimetype: "text/plain",
+            size: 3,
+            url_private_download: "https://files.slack.test/report.pdf",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_ts: "1.1",
+        text: expect.stringContaining("Unsupported file type"),
+      })
+    );
+  });
+
+  it("posts a threaded error for Slack download failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("nope", { status: 403 }))
+    );
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "screen.png",
+            mimetype: "image/png",
+            size: 3,
+            url_private_download: "https://files.slack.test/screen.png",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_ts: "1.1",
+        text: expect.stringContaining("Slack download failed with 403"),
+      })
+    );
+  });
+
+  it("continues with valid files when mixed Slack files include errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+        )
+    );
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "use these",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+        files: [
+          {
+            id: "F1",
+            name: "screen.png",
+            mimetype: "image/png",
+            size: 3,
+            url_private_download: "https://files.slack.test/screen.png",
+          },
+          {
+            id: "F2",
+            name: "archive.zip",
+            mimetype: "application/zip",
+            size: 3,
+            url_private_download: "https://files.slack.test/archive.zip",
+          },
+        ],
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "use these",
+        attachments: [expect.objectContaining({ filename: "screen.png" })],
+      })
+    );
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("archive.zip"),
+      })
+    );
+  });
+
+  it("uploads agent file outputs to the originating Slack thread", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      params.onEvent?.({
+        type: "file_output",
+        fileId: "file-1",
+        filename: "summary.pdf",
+        mimeType: "application/pdf",
+        size: 3,
+      });
+      return {
+        payloads: [{ text: "done" }],
+        meta: { durationMs: 1, sessionId: "session" },
+      };
+    });
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "make a pdf",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockReadMediaFile).toHaveBeenCalledWith("file-1");
+    expect(apps[0].client.files.uploadV2).toHaveBeenCalledWith({
+      channel_id: "C1",
+      thread_ts: "1.1",
+      file: Buffer.from([4, 5, 6]),
+      filename: "summary.pdf",
+      title: "summary.pdf",
+    });
   });
 
   it("blocks /new for users outside channel allowlist", async () => {
@@ -541,7 +1002,9 @@ describe("createSlackBot", () => {
             )
           );
         }
-        return { ts: message.text?.includes("Thinking") ? "thinking-ts" : "reply-ts" };
+        return {
+          ts: message.text?.includes("Thinking") ? "thinking-ts" : "reply-ts",
+        };
       });
 
       mockRunAgent.mockImplementationOnce(async (params) => {
@@ -690,7 +1153,10 @@ describe("createSlackBot", () => {
 
       expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1");
       expect(mockDeleteSession).toHaveBeenCalledWith("main", "session");
-      expect(mockInvalidateHistoryCache).toHaveBeenCalledWith("main", "session");
+      expect(mockInvalidateHistoryCache).toHaveBeenCalledWith(
+        "main",
+        "session"
+      );
       expect(mockRunAgent).not.toHaveBeenCalled();
       expect(apps[0].client.chat.postEphemeral).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -980,7 +1446,10 @@ describe("createSlackBot", () => {
         client: apps[0].client,
       });
 
-      expect(mockClearSessionEntry).toHaveBeenCalledWith("main", "slack:C1:1.1");
+      expect(mockClearSessionEntry).toHaveBeenCalledWith(
+        "main",
+        "slack:C1:1.1"
+      );
     });
 
     it("!new at top level still clears slack:C1", async () => {
@@ -1288,7 +1757,7 @@ describe("createSlackAgentBot", () => {
     expect(createSlackAgentBot(localAgent)).toBeNull();
   });
 
-  it("creates a bot with agent.id as agentId (not \"slack\")", async () => {
+  it('creates a bot with agent.id as agentId (not "slack")', async () => {
     const { createSlackAgentBot } = await import("./bot.js");
     const localAgent = {
       id: "a1",
