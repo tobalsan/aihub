@@ -1444,7 +1444,12 @@ export type SlackContext = {
   blocks: SlackContextBlock[];
 };
 
-export type AgentContext = DiscordContext | SlackContext;
+export type UserContext = {
+  kind: "web";
+  name?: string;
+};
+
+export type AgentContext = DiscordContext | SlackContext | UserContext;
 
 export const AgentContextSchema = z
   .object({

@@ -5,6 +5,7 @@ import type {
   DiscordContextBlock,
   SlackContext,
   SlackContextBlock,
+  UserContext,
 } from "./types.js";
 
 export const SLACK_FORMATTING = [
@@ -150,10 +151,25 @@ export function renderSlackContext(ctx: SlackContext): string {
   });
 }
 
+function renderUserContext(ctx: UserContext): string {
+  const name = ctx.name?.trim().replace(/\s+/g, " ") || "unknown";
+  return [
+    "[USER CONTEXT]",
+    "context: web UI",
+    `name: ${name}`,
+    "[END USER CONTEXT]",
+  ].join("\n");
+}
+
 export function renderAgentContext(ctx: AgentContext): string {
   if (ctx.kind === "discord") return renderDiscordContext(ctx);
   if (ctx.kind === "slack") return renderSlackContext(ctx);
+  if (ctx.kind === "web") return renderUserContext(ctx);
   return "";
+}
+
+export function buildUserContext(opts: { name?: string | null }): UserContext {
+  return { kind: "web", name: opts.name ?? undefined };
 }
 
 export function buildDiscordContext(opts: {
