@@ -212,6 +212,12 @@ export function ProjectsOverview(
 
   createEffect(() => {
     let refreshTimer: number | undefined;
+    // Track last-seen status per subagent run so we only refetch the board
+    // on real lifecycle transitions, not on the runtime's heartbeat-style
+    // `subagent_changed status:"running"` pulses that fire ~1Hz during
+    // stdout streaming. Without this filter, every active subagent triggers
+    // a full board refetch every second.
+    const lastSubagentStatus = new Map<string, string>();
     const scheduleRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
@@ -223,10 +229,16 @@ export function ProjectsOverview(
       onFileChanged: scheduleRefresh,
     });
     const unsubscribeSubagentChanges = subscribeToSubagentChanges({
-      onSubagentChanged: scheduleRefresh,
+      onSubagentChanged: (event) => {
+        const previous = lastSubagentStatus.get(event.runId);
+        if (previous === event.status) return;
+        lastSubagentStatus.set(event.runId, event.status);
+        scheduleRefresh();
+      },
     });
     onCleanup(() => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
+      lastSubagentStatus.clear();
       unsubscribeFileChanges();
       unsubscribeSubagentChanges();
     });

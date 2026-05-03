@@ -297,6 +297,50 @@ describe("ProjectsOverview", () => {
     }
   });
 
+  it("does not refetch on repeat subagent_changed events with the same status", async () => {
+    // Regression: the runtime emits subagent_changed status:\"running\" once per
+    // second during stdout streaming as a heartbeat. Without per-runId status
+    // de-duplication, this caused a full board refetch every second per active
+    // subagent. The board should only refetch on actual lifecycle transitions.
+    vi.useFakeTimers();
+    try {
+      fetchBoardProjectsMock.mockResolvedValue([
+        project("PRO-1", "Alpha Project", "maybe", [worktree("idle", null)]),
+      ]);
+      const { dispose } = renderOverview("PRO-1");
+      await vi.runAllTimersAsync();
+
+      const callbacks = subscribeToSubagentChangesMock.mock.calls[0]?.[0];
+      expect(callbacks).toBeTruthy();
+
+      // First running event for this run = transition (unseen -> running). Refetch.
+      callbacks.onSubagentChanged({ runId: "run-1", status: "running" });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
+
+      // Subsequent heartbeat pulses with the same status must NOT refetch.
+      for (let i = 0; i < 5; i++) {
+        callbacks.onSubagentChanged({ runId: "run-1", status: "running" });
+        await vi.advanceTimersByTimeAsync(250);
+      }
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
+
+      // Real lifecycle transition (running -> done) must refetch.
+      callbacks.onSubagentChanged({ runId: "run-1", status: "done" });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(3);
+
+      // A new runId starting also counts as a transition.
+      callbacks.onSubagentChanged({ runId: "run-2", status: "running" });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(4);
+
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not refetch projects when agent session files change", async () => {
     vi.useFakeTimers();
     try {
