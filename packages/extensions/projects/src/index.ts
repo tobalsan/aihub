@@ -61,6 +61,7 @@ import {
   parseTasks,
   readSpec,
   rebaseSpaceOntoMain,
+  listSlices,
   releaseProjectSpaceWriteLease,
   resolveAttachmentFile,
   saveAttachments,
@@ -1190,12 +1191,23 @@ export function registerProjectRoutes(app: Hono): void {
 
     const config = getProjectsConfig();
     let prevStatus: string | null = null;
+    let cancelledSliceIds: string[] = [];
     if (parsed.data.status) {
       const prev = await getProject(config, id);
       if (prev.ok) {
         prevStatus = normalizeProjectStatus(
           String(prev.data.frontmatter?.status ?? "")
         );
+        if (parsed.data.status === "cancelled") {
+          const slices = await listSlices(prev.data.absolutePath);
+          cancelledSliceIds = slices
+            .filter(
+              (slice) =>
+                slice.frontmatter.status !== "done" &&
+                slice.frontmatter.status !== "cancelled"
+            )
+            .map((slice) => slice.id);
+        }
       }
     }
     if (parsed.data.status === "archived") {
@@ -1258,6 +1270,22 @@ export function registerProjectRoutes(app: Hono): void {
           status: nextStatus,
         });
       }
+      if (nextStatus === "cancelled" && cancelledSliceIds.length > 0) {
+        const runs = await listSubagents(config, id, true);
+        if (runs.ok) {
+          await Promise.all(
+            runs.data.items
+              .filter(
+                (item) =>
+                  item.source === "orchestrator" &&
+                  item.status === "running" &&
+                  item.sliceId &&
+                  cancelledSliceIds.includes(item.sliceId)
+              )
+              .map((item) => interruptSubagent(config, id, item.slug).catch(() => undefined))
+          );
+        }
+      }
     }
     return c.json(result.data);
   });
@@ -1292,14 +1320,14 @@ export function registerProjectRoutes(app: Hono): void {
   app.post("/projects/:id/unarchive", async (c) => {
     const id = c.req.param("id");
     const config = getProjectsConfig();
-    const result = await unarchiveProject(config, id, "maybe");
+    const result = await unarchiveProject(config, id, "shaping");
     if (!result.ok) {
       const status = result.error.startsWith("Project already exists")
         ? 409
         : 404;
       return c.json({ error: result.error }, status);
     }
-    await recordProjectStatusActivity({ projectId: id, status: "maybe" });
+    await recordProjectStatusActivity({ projectId: id, status: "shaping" });
     return c.json(result.data);
   });
 

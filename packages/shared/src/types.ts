@@ -870,6 +870,7 @@ export const ProjectStatusSchema = z.enum([
   "not_now",
   "maybe",
   "shaping",
+  "active",
   "todo",
   "in_progress",
   "review",

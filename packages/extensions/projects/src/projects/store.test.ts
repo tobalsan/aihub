@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
+import { createSlice, getSlice, updateSlice } from "./slices.js";
 
 let clearProjectsContextForTest: (() => void) | undefined;
 
@@ -78,7 +79,7 @@ describe("projects store", () => {
     const firstResult = await createProject(config, {
       title: "Alpha Project",
       description: "Ship it.",
-      status: "todo",
+      status: "active",
     });
     if (!firstResult.ok) throw new Error(firstResult.error);
 
@@ -102,7 +103,7 @@ describe("projects store", () => {
     );
     const readme = await fs.readFile(readmePath, "utf8");
     const thread = await fs.readFile(threadPath, "utf8");
-    expect(readme).toContain('status: "todo"');
+    expect(readme).toContain('status: "active"');
     expect(readme).toContain("# Alpha Project");
     expect(readme).toContain("Ship it.");
     expect(thread).toContain("project: PRO-1");
@@ -207,7 +208,7 @@ describe("projects store", () => {
     const unarchiveResult = await unarchiveProject(
       config,
       created.data.id,
-      "maybe"
+      "shaping"
     );
     expect(unarchiveResult.ok).toBe(true);
     if (!unarchiveResult.ok) return;
@@ -220,7 +221,7 @@ describe("projects store", () => {
       path.join(activeDir, "README.md"),
       "utf8"
     );
-    expect(activeReadme).toContain('status: "maybe"');
+    expect(activeReadme).toContain('status: "shaping"');
   });
 
   it("moves completed projects to .done and keeps them resolvable", async () => {
@@ -263,7 +264,7 @@ describe("projects store", () => {
     );
 
     const reopened = await updateProject(config, created.data.id, {
-      status: "maybe",
+      status: "shaping",
     });
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) return;
@@ -342,7 +343,7 @@ describe("projects store", () => {
     await fs.writeFile(readmePath, seededReadme, "utf8");
 
     const updated = await updateProject(config, created.data.id, {
-      status: "in_progress",
+      status: "active",
     });
     expect(updated.ok).toBe(true);
     if (!updated.ok) return;
@@ -351,7 +352,7 @@ describe("projects store", () => {
     expect(nextReadme).toContain('runAgent: "cloud"');
     expect(nextReadme).toContain('runMode: "worktree"');
     expect(nextReadme).toContain('baseBranch: "main"');
-    expect(nextReadme).toContain('status: "in_progress"');
+    expect(nextReadme).toContain('status: "active"');
   });
 
   it("inherits repo from area when project repo is missing", async () => {
@@ -435,6 +436,99 @@ describe("projects store", () => {
     expect(list.ok).toBe(true);
     if (!list.ok) return;
     expect(list.data[0]?.repoValid).toBe(false);
+  });
+
+  it("rejects legacy project statuses with migration hint", async () => {
+    const { createProject, updateProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, {
+      title: "Legacy Status Reject",
+      status: "todo",
+    });
+    expect(created.ok).toBe(false);
+    if (created.ok) return;
+    expect(created.error).toContain("migrate-to-slices");
+
+    const valid = await createProject(config, {
+      title: "Legacy Status Holder",
+    });
+    if (!valid.ok) throw new Error(valid.error);
+
+    const updated = await updateProject(config, valid.data.id, { status: "review" });
+    expect(updated.ok).toBe(false);
+    if (updated.ok) return;
+    expect(updated.error).toContain("migrate-to-slices");
+  });
+
+  it("cancels non-terminal slices and keeps done slices unchanged", async () => {
+    const { createProject, updateProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, { title: "Cascade Cancel Project" });
+    if (!created.ok) throw new Error(created.error);
+    const projectDir = path.join(projectsRoot, created.data.path);
+
+    const doneSlice = await createSlice(projectDir, {
+      projectId: created.data.id,
+      title: "done",
+      status: "done",
+    });
+    const todoSlice = await createSlice(projectDir, {
+      projectId: created.data.id,
+      title: "todo",
+      status: "todo",
+    });
+
+    const cancelled = await updateProject(config, created.data.id, { status: "cancelled" });
+    expect(cancelled.ok).toBe(true);
+    if (!cancelled.ok) return;
+
+    const cancelledProjectDir = cancelled.data.absolutePath;
+    const doneAfter = await getSlice(cancelledProjectDir, doneSlice.id);
+    const todoAfter = await getSlice(cancelledProjectDir, todoSlice.id);
+    expect(doneAfter.frontmatter.status).toBe("done");
+    expect(todoAfter.frontmatter.status).toBe("cancelled");
+  });
+
+  it("auto-marks active project done when all slices terminal and at least one done", async () => {
+    const { createProject, updateProject, getProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, { title: "Auto Done Project" });
+    if (!created.ok) throw new Error(created.error);
+    await updateProject(config, created.data.id, { status: "active" });
+
+    const projectDir = path.join(projectsRoot, created.data.path);
+    const first = await createSlice(projectDir, {
+      projectId: created.data.id,
+      title: "first",
+      status: "in_progress",
+    });
+    await createSlice(projectDir, {
+      projectId: created.data.id,
+      title: "second",
+      status: "cancelled",
+    });
+
+    await updateSlice(projectDir, first.id, { status: "done" });
+
+    const detail = await getProject(config, created.data.id);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.data.frontmatter.status).toBe("done");
   });
 
   it("includes repoValid in archived project list items", async () => {

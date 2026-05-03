@@ -13,6 +13,7 @@ import { getProjectsContext } from "../context.js";
 import { listAreas } from "../areas/store.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot } from "../util/paths.js";
+import { listSlices, updateSlice, type SliceRecord } from "./slices.js";
 
 function getProjectsStatePath(): string {
   return path.join(getProjectsContext().getDataDir(), "projects.json");
@@ -23,6 +24,22 @@ const DONE_DIR = ".done";
 const TRASH_DIR = ".trash";
 const LEGACY_TRASH_DIRS = ["Trash", "trash"];
 const DONE_STATUSES = new Set(["done", "cancelled"]);
+const PROJECT_LIFECYCLE_STATUSES = new Set([
+  "shaping",
+  "active",
+  "done",
+  "cancelled",
+  "archived",
+]);
+const LEGACY_PROJECT_STATUSES = new Set([
+  "not_now",
+  "maybe",
+  "todo",
+  "in_progress",
+  "review",
+  "ready_to_merge",
+  "trashed",
+]);
 
 export type ProjectListItem = {
   id: string;
@@ -309,6 +326,52 @@ function toStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function normalizeStatus(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function projectStatusMigrationHint(status: string): string {
+  return `Legacy project status \"${status}\" no longer supported. Run \`aihub projects migrate-to-slices\`.`;
+}
+
+function validateProjectStatus(status: unknown): string | null {
+  const normalized = normalizeStatus(status);
+  if (!normalized) return null;
+  if (PROJECT_LIFECYCLE_STATUSES.has(normalized)) return normalized;
+  if (LEGACY_PROJECT_STATUSES.has(normalized)) {
+    throw new Error(projectStatusMigrationHint(normalized));
+  }
+  throw new Error(`Invalid project status: ${String(status)}`);
+}
+
+async function cascadeProjectCancellation(projectDir: string): Promise<void> {
+  const slices = await listSlices(projectDir);
+  await Promise.all(
+    slices
+      .filter(
+        (slice) =>
+          slice.frontmatter.status !== "done" &&
+          slice.frontmatter.status !== "cancelled"
+      )
+      .map((slice) =>
+        updateSlice(projectDir, slice.id, {
+          status: "cancelled",
+        })
+      )
+  );
+}
+
+function shouldAutoMarkProjectDone(status: string | null, slices: SliceRecord[]): boolean {
+  if (status !== "active") return false;
+  if (slices.length === 0) return false;
+  const hasDone = slices.some((slice) => slice.frontmatter.status === "done");
+  const allTerminal = slices.every(
+    (slice) =>
+      slice.frontmatter.status === "done" || slice.frontmatter.status === "cancelled"
+  );
+  return hasDone && allTerminal;
+}
+
 async function getAreaRepoMap(
   config: GatewayConfig
 ): Promise<Map<string, string>> {
@@ -373,6 +436,7 @@ async function listProjectItemsFromRoot(
 
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
+      validateProjectStatus(frontmatter.status);
       const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
       const repoValid = await isValidGitRepo(resolvedRepo);
       const resolvedFrontmatter: Record<string, unknown> = {
@@ -503,6 +567,14 @@ export async function getProject(
 
   const resolvedTitle = toStringField(frontmatter.title) ?? title;
   const resolvedId = toStringField(frontmatter.id) ?? id;
+  try {
+    validateProjectStatus(frontmatter.status);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
   const repoValid = await isValidGitRepo(resolvedRepo);
   const resolvedFrontmatter: Record<string, unknown> = {
@@ -550,10 +622,19 @@ export async function createProject(
   await fs.mkdir(dirPath);
 
   const created = new Date().toISOString();
+  let requestedStatus = "shaping";
+  try {
+    requestedStatus = validateProjectStatus(input.status ?? "shaping") ?? "shaping";
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   const frontmatter: Record<string, unknown> = {
     id,
     title: trimmedTitle,
-    status: input.status ?? "maybe",
+    status: requestedStatus,
     created,
   };
   if (input.area) frontmatter.area = input.area;
@@ -611,6 +692,15 @@ export async function updateProject(
   const parsedReadme = await readMarkdownIfExists(currentReadmePath);
   const currentFrontmatter =
     parsedReadme?.frontmatter ?? parsedSpecs?.frontmatter ?? {};
+  let currentStatus: string | null;
+  try {
+    currentStatus = validateProjectStatus(currentFrontmatter.status);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   const currentTitle =
     toStringField(currentFrontmatter.title) ??
     parsedReadme?.title ??
@@ -619,7 +709,17 @@ export async function updateProject(
   const nextTitle = input.title ?? currentTitle;
   const nextSlug = slugifyTitle(nextTitle);
   const nextDirName = `${id}_${nextSlug}`;
-  const nextStatus = input.status ?? toStringField(currentFrontmatter.status);
+  let requestedStatus: string | null;
+  try {
+    requestedStatus =
+      input.status !== undefined ? validateProjectStatus(input.status) : currentStatus;
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const nextStatus = requestedStatus ?? currentStatus;
   const nextBaseRoot =
     nextStatus && DONE_STATUSES.has(nextStatus)
       ? path.join(root, DONE_DIR)
@@ -642,11 +742,11 @@ export async function updateProject(
 
   const finalDirPath = path.join(finalBaseRoot, finalDirName);
 
-  const nextFrontmatter: Record<string, unknown> = {
+  let nextFrontmatter: Record<string, unknown> = {
     ...currentFrontmatter,
     id,
     title: nextTitle,
-    ...(input.status ? { status: input.status } : {}),
+    ...(nextStatus ? { status: nextStatus } : {}),
   };
 
   if (input.repo === "") delete nextFrontmatter.repo;
@@ -705,6 +805,24 @@ export async function updateProject(
   const finalThreadPath = path.join(finalDirPath, THREAD_FILE);
   if (!(await fileExists(finalThreadPath))) {
     await fs.writeFile(finalThreadPath, formatThreadFrontmatter(id), "utf8");
+  }
+
+  if (nextStatus === "cancelled") {
+    await cascadeProjectCancellation(finalDirPath);
+  }
+
+  const slicesAfterUpdate = await listSlices(finalDirPath);
+  if (shouldAutoMarkProjectDone(nextStatus ?? null, slicesAfterUpdate)) {
+    nextFrontmatter = {
+      ...nextFrontmatter,
+      status: "done",
+    };
+    const existingReadme = await readMarkdownIfExists(path.join(finalDirPath, "README.md"));
+    await fs.writeFile(
+      path.join(finalDirPath, "README.md"),
+      formatMarkdown(nextFrontmatter, existingReadme?.content ?? ""),
+      "utf8"
+    );
   }
 
   // Re-read all docs

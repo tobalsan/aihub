@@ -299,6 +299,20 @@ export async function getSlice(projectDir: string, sliceId: string): Promise<Sli
   };
 }
 
+export async function listSlices(projectDir: string): Promise<SliceRecord[]> {
+  const slicesRoot = path.join(projectDir, SLICES_DIR);
+  try {
+    const entries = await fs.readdir(slicesRoot, { withFileTypes: true });
+    const ids = entries
+      .filter((entry) => entry.isDirectory() && SLICE_ID_PATTERN.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+    return Promise.all(ids.map((id) => getSlice(projectDir, id)));
+  } catch {
+    return [];
+  }
+}
+
 export async function updateSlice(
   projectDir: string,
   sliceId: string,
@@ -336,7 +350,40 @@ export async function updateSlice(
       : Promise.resolve(),
   ]);
 
-  return getSlice(projectDir, sliceId);
+  const updated = await getSlice(projectDir, sliceId);
+
+  if (updated.frontmatter.status === "done" || updated.frontmatter.status === "cancelled") {
+    const projectReadmePath = path.join(projectDir, README_FILE);
+    try {
+      const projectDoc = await parseMarkdownFile(projectReadmePath);
+      const projectStatus = String(projectDoc.frontmatter.status ?? "").trim();
+      if (projectStatus === "active") {
+        const slices = await listSlices(projectDir);
+        const hasDone = slices.some((slice) => slice.frontmatter.status === "done");
+        const allTerminal =
+          slices.length > 0 &&
+          slices.every(
+            (slice) =>
+              slice.frontmatter.status === "done" ||
+              slice.frontmatter.status === "cancelled"
+          );
+        if (hasDone && allTerminal) {
+          const nextFrontmatter = {
+            ...projectDoc.frontmatter,
+            status: "done",
+          };
+          await writeFileAtomic(
+            projectReadmePath,
+            toMarkdown(nextFrontmatter, projectDoc.content)
+          );
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+  }
+
+  return updated;
 }
 
 export async function readSliceCounters(projectDir: string): Promise<CountersState> {

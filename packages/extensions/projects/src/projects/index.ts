@@ -16,6 +16,7 @@ export {
 export {
   createSlice,
   getSlice,
+  listSlices,
   updateSlice,
   readSliceCounters,
   regenerateScopeMap,

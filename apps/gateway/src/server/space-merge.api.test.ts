@@ -214,7 +214,7 @@ describe("space merge API", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoDir, status: "in_progress" }),
+        body: JSON.stringify({ repo: repoDir, status: "active" }),
       })
     );
     expect(patchRes.status).toBe(200);
