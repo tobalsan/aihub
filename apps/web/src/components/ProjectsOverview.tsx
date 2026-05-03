@@ -120,9 +120,6 @@ export function ProjectsOverview(
   const params = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [embeddedProjectId, setEmbeddedProjectId] = createSignal<string | null>(
-    null
-  );
   const [filter, setFilter] = createSignal<FilterMode>("active");
   const [query, setQuery] = createSignal("");
   const [createOpen, setCreateOpen] = createSignal(false);
@@ -142,7 +139,11 @@ export function ProjectsOverview(
     fetchBoardProjects(true)
   );
   const selectedProjectId = createMemo(() => {
-    if (props.embedded) return embeddedProjectId();
+    if (props.embedded) {
+      const raw = searchParams.project;
+      const value = Array.isArray(raw) ? raw[0] : raw;
+      return typeof value === "string" && value.trim() ? value : null;
+    }
     return typeof params.id === "string" && params.id.trim() ? params.id : null;
   });
   const selectedProject = createMemo(() => {
@@ -203,7 +204,7 @@ export function ProjectsOverview(
     const first = filteredProjects()[0];
     if (!first) return;
     if (props.embedded) {
-      setEmbeddedProjectId(first.id);
+      setSearchParams({ project: first.id }, { replace: true });
     } else {
       navigate(`/projects/${first.id}`, { replace: true });
     }
@@ -235,7 +236,7 @@ export function ProjectsOverview(
   function selectProject(id: string) {
     setEmbeddedEditorProjectId(null);
     if (props.embedded) {
-      setEmbeddedProjectId(id);
+      setSearchParams({ project: id });
     } else {
       navigate(`/projects/${id}`);
     }
@@ -326,7 +327,7 @@ export function ProjectsOverview(
       setCreateTitle("");
       setFilter("active");
       if (props.embedded) {
-        setEmbeddedProjectId(created.id);
+        setSearchParams({ project: created.id });
       } else {
         navigate(`/projects/${created.id}`);
       }

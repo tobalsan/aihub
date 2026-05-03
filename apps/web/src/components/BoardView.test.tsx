@@ -1,7 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSignal } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { BoardView } from "./BoardView";
+
+const [searchParamsSignal, setSearchParamsSignal] = createSignal<
+  Record<string, string | undefined>
+>({});
+const searchParamsProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      return searchParamsSignal()[key];
+    },
+  }
+);
 
 const {
   fetchAgentsMock,
@@ -30,7 +43,12 @@ const {
 vi.mock("@solidjs/router", () => ({
   useParams: () => ({}),
   useNavigate: () => vi.fn(),
-  useSearchParams: () => [{}, vi.fn()],
+  useSearchParams: () => [
+    searchParamsProxy,
+    (next: Record<string, string | undefined>) => {
+      setSearchParamsSignal((prev) => ({ ...prev, ...next }));
+    },
+  ],
 }));
 
 vi.mock("../api/client", () => ({
@@ -77,6 +95,7 @@ function renderView() {
 
 describe("BoardView attachments", () => {
   beforeEach(() => {
+    setSearchParamsSignal({});
     delegateEvents(["change", "click", "input", "keydown"]);
     URL.createObjectURL = vi.fn(() => "blob:preview");
     URL.revokeObjectURL = vi.fn();

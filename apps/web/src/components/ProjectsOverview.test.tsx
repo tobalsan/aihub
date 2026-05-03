@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Suspense } from "solid-js";
+import { Suspense, createSignal } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { ProjectsOverview } from "./ProjectsOverview";
 import type { BoardProject, BoardWorktree, ProjectDetail } from "../api/types";
@@ -26,6 +26,20 @@ const {
 }));
 
 let routeId: string | undefined;
+const [searchParamsSignal, setSearchParamsSignal] = createSignal<
+  Record<string, string | undefined>
+>({});
+const searchParamsProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      return searchParamsSignal()[key];
+    },
+  }
+);
+function resetSearchParams(next: Record<string, string | undefined> = {}) {
+  setSearchParamsSignal(next);
+}
 
 vi.mock("@solidjs/router", () => ({
   useParams: () => ({
@@ -34,7 +48,13 @@ vi.mock("@solidjs/router", () => ({
     },
   }),
   useNavigate: () => navigateMock,
-  useSearchParams: () => [{}, setSearchParamsMock],
+  useSearchParams: () => [
+    searchParamsProxy,
+    (next: Record<string, string | undefined>, opts?: unknown) => {
+      setSearchParamsMock(next, opts);
+      setSearchParamsSignal((prev) => ({ ...prev, ...next }));
+    },
+  ],
 }));
 
 vi.mock("../api/client", () => ({
@@ -166,6 +186,7 @@ describe("ProjectsOverview", () => {
   beforeEach(() => {
     delegateEvents(["click", "input", "keydown", "submit", "blur"]);
     routeId = undefined;
+    resetSearchParams();
     fetchBoardProjectsMock.mockResolvedValue([
       project("PRO-1", "Alpha Project", "maybe", [
         worktree("worker-a", "pending", "running"),
@@ -290,7 +311,7 @@ describe("ProjectsOverview", () => {
     dispose();
   });
 
-  it("embedded row selection stays local", async () => {
+  it("embedded row selection writes ?project= and updates detail", async () => {
     fetchBoardProjectsMock.mockResolvedValue([
       project("PRO-1", "Alpha Project", "maybe"),
       project("PRO-4", "Gamma Project", "maybe"),
@@ -307,6 +328,26 @@ describe("ProjectsOverview", () => {
 
     expect(onOpenProject).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
+    expect(setSearchParamsMock).toHaveBeenCalledWith(
+      { project: "PRO-4" },
+      undefined
+    );
+    expect(container.querySelector(".po-detail")?.textContent).toContain(
+      "Gamma Project"
+    );
+    dispose();
+  });
+
+  it("embedded mode honors ?project= on initial render", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([
+      project("PRO-1", "Alpha Project", "maybe"),
+      project("PRO-4", "Gamma Project", "maybe"),
+    ]);
+    resetSearchParams({ project: "PRO-4" });
+    const { container, dispose } = renderEmbeddedOverview();
+    await tick();
+    await tick();
+
     expect(container.querySelector(".po-detail")?.textContent).toContain(
       "Gamma Project"
     );
@@ -470,7 +511,10 @@ describe("ProjectsOverview", () => {
     expect(container.textContent).toContain("README");
     expect(container.textContent).toContain("SPECS");
     expect(onOpenProject).not.toHaveBeenCalled();
-    expect(setSearchParamsMock).not.toHaveBeenCalled();
+    expect(setSearchParamsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ detail: "1" }),
+      expect.anything()
+    );
 
     window.dispatchEvent(new PopStateEvent("popstate"));
     await tick();
