@@ -311,10 +311,6 @@ function buildWorkerSpawnInput(
   const { slice, project } = item;
   const sliceDirPath = slice.dirPath;
   const projectDirPath = project.absolutePath;
-  const repo =
-    typeof project.frontmatter.repo === "string"
-      ? project.frontmatter.repo
-      : undefined;
   return {
     projectId: project.id,
     sliceId: slice.id,
@@ -332,7 +328,6 @@ function buildWorkerSpawnInput(
     reasoningEffort: profile.reasoningEffort ?? profile.reasoning,
     mode: normalizeRunMode(profile.runMode),
     source: "orchestrator",
-    ...(repo ? {} : {}), // repo resolved by runner from project frontmatter
   };
 }
 
@@ -347,11 +342,6 @@ function buildReviewerSpawnInput(
   const { slice, project } = item;
   const sliceDirPath = slice.dirPath;
   const projectDirPath = project.absolutePath;
-  const specsPath = path.join(sliceDirPath, "SPECS.md");
-  const repo =
-    typeof project.frontmatter.repo === "string"
-      ? project.frontmatter.repo
-      : undefined;
   const cli = resolveAihubCli();
 
   // Build reviewer prompt inline (similar to current reviewer, but slice-aware)
