@@ -593,10 +593,14 @@ export function ChatView() {
       }
       autoScrollFrame = requestAnimationFrame(() => {
         if (!messagesContainerRef) return;
-        messagesContainerRef.scrollTo({
-          top: messagesContainerRef.scrollHeight,
-          behavior: "smooth",
-        });
+        if (typeof messagesContainerRef.scrollTo === "function") {
+          messagesContainerRef.scrollTo({
+            top: messagesContainerRef.scrollHeight,
+            behavior: "smooth",
+          });
+        } else {
+          messagesContainerRef.scrollTop = messagesContainerRef.scrollHeight;
+        }
         autoScrollFrame = undefined;
         autoScrollSettleTimer = window.setTimeout(() => {
           if (!messagesContainerRef) return;
