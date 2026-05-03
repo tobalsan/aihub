@@ -15,10 +15,18 @@ import {
 } from "solid-js";
 import {
   fetchSlice,
+  fetchSubagents,
   updateSlice,
   subscribeToFileChanges,
 } from "../api/client";
-import type { SliceStatus, SliceRecord } from "../api/types";
+import type { SliceStatus, SliceRecord, SubagentListItem, SubagentStatus } from "../api/types";
+
+const RUN_STATUS_LABELS: Record<SubagentStatus, string> = {
+  running: "Running",
+  replied: "Done",
+  error: "Error",
+  idle: "Idle",
+};
 
 const STATUS_LABELS: Record<SliceStatus, string> = {
   todo: "Todo",
@@ -151,6 +159,16 @@ export function SliceDetailPage() {
     ({ projectId, sliceId }) => fetchSlice(projectId, sliceId)
   );
 
+  // Recent runs: fetch project subagents, filter by sliceId
+  const [recentRuns] = createResource(
+    () => ({ projectId: projectId(), sliceId: sliceId() }),
+    async ({ projectId, sliceId }) => {
+      const result = await fetchSubagents(projectId, true);
+      if (!result.ok) return [] as SubagentListItem[];
+      return result.data.items.filter((s) => s.sliceId === sliceId);
+    }
+  );
+
   // Live refresh
   createResource(() => projectId(), (pid) => {
     const unsub = subscribeToFileChanges({
@@ -263,6 +281,33 @@ export function SliceDetailPage() {
                   <div class="slice-detail-meta-value">
                     {formatRelative(frontmatter()?.updated_at as string ?? "")}
                   </div>
+                </div>
+
+                <div class="slice-detail-meta-group">
+                  <div class="slice-detail-meta-label">Recent Runs</div>
+                  <Show when={recentRuns.loading}>
+                    <div class="slice-detail-runs-empty">Loading…</div>
+                  </Show>
+                  <Show when={!recentRuns.loading && (recentRuns() ?? []).length === 0}>
+                    <div class="slice-detail-runs-empty">No runs yet.</div>
+                  </Show>
+                  <For each={recentRuns() ?? []}>
+                    {(run) => (
+                      <div class="slice-detail-run-row">
+                        <span class="slice-detail-run-name">{run.name ?? run.slug}</span>
+                        <span
+                          class="slice-detail-run-status"
+                          classList={{
+                            "run-running": run.status === "running",
+                            "run-done": run.status === "replied",
+                            "run-error": run.status === "error",
+                          }}
+                        >
+                          {RUN_STATUS_LABELS[run.status] ?? run.status}
+                        </span>
+                      </div>
+                    )}
+                  </For>
                 </div>
 
                 {/* Frontmatter extras (any keys beyond known ones) */}
@@ -628,6 +673,59 @@ export function SliceDetailPage() {
             flex-wrap: wrap;
             gap: 12px;
           }
+        }
+
+        .slice-detail-runs-empty {
+          font-size: 12px;
+          color: var(--text-tertiary);
+          padding: 2px 0;
+        }
+
+        .slice-detail-run-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+          padding: 3px 0;
+          border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .slice-detail-run-row:last-child {
+          border-bottom: none;
+        }
+
+        .slice-detail-run-name {
+          font-size: 12px;
+          color: var(--text-primary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .slice-detail-run-status {
+          font-size: 11px;
+          border-radius: 4px;
+          padding: 1px 5px;
+          background: var(--bg-elevated);
+          color: var(--text-tertiary);
+          flex-shrink: 0;
+        }
+
+        .slice-detail-run-status.run-running {
+          background: color-mix(in srgb, #8a6fd1 15%, var(--bg-elevated));
+          color: #8a6fd1;
+        }
+
+        .slice-detail-run-status.run-done {
+          background: color-mix(in srgb, #53b97c 15%, var(--bg-elevated));
+          color: #53b97c;
+        }
+
+        .slice-detail-run-status.run-error {
+          background: color-mix(in srgb, #e05c5c 15%, var(--bg-elevated));
+          color: #e05c5c;
         }
       `}</style>
     </div>

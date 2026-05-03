@@ -30,6 +30,7 @@ vi.mock("../api/client", () => ({
   fetchSlice: vi.fn(async () => MOCK_SLICE),
   updateSlice: vi.fn(async () => MOCK_SLICE),
   subscribeToFileChanges: vi.fn(() => () => {}),
+  fetchSubagents: vi.fn(async () => ({ ok: true as const, data: { items: [] } })),
 }));
 
 vi.mock("@solidjs/router", () => ({

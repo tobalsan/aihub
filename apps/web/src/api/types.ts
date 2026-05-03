@@ -198,11 +198,14 @@ export type SubagentListItem = {
   runMode?: string;
   status: SubagentStatus;
   lastActive?: string;
+  startedAt?: string;
   baseBranch?: string;
   worktreePath?: string;
   lastError?: string;
   archived?: boolean;
   agentId?: string;
+  projectId?: string;
+  sliceId?: string;
 };
 
 export type SubagentLogEvent = SharedSubagentLogEvent;
