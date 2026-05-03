@@ -14,6 +14,7 @@ import type {
   ArchiveProjectResponse,
   UnarchiveProjectResponse,
   ActivityResponse,
+  BoardActivityResponse,
   AgentStatusResponse,
   SubagentGlobalListResponse,
   RuntimeSubagentListResponse,
@@ -945,6 +946,19 @@ export async function fetchActivity(
   });
   const res = await fetch(`${API_BASE}/activity?${params.toString()}`);
   if (!res.ok) throw new Error("Failed to fetch activity");
+  return res.json();
+}
+
+export async function fetchBoardActivity(opts?: {
+  projectId?: string;
+  limit?: number;
+}): Promise<BoardActivityResponse> {
+  const params = new URLSearchParams();
+  if (opts?.projectId) params.set("projectId", opts.projectId);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/board/activity${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error("Failed to fetch board activity");
   return res.json();
 }
 

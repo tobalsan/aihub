@@ -308,4 +308,10 @@ const subagentsExtension: Extension = {
   },
 };
 
-export { getLiveSubagentRunsByCwd, subagentsExtension };
+export {
+  getLiveSubagentRunsByCwd,
+  listSubagentRuns,
+  getSubagentRun,
+  interruptSubagentRun,
+  subagentsExtension,
+};

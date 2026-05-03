@@ -14,7 +14,12 @@ import {
   startSpaceCacheWatcher,
   updateProject,
 } from "@aihub/extension-projects";
-import { getLiveSubagentRunsByCwd } from "@aihub/extension-subagents";
+import {
+  getLiveSubagentRunsByCwd,
+  listSubagentRuns,
+  getSubagentRun,
+  interruptSubagentRun,
+} from "@aihub/extension-subagents";
 import {
   invalidateProjectCache,
   mapToLifecycleStatus,
@@ -29,7 +34,6 @@ import {
   toggleAreaHidden,
   updateLoopEntry,
 } from "./areas.js";
-
 // ── Config ──────────────────────────────────────────────────────────
 
 const BoardExtensionConfigSchema = z.object({
@@ -432,16 +436,48 @@ function registerBoardRoutes(app: Hono): void {
     return c.json({ ok: true, areaId, date });
   });
 
-  app.get("/board/agents", (c) => {
-    const agents = getContext().getAgents();
-    return c.json({
-      agents: agents.map((a) => ({
-        id: a.id,
-        name: a.name,
-        avatar: a.avatar,
-        description: a.description,
-      })),
+  // ── Agents (live subagent runs) ────────────────────────────────────
+
+  function boardRuntimeOptions() {
+    const ctx = getContext();
+    return {
+      dataDir: ctx.getDataDir(),
+      emit: (event: Parameters<typeof ctx.emit>[1]) => {
+        ctx.emit("subagent.changed", event);
+      },
+    };
+  }
+
+  app.get("/board/agents", async (c) => {
+    const runs = await listSubagentRuns(boardRuntimeOptions(), {
+      includeArchived: false,
     });
+    const liveRuns = runs.filter(
+      (r) => r.status === "running" || r.status === "starting"
+    );
+    return c.json({ runs: liveRuns });
+  });
+
+  app.post("/board/agents/:runId/kill", async (c) => {
+    const runId = c.req.param("runId");
+    const existing = await getSubagentRun(boardRuntimeOptions(), runId);
+    if (!existing) {
+      return c.json({ error: "Run not found", code: "not_found" }, 404);
+    }
+    if (
+      existing.status === "done" ||
+      existing.status === "interrupted" ||
+      existing.status === "error"
+    ) {
+      return c.json({ ok: true, runId, status: existing.status });
+    }
+    try {
+      const run = await interruptSubagentRun(boardRuntimeOptions(), runId);
+      return c.json({ ok: true, runId, status: run.status });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message, code: "kill_failed" }, 500);
+    }
   });
 
   app.get("/board/scratchpad", (c) => {
