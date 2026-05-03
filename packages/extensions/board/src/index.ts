@@ -485,6 +485,8 @@ function registerBoardRoutes(app: Hono): void {
     }
   });
 
+  // ── Activity feed ─────────────────────────────────────────────────
+
   app.get("/board/activity", async (c) => {
     const { root } = resolveProjectRoots(getContext());
     const projectId = c.req.query("projectId");
