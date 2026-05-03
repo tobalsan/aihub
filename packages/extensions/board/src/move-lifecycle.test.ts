@@ -15,7 +15,9 @@ describe("mapToLifecycleStatus", () => {
     expect(mapToLifecycleStatus("active")).toBe("active");
   });
 
-  it("maps legacy in-flight statuses to 'active'", () => {
+  // §10.1: legacy project status 'todo' maps to 'active' (project is dispatch-ready)
+  it("maps legacy in-flight statuses (including 'todo') to 'active'", () => {
+    expect(mapToLifecycleStatus("todo")).toBe("active");
     expect(mapToLifecycleStatus("in_progress")).toBe("active");
     expect(mapToLifecycleStatus("review")).toBe("active");
     expect(mapToLifecycleStatus("ready_to_merge")).toBe("active");
@@ -25,8 +27,6 @@ describe("mapToLifecycleStatus", () => {
     expect(mapToLifecycleStatus("shaping")).toBe("shaping");
     expect(mapToLifecycleStatus("maybe")).toBe("shaping");
     expect(mapToLifecycleStatus("not_now")).toBe("shaping");
-    expect(mapToLifecycleStatus("current")).toBe("shaping");
-    expect(mapToLifecycleStatus("todo")).toBe("shaping");
   });
 
   it("maps 'done' to 'done'", () => {

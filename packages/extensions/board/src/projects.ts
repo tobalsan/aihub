@@ -90,10 +90,10 @@ export function mapToLifecycleStatus(status: string): ProjectLifecycleStatus {
     case "shaping":
     case "maybe":
     case "not_now":
-    case "current":
-    case "todo":
       return "shaping";
-    // Legacy kanban statuses all map to "active" for projects in flight
+    // Legacy kanban statuses (todo, in_progress, review, ready_to_merge) map to
+    // "active" per §10.1 of kanban-slice-refactor spec.
+    case "todo":
     case "in_progress":
     case "review":
     case "ready_to_merge":
