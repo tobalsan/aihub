@@ -65,11 +65,16 @@ describe("slices CLI", () => {
     ]);
 
     expect(logs[0]).toBe("PRO-101-S01");
+    const projectDir = path.join(projectsRoot, "PRO-101_test");
     const readme = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "README.md"),
+      path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
       "utf8"
     );
     expect(readme).toContain('title: "Auth flow"');
+
+    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    expect(scopeMap).toContain("# Scope map — PRO-101");
+    expect(scopeMap).toContain("| PRO-101-S01 | Auth flow | todo | figuring |");
   });
 
   it("list supports no flags and filters", async () => {

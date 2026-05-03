@@ -18,6 +18,7 @@ export {
   getSlice,
   updateSlice,
   readSliceCounters,
+  regenerateScopeMap,
 } from "./slices.js";
 export {
   parseTasks,
