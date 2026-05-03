@@ -297,6 +297,26 @@ describe("ProjectsOverview", () => {
     }
   });
 
+  it("does not refetch projects when agent session files change", async () => {
+    vi.useFakeTimers();
+    try {
+      const { dispose } = renderOverview("PRO-1");
+      await vi.runAllTimersAsync();
+
+      const callbacks = subscribeToFileChangesMock.mock.calls[0]?.[0];
+      expect(callbacks).toBeTruthy();
+      expect(callbacks.onAgentChanged).toBeUndefined();
+
+      callbacks.onAgentChanged?.("PRO-1");
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(1);
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("selecting a project updates the URL and selected detail pane", async () => {
     const { container, dispose } = renderOverview("PRO-1");
     await tick();

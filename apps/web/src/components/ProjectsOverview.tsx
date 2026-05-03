@@ -221,7 +221,6 @@ export function ProjectsOverview(
     };
     const unsubscribeFileChanges = subscribeToFileChanges({
       onFileChanged: scheduleRefresh,
-      onAgentChanged: scheduleRefresh,
     });
     const unsubscribeSubagentChanges = subscribeToSubagentChanges({
       onSubagentChanged: scheduleRefresh,
