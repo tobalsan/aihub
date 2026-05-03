@@ -28,6 +28,7 @@ import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
 import { ProjectsOverview } from "./ProjectsOverview";
+import { useNavigate } from "@solidjs/router";
 import {
   attachmentToFileBlock,
   createPendingFile,
@@ -1651,9 +1652,13 @@ function OverviewPanel() {
 }
 
 function ProjectsPanel() {
+  const navigate = useNavigate();
   return (
     <div class="canvas-projects-overview">
-      <ProjectsOverview embedded />
+      <ProjectsOverview
+        embedded
+        onDetailNavigate={(id) => navigate(`/board/projects/${id}`)}
+      />
       <style>{`
         .canvas-projects-overview {
           width: 100%;

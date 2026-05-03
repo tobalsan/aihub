@@ -116,6 +116,8 @@ export function ProjectsOverview(
   props: {
     embedded?: boolean;
     onOpenProject?: (id: string) => void;
+    /** When embedded, navigate to full detail page instead of opening inline editor */
+    onDetailNavigate?: (id: string) => void;
   } = {}
 ) {
   const params = useParams();
@@ -353,6 +355,10 @@ export function ProjectsOverview(
     const project = selectedProject();
     if (!project || isUnassignedProject(project)) return;
     if (props.embedded) {
+      if (props.onDetailNavigate) {
+        props.onDetailNavigate(project.id);
+        return;
+      }
       setEmbeddedEditorProjectId(project.id);
       window.history.pushState(
         { aihubProjectEditor: project.id },
