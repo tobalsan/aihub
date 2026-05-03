@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import type { ProjectListItem } from "../projects/store.js";
+import type { SliceRecord } from "../projects/slices.js";
 import type { SubagentListItem } from "../subagents/index.js";
 import type { SpawnSubagentInput } from "../subagents/runner.js";
 import {
@@ -27,11 +28,12 @@ const orchestratorConfig: OrchestratorConfig = {
   poll_interval_ms: 30_000,
   failure_cooldown_ms: 60_000,
   statuses: {
-    shaping: { profile: "Worker", max_concurrent: 2 },
+    todo: { profile: "Worker", max_concurrent: 2 },
   },
 };
 
-function project(id: string, status = "shaping"): ProjectListItem {
+/** Create a project in `active` status (the project gate for slice dispatch). */
+function project(id: string, status = "active"): ProjectListItem {
   return {
     id,
     title: `${id} title`,
@@ -39,6 +41,35 @@ function project(id: string, status = "shaping"): ProjectListItem {
     absolutePath: `/tmp/projects/${id}`,
     repoValid: true,
     frontmatter: { status, repo: "/tmp/repo" },
+  };
+}
+
+/** Create a minimal SliceRecord with given id and status. */
+function slice(
+  sliceId: string,
+  projectId: string,
+  status: SliceRecord["frontmatter"]["status"] = "todo"
+): SliceRecord {
+  return {
+    id: sliceId,
+    projectId,
+    dirPath: `/tmp/projects/${projectId}/slices/${sliceId}`,
+    frontmatter: {
+      id: sliceId,
+      project_id: projectId,
+      title: `${sliceId} title`,
+      status,
+      hill_position: "figuring",
+      created_at: "2026-05-03T00:00:00Z",
+      updated_at: "2026-05-03T00:00:00Z",
+    },
+    docs: {
+      readme: "## Must\n\n## Nice\n",
+      specs: "",
+      tasks: "",
+      validation: "",
+      thread: "",
+    },
   };
 }
 
@@ -55,27 +86,16 @@ function run(
   };
 }
 
-// Default updateProject mock - record calls + always succeed. Tests that
-// care about lock behavior pass their own mock to override.
-function makeUpdateProjectMock(): {
-  fn: (typeof import("../projects/store.js"))["updateProject"];
-  calls: Array<{ id: string; status?: string }>;
+/** Default updateSlice mock — records calls + returns a slice record. */
+function makeUpdateSliceMock(): {
+  fn: typeof import("../projects/slices.js")["updateSlice"];
+  calls: Array<{ sliceId: string; status?: string }>;
 } {
-  const calls: Array<{ id: string; status?: string }> = [];
-  const fn = (async (_cfg, id, input) => {
-    calls.push({ id, status: input.status });
-    return {
-      ok: true,
-      data: {
-        id,
-        title: `${id} title`,
-        path: id,
-        absolutePath: `/tmp/projects/${id}`,
-        repoValid: true,
-        frontmatter: { id, status: input.status ?? "shaping" },
-      },
-    };
-  }) as (typeof import("../projects/store.js"))["updateProject"];
+  const calls: Array<{ sliceId: string; status?: string }> = [];
+  const fn = (async (_projectDir, sliceId, input) => {
+    calls.push({ sliceId, status: input.status });
+    return slice(sliceId, sliceId.split("-S")[0] ?? sliceId);
+  }) as typeof import("../projects/slices.js")["updateSlice"];
   return { fn, calls };
 }
 
@@ -118,42 +138,88 @@ describe("orchestrator dispatcher", () => {
       )
     ).toBe(false);
   });
-  it("dispatches Workers for eligible todo projects with orchestrator source", async () => {
+
+  it("dispatches Workers for todo slices under active projects", async () => {
     const spawned: SpawnSubagentInput[] = [];
-    const listSubagents = vi.fn(async () => ({
-      ok: true as const,
-      data: { items: [] },
-    }));
+    const updates = makeUpdateSliceMock();
 
     const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
       listProjects: async () => ({
         ok: true,
         data: [project("PRO-1"), project("PRO-2"), project("PRO-3")],
       }),
-      listSubagents,
+      // PRO-1 has 2 slices in todo, PRO-2 has 1, PRO-3 has 1
+      listSlices: async (projectDir) => {
+        if (projectDir.includes("PRO-1")) {
+          return [
+            slice("PRO-1-S01", "PRO-1"),
+            slice("PRO-1-S02", "PRO-1"),
+          ];
+        }
+        if (projectDir.includes("PRO-2")) {
+          return [slice("PRO-2-S01", "PRO-2")];
+        }
+        return [slice("PRO-3-S01", "PRO-3")];
+      },
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
       spawnSubagent: async (_config, input) => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: makeUpdateProjectMock().fn,
+      updateSlice: updates.fn,
       now: () => new Date("2026-05-03T00:00:00.000Z"),
       log: () => {},
     });
 
+    // max_concurrent = 2 so only 2 of the 4 eligible slices are dispatched
     expect(result.availableSlots).toBe(2);
-    expect(result.eligible).toBe(3);
+    expect(result.eligible).toBe(4);
     expect(spawned).toHaveLength(2);
-    expect(spawned.map((input) => input.projectId)).toEqual(["PRO-1", "PRO-2"]);
-    expect(spawned.every((input) => input.source === "orchestrator")).toBe(
-      true
-    );
+    // First two slices across projects (PRO-1-S01, PRO-1-S02)
+    expect(spawned.every((input) => input.source === "orchestrator")).toBe(true);
     expect(spawned.every((input) => input.cli === "codex")).toBe(true);
     expect(spawned.every((input) => input.mode === "clone")).toBe(true);
-    // Prompt embeds the actual aihub invocation (resolveAihubCli) for this
-    // gateway, so the worker can run it directly without env-var indirection.
-    // In tests, AIHUB_DEV is unset so it resolves to bare `aihub`.
-    expect(spawned[0]?.prompt).toContain("`aihub projects move PRO-1 review`");
-    expect(spawned[0]?.prompt).not.toContain("$AIHUB_CLI");
+    // sliceId is set on each spawn
+    expect(spawned.map((s) => s.sliceId)).toEqual(["PRO-1-S01", "PRO-1-S02"]);
+    // Prompt uses `aihub slices move` (not `projects move`)
+    expect(spawned[0]?.prompt).toContain("`aihub slices move PRO-1-S01 review`");
+    expect(spawned[0]?.prompt).not.toContain("projects move");
+    // Worker lock: slices moved to in_progress
+    expect(updates.calls.map((c) => c.sliceId)).toEqual([
+      "PRO-1-S01",
+      "PRO-1-S02",
+    ]);
+    expect(updates.calls.every((c) => c.status === "in_progress")).toBe(true);
+  });
+
+  it("does NOT dispatch slices under shaping projects", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [
+          project("PRO-1", "shaping"), // shaping → not dispatched
+          project("PRO-2", "active"),  // active → dispatched
+        ],
+      }),
+      listSlices: async (projectDir) => {
+        if (projectDir.includes("PRO-1")) return [slice("PRO-1-S01", "PRO-1")];
+        return [slice("PRO-2-S01", "PRO-2")];
+      },
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: makeUpdateSliceMock().fn,
+      log: () => {},
+    });
+
+    expect(result.eligible).toBe(1);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.sliceId).toBe("PRO-2-S01");
+    expect(spawned[0]?.projectId).toBe("PRO-2");
   });
 
   it("counts only running orchestrator runs against status slots", async () => {
@@ -164,12 +230,17 @@ describe("orchestrator dispatcher", () => {
         ok: true,
         data: [project("PRO-1"), project("PRO-2"), project("PRO-3")],
       }),
+      listSlices: async (projectDir) => {
+        if (projectDir.includes("PRO-1")) return [slice("PRO-1-S01", "PRO-1")];
+        if (projectDir.includes("PRO-2")) return [slice("PRO-2-S01", "PRO-2")];
+        return [slice("PRO-3-S01", "PRO-3")];
+      },
       listSubagents: async (_config, projectId) => {
         const items =
           projectId === "PRO-1"
-            ? [run("running", "orchestrator")]
+            ? [run("running", "orchestrator", { sliceId: "PRO-1-S01" })]
             : projectId === "PRO-2"
-              ? [run("running", "manual")]
+              ? [run("running", "manual", { sliceId: "PRO-2-S01" })]
               : [];
         return { ok: true, data: { items } };
       },
@@ -177,60 +248,71 @@ describe("orchestrator dispatcher", () => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: makeUpdateProjectMock().fn,
+      updateSlice: makeUpdateSliceMock().fn,
       log: () => {},
     });
 
+    // PRO-1-S01 has active orchestrator run (1 running)
+    // PRO-2-S01 has manual run (not counted against orchestrator slots)
     expect(result.running).toBe(1);
     expect(result.availableSlots).toBe(1);
+    // PRO-1-S01 skipped (active run), PRO-2-S01 + PRO-3-S01 eligible (2), 1 slot
     expect(spawned).toHaveLength(1);
-    expect(spawned[0]?.projectId).toBe("PRO-2");
+    expect(spawned[0]?.sliceId).toBe("PRO-2-S01");
   });
 
-  it("ignores non-todo projects and skips todo projects with active orchestrator runs", async () => {
+  it("ignores non-todo slices and skips todo slices with active orchestrator runs", async () => {
     const spawned: SpawnSubagentInput[] = [];
 
     const result = await dispatchOrchestratorTick(
       config,
       {
         ...orchestratorConfig,
-        statuses: { shaping: { profile: "Worker", max_concurrent: 5 } },
+        statuses: { todo: { profile: "Worker", max_concurrent: 5 } },
       },
       {
         listProjects: async () => ({
           ok: true,
-          data: [
-            project("PRO-1"),
-            project("PRO-2", "review"),
-            project("PRO-3"),
-          ],
+          data: [project("PRO-1"), project("PRO-2"), project("PRO-3")],
         }),
+        listSlices: async (projectDir) => {
+          if (projectDir.includes("PRO-1")) {
+            return [slice("PRO-1-S01", "PRO-1", "todo")];
+          }
+          if (projectDir.includes("PRO-2")) {
+            // PRO-2 has a review slice (not todo, ignored for Worker dispatch)
+            return [slice("PRO-2-S01", "PRO-2", "review")];
+          }
+          return [slice("PRO-3-S01", "PRO-3", "todo")];
+        },
         listSubagents: async (_config, projectId) => {
           const items =
-            projectId === "PRO-1" ? [run("running", "orchestrator")] : [];
+            projectId === "PRO-1"
+              ? [run("running", "orchestrator", { sliceId: "PRO-1-S01" })]
+              : [];
           return { ok: true, data: { items } };
         },
         spawnSubagent: async (_config, input) => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
-        updateProject: makeUpdateProjectMock().fn,
+        updateSlice: makeUpdateSliceMock().fn,
         log: () => {},
       }
     );
 
     expect(result.running).toBe(1);
-    expect(result.eligible).toBe(1);
+    expect(result.eligible).toBe(1); // PRO-3-S01 is the only eligible todo slice
     expect(spawned).toHaveLength(1);
-    expect(spawned[0]?.projectId).toBe("PRO-3");
+    expect(spawned[0]?.sliceId).toBe("PRO-3-S01");
   });
 
   it("records an attempt + cleans the orphan dir when spawnSubagent throws", async () => {
     const removed: string[] = [];
-    const recorded: Array<{ projectId: string; atMs: number }> = [];
+    const recorded: Array<{ sliceId: string; atMs: number }> = [];
     const tracker = {
-      record: (projectId: string, atMs: number) => {
-        recorded.push({ projectId, atMs });
+      record: (sliceId: string, atMs: number) => {
+        recorded.push({ sliceId, atMs });
       },
       isCoolingDown: () => false,
       clear: () => {},
@@ -241,10 +323,12 @@ describe("orchestrator dispatcher", () => {
         ok: true,
         data: [project("PRO-1")],
       }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
       listSubagents: async () => ({ ok: true, data: { items: [] } }),
       spawnSubagent: async () => {
         throw new Error("git worktree add failed");
       },
+      updateSlice: makeUpdateSliceMock().fn,
       attempts: tracker,
       removeOrphanDir: async (dirPath: string) => {
         removed.push(dirPath);
@@ -256,51 +340,38 @@ describe("orchestrator dispatcher", () => {
     expect(result.decisions).toHaveLength(1);
     expect(result.decisions[0]?.action).toBe("skipped");
     expect(result.decisions[0]?.reason).toBe("git worktree add failed");
+    expect(result.decisions[0]?.sliceId).toBe("PRO-1-S01");
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.projectId).toBe("PRO-1");
+    expect(recorded[0]?.sliceId).toBe("PRO-1-S01");
     expect(removed).toHaveLength(1);
-    expect(removed[0]).toMatch(
-      /\/tmp\/projects\/PRO-1\/sessions\/orchestrator-pro-1-/
-    );
+    expect(removed[0]).toMatch(/\/tmp\/projects\/PRO-1\/sessions\/pro-1-s01-/);
   });
 
-  it("does not let active sibling slice block same parent project id", async () => {
+  it("sibling slices are independent — active run on S01 does not block S02", async () => {
     const spawned: SpawnSubagentInput[] = [];
 
     const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
       listProjects: async () => ({
         ok: true,
-        data: [
-          {
-            ...project("PRO-1"),
-            title: "Slice 1",
-            path: "PRO-1_slice1",
-            absolutePath: "/tmp/projects/PRO-1_slice1",
-            sliceId: "PRO-1-S01",
-          } as ProjectListItem,
-          {
-            ...project("PRO-1"),
-            title: "Slice 2",
-            path: "PRO-1_slice2",
-            absolutePath: "/tmp/projects/PRO-1_slice2",
-            sliceId: "PRO-1-S02",
-          } as ProjectListItem,
-        ],
+        data: [project("PRO-1")],
       }),
-      listSubagents: async (_config, projectId) => ({
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1"),
+        slice("PRO-1-S02", "PRO-1"),
+      ],
+      listSubagents: async () => ({
         ok: true,
         data: {
-          items:
-            projectId === "PRO-1"
-              ? [run("running", "orchestrator", { sliceId: "PRO-1-S01" })]
-              : [],
+          items: [
+            run("running", "orchestrator", { sliceId: "PRO-1-S01" }),
+          ],
         },
       }),
       spawnSubagent: async (_config, input) => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: makeUpdateProjectMock().fn,
+      updateSlice: makeUpdateSliceMock().fn,
       log: () => {},
     });
 
@@ -310,10 +381,11 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.sliceId).toBe("PRO-1-S02");
   });
 
-  it("keys cooldown by sliceId when present", async () => {
+  it("keys cooldown by sliceId", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const tracker = {
       record: () => {},
+      // PRO-1-S01 is cooling down; PRO-1-S02 is not
       isCoolingDown: (sliceId: string) => sliceId === "PRO-1-S01",
       clear: () => {},
     };
@@ -321,28 +393,29 @@ describe("orchestrator dispatcher", () => {
     const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
       listProjects: async () => ({
         ok: true,
-        data: [
-          { ...project("PRO-1"), sliceId: "PRO-1-S01" } as ProjectListItem,
-          { ...project("PRO-2"), sliceId: "PRO-1-S02" } as ProjectListItem,
-        ],
+        data: [project("PRO-1")],
       }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1"),
+        slice("PRO-1-S02", "PRO-1"),
+      ],
       listSubagents: async () => ({ ok: true, data: { items: [] } }),
       spawnSubagent: async (_config, input) => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: makeUpdateProjectMock().fn,
+      updateSlice: makeUpdateSliceMock().fn,
       attempts: tracker,
       log: () => {},
     });
 
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
-    expect(spawned[0]?.projectId).toBe("PRO-2");
     expect(spawned[0]?.sliceId).toBe("PRO-1-S02");
+    expect(spawned[0]?.projectId).toBe("PRO-1");
   });
 
-  it("matches legacy active run by repo cwd fallback at dispatcher call-site", async () => {
+  it("matches legacy active run by repo cwd fallback", async () => {
     const spawned: SpawnSubagentInput[] = [];
 
     const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
@@ -351,15 +424,16 @@ describe("orchestrator dispatcher", () => {
         data: [
           {
             ...project("PRO-1"),
-            frontmatter: { status: "shaping", repo: "/tmp/repo" },
-            sliceId: "PRO-1-S01",
-          } as ProjectListItem,
+            frontmatter: { status: "active", repo: "/tmp/repo" },
+          },
         ],
       }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
       listSubagents: async () => ({
         ok: true,
         data: {
           items: [
+            // Legacy run: has worktreePath but no sliceId
             run("running", "orchestrator", {
               worktreePath: "/tmp/repo",
             }),
@@ -370,7 +444,7 @@ describe("orchestrator dispatcher", () => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: makeUpdateProjectMock().fn,
+      updateSlice: makeUpdateSliceMock().fn,
       log: () => {},
     });
 
@@ -379,11 +453,11 @@ describe("orchestrator dispatcher", () => {
     expect(spawned).toHaveLength(0);
   });
 
-  it("skips projects in the failure cooldown window", async () => {
+  it("skips slices in the failure cooldown window", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const tracker = {
       record: () => {},
-      isCoolingDown: (projectId: string) => projectId === "PRO-1",
+      isCoolingDown: (sliceId: string) => sliceId === "PRO-1-S01",
       clear: () => {},
     };
 
@@ -392,47 +466,55 @@ describe("orchestrator dispatcher", () => {
         ok: true,
         data: [project("PRO-1"), project("PRO-2")],
       }),
+      listSlices: async (projectDir) => {
+        if (projectDir.includes("PRO-1")) return [slice("PRO-1-S01", "PRO-1")];
+        return [slice("PRO-2-S01", "PRO-2")];
+      },
       listSubagents: async () => ({ ok: true, data: { items: [] } }),
       spawnSubagent: async (_config, input) => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: makeUpdateProjectMock().fn,
+      updateSlice: makeUpdateSliceMock().fn,
       attempts: tracker,
       log: () => {},
     });
 
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
-    expect(spawned[0]?.projectId).toBe("PRO-2");
+    expect(spawned[0]?.sliceId).toBe("PRO-2-S01");
   });
 
-  it("locks spawned projects by moving them to active", async () => {
-    const updates = makeUpdateProjectMock();
+  it("locks spawned Worker slices by moving them to in_progress (project status unchanged)", async () => {
+    const updates = makeUpdateSliceMock();
 
     await dispatchOrchestratorTick(config, orchestratorConfig, {
       listProjects: async () => ({
         ok: true,
         data: [project("PRO-1"), project("PRO-2")],
       }),
+      listSlices: async (projectDir) => {
+        if (projectDir.includes("PRO-1")) return [slice("PRO-1-S01", "PRO-1")];
+        return [slice("PRO-2-S01", "PRO-2")];
+      },
       listSubagents: async () => ({ ok: true, data: { items: [] } }),
       spawnSubagent: async (_config, input) => ({
         ok: true,
         data: { slug: input.slug },
       }),
-      updateProject: updates.fn,
+      updateSlice: updates.fn,
       log: () => {},
     });
 
     expect(updates.calls).toEqual([
-      { id: "PRO-1", status: "active" },
-      { id: "PRO-2", status: "active" },
+      { sliceId: "PRO-1-S01", status: "in_progress" },
+      { sliceId: "PRO-2-S01", status: "in_progress" },
     ]);
   });
 
-  it("dispatches Reviewers for eligible review projects without a status lock", async () => {
+  it("dispatches Reviewers for slices in review status under active projects", async () => {
     const spawned: SpawnSubagentInput[] = [];
-    const updates = makeUpdateProjectMock();
+    const updates = makeUpdateSliceMock();
 
     const result = await dispatchOrchestratorTick(
       config,
@@ -443,14 +525,17 @@ describe("orchestrator dispatcher", () => {
       {
         listProjects: async () => ({
           ok: true,
-          data: [project("PRO-1", "review")],
+          data: [project("PRO-1")],
         }),
+        listSlices: async () => [
+          slice("PRO-1-S01", "PRO-1", "review"),
+        ],
         listSubagents: async () => ({ ok: true, data: { items: [] } }),
         spawnSubagent: async (_config, input) => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
-        updateProject: updates.fn,
+        updateSlice: updates.fn,
         now: () => new Date("2026-05-03T00:00:00.000Z"),
         log: () => {},
       }
@@ -459,78 +544,101 @@ describe("orchestrator dispatcher", () => {
     expect(result.availableSlots).toBe(2);
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.sliceId).toBe("PRO-1-S01");
     expect(spawned[0]?.projectId).toBe("PRO-1");
     expect(spawned[0]?.name).toBe("Reviewer");
     expect(spawned[0]?.mode).toBe("none");
     expect(spawned[0]?.source).toBe("orchestrator");
-    expect(spawned[0]?.sliceId).toBeUndefined();
+    // Reviewer uses `slices move` for both pass and fail paths
     expect(spawned[0]?.prompt).toContain(
-      "`aihub projects move PRO-1 ready_to_merge`"
+      "`aihub slices move PRO-1-S01 ready_to_merge`"
     );
+    // Reviewer does NOT lock the slice status
     expect(updates.calls).toEqual([]);
   });
 
   it("accounts todo and review slots independently", async () => {
     const spawned: SpawnSubagentInput[] = [];
-    const updates = makeUpdateProjectMock();
+    const updates = makeUpdateSliceMock();
 
     const result = await dispatchOrchestratorTick(
       config,
       {
         ...orchestratorConfig,
         statuses: {
-          shaping: { profile: "Worker", max_concurrent: 1 },
+          todo: { profile: "Worker", max_concurrent: 1 },
           review: { profile: "Reviewer", max_concurrent: 1 },
         },
       },
       {
         listProjects: async () => ({
           ok: true,
-          data: [
-            project("PRO-1"),
-            project("PRO-2"),
-            project("PRO-3", "review"),
-          ],
+          data: [project("PRO-1"), project("PRO-2")],
         }),
+        listSlices: async (projectDir) => {
+          if (projectDir.includes("PRO-1")) {
+            return [
+              slice("PRO-1-S01", "PRO-1", "todo"),
+              slice("PRO-1-S02", "PRO-1", "review"),
+            ];
+          }
+          return [slice("PRO-2-S01", "PRO-2", "todo")];
+        },
         listSubagents: async () => ({ ok: true, data: { items: [] } }),
         spawnSubagent: async (_config, input) => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
-        updateProject: updates.fn,
+        updateSlice: updates.fn,
         log: () => {},
       }
     );
 
+    // 1 slot for todo (2 eligible: PRO-1-S01, PRO-2-S01) → 1 spawned
+    // 1 slot for review (1 eligible: PRO-1-S02) → 1 spawned
     expect(result.availableSlots).toBe(2);
     expect(result.eligible).toBe(3);
-    expect(spawned.map((input) => input.projectId)).toEqual(["PRO-1", "PRO-3"]);
-    expect(spawned.map((input) => input.name)).toEqual(["Worker", "Reviewer"]);
-    expect(updates.calls).toEqual([{ id: "PRO-1", status: "active" }]);
+    expect(spawned).toHaveLength(2);
+    const workerSpawns = spawned.filter((s) => s.name === "Worker");
+    const reviewerSpawns = spawned.filter((s) => s.name === "Reviewer");
+    expect(workerSpawns).toHaveLength(1);
+    expect(reviewerSpawns).toHaveLength(1);
+    // Worker lock applied only for todo slice
+    expect(updates.calls).toHaveLength(1);
+    expect(updates.calls[0]?.status).toBe("in_progress");
   });
 
-  it("does not dispatch reviewers when review is not configured", async () => {
+  it("does not dispatch when configured status has no eligible slices", async () => {
     const spawned: SpawnSubagentInput[] = [];
 
-    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
-      listProjects: async () => ({
-        ok: true,
-        data: [project("PRO-1", "review")],
-      }),
-      listSubagents: async () => ({ ok: true, data: { items: [] } }),
-      spawnSubagent: async (_config, input) => {
-        spawned.push(input);
-        return { ok: true, data: { slug: input.slug } };
+    // Only `review` configured but all slices are in `todo`
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { review: { profile: "Reviewer", max_concurrent: 1 } },
       },
-      updateProject: makeUpdateProjectMock().fn,
-      log: () => {},
-    });
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "todo")],
+        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: makeUpdateSliceMock().fn,
+        log: () => {},
+      }
+    );
 
     expect(result.eligible).toBe(0);
     expect(spawned).toEqual([]);
   });
 
-  it("includes the most recent worker workspace in reviewer prompts", async () => {
+  it("includes the most recent worker workspace in reviewer prompts (filtered by sliceId)", async () => {
     const spawned: SpawnSubagentInput[] = [];
 
     await dispatchOrchestratorTick(
@@ -542,8 +650,9 @@ describe("orchestrator dispatcher", () => {
       {
         listProjects: async () => ({
           ok: true,
-          data: [project("PRO-1", "review")],
+          data: [project("PRO-1")],
         }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "review")],
         listSubagents: async () => ({
           ok: true,
           data: {
@@ -552,14 +661,25 @@ describe("orchestrator dispatcher", () => {
                 name: "Worker",
                 cli: "codex",
                 worktreePath: "/tmp/workspaces/old",
+                sliceId: "PRO-1-S01",
                 startedAt: "2026-05-03T00:00:00.000Z",
               }),
               run("idle", "orchestrator", {
                 name: "Worker",
                 cli: "codex",
                 worktreePath: "/tmp/workspaces/new",
+                sliceId: "PRO-1-S01",
                 startedAt: "2026-05-03T01:00:00.000Z",
               }),
+              // Different slice — should NOT appear in PRO-1-S01 reviewer prompt
+              run("idle", "orchestrator", {
+                name: "Worker",
+                cli: "codex",
+                worktreePath: "/tmp/workspaces/other-slice",
+                sliceId: "PRO-1-S02",
+                startedAt: "2026-05-03T02:00:00.000Z",
+              }),
+              // Manual run — not an orchestrator worker run
               run("idle", "manual", {
                 name: "Worker",
                 cli: "codex",
@@ -573,7 +693,7 @@ describe("orchestrator dispatcher", () => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
-        updateProject: makeUpdateProjectMock().fn,
+        updateSlice: makeUpdateSliceMock().fn,
         log: () => {},
       }
     );
@@ -581,6 +701,7 @@ describe("orchestrator dispatcher", () => {
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.prompt).toContain("Worker (codex): /tmp/workspaces/new");
     expect(spawned[0]?.prompt).not.toContain("/tmp/workspaces/old");
+    expect(spawned[0]?.prompt).not.toContain("/tmp/workspaces/other-slice");
     expect(spawned[0]?.prompt).not.toContain("/tmp/workspaces/manual");
   });
 
@@ -593,15 +714,15 @@ describe("orchestrator dispatcher", () => {
         ok: true,
         data: [project("PRO-1")],
       }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
       listSubagents: async () => ({ ok: true, data: { items: [] } }),
       spawnSubagent: async (_config, input) => {
         spawned.push(input);
         return { ok: true, data: { slug: input.slug } };
       },
-      updateProject: async () => ({
-        ok: false,
-        error: "disk full",
-      }),
+      updateSlice: async () => {
+        throw new Error("disk full");
+      },
       log: (msg) => logs.push(msg),
     });
 
@@ -613,5 +734,87 @@ describe("orchestrator dispatcher", () => {
           m.includes("action=lock_failed") && m.includes("reason=disk full")
       )
     ).toBe(true);
+  });
+
+  it("Worker prompt includes stay-in-slice clause and slice-specific file links", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: makeUpdateSliceMock().fn,
+      log: () => {},
+    });
+
+    expect(spawned).toHaveLength(1);
+    const prompt = spawned[0]?.prompt ?? "";
+    // Stay-in-slice clause
+    expect(prompt).toContain("Stay in Your Slice");
+    // Slice doc links
+    expect(prompt).toContain(
+      `/tmp/projects/PRO-1/slices/PRO-1-S01/SPECS.md`
+    );
+    expect(prompt).toContain(
+      `/tmp/projects/PRO-1/slices/PRO-1-S01/TASKS.md`
+    );
+    expect(prompt).toContain(
+      `/tmp/projects/PRO-1/slices/PRO-1-S01/VALIDATION.md`
+    );
+    // Project context (pitch + scope map)
+    expect(prompt).toContain(`/tmp/projects/PRO-1/README.md`);
+    expect(prompt).toContain(`/tmp/projects/PRO-1/SCOPE_MAP.md`);
+  });
+
+  it("Worker run gets projectId + sliceId in spawn input", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: makeUpdateSliceMock().fn,
+      log: () => {},
+    });
+
+    expect(spawned[0]?.projectId).toBe("PRO-1");
+    expect(spawned[0]?.sliceId).toBe("PRO-1-S01");
+  });
+
+  it("worktree slug encodes sliceId for §5.8 path layout", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: makeUpdateSliceMock().fn,
+      now: () => new Date("2026-05-03T17:00:00.000Z"),
+      log: () => {},
+    });
+
+    // Slug starts with lowercase sliceId prefix
+    expect(spawned[0]?.slug).toMatch(/^pro-1-s01-/);
   });
 });
