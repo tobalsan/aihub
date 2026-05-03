@@ -22,6 +22,8 @@ export type StartSubagentInput = {
   prompt: string;
   label: string;
   parent?: SubagentParent;
+  projectId?: string;
+  sliceId?: string;
   model?: string;
   reasoningEffort?: string;
 };
@@ -34,6 +36,8 @@ type StoredConfig = {
   id: string;
   label: string;
   parent?: SubagentParent;
+  projectId?: string;
+  sliceId?: string;
   cli: SubagentRuntimeCli;
   cwd: string;
   prompt: string;
@@ -495,6 +499,8 @@ async function toRun(
     id: config.id,
     label: config.label,
     parent: config.parent,
+    projectId: config.projectId,
+    sliceId: config.sliceId,
     cli: config.cli,
     cwd: config.cwd,
     prompt: config.prompt,
@@ -621,6 +627,8 @@ export async function startSubagentRun(
     id: runId,
     label: input.label.trim(),
     parent: input.parent,
+    projectId: input.projectId,
+    sliceId: input.sliceId,
     cli: input.cli,
     cwd,
     prompt: input.prompt,

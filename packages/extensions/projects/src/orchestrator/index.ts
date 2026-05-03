@@ -12,20 +12,19 @@ export type OrchestratorDaemon = {
   stop(): Promise<void>;
 };
 
-// Tracks last spawn-attempt time per project (regardless of outcome).
-// Suppresses re-dispatch within `failure_cooldown_ms` so a hard-failing
-// project doesn't get hammered every tick. In-memory by design: a gateway
-// restart resets the cooldown, which is desirable (restart = intentional
-// retry).
+// Tracks last spawn-attempt time per slice attribution key.
+// Suppresses re-dispatch within `failure_cooldown_ms` so hard-failing
+// runs don't get hammered every tick. In-memory by design: gateway restart
+// resets cooldown, desired for intentional retry.
 function createAttemptTracker(): OrchestratorAttemptTracker {
   const lastAttemptAt = new Map<string, number>();
   return {
-    record(projectId: string, atMs: number): void {
-      lastAttemptAt.set(projectId, atMs);
+    record(sliceId: string, atMs: number): void {
+      lastAttemptAt.set(sliceId, atMs);
     },
-    isCoolingDown(projectId: string, nowMs: number, cooldownMs: number): boolean {
+    isCoolingDown(sliceId: string, nowMs: number, cooldownMs: number): boolean {
       if (cooldownMs <= 0) return false;
-      const previous = lastAttemptAt.get(projectId);
+      const previous = lastAttemptAt.get(sliceId);
       if (previous === undefined) return false;
       return nowMs - previous < cooldownMs;
     },

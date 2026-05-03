@@ -27,6 +27,8 @@ export type SubagentListItem = {
   reasoningEffort?: string;
   thinking?: string;
   runMode?: string;
+  projectId?: string;
+  sliceId?: string;
   status: SubagentStatus;
   lastActive?: string;
   startedAt?: string;
@@ -720,6 +722,8 @@ export async function listSubagents(
       reasoningEffort?: string;
       thinking?: string;
       runMode?: string;
+      projectId?: string;
+      sliceId?: string;
       baseBranch?: string;
       source?: OrchestratorSource;
       archived?: boolean;
@@ -729,6 +733,8 @@ export async function listSubagents(
       last_error?: string;
       cli?: string;
       run_mode?: string;
+      project_id?: string;
+      slice_id?: string;
       worktree_path?: string;
       base_branch?: string;
       started_at?: string;
@@ -772,6 +778,8 @@ export async function listSubagents(
       reasoningEffort: configData?.reasoningEffort,
       thinking: configData?.thinking,
       runMode: configData?.runMode ?? state?.run_mode,
+      projectId: configData?.projectId ?? state?.project_id,
+      sliceId: configData?.sliceId ?? state?.slice_id,
       status,
       lastActive: progress?.last_active,
       startedAt: state?.started_at,
@@ -798,6 +806,8 @@ type SubagentStoredConfig = {
   reasoningEffort?: string;
   thinking?: string;
   runMode?: string;
+  projectId?: string;
+  sliceId?: string;
   baseBranch?: string;
   source?: OrchestratorSource;
   created?: string;

@@ -46,8 +46,8 @@ export function resolveAihubCli(): string {
 }
 
 export type OrchestratorAttemptTracker = {
-  record(projectId: string, atMs: number): void;
-  isCoolingDown(projectId: string, nowMs: number, cooldownMs: number): boolean;
+  record(sliceId: string, atMs: number): void;
+  isCoolingDown(sliceId: string, nowMs: number, cooldownMs: number): boolean;
   clear(): void;
 };
 
@@ -101,12 +101,29 @@ function statusOf(project: ProjectListItem): string {
     : "";
 }
 
+function projectSliceId(project: ProjectListItem): string | undefined {
+  return (project as ProjectListItem & { sliceId?: string }).sliceId;
+}
+
+function cooldownKeyForProject(project: ProjectListItem): string {
+  return projectSliceId(project) ?? project.id;
+}
+
 function sourceOf(run: SubagentListItem): string {
   return run.source ?? "manual";
 }
 
-function isActiveOrchestratorRun(run: SubagentListItem): boolean {
-  return sourceOf(run) === "orchestrator" && run.status === "running";
+export function isActiveOrchestratorRun(
+  run: SubagentListItem,
+  sliceId?: string,
+  fallbackCwd?: string
+): boolean {
+  if (sourceOf(run) !== "orchestrator" || run.status !== "running") {
+    return false;
+  }
+  if (!sliceId) return true;
+  if (run.sliceId) return run.sliceId === sliceId;
+  return Boolean(fallbackCwd && run.worktreePath === fallbackCwd);
 }
 
 function runtimeProfiles(config: GatewayConfig): SubagentRuntimeProfile[] {
@@ -403,7 +420,13 @@ async function dispatchForStatus(
   for (const entry of projectRuns) {
     activeByProject.set(
       entry.project.id,
-      entry.runs.filter(isActiveOrchestratorRun)
+      entry.runs.filter((run) =>
+        isActiveOrchestratorRun(
+          run,
+          projectSliceId(entry.project),
+          entry.project.absolutePath
+        )
+      )
     );
   }
 
@@ -418,7 +441,9 @@ async function dispatchForStatus(
   const cooldownMs = orchestratorConfig.failure_cooldown_ms;
   const eligible = statusProjects.filter((project) => {
     if ((activeByProject.get(project.id)?.length ?? 0) > 0) return false;
-    if (attempts?.isCoolingDown(project.id, nowMs, cooldownMs)) {
+    const cooldownKey = cooldownKeyForProject(project);
+
+    if (attempts?.isCoolingDown(cooldownKey, nowMs, cooldownMs)) {
       keyValueLog(log, {
         component: "orchestrator",
         status: statusKey,
@@ -462,10 +487,9 @@ async function dispatchForStatus(
       });
       continue;
     }
-    // Record the attempt up-front so the cooldown applies even if spawnSubagent
-    // throws (e.g. `git worktree add failed` from runner.ts) and short-circuits
-    // the success/failure branches below.
-    attempts?.record(project.id, nowMs);
+    // Record attempt up-front so cooldown applies even when spawn throws
+    // (e.g. `git worktree add failed` from runner.ts).
+    attempts?.record(cooldownKeyForProject(project), nowMs);
     let spawned: SpawnSubagentResult;
     try {
       spawned = await (deps.spawnSubagent ?? spawnSubagent)(config, input);

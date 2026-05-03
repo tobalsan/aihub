@@ -138,6 +138,8 @@ function registerSubagentRoutes(app: Hono): void {
     const reasoningEffort =
       readOptionalString(body.reasoningEffort) ?? profile?.reasoningEffort;
     const parent = readParent(body.parent);
+    const projectId = readOptionalString(body.projectId);
+    const sliceId = readOptionalString(body.sliceId);
 
     if (!cli || !isSupportedSubagentCli(cli)) {
       return c.json({ error: "cli must be codex, claude, or pi" }, 400);
@@ -153,6 +155,8 @@ function registerSubagentRoutes(app: Hono): void {
         prompt,
         label,
         parent,
+        projectId,
+        sliceId,
         model,
         reasoningEffort,
       });

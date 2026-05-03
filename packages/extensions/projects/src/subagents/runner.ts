@@ -27,6 +27,7 @@ export type SubagentMode = "main-run" | "worktree" | "clone" | "none";
 
 export type SpawnSubagentInput = {
   projectId: string;
+  sliceId?: string;
   slug: string;
   cli: SubagentCli;
   name?: string;
@@ -57,6 +58,8 @@ export type KillSubagentResult =
 type SubagentState = {
   session_id: string;
   session_file?: string;
+  project_id?: string;
+  slice_id?: string;
   supervisor_pid: number;
   started_at: string;
   finished_at?: string;
@@ -920,6 +923,8 @@ export async function spawnSubagent(
     session_id:
       cli === "pi" ? (piSessionFile ?? "") : (existingSessionId ?? ""),
     session_file: cli === "pi" ? (piSessionFile ?? "") : undefined,
+    project_id: input.projectId,
+    slice_id: input.sliceId,
     supervisor_pid: child.pid ?? 0,
     started_at: startedAt,
     last_error: "",
@@ -934,6 +939,8 @@ export async function spawnSubagent(
   await writeJson(configPath, {
     name: input.name,
     cli,
+    projectId: input.projectId,
+    sliceId: input.sliceId,
     model: input.model,
     reasoningEffort: input.reasoningEffort,
     thinking: input.thinking,

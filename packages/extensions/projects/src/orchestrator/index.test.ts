@@ -3,7 +3,10 @@ import type { GatewayConfig } from "@aihub/shared";
 import type { ProjectListItem } from "../projects/store.js";
 import type { SubagentListItem } from "../subagents/index.js";
 import type { SpawnSubagentInput } from "../subagents/runner.js";
-import { dispatchOrchestratorTick } from "./dispatcher.js";
+import {
+  dispatchOrchestratorTick,
+  isActiveOrchestratorRun,
+} from "./dispatcher.js";
 import type { OrchestratorConfig } from "./config.js";
 
 const config = {
@@ -77,6 +80,37 @@ function makeUpdateProjectMock(): {
 }
 
 describe("orchestrator dispatcher", () => {
+  it("matches active orchestrator run by sliceId", () => {
+    expect(
+      isActiveOrchestratorRun(
+        run("running", "orchestrator", { sliceId: "PRO-1-S01" }),
+        "PRO-1-S01"
+      )
+    ).toBe(true);
+    expect(
+      isActiveOrchestratorRun(
+        run("running", "orchestrator", { sliceId: "PRO-1-S02" }),
+        "PRO-1-S01"
+      )
+    ).toBe(false);
+  });
+
+  it("falls back to cwd for legacy run without sliceId", () => {
+    expect(
+      isActiveOrchestratorRun(
+        run("running", "orchestrator", { worktreePath: "/tmp/wt/s01" }),
+        "PRO-1-S01",
+        "/tmp/wt/s01"
+      )
+    ).toBe(true);
+    expect(
+      isActiveOrchestratorRun(
+        run("running", "orchestrator", { worktreePath: "/tmp/wt/s02" }),
+        "PRO-1-S01",
+        "/tmp/wt/s01"
+      )
+    ).toBe(false);
+  });
   it("dispatches Workers for eligible todo projects with orchestrator source", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const listSubagents = vi.fn(async () => ({
@@ -221,6 +255,37 @@ describe("orchestrator dispatcher", () => {
     expect(removed[0]).toMatch(
       /\/tmp\/projects\/PRO-1\/sessions\/orchestrator-pro-1-/
     );
+  });
+
+  it("keys cooldown by sliceId when present", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const tracker = {
+      record: () => {},
+      isCoolingDown: (sliceId: string) => sliceId === "PRO-1-S01",
+      clear: () => {},
+    };
+
+    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [
+          { ...project("PRO-1"), sliceId: "PRO-1-S01" } as ProjectListItem,
+          { ...project("PRO-2"), sliceId: "PRO-1-S02" } as ProjectListItem,
+        ],
+      }),
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateProject: makeUpdateProjectMock().fn,
+      attempts: tracker,
+      log: () => {},
+    });
+
+    expect(result.eligible).toBe(1);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.projectId).toBe("PRO-2");
   });
 
   it("skips projects in the failure cooldown window", async () => {

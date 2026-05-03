@@ -1009,6 +1009,8 @@ export type SubagentRun = {
   id: string;
   label: string;
   parent?: SubagentParent;
+  projectId?: string;
+  sliceId?: string;
   cli: SubagentRuntimeCli;
   cwd: string;
   prompt: string;

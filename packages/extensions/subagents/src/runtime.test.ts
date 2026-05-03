@@ -2,7 +2,11 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getSubagentLogs, listSubagentRuns } from "./runtime.js";
+import {
+  getSubagentLogs,
+  listSubagentRuns,
+  startSubagentRun,
+} from "./runtime.js";
 
 let tempDir: string;
 
@@ -186,6 +190,53 @@ describe("subagent runtime logs", () => {
       expect(runs.map((run) => run.id)).toEqual(["run-home"]);
     } finally {
       await fs.rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads legacy runs without projectId/sliceId", async () => {
+    await writeRun("run-legacy", []);
+
+    const runs = await listSubagentRuns(runtimeOptions());
+
+    expect(runs[0]?.projectId).toBeUndefined();
+    expect(runs[0]?.sliceId).toBeUndefined();
+  });
+
+  it("surfaces projectId/sliceId when present", async () => {
+    await writeRun("run-attributed", [], undefined, {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S01",
+    });
+
+    const runs = await listSubagentRuns(runtimeOptions());
+
+    expect(runs[0]?.projectId).toBe("PRO-238");
+    expect(runs[0]?.sliceId).toBe("PRO-238-S01");
+  });
+
+  it("persists projectId/sliceId for new runs", async () => {
+    const binDir = await fs.mkdtemp(path.join(tempDir, "bin-"));
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(codexPath, "#!/bin/sh\nexit 0\n", {
+      encoding: "utf8",
+      mode: 0o755,
+    });
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+
+    try {
+      const run = await startSubagentRun(runtimeOptions(), {
+        cli: "codex",
+        cwd: tempDir,
+        prompt: "test",
+        label: "Worker",
+        projectId: "PRO-238",
+        sliceId: "PRO-238-S01",
+      });
+      expect(run.projectId).toBe("PRO-238");
+      expect(run.sliceId).toBe("PRO-238-S01");
+    } finally {
+      process.env.PATH = originalPath;
     }
   });
 
