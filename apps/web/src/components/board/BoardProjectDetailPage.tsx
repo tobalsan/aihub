@@ -26,6 +26,7 @@ import {
 import type { ProjectLifecycleStatus } from "../../api/types";
 import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
+import { ActivityFeed } from "../ActivityFeed";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -436,18 +437,12 @@ export function BoardProjectDetailPage() {
                 </div>
               </Match>
 
-              {/* Activity tab — stub (issue #14) */}
               <Match when={activeTab() === "activity"}>
-                <div class="bpd-tab-panel bpd-activity-stub">
-                  <div class="bpd-activity-stub-inner">
-                    <span class="bpd-activity-stub-icon" aria-hidden="true">📋</span>
-                    <p class="bpd-activity-stub-text">
-                      Activity feed coming soon — depends on issue #14.
-                    </p>
-                    <p class="bpd-activity-stub-sub">
-                      Will show project-scoped events: status transitions, slice moves, run completions.
-                    </p>
-                  </div>
+                <div class="bpd-tab-panel bpd-activity-feed">
+                  <ActivityFeed
+                    projectId={projectId()}
+                    onOpenProject={(id) => navigate(`/board/projects/${id}`)}
+                  />
                 </div>
               </Match>
             </Switch>

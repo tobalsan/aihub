@@ -6,8 +6,8 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { fetchActivity, fetchAgents } from "../api/client";
-import type { ActivityEvent, Agent } from "../api/types";
+import { fetchAgents, fetchBoardActivity } from "../api/client";
+import type { ActivityEvent, Agent, BoardActivityItem } from "../api/types";
 
 function formatRelativeTime(ts: string): string {
   const date = new Date(ts);
@@ -28,10 +28,13 @@ type ActivityFeedProps = {
   onOpenProject?: (id: string) => void;
   onBack?: () => void;
   fullscreen?: boolean;
+  projectId?: string;
 };
 
+type FeedEvent = ActivityEvent | BoardActivityItem;
+
 export function ActivityFeed(props: ActivityFeedProps) {
-  const [items, setItems] = createSignal<ActivityEvent[]>([]);
+  const [items, setItems] = createSignal<FeedEvent[]>([]);
   const [offset, setOffset] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
@@ -43,13 +46,18 @@ export function ActivityFeed(props: ActivityFeedProps) {
     return list.find((agent) => agent.name === name)?.id ?? null;
   };
 
-  const resolveSubagentId = (event: ActivityEvent) => {
-    if (event.type !== "subagent_action") return null;
-    if (!event.projectId || !event.subagentSlug) return null;
-    return `${event.projectId}/${event.subagentSlug}`;
+  const resolveSubagentId = (event: FeedEvent) => {
+    if (event.type === "subagent_action") {
+      if (!event.projectId || !event.subagentSlug) return null;
+      return `${event.projectId}/${event.subagentSlug}`;
+    }
+    if ((event.type === "run_start" || event.type === "run_complete") && event.runSlug) {
+      return event.projectId ? `${event.projectId}/${event.runSlug}` : event.runSlug;
+    }
+    return null;
   };
 
-  const mergeById = (base: ActivityEvent[], next: ActivityEvent[]) => {
+  const mergeById = (base: FeedEvent[], next: FeedEvent[]) => {
     const seen = new Set(base.map((event) => event.id));
     const merged = [...base];
     for (const event of next) {
@@ -64,8 +72,11 @@ export function ActivityFeed(props: ActivityFeedProps) {
     if (loading()) return;
     setLoading(true);
     try {
-      const res = await fetchActivity(nextOffset, pageSize);
-      const page = res.events ?? [];
+      const res = await fetchBoardActivity({
+        projectId: props.projectId,
+        limit: nextOffset + pageSize,
+      });
+      const page = (res.items ?? []).slice(nextOffset, nextOffset + pageSize);
       if (append) {
         setItems((prev) => mergeById(prev, page));
       } else {
@@ -85,15 +96,21 @@ export function ActivityFeed(props: ActivityFeedProps) {
   };
 
   const list = () => items();
-  const isClickable = (event: ActivityEvent) =>
+  const isClickable = (event: FeedEvent) =>
     (event.type === "agent_message" &&
       (Boolean(resolveAgentId(event.actor)) ||
         Boolean(resolveSubagentId(event)))) ||
-    (event.type === "subagent_action" && Boolean(resolveSubagentId(event))) ||
-    ((event.type === "project_status" || event.type === "project_comment") &&
+    ((event.type === "subagent_action" ||
+      event.type === "run_start" ||
+      event.type === "run_complete") &&
+      Boolean(resolveSubagentId(event))) ||
+    ((event.type === "project_status" ||
+      event.type === "project_comment" ||
+      event.type === "thread_comment" ||
+      event.type === "slice_status") &&
       Boolean(event.projectId));
 
-  const handleItemClick = (event: ActivityEvent) => {
+  const handleItemClick = (event: FeedEvent) => {
     if (event.type === "agent_message") {
       const id = resolveAgentId(event.actor);
       if (id && props.onSelectAgent) {
@@ -105,14 +122,21 @@ export function ActivityFeed(props: ActivityFeedProps) {
         props.onSelectAgent(subagentId);
       }
     }
-    if (event.type === "subagent_action") {
+    if (
+      event.type === "subagent_action" ||
+      event.type === "run_start" ||
+      event.type === "run_complete"
+    ) {
       const subagentId = resolveSubagentId(event);
       if (subagentId && props.onSelectAgent) {
         props.onSelectAgent(subagentId);
       }
     }
     if (
-      (event.type === "project_status" || event.type === "project_comment") &&
+      (event.type === "project_status" ||
+        event.type === "project_comment" ||
+        event.type === "thread_comment" ||
+        event.type === "slice_status") &&
       event.projectId &&
       props.onOpenProject
     ) {

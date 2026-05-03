@@ -9,6 +9,7 @@ import {
   addProjectComment,
   createSlice,
   subscribeToFileChanges,
+  fetchBoardActivity,
 } from "../../api/client";
 
 const navigateMock = vi.fn();
@@ -61,6 +62,20 @@ vi.mock("../../api/client", () => ({
     docs: { readme: "", specs: "", tasks: "", validation: "", thread: "" },
   })),
   subscribeToFileChanges: vi.fn(() => () => {}),
+  fetchAgents: vi.fn(async () => []),
+  fetchBoardActivity: vi.fn(async () => ({
+    items: [
+      {
+        id: "activity-1",
+        type: "project_status",
+        projectId: "PRO-42",
+        actor: "PRO-42",
+        action: "→ active",
+        timestamp: new Date().toISOString(),
+        color: "green",
+      },
+    ],
+  })),
   // SliceKanbanWidget deps
   fetchSlices: vi.fn(async () => []),
   updateSlice: vi.fn(async () => ({})),
@@ -277,7 +292,7 @@ describe("BoardProjectDetailPage", () => {
     expect(addProjectComment).toHaveBeenCalledWith("PRO-42", "Hello world");
   });
 
-  it("Activity tab shows stub message", async () => {
+  it("Activity tab shows project feed", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();
     await wait();
@@ -288,8 +303,14 @@ describe("BoardProjectDetailPage", () => {
     activityTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
 
-    expect(container.querySelector(".bpd-activity-stub")).not.toBeNull();
-    expect(container.textContent).toContain("#14");
+    await wait();
+
+    expect(fetchBoardActivity).toHaveBeenCalledWith({
+      projectId: "PRO-42",
+      limit: 20,
+    });
+    expect(container.textContent).toContain("PRO-42");
+    expect(container.textContent).toContain("→ active");
   });
 
   it("Pitch tab save calls updateProject with README content", async () => {
