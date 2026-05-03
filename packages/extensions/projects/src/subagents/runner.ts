@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import os from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import type { GatewayConfig } from "@aihub/shared";
+import type { GatewayConfig, OrchestratorSource } from "@aihub/shared";
 import { expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { findProjectLocation, getProject } from "../projects/store.js";
@@ -36,6 +36,7 @@ export type SpawnSubagentInput = {
   thinking?: string;
   mode?: SubagentMode;
   baseBranch?: string;
+  source?: OrchestratorSource;
   resume?: boolean;
   replaces?: string[];
   attachments?: Array<{ path: string; mimeType: string; filename?: string }>;
@@ -884,6 +885,7 @@ export async function spawnSubagent(
   const startedAt = new Date().toISOString();
   let createdAt = startedAt;
   let archived = false;
+  let existingSource: OrchestratorSource | undefined;
   const persistedReplaces = normalizeReplaces(input.replaces);
   try {
     const raw = await fs.readFile(configPath, "utf8");
@@ -891,6 +893,7 @@ export async function spawnSubagent(
       created?: string;
       archived?: boolean;
       replaces?: string[];
+      source?: OrchestratorSource;
     };
     if (
       typeof existing.created === "string" &&
@@ -900,6 +903,12 @@ export async function spawnSubagent(
     }
     if (typeof existing.archived === "boolean") {
       archived = existing.archived;
+    }
+    if (
+      existing.source === "manual" ||
+      existing.source === "orchestrator"
+    ) {
+      existingSource = existing.source;
     }
   } catch {
     // ignore
@@ -927,6 +936,7 @@ export async function spawnSubagent(
     thinking: input.thinking,
     runMode: mode,
     baseBranch,
+    source: input.source ?? existingSource ?? "manual",
     replaces: persistedReplaces,
     created: createdAt,
     archived,

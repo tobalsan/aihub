@@ -76,6 +76,10 @@ import {
   type ProjectWatcher,
 } from "./projects/watcher.js";
 import {
+  startOrchestratorDaemon,
+  type OrchestratorDaemon,
+} from "./orchestrator/index.js";
+import {
   archiveSubagent,
   getSubagentLogs,
   listAllSubagents,
@@ -171,6 +175,7 @@ const UpdateSubagentRequestSchema = z.object({
 });
 
 let watcher: ProjectWatcher | null = null;
+let orchestrator: OrchestratorDaemon | null = null;
 
 function getProjectsRuntimeConfig(config: GatewayConfig): GatewayConfig {
   const root = config.extensions?.projects?.root ?? config.projects?.root;
@@ -2496,9 +2501,13 @@ const projectsExtension: Extension = {
   },
   async start(ctx) {
     setProjectsContext(ctx);
-    watcher = startProjectWatcher(getProjectsConfig());
+    const config = getProjectsConfig();
+    watcher = startProjectWatcher(config);
+    orchestrator = startOrchestratorDaemon(config);
   },
   async stop() {
+    await orchestrator?.stop();
+    orchestrator = null;
     await watcher?.close();
     watcher = null;
     clearProjectsContext();

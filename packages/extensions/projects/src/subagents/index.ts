@@ -7,6 +7,7 @@ import {
   type ContextEstimate,
   type GatewayConfig,
   type ModelUsage,
+  type OrchestratorSource,
   type SubagentGlobalListItem,
 } from "@aihub/shared";
 import { findProjectLocation } from "../projects/store.js";
@@ -30,6 +31,7 @@ export type SubagentListItem = {
   lastActive?: string;
   baseBranch?: string;
   worktreePath?: string;
+  source?: OrchestratorSource;
   lastError?: string;
   archived?: boolean;
 };
@@ -718,6 +720,7 @@ export async function listSubagents(
       thinking?: string;
       runMode?: string;
       baseBranch?: string;
+      source?: OrchestratorSource;
       archived?: boolean;
     }>(path.join(dir, "config.json"));
     const state = await readJson<{
@@ -772,6 +775,7 @@ export async function listSubagents(
       lastActive: progress?.last_active,
       baseBranch: configData?.baseBranch ?? state?.base_branch,
       worktreePath: state?.worktree_path,
+      source: configData?.source ?? "manual",
       lastError: state?.last_error,
       archived: configData?.archived ?? false,
     });
@@ -793,6 +797,7 @@ type SubagentStoredConfig = {
   thinking?: string;
   runMode?: string;
   baseBranch?: string;
+  source?: OrchestratorSource;
   created?: string;
   archived?: boolean;
 } & Record<string, unknown>;
@@ -977,6 +982,7 @@ export async function listAllSubagents(
           thinking?: string;
           runMode?: string;
           baseBranch?: string;
+          source?: OrchestratorSource;
           archived?: boolean;
         }>(path.join(dir, "config.json"));
         const state = await readJson<{
@@ -1026,6 +1032,7 @@ export async function listAllSubagents(
           runMode: configData?.runMode ?? state?.run_mode,
           baseBranch: configData?.baseBranch,
           worktreePath: state?.worktree_path,
+          source: configData?.source ?? "manual",
           status,
           lastActive: progress?.last_active,
           runStartedAt: state?.started_at,

@@ -450,9 +450,36 @@ export type HeartbeatExtensionConfig = z.infer<
   typeof HeartbeatExtensionConfigSchema
 >;
 
+export const OrchestratorSourceSchema = z.enum(["manual", "orchestrator"]);
+export type OrchestratorSource = z.infer<typeof OrchestratorSourceSchema>;
+
+export const ProjectsOrchestratorStatusConfigSchema = z.object({
+  profile: z.string(),
+  max_concurrent: z.number().int().nonnegative().default(1),
+});
+export type ProjectsOrchestratorStatusConfig = z.infer<
+  typeof ProjectsOrchestratorStatusConfigSchema
+>;
+
+export const ProjectsOrchestratorConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  poll_interval_ms: z.number().int().positive().optional().default(30_000),
+  statuses: z
+    .object({
+      todo: ProjectsOrchestratorStatusConfigSchema.optional(),
+    })
+    .passthrough()
+    .optional()
+    .default({}),
+});
+export type ProjectsOrchestratorConfig = z.infer<
+  typeof ProjectsOrchestratorConfigSchema
+>;
+
 export const ProjectsExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   root: z.string().optional(),
+  orchestrator: ProjectsOrchestratorConfigSchema.optional(),
 });
 export type ProjectsExtensionConfig = z.infer<
   typeof ProjectsExtensionConfigSchema
@@ -949,6 +976,7 @@ export type SubagentGlobalListItem = {
   runMode?: string;
   baseBranch?: string;
   worktreePath?: string;
+  source?: OrchestratorSource;
   status: "running" | "replied" | "error" | "idle";
   lastActive?: string;
   runStartedAt?: string;

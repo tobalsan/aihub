@@ -36,6 +36,23 @@ All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
+Projects can opt into the v0.1 orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls `todo` projects and starts configured `Worker` subagents up to the status concurrency cap:
+
+```json
+{
+  "extensions": {
+    "projects": {
+      "orchestrator": {
+        "enabled": true,
+        "poll_interval_ms": 30000,
+        "statuses": {
+          "todo": { "profile": "Worker", "max_concurrent": 2 }
+        }
+      }
+    }
+  }
+}
+```
 Startup now resolves `$env:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
