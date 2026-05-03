@@ -258,8 +258,8 @@ else
 fi
 
 # Auto-done via gateway (project update) is tested in vitest:
-# packages/extensions/projects/src/projects/slices.test.ts covers auto-done trigger
-pass "auto-done logic covered by vitest (slices.test.ts)"
+# packages/extensions/projects/src/projects/store.test.ts covers auto-done trigger
+pass "auto-done logic covered by vitest (store.test.ts)"
 
 # Verify ready_to_merge does NOT appear as 'done' in SCOPE_MAP
 RTM_PID="PRO-903"

@@ -174,7 +174,7 @@ Full dispatch requires a running gateway + configured profiles. The smoke script
 |------|--------|
 | `ProjectsBoard` legacy component | Still in web app alongside new board ext components. Follow-up cleanup. |
 | Worker/Reviewer live LLM dispatch | Not tested in CI smoke (requires gateway + profiles). Manual procedure documented. |
-| Cancellation via gateway `project update` | Tested via unit tests; slice `cancel` command tested in smoke. Gateway cascade tested in `slices.test.ts`. |
+| Cancellation via gateway `project update` | Tested via unit tests; slice `cancel` command tested in smoke. Gateway cascade tested in `store.test.ts`. |
 | Hill chart UI | `hill_position` field reserved in schema; no UI yet. |
 | v0.4 reliability work | Reconciliation, exponential-backoff retries, stall detection parked. |
 | SCOPE_MAP concurrent writes | Uses atomic temp-rename; noted in spec as acceptable. |
