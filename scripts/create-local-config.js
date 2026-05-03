@@ -62,9 +62,11 @@ async function main() {
     findAvailablePort(GATEWAY_PORT_RANGE),
     findAvailablePort(UI_PORT_RANGE),
   ]);
+  const projectsRoot = path.join(repoRoot, ".aihub", "projects");
   const content = template
     .replaceAll("__GATEWAY_PORT__", String(gatewayPort))
-    .replaceAll("__UI_PORT__", String(uiPort));
+    .replaceAll("__UI_PORT__", String(uiPort))
+    .replaceAll("__PROJECTS_ROOT__", JSON.stringify(projectsRoot));
 
   await mkdir(outputDir, { recursive: true });
   await writeFile(outputPath, content);

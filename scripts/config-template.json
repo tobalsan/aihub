@@ -18,15 +18,28 @@
   "subagents": [
     {
       "name": "Worker",
-      "description": "Implements code in isolated workspace",
+      "description": "Implements code in isolated worktree",
       "cli": "codex",
       "model": "gpt-5.3-codex",
       "reasoning": "medium",
       "type": "worker",
       "runMode": "worktree"
+    },
+    {
+      "name": "Reviewer",
+      "description": "Review code in worker worktree",
+      "cli": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high",
+      "type": "reviewer",
+      "runMode": "none"
     }
   ],
-  "extensions": {},
+  "extensions": {
+    "projects": {
+      "root": __PROJECTS_ROOT__
+    }
+  },
   "gateway": {
     "bind": "loopback",
     "port": __GATEWAY_PORT__
