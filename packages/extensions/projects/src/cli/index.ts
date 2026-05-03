@@ -8,6 +8,7 @@ import {
   type StartPromptRole as SharedStartPromptRole,
 } from "@aihub/shared";
 import { ApiClient } from "./client.js";
+export { registerSlicesCommands } from "./slices.js";
 import {
   describeMigration,
   migrateLocalConfig,

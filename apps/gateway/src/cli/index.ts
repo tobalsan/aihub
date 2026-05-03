@@ -15,7 +15,10 @@ import {
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
-import { registerProjectsCommands } from "@aihub/extension-projects";
+import {
+  registerProjectsCommands,
+  registerSlicesCommands,
+} from "@aihub/extension-projects";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type UiConfig } from "@aihub/shared";
 import {
@@ -369,6 +372,9 @@ registerProjectsCommands(
     .command("projects")
     .description("Manage AIHub projects")
     .version("0.1.0")
+);
+registerSlicesCommands(
+  program.command("slices").description("Manage AIHub slices").version("0.1.0")
 );
 registerEvalCommands(program);
 

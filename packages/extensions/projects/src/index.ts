@@ -2476,6 +2476,7 @@ export {
   createProjectCommentHandler,
   createProjectsCommand,
   registerProjectsCommands,
+  registerSlicesCommands,
 } from "./cli/index.js";
 
 const projectsExtension: Extension = {
