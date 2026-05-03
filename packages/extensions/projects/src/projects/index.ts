@@ -14,6 +14,12 @@ export {
   resolveAttachmentFile,
 } from "./store.js";
 export {
+  createSlice,
+  getSlice,
+  updateSlice,
+  readSliceCounters,
+} from "./slices.js";
+export {
   parseTasks,
   serializeTasks,
   parseAcceptanceCriteria,
@@ -88,3 +94,11 @@ export type {
   SaveAttachmentsResult,
   ResolveAttachmentResult,
 } from "./store.js";
+export type {
+  SliceStatus,
+  SliceHillPosition,
+  SliceFrontmatter,
+  SliceRecord,
+  CreateSliceInput,
+  UpdateSliceInput,
+} from "./slices.js";
