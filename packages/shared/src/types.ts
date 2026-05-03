@@ -974,7 +974,8 @@ export type StartProjectRunRequest = z.infer<
 >;
 
 export type SubagentGlobalListItem = {
-  projectId: string;
+  projectId?: string;
+  sliceId?: string;
   slug: string;
   type?: "subagent";
   cli?: string;

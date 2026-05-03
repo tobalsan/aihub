@@ -3,6 +3,13 @@
 ## Status
 Completed.
 
+## Reviewer fix follow-up (2026-05-03)
+- Orchestrator dispatcher now passes `sliceId` into worker/reviewer `spawnSubagent()` input via `projectSliceId(project)`.
+- Project subagent start route (`POST /projects/:id/subagents`) now parses optional `sliceId` and forwards to `spawnSubagent()`.
+- Shared `SubagentGlobalListItem` now carries optional `sliceId` and optional `projectId`.
+- Global subagent list now reads/emits `sliceId` (and `projectId` fallback) from `config.json`/`state.json`.
+- Added tests for orchestrator spawn slice attribution, project/global list legacy-missing behavior, and attributed slice propagation.
+
 ## Changed files
 - `packages/shared/src/types.ts`
   - `SubagentRun` includes optional `projectId?: string` and `sliceId?: string`.
@@ -28,7 +35,7 @@ Completed.
   - active-run detection in dispatcher passes `sliceId` + cwd fallback for legacy runs.
 
 ## Checks run
-- `pnpm vitest run packages/extensions/subagents/src/runtime.test.ts packages/extensions/projects/src/orchestrator/index.test.ts` ✅
+- `pnpm vitest run packages/extensions/projects/src/orchestrator/index.test.ts packages/extensions/projects/src/subagents/subagents.api.test.ts` ✅
 - `pnpm test:shared` ✅
 - `pnpm test:gateway` ✅
 

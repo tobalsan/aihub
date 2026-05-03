@@ -286,6 +286,7 @@ describe("orchestrator dispatcher", () => {
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.projectId).toBe("PRO-2");
+    expect(spawned[0]?.sliceId).toBe("PRO-1-S02");
   });
 
   it("skips projects in the failure cooldown window", async () => {
@@ -372,6 +373,7 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.name).toBe("Reviewer");
     expect(spawned[0]?.mode).toBe("none");
     expect(spawned[0]?.source).toBe("orchestrator");
+    expect(spawned[0]?.sliceId).toBeUndefined();
     expect(spawned[0]?.prompt).toContain(
       "`aihub projects move PRO-1 ready_to_merge`"
     );

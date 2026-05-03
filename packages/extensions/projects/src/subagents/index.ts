@@ -993,6 +993,8 @@ export async function listAllSubagents(
           reasoningEffort?: string;
           thinking?: string;
           runMode?: string;
+          projectId?: string;
+          sliceId?: string;
           baseBranch?: string;
           source?: OrchestratorSource;
           archived?: boolean;
@@ -1002,6 +1004,8 @@ export async function listAllSubagents(
           last_error?: string;
           cli?: string;
           run_mode?: string;
+          project_id?: string;
+          slice_id?: string;
           worktree_path?: string;
           started_at?: string;
           outcome?: string;
@@ -1033,7 +1037,8 @@ export async function listAllSubagents(
         }
 
         items.push({
-          projectId,
+          projectId: configData?.projectId ?? state?.project_id ?? projectId,
+          sliceId: configData?.sliceId ?? state?.slice_id,
           slug,
           type: configData?.type ?? "subagent",
           cli: configData?.cli ?? state?.cli,

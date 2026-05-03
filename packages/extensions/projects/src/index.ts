@@ -1547,6 +1547,10 @@ export function registerProjectRoutes(app: Hono): void {
         : undefined;
     const baseBranch =
       typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+    const sliceId =
+      typeof body.sliceId === "string" && body.sliceId.trim()
+        ? body.sliceId.trim()
+        : undefined;
     const resume = typeof body.resume === "boolean" ? body.resume : undefined;
     const attachments = Array.isArray(body.attachments)
       ? (
@@ -1738,6 +1742,7 @@ export function registerProjectRoutes(app: Hono): void {
       thinking: resolvedCliOptions.data.thinking,
       mode: mode as "main-run" | "worktree" | "clone" | "none" | undefined,
       baseBranch,
+      sliceId,
       resume,
       attachments,
     });

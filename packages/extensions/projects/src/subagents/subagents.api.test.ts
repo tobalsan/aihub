@@ -223,6 +223,7 @@ describe("subagents API", () => {
     expect(list.items[0].status).toBe("replied");
     expect(list.items[0].cli).toBe("codex");
     expect(list.items[0].type).toBe("subagent");
+    expect(list.items[0].sliceId).toBeUndefined();
 
     const logsRes = await Promise.resolve(
       api.request(`/projects/${created.id}/subagents/alpha/logs?since=0`)
@@ -552,6 +553,81 @@ describe("subagents API", () => {
     );
     expect(match?.slug).toBe("main");
     expect(match?.type).toBe("subagent");
+    expect(match?.sliceId).toBeUndefined();
+  });
+
+  it("propagates sliceId on /projects/:id/subagents spawn and list surfaces", async () => {
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Subagent Slice Attribution" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+
+    const binDir = path.join(tmpDir, "bin-slice-attribution");
+    await fs.mkdir(binDir, { recursive: true });
+    const codexPath = path.join(binDir, "codex");
+    const script = [
+      "#!/bin/sh",
+      'echo \'{"type":"thread.started","thread_id":"s-slice"}\'',
+      'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\'',
+    ].join("\n");
+    await fs.writeFile(codexPath, script, { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${prevPath ?? ""}`;
+
+    try {
+      const spawnRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/subagents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug: "worker-slice",
+            cli: "codex",
+            prompt: "implement",
+            mode: "none",
+            sliceId: "PRO-1-S01",
+          }),
+        })
+      );
+      expect(spawnRes.status).toBe(201);
+
+      const sessionDir = path.join(
+        projectsRoot,
+        created.path,
+        "sessions",
+        "worker-slice"
+      );
+      const config = JSON.parse(
+        await fs.readFile(path.join(sessionDir, "config.json"), "utf8")
+      );
+      const state = JSON.parse(
+        await fs.readFile(path.join(sessionDir, "state.json"), "utf8")
+      );
+      expect(config.sliceId).toBe("PRO-1-S01");
+      expect(state.slice_id).toBe("PRO-1-S01");
+
+      const projectListRes = await Promise.resolve(
+        api.request(`/projects/${created.id}/subagents`)
+      );
+      expect(projectListRes.status).toBe(200);
+      const projectList = await projectListRes.json();
+      expect(projectList.items[0]?.sliceId).toBe("PRO-1-S01");
+
+      const globalListRes = await Promise.resolve(api.request("/subagents"));
+      expect(globalListRes.status).toBe(200);
+      const globalList = await globalListRes.json();
+      const match = globalList.items.find(
+        (item: { projectId?: string; slug: string }) =>
+          item.projectId === created.id && item.slug === "worker-slice"
+      );
+      expect(match?.sliceId).toBe("PRO-1-S01");
+    } finally {
+      process.env.PATH = prevPath;
+    }
   });
 
   it("uses frontmatter runAgent but ignores frontmatter runMode for /projects/:id/start", async () => {

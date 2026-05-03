@@ -243,6 +243,7 @@ function buildWorkerSpawnInput(
       : undefined;
   return {
     projectId: project.id,
+    sliceId: projectSliceId(project),
     slug,
     cli: profile.cli,
     name: profile.name,
@@ -286,6 +287,7 @@ function buildReviewerSpawnInput(
   const cli = resolveAihubCli();
   return {
     projectId: project.id,
+    sliceId: projectSliceId(project),
     slug,
     cli: profile.cli,
     name: profile.name,
