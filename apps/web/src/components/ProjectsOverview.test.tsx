@@ -12,6 +12,7 @@ const {
   navigateMock,
   setSearchParamsMock,
   subscribeToFileChangesMock,
+  subscribeToSubagentChangesMock,
   updateProjectMock,
 } = vi.hoisted(() => ({
   createProjectMock: vi.fn(),
@@ -20,6 +21,7 @@ const {
   navigateMock: vi.fn(),
   setSearchParamsMock: vi.fn(),
   subscribeToFileChangesMock: vi.fn(),
+  subscribeToSubagentChangesMock: vi.fn(),
   updateProjectMock: vi.fn(),
 }));
 
@@ -40,6 +42,7 @@ vi.mock("../api/client", () => ({
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchProject: fetchProjectMock,
   subscribeToFileChanges: subscribeToFileChangesMock,
+  subscribeToSubagentChanges: subscribeToSubagentChangesMock,
   updateProject: updateProjectMock,
 }));
 
@@ -180,6 +183,7 @@ describe("ProjectsOverview", () => {
     });
     updateProjectMock.mockResolvedValue(detail("PRO-1"));
     subscribeToFileChangesMock.mockReturnValue(() => {});
+    subscribeToSubagentChangesMock.mockReturnValue(() => {});
   });
 
   afterEach(() => {
@@ -216,7 +220,9 @@ describe("ProjectsOverview", () => {
     expect(container.textContent).not.toContain("README / SPECS");
     expect(
       container.querySelector(".mock-subagent-runs")?.textContent
-    ).toContain("runs for unassigned excluding /tmp/worktrees/worker-a");
+    ).toContain(
+      "runs for unassigned excluding /tmp/worktrees/worker-a,/tmp/worktrees/loose"
+    );
     expect(fetchProjectMock).not.toHaveBeenCalledWith("__unassigned");
 
     const done = Array.from(
@@ -226,6 +232,48 @@ describe("ProjectsOverview", () => {
     await tick();
     expect(container.textContent).toContain("Unassigned");
     dispose();
+  });
+
+  it("excludes unassigned bucket worktrees from top-level unassigned runs", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([
+      project("PRO-1", "Alpha Project", "maybe", [
+        worktree("worker-a", null),
+      ]),
+      unassigned([worktree("loose", null)]),
+    ]);
+    const { container, dispose } = renderOverview("__unassigned");
+    await tick();
+
+    expect(
+      container.querySelector(".mock-subagent-runs")?.textContent
+    ).toContain(
+      "runs for unassigned excluding /tmp/worktrees/worker-a,/tmp/worktrees/loose"
+    );
+    dispose();
+  });
+
+  it("refetches projects when a subagent changes", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchBoardProjectsMock.mockResolvedValue([
+        project("PRO-1", "Alpha Project", "maybe", [worktree("idle", null)]),
+      ]);
+      const { dispose } = renderOverview("PRO-1");
+      await vi.runAllTimersAsync();
+
+      const callbacks = subscribeToSubagentChangesMock.mock.calls[0]?.[0];
+      expect(callbacks).toBeTruthy();
+      callbacks.onSubagentChanged({
+        runId: "run-idle",
+        status: "running",
+      });
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("selecting a project updates the URL and selected detail pane", async () => {

@@ -14,6 +14,7 @@ import {
   fetchBoardProjects,
   fetchProject,
   subscribeToFileChanges,
+  subscribeToSubagentChanges,
   updateProject,
 } from "../api/client";
 import type { BoardProject, BoardWorktree } from "../api/types";
@@ -177,7 +178,6 @@ export function ProjectsOverview(
   const trackedWorktreeCwds = createMemo(() => {
     const paths = new Set<string>();
     for (const project of projects() ?? []) {
-      if (isUnassignedProject(project)) continue;
       for (const worktree of project.worktrees) {
         paths.add(worktree.worktreePath || worktree.path);
       }
@@ -211,25 +211,24 @@ export function ProjectsOverview(
 
   createEffect(() => {
     let refreshTimer: number | undefined;
-    const unsubscribe = subscribeToFileChanges({
-      onFileChanged: () => {
-        if (refreshTimer) window.clearTimeout(refreshTimer);
-        refreshTimer = window.setTimeout(() => {
-          void refetch();
-          refreshTimer = undefined;
-        }, 250);
-      },
-      onAgentChanged: () => {
-        if (refreshTimer) window.clearTimeout(refreshTimer);
-        refreshTimer = window.setTimeout(() => {
-          void refetch();
-          refreshTimer = undefined;
-        }, 250);
-      },
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void refetch();
+        refreshTimer = undefined;
+      }, 250);
+    };
+    const unsubscribeFileChanges = subscribeToFileChanges({
+      onFileChanged: scheduleRefresh,
+      onAgentChanged: scheduleRefresh,
+    });
+    const unsubscribeSubagentChanges = subscribeToSubagentChanges({
+      onSubagentChanged: scheduleRefresh,
     });
     onCleanup(() => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      unsubscribe();
+      unsubscribeFileChanges();
+      unsubscribeSubagentChanges();
     });
   });
 
