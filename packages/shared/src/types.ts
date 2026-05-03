@@ -473,6 +473,7 @@ export const ProjectsOrchestratorConfigSchema = z.object({
   statuses: z
     .object({
       todo: ProjectsOrchestratorStatusConfigSchema.optional(),
+      review: ProjectsOrchestratorStatusConfigSchema.optional(),
     })
     .passthrough()
     .optional()
@@ -871,6 +872,7 @@ export const ProjectStatusSchema = z.enum([
   "todo",
   "in_progress",
   "review",
+  "ready_to_merge",
   "done",
   "cancelled",
   "archived",

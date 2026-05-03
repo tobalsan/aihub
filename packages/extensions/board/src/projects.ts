@@ -259,6 +259,7 @@ export function statusToGroup(status: string): BoardProjectGroup {
     case "in_progress":
       return "active";
     case "review":
+    case "ready_to_merge":
       return "review";
     case "not_now":
     case "maybe":

@@ -31,7 +31,7 @@ Options:
 
 Status values:
 
-- `not_now`, `maybe`, `shaping`, `todo`, `in_progress`, `review`, `done`.
+- `not_now`, `maybe`, `shaping`, `todo`, `in_progress`, `review`, `ready_to_merge`, `done`.
 
 ### `aihub projects agent list`
 
@@ -68,7 +68,7 @@ Update project fields and/or project docs content.
 Options:
 
 - `--title <title>`: update title (renames folder).
-- `--status <status>`: `not_now|maybe|shaping|todo|in_progress|review|done`.
+- `--status <status>`: `not_now|maybe|shaping|todo|in_progress|review|ready_to_merge|done`.
 - `--run-agent <agent>`: agent used by monitoring start.
   - `aihub:<agentId>` (AIHub agent)
   - `cli:claude|cli:codex|cli:pi` (external CLI)

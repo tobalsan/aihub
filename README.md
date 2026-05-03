@@ -36,7 +36,7 @@ All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
-Projects can opt into the v0.1 orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls `todo` projects and starts configured `Worker` subagents up to the status concurrency cap:
+Projects can opt into the v0.2 orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured status bindings, starts `Worker` subagents for `todo`, and starts `Reviewer` subagents for `review`. Passing reviewer runs move projects to `ready_to_merge`; only humans move them to `done`.
 
 ```json
 {
@@ -46,7 +46,8 @@ Projects can opt into the v0.1 orchestrator daemon with `extensions.projects.orc
         "enabled": true,
         "poll_interval_ms": 30000,
         "statuses": {
-          "todo": { "profile": "Worker", "max_concurrent": 2 }
+          "todo": { "profile": "Worker", "max_concurrent": 2 },
+          "review": { "profile": "Reviewer", "max_concurrent": 2 }
         }
       }
     }

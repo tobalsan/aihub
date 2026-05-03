@@ -29,6 +29,7 @@ export type SubagentListItem = {
   runMode?: string;
   status: SubagentStatus;
   lastActive?: string;
+  startedAt?: string;
   baseBranch?: string;
   worktreePath?: string;
   source?: OrchestratorSource;
@@ -773,6 +774,7 @@ export async function listSubagents(
       runMode: configData?.runMode ?? state?.run_mode,
       status,
       lastActive: progress?.last_active,
+      startedAt: state?.started_at,
       baseBranch: configData?.baseBranch ?? state?.base_branch,
       worktreePath: state?.worktree_path,
       source: configData?.source ?? "manual",

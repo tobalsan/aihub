@@ -74,6 +74,7 @@ const COLUMNS: ColumnDef[] = [
   { id: "todo", title: "Todo", color: "#3b6ecc" },
   { id: "in_progress", title: "In Progress", color: "#8a6fd1" },
   { id: "review", title: "Review", color: "#f08b57" },
+  { id: "ready_to_merge", title: "Ready to Merge", color: "#2fb6a3" },
   { id: "done", title: "Done", color: "#53b97c" },
 ];
 

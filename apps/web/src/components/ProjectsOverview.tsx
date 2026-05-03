@@ -54,6 +54,7 @@ function relativeTime(value?: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (status === "ready_to_merge") return "Ready to merge";
   return status.replace(/_/g, " ");
 }
 
@@ -893,6 +894,7 @@ export function ProjectsOverview(
           text-transform: capitalize;
           white-space: nowrap;
         }
+        .status-ready_to_merge { color: #5eead4; border-color: rgba(20, 184, 166, 0.35); }
         .status-done { color: #86efac; border-color: rgba(34, 197, 94, 0.35); }
         .status-archived,
         .status-trashed,

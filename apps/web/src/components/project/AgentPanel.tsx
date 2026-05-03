@@ -39,6 +39,7 @@ const STATUS_OPTIONS = [
   "todo",
   "in_progress",
   "review",
+  "ready_to_merge",
   "done",
   "cancelled",
   "archived",

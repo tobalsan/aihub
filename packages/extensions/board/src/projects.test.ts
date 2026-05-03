@@ -147,6 +147,7 @@ describe("statusToGroup", () => {
     expect(statusToGroup("shaping")).toBe("active");
     expect(statusToGroup("in_progress")).toBe("active");
     expect(statusToGroup("review")).toBe("review");
+    expect(statusToGroup("ready_to_merge")).toBe("review");
     expect(statusToGroup("not_now")).toBe("stale");
     expect(statusToGroup("maybe")).toBe("stale");
     expect(statusToGroup("done")).toBe("done");

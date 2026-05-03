@@ -33,6 +33,7 @@ function createEmptyStats(): AreaStats {
     statuses: {
       in_progress: 0,
       review: 0,
+      ready_to_merge: 0,
       shaping: 0,
       todo: 0,
       maybe: 0,

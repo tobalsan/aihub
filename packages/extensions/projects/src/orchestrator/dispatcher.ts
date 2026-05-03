@@ -3,6 +3,7 @@ import * as path from "node:path";
 import {
   buildRolePrompt,
   type GatewayConfig,
+  type ProjectsOrchestratorStatusConfig,
   type ProjectStatus,
   type SubagentRuntimeProfile,
 } from "@aihub/shared";
@@ -11,10 +12,7 @@ import {
   updateProject,
   type ProjectListItem,
 } from "../projects/store.js";
-import {
-  listSubagents,
-  type SubagentListItem,
-} from "../subagents/index.js";
+import { listSubagents, type SubagentListItem } from "../subagents/index.js";
 import {
   spawnSubagent,
   type SpawnSubagentInput,
@@ -86,7 +84,8 @@ export type DispatchResult = {
   decisions: DispatchDecision[];
 };
 
-const STATUS: ProjectStatus = "todo";
+const WORKER_STATUS: ProjectStatus = "todo";
+const REVIEWER_STATUS: ProjectStatus = "review";
 
 function keyValueLog(log: Logger, data: Record<string, string | number>): void {
   log(
@@ -136,6 +135,70 @@ function resolveProfile(
   return runtimeProfiles(config).find((profile) => profile.name === name);
 }
 
+function statusConfigFor(
+  orchestratorConfig: OrchestratorConfig,
+  statusKey: ProjectStatus
+): ProjectsOrchestratorStatusConfig | undefined {
+  const value = orchestratorConfig.statuses[statusKey];
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<ProjectsOrchestratorStatusConfig>;
+  if (typeof candidate.profile !== "string") return undefined;
+  return {
+    profile: candidate.profile,
+    max_concurrent:
+      typeof candidate.max_concurrent === "number"
+        ? candidate.max_concurrent
+        : 1,
+  };
+}
+
+function profileForRun(
+  config: GatewayConfig,
+  run: SubagentListItem
+): SubagentRuntimeProfile | undefined {
+  if (!run.name) return undefined;
+  return resolveProfile(config, run.name);
+}
+
+function isWorkerRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  run: SubagentListItem
+): boolean {
+  const profile = profileForRun(config, run);
+  if (profile?.type?.toLowerCase() === "worker") return true;
+  return Boolean(
+    run.name &&
+    run.name === statusConfigFor(orchestratorConfig, WORKER_STATUS)?.profile
+  );
+}
+
+function runStartedAt(run: SubagentListItem): number {
+  const parsed = Date.parse(run.startedAt ?? run.lastActive ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function recentWorkerWorkspaces(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  runs: SubagentListItem[]
+) {
+  return runs
+    .filter(
+      (run) =>
+        sourceOf(run) === "orchestrator" &&
+        isWorkerRun(config, orchestratorConfig, run) &&
+        Boolean(run.worktreePath)
+    )
+    .sort((a, b) => runStartedAt(b) - runStartedAt(a))
+    .slice(0, 1)
+    .map((run) => ({
+      name: run.name ?? run.slug,
+      cli: run.cli,
+      path: run.worktreePath ?? "",
+    }));
+}
+
 function normalizeRunMode(value: string | undefined): SubagentMode | undefined {
   if (value === "main-run") return "main-run";
   if (value === "worktree") return "worktree";
@@ -169,7 +232,7 @@ function buildWorkerSpawnInput(
     prompt: buildRolePrompt({
       role: "worker",
       title: project.title,
-      status: STATUS,
+      status: WORKER_STATUS,
       path: project.absolutePath,
       content: "",
       specsPath,
@@ -190,31 +253,121 @@ function buildWorkerSpawnInput(
   };
 }
 
-export async function dispatchOrchestratorTick(
+function buildReviewerSpawnInput(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
-  deps: OrchestratorDispatcherDeps = {}
+  project: ProjectListItem,
+  profile: SubagentRuntimeProfile,
+  slug: string,
+  runs: SubagentListItem[]
+): SpawnSubagentInput {
+  const specsPath = path.join(project.absolutePath, "SPECS.md");
+  const repo =
+    typeof project.frontmatter.repo === "string"
+      ? project.frontmatter.repo
+      : undefined;
+  const cli = resolveAihubCli();
+  return {
+    projectId: project.id,
+    slug,
+    cli: profile.cli,
+    name: profile.name,
+    prompt: buildRolePrompt({
+      role: "reviewer",
+      title: project.title,
+      status: REVIEWER_STATUS,
+      path: project.absolutePath,
+      content: "",
+      specsPath,
+      projectFiles: ["README.md", "THREAD.md", "SPECS.md", "TASKS.md"],
+      projectId: project.id,
+      repo,
+      workerWorkspaces: recentWorkerWorkspaces(
+        config,
+        orchestratorConfig,
+        runs
+      ),
+      customPrompt: [
+        "## Orchestrator Handoff",
+        "Review the worker's implementation against SPECS.md / TASKS.md / VALIDATION.md.",
+        "Worker workspaces are listed above; inspect their diffs and run their tests as needed.",
+        `For any \`aihub\` CLI calls, invoke \`${cli}\` (this targets the gateway that owns this project - prod or dev).`,
+        "",
+        "Decision protocol:",
+        `- If ALL VALIDATION.md criteria pass: run \`${cli} projects comment ${project.id} "<one-line PASS summary>"\` then \`${cli} projects move ${project.id} ready_to_merge\`. Exit.`,
+        `- If ANY criterion fails or the diff has blocking issues: run \`${cli} projects comment ${project.id} "<crisp list of gaps, file:line where applicable>"\` then \`${cli} projects move ${project.id} todo\`. Exit.`,
+        "",
+        "Do NOT move to `done` - that's Thinh's manual merge gate. Do NOT push, do NOT merge.",
+      ].join("\n"),
+    }),
+    model: profile.model,
+    reasoningEffort: profile.reasoningEffort ?? profile.reasoning,
+    mode: normalizeRunMode(profile.runMode),
+    source: "orchestrator",
+  };
+}
+
+function buildSpawnInput(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  statusKey: ProjectStatus,
+  project: ProjectListItem,
+  profile: SubagentRuntimeProfile,
+  slug: string,
+  runs: SubagentListItem[]
+): SpawnSubagentInput | undefined {
+  if (statusKey === WORKER_STATUS) {
+    return buildWorkerSpawnInput(config, project, profile, slug);
+  }
+  if (statusKey === REVIEWER_STATUS) {
+    return buildReviewerSpawnInput(
+      config,
+      orchestratorConfig,
+      project,
+      profile,
+      slug,
+      runs
+    );
+  }
+  return undefined;
+}
+
+async function dispatchForStatus(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  statusKey: ProjectStatus,
+  deps: OrchestratorDispatcherDeps
 ): Promise<DispatchResult> {
   const log = deps.log ?? console.log;
-  const todoConfig = orchestratorConfig.statuses.todo;
-  if (!todoConfig) {
+  const statusConfig = statusConfigFor(orchestratorConfig, statusKey);
+  if (!statusConfig) {
     keyValueLog(log, {
       component: "orchestrator",
-      status: STATUS,
+      status: statusKey,
       action: "skip",
       reason: "status_not_configured",
     });
     return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
   }
 
-  const profile = resolveProfile(config, todoConfig.profile);
+  const profile = resolveProfile(config, statusConfig.profile);
   if (!profile) {
     keyValueLog(log, {
       component: "orchestrator",
-      status: STATUS,
+      status: statusKey,
       action: "skip",
       reason: "profile_not_found",
-      profile: todoConfig.profile,
+      profile: statusConfig.profile,
+    });
+    return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
+  }
+
+  if (statusKey !== WORKER_STATUS && statusKey !== REVIEWER_STATUS) {
+    keyValueLog(log, {
+      component: "orchestrator",
+      status: statusKey,
+      action: "skip",
+      reason: "unsupported_status",
     });
     return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
   }
@@ -223,18 +376,18 @@ export async function dispatchOrchestratorTick(
   if (!projectResult.ok) {
     keyValueLog(log, {
       component: "orchestrator",
-      status: STATUS,
+      status: statusKey,
       action: "error",
       reason: "list_projects_failed",
     });
     return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
   }
 
-  const todoProjects = projectResult.data.filter(
-    (project) => statusOf(project) === STATUS
+  const statusProjects = projectResult.data.filter(
+    (project) => statusOf(project) === statusKey
   );
   const projectRuns = await Promise.all(
-    todoProjects.map(async (project) => {
+    statusProjects.map(async (project) => {
       const result = await (deps.listSubagents ?? listSubagents)(
         config,
         project.id
@@ -258,17 +411,17 @@ export async function dispatchOrchestratorTick(
     (sum, runs) => sum + runs.length,
     0
   );
-  const availableSlots = Math.max(0, todoConfig.max_concurrent - running);
+  const availableSlots = Math.max(0, statusConfig.max_concurrent - running);
   const nowDate = (deps.now ?? (() => new Date()))();
   const nowMs = nowDate.getTime();
   const attempts = deps.attempts;
   const cooldownMs = orchestratorConfig.failure_cooldown_ms;
-  const eligible = todoProjects.filter((project) => {
+  const eligible = statusProjects.filter((project) => {
     if ((activeByProject.get(project.id)?.length ?? 0) > 0) return false;
     if (attempts?.isCoolingDown(project.id, nowMs, cooldownMs)) {
       keyValueLog(log, {
         component: "orchestrator",
-        status: STATUS,
+        status: statusKey,
         action: "skip",
         project: project.id,
         reason: "failure_cooldown",
@@ -282,7 +435,7 @@ export async function dispatchOrchestratorTick(
 
   keyValueLog(log, {
     component: "orchestrator",
-    status: STATUS,
+    status: statusKey,
     action: "tick",
     running,
     eligible: eligible.length,
@@ -292,7 +445,23 @@ export async function dispatchOrchestratorTick(
   const removeOrphan = deps.removeOrphanDir ?? defaultRemoveOrphanDir;
   for (const [index, project] of selected.entries()) {
     const slug = slugFor(project.id, nowDate, index);
-    const input = buildWorkerSpawnInput(config, project, profile, slug);
+    const input = buildSpawnInput(
+      config,
+      orchestratorConfig,
+      statusKey,
+      project,
+      profile,
+      slug,
+      projectRuns.find((entry) => entry.project.id === project.id)?.runs ?? []
+    );
+    if (!input) {
+      decisions.push({
+        projectId: project.id,
+        action: "skipped",
+        reason: "unsupported_status",
+      });
+      continue;
+    }
     // Record the attempt up-front so the cooldown applies even if spawnSubagent
     // throws (e.g. `git worktree add failed` from runner.ts) and short-circuits
     // the success/failure branches below.
@@ -314,7 +483,7 @@ export async function dispatchOrchestratorTick(
       });
       keyValueLog(log, {
         component: "orchestrator",
-        status: STATUS,
+        status: statusKey,
         action: "spawn_failed",
         project: project.id,
         reason: spawned.error,
@@ -323,37 +492,38 @@ export async function dispatchOrchestratorTick(
       // directory before failing (e.g. mkdir succeeded, git worktree add
       // failed). Without cleanup, the UI shows ghost agent rows and the
       // session dir accumulates per failed tick.
-      await removeOrphan(
-        path.join(project.absolutePath, "sessions", slug)
-      );
+      await removeOrphan(path.join(project.absolutePath, "sessions", slug));
       continue;
     }
     decisions.push({ projectId: project.id, action: "spawned", slug });
     keyValueLog(log, {
       component: "orchestrator",
-      status: STATUS,
+      status: statusKey,
       action: "spawned",
       project: project.id,
       slug,
-      profile: todoConfig.profile,
+      profile: statusConfig.profile,
     });
 
-    // Lock the project by moving it out of `todo` immediately. This is the
-    // primary defense against double-dispatch: the next tick's status filter
-    // simply won't see this project anymore. If updateProject fails for any
-    // reason we log loudly but don't roll back the spawn - the existing
-    // isActiveOrchestratorRun dedupe still gates the next tick as a fallback.
-    const update = await (deps.updateProject ?? updateProject)(config, project.id, {
-      status: "in_progress",
-    });
-    if (!update.ok) {
-      keyValueLog(log, {
-        component: "orchestrator",
-        status: STATUS,
-        action: "lock_failed",
-        project: project.id,
-        reason: update.error,
-      });
+    if (statusKey === WORKER_STATUS) {
+      // Lock only the todo worker phase. Review intentionally has no lock
+      // status; active-run dedupe plus cooldown handles duplicate defense.
+      const update = await (deps.updateProject ?? updateProject)(
+        config,
+        project.id,
+        {
+          status: "in_progress",
+        }
+      );
+      if (!update.ok) {
+        keyValueLog(log, {
+          component: "orchestrator",
+          status: statusKey,
+          action: "lock_failed",
+          project: project.id,
+          reason: update.error,
+        });
+      }
     }
   }
 
@@ -363,4 +533,35 @@ export async function dispatchOrchestratorTick(
     eligible: eligible.length,
     decisions,
   };
+}
+
+function configuredStatusKeys(
+  orchestratorConfig: OrchestratorConfig
+): ProjectStatus[] {
+  return Object.keys(orchestratorConfig.statuses).filter(
+    (key): key is ProjectStatus =>
+      Boolean(statusConfigFor(orchestratorConfig, key as ProjectStatus))
+  );
+}
+
+export async function dispatchOrchestratorTick(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  deps: OrchestratorDispatcherDeps = {}
+): Promise<DispatchResult> {
+  const results: DispatchResult[] = [];
+  for (const statusKey of configuredStatusKeys(orchestratorConfig)) {
+    results.push(
+      await dispatchForStatus(config, orchestratorConfig, statusKey, deps)
+    );
+  }
+  return results.reduce<DispatchResult>(
+    (total, result) => ({
+      running: total.running + result.running,
+      availableSlots: total.availableSlots + result.availableSlots,
+      eligible: total.eligible + result.eligible,
+      decisions: [...total.decisions, ...result.decisions],
+    }),
+    { running: 0, availableSlots: 0, eligible: 0, decisions: [] }
+  );
 }

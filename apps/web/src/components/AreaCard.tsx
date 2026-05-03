@@ -6,6 +6,7 @@ import { AreaEditForm, type AreaEditDraft } from "./AreaEditForm";
 const STATUS_META = [
   { id: "in_progress", label: "In Progress", color: "#8a6fd1" },
   { id: "review", label: "Review", color: "#f08b57" },
+  { id: "ready_to_merge", label: "Ready to Merge", color: "#2fb6a3" },
   { id: "shaping", label: "Shaping", color: "#4aa3a0" },
   { id: "todo", label: "Todo", color: "#3b6ecc" },
   { id: "maybe", label: "Maybe", color: "#d2b356" },
