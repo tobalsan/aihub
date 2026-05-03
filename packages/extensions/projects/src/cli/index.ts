@@ -9,6 +9,7 @@ import {
 } from "@aihub/shared";
 import { ApiClient } from "./client.js";
 export { registerSlicesCommands } from "./slices.js";
+export { runMigration, isGatewayRunning } from "./migrate.js";
 import {
   describeMigration,
   migrateLocalConfig,
@@ -16,6 +17,7 @@ import {
   resolveLocalConfigPath,
   validateLocalConfig,
 } from "./local-config.js";
+import { runMigration as runProjectsMigration } from "./migrate.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -922,6 +924,34 @@ export function registerProjectsCommands(program: Command): Command {
           return;
         }
         console.log(`Unarchived project ${normalizedId}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("migrate-to-slices")
+    .description("Migrate legacy projects to slice layout")
+    .option("--config <path>", "Config path")
+    .action(async (opts) => {
+      try {
+        const result = await runProjectsMigration({
+          config: opts.config as string | undefined,
+        });
+        for (const r of result.projects) {
+          if (r.outcome === "skipped") {
+            console.log(`  skip    ${r.id}${r.legacyStatus ? ` (${r.legacyStatus})` : ""}`);
+          } else if (r.outcome === "no-slice") {
+            console.log(`  shaping ${r.id} (${r.legacyStatus} → project:${r.projectStatus}, no slice)`);
+          } else {
+            console.log(
+              `  migrate ${r.id} (${r.legacyStatus} → project:${r.projectStatus}, ${r.sliceId}:${r.sliceStatus})`
+            );
+          }
+        }
+        console.log(
+          `\nDone. migrated=${result.migratedCount} no-slice=${result.noSliceCount} skipped=${result.skippedCount}`
+        );
       } catch (err) {
         fail(err);
       }
