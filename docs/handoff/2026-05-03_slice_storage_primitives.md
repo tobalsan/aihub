@@ -29,4 +29,10 @@ Implemented slice storage primitives in projects extension. Added per-project sl
 
 ## Notes
 - No CLI/UI/orchestrator/migration changes.
+- Reviewer follow-up fixes applied:
+  - Frontmatter parser now JSON-parses double-quoted strings before fallback, preserving escaped quotes/backslashes/newline escapes round-trip.
+  - Slice/project ID validation added before filesystem joins:
+    - `projectId`: `^PRO-\d+$`
+    - `sliceId`: `^PRO-\d+-S\d+$`
+  - Added traversal-like invalid ID tests.
 - Next issue: wire these primitives into slice CLI/API surface and scope-map generation.

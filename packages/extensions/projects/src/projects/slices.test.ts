@@ -65,21 +65,25 @@ describe("slice storage primitives", () => {
       title: "Auth",
     });
 
+    const escaped = "A \"quote\" with \\ slash and \n newline";
     const updated = await updateSlice(projectDir, created.id, {
       frontmatter: {
         extra_json: { nested: [1, "two", true] },
         extra_text: "hello",
+        escaped_text: escaped,
       },
       status: "in_progress",
     });
 
     expect(updated.frontmatter.extra_text).toBe("hello");
     expect(updated.frontmatter.extra_json).toEqual({ nested: [1, "two", true] });
+    expect(updated.frontmatter.escaped_text).toBe(escaped);
     expect(updated.frontmatter.status).toBe("in_progress");
 
     const reread = await getSlice(projectDir, created.id);
     expect(reread.frontmatter.extra_text).toBe("hello");
     expect(reread.frontmatter.extra_json).toEqual({ nested: [1, "two", true] });
+    expect(reread.frontmatter.escaped_text).toBe(escaped);
   });
 
   it("updates README atomically and no temp file left", async () => {
@@ -113,5 +117,27 @@ describe("slice storage primitives", () => {
     expect(ids[0]).toBe("PRO-238-S01");
     expect(ids[11]).toBe("PRO-238-S12");
     expect((await readSliceCounters(projectDir)).lastSliceId).toBe(12);
+  });
+
+  it("rejects invalid projectId before path joins", async () => {
+    await expect(
+      createSlice(projectDir, {
+        projectId: "../PRO-238",
+        title: "bad",
+      })
+    ).rejects.toThrow("Invalid projectId");
+
+    await expect(
+      createSlice(projectDir, {
+        projectId: "PRO-abc",
+        title: "bad",
+      })
+    ).rejects.toThrow("Invalid projectId");
+  });
+
+  it("rejects invalid sliceId before path joins", async () => {
+    await expect(getSlice(projectDir, "../PRO-238-S01")).rejects.toThrow("Invalid sliceId");
+    await expect(updateSlice(projectDir, "PRO-238/../S01", {})).rejects.toThrow("Invalid sliceId");
+    await expect(getSlice(projectDir, "PRO-238-Sx1")).rejects.toThrow("Invalid sliceId");
   });
 });

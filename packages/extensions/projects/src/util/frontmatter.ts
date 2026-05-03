@@ -10,6 +10,15 @@ function parseFrontmatterValue(rawValue: string): unknown {
   if (value === "" || value === "~" || value === "null" || value === "[]") {
     return undefined;
   }
+
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      // Fall through to scalar parsing.
+    }
+  }
+
   if (
     (value.startsWith("{") && value.endsWith("}")) ||
     (value.startsWith("[") && value.endsWith("]"))

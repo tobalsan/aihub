@@ -1,0 +1,5 @@
+# Ralph progress
+
+- 2026-05-03: loop started. Next: issues/01-slice-storage-primitives.md
+- 2026-05-03: completed issues/01-slice-storage-primitives.md. Added slice storage primitives + tests. Checks: `pnpm vitest run packages/extensions/projects/src/projects/slices.test.ts`.
+- 2026-05-03: reviewer fix pass. Frontmatter quoted string parse now JSON.parse round-trip; slice/project ID validation added before joins. Checks: `pnpm vitest run packages/extensions/projects/src/projects/slices.test.ts`, `pnpm vitest run --dir packages/extensions/projects/src/projects`.

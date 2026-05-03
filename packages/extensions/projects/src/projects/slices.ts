@@ -11,6 +11,8 @@ const THREAD_FILE = "THREAD.md";
 const META_DIR = ".meta";
 const SLICES_DIR = "slices";
 const LOCK_DIR = ".slice-counter.lock";
+const PROJECT_ID_PATTERN = /^PRO-\d+$/;
+const SLICE_ID_PATTERN = /^PRO-\d+-S\d+$/;
 
 export type SliceStatus =
   | "todo"
@@ -129,6 +131,18 @@ async function withCounterLock<T>(projectDir: string, task: () => Promise<T>): P
 
 type CountersState = { lastSliceId: number };
 
+function assertValidProjectId(projectId: string): void {
+  if (!PROJECT_ID_PATTERN.test(projectId)) {
+    throw new Error(`Invalid projectId: ${projectId}`);
+  }
+}
+
+function assertValidSliceId(sliceId: string): void {
+  if (!SLICE_ID_PATTERN.test(sliceId)) {
+    throw new Error(`Invalid sliceId: ${sliceId}`);
+  }
+}
+
 function formatSliceId(projectId: string, sliceNumber: number): string {
   return `${projectId}-S${String(sliceNumber).padStart(2, "0")}`;
 }
@@ -149,6 +163,7 @@ function coerceFrontmatter(frontmatter: Record<string, unknown>): SliceFrontmatt
 }
 
 export async function createSlice(projectDir: string, input: CreateSliceInput): Promise<SliceRecord> {
+  assertValidProjectId(input.projectId);
   const now = new Date().toISOString();
   const id = await allocateSliceId(projectDir, input.projectId);
   const sliceDir = path.join(projectDir, SLICES_DIR, id);
@@ -177,6 +192,7 @@ export async function createSlice(projectDir: string, input: CreateSliceInput): 
 }
 
 export async function getSlice(projectDir: string, sliceId: string): Promise<SliceRecord> {
+  assertValidSliceId(sliceId);
   const sliceDir = path.join(projectDir, SLICES_DIR, sliceId);
   const parsed = await parseMarkdownFile(path.join(sliceDir, README_FILE));
   const [specs, tasks, validation, thread] = await Promise.all([
@@ -207,6 +223,7 @@ export async function updateSlice(
   sliceId: string,
   input: UpdateSliceInput
 ): Promise<SliceRecord> {
+  assertValidSliceId(sliceId);
   const current = await getSlice(projectDir, sliceId);
   const now = new Date().toISOString();
   const nextFrontmatter: SliceFrontmatter = {
