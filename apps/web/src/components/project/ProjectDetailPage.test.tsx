@@ -272,7 +272,7 @@ describe("ProjectDetailPage", () => {
     const tabs = Array.from(
       container.querySelectorAll(".project-detail-merged-tabs button")
     ).map((button) => button.textContent?.trim());
-    expect(tabs).toEqual(["Overview", "Chat", "Activity", "Changes", "Spec"]);
+    expect(tabs).toEqual(["Overview", "Chat", "Activity", "Changes", "Spec", "Slices"]);
     expect(container.querySelector(".project-detail__center")).toBeNull();
     expect(container.querySelector(".project-detail__right")).toBeNull();
     expect(container.textContent).toContain("Back to Projects");

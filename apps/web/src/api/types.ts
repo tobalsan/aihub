@@ -384,6 +384,68 @@ export type BoardWorktree = {
   endSha?: string;
 };
 
+// ── Slice types ─────────────────────────────────────────────────
+
+export type SliceStatus =
+  | "todo"
+  | "in_progress"
+  | "review"
+  | "ready_to_merge"
+  | "done"
+  | "cancelled";
+
+export type SliceHillPosition = "figuring" | "executing" | "done";
+
+export type SliceFrontmatter = {
+  id: string;
+  project_id: string;
+  title: string;
+  status: SliceStatus;
+  hill_position: SliceHillPosition;
+  created_at: string;
+  updated_at: string;
+} & Record<string, unknown>;
+
+export type SliceRecord = {
+  id: string;
+  projectId: string;
+  dirPath: string;
+  frontmatter: SliceFrontmatter;
+  docs: {
+    readme: string;
+    specs: string;
+    tasks: string;
+    validation: string;
+    thread: string;
+  };
+};
+
+export type SliceListResponse = {
+  slices: SliceRecord[];
+};
+
+export type CreateSlicePayload = {
+  title: string;
+  status?: SliceStatus;
+  hill_position?: SliceHillPosition;
+  readme?: string;
+  specs?: string;
+  tasks?: string;
+  validation?: string;
+  thread?: string;
+};
+
+export type UpdateSlicePayload = {
+  title?: string;
+  status?: SliceStatus;
+  hill_position?: SliceHillPosition;
+  readme?: string;
+  specs?: string;
+  tasks?: string;
+  validation?: string;
+  thread?: string;
+};
+
 export type BoardProject = {
   id: string;
   title: string;

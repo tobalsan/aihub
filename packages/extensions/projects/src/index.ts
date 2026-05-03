@@ -62,6 +62,9 @@ import {
   readSpec,
   rebaseSpaceOntoMain,
   listSlices,
+  createSlice,
+  getSlice,
+  updateSlice,
   releaseProjectSpaceWriteLease,
   resolveAttachmentFile,
   saveAttachments,
@@ -71,6 +74,8 @@ import {
   updateProject,
   updateProjectComment,
   writeSpec,
+  type SliceStatus,
+  type SliceHillPosition,
 } from "./projects/index.js";
 import {
   startProjectWatcher,
@@ -1084,6 +1089,89 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: result.error }, 404);
     }
     return c.json(result.data);
+  });
+
+  // ── Slice endpoints ────────────────────────────────────────────────────────
+
+  app.get("/projects/:id/slices", async (c) => {
+    const id = c.req.param("id");
+    const config = getProjectsConfig();
+    const project = await getProject(config, id);
+    if (!project.ok) {
+      return c.json({ error: project.error }, 404);
+    }
+    const slices = await listSlices(project.data.absolutePath);
+    return c.json({ slices });
+  });
+
+  app.post("/projects/:id/slices", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    if (!title) {
+      return c.json({ error: "title is required" }, 400);
+    }
+    const config = getProjectsConfig();
+    const project = await getProject(config, id);
+    if (!project.ok) {
+      return c.json({ error: project.error }, 404);
+    }
+    const slice = await createSlice(project.data.absolutePath, {
+      projectId: id,
+      title,
+      status: typeof body.status === "string" ? body.status as SliceStatus : "todo",
+      hillPosition: typeof body.hill_position === "string" ? body.hill_position as SliceHillPosition : "figuring",
+      readme: typeof body.readme === "string" ? body.readme : undefined,
+      specs: typeof body.specs === "string" ? body.specs : undefined,
+      tasks: typeof body.tasks === "string" ? body.tasks : undefined,
+      validation: typeof body.validation === "string" ? body.validation : undefined,
+      thread: typeof body.thread === "string" ? body.thread : undefined,
+    });
+    return c.json(slice, 201);
+  });
+
+  app.get("/projects/:id/slices/:sliceId", async (c) => {
+    const id = c.req.param("id");
+    const sliceId = c.req.param("sliceId");
+    const config = getProjectsConfig();
+    const project = await getProject(config, id);
+    if (!project.ok) {
+      return c.json({ error: project.error }, 404);
+    }
+    try {
+      const slice = await getSlice(project.data.absolutePath, sliceId);
+      return c.json(slice);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "not found";
+      return c.json({ error: msg }, 404);
+    }
+  });
+
+  app.patch("/projects/:id/slices/:sliceId", async (c) => {
+    const id = c.req.param("id");
+    const sliceId = c.req.param("sliceId");
+    const body = await c.req.json().catch(() => ({}));
+    const config = getProjectsConfig();
+    const project = await getProject(config, id);
+    if (!project.ok) {
+      return c.json({ error: project.error }, 404);
+    }
+    try {
+      const slice = await updateSlice(project.data.absolutePath, sliceId, {
+        title: typeof body.title === "string" ? body.title : undefined,
+        status: typeof body.status === "string" ? body.status as SliceStatus : undefined,
+        hillPosition: typeof body.hill_position === "string" ? body.hill_position as SliceHillPosition : undefined,
+        readme: typeof body.readme === "string" ? body.readme : undefined,
+        specs: typeof body.specs === "string" ? body.specs : undefined,
+        tasks: typeof body.tasks === "string" ? body.tasks : undefined,
+        validation: typeof body.validation === "string" ? body.validation : undefined,
+        thread: typeof body.thread === "string" ? body.thread : undefined,
+      });
+      return c.json(slice);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "not found";
+      return c.json({ error: msg }, 404);
+    }
   });
 
   app.get("/projects/:id/spec", async (c) => {

@@ -1,4 +1,4 @@
-import { Router, Route, useParams, useLocation } from "@solidjs/router";
+import { Router, Route, useParams, useLocation, useNavigate } from "@solidjs/router";
 import {
   Show,
   Suspense,
@@ -51,6 +51,11 @@ const LazyProjectsBoard = lazy(() =>
 const LazyProjectDetailPage = lazy(() =>
   import("./components/project/ProjectDetailPage").then((mod) => ({
     default: mod.ProjectDetailPage,
+  }))
+);
+const LazySliceDetailPage = lazy(() =>
+  import("./components/SliceDetailPage").then((mod) => ({
+    default: mod.SliceDetailPage,
   }))
 );
 const LazyAuthGuard = lazy(() => import("./auth/AuthGuard"));
@@ -507,6 +512,44 @@ function AgentsRouteShell() {
   );
 }
 
+function SliceDetailRouteShell() {
+  if (!isExtensionEnabled("projects")) {
+    return <ExtensionUnavailable extension="projects" />;
+  }
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazySliceDetailPage />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
+
+/**
+ * Flat /slices/:sliceId redirect — looks up the slice detail page.
+ * Slice IDs encode project ID (PRO-XXX-Snn), so we parse it.
+ */
+function FlatSliceRedirect() {
+  const params = useParams<{ sliceId: string }>();
+  const navigate = useNavigate();
+  const sliceId = () => params.sliceId ?? "";
+  const projectId = createMemo(() => {
+    const m = sliceId().match(/^(PRO-\d+)-S\d+$/);
+    return m ? m[1] : "";
+  });
+  createEffect(() => {
+    const pid = projectId();
+    const sid = sliceId();
+    if (pid && sid) {
+      navigate(
+        `/projects/${encodeURIComponent(pid)}/slices/${encodeURIComponent(sid)}`,
+        { replace: true }
+      );
+    }
+  });
+  return <div class="app" />;
+}
+
 function ChatRouteShell() {
   return (
     <LeftNavShell>
@@ -585,6 +628,22 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <ProjectsRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/projects/:projectId/slices/:sliceId"
+        component={() => (
+          <GuardedRoute>
+            <SliceDetailRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/slices/:sliceId"
+        component={() => (
+          <GuardedRoute>
+            <FlatSliceRedirect />
           </GuardedRoute>
         )}
       />

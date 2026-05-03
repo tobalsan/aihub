@@ -32,6 +32,7 @@ import {
 import { SpecEditor } from "./SpecEditor";
 import type { SpawnFormDraft, SpawnPrefill, SpawnTemplate } from "./SpawnForm";
 import { zenMode } from "../../lib/layout";
+import { SliceKanbanWidget } from "../SliceKanbanWidget";
 
 type PersistedCenterView = {
   tab: CenterTab;
@@ -70,8 +71,8 @@ function saveCenterView(id: string, view: PersistedCenterView): void {
   }
 }
 
-type MergedTab = "chat" | "activity" | "changes" | "spec";
-type MobileTab = "overview" | "chat" | "activity" | "changes" | "spec";
+type MergedTab = "chat" | "activity" | "changes" | "spec" | "slices";
+type MobileTab = "overview" | "chat" | "activity" | "changes" | "spec" | "slices";
 
 function getBaseAppTitle(): string {
   if (import.meta.env.VITE_AIHUB_DEV === "true") {
@@ -702,6 +703,13 @@ export function ProjectDetailPage() {
                           >
                             Spec
                           </button>
+                          <button
+                            type="button"
+                            classList={{ active: mobileTab() === "slices" }}
+                            onClick={() => setMobileTab("slices")}
+                          >
+                            Slices
+                          </button>
                         </header>
                         <div class="project-detail__merged-body">
                           <Switch>
@@ -806,10 +814,14 @@ export function ProjectDetailPage() {
                                 onRefresh={handleRefreshSpec}
                               />
                             </Match>
+                            <Match when={mobileTab() === "slices"}>
+                              <SliceKanbanWidget projectId={projectId()} />
+                            </Match>
                             <Match
                               when={
                                 mobileTab() !== "overview" &&
-                                mobileTab() !== "spec"
+                                mobileTab() !== "spec" &&
+                                mobileTab() !== "slices"
                               }
                             >
                               <CenterPanel
@@ -993,18 +1005,39 @@ export function ProjectDetailPage() {
                         />
                       </div>
                       <div class="project-detail__right">
-                        <SpecEditor
-                          specContent={spec()?.content ?? ""}
-                          docs={detail().docs}
-                          tasks={tasks()?.tasks ?? []}
-                          progress={tasks()?.progress ?? { done: 0, total: 0 }}
-                          areaColor={area()?.color}
-                          onToggleTask={handleToggleTask}
-                          onAddTask={handleAddTask}
-                          onSaveSpec={handleSaveSpec}
-                          onSaveDoc={handleSaveDoc}
-                          onRefresh={handleRefreshSpec}
-                        />
+                        <div class="project-right-tabs">
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() !== "slices" }}
+                            onClick={() => setMergedTab("spec")}
+                          >
+                            Spec
+                          </button>
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() === "slices" }}
+                            onClick={() => setMergedTab("slices")}
+                          >
+                            Slices
+                          </button>
+                        </div>
+                        <Show when={mergedTab() !== "slices"}>
+                          <SpecEditor
+                            specContent={spec()?.content ?? ""}
+                            docs={detail().docs}
+                            tasks={tasks()?.tasks ?? []}
+                            progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                            areaColor={area()?.color}
+                            onToggleTask={handleToggleTask}
+                            onAddTask={handleAddTask}
+                            onSaveSpec={handleSaveSpec}
+                            onSaveDoc={handleSaveDoc}
+                            onRefresh={handleRefreshSpec}
+                          />
+                        </Show>
+                        <Show when={mergedTab() === "slices"}>
+                          <SliceKanbanWidget projectId={projectId()} />
+                        </Show>
                       </div>
                     </Match>
                     <Match when={compactLayout()}>
@@ -1123,6 +1156,13 @@ export function ProjectDetailPage() {
                           >
                             Spec
                           </button>
+                          <button
+                            type="button"
+                            classList={{ active: mergedTab() === "slices" }}
+                            onClick={() => setMergedTab("slices")}
+                          >
+                            Slices
+                          </button>
                         </header>
                         <div class="project-detail__merged-body">
                           <Show when={mergedTab() === "spec"}>
@@ -1141,7 +1181,10 @@ export function ProjectDetailPage() {
                               onRefresh={handleRefreshSpec}
                             />
                           </Show>
-                          <Show when={mergedTab() !== "spec"}>
+                          <Show when={mergedTab() === "slices"}>
+                            <SliceKanbanWidget projectId={projectId()} />
+                          </Show>
+                          <Show when={mergedTab() !== "spec" && mergedTab() !== "slices"}>
                             <CenterPanel
                               project={detail()}
                               onAddComment={handleAddComment}
@@ -1514,6 +1557,29 @@ export function ProjectDetailPage() {
           place-items: center;
           background: var(--bg-base);
           color: var(--text-secondary);
+        }
+
+        .project-right-tabs {
+          display: flex;
+          border-bottom: 1px solid var(--border-subtle);
+          padding: 0 12px;
+          flex-shrink: 0;
+        }
+
+        .project-right-tabs button {
+          background: none;
+          border: none;
+          border-bottom: 2px solid transparent;
+          padding: 8px 12px;
+          font-size: 13px;
+          color: var(--text-secondary);
+          cursor: pointer;
+          transition: color 0.1s, border-color 0.1s;
+        }
+
+        .project-right-tabs button.active {
+          color: var(--text-primary);
+          border-bottom-color: var(--accent, #7c6aff);
         }
       `}</style>
     </>
