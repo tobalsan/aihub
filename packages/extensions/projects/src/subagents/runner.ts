@@ -17,7 +17,7 @@ import {
   pruneProjectRepoWorktrees,
 } from "../projects/space.js";
 import { dirExists } from "../util/fs.js";
-import { getProjectsRoot } from "../util/paths.js";
+import { getProjectsRoot, getProjectsWorktreeRoot } from "../util/paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -602,7 +602,10 @@ export async function spawnSubagent(
     await fs.mkdir(sessionDir, { recursive: true });
   }
 
-  const workspacesRoot = path.join(root, ".workspaces", input.projectId);
+  const workspacesRoot = path.join(
+    getProjectsWorktreeRoot(config),
+    input.projectId
+  );
   const worktreeDir = path.join(workspacesRoot, input.slug);
 
   let worktreePath = mode === "none" ? repo || projectDir : repo;
@@ -1149,7 +1152,10 @@ export async function killSubagent(
     }
   }
 
-  const workspacesRoot = path.join(root, ".workspaces", projectId);
+  const workspacesRoot = path.join(
+    getProjectsWorktreeRoot(config),
+    projectId
+  );
   const worktreeDir = path.join(workspacesRoot, slug);
   const worktreePath =
     typeof state?.worktree_path === "string" ? state.worktree_path : "";

@@ -44,7 +44,14 @@ describe("subagents API", () => {
         },
       ],
       extensions: {
-        projects: { enabled: true, root: projectsRoot },
+        projects: {
+          enabled: true,
+          root: projectsRoot,
+          // Pin to the legacy on-disk layout so existing path assertions
+          // (`<projectsRoot>/.workspaces/<id>/<slug>`) keep holding under the
+          // new configurable worktreeDir resolver.
+          worktreeDir: ".workspaces",
+        },
       },
     };
     await fs.writeFile(

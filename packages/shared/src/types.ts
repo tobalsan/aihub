@@ -486,6 +486,7 @@ export type ProjectsOrchestratorConfig = z.infer<
 export const ProjectsExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   root: z.string().optional(),
+  worktreeDir: z.string().optional(),
   orchestrator: ProjectsOrchestratorConfigSchema.optional(),
 });
 export type ProjectsExtensionConfig = z.infer<
