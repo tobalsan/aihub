@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
   buildRolePrompt,
+  expandPath,
   type GatewayConfig,
   type ProjectsOrchestratorStatusConfig,
   type ProjectStatus,
@@ -20,6 +21,7 @@ import {
   type SubagentMode,
 } from "../subagents/runner.js";
 import type { OrchestratorConfig } from "./config.js";
+import { getProjectsWorktreeRoot } from "../util/paths.js";
 
 type Logger = (message: string) => void;
 
@@ -116,14 +118,18 @@ function sourceOf(run: SubagentListItem): string {
 export function isActiveOrchestratorRun(
   run: SubagentListItem,
   sliceId?: string,
-  fallbackCwd?: string
+  fallbackCwds: string[] = []
 ): boolean {
   if (sourceOf(run) !== "orchestrator" || run.status !== "running") {
     return false;
   }
   if (!sliceId) return true;
   if (run.sliceId) return run.sliceId === sliceId;
-  return Boolean(fallbackCwd && run.worktreePath === fallbackCwd);
+  if (!run.worktreePath) return false;
+  return fallbackCwds.some(
+    (fallback) =>
+      run.worktreePath === fallback || run.worktreePath.startsWith(`${fallback}/`)
+  );
 }
 
 function runtimeProfiles(config: GatewayConfig): SubagentRuntimeProfile[] {
@@ -326,6 +332,20 @@ function buildReviewerSpawnInput(
   };
 }
 
+function fallbackCwdsForProject(
+  config: GatewayConfig,
+  project: ProjectListItem
+): string[] {
+  const candidates = new Set<string>();
+  const repo = project.frontmatter.repo;
+  if (typeof repo === "string" && repo.trim()) {
+    candidates.add(expandPath(repo.trim()).replace(/\/$/, ""));
+  }
+  candidates.add(path.join(getProjectsWorktreeRoot(config), project.id));
+  candidates.add(project.absolutePath);
+  return [...candidates];
+}
+
 function buildSpawnInput(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
@@ -418,21 +438,22 @@ async function dispatchForStatus(
     })
   );
 
-  const activeByProject = new Map<string, SubagentListItem[]>();
+  const activeBySlice = new Map<string, SubagentListItem[]>();
   for (const entry of projectRuns) {
-    activeByProject.set(
-      entry.project.id,
+    const key = cooldownKeyForProject(entry.project);
+    activeBySlice.set(
+      key,
       entry.runs.filter((run) =>
         isActiveOrchestratorRun(
           run,
           projectSliceId(entry.project),
-          entry.project.absolutePath
+          fallbackCwdsForProject(config, entry.project)
         )
       )
     );
   }
 
-  const running = [...activeByProject.values()].reduce(
+  const running = [...activeBySlice.values()].reduce(
     (sum, runs) => sum + runs.length,
     0
   );
@@ -442,8 +463,8 @@ async function dispatchForStatus(
   const attempts = deps.attempts;
   const cooldownMs = orchestratorConfig.failure_cooldown_ms;
   const eligible = statusProjects.filter((project) => {
-    if ((activeByProject.get(project.id)?.length ?? 0) > 0) return false;
     const cooldownKey = cooldownKeyForProject(project);
+    if ((activeBySlice.get(cooldownKey)?.length ?? 0) > 0) return false;
 
     if (attempts?.isCoolingDown(cooldownKey, nowMs, cooldownMs)) {
       keyValueLog(log, {
@@ -479,7 +500,9 @@ async function dispatchForStatus(
       project,
       profile,
       slug,
-      projectRuns.find((entry) => entry.project.id === project.id)?.runs ?? []
+      projectRuns.find(
+        (entry) => cooldownKeyForProject(entry.project) === cooldownKeyForProject(project)
+      )?.runs ?? []
     );
     if (!input) {
       decisions.push({

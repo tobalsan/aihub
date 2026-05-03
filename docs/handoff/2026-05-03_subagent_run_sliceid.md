@@ -3,6 +3,18 @@
 ## Status
 Completed.
 
+## Final reviewer fixes (2026-05-03, issue 07)
+- Dispatcher active-run cache now keyed by slice identity (`cooldownKeyForProject`: `sliceId ?? project.id`), not parent `project.id`.
+- Dispatcher active eligibility + run lookup now use same slice key, preventing sibling slice collisions when parent id shared.
+- Legacy cwd fallback now wired at dispatcher call-site with realistic candidates:
+  - project repo path (`frontmatter.repo`, expanded)
+  - worktree root prefix (`<worktreeRoot>/<project.id>`)
+  - project markdown path fallback (`project.absolutePath`)
+- `isActiveOrchestratorRun` now accepts fallback cwd list and matches exact/prefix for legacy run `worktreePath`.
+- Added regression tests:
+  - sibling slice-shaped `ProjectListItem`s sharing same `id` but different `sliceId` (active S01 does not block S02)
+  - dispatcher call-site legacy fallback using repo cwd match
+
 ## Reviewer fix follow-up (2026-05-03)
 - Orchestrator dispatcher now passes `sliceId` into worker/reviewer `spawnSubagent()` input via `projectSliceId(project)`.
 - Project subagent start route (`POST /projects/:id/subagents`) now parses optional `sliceId` and forwards to `spawnSubagent()`.

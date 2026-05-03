@@ -100,14 +100,21 @@ describe("orchestrator dispatcher", () => {
       isActiveOrchestratorRun(
         run("running", "orchestrator", { worktreePath: "/tmp/wt/s01" }),
         "PRO-1-S01",
-        "/tmp/wt/s01"
+        ["/tmp/wt/s01"]
+      )
+    ).toBe(true);
+    expect(
+      isActiveOrchestratorRun(
+        run("running", "orchestrator", { worktreePath: "/tmp/wt/s01/agent" }),
+        "PRO-1-S01",
+        ["/tmp/wt/s01"]
       )
     ).toBe(true);
     expect(
       isActiveOrchestratorRun(
         run("running", "orchestrator", { worktreePath: "/tmp/wt/s02" }),
         "PRO-1-S01",
-        "/tmp/wt/s01"
+        ["/tmp/wt/s01"]
       )
     ).toBe(false);
   });
@@ -257,6 +264,52 @@ describe("orchestrator dispatcher", () => {
     );
   });
 
+  it("does not let active sibling slice block same parent project id", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [
+          {
+            ...project("PRO-1"),
+            title: "Slice 1",
+            path: "PRO-1_slice1",
+            absolutePath: "/tmp/projects/PRO-1_slice1",
+            sliceId: "PRO-1-S01",
+          } as ProjectListItem,
+          {
+            ...project("PRO-1"),
+            title: "Slice 2",
+            path: "PRO-1_slice2",
+            absolutePath: "/tmp/projects/PRO-1_slice2",
+            sliceId: "PRO-1-S02",
+          } as ProjectListItem,
+        ],
+      }),
+      listSubagents: async (_config, projectId) => ({
+        ok: true,
+        data: {
+          items:
+            projectId === "PRO-1"
+              ? [run("running", "orchestrator", { sliceId: "PRO-1-S01" })]
+              : [],
+        },
+      }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateProject: makeUpdateProjectMock().fn,
+      log: () => {},
+    });
+
+    expect(result.running).toBe(1);
+    expect(result.eligible).toBe(1);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.sliceId).toBe("PRO-1-S02");
+  });
+
   it("keys cooldown by sliceId when present", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const tracker = {
@@ -287,6 +340,43 @@ describe("orchestrator dispatcher", () => {
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.projectId).toBe("PRO-2");
     expect(spawned[0]?.sliceId).toBe("PRO-1-S02");
+  });
+
+  it("matches legacy active run by repo cwd fallback at dispatcher call-site", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [
+          {
+            ...project("PRO-1"),
+            frontmatter: { status: "todo", repo: "/tmp/repo" },
+            sliceId: "PRO-1-S01",
+          } as ProjectListItem,
+        ],
+      }),
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("running", "orchestrator", {
+              worktreePath: "/tmp/repo",
+            }),
+          ],
+        },
+      }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateProject: makeUpdateProjectMock().fn,
+      log: () => {},
+    });
+
+    expect(result.running).toBe(1);
+    expect(result.eligible).toBe(0);
+    expect(spawned).toHaveLength(0);
   });
 
   it("skips projects in the failure cooldown window", async () => {
