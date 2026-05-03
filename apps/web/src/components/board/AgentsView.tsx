@@ -109,7 +109,6 @@ type RunRowProps = {
 function RunRow(props: RunRowProps) {
   const viewHref = () =>
     `/projects/${encodeURIComponent(props.run.projectId ?? "__unassigned")}`;
-  const noSlice = () => !props.run.sliceId;
 
   return (
     <div class="agents-run-row" data-testid={`run-row-${props.run.id}`}>
