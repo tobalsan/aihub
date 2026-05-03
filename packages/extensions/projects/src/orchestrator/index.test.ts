@@ -47,6 +47,30 @@ function run(
   };
 }
 
+// Default updateProject mock - record calls + always succeed. Tests that
+// care about lock behavior pass their own mock to override.
+function makeUpdateProjectMock(): {
+  fn: (typeof import("../projects/store.js"))["updateProject"];
+  calls: Array<{ id: string; status?: string }>;
+} {
+  const calls: Array<{ id: string; status?: string }> = [];
+  const fn = (async (_cfg, id, input) => {
+    calls.push({ id, status: input.status });
+    return {
+      ok: true,
+      data: {
+        id,
+        title: `${id} title`,
+        path: id,
+        absolutePath: `/tmp/projects/${id}`,
+        repoValid: true,
+        frontmatter: { id, status: input.status ?? "todo" },
+      },
+    };
+  }) as (typeof import("../projects/store.js"))["updateProject"];
+  return { fn, calls };
+}
+
 describe("orchestrator dispatcher", () => {
   it("dispatches Workers for eligible todo projects with orchestrator source", async () => {
     const spawned: SpawnSubagentInput[] = [];
@@ -68,6 +92,7 @@ describe("orchestrator dispatcher", () => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
+        updateProject: makeUpdateProjectMock().fn,
         now: () => new Date("2026-05-03T00:00:00.000Z"),
         log: () => {},
       }
@@ -118,6 +143,7 @@ describe("orchestrator dispatcher", () => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
+        updateProject: makeUpdateProjectMock().fn,
         log: () => {},
       }
     );
@@ -151,6 +177,7 @@ describe("orchestrator dispatcher", () => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
+        updateProject: makeUpdateProjectMock().fn,
         log: () => {},
       }
     );
@@ -225,6 +252,7 @@ describe("orchestrator dispatcher", () => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
         },
+        updateProject: makeUpdateProjectMock().fn,
         attempts: tracker,
         log: () => {},
       }
@@ -233,5 +261,62 @@ describe("orchestrator dispatcher", () => {
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.projectId).toBe("PRO-2");
+  });
+
+  it("locks spawned projects by moving them to in_progress", async () => {
+    const updates = makeUpdateProjectMock();
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1"), project("PRO-2")],
+      }),
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => ({
+        ok: true,
+        data: { slug: input.slug },
+      }),
+      updateProject: updates.fn,
+      log: () => {},
+    });
+
+    expect(updates.calls).toEqual([
+      { id: "PRO-1", status: "in_progress" },
+      { id: "PRO-2", status: "in_progress" },
+    ]);
+  });
+
+  it("logs lock_failed but does not unwind a successful spawn", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const logs: string[] = [];
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      orchestratorConfig,
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateProject: async () => ({
+          ok: false,
+          error: "disk full",
+        }),
+        log: (msg) => logs.push(msg),
+      }
+    );
+
+    expect(spawned).toHaveLength(1);
+    expect(result.decisions[0]?.action).toBe("spawned");
+    expect(
+      logs.some(
+        (m) => m.includes("action=lock_failed") && m.includes("reason=disk full")
+      )
+    ).toBe(true);
   });
 });

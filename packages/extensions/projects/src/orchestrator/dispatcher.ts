@@ -6,7 +6,11 @@ import {
   type ProjectStatus,
   type SubagentRuntimeProfile,
 } from "@aihub/shared";
-import { listProjects, type ProjectListItem } from "../projects/store.js";
+import {
+  listProjects,
+  updateProject,
+  type ProjectListItem,
+} from "../projects/store.js";
 import {
   listSubagents,
   type SubagentListItem,
@@ -53,6 +57,7 @@ export type OrchestratorDispatcherDeps = {
   listProjects?: typeof listProjects;
   listSubagents?: typeof listSubagents;
   spawnSubagent?: typeof spawnSubagent;
+  updateProject?: typeof updateProject;
   now?: () => Date;
   log?: Logger;
   attempts?: OrchestratorAttemptTracker;
@@ -332,6 +337,24 @@ export async function dispatchOrchestratorTick(
       slug,
       profile: todoConfig.profile,
     });
+
+    // Lock the project by moving it out of `todo` immediately. This is the
+    // primary defense against double-dispatch: the next tick's status filter
+    // simply won't see this project anymore. If updateProject fails for any
+    // reason we log loudly but don't roll back the spawn - the existing
+    // isActiveOrchestratorRun dedupe still gates the next tick as a fallback.
+    const update = await (deps.updateProject ?? updateProject)(config, project.id, {
+      status: "in_progress",
+    });
+    if (!update.ok) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: STATUS,
+        action: "lock_failed",
+        project: project.id,
+        reason: update.error,
+      });
+    }
   }
 
   return {
