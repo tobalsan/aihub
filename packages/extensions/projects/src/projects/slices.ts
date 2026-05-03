@@ -75,7 +75,7 @@ export type UpdateSliceInput = {
 function formatFrontmatterValue(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value ?? "");
+  return JSON.stringify(value);
 }
 
 function formatFrontmatter(frontmatter: Record<string, unknown>): string {

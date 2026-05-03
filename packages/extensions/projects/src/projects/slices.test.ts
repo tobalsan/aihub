@@ -71,6 +71,8 @@ describe("slice storage primitives", () => {
         extra_json: { nested: [1, "two", true] },
         extra_text: "hello",
         escaped_text: escaped,
+        nullable: null,
+        empty_list: [],
       },
       status: "in_progress",
     });
@@ -78,12 +80,16 @@ describe("slice storage primitives", () => {
     expect(updated.frontmatter.extra_text).toBe("hello");
     expect(updated.frontmatter.extra_json).toEqual({ nested: [1, "two", true] });
     expect(updated.frontmatter.escaped_text).toBe(escaped);
+    expect(updated.frontmatter.nullable).toBeNull();
+    expect(updated.frontmatter.empty_list).toEqual([]);
     expect(updated.frontmatter.status).toBe("in_progress");
 
     const reread = await getSlice(projectDir, created.id);
     expect(reread.frontmatter.extra_text).toBe("hello");
     expect(reread.frontmatter.extra_json).toEqual({ nested: [1, "two", true] });
     expect(reread.frontmatter.escaped_text).toBe(escaped);
+    expect(reread.frontmatter.nullable).toBeNull();
+    expect(reread.frontmatter.empty_list).toEqual([]);
   });
 
   it("updates README atomically and no temp file left", async () => {

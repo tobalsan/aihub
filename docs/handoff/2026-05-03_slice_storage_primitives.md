@@ -35,4 +35,11 @@ Implemented slice storage primitives in projects extension. Added per-project sl
     - `projectId`: `^PRO-\d+$`
     - `sliceId`: `^PRO-\d+-S\d+$`
   - Added traversal-like invalid ID tests.
+- Re-review follow-up fix applied:
+  - `formatFrontmatterValue()` no longer coerces nullish values to empty string; uses raw `JSON.stringify(value)`.
+  - Frontmatter parser no longer converts literal `null` / `[]` to undefined; now preserves JSON values (`null`, empty array).
+  - Slice regression test expanded with `nullable: null` and `empty_list: []` round-trip assertions on update + reread.
+- Checks:
+  - `pnpm vitest run packages/extensions/projects/src/projects/slices.test.ts` ✅
+  - `pnpm vitest run --dir packages/extensions/projects/src/projects` ✅
 - Next issue: wire these primitives into slice CLI/API surface and scope-map generation.

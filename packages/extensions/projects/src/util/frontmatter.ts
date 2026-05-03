@@ -7,9 +7,10 @@ const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 function parseFrontmatterValue(rawValue: string): unknown {
   const value = rawValue.trim();
-  if (value === "" || value === "~" || value === "null" || value === "[]") {
+  if (value === "" || value === "~") {
     return undefined;
   }
+  if (value === "null") return null;
 
   if (value.startsWith('"') && value.endsWith('"')) {
     try {
