@@ -85,6 +85,13 @@ describe("orchestrator dispatcher", () => {
     );
     expect(spawned.every((input) => input.cli === "codex")).toBe(true);
     expect(spawned.every((input) => input.mode === "clone")).toBe(true);
+    // Prompt embeds the actual aihub invocation (resolveAihubCli) for this
+    // gateway, so the worker can run it directly without env-var indirection.
+    // In tests, AIHUB_DEV is unset so it resolves to bare `aihub`.
+    expect(spawned[0]?.prompt).toContain(
+      "`aihub projects move PRO-1 review`"
+    );
+    expect(spawned[0]?.prompt).not.toContain("$AIHUB_CLI");
   });
 
   it("counts only running orchestrator runs against status slots", async () => {

@@ -21,6 +21,28 @@ import type { OrchestratorConfig } from "./config.js";
 
 type Logger = (message: string) => void;
 
+/**
+ * Resolve the actual `aihub` CLI invocation that subagents should use to talk
+ * back to *this* gateway. Substituted into spawn prompts at render time so the
+ * agent doesn't need to wrangle env vars (and so it works for any CLI harness).
+ *
+ * - prod gateway → bare `aihub` (global binary, talks to prod's AIHUB_HOME)
+ * - dev gateway (started via `pnpm dev`, signalled by AIHUB_DEV=1) → workspace
+ *   `aihub:dev` script run from the gateway's cwd, so the worker hits the dev
+ *   gateway's CLI build and the dev AIHUB_HOME inherited via env.
+ */
+export function resolveAihubCli(): string {
+  if (process.env.AIHUB_DEV) {
+    // AIHUB_WORKSPACE_ROOT is set by scripts/dev.ts (the workspace root
+    // where pnpm-workspace.yaml lives). process.cwd() can't be trusted
+    // here because `pnpm --filter @aihub/gateway exec ...` cd's into
+    // apps/gateway before launching node.
+    const root = process.env.AIHUB_WORKSPACE_ROOT ?? process.cwd();
+    return `pnpm --dir ${root} aihub:dev`;
+  }
+  return "aihub";
+}
+
 export type OrchestratorAttemptTracker = {
   record(projectId: string, atMs: number): void;
   isCoolingDown(projectId: string, nowMs: number, cooldownMs: number): boolean;
@@ -152,8 +174,8 @@ function buildWorkerSpawnInput(
       customPrompt: [
         "## Orchestrator Handoff",
         "Read SPECS.md, TASKS.md, and VALIDATION.md if present.",
-        "When all VALIDATION.md criteria pass, run `aihub projects move " +
-          `${project.id} review\` and exit.`,
+        `For any \`aihub\` CLI calls, invoke \`${resolveAihubCli()}\` (this targets the gateway that owns this project - prod or dev).`,
+        `When all VALIDATION.md criteria pass, run \`${resolveAihubCli()} projects move ${project.id} review\` and exit.`,
       ].join("\n"),
     }),
     model: profile.model,

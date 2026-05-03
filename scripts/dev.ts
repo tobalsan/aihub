@@ -118,7 +118,7 @@ async function main() {
     {
       stdio: "inherit",
       cwd: rootDir,
-      env: { ...process.env, AIHUB_SKIP_WEB: "1", AIHUB_DEV: "1", AIHUB_GATEWAY_PORT: String(gatewayPort), NODE_OPTIONS: gatewayNodeOptions, ...(uiPort ? { AIHUB_UI_PORT: String(uiPort) } : {}) },
+      env: { ...process.env, AIHUB_SKIP_WEB: "1", AIHUB_DEV: "1", AIHUB_WORKSPACE_ROOT: rootDir, AIHUB_GATEWAY_PORT: String(gatewayPort), NODE_OPTIONS: gatewayNodeOptions, ...(uiPort ? { AIHUB_UI_PORT: String(uiPort) } : {}) },
     }
   );
   children.push(gateway);
