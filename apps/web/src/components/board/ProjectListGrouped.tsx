@@ -1,0 +1,782 @@
+/**
+ * ProjectListGrouped — Board home project list grouped by lifecycle status.
+ * §15.2 of kanban-slice-refactor spec + Issue #11.
+ */
+// @vitest-environment jsdom
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
+import type { BoardProject, ProjectLifecycleStatus } from "../../api/types";
+import { moveBoardProject } from "../../api/client";
+
+// ── Types ──────────────────────────────────────────────────────────
+
+type GroupDef = {
+  status: ProjectLifecycleStatus;
+  label: string;
+  defaultExpanded: boolean;
+};
+
+const GROUPS: GroupDef[] = [
+  { status: "active", label: "Active", defaultExpanded: true },
+  { status: "shaping", label: "Shaping", defaultExpanded: true },
+  { status: "done", label: "Done", defaultExpanded: false },
+  { status: "cancelled", label: "Cancelled", defaultExpanded: false },
+];
+
+export type ProjectListGroupedProps = {
+  /** All projects from GET /board/projects (archived already omitted server-side) */
+  projects: BoardProject[];
+  /** Area names keyed by id (for filter chips) */
+  areas: { id: string; name: string }[];
+  /** Loading state — show skeletons */
+  loading?: boolean;
+  /** Error state */
+  error?: string;
+  /** Called when retry clicked in error state */
+  onRetry?: () => void;
+  /** Navigate to project detail */
+  onProjectClick?: (project: BoardProject) => void;
+  /** Toast message emitter */
+  onToast?: (message: string, variant?: "error" | "info") => void;
+};
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return "No activity";
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "No activity";
+  const diff = Date.now() - ms;
+  if (diff < 30_000) return "now";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function lifecycleStatusLabel(status: ProjectLifecycleStatus): string {
+  switch (status) {
+    case "active":
+      return "active";
+    case "shaping":
+      return "shaping";
+    case "done":
+      return "done";
+    case "cancelled":
+      return "cancelled";
+    case "archived":
+      return "archived";
+  }
+}
+
+// ── Sub-components ─────────────────────────────────────────────────
+
+function StatusPill(props: { status: ProjectLifecycleStatus }) {
+  const colorMap: Record<ProjectLifecycleStatus, string> = {
+    active: "var(--color-success, #53b97c)",
+    shaping: "var(--color-warning, #d2b356)",
+    done: "var(--color-muted, #6b6b6b)",
+    cancelled: "var(--color-danger, #e05252)",
+    archived: "var(--color-muted, #6b6b6b)",
+  };
+  return (
+    <span
+      data-testid={`status-pill-${props.status}`}
+      style={{
+        display: "inline-block",
+        padding: "1px 6px",
+        "border-radius": "4px",
+        "font-size": "11px",
+        "font-weight": 600,
+        color: "#fff",
+        background: colorMap[props.status] ?? "#6b6b6b",
+        "text-transform": "capitalize",
+        "letter-spacing": "0.02em",
+      }}
+    >
+      {lifecycleStatusLabel(props.status)}
+    </span>
+  );
+}
+
+function ProgressBar(props: { done: number; total: number }) {
+  const pct = () =>
+    props.total > 0 ? Math.round((props.done / props.total) * 100) : 0;
+  return (
+    <div style={{ display: "flex", "align-items": "center", gap: "6px" }}>
+      <div
+        data-testid="progress-bar-track"
+        style={{
+          flex: 1,
+          height: "4px",
+          "border-radius": "2px",
+          background: "var(--bg-subtle, #333)",
+          overflow: "hidden",
+          "max-width": "80px",
+        }}
+      >
+        <div
+          data-testid="progress-bar-fill"
+          style={{
+            height: "100%",
+            width: `${pct()}%`,
+            background: "var(--color-success, #53b97c)",
+            "border-radius": "2px",
+            transition: "width 0.3s",
+          }}
+        />
+      </div>
+      <span
+        data-testid="progress-bar-label"
+        style={{ "font-size": "11px", color: "var(--text-muted, #888)" }}
+      >
+        {props.done}/{props.total} slices done
+      </span>
+    </div>
+  );
+}
+
+function ActiveRunDot() {
+  return (
+    <span
+      data-testid="active-run-dot"
+      title="Active run in progress"
+      style={{
+        display: "inline-block",
+        width: "8px",
+        height: "8px",
+        "border-radius": "50%",
+        background: "var(--color-success, #53b97c)",
+        animation: "pulse 2s infinite",
+        "margin-left": "4px",
+      }}
+    />
+  );
+}
+
+// ── Drag state ─────────────────────────────────────────────────────
+
+type DragState = {
+  projectId: string;
+  sourceStatus: ProjectLifecycleStatus;
+};
+
+let activeDrag: DragState | null = null;
+
+// ── Project Card ───────────────────────────────────────────────────
+
+function ProjectCard(props: {
+  project: BoardProject;
+  areaName: string;
+  onDragStart?: (e: DragEvent) => void;
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      data-testid={`project-card-${props.project.id}`}
+      data-project-id={props.project.id}
+      data-lifecycle-status={props.project.lifecycleStatus}
+      draggable
+      onDragStart={props.onDragStart}
+      onClick={props.onClick}
+      style={{
+        padding: "10px 12px",
+        "border-radius": "6px",
+        background: "var(--bg-card, #1e1e1e)",
+        border: "1px solid var(--border, #2a2a2a)",
+        cursor: "pointer",
+        "margin-bottom": "6px",
+        "user-select": "none",
+        transition: "border-color 0.15s",
+      }}
+    >
+      {/* Line 1: ID, status pill, area */}
+      <div
+        style={{
+          display: "flex",
+          "align-items": "center",
+          gap: "6px",
+          "margin-bottom": "3px",
+        }}
+      >
+        <span
+          data-testid="project-id"
+          style={{
+            "font-size": "11px",
+            color: "var(--text-muted, #888)",
+            "font-family": "monospace",
+          }}
+        >
+          {props.project.id}
+        </span>
+        <StatusPill status={props.project.lifecycleStatus} />
+        <Show when={props.areaName}>
+          <span
+            data-testid="project-area-chip"
+            style={{
+              "font-size": "11px",
+              color: "var(--text-muted, #888)",
+              background: "var(--bg-subtle, #2a2a2a)",
+              padding: "1px 5px",
+              "border-radius": "3px",
+            }}
+          >
+            {props.areaName}
+          </span>
+        </Show>
+      </div>
+      {/* Line 2: Title */}
+      <div
+        data-testid="project-title"
+        style={{
+          "font-size": "13px",
+          "font-weight": 500,
+          "margin-bottom": "5px",
+          color: "var(--text-primary, #e0e0e0)",
+          overflow: "hidden",
+          "text-overflow": "ellipsis",
+          "white-space": "nowrap",
+        }}
+      >
+        {props.project.title}
+      </div>
+      {/* Line 3: Slice progress + active run dot */}
+      <div
+        style={{
+          display: "flex",
+          "align-items": "center",
+          "margin-bottom": "4px",
+        }}
+      >
+        <ProgressBar
+          done={props.project.sliceProgress.done}
+          total={props.project.sliceProgress.total}
+        />
+        <Show when={props.project.activeRunCount > 0}>
+          <ActiveRunDot />
+        </Show>
+      </div>
+      {/* Line 4: Last activity */}
+      <div
+        data-testid="project-last-activity"
+        style={{ "font-size": "11px", color: "var(--text-muted, #888)" }}
+      >
+        updated {relativeTime(props.project.lastActivity)}
+      </div>
+    </div>
+  );
+}
+
+// ── Group Section ──────────────────────────────────────────────────
+
+function GroupSection(props: {
+  group: GroupDef;
+  projects: BoardProject[];
+  areas: Map<string, string>;
+  onDrop?: (targetStatus: ProjectLifecycleStatus) => void;
+  onCardDragStart?: (project: BoardProject) => void;
+  onCardClick?: (project: BoardProject) => void;
+}) {
+  const [expanded, setExpanded] = createSignal(props.group.defaultExpanded);
+  const [dragOver, setDragOver] = createSignal(false);
+
+  return (
+    <div
+      data-testid={`group-section-${props.group.status}`}
+      style={{ "margin-bottom": "16px" }}
+    >
+      {/* Group header */}
+      <div
+        data-testid={`group-header-${props.group.status}`}
+        style={{
+          display: "flex",
+          "align-items": "center",
+          gap: "8px",
+          "margin-bottom": "6px",
+          "padding-bottom": "4px",
+          "border-bottom": "1px solid var(--border, #2a2a2a)",
+          cursor: "pointer",
+        }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span
+          style={{
+            "font-size": "12px",
+            "font-weight": 600,
+            "text-transform": "uppercase",
+            "letter-spacing": "0.06em",
+            color: "var(--text-secondary, #aaa)",
+          }}
+        >
+          {props.group.label}
+        </span>
+        <span
+          data-testid={`group-count-${props.group.status}`}
+          style={{
+            "font-size": "12px",
+            color: "var(--text-muted, #888)",
+          }}
+        >
+          ({props.projects.length})
+        </span>
+        <Show when={!props.group.defaultExpanded}>
+          <span
+            style={{
+              "font-size": "11px",
+              color: "var(--color-link, #4a9eff)",
+              "margin-left": "4px",
+            }}
+          >
+            {expanded() ? "hide" : "show"}
+          </span>
+        </Show>
+        <span style={{ "margin-left": "auto", "font-size": "12px" }}>
+          {expanded() ? "▾" : "▸"}
+        </span>
+      </div>
+
+      {/* Drop zone — always rendered so collapsed groups accept drops */}
+      <div
+        data-testid={`group-drop-zone-${props.group.status}`}
+        style={{
+          "min-height": expanded() ? "40px" : "8px",
+          "border-radius": "6px",
+          background: dragOver()
+            ? "var(--bg-drop-target, rgba(74,158,255,0.07))"
+            : "transparent",
+          border: dragOver()
+            ? "2px dashed var(--color-link, #4a9eff)"
+            : "2px dashed transparent",
+          transition: "all 0.15s",
+          padding: expanded() ? "2px" : "0",
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          props.onDrop?.(props.group.status);
+        }}
+      >
+        {/* Cards — only visible when expanded */}
+        <Show when={expanded()}>
+          <Show
+            when={props.projects.length > 0}
+            fallback={
+              <div
+                data-testid={`group-empty-${props.group.status}`}
+                style={{
+                  "text-align": "center",
+                  color: "var(--text-muted, #888)",
+                  "font-size": "12px",
+                  padding: "12px 0",
+                }}
+              >
+                No projects
+              </div>
+            }
+          >
+            <For each={props.projects}>
+              {(project) => (
+                <ProjectCard
+                  project={project}
+                  areaName={props.areas.get(project.area) ?? project.area}
+                  onDragStart={() => {
+                    props.onCardDragStart?.(project);
+                  }}
+                  onClick={() => props.onCardClick?.(project)}
+                />
+              )}
+            </For>
+          </Show>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+// ── Toast ──────────────────────────────────────────────────────────
+
+export function ToastNotification(props: {
+  message: string;
+  variant?: "error" | "info";
+  onClose?: () => void;
+}) {
+  const bg = () =>
+    props.variant === "error"
+      ? "var(--color-danger, #b94040)"
+      : "var(--color-info, #3b5ba8)";
+
+  onMount(() => {
+    const timer = setTimeout(() => props.onClose?.(), 4000);
+    onCleanup(() => clearTimeout(timer));
+  });
+
+  return (
+    <div
+      data-testid={`toast-${props.variant ?? "info"}`}
+      style={{
+        position: "fixed",
+        bottom: "24px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        "z-index": 9999,
+        background: bg(),
+        color: "#fff",
+        padding: "10px 18px",
+        "border-radius": "6px",
+        "font-size": "13px",
+        "box-shadow": "0 4px 12px rgba(0,0,0,0.4)",
+        display: "flex",
+        gap: "10px",
+        "align-items": "center",
+        "max-width": "420px",
+      }}
+    >
+      <span>{props.message}</span>
+      <button
+        data-testid="toast-close"
+        onClick={props.onClose}
+        style={{
+          background: "none",
+          border: "none",
+          color: "#fff",
+          cursor: "pointer",
+          padding: "0 4px",
+          "font-size": "16px",
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────
+
+export function ProjectListGrouped(props: ProjectListGroupedProps) {
+  const [search, setSearch] = createSignal("");
+  const [selectedArea, setSelectedArea] = createSignal<string>("all");
+  const [dragging, setDragging] = createSignal<DragState | null>(null);
+  const [toast, setToast] = createSignal<{
+    message: string;
+    variant: "error" | "info";
+  } | null>(null);
+  // Optimistic project list — mirrors props.projects with pending status updates
+  const [optimisticOverrides, setOptimisticOverrides] = createSignal<
+    Map<string, ProjectLifecycleStatus>
+  >(new Map());
+
+  const areaMap = createMemo(() => {
+    const m = new Map<string, string>();
+    for (const area of props.areas) {
+      m.set(area.id, area.name);
+    }
+    return m;
+  });
+
+  const filteredProjects = createMemo(() => {
+    const q = search().toLowerCase().trim();
+    const area = selectedArea();
+    const overrides = optimisticOverrides();
+    return props.projects
+      .filter((p) => p.lifecycleStatus !== "archived")
+      .map((p) => {
+        const ov = overrides.get(p.id);
+        return ov ? { ...p, lifecycleStatus: ov } : p;
+      })
+      .filter((p) => {
+        if (area !== "all" && p.area !== area) return false;
+        if (!q) return true;
+        const title = p.title.toLowerCase();
+        const id = p.id.toLowerCase();
+        return title.includes(q) || id.includes(q);
+      });
+  });
+
+  const groupedProjects = createMemo(() => {
+    const filtered = filteredProjects();
+    const result = new Map<ProjectLifecycleStatus, BoardProject[]>();
+    for (const g of GROUPS) result.set(g.status, []);
+    for (const p of filtered) {
+      const list = result.get(p.lifecycleStatus);
+      if (list) list.push(p);
+      else result.get("shaping")!.push(p);
+    }
+    return result;
+  });
+
+  function showToast(message: string, variant: "error" | "info" = "info") {
+    setToast({ message, variant });
+    props.onToast?.(message, variant);
+  }
+
+  async function handleDrop(targetStatus: ProjectLifecycleStatus) {
+    const drag = dragging();
+    if (!drag) return;
+    setDragging(null);
+    activeDrag = null;
+
+    if (drag.sourceStatus === targetStatus) return;
+
+    // Optimistic update
+    setOptimisticOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(drag.projectId, targetStatus);
+      return next;
+    });
+
+    const result = await moveBoardProject(drag.projectId, targetStatus);
+    if (!result.ok) {
+      // Revert
+      setOptimisticOverrides((prev) => {
+        const next = new Map(prev);
+        next.delete(drag.projectId);
+        return next;
+      });
+      showToast(result.error, "error");
+    } else {
+      // Confirm — clear override (server state will be reflected on next refetch)
+      setOptimisticOverrides((prev) => {
+        const next = new Map(prev);
+        next.delete(drag.projectId);
+        return next;
+      });
+    }
+  }
+
+  function handleCardDragStart(project: BoardProject) {
+    const state: DragState = {
+      projectId: project.id,
+      sourceStatus: project.lifecycleStatus,
+    };
+    setDragging(state);
+    activeDrag = state;
+  }
+
+  // Loading skeleton
+  if (props.loading) {
+    return (
+      <div data-testid="project-list-loading" aria-label="Loading projects">
+        {GROUPS.slice(0, 2).map((g) => (
+          <div style={{ "margin-bottom": "16px" }}>
+            <div
+              style={{
+                height: "16px",
+                width: "80px",
+                background: "var(--bg-subtle, #2a2a2a)",
+                "border-radius": "4px",
+                "margin-bottom": "8px",
+              }}
+            />
+            {[1, 2, 3].map(() => (
+              <div
+                data-testid="skeleton-row"
+                style={{
+                  height: "72px",
+                  background: "var(--bg-card, #1e1e1e)",
+                  "border-radius": "6px",
+                  "margin-bottom": "6px",
+                  animation: "pulse 1.5s ease-in-out infinite",
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Error state
+  if (props.error) {
+    return (
+      <div
+        data-testid="project-list-error"
+        style={{
+          "text-align": "center",
+          padding: "32px",
+          color: "var(--text-muted, #888)",
+        }}
+      >
+        <div style={{ "margin-bottom": "12px" }}>Failed to load projects.</div>
+        <button
+          data-testid="retry-button"
+          onClick={props.onRetry}
+          style={{
+            padding: "6px 14px",
+            "border-radius": "4px",
+            border: "1px solid var(--border, #333)",
+            background: "var(--bg-card, #1e1e1e)",
+            color: "var(--text-primary, #e0e0e0)",
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  // Empty state — only when there are no non-archived projects
+  const hasProjects = createMemo(() =>
+    props.projects.some((p) => p.lifecycleStatus !== "archived")
+  );
+
+  return (
+    <div data-testid="project-list-grouped">
+      {/* Top controls */}
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          "margin-bottom": "12px",
+          "flex-wrap": "wrap",
+          "align-items": "center",
+        }}
+      >
+        {/* Search */}
+        <input
+          data-testid="project-search"
+          type="text"
+          placeholder="Search by title or ID…"
+          value={search()}
+          onInput={(e) => setSearch(e.currentTarget.value)}
+          style={{
+            flex: 1,
+            "min-width": "160px",
+            padding: "5px 10px",
+            "border-radius": "5px",
+            border: "1px solid var(--border, #333)",
+            background: "var(--bg-input, #181818)",
+            color: "var(--text-primary, #e0e0e0)",
+            "font-size": "13px",
+          }}
+        />
+        {/* Area filter chips */}
+        <Show when={props.areas.length > 0}>
+          <div
+            data-testid="area-filter-chips"
+            style={{ display: "flex", gap: "4px", "flex-wrap": "wrap" }}
+          >
+            <button
+              data-testid="area-chip-all"
+              onClick={() => setSelectedArea("all")}
+              style={{
+                padding: "3px 10px",
+                "border-radius": "12px",
+                border: `1px solid ${selectedArea() === "all" ? "var(--color-link, #4a9eff)" : "var(--border, #333)"}`,
+                background:
+                  selectedArea() === "all"
+                    ? "var(--bg-selected, rgba(74,158,255,0.1))"
+                    : "var(--bg-card, #1e1e1e)",
+                color:
+                  selectedArea() === "all"
+                    ? "var(--color-link, #4a9eff)"
+                    : "var(--text-muted, #888)",
+                cursor: "pointer",
+                "font-size": "12px",
+              }}
+            >
+              All
+            </button>
+            <For each={props.areas}>
+              {(area) => (
+                <button
+                  data-testid={`area-chip-${area.id}`}
+                  onClick={() =>
+                    setSelectedArea((prev) =>
+                      prev === area.id ? "all" : area.id
+                    )
+                  }
+                  style={{
+                    padding: "3px 10px",
+                    "border-radius": "12px",
+                    border: `1px solid ${selectedArea() === area.id ? "var(--color-link, #4a9eff)" : "var(--border, #333)"}`,
+                    background:
+                      selectedArea() === area.id
+                        ? "var(--bg-selected, rgba(74,158,255,0.1))"
+                        : "var(--bg-card, #1e1e1e)",
+                    color:
+                      selectedArea() === area.id
+                        ? "var(--color-link, #4a9eff)"
+                        : "var(--text-muted, #888)",
+                    cursor: "pointer",
+                    "font-size": "12px",
+                  }}
+                >
+                  {area.name}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+
+      {/* Empty state banner (shown above groups when no projects) */}
+      <Show when={!hasProjects()}>
+        <div
+          data-testid="project-list-empty"
+          style={{
+            "text-align": "center",
+            padding: "24px 20px 12px",
+            color: "var(--text-muted, #888)",
+          }}
+        >
+          <div style={{ "margin-bottom": "12px", "font-size": "15px" }}>
+            No projects yet
+          </div>
+          <span
+            data-testid="create-cta"
+            style={{
+              padding: "6px 14px",
+              "border-radius": "4px",
+              border: "1px solid var(--border, #333)",
+              background: "var(--bg-card, #1e1e1e)",
+              color: "var(--text-primary, #e0e0e0)",
+              cursor: "pointer",
+              "font-size": "13px",
+            }}
+          >
+            + Create
+          </span>
+        </div>
+      </Show>
+
+      {/* Grouped project lists — always rendered so drop zones are available */}
+      <For each={GROUPS}>
+        {(group) => {
+          const projects = () => groupedProjects().get(group.status) ?? [];
+          return (
+            <GroupSection
+              group={group}
+              projects={projects()}
+              areas={areaMap()}
+              onDrop={(targetStatus) => void handleDrop(targetStatus)}
+              onCardDragStart={handleCardDragStart}
+              onCardClick={props.onProjectClick}
+            />
+          );
+        }}
+      </For>
+
+      {/* Toast */}
+      <Show when={toast() !== null}>
+        <ToastNotification
+          message={toast()!.message}
+          variant={toast()!.variant}
+          onClose={() => setToast(null)}
+        />
+      </Show>
+    </div>
+  );
+}

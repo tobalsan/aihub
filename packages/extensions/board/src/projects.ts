@@ -10,6 +10,14 @@ const execFileAsync = promisify(execFile);
 
 export type BoardProjectGroup = "active" | "review" | "stale" | "done";
 
+/** Lifecycle status per §5.4 of the kanban-slice-refactor spec. */
+export type ProjectLifecycleStatus = "shaping" | "active" | "done" | "cancelled" | "archived";
+
+export type SliceProgress = {
+  done: number;
+  total: number;
+};
+
 export type BoardWorktree = {
   name: string;
   path: string;
@@ -51,12 +59,135 @@ export type BoardProject = {
   title: string;
   area: string;
   status: string;
+  /** Mapped lifecycle status for the board home grouped view. */
+  lifecycleStatus: ProjectLifecycleStatus;
   group: BoardProjectGroup;
   created: string;
+  /** Progress of slices: { done, total }. Null when no slices directory. */
+  sliceProgress: SliceProgress;
+  /** ISO timestamp of most recent activity (updated_at frontmatter or README mtime). */
+  lastActivity: string | null;
+  /** Count of worktrees with an actively running agent. */
+  activeRunCount: number;
   worktrees: BoardWorktreeView[];
 };
 
 export const UNASSIGNED_PROJECT_ID = "__unassigned";
+
+/** Valid target lifecycle statuses for POST /board/projects/:id/move */
+export const MOVEABLE_LIFECYCLE_STATUSES = new Set<ProjectLifecycleStatus>([
+  "shaping",
+  "active",
+  "done",
+  "cancelled",
+]);
+
+/** Map a raw project status string to a board lifecycle status. */
+export function mapToLifecycleStatus(status: string): ProjectLifecycleStatus {
+  switch (status) {
+    case "active":
+      return "active";
+    case "shaping":
+    case "maybe":
+    case "not_now":
+    case "current":
+    case "todo":
+      return "shaping";
+    // Legacy kanban statuses all map to "active" for projects in flight
+    case "in_progress":
+    case "review":
+    case "ready_to_merge":
+      return "active";
+    case "done":
+      return "done";
+    case "cancelled":
+      return "cancelled";
+    case "archived":
+      return "archived";
+    default:
+      return "shaping";
+  }
+}
+
+/**
+ * Validate a lifecycle status transition per §5.4.
+ * Returns null when valid; returns an error message when invalid.
+ */
+export type TransitionValidation =
+  | { ok: true }
+  | { ok: false; reason: string; code: string };
+
+export function validateLifecycleTransition(
+  from: ProjectLifecycleStatus,
+  to: ProjectLifecycleStatus,
+  slices?: { done: number; total: number }
+): TransitionValidation {
+  if (from === to) {
+    return { ok: false, reason: `Project is already ${to}`, code: "no_change" };
+  }
+  if (from === "done" || from === "cancelled" || from === "archived") {
+    return {
+      ok: false,
+      reason: `Cannot move a ${from} project`,
+      code: "terminal_status",
+    };
+  }
+  // shaping -> active is allowed
+  if (from === "shaping" && to === "active") return { ok: true };
+  // active -> done: all slices must be terminal and at least 1 done
+  if (from === "active" && to === "done") {
+    if (slices && slices.total > 0 && slices.done < slices.total) {
+      return {
+        ok: false,
+        reason: `Cannot mark done: ${slices.total - slices.done} slice(s) not yet finished`,
+        code: "slices_not_terminal",
+      };
+    }
+    return { ok: true };
+  }
+  // active -> cancelled is allowed
+  if (from === "active" && to === "cancelled") return { ok: true };
+  // shaping -> cancelled is allowed
+  if (from === "shaping" && to === "cancelled") return { ok: true };
+  // demotion (active -> shaping) rejected; use detail page menu
+  return {
+    ok: false,
+    reason: `Transition from ${from} to ${to} is not allowed`,
+    code: "invalid_transition",
+  };
+}
+
+const SLICE_ID_PATTERN = /^PRO-\d+-S\d+$/;
+
+/** Read slice progress (done/total) from a project directory. */
+export async function readSliceProgress(projectDir: string): Promise<SliceProgress> {
+  const slicesDir = path.join(projectDir, "slices");
+  try {
+    const entries = await fs.readdir(slicesDir, { withFileTypes: true });
+    const sliceDirs = entries
+      .filter((e) => e.isDirectory() && SLICE_ID_PATTERN.test(e.name))
+      .map((e) => e.name);
+    if (sliceDirs.length === 0) return { done: 0, total: 0 };
+    let done = 0;
+    const total = sliceDirs.length;
+    await Promise.all(
+      sliceDirs.map(async (sliceName) => {
+        const readmePath = path.join(slicesDir, sliceName, "README.md");
+        try {
+          const raw = await fs.readFile(readmePath, "utf-8");
+          const { frontmatter } = splitFrontmatter(raw);
+          const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
+          if (status === "done" || status === "cancelled") done++;
+        } catch {
+          // ignore unreadable slices
+        }
+      })
+    );
+    return { done, total };
+  } catch {
+    return { done: 0, total: 0 };
+  }
+}
 
 const PROJECT_DIR_PATTERN = /^PRO-/;
 const SKIP_DIRS = new Set([".workspaces", ".archive", ".done", ".trash"]);
@@ -312,13 +443,18 @@ async function readProjectMeta(
   area: string;
   status: string;
   created: string;
+  updatedAt: string | null;
   repo?: string;
   worktrees: ProjectWorktreeRef[];
+  projectDir: string;
 } | null> {
   const projectDir = path.join(projectsRoot, dirName);
   const readmePath = path.join(projectDir, "README.md");
   let raw: string;
+  let mtime: Date | null = null;
   try {
+    const stat = await fs.stat(readmePath);
+    mtime = stat.mtime;
     raw = await fs.readFile(readmePath, "utf-8");
   } catch {
     return null;
@@ -329,9 +465,11 @@ async function readProjectMeta(
   const area = asString(frontmatter.area) ?? "";
   const status = asString(frontmatter.status) ?? "";
   const created = asString(frontmatter.created) ?? "";
+  const updatedAt =
+    asString(frontmatter.updated_at) ?? (mtime ? mtime.toISOString() : null);
   const repo = asString(frontmatter.repo);
   const worktrees = readProjectWorktreeRefs(frontmatter.worktrees);
-  return { id, title, area, status, created, repo, worktrees };
+  return { id, title, area, status, created, updatedAt, repo, worktrees, projectDir };
 }
 
 async function gitText(args: string[], cwd: string): Promise<string> {
@@ -846,8 +984,10 @@ type ProjectMeta = {
   area: string;
   status: string;
   created: string;
+  updatedAt: string | null;
   repo?: string;
   worktrees: ProjectWorktreeRef[];
+  projectDir: string;
 };
 
 type WorktreeIndex = Map<string, BoardWorktree[]>;
@@ -1158,15 +1298,21 @@ async function buildUnassignedProject(
     area: "",
     status: "unassigned",
     created: "",
+    updatedAt: null,
     worktrees: [],
+    projectDir: "",
   };
   return {
     id: UNASSIGNED_PROJECT_ID,
     title: "Unassigned",
     area: "",
     status: "unassigned",
+    lifecycleStatus: "shaping",
     group: "active",
     created: "",
+    sliceProgress: { done: 0, total: 0 },
+    lastActivity: null,
+    activeRunCount: 0,
     worktrees: await buildProjectWorktreeViews(meta, worktrees, options),
   };
 }
@@ -1277,13 +1423,21 @@ async function scanProjectsUncached(
       await lookupWorktrees(worktreeIndex.attributed, meta),
       options
     );
+    const sliceProgress = await readSliceProgress(meta.projectDir);
+    const activeRunCount = worktrees.filter(
+      (wt) => wt.agentRun?.status === "running"
+    ).length;
     projects.push({
       id: meta.id,
       title: meta.title,
       area: meta.area,
       status: meta.status,
+      lifecycleStatus: mapToLifecycleStatus(meta.status),
       group,
       created: meta.created,
+      sliceProgress,
+      lastActivity: meta.updatedAt,
+      activeRunCount,
       worktrees,
     });
   }

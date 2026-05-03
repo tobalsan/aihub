@@ -9,13 +9,20 @@ import {
 } from "@aihub/shared";
 import {
   getCachedSpace,
+  getProject,
+  listSlices,
   startSpaceCacheWatcher,
+  updateProject,
 } from "@aihub/extension-projects";
 import { getLiveSubagentRunsByCwd } from "@aihub/extension-subagents";
 import {
   invalidateProjectCache,
+  mapToLifecycleStatus,
+  MOVEABLE_LIFECYCLE_STATUSES,
+  readSliceProgress,
   resetProjectCaches,
   scanProjects,
+  validateLifecycleTransition,
 } from "./projects.js";
 import {
   scanAreaSummaries,
@@ -306,6 +313,89 @@ function registerBoardRoutes(app: Hono): void {
     });
     if (profile) c.header("X-Profile-Ms", String(Date.now() - startedAt));
     return c.json({ items });
+  });
+
+  // ── Project lifecycle move ────────────────────────────────────────────
+
+  app.post("/board/projects/:id/move", async (c) => {
+    const projectId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const targetStatus =
+      typeof body.status === "string" ? body.status : undefined;
+
+    if (!targetStatus) {
+      return c.json({ error: "status is required", code: "missing_status" }, 400);
+    }
+    if (!MOVEABLE_LIFECYCLE_STATUSES.has(targetStatus as Parameters<typeof validateLifecycleTransition>[1])) {
+      return c.json(
+        { error: `Unknown lifecycle status: ${targetStatus}`, code: "unknown_status" },
+        400
+      );
+    }
+    const config = getContext().getConfig();
+
+    // Fetch current project
+    const result = await getProject(config, projectId);
+    if (!result.ok) {
+      return c.json({ error: result.error, code: "not_found" }, 404);
+    }
+
+    const currentRawStatus =
+      typeof result.data.frontmatter.status === "string"
+        ? result.data.frontmatter.status
+        : "shaping";
+    const currentLifecycle = mapToLifecycleStatus(currentRawStatus);
+    const targetLifecycle = targetStatus as Parameters<typeof validateLifecycleTransition>[1];
+
+    // For active→done, validate slice progress
+    let sliceProgress: { done: number; total: number } | undefined;
+    if (currentLifecycle === "active" && targetLifecycle === "done") {
+      sliceProgress = await readSliceProgress(result.data.absolutePath);
+      // Fallback to listSlices for accurate terminal count
+      const slices = await listSlices(result.data.absolutePath);
+      const total = slices.length;
+      const terminalCount = slices.filter(
+        (s) => s.frontmatter.status === "done" || s.frontmatter.status === "cancelled"
+      ).length;
+      const doneCount = slices.filter((s) => s.frontmatter.status === "done").length;
+      if (total > 0 && terminalCount < total) {
+        sliceProgress = { done: terminalCount, total };
+      } else if (total > 0 && doneCount === 0) {
+        // All cancelled but none done — still reject
+        sliceProgress = { done: 0, total };
+      } else {
+        sliceProgress = undefined;
+      }
+    }
+
+    const validation = validateLifecycleTransition(
+      currentLifecycle,
+      targetLifecycle,
+      sliceProgress
+    );
+    if (!validation.ok) {
+      return c.json(
+        { error: validation.reason, code: validation.code },
+        422
+      );
+    }
+
+    // Apply the status change
+    const updateResult = await updateProject(config, projectId, {
+      status: targetStatus,
+    });
+    if (!updateResult.ok) {
+      return c.json({ error: updateResult.error, code: "update_failed" }, 500);
+    }
+
+    invalidateProjectCache(undefined);
+
+    return c.json({
+      ok: true,
+      id: projectId,
+      previousStatus: currentRawStatus,
+      status: targetStatus,
+    });
   });
 
   app.get("/board/areas", async (c) => {

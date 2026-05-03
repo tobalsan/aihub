@@ -449,12 +449,29 @@ export type UpdateSlicePayload = {
   thread?: string;
 };
 
+export type ProjectLifecycleStatus =
+  | "shaping"
+  | "active"
+  | "done"
+  | "cancelled"
+  | "archived";
+
+export type SliceProgress = {
+  done: number;
+  total: number;
+};
+
 export type BoardProject = {
   id: string;
   title: string;
   area: string;
   status: string;
+  /** Lifecycle status for grouped board home view. */
+  lifecycleStatus: ProjectLifecycleStatus;
   group: "active" | "review" | "stale" | "done";
   created: string;
+  sliceProgress: SliceProgress;
+  lastActivity: string | null;
+  activeRunCount: number;
   worktrees: BoardWorktree[];
 };

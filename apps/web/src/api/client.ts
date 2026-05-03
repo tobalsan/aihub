@@ -813,6 +813,38 @@ export async function fetchBoardProjects(
   return data.items ?? [];
 }
 
+export type MoveBoardProjectResult =
+  | { ok: true; status: string; previousStatus: string }
+  | { ok: false; error: string; code: string };
+
+export async function moveBoardProject(
+  projectId: string,
+  status: string
+): Promise<MoveBoardProjectResult> {
+  const res = await fetch(
+    `${API_BASE}/board/projects/${encodeURIComponent(projectId)}/move`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof data.error === "string" ? data.error : "Move failed",
+      code: typeof data.code === "string" ? data.code : "unknown",
+    };
+  }
+  return {
+    ok: true,
+    status: typeof data.status === "string" ? data.status : status,
+    previousStatus:
+      typeof data.previousStatus === "string" ? data.previousStatus : "",
+  };
+}
+
 export async function fetchAreaSummaries(): Promise<AreaSummary[]> {
   const res = await fetch(`${API_BASE}/board/areas`);
   if (!res.ok) throw new Error("Failed to fetch area summaries");
