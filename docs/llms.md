@@ -885,6 +885,8 @@ pnpm aihub <cmd>  # Run CLI
 
 Set `ui.enabled: false` in config to disable automatic web UI startup.
 
+Dev gateway entrypoints set `NODE_OPTIONS=--conditions=development`, so workspace packages with a development export (`packages/extensions/*` and `packages/shared`) resolve to `src/*.ts` during `pnpm dev`/`pnpm dev:gateway`. This lets extension and shared source edits take effect in dev without rebuilding `dist/`; production imports still use `dist/`.
+
 ### Dev Mode (`--dev` flag)
 
 `pnpm dev` runs the gateway with the `--dev` flag, enabling:

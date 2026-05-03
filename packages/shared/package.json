@@ -6,18 +6,22 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./types": {
+      "development": "./src/types.ts",
       "import": "./dist/types.js",
       "types": "./dist/types.d.ts"
     },
     "./model-context": {
+      "development": "./src/model-context.ts",
       "import": "./dist/model-context.js",
       "types": "./dist/model-context.d.ts"
     },
     "./projectPrompt": {
+      "development": "./src/projectPrompt.ts",
       "import": "./dist/projectPrompt.js",
       "types": "./dist/projectPrompt.d.ts"
     }

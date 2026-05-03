@@ -111,13 +111,14 @@ async function main() {
 
   // Start gateway with tsx watch and --dev flag
   console.log("[dev] Starting gateway...");
+  const gatewayNodeOptions = [process.env.NODE_OPTIONS, "--conditions=development"].filter(Boolean).join(" ");
   const gateway = spawn(
     "pnpm",
     ["--filter", "@aihub/gateway", "exec", "tsx", "watch", "src/cli/index.ts", "gateway", "--dev", "--port", String(gatewayPort)],
     {
       stdio: "inherit",
       cwd: rootDir,
-      env: { ...process.env, AIHUB_SKIP_WEB: "1", AIHUB_DEV: "1", AIHUB_GATEWAY_PORT: String(gatewayPort), ...(uiPort ? { AIHUB_UI_PORT: String(uiPort) } : {}) },
+      env: { ...process.env, AIHUB_SKIP_WEB: "1", AIHUB_DEV: "1", AIHUB_GATEWAY_PORT: String(gatewayPort), NODE_OPTIONS: gatewayNodeOptions, ...(uiPort ? { AIHUB_UI_PORT: String(uiPort) } : {}) },
     }
   );
   children.push(gateway);

@@ -6,14 +6,17 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./isolation": {
+      "development": "./src/isolation.ts",
       "import": "./dist/isolation.js",
       "types": "./dist/isolation.d.ts"
     },
     "./middleware": {
+      "development": "./src/middleware.ts",
       "import": "./dist/middleware.js",
       "types": "./dist/middleware.d.ts"
     }
