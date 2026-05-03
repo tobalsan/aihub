@@ -1,9 +1,9 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import type { AgentConfig, GatewayConfig } from "@aihub/shared";
-import { projectsExtension } from "./index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GatewayConfig, AgentConfig } from "@aihub/shared";
+import { interruptCancelledOrchestratorRuns, projectsExtension } from "./index.js";
 import { clearProjectsContext, setProjectsContext } from "./context.js";
 
 let tmpDir: string | undefined;
@@ -92,5 +92,31 @@ describe("projects extension agent tools", () => {
       id: "PRO-1",
       title: "Updated Extension Project",
     });
+  });
+});
+
+describe("cancel interrupt filtering", () => {
+  it("interrupts only running orchestrator runs matching cascaded slice ids", async () => {
+    const config = { agents: [] } as unknown as GatewayConfig;
+    const listSubagentsFn = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        items: [
+          { slug: "match", source: "orchestrator", status: "running", sliceId: "S-1" },
+          { slug: "manual", source: "manual", status: "running", sliceId: "S-1" },
+          { slug: "idle", source: "orchestrator", status: "idle", sliceId: "S-1" },
+          { slug: "other-slice", source: "orchestrator", status: "running", sliceId: "S-2" },
+        ],
+      },
+    }));
+    const interruptSubagentFn = vi.fn(async () => ({ ok: true as const }));
+
+    await interruptCancelledOrchestratorRuns(config, "PRO-1", ["S-1"], {
+      listSubagentsFn,
+      interruptSubagentFn,
+    });
+
+    expect(interruptSubagentFn).toHaveBeenCalledTimes(1);
+    expect(interruptSubagentFn).toHaveBeenCalledWith(config, "PRO-1", "match");
   });
 });

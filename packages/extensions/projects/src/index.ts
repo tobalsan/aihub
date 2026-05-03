@@ -108,6 +108,69 @@ import {
 const execFileAsync = promisify(execFile);
 const registeredApps = new WeakSet<object>();
 
+type CancelInterruptDeps = {
+  listSubagentsFn?: typeof listSubagents;
+  interruptSubagentFn?: typeof interruptSubagent;
+};
+
+async function getCancelledSliceIdsForProject(
+  config: GatewayConfig,
+  id: string
+): Promise<string[]> {
+  const prev = await getProject(config, id);
+  if (!prev.ok) return [];
+  const slices = await listSlices(prev.data.absolutePath);
+  return slices
+    .filter(
+      (slice) =>
+        slice.frontmatter.status !== "done" &&
+        slice.frontmatter.status !== "cancelled"
+    )
+    .map((slice) => slice.id);
+}
+
+export async function interruptCancelledOrchestratorRuns(
+  config: GatewayConfig,
+  projectId: string,
+  cancelledSliceIds: string[],
+  deps: CancelInterruptDeps = {}
+): Promise<void> {
+  if (cancelledSliceIds.length === 0) return;
+  const listSubagentsFn = deps.listSubagentsFn ?? listSubagents;
+  const interruptSubagentFn = deps.interruptSubagentFn ?? interruptSubagent;
+  const runs = await listSubagentsFn(config, projectId, true);
+  if (!runs.ok) return;
+  await Promise.all(
+    runs.data.items
+      .filter(
+        (item) =>
+          item.source === "orchestrator" &&
+          item.status === "running" &&
+          item.sliceId &&
+          cancelledSliceIds.includes(item.sliceId)
+      )
+      .map((item) =>
+        interruptSubagentFn(config, projectId, item.slug).catch(() => undefined)
+      )
+  );
+}
+
+async function updateProjectWithCancelInterrupt(
+  config: GatewayConfig,
+  projectId: string,
+  input: UpdateProjectRequest
+) {
+  const cancelledSliceIds =
+    input.status === "cancelled"
+      ? await getCancelledSliceIdsForProject(config, projectId)
+      : [];
+  const result = await updateProject(config, projectId, input);
+  if (result.ok && input.status === "cancelled") {
+    await interruptCancelledOrchestratorRuns(config, projectId, cancelledSliceIds);
+  }
+  return result;
+}
+
 type CliRunMode = "main-run" | "worktree" | "clone" | "none";
 type CliHarness = "codex" | "claude" | "pi";
 
@@ -460,7 +523,7 @@ function createProjectAgentTools(): ExtensionAgentTool[] {
         const { projectId, updates, ...rest } = parsed;
         const body = updates ?? UpdateProjectRequestSchema.parse(rest);
         return unwrapProjectToolResult(
-          await updateProject(config, projectId, body)
+          await updateProjectWithCancelInterrupt(config, projectId, body)
         );
       },
     },
@@ -1191,23 +1254,12 @@ export function registerProjectRoutes(app: Hono): void {
 
     const config = getProjectsConfig();
     let prevStatus: string | null = null;
-    let cancelledSliceIds: string[] = [];
     if (parsed.data.status) {
       const prev = await getProject(config, id);
       if (prev.ok) {
         prevStatus = normalizeProjectStatus(
           String(prev.data.frontmatter?.status ?? "")
         );
-        if (parsed.data.status === "cancelled") {
-          const slices = await listSlices(prev.data.absolutePath);
-          cancelledSliceIds = slices
-            .filter(
-              (slice) =>
-                slice.frontmatter.status !== "done" &&
-                slice.frontmatter.status !== "cancelled"
-            )
-            .map((slice) => slice.id);
-        }
       }
     }
     if (parsed.data.status === "archived") {
@@ -1247,7 +1299,7 @@ export function registerProjectRoutes(app: Hono): void {
       }
       return c.json(detail.data);
     }
-    const result = await updateProject(config, id, parsed.data);
+    const result = await updateProjectWithCancelInterrupt(config, id, parsed.data);
     if (!result.ok) {
       const status = result.error.startsWith("Project already exists")
         ? 409
@@ -1269,22 +1321,6 @@ export function registerProjectRoutes(app: Hono): void {
           projectId: result.data.id ?? id,
           status: nextStatus,
         });
-      }
-      if (nextStatus === "cancelled" && cancelledSliceIds.length > 0) {
-        const runs = await listSubagents(config, id, true);
-        if (runs.ok) {
-          await Promise.all(
-            runs.data.items
-              .filter(
-                (item) =>
-                  item.source === "orchestrator" &&
-                  item.status === "running" &&
-                  item.sliceId &&
-                  cancelledSliceIds.includes(item.sliceId)
-              )
-              .map((item) => interruptSubagent(config, id, item.slug).catch(() => undefined))
-          );
-        }
       }
     }
     return c.json(result.data);

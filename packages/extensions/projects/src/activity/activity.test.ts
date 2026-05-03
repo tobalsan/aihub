@@ -165,7 +165,7 @@ describe("activity persistence", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "in_progress", agent: "Avery" }),
+        body: JSON.stringify({ status: "active", agent: "Avery" }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -236,7 +236,7 @@ describe("activity persistence", () => {
       api.request(`/projects/${created.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "in_progress", agent: "Morgan" }),
+        body: JSON.stringify({ status: "active", agent: "Morgan" }),
       })
     );
     expect(patchRes.status).toBe(200);
@@ -247,7 +247,7 @@ describe("activity persistence", () => {
     const match = activityData.events.find(
       (event: { actor?: string }) => event.actor === "Morgan"
     );
-    expect(match?.action).toBe(`moved ${created.id} to In Progress`);
+    expect(match?.action).toBe(`moved ${created.id} to Active`);
   });
 
   it("records comment activity", async () => {

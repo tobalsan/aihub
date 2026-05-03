@@ -27,11 +27,11 @@ const orchestratorConfig: OrchestratorConfig = {
   poll_interval_ms: 30_000,
   failure_cooldown_ms: 60_000,
   statuses: {
-    todo: { profile: "Worker", max_concurrent: 2 },
+    shaping: { profile: "Worker", max_concurrent: 2 },
   },
 };
 
-function project(id: string, status = "todo"): ProjectListItem {
+function project(id: string, status = "shaping"): ProjectListItem {
   return {
     id,
     title: `${id} title`,
@@ -72,7 +72,7 @@ function makeUpdateProjectMock(): {
         path: id,
         absolutePath: `/tmp/projects/${id}`,
         repoValid: true,
-        frontmatter: { id, status: input.status ?? "todo" },
+        frontmatter: { id, status: input.status ?? "shaping" },
       },
     };
   }) as (typeof import("../projects/store.js"))["updateProject"];
@@ -194,7 +194,7 @@ describe("orchestrator dispatcher", () => {
       config,
       {
         ...orchestratorConfig,
-        statuses: { todo: { profile: "Worker", max_concurrent: 5 } },
+        statuses: { shaping: { profile: "Worker", max_concurrent: 5 } },
       },
       {
         listProjects: async () => ({
@@ -351,7 +351,7 @@ describe("orchestrator dispatcher", () => {
         data: [
           {
             ...project("PRO-1"),
-            frontmatter: { status: "todo", repo: "/tmp/repo" },
+            frontmatter: { status: "shaping", repo: "/tmp/repo" },
             sliceId: "PRO-1-S01",
           } as ProjectListItem,
         ],
@@ -407,7 +407,7 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.projectId).toBe("PRO-2");
   });
 
-  it("locks spawned projects by moving them to in_progress", async () => {
+  it("locks spawned projects by moving them to active", async () => {
     const updates = makeUpdateProjectMock();
 
     await dispatchOrchestratorTick(config, orchestratorConfig, {
@@ -425,8 +425,8 @@ describe("orchestrator dispatcher", () => {
     });
 
     expect(updates.calls).toEqual([
-      { id: "PRO-1", status: "in_progress" },
-      { id: "PRO-2", status: "in_progress" },
+      { id: "PRO-1", status: "active" },
+      { id: "PRO-2", status: "active" },
     ]);
   });
 
@@ -479,7 +479,7 @@ describe("orchestrator dispatcher", () => {
       {
         ...orchestratorConfig,
         statuses: {
-          todo: { profile: "Worker", max_concurrent: 1 },
+          shaping: { profile: "Worker", max_concurrent: 1 },
           review: { profile: "Reviewer", max_concurrent: 1 },
         },
       },
@@ -506,7 +506,7 @@ describe("orchestrator dispatcher", () => {
     expect(result.eligible).toBe(3);
     expect(spawned.map((input) => input.projectId)).toEqual(["PRO-1", "PRO-3"]);
     expect(spawned.map((input) => input.name)).toEqual(["Worker", "Reviewer"]);
-    expect(updates.calls).toEqual([{ id: "PRO-1", status: "in_progress" }]);
+    expect(updates.calls).toEqual([{ id: "PRO-1", status: "active" }]);
   });
 
   it("does not dispatch reviewers when review is not configured", async () => {

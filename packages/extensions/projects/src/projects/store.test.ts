@@ -465,6 +465,30 @@ describe("projects store", () => {
     expect(updated.error).toContain("migrate-to-slices");
   });
 
+  it("surfaces legacy-status migration hint in project list scans", async () => {
+    const { listProjects } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const legacyDir = path.join(projectsRoot, "PRO-99_legacy");
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(
+      path.join(legacyDir, "README.md"),
+      "---\nid: \"PRO-99\"\ntitle: \"Legacy\"\nstatus: \"todo\"\n---\n# Legacy\n",
+      "utf8"
+    );
+
+    const listed = await listProjects(config);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const item = listed.data.find((entry) => entry.id === "PRO-99");
+    expect(item).toBeDefined();
+    expect(item?.frontmatter.statusValidationError).toContain("migrate-to-slices");
+  });
+
   it("cancels non-terminal slices and keeps done slices unchanged", async () => {
     const { createProject, updateProject } = await import("./store.js");
     const config = {

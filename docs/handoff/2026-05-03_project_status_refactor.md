@@ -1,35 +1,39 @@
 # Issue 05 Project Status Refactor — Handoff
 
 ## Summary
-Continued partial work. Implemented project lifecycle status refactor and cascade behavior in project store + routes.
+Fixed reviewer FAIL items only.
 
-### Done
-- Project status validation now uses lifecycle enum: `shaping | active | done | cancelled | archived`.
-- Legacy statuses (`not_now|maybe|todo|in_progress|review|ready_to_merge|trashed`) rejected with migration hint:
-  - `Legacy project status "<status>" no longer supported. Run \`aihub projects migrate-to-slices\`.`
-- New project default status now `shaping`.
-- Unarchive default status switched to `shaping`.
-- Auto transition `active -> done` when all child slices terminal and at least one `done`.
-- Project cancellation cascade:
-  - non-terminal child slices moved to `cancelled`
-  - done slices preserved
-  - best-effort interrupt of running orchestrator subagent runs tied to cascaded `sliceId`s
+## Fixes
+- Cancel interrupt path centralized in shared helper and used by both entrypoints:
+  - REST `PATCH /projects/:id`
+  - extension tool `project.update`
+- Added explicit interrupt filtering test coverage for cancel cascade behavior:
+  - only `source === "orchestrator"`
+  - only `status === "running"`
+  - only `sliceId` in cascaded set
+  - non-matching/manual/idle not interrupted
+- Updated stale lifecycle tests:
+  - projects API: `todo -> shaping`
+  - activity: `in_progress -> active`, action label `In Progress -> Active`
+  - orchestrator: worker status binding `todo -> shaping`, lock status `in_progress -> active`
+- Legacy frontmatter list scan now surfaces item-level hint instead of silent drop:
+  - `frontmatter.statusValidationError` includes migrate hint
+  - added test coverage
 
-## Tests Added/Updated
+## Files Changed
+- `packages/extensions/projects/src/index.ts`
+- `packages/extensions/projects/src/index.test.ts`
+- `packages/extensions/projects/src/projects/store.ts`
 - `packages/extensions/projects/src/projects/store.test.ts`
-  - rejects legacy statuses with migration hint
-  - cascades cancel to non-terminal slices only
-  - auto-marks project done after terminal slice completion
-  - fixed path expectation after cancellation move into `.done`
-- `apps/gateway/src/server/space-merge.api.test.ts`
-  - updated fixture status `in_progress -> active`
-- `packages/shared/src/types.ts`
-  - added `active` to `ProjectStatusSchema` for API request parsing
+- `packages/extensions/projects/src/projects/projects.api.test.ts`
+- `packages/extensions/projects/src/activity/activity.test.ts`
+- `packages/extensions/projects/src/orchestrator/dispatcher.ts`
+- `packages/extensions/projects/src/orchestrator/index.test.ts`
 
 ## Checks
+- `pnpm vitest --run packages/extensions/projects/src/projects/store.test.ts packages/extensions/projects/src/projects/projects.api.test.ts packages/extensions/projects/src/activity/activity.test.ts packages/extensions/projects/src/orchestrator/index.test.ts packages/extensions/projects/src/index.test.ts` ✅
 - `pnpm test:shared` ✅
 - `pnpm test:gateway` ✅
 
 ## Notes
-- Kept scope to issue 05 only.
-- No changes to CLI slices commands, SCOPE_MAP, UI, migration command, dispatcher rekeying.
+- Task-referenced `/context.md` and `/plan.md` paths not present in worktree.

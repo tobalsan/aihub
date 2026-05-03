@@ -436,7 +436,25 @@ async function listProjectItemsFromRoot(
 
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
-      validateProjectStatus(frontmatter.status);
+      try {
+        validateProjectStatus(frontmatter.status);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        projects.push({
+          id,
+          title: resolvedTitle,
+          path: pathPrefix ? path.join(pathPrefix, dirName) : dirName,
+          absolutePath: dirPath,
+          repoValid: false,
+          frontmatter: {
+            ...frontmatter,
+            id,
+            title: resolvedTitle,
+            statusValidationError: message,
+          },
+        });
+        continue;
+      }
       const resolvedRepo = resolveProjectRepo(frontmatter, areaRepoMap);
       const repoValid = await isValidGitRepo(resolvedRepo);
       const resolvedFrontmatter: Record<string, unknown> = {
@@ -460,7 +478,7 @@ async function listProjectItemsFromRoot(
         frontmatter: resolvedFrontmatter,
       });
     } catch {
-      // Skip invalid project folder
+      // Skip unreadable project folder
     }
   }
   return projects;

@@ -192,14 +192,14 @@ describe("projects API", () => {
           title: "Metadata Project",
           description: "Track the active form fields.",
           specs: "## Tasks\n- [ ] Add field",
-          status: "todo",
+          status: "shaping",
         }),
       })
     );
 
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
-    expect(created.frontmatter.status).toBe("todo");
+    expect(created.frontmatter.status).toBe("shaping");
 
     const readmePath = path.join(projectsRoot, created.path, "README.md");
     const specsPath = path.join(projectsRoot, created.path, "SPECS.md");
@@ -208,7 +208,7 @@ describe("projects API", () => {
     expect(readme).toContain("# Metadata Project");
     expect(readme).toContain("Track the active form fields.");
     expect(specs).toContain("## Tasks");
-    expect(readme).toContain('status: "todo"');
+    expect(readme).toContain('status: "shaping"');
   });
 
   it("filters projects by area query parameter", async () => {

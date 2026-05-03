@@ -86,7 +86,7 @@ export type DispatchResult = {
   decisions: DispatchDecision[];
 };
 
-const WORKER_STATUS: ProjectStatus = "todo";
+const WORKER_STATUS: ProjectStatus = "shaping";
 const REVIEWER_STATUS: ProjectStatus = "review";
 
 function keyValueLog(log: Logger, data: Record<string, string | number>): void {
@@ -555,13 +555,13 @@ async function dispatchForStatus(
     });
 
     if (statusKey === WORKER_STATUS) {
-      // Lock only the todo worker phase. Review intentionally has no lock
+      // Lock only the shaping worker phase. Review intentionally has no lock
       // status; active-run dedupe plus cooldown handles duplicate defense.
       const update = await (deps.updateProject ?? updateProject)(
         config,
         project.id,
         {
-          status: "in_progress",
+          status: "active",
         }
       );
       if (!update.ok) {
