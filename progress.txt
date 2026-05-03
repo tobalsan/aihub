@@ -4,3 +4,9 @@
 - 2026-05-03: completed issues/01-slice-storage-primitives.md. Added slice storage primitives + tests. Checks: `pnpm vitest run packages/extensions/projects/src/projects/slices.test.ts`.
 - 2026-05-03: reviewer fix pass. Frontmatter quoted string parse now JSON.parse round-trip; slice/project ID validation added before joins. Checks: `pnpm vitest run packages/extensions/projects/src/projects/slices.test.ts`, `pnpm vitest run --dir packages/extensions/projects/src/projects`.
 - 2026-05-03: null/[] frontmatter round-trip fix. Removed null->"" coercion in slice formatter; parser now preserves `null` and `[]`; added regression assertions in slices tests. Checks: `pnpm vitest run packages/extensions/projects/src/projects/slices.test.ts`, `pnpm vitest run --dir packages/extensions/projects/src/projects`.
+
+- 2026-05-03: PASS issue 01 slice storage primitives (commits 5e48e61,59e8252,50f7132).
+- 2026-05-03: PASS issue 07 SubagentRun sliceId/projectId (commits 2a47658,0ddec56,56593ef).
+- 2026-05-03: PASS issue 02 CLI slices add/list/get (commit 14aa0a9).
+- 2026-05-03: PASS issue 03 SCOPE_MAP generator (commit 5bb9982).
+- 2026-05-03: PASS issue 05 project lifecycle status/cascade (commits 55860f2,6f980d5).
