@@ -114,6 +114,7 @@ const configuredHostnames = [
   extractHostname(config.server?.baseUrl),
   extractHostname(config.web?.baseUrl),
   tailnetHostname,
+  "thinhs-mac-studio.catla-powan.ts.net",
 ].filter(
   (value, index, values): value is string =>
     !!value && values.indexOf(value) === index

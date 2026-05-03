@@ -19,6 +19,7 @@ const config = {
 const orchestratorConfig: OrchestratorConfig = {
   enabled: true,
   poll_interval_ms: 30_000,
+  failure_cooldown_ms: 60_000,
   statuses: {
     todo: { profile: "Worker", max_concurrent: 2 },
   },
@@ -151,5 +152,79 @@ describe("orchestrator dispatcher", () => {
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.projectId).toBe("PRO-3");
+  });
+
+  it("records an attempt + cleans the orphan dir when spawnSubagent throws", async () => {
+    const removed: string[] = [];
+    const recorded: Array<{ projectId: string; atMs: number }> = [];
+    const tracker = {
+      record: (projectId: string, atMs: number) => {
+        recorded.push({ projectId, atMs });
+      },
+      isCoolingDown: () => false,
+      clear: () => {},
+    };
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      orchestratorConfig,
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        spawnSubagent: async () => {
+          throw new Error("git worktree add failed");
+        },
+        attempts: tracker,
+        removeOrphanDir: async (dirPath: string) => {
+          removed.push(dirPath);
+        },
+        now: () => new Date("2026-05-03T17:00:00.000Z"),
+        log: () => {},
+      }
+    );
+
+    expect(result.decisions).toHaveLength(1);
+    expect(result.decisions[0]?.action).toBe("skipped");
+    expect(result.decisions[0]?.reason).toBe("git worktree add failed");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.projectId).toBe("PRO-1");
+    expect(removed).toHaveLength(1);
+    expect(removed[0]).toMatch(
+      /\/tmp\/projects\/PRO-1\/sessions\/orchestrator-pro-1-/
+    );
+  });
+
+  it("skips projects in the failure cooldown window", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const tracker = {
+      record: () => {},
+      isCoolingDown: (projectId: string) => projectId === "PRO-1",
+      clear: () => {},
+    };
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      orchestratorConfig,
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1"), project("PRO-2")],
+        }),
+        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        attempts: tracker,
+        log: () => {},
+      }
+    );
+
+    expect(result.eligible).toBe(1);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.projectId).toBe("PRO-2");
   });
 });

@@ -464,6 +464,12 @@ export type ProjectsOrchestratorStatusConfig = z.infer<
 export const ProjectsOrchestratorConfigSchema = z.object({
   enabled: z.boolean().optional().default(false),
   poll_interval_ms: z.number().int().positive().optional().default(30_000),
+  failure_cooldown_ms: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .default(60_000),
   statuses: z
     .object({
       todo: ProjectsOrchestratorStatusConfigSchema.optional(),

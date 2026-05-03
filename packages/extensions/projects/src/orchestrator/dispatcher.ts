@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
   buildRolePrompt,
@@ -20,13 +21,29 @@ import type { OrchestratorConfig } from "./config.js";
 
 type Logger = (message: string) => void;
 
+export type OrchestratorAttemptTracker = {
+  record(projectId: string, atMs: number): void;
+  isCoolingDown(projectId: string, nowMs: number, cooldownMs: number): boolean;
+  clear(): void;
+};
+
 export type OrchestratorDispatcherDeps = {
   listProjects?: typeof listProjects;
   listSubagents?: typeof listSubagents;
   spawnSubagent?: typeof spawnSubagent;
   now?: () => Date;
   log?: Logger;
+  attempts?: OrchestratorAttemptTracker;
+  removeOrphanDir?: (dirPath: string) => Promise<void>;
 };
+
+async function defaultRemoveOrphanDir(dirPath: string): Promise<void> {
+  try {
+    await fs.rm(dirPath, { recursive: true, force: true });
+  } catch {
+    // best-effort cleanup; do not let it crash the tick
+  }
+}
 
 export type DispatchDecision = {
   projectId: string;
@@ -215,9 +232,24 @@ export async function dispatchOrchestratorTick(
     0
   );
   const availableSlots = Math.max(0, todoConfig.max_concurrent - running);
-  const eligible = todoProjects.filter(
-    (project) => (activeByProject.get(project.id)?.length ?? 0) === 0
-  );
+  const nowDate = (deps.now ?? (() => new Date()))();
+  const nowMs = nowDate.getTime();
+  const attempts = deps.attempts;
+  const cooldownMs = orchestratorConfig.failure_cooldown_ms;
+  const eligible = todoProjects.filter((project) => {
+    if ((activeByProject.get(project.id)?.length ?? 0) > 0) return false;
+    if (attempts?.isCoolingDown(project.id, nowMs, cooldownMs)) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: STATUS,
+        action: "skip",
+        project: project.id,
+        reason: "failure_cooldown",
+      });
+      return false;
+    }
+    return true;
+  });
   const selected = eligible.slice(0, availableSlots);
   const decisions: DispatchDecision[] = [];
 
@@ -230,13 +262,23 @@ export async function dispatchOrchestratorTick(
     available_slots: availableSlots,
   });
 
-  const now = deps.now ?? (() => new Date());
+  const removeOrphan = deps.removeOrphanDir ?? defaultRemoveOrphanDir;
   for (const [index, project] of selected.entries()) {
-    const slug = slugFor(project.id, now(), index);
+    const slug = slugFor(project.id, nowDate, index);
     const input = buildWorkerSpawnInput(config, project, profile, slug);
-    const spawned: SpawnSubagentResult = await (
-      deps.spawnSubagent ?? spawnSubagent
-    )(config, input);
+    // Record the attempt up-front so the cooldown applies even if spawnSubagent
+    // throws (e.g. `git worktree add failed` from runner.ts) and short-circuits
+    // the success/failure branches below.
+    attempts?.record(project.id, nowMs);
+    let spawned: SpawnSubagentResult;
+    try {
+      spawned = await (deps.spawnSubagent ?? spawnSubagent)(config, input);
+    } catch (error) {
+      spawned = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
     if (!spawned.ok) {
       decisions.push({
         projectId: project.id,
@@ -250,6 +292,13 @@ export async function dispatchOrchestratorTick(
         project: project.id,
         reason: spawned.error,
       });
+      // Best-effort orphan cleanup: spawnSubagent may have created the slug
+      // directory before failing (e.g. mkdir succeeded, git worktree add
+      // failed). Without cleanup, the UI shows ghost agent rows and the
+      // session dir accumulates per failed tick.
+      await removeOrphan(
+        path.join(project.absolutePath, "sessions", slug)
+      );
       continue;
     }
     decisions.push({ projectId: project.id, action: "spawned", slug });
