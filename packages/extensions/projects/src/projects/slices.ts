@@ -352,6 +352,8 @@ export async function updateSlice(
 
   const updated = await getSlice(projectDir, sliceId);
 
+  await regenerateScopeMap(projectDir, updated.frontmatter.project_id);
+
   if (updated.frontmatter.status === "done" || updated.frontmatter.status === "cancelled") {
     const projectReadmePath = path.join(projectDir, README_FILE);
     try {

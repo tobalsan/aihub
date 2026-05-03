@@ -6,6 +6,7 @@ import { resolveHomeDir } from "@aihub/shared";
 import {
   createSlice,
   getSlice,
+  updateSlice,
   type SliceRecord,
   type SliceStatus,
 } from "../projects/slices.js";
@@ -248,6 +249,89 @@ export function registerSlicesCommands(program: Command): Command {
           return;
         }
         console.log(renderSliceDetails(found.slice));
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  const VALID_STATUSES: SliceStatus[] = [
+    "todo",
+    "in_progress",
+    "review",
+    "ready_to_merge",
+    "done",
+    "cancelled",
+  ];
+
+  program
+    .command("move")
+    .description("Change slice status")
+    .argument("<sliceId>", "Slice ID")
+    .argument("<status>", "Target status")
+    .action(async (sliceId, status) => {
+      try {
+        const normalizedStatus = String(status).trim() as SliceStatus;
+        if (!(VALID_STATUSES as string[]).includes(normalizedStatus)) {
+          throw new Error(
+            `Invalid status "${normalizedStatus}". Must be one of: ${VALID_STATUSES.join(", ")}`
+          );
+        }
+        const found = await findSliceAcrossProjects(String(sliceId));
+        if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
+        await updateSlice(found.project.dirPath, found.slice.id, { status: normalizedStatus });
+        console.log(`${found.slice.id} → ${normalizedStatus}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("rename")
+    .description("Rename slice")
+    .argument("<sliceId>", "Slice ID")
+    .argument("<title>", "New title")
+    .action(async (sliceId, title) => {
+      try {
+        const found = await findSliceAcrossProjects(String(sliceId));
+        if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
+        await updateSlice(found.project.dirPath, found.slice.id, { title: String(title) });
+        console.log(`${found.slice.id} renamed to ${JSON.stringify(String(title))}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("comment")
+    .description("Append timestamped comment to slice THREAD.md")
+    .argument("<sliceId>", "Slice ID")
+    .argument("<body>", "Comment body")
+    .action(async (sliceId, body) => {
+      try {
+        const found = await findSliceAcrossProjects(String(sliceId));
+        if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
+        const now = new Date().toISOString();
+        const existing = found.slice.docs.thread;
+        const separator = existing.trim().length > 0 ? "\n\n" : "";
+        const entry = `## ${now}\n\n${String(body).trim()}`;
+        const newThread = `${existing.trimEnd()}${separator}${entry}\n`;
+        await updateSlice(found.project.dirPath, found.slice.id, { thread: newThread });
+        console.log(`Comment added to ${found.slice.id}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("cancel")
+    .description("Cancel slice (sugar for move <id> cancelled)")
+    .argument("<sliceId>", "Slice ID")
+    .action(async (sliceId) => {
+      try {
+        const found = await findSliceAcrossProjects(String(sliceId));
+        if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
+        await updateSlice(found.project.dirPath, found.slice.id, { status: "cancelled" });
+        console.log(`${found.slice.id} → cancelled`);
       } catch (err) {
         fail(err);
       }

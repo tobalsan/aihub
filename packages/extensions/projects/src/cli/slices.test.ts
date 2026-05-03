@@ -142,6 +142,157 @@ describe("slices CLI", () => {
     expect(logs[0]).toContain("title: Slice B");
   });
 
+  it("move updates slice status and regenerates SCOPE_MAP", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
+      logs.push(String(msg ?? ""));
+    });
+
+    await createProgram().parseAsync(["node", "slices", "move", "PRO-101-S01", "in_progress"]);
+    expect(logs[0]).toContain("PRO-101-S01");
+    expect(logs[0]).toContain("in_progress");
+
+    const projectDir = path.join(projectsRoot, "PRO-101_test");
+    const readme = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    expect(readme).toContain('"in_progress"');
+
+    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    expect(scopeMap).toContain("in_progress");
+  });
+
+  it("move rejects invalid status with clear message", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
+      errors.push(String(msg ?? ""));
+    });
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`EXIT:${code}`);
+    }) as never);
+
+    await expect(
+      createProgram().parseAsync(["node", "slices", "move", "PRO-101-S01", "shipped"])
+    ).rejects.toThrow("EXIT:1");
+    expect(errors[0]).toContain('Invalid status "shipped"');
+    expect(errors[0]).toContain("todo");
+    expect(errors[0]).toContain("cancelled");
+  });
+
+  it("rename updates title in frontmatter and SCOPE_MAP", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Old Name"]);
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
+      logs.push(String(msg ?? ""));
+    });
+
+    await createProgram().parseAsync(["node", "slices", "rename", "PRO-101-S01", "New Name"]);
+    expect(logs[0]).toContain("PRO-101-S01");
+    expect(logs[0]).toContain("New Name");
+
+    const projectDir = path.join(projectsRoot, "PRO-101_test");
+    const readme = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    expect(readme).toContain('"New Name"');
+
+    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    expect(scopeMap).toContain("New Name");
+    expect(scopeMap).not.toContain("Old Name");
+  });
+
+  it("comment appends timestamped entry to THREAD.md and preserves prior content", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+
+    // First comment
+    await createProgram().parseAsync([
+      "node", "slices", "comment", "PRO-101-S01", "First comment",
+    ]);
+
+    const projectDir = path.join(projectsRoot, "PRO-101_test");
+    const threadAfterFirst = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "THREAD.md"),
+      "utf8"
+    );
+    expect(threadAfterFirst).toContain("First comment");
+    // Should have a timestamp heading
+    expect(threadAfterFirst).toMatch(/## \d{4}-\d{2}-\d{2}T/);
+
+    // Second comment — prior content must be preserved
+    await createProgram().parseAsync([
+      "node", "slices", "comment", "PRO-101-S01", "Second comment",
+    ]);
+
+    const threadAfterSecond = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "THREAD.md"),
+      "utf8"
+    );
+    expect(threadAfterSecond).toContain("First comment");
+    expect(threadAfterSecond).toContain("Second comment");
+  });
+
+  it("comment bumps updated_at", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+
+    const beforeReadme = await fs.readFile(
+      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    const beforeMatch = beforeReadme.match(/updated_at: "([^"]+)"/);
+    const beforeTs = beforeMatch?.[1] ?? "";
+
+    // Wait a tiny bit to ensure timestamp differs
+    await new Promise((r) => setTimeout(r, 5));
+
+    await createProgram().parseAsync(["node", "slices", "comment", "PRO-101-S01", "hello"]);
+
+    const afterReadme = await fs.readFile(
+      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    const afterMatch = afterReadme.match(/updated_at: "([^"]+)"/);
+    const afterTs = afterMatch?.[1] ?? "";
+
+    expect(afterTs).not.toBe("");
+    expect(afterTs).not.toBe(beforeTs);
+  });
+
+  it("cancel moves slice to cancelled status", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
+      logs.push(String(msg ?? ""));
+    });
+
+    await createProgram().parseAsync(["node", "slices", "cancel", "PRO-101-S01"]);
+    expect(logs[0]).toContain("PRO-101-S01");
+    expect(logs[0]).toContain("cancelled");
+
+    const projectDir = path.join(projectsRoot, "PRO-101_test");
+    const readme = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    expect(readme).toContain('"cancelled"');
+
+    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    expect(scopeMap).toContain("cancelled");
+  });
+
   it("prints clear errors for missing project and missing slice", async () => {
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
