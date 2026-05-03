@@ -962,34 +962,6 @@ export async function fetchBoardActivity(opts?: {
   return res.json();
 }
 
-export async function fetchBoardAgents(): Promise<{ runs: SubagentRun[] }> {
-  const res = await fetch(`${API_BASE}/board/agents`);
-  if (!res.ok) throw new Error("Failed to fetch board agents");
-  return res.json();
-}
-
-export type KillBoardAgentResult =
-  | { ok: true; runId: string; status: string }
-  | { ok: false; error: string; code: string };
-
-export async function killBoardAgent(runId: string): Promise<KillBoardAgentResult> {
-  const res = await fetch(`${API_BASE}/board/agents/${encodeURIComponent(runId)}/kill`, {
-    method: "POST",
-  });
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: typeof data.error === "string" ? data.error : "Kill failed",
-      code: typeof data.code === "string" ? data.code : "unknown",
-    };
-  }
-  return {
-    ok: true,
-    runId: typeof data.runId === "string" ? data.runId : runId,
-    status: typeof data.status === "string" ? data.status : "interrupted",
-  };
-}
 
 export async function fetchAgentStatuses(): Promise<AgentStatusResponse> {
   const res = await fetch(`${API_BASE}/agents/status`);
@@ -2127,4 +2099,39 @@ export async function updateSlice(
     throw new Error((data as { error?: string }).error ?? "Failed to update slice");
   }
   return res.json();
+}
+
+// ── Board agents (live runs view) ────────────────────────────────────────────
+
+export type BoardAgentsResponse = {
+  runs: SubagentRun[];
+};
+
+export async function fetchBoardAgents(): Promise<BoardAgentsResponse> {
+  const res = await fetch(`${API_BASE}/board/agents`);
+  if (!res.ok) throw new Error("Failed to fetch board agents");
+  return res.json() as Promise<BoardAgentsResponse>;
+}
+
+export type KillBoardAgentResult =
+  | { ok: true; runId: string; status: string }
+  | { ok: false; error: string };
+
+export async function killBoardAgent(
+  runId: string
+): Promise<KillBoardAgentResult> {
+  const res = await fetch(
+    `${API_BASE}/board/agents/${encodeURIComponent(runId)}/kill`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const data = await res
+      .json()
+      .catch(() => ({ error: "Failed to kill agent run" }));
+    return {
+      ok: false,
+      error: (data as { error?: string }).error ?? "Failed to kill agent run",
+    };
+  }
+  return res.json() as Promise<KillBoardAgentResult>;
 }

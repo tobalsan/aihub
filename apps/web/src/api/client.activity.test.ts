@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchActivity, fetchAgentStatuses } from "./client";
+import { fetchActivity, fetchAgentStatuses, fetchBoardActivity } from "./client";
 
 type FetchResponse = {
   ok: boolean;
@@ -30,6 +30,34 @@ describe("api client (activity/status)", () => {
       credentials: "include",
     });
     expect(res.events.length).toBe(1);
+  });
+
+  it("fetches board activity (cross-project)", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ id: "a1", type: "project_status" }] }),
+    });
+
+    const res = await fetchBoardActivity();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/board/activity", {
+      credentials: "include",
+    });
+    expect(res.items.length).toBe(1);
+  });
+
+  it("fetches board activity per-project", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] }),
+    });
+
+    await fetchBoardActivity({ projectId: "PRO-123", limit: 10 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/board/activity?projectId=PRO-123&limit=10",
+      { credentials: "include" }
+    );
   });
 
   it("fetches agent statuses", async () => {

@@ -229,6 +229,29 @@ export type ActivityResponse = {
   events: ActivityEvent[];
 };
 
+export type BoardActivityItemType =
+  | "project_status"
+  | "slice_status"
+  | "run_start"
+  | "run_complete"
+  | "thread_comment";
+
+export type BoardActivityItem = {
+  id: string;
+  type: BoardActivityItemType;
+  projectId: string;
+  sliceId?: string;
+  runSlug?: string;
+  actor: string;
+  action: string;
+  timestamp: string;
+  color: "green" | "purple" | "blue" | "yellow";
+};
+
+export type BoardActivityResponse = {
+  items: BoardActivityItem[];
+};
+
 export type AgentStatusResponse = {
   statuses: Record<string, "streaming" | "idle">;
 };

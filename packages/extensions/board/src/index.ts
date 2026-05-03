@@ -34,6 +34,11 @@ import {
   toggleAreaHidden,
   updateLoopEntry,
 } from "./areas.js";
+import {
+  aggregateActivity,
+  MAX_ACTIVITY_ITEMS,
+  resetActivityCache,
+} from "./activity.js";
 // ── Config ──────────────────────────────────────────────────────────
 
 const BoardExtensionConfigSchema = z.object({
@@ -480,6 +485,21 @@ function registerBoardRoutes(app: Hono): void {
     }
   });
 
+  app.get("/board/activity", async (c) => {
+    const { root } = resolveProjectRoots(getContext());
+    const projectId = c.req.query("projectId");
+    const limitParam = c.req.query("limit");
+    const limit = limitParam
+      ? Math.min(parseInt(limitParam, 10) || 50, MAX_ACTIVITY_ITEMS)
+      : 50;
+    const items = await aggregateActivity({
+      projectsRoot: root,
+      projectId: projectId || undefined,
+      limit,
+    });
+    return c.json({ items });
+  });
+
   app.get("/board/scratchpad", (c) => {
     const data = readScratchpad();
     return c.json(data);
@@ -554,6 +574,7 @@ const boardExtension: Extension = {
     stopSpaceCacheWatcher = null;
     unsubscribeSubagentChanged = null;
     resetProjectCaches();
+    resetActivityCache();
     extensionContext = null;
     boardRoot = null;
     console.log("[board] extension stopped");
