@@ -25,6 +25,7 @@ export type ActivityEvent = {
   action: string;
   projectId?: string;
   sliceId?: string;
+  blockers?: string[];
   subagentSlug?: string;
   timestamp: string;
   color: ActivityColor;
@@ -274,6 +275,7 @@ export async function recordSliceBlockedActivity(params: {
     action: `blocked ${params.sliceId} on ${params.blockers.join(", ")}`,
     projectId: params.projectId,
     sliceId: params.sliceId,
+    blockers: params.blockers,
     timestamp: params.timestamp ?? new Date().toISOString(),
     color: "yellow",
   };
@@ -299,6 +301,7 @@ export async function recordSliceUnblockedActivity(params: {
     action,
     projectId: params.projectId,
     sliceId: params.sliceId,
+    blockers: params.blockers ?? [],
     timestamp: params.timestamp ?? new Date().toISOString(),
     color: "blue",
   };

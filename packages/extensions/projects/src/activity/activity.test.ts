@@ -276,6 +276,36 @@ describe("activity persistence", () => {
     expect(match?.action).toBe(`commented on PRO-123: ${"a".repeat(79)}…`);
   });
 
+  it("records slice blocker activity with structured blockers", async () => {
+    const { recordSliceBlockedActivity, recordSliceUnblockedActivity } = await import("./index.js");
+    await recordSliceBlockedActivity({
+      actor: "AIHub",
+      projectId: "PRO-123",
+      sliceId: "PRO-123-S01",
+      blockers: ["PRO-123-S02", "PRO-124-S01"],
+      timestamp: "2025-01-01T00:00:00.000Z",
+    });
+    await recordSliceUnblockedActivity({
+      actor: "AIHub",
+      projectId: "PRO-123",
+      sliceId: "PRO-123-S01",
+      blockers: ["PRO-123-S02"],
+      timestamp: "2025-01-01T00:01:00.000Z",
+    });
+
+    const activityPath = path.join(tmpDir, ".aihub", "activity.json");
+    const persistedRaw = await fs.readFile(activityPath, "utf8");
+    const persisted = JSON.parse(persistedRaw) as Array<{
+      type?: string;
+      blockers?: string[];
+    }>;
+
+    const blocked = persisted.find((event) => event.type === "slice_blocked");
+    const unblocked = persisted.find((event) => event.type === "slice_unblocked");
+    expect(blocked?.blockers).toEqual(["PRO-123-S02", "PRO-124-S01"]);
+    expect(unblocked?.blockers).toEqual(["PRO-123-S02"]);
+  });
+
   it("does not duplicate running subagent activity across heartbeat updates", async () => {
     const created = await createProject("Subagent Poll Dedup");
     const progressPath = await setupSubagentRun({

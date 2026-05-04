@@ -328,6 +328,43 @@ describe("slices CLI", () => {
     );
   });
 
+  it("unblock --from rejects blockers not currently present", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "A"]);
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "B"]);
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "C"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "block",
+      "PRO-101-S01",
+      "--on",
+      "PRO-101-S02",
+    ]);
+
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
+      errors.push(String(msg ?? ""));
+    });
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`EXIT:${code}`);
+    }) as never);
+
+    await expect(
+      createProgram().parseAsync([
+        "node",
+        "slices",
+        "unblock",
+        "PRO-101-S01",
+        "--from",
+        "PRO-101-S03,PRO-101-S99",
+      ])
+    ).rejects.toThrow("EXIT:1");
+    expect(errors.at(-1)).toContain(
+      "Blockers not found on PRO-101-S01: PRO-101-S03, PRO-101-S99"
+    );
+  });
+
   it("comment appends timestamped entry to THREAD.md and preserves prior content", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
     await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);

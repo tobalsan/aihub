@@ -421,6 +421,12 @@ export function registerSlicesCommands(program: Command): Command {
 
         const current = frontmatterBlockers(found.slice);
         const remove = typeof opts.from === "string" ? parseSliceIdList(opts.from) : undefined;
+        if (remove) {
+          const missing = remove.filter((blocker) => !current.includes(blocker));
+          if (missing.length > 0) {
+            throw new Error(`Blockers not found on ${targetId}: ${missing.join(", ")}`);
+          }
+        }
         const nextBlockers = remove
           ? current.filter((blocker) => !remove.includes(blocker))
           : [];
