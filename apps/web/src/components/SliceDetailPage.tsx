@@ -60,7 +60,7 @@ const ALL_STATUSES: SliceStatus[] = [
 const UNKNOWN_STATUS_COLOR = "#6b6b6b";
 const UNKNOWN_STATUS_LABEL = "Unknown";
 
-type SectionTab = "specs" | "tasks" | "validation" | "thread";
+type SectionTab = "readme" | "specs" | "tasks" | "validation" | "thread";
 type BlockerDetail = {
   id: string;
   projectId: string;
@@ -200,7 +200,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   const projectId = createMemo(() => props.projectId ?? params.projectId ?? "");
   const sliceId = createMemo(() => props.sliceId ?? params.sliceId ?? "");
 
-  const [activeTab, setActiveTab] = createSignal<SectionTab>("specs");
+  const [activeTab, setActiveTab] = createSignal<SectionTab>("readme");
   const [statusChanging, setStatusChanging] = createSignal(false);
 
   const [slice, { mutate, refetch }] = createResource(
@@ -459,19 +459,10 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
               {/* Center: docs */}
               <main class="slice-detail-main">
-                {/* README must/nice */}
-                <section class="slice-detail-readme">
-                  <Show
-                    when={docs()?.readme?.trim()}
-                    fallback={<p class="slice-detail-empty">No description yet.</p>}
-                  >
-                    <pre class="slice-detail-preformatted">{docs()?.readme}</pre>
-                  </Show>
-                </section>
-
-                {/* Tabs: Specs | Tasks | Validation | Thread */}
+                {/* Tabs: README | Specs | Tasks | Validation | Thread */}
                 <nav class="slice-detail-tabs">
                   <For each={[
+                    { id: "readme" as SectionTab, label: "README" },
                     { id: "specs" as SectionTab, label: "Specs" },
                     { id: "tasks" as SectionTab, label: "Tasks" },
                     { id: "validation" as SectionTab, label: "Validation" },
@@ -491,6 +482,9 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                 </nav>
 
                 <div class="slice-detail-tab-content">
+                  <Show when={activeTab() === "readme"}>
+                    <SliceMarkdownSection label="README.md" content={docs()?.readme ?? ""} />
+                  </Show>
                   <Show when={activeTab() === "specs"}>
                     <SliceMarkdownSection label="SPECS.md" content={docs()?.specs ?? ""} />
                   </Show>
@@ -716,14 +710,6 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
           flex-direction: column;
           overflow: hidden;
           min-width: 0;
-        }
-
-        .slice-detail-readme {
-          padding: 16px;
-          border-bottom: 1px solid var(--border-subtle);
-          flex-shrink: 0;
-          max-height: 160px;
-          overflow-y: auto;
         }
 
         .slice-detail-tabs {

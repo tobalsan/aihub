@@ -149,25 +149,33 @@ describe("SliceDetailPage", () => {
     ).not.toContain("Blockers");
   });
 
-  it("renders specs tab content by default", async () => {
+  it("renders README tab content by default", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(container.querySelector(".slice-detail-tab-content")).not.toBeNull();
     });
+    const tabs = container.querySelectorAll(".slice-detail-tab-btn");
+    expect(tabs.length).toBe(5);
+    expect(tabs[0]?.textContent).toBe("README");
+    expect(tabs[0]?.classList.contains("active")).toBe(true);
     expect(container.querySelector(".slice-detail-tab-content")?.textContent).toContain(
-      "Implement OAuth login."
+      "Must"
     );
+    expect(container.querySelector(".slice-detail-tab-content")?.textContent).toContain(
+      "login"
+    );
+    expect(container.querySelector(".slice-detail-readme")).toBeNull();
   });
 
   it("switches to tasks tab and shows checklist", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(4);
+      expect(tabs.length).toBe(5);
     });
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    // Tab order: specs, tasks, validation, thread
-    const tasksTab = tabs[1] as HTMLElement;
+    // Tab order: README, specs, tasks, validation, thread
+    const tasksTab = tabs[2] as HTMLElement;
     tasksTab.click();
     await vi.waitFor(() => {
       expect(container.querySelector(".slice-detail-checklist")).not.toBeNull();
@@ -180,12 +188,19 @@ describe("SliceDetailPage", () => {
     );
   });
 
-  it("shows readme content", async () => {
+  it("switches to specs tab and shows specs content", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-detail-readme")).not.toBeNull();
+      const tabs = container.querySelectorAll(".slice-detail-tab-btn");
+      expect(tabs.length).toBe(5);
     });
-    expect(container.querySelector(".slice-detail-readme")?.textContent).toContain("Must");
+    const specsTab = container.querySelectorAll(".slice-detail-tab-btn")[1] as HTMLElement;
+    specsTab.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-detail-tab-content")?.textContent).toContain(
+        "Implement OAuth login."
+      );
+    });
   });
 
   it("renders thread markdown safely", async () => {
