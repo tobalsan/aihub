@@ -68,6 +68,19 @@ describe("validateLifecycleTransition", () => {
     });
   });
 
+  it("accepts moves from done/cancelled and archive targets", () => {
+    expect(validateLifecycleTransition("done", "active")).toEqual({ ok: true });
+    expect(validateLifecycleTransition("cancelled", "active")).toEqual({
+      ok: true,
+    });
+    expect(validateLifecycleTransition("done", "archived")).toEqual({
+      ok: true,
+    });
+    expect(validateLifecycleTransition("active", "archived")).toEqual({
+      ok: true,
+    });
+  });
+
   it("accepts active → done when slices all terminal and ≥1 done", () => {
     // 3/3 terminal (done count in progress = terminal count)
     expect(
@@ -108,24 +121,10 @@ describe("validateLifecycleTransition", () => {
     if (!result.ok) expect(result.code).toBe("no_change");
   });
 
-  it("rejects moves from terminal statuses", () => {
-    const fromDone = validateLifecycleTransition("done", "active");
-    expect(fromDone.ok).toBe(false);
-    if (!fromDone.ok) expect(fromDone.code).toBe("terminal_status");
-
-    const fromCancelled = validateLifecycleTransition("cancelled", "shaping");
-    expect(fromCancelled.ok).toBe(false);
-    if (!fromCancelled.ok) expect(fromCancelled.code).toBe("terminal_status");
-
-    const fromArchived = validateLifecycleTransition("archived", "active");
-    expect(fromArchived.ok).toBe(false);
-    if (!fromArchived.ok) expect(fromArchived.code).toBe("terminal_status");
-  });
-
-  it("rejects demotion active → shaping", () => {
-    const result = validateLifecycleTransition("active", "shaping");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("invalid_transition");
+  it("accepts active → shaping demotion", () => {
+    expect(validateLifecycleTransition("active", "shaping")).toEqual({
+      ok: true,
+    });
   });
 
   it("rejects done → done (no_change)", () => {

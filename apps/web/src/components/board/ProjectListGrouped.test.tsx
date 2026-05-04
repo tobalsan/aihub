@@ -94,6 +94,9 @@ describe("ProjectListGrouped — group rendering", () => {
     expect(
       container.querySelector('[data-testid="group-section-cancelled"]')
     ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="group-section-archived"]')
+    ).toBeTruthy();
   });
 
   it("groups projects by lifecycleStatus", () => {
@@ -384,7 +387,16 @@ describe("ProjectListGrouped — area filter chips", () => {
 
 describe("ProjectListGrouped — drag and optimistic revert", () => {
   it("calls moveBoardProject on drop and shows optimistic update", async () => {
-    moveBoardProjectMock.mockResolvedValue({ ok: true, status: "shaping", previousStatus: "active" });
+    let resolveMove: (value: {
+      ok: true;
+      status: string;
+      previousStatus: string;
+    }) => void = () => {};
+    moveBoardProjectMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMove = resolve;
+      })
+    );
 
     const projects = [
       makeProject({ id: "PRO-001", lifecycleStatus: "active" }),
@@ -399,10 +411,70 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
     const shapingZone = container.querySelector('[data-testid="group-drop-zone-shaping"]') as HTMLElement;
     shapingZone?.dispatchEvent(new DragEvent("drop", { bubbles: true }));
 
+    expect(
+      container
+        .querySelector('[data-testid="group-section-shaping"]')
+        ?.querySelector('[data-testid="project-card-PRO-001"]')
+    ).toBeTruthy();
+
     // Wait for async
     await vi.waitFor(() => {
       expect(moveBoardProjectMock).toHaveBeenCalledWith("PRO-001", "shaping");
     });
+    resolveMove({ ok: true, status: "shaping", previousStatus: "active" });
+  });
+
+  it("moves through the keyboard status select without opening detail", async () => {
+    moveBoardProjectMock.mockResolvedValue({
+      ok: true,
+      status: "done",
+      previousStatus: "active",
+    });
+    const onProjectClick = vi.fn();
+    renderComponent(
+      [makeProject({ id: "PRO-004", lifecycleStatus: "active" })],
+      { onProjectClick }
+    );
+
+    const select = container.querySelector(
+      '[data-testid="project-status-select-PRO-004"]'
+    ) as HTMLSelectElement;
+    select.value = "done";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(moveBoardProjectMock).toHaveBeenCalledWith("PRO-004", "done");
+    });
+    expect(onProjectClick).not.toHaveBeenCalled();
+  });
+
+  it("drops to archived and hides the project optimistically", async () => {
+    moveBoardProjectMock.mockResolvedValue({
+      ok: true,
+      status: "archived",
+      previousStatus: "done",
+    });
+    renderComponent([
+      makeProject({ id: "PRO-005", lifecycleStatus: "done", status: "done" }),
+    ]);
+    (container.querySelector('[data-testid="group-header-done"]') as HTMLElement)
+      ?.click();
+
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-005"]'
+    ) as HTMLElement;
+    card.dispatchEvent(new DragEvent("dragstart", { bubbles: true }));
+    const archivedZone = container.querySelector(
+      '[data-testid="group-drop-zone-archived"]'
+    ) as HTMLElement;
+    archivedZone.dispatchEvent(new DragEvent("drop", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(moveBoardProjectMock).toHaveBeenCalledWith("PRO-005", "archived");
+    });
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-005"]')
+    ).toBeNull();
   });
 
   it("reverts optimistic update and shows error toast on rejection", async () => {

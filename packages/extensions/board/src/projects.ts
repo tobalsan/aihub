@@ -80,6 +80,7 @@ export const MOVEABLE_LIFECYCLE_STATUSES = new Set<ProjectLifecycleStatus>([
   "active",
   "done",
   "cancelled",
+  "archived",
 ]);
 
 /** Map a raw project status string to a board lifecycle status. */
@@ -125,16 +126,6 @@ export function validateLifecycleTransition(
   if (from === to) {
     return { ok: false, reason: `Project is already ${to}`, code: "no_change" };
   }
-  if (from === "done" || from === "cancelled" || from === "archived") {
-    return {
-      ok: false,
-      reason: `Cannot move a ${from} project`,
-      code: "terminal_status",
-    };
-  }
-  // shaping -> active is allowed
-  if (from === "shaping" && to === "active") return { ok: true };
-  // active -> done: all slices must be terminal and at least 1 done
   if (from === "active" && to === "done") {
     if (slices && slices.total > 0 && slices.done < slices.total) {
       return {
@@ -145,16 +136,7 @@ export function validateLifecycleTransition(
     }
     return { ok: true };
   }
-  // active -> cancelled is allowed
-  if (from === "active" && to === "cancelled") return { ok: true };
-  // shaping -> cancelled is allowed
-  if (from === "shaping" && to === "cancelled") return { ok: true };
-  // demotion (active -> shaping) rejected; use detail page menu
-  return {
-    ok: false,
-    reason: `Transition from ${from} to ${to} is not allowed`,
-    code: "invalid_transition",
-  };
+  return { ok: true };
 }
 
 const SLICE_ID_PATTERN = /^PRO-\d+-S\d+$/;

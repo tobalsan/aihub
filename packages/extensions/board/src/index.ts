@@ -9,9 +9,11 @@ import {
 } from "@aihub/shared";
 import {
   getCachedSpace,
+  archiveProject,
   getProject,
   listSlices,
   startSpaceCacheWatcher,
+  unarchiveProject,
   updateProject,
 } from "@aihub/extension-projects";
 import {
@@ -405,16 +407,31 @@ function registerBoardRoutes(app: Hono): void {
       );
     }
 
-    // Apply the status change
-    const updateResult = await updateProject(config, projectId, {
-      status: targetStatus,
-    });
-    if (!updateResult.ok) {
-      return c.json({ error: updateResult.error, code: "update_failed" }, 500);
+    let changedProjectPath: string;
+    if (targetLifecycle === "archived") {
+      const archiveResult = await archiveProject(config, projectId);
+      if (!archiveResult.ok) {
+        return c.json({ error: archiveResult.error, code: "update_failed" }, 500);
+      }
+      changedProjectPath = archiveResult.data.archivedPath;
+    } else if (currentLifecycle === "archived") {
+      const unarchiveResult = await unarchiveProject(config, projectId, targetLifecycle);
+      if (!unarchiveResult.ok) {
+        return c.json({ error: unarchiveResult.error, code: "update_failed" }, 500);
+      }
+      changedProjectPath = unarchiveResult.data.path;
+    } else {
+      const updateResult = await updateProject(config, projectId, {
+        status: targetStatus,
+      });
+      if (!updateResult.ok) {
+        return c.json({ error: updateResult.error, code: "update_failed" }, 500);
+      }
+      changedProjectPath = updateResult.data.path;
     }
 
     invalidateProjectCache(undefined);
-    emitBoardProjectChanged(projectId, updateResult.data.path);
+    emitBoardProjectChanged(projectId, changedProjectPath);
 
     return c.json({
       ok: true,

@@ -6,6 +6,7 @@
 import {
   For,
   Show,
+  createEffect,
   createMemo,
   createSignal,
   onCleanup,
@@ -27,9 +28,12 @@ const GROUPS: GroupDef[] = [
   { status: "shaping", label: "Shaping", defaultExpanded: true },
   { status: "done", label: "Done", defaultExpanded: false },
   { status: "cancelled", label: "Cancelled", defaultExpanded: false },
+  { status: "archived", label: "Archived", defaultExpanded: false },
 ];
 
 const UNASSIGNED_PROJECT_ID = "__unassigned";
+
+const LIFECYCLE_STATUSES = GROUPS.map((group) => group.status);
 
 export type ProjectListGroupedProps = {
   /** All projects from GET /board/projects (archived already omitted server-side) */
@@ -176,7 +180,9 @@ function ProjectCard(props: {
   project: BoardProject;
   areaName: string;
   onDragStart?: (e: DragEvent) => void;
+  onDragEnd?: () => void;
   onClick?: () => void;
+  onStatusChange?: (status: ProjectLifecycleStatus) => void;
 }) {
   return (
     <div
@@ -185,6 +191,7 @@ function ProjectCard(props: {
       data-lifecycle-status={props.project.lifecycleStatus}
       draggable
       onDragStart={props.onDragStart}
+      onDragEnd={props.onDragEnd}
       onClick={props.onClick}
       style={{
         padding: "10px 12px",
@@ -217,6 +224,33 @@ function ProjectCard(props: {
           {props.project.id}
         </span>
         <StatusPill status={props.project.lifecycleStatus} />
+        <select
+          data-testid={`project-status-select-${props.project.id}`}
+          aria-label={`Move ${props.project.id}`}
+          value={props.project.lifecycleStatus}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            const nextStatus = e.currentTarget.value as ProjectLifecycleStatus;
+            props.onStatusChange?.(nextStatus);
+            e.currentTarget.value = props.project.lifecycleStatus;
+          }}
+          style={{
+            "font-size": "11px",
+            color: "var(--text-secondary)",
+            background: "var(--bg-base)",
+            border: "1px solid var(--border-default)",
+            "border-radius": "4px",
+            padding: "1px 4px",
+          }}
+        >
+          <For each={LIFECYCLE_STATUSES}>
+            {(status) => (
+              <option value={status}>{lifecycleStatusLabel(status)}</option>
+            )}
+          </For>
+        </select>
         <Show when={props.areaName}>
           <span
             data-testid="project-area-chip"
@@ -282,7 +316,12 @@ function GroupSection(props: {
   areas: Map<string, string>;
   onDrop?: (targetStatus: ProjectLifecycleStatus) => void;
   onCardDragStart?: (project: BoardProject) => void;
+  onCardDragEnd?: () => void;
   onCardClick?: (project: BoardProject) => void;
+  onStatusChange?: (
+    project: BoardProject,
+    targetStatus: ProjectLifecycleStatus
+  ) => void;
 }) {
   const [expanded, setExpanded] = createSignal(props.group.defaultExpanded);
   const [dragOver, setDragOver] = createSignal(false);
@@ -394,7 +433,11 @@ function GroupSection(props: {
                   onDragStart={() => {
                     props.onCardDragStart?.(project);
                   }}
+                  onDragEnd={props.onCardDragEnd}
                   onClick={() => props.onCardClick?.(project)}
+                  onStatusChange={(targetStatus) =>
+                    props.onStatusChange?.(project, targetStatus)
+                  }
                 />
               )}
             </For>
@@ -468,6 +511,7 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
   const [search, setSearch] = createSignal("");
   const [selectedArea, setSelectedArea] = createSignal<string>("all");
   const [dragging, setDragging] = createSignal<DragState | null>(null);
+  const [suppressNextClick, setSuppressNextClick] = createSignal(false);
   const [toast, setToast] = createSignal<{
     message: string;
     variant: "error" | "info";
@@ -522,37 +566,50 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
     props.onToast?.(message, variant);
   }
 
+  createEffect(() => {
+    const overrides = optimisticOverrides();
+    if (overrides.size === 0) return;
+    let changed = false;
+    const next = new Map(overrides);
+    for (const project of props.projects) {
+      const override = next.get(project.id);
+      if (override && project.lifecycleStatus === override) {
+        next.delete(project.id);
+        changed = true;
+      }
+    }
+    if (changed) setOptimisticOverrides(next);
+  });
+
+  async function moveProject(
+    projectId: string,
+    sourceStatus: ProjectLifecycleStatus,
+    targetStatus: ProjectLifecycleStatus
+  ) {
+    if (sourceStatus === targetStatus) return;
+    setOptimisticOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(projectId, targetStatus);
+      return next;
+    });
+
+    const result = await moveBoardProject(projectId, targetStatus);
+    if (!result.ok) {
+      setOptimisticOverrides((prev) => {
+        const next = new Map(prev);
+        next.delete(projectId);
+        return next;
+      });
+      showToast(result.error, "error");
+    }
+  }
+
   async function handleDrop(targetStatus: ProjectLifecycleStatus) {
     const drag = dragging();
     if (!drag) return;
     setDragging(null);
-
-    if (drag.sourceStatus === targetStatus) return;
-
-    // Optimistic update
-    setOptimisticOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(drag.projectId, targetStatus);
-      return next;
-    });
-
-    const result = await moveBoardProject(drag.projectId, targetStatus);
-    if (!result.ok) {
-      // Revert
-      setOptimisticOverrides((prev) => {
-        const next = new Map(prev);
-        next.delete(drag.projectId);
-        return next;
-      });
-      showToast(result.error, "error");
-    } else {
-      // Confirm — clear override (server state will be reflected on next refetch)
-      setOptimisticOverrides((prev) => {
-        const next = new Map(prev);
-        next.delete(drag.projectId);
-        return next;
-      });
-    }
+    setTimeout(() => setSuppressNextClick(false), 0);
+    await moveProject(drag.projectId, drag.sourceStatus, targetStatus);
   }
 
   function handleCardDragStart(project: BoardProject) {
@@ -561,6 +618,17 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
       sourceStatus: project.lifecycleStatus,
     };
     setDragging(state);
+    setSuppressNextClick(true);
+  }
+
+  function handleCardDragEnd() {
+    setDragging(null);
+    setTimeout(() => setSuppressNextClick(false), 0);
+  }
+
+  function handleCardClick(project: BoardProject) {
+    if (suppressNextClick()) return;
+    props.onProjectClick?.(project);
   }
 
   const loadingSkeleton = (
@@ -760,7 +828,15 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
                   areas={areaMap()}
                   onDrop={(targetStatus) => void handleDrop(targetStatus)}
                   onCardDragStart={handleCardDragStart}
-                  onCardClick={props.onProjectClick}
+                  onCardDragEnd={handleCardDragEnd}
+                  onCardClick={handleCardClick}
+                  onStatusChange={(project, targetStatus) =>
+                    void moveProject(
+                      project.id,
+                      project.lifecycleStatus,
+                      targetStatus
+                    )
+                  }
                 />
               );
             }}
