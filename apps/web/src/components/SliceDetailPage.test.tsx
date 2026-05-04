@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { SliceDetailPage } from "./SliceDetailPage";
 import type { SliceRecord } from "../api/types";
+import { updateSlice } from "../api/client";
 
 const MOCK_SLICE: SliceRecord = {
   id: "PRO-1-S01",
@@ -43,9 +44,32 @@ vi.mock("@solidjs/router", () => ({
   useParams: () => ({ projectId: "PRO-1", sliceId: "PRO-1-S01" }),
 }));
 
+vi.mock("./board/DocEditor", () => ({
+  DocEditor: (props: {
+    docKey: string;
+    content: string;
+    onSave: (content: string) => void;
+  }) => (
+    <div
+      data-testid="doc-editor"
+      data-dockey={props.docKey}
+      data-content={props.content}
+    >
+      <button
+        type="button"
+        data-testid={`save-doc-${props.docKey}`}
+        onClick={() => props.onSave(`saved:${props.docKey}`)}
+      >
+        Save
+      </button>
+    </div>
+  ),
+}));
+
 let container: HTMLElement;
 
 beforeEach(() => {
+  vi.clearAllMocks();
   container = document.createElement("div");
   document.body.appendChild(container);
   fetchSliceMock = vi.fn(async () => MOCK_SLICE);
@@ -158,16 +182,14 @@ describe("SliceDetailPage", () => {
     expect(tabs.length).toBe(5);
     expect(tabs[0]?.textContent).toBe("README");
     expect(tabs[0]?.classList.contains("active")).toBe(true);
-    expect(container.querySelector(".slice-detail-tab-content")?.textContent).toContain(
-      "Must"
-    );
-    expect(container.querySelector(".slice-detail-tab-content")?.textContent).toContain(
-      "login"
-    );
+    const editor = container.querySelector("[data-testid='doc-editor']");
+    expect(editor?.getAttribute("data-dockey")).toBe("README");
+    expect(editor?.getAttribute("data-content")).toContain("Must");
+    expect(editor?.getAttribute("data-content")).toContain("login");
     expect(container.querySelector(".slice-detail-readme")).toBeNull();
   });
 
-  it("switches to tasks tab and shows checklist", async () => {
+  it("switches to tasks tab and shows editable document", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
@@ -178,17 +200,14 @@ describe("SliceDetailPage", () => {
     const tasksTab = tabs[2] as HTMLElement;
     tasksTab.click();
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-detail-checklist")).not.toBeNull();
+      expect(container.querySelector("[data-testid='doc-editor']")).not.toBeNull();
     });
-    expect(container.querySelector(".slice-detail-checklist")?.textContent).toContain(
-      "Implement login"
-    );
-    expect(container.querySelector(".slice-detail-checklist")?.textContent).toContain(
-      "DB schema"
-    );
+    const editor = container.querySelector("[data-testid='doc-editor']");
+    expect(editor?.getAttribute("data-dockey")).toBe("TASKS");
+    expect(editor?.getAttribute("data-content")).toContain("Implement login");
   });
 
-  it("switches to specs tab and shows specs content", async () => {
+  it("switches to specs tab and shows editable document", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
@@ -197,21 +216,22 @@ describe("SliceDetailPage", () => {
     const specsTab = container.querySelectorAll(".slice-detail-tab-btn")[1] as HTMLElement;
     specsTab.click();
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-detail-tab-content")?.textContent).toContain(
-        "Implement OAuth login."
-      );
+      expect(container.querySelector("[data-testid='doc-editor']")).not.toBeNull();
     });
+    const editor = container.querySelector("[data-testid='doc-editor']");
+    expect(editor?.getAttribute("data-dockey")).toBe("SPECS");
+    expect(editor?.getAttribute("data-content")).toContain("Implement OAuth login.");
   });
 
   it("renders thread markdown safely", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(4);
+      expect(tabs.length).toBe(5);
     });
 
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    (tabs[3] as HTMLElement).click();
+    (tabs[4] as HTMLElement).click();
 
     await vi.waitFor(() => {
       expect(container.querySelector(".slice-detail-thread-markdown")).not.toBeNull();
@@ -225,5 +245,40 @@ describe("SliceDetailPage", () => {
     expect(link?.getAttribute("href")).toBe("https://example.com");
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("saves each editable document tab through updateSlice", async () => {
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(5);
+    });
+
+    const tabs = Array.from(container.querySelectorAll(".slice-detail-tab-btn")) as HTMLElement[];
+    const cases = [
+      { tab: tabs[0], key: "README", payload: { readme: "saved:README" } },
+      { tab: tabs[1], key: "SPECS", payload: { specs: "saved:SPECS" } },
+      { tab: tabs[2], key: "TASKS", payload: { tasks: "saved:TASKS" } },
+      {
+        tab: tabs[3],
+        key: "VALIDATION",
+        payload: { validation: "saved:VALIDATION" },
+      },
+    ];
+
+    for (const item of cases) {
+      item.tab.click();
+      await vi.waitFor(() => {
+        expect(
+          container.querySelector("[data-testid='doc-editor']")?.getAttribute("data-dockey")
+        ).toBe(item.key);
+      });
+      const button = container.querySelector(
+        `[data-testid='save-doc-${item.key}']`
+      ) as HTMLButtonElement;
+      button.click();
+      await vi.waitFor(() => {
+        expect(updateSlice).toHaveBeenCalledWith("PRO-1", "PRO-1-S01", item.payload);
+      });
+    }
   });
 });

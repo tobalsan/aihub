@@ -207,6 +207,70 @@ describe("slices HTTP API", () => {
     expect(updated.frontmatter.status).toBe("in_progress");
   });
 
+  it("PATCH /projects/:id/slices/:sliceId updates docs and preserves README frontmatter", async () => {
+    const createRes = await api.request(
+      `/projects/${createdProjectId}/slices`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Editable docs", readme: "## Before\n" }),
+      }
+    );
+    const created = (await createRes.json()) as { id: string };
+
+    const patchRes = await api.request(
+      `/projects/${createdProjectId}/slices/${created.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          readme: "## After\n",
+          specs: "# Specs updated\n",
+          tasks: "- [x] Done\n",
+          validation: "- [ ] Check\n",
+          thread: "Comment\n",
+        }),
+      }
+    );
+    expect(patchRes.status).toBe(200);
+
+    const getRes = await api.request(
+      `/projects/${createdProjectId}/slices/${created.id}`
+    );
+    const updated = (await getRes.json()) as {
+      docs: {
+        readme: string;
+        specs: string;
+        tasks: string;
+        validation: string;
+        thread: string;
+      };
+    };
+    expect(updated.docs).toMatchObject({
+      readme: "## After\n",
+      specs: "# Specs updated\n",
+      tasks: "- [x] Done\n",
+      validation: "- [ ] Check\n",
+      thread: "Comment\n",
+    });
+
+    const [projectDirName] = (await fs.readdir(projectsRoot)).filter((name) =>
+      name.startsWith(createdProjectId)
+    );
+    const readmePath = path.join(
+      projectsRoot,
+      projectDirName!,
+      "slices",
+      created.id,
+      "README.md"
+    );
+    const rawReadme = await fs.readFile(readmePath, "utf8");
+    expect(rawReadme).toContain(`id: "${created.id}"`);
+    expect(rawReadme).toContain(`project_id: "${createdProjectId}"`);
+    expect(rawReadme).toContain('title: "Editable docs"');
+    expect(rawReadme).toContain("\n---\n## After\n");
+  });
+
   it("POST with missing title returns 400", async () => {
     const res = await api.request(
       `/projects/${createdProjectId}/slices`,

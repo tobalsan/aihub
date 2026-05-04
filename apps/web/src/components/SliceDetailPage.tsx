@@ -22,6 +22,7 @@ import {
 } from "../api/client";
 import type { SliceStatus, SliceRecord, SubagentListItem, SubagentStatus } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
+import { DocEditor } from "./board/DocEditor";
 
 const RUN_STATUS_LABELS: Record<SubagentStatus, string> = {
   running: "Running",
@@ -61,6 +62,7 @@ const UNKNOWN_STATUS_COLOR = "#6b6b6b";
 const UNKNOWN_STATUS_LABEL = "Unknown";
 
 type SectionTab = "readme" | "specs" | "tasks" | "validation" | "thread";
+type EditableSliceDocKey = Exclude<keyof SliceRecord["docs"], "thread">;
 type BlockerDetail = {
   id: string;
   projectId: string;
@@ -80,17 +82,6 @@ function projectIdFromSliceId(sliceId: string): string {
   return sliceId.match(/^(PRO-\d+)-S\d+$/)?.[1] ?? "";
 }
 
-function parseChecklistItems(text: string): Array<{ checked: boolean; label: string }> {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.match(/^- \[([ xX])\] (.+)$/))
-    .filter(Boolean)
-    .map((m) => ({
-      checked: m![1] !== " ",
-      label: m![2],
-    }));
-}
-
 function formatRelative(iso: string): string {
   try {
     const diff = Date.now() - new Date(iso).getTime();
@@ -104,20 +95,6 @@ function formatRelative(iso: string): string {
   } catch {
     return "";
   }
-}
-
-function SliceMarkdownSection(props: { label: string; content: string }) {
-  return (
-    <div class="slice-detail-section">
-      <h3 class="slice-detail-section-title">{props.label}</h3>
-      <Show
-        when={props.content.trim()}
-        fallback={<p class="slice-detail-empty">No content yet.</p>}
-      >
-        <pre class="slice-detail-preformatted">{props.content}</pre>
-      </Show>
-    </div>
-  );
 }
 
 function SliceThreadSection(props: { content: string }) {
@@ -139,53 +116,6 @@ function SliceThreadSection(props: { content: string }) {
   );
 }
 
-function SliceTasksSection(props: { content: string }) {
-  const items = createMemo(() => parseChecklistItems(props.content));
-
-  return (
-    <div class="slice-detail-section">
-      <h3 class="slice-detail-section-title">
-        Tasks{" "}
-        <span class="slice-detail-progress-badge">
-          {items().filter((i) => i.checked).length}/{items().length}
-        </span>
-      </h3>
-      <Show when={items().length === 0} fallback={null}>
-        <p class="slice-detail-empty">No tasks yet.</p>
-      </Show>
-      <Show when={items().length > 0}>
-        <ul class="slice-detail-checklist">
-          <For each={items()}>
-            {(item) => (
-              <li class="slice-detail-checklist-item">
-                <span
-                  class="slice-detail-checkbox"
-                  classList={{ checked: item.checked }}
-                  aria-hidden="true"
-                >
-                  {item.checked ? "✓" : "○"}
-                </span>
-                <span
-                  class="slice-detail-checklist-label"
-                  classList={{ done: item.checked }}
-                >
-                  {item.label}
-                </span>
-              </li>
-            )}
-          </For>
-        </ul>
-        <Show when={props.content.trim()}>
-          <details class="slice-detail-raw-toggle">
-            <summary>Raw TASKS.md</summary>
-            <pre class="slice-detail-preformatted">{props.content}</pre>
-          </details>
-        </Show>
-      </Show>
-    </div>
-  );
-}
-
 export type SliceDetailPageProps = {
   projectId?: string;
   sliceId?: string;
@@ -202,6 +132,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
   const [activeTab, setActiveTab] = createSignal<SectionTab>("readme");
   const [statusChanging, setStatusChanging] = createSignal(false);
+  const [saveError, setSaveError] = createSignal("");
 
   const [slice, { mutate, refetch }] = createResource(
     () => ({ projectId: projectId(), sliceId: sliceId() }),
@@ -251,6 +182,25 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
       return;
     }
     navigate(`/projects/${encodeURIComponent(projectId())}`);
+  };
+
+  const handleSaveDoc = async (docKey: EditableSliceDocKey, content: string) => {
+    const current = slice();
+    if (!current) return;
+
+    setSaveError("");
+    mutate({ ...current, docs: { ...current.docs, [docKey]: content } });
+
+    try {
+      const updated = await updateSlice(projectId(), sliceId(), {
+        [docKey]: content,
+      });
+      mutate(updated);
+    } catch (error) {
+      mutate(current);
+      setSaveError(error instanceof Error ? error.message : "Save failed");
+      setTimeout(() => setSaveError(""), 3000);
+    }
   };
 
   const frontmatter = createMemo(() => slice()?.frontmatter);
@@ -459,6 +409,12 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
               {/* Center: docs */}
               <main class="slice-detail-main">
+                <Show when={saveError()}>
+                  <div class="slice-detail-save-error" role="alert">
+                    {saveError()}
+                  </div>
+                </Show>
+
                 {/* Tabs: README | Specs | Tasks | Validation | Thread */}
                 <nav class="slice-detail-tabs">
                   <For each={[
@@ -483,16 +439,38 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
                 <div class="slice-detail-tab-content">
                   <Show when={activeTab() === "readme"}>
-                    <SliceMarkdownSection label="README.md" content={docs()?.readme ?? ""} />
+                    <DocEditor
+                      projectId={projectId()}
+                      docKey="README"
+                      content={docs()?.readme ?? ""}
+                      onSave={(content) => void handleSaveDoc("readme", content)}
+                    />
                   </Show>
                   <Show when={activeTab() === "specs"}>
-                    <SliceMarkdownSection label="SPECS.md" content={docs()?.specs ?? ""} />
+                    <DocEditor
+                      projectId={projectId()}
+                      docKey="SPECS"
+                      content={docs()?.specs ?? ""}
+                      onSave={(content) => void handleSaveDoc("specs", content)}
+                    />
                   </Show>
                   <Show when={activeTab() === "tasks"}>
-                    <SliceTasksSection content={docs()?.tasks ?? ""} />
+                    <DocEditor
+                      projectId={projectId()}
+                      docKey="TASKS"
+                      content={docs()?.tasks ?? ""}
+                      onSave={(content) => void handleSaveDoc("tasks", content)}
+                    />
                   </Show>
                   <Show when={activeTab() === "validation"}>
-                    <SliceMarkdownSection label="VALIDATION.md" content={docs()?.validation ?? ""} />
+                    <DocEditor
+                      projectId={projectId()}
+                      docKey="VALIDATION"
+                      content={docs()?.validation ?? ""}
+                      onSave={(content) =>
+                        void handleSaveDoc("validation", content)
+                      }
+                    />
                   </Show>
                   <Show when={activeTab() === "thread"}>
                     <SliceThreadSection content={docs()?.thread ?? ""} />
@@ -710,6 +688,17 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
           flex-direction: column;
           overflow: hidden;
           min-width: 0;
+        }
+
+        .slice-detail-save-error {
+          margin: 12px 16px 0;
+          padding: 8px 10px;
+          border: 1px solid color-mix(in srgb, #e05c5c 35%, var(--border-default));
+          border-radius: 6px;
+          background: color-mix(in srgb, #e05c5c 12%, var(--bg-surface));
+          color: #e05c5c;
+          font-size: 12px;
+          flex-shrink: 0;
         }
 
         .slice-detail-tabs {
