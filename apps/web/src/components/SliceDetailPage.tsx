@@ -20,7 +20,12 @@ import {
   updateSlice,
   subscribeToFileChanges,
 } from "../api/client";
-import type { SliceStatus, SliceRecord, SubagentListItem, SubagentStatus } from "../api/types";
+import type {
+  SliceStatus,
+  SliceRecord,
+  SubagentListItem,
+  SubagentStatus,
+} from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 import { DocEditor } from "./board/DocEditor";
 
@@ -63,6 +68,11 @@ const UNKNOWN_STATUS_LABEL = "Unknown";
 
 type SectionTab = "readme" | "specs" | "tasks" | "validation" | "thread";
 type EditableSliceDocKey = Exclude<keyof SliceRecord["docs"], "thread">;
+type SliceThreadEntry = {
+  author: string;
+  date: string;
+  body: string;
+};
 type BlockerDetail = {
   id: string;
   projectId: string;
@@ -83,34 +93,119 @@ function projectIdFromSliceId(sliceId: string): string {
 }
 
 function formatRelative(iso: string): string {
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    const s = Math.floor(diff / 1000);
-    if (s < 60) return "just now";
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ago`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
-    return `${Math.floor(h / 24)}d ago`;
-  } catch {
-    return "";
+  const time = new Date(iso).getTime();
+  if (!Number.isFinite(time)) return "";
+  const diff = Math.max(0, Date.now() - time);
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function stripMarkdownFrontmatter(content: string): string {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+}
+
+function parseThreadMetadata(lines: string[]): {
+  author: string;
+  date: string;
+  bodyStart: number;
+} {
+  let author = "AIHub";
+  let date = "";
+  let bodyStart = 0;
+  for (; bodyStart < lines.length; bodyStart += 1) {
+    const line = lines[bodyStart]?.trim();
+    if (!line) continue;
+    const authorMatch = line.match(/^\[author:(.+)\]$/);
+    if (authorMatch) {
+      author = authorMatch[1].trim();
+      continue;
+    }
+    const dateMatch = line.match(/^\[date:(.+)\]$/);
+    if (dateMatch) {
+      date = dateMatch[1].trim();
+      continue;
+    }
+    break;
   }
+  return { author, date, bodyStart };
+}
+
+function parseSliceThreadEntries(content: string): SliceThreadEntry[] {
+  const body = stripMarkdownFrontmatter(content).trim();
+  if (!body) return [];
+
+  const headingMatches = Array.from(body.matchAll(/^##\s+(.+?)\s*$/gm));
+  if (headingMatches.length > 0) {
+    return headingMatches
+      .map((match, index) => {
+        const date = match[1]?.trim() ?? "";
+        const start = (match.index ?? 0) + match[0].length;
+        const end =
+          index + 1 < headingMatches.length
+            ? (headingMatches[index + 1]?.index ?? body.length)
+            : body.length;
+        const sectionBody = body.slice(start, end).trim();
+        const metadata = parseThreadMetadata(sectionBody.split(/\r?\n/));
+        return {
+          author: metadata.author,
+          date: metadata.date || date,
+          body: sectionBody
+            .split(/\r?\n/)
+            .slice(metadata.bodyStart)
+            .join("\n")
+            .trim(),
+        };
+      })
+      .filter((entry) => entry.body);
+  }
+
+  const metadata = parseThreadMetadata(body.split(/\r?\n/));
+  const entryBody = body
+    .split(/\r?\n/)
+    .slice(metadata.bodyStart)
+    .join("\n")
+    .trim();
+  return entryBody
+    ? [{ author: metadata.author, date: metadata.date, body: entryBody }]
+    : [];
 }
 
 function SliceThreadSection(props: { content: string }) {
+  const entries = createMemo(() => parseSliceThreadEntries(props.content));
   return (
     <div class="slice-detail-section">
       <h3 class="slice-detail-section-title">THREAD.md</h3>
       <Show
-        when={props.content.trim()}
-        fallback={<p class="slice-detail-empty">No comments yet.</p>}
+        when={entries().length > 0}
+        fallback={<p class="slice-detail-empty">No thread entries yet.</p>}
       >
-        <div
-          class="slice-detail-thread-markdown"
-          innerHTML={renderMarkdown(props.content, {
-            rewriteHref: (href) => href,
-          })}
-        />
+        <div class="slice-detail-thread-list">
+          <For each={entries()}>
+            {(entry) => (
+              <article class="slice-detail-thread-card">
+                <div class="slice-detail-thread-meta">
+                  <span class="slice-detail-thread-author">{entry.author}</span>
+                  <Show when={formatRelative(entry.date)}>
+                    {(relative) => (
+                      <span class="slice-detail-thread-date">{relative()}</span>
+                    )}
+                  </Show>
+                </div>
+                <div
+                  class="slice-detail-thread-markdown"
+                  innerHTML={renderMarkdown(entry.body, {
+                    rewriteHref: (href) => href,
+                  })}
+                />
+              </article>
+            )}
+          </For>
+        </div>
       </Show>
     </div>
   );
@@ -150,14 +245,17 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   );
 
   // Live refresh
-  createResource(() => projectId(), (pid) => {
-    const unsub = subscribeToFileChanges({
-      onFileChanged: (changedId) => {
-        if (changedId === pid) void refetch();
-      },
-    });
-    onCleanup(unsub);
-  });
+  createResource(
+    () => projectId(),
+    (pid) => {
+      const unsub = subscribeToFileChanges({
+        onFileChanged: (changedId) => {
+          if (changedId === pid) void refetch();
+        },
+      });
+      onCleanup(unsub);
+    }
+  );
 
   const handleStatusChange = async (status: SliceStatus) => {
     if (statusChanging()) return;
@@ -184,7 +282,10 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
     navigate(`/projects/${encodeURIComponent(projectId())}`);
   };
 
-  const handleSaveDoc = async (docKey: EditableSliceDocKey, content: string) => {
+  const handleSaveDoc = async (
+    docKey: EditableSliceDocKey,
+    content: string
+  ) => {
     const current = slice();
     if (!current) return;
 
@@ -262,7 +363,9 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
               <span class="slice-detail-sep">/</span>
               <span class="slice-detail-id">{detail().id}</span>
               <span class="slice-detail-sep">/</span>
-              <span class="slice-detail-title-crumb">{detail().frontmatter.title}</span>
+              <span class="slice-detail-title-crumb">
+                {detail().frontmatter.title}
+              </span>
             </header>
 
             <div class="slice-detail-body">
@@ -273,7 +376,9 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                   <div class="slice-detail-status-row">
                     <span
                       class="slice-detail-status-pill"
-                      style={{ background: STATUS_COLORS[frontmatter()!.status] }}
+                      style={{
+                        background: STATUS_COLORS[frontmatter()!.status],
+                      }}
                     >
                       {STATUS_LABELS[frontmatter()!.status]}
                     </span>
@@ -287,9 +392,16 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                           classList={{
                             active: frontmatter()!.status === s,
                           }}
-                          disabled={statusChanging() || frontmatter()!.status === s}
+                          disabled={
+                            statusChanging() || frontmatter()!.status === s
+                          }
                           onClick={() => void handleStatusChange(s)}
-                          style={{ "--dot-color": STATUS_COLORS[s] } as Record<string, string>}
+                          style={
+                            { "--dot-color": STATUS_COLORS[s] } as Record<
+                              string,
+                              string
+                            >
+                          }
                         >
                           <span class="slice-status-btn-dot" />
                           {STATUS_LABELS[s]}
@@ -354,14 +466,18 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                 <div class="slice-detail-meta-group">
                   <div class="slice-detail-meta-label">Created</div>
                   <div class="slice-detail-meta-value">
-                    {formatRelative(frontmatter()?.created_at as string ?? "")}
+                    {formatRelative(
+                      (frontmatter()?.created_at as string) ?? ""
+                    )}
                   </div>
                 </div>
 
                 <div class="slice-detail-meta-group">
                   <div class="slice-detail-meta-label">Updated</div>
                   <div class="slice-detail-meta-value">
-                    {formatRelative(frontmatter()?.updated_at as string ?? "")}
+                    {formatRelative(
+                      (frontmatter()?.updated_at as string) ?? ""
+                    )}
                   </div>
                 </div>
 
@@ -370,13 +486,19 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                   <Show when={recentRuns.loading}>
                     <div class="slice-detail-runs-empty">Loading…</div>
                   </Show>
-                  <Show when={!recentRuns.loading && (recentRuns() ?? []).length === 0}>
+                  <Show
+                    when={
+                      !recentRuns.loading && (recentRuns() ?? []).length === 0
+                    }
+                  >
                     <div class="slice-detail-runs-empty">No runs yet.</div>
                   </Show>
                   <For each={recentRuns() ?? []}>
                     {(run) => (
                       <div class="slice-detail-run-row">
-                        <span class="slice-detail-run-name">{run.name ?? run.slug}</span>
+                        <span class="slice-detail-run-name">
+                          {run.name ?? run.slug}
+                        </span>
                         <span
                           class="slice-detail-run-status"
                           classList={{
@@ -387,20 +509,45 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                         >
                           {RUN_STATUS_LABELS[run.status] ?? run.status}
                         </span>
+                        <Show
+                          when={formatRelative(
+                            run.lastActive ?? run.startedAt ?? ""
+                          )}
+                        >
+                          {(relative) => (
+                            <span class="slice-detail-run-time">
+                              {relative()}
+                            </span>
+                          )}
+                        </Show>
                       </div>
                     )}
                   </For>
                 </div>
 
                 {/* Frontmatter extras (any keys beyond known ones) */}
-                <For each={Object.entries(frontmatter() ?? {}).filter(
-                  ([k]) => !["id","project_id","title","status","blocked_by","hill_position","created_at","updated_at"].includes(k)
-                )}>
+                <For
+                  each={Object.entries(frontmatter() ?? {}).filter(
+                    ([k]) =>
+                      ![
+                        "id",
+                        "project_id",
+                        "title",
+                        "status",
+                        "blocked_by",
+                        "hill_position",
+                        "created_at",
+                        "updated_at",
+                      ].includes(k)
+                  )}
+                >
                   {([key, value]) => (
                     <div class="slice-detail-meta-group">
                       <div class="slice-detail-meta-label">{key}</div>
                       <div class="slice-detail-meta-value slice-detail-meta-mono">
-                        {typeof value === "string" ? value : JSON.stringify(value)}
+                        {typeof value === "string"
+                          ? value
+                          : JSON.stringify(value)}
                       </div>
                     </div>
                   )}
@@ -417,13 +564,15 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
                 {/* Tabs: README | Specs | Tasks | Validation | Thread */}
                 <nav class="slice-detail-tabs">
-                  <For each={[
-                    { id: "readme" as SectionTab, label: "README" },
-                    { id: "specs" as SectionTab, label: "Specs" },
-                    { id: "tasks" as SectionTab, label: "Tasks" },
-                    { id: "validation" as SectionTab, label: "Validation" },
-                    { id: "thread" as SectionTab, label: "Thread" },
-                  ]}>
+                  <For
+                    each={[
+                      { id: "readme" as SectionTab, label: "README" },
+                      { id: "specs" as SectionTab, label: "Specs" },
+                      { id: "tasks" as SectionTab, label: "Tasks" },
+                      { id: "validation" as SectionTab, label: "Validation" },
+                      { id: "thread" as SectionTab, label: "Thread" },
+                    ]}
+                  >
                     {(tab) => (
                       <button
                         type="button"
@@ -443,7 +592,9 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                       projectId={projectId()}
                       docKey="README"
                       content={docs()?.readme ?? ""}
-                      onSave={(content) => void handleSaveDoc("readme", content)}
+                      onSave={(content) =>
+                        void handleSaveDoc("readme", content)
+                      }
                     />
                   </Show>
                   <Show when={activeTab() === "specs"}>
@@ -765,6 +916,36 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
           line-height: 1.6;
         }
 
+        .slice-detail-thread-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .slice-detail-thread-card {
+          padding: 10px 12px;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: var(--bg-surface);
+        }
+
+        .slice-detail-thread-meta {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 6px;
+          font-size: 12px;
+        }
+
+        .slice-detail-thread-author {
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+
+        .slice-detail-thread-date {
+          color: var(--text-secondary);
+        }
+
         .slice-detail-thread-markdown {
           font-size: 13px;
           color: var(--text-primary);
@@ -915,6 +1096,12 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
           border-radius: 4px;
           padding: 1px 5px;
           background: var(--bg-elevated);
+          color: var(--text-tertiary);
+          flex-shrink: 0;
+        }
+
+        .slice-detail-run-time {
+          font-size: 11px;
           color: var(--text-tertiary);
           flex-shrink: 0;
         }

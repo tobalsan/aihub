@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { SliceDetailPage } from "./SliceDetailPage";
-import type { SliceRecord } from "../api/types";
+import type { SliceRecord, SubagentListItem } from "../api/types";
 import { updateSlice } from "../api/client";
 
 const MOCK_SLICE: SliceRecord = {
@@ -30,13 +30,15 @@ const MOCK_SLICE: SliceRecord = {
 
 let fetchSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
+let fetchSubagentsMock: ReturnType<typeof vi.fn>;
+let dateNowSpy: { mockRestore: () => void };
 
 vi.mock("../api/client", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
   fetchSlice: (...args: unknown[]) => fetchSliceMock(...args),
   updateSlice: vi.fn(async () => MOCK_SLICE),
   subscribeToFileChanges: vi.fn(() => () => {}),
-  fetchSubagents: vi.fn(async () => ({ ok: true as const, data: { items: [] } })),
+  fetchSubagents: (...args: unknown[]) => fetchSubagentsMock(...args),
 }));
 
 vi.mock("@solidjs/router", () => ({
@@ -70,13 +72,21 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  dateNowSpy = vi
+    .spyOn(Date, "now")
+    .mockReturnValue(new Date("2026-01-02T00:05:00.000Z").getTime());
   container = document.createElement("div");
   document.body.appendChild(container);
   fetchSliceMock = vi.fn(async () => MOCK_SLICE);
   fetchSlicesMock = vi.fn(async () => [MOCK_SLICE]);
+  fetchSubagentsMock = vi.fn(async () => ({
+    ok: true as const,
+    data: { items: [] as SubagentListItem[] },
+  }));
 });
 
 afterEach(() => {
+  dateNowSpy.mockRestore();
   document.body.removeChild(container);
 });
 
@@ -86,16 +96,24 @@ describe("SliceDetailPage", () => {
     await vi.waitFor(() => {
       expect(container.querySelector(".slice-detail-id")).not.toBeNull();
     });
-    expect(container.querySelector(".slice-detail-id")?.textContent).toBe("PRO-1-S01");
-    expect(container.querySelector(".slice-detail-title-crumb")?.textContent).toBe("Auth flow");
+    expect(container.querySelector(".slice-detail-id")?.textContent).toBe(
+      "PRO-1-S01"
+    );
+    expect(
+      container.querySelector(".slice-detail-title-crumb")?.textContent
+    ).toBe("Auth flow");
   });
 
   it("renders status pill with current status", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-detail-status-pill")).not.toBeNull();
+      expect(
+        container.querySelector(".slice-detail-status-pill")
+      ).not.toBeNull();
     });
-    expect(container.querySelector(".slice-detail-status-pill")?.textContent).toBe("In Progress");
+    expect(
+      container.querySelector(".slice-detail-status-pill")?.textContent
+    ).toBe("In Progress");
   });
 
   it("renders frontmatter metadata in sidebar", async () => {
@@ -176,7 +194,9 @@ describe("SliceDetailPage", () => {
   it("renders README tab content by default", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-detail-tab-content")).not.toBeNull();
+      expect(
+        container.querySelector(".slice-detail-tab-content")
+      ).not.toBeNull();
     });
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
     expect(tabs.length).toBe(5);
@@ -200,7 +220,9 @@ describe("SliceDetailPage", () => {
     const tasksTab = tabs[2] as HTMLElement;
     tasksTab.click();
     await vi.waitFor(() => {
-      expect(container.querySelector("[data-testid='doc-editor']")).not.toBeNull();
+      expect(
+        container.querySelector("[data-testid='doc-editor']")
+      ).not.toBeNull();
     });
     const editor = container.querySelector("[data-testid='doc-editor']");
     expect(editor?.getAttribute("data-dockey")).toBe("TASKS");
@@ -213,17 +235,23 @@ describe("SliceDetailPage", () => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
       expect(tabs.length).toBe(5);
     });
-    const specsTab = container.querySelectorAll(".slice-detail-tab-btn")[1] as HTMLElement;
+    const specsTab = container.querySelectorAll(
+      ".slice-detail-tab-btn"
+    )[1] as HTMLElement;
     specsTab.click();
     await vi.waitFor(() => {
-      expect(container.querySelector("[data-testid='doc-editor']")).not.toBeNull();
+      expect(
+        container.querySelector("[data-testid='doc-editor']")
+      ).not.toBeNull();
     });
     const editor = container.querySelector("[data-testid='doc-editor']");
     expect(editor?.getAttribute("data-dockey")).toBe("SPECS");
-    expect(editor?.getAttribute("data-content")).toContain("Implement OAuth login.");
+    expect(editor?.getAttribute("data-content")).toContain(
+      "Implement OAuth login."
+    );
   });
 
-  it("renders thread markdown safely", async () => {
+  it("renders thread entries as markdown comment cards safely", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
@@ -234,10 +262,24 @@ describe("SliceDetailPage", () => {
     (tabs[4] as HTMLElement).click();
 
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-detail-thread-markdown")).not.toBeNull();
+      expect(
+        container.querySelector(".slice-detail-thread-card")
+      ).not.toBeNull();
     });
 
-    const body = container.querySelector(".slice-detail-thread-markdown") as HTMLElement;
+    const card = container.querySelector(
+      ".slice-detail-thread-card"
+    ) as HTMLElement;
+    expect(card.querySelector(".slice-detail-thread-author")?.textContent).toBe(
+      "AIHub"
+    );
+    expect(card.querySelector(".slice-detail-thread-date")?.textContent).toBe(
+      "5m ago"
+    );
+
+    const body = card.querySelector(
+      ".slice-detail-thread-markdown"
+    ) as HTMLElement;
     expect(body.textContent).toContain("Worker: Done with auth.");
     expect(body.innerHTML).toContain("<strong>Done</strong>");
     expect(body.innerHTML).not.toContain("<script>");
@@ -247,13 +289,99 @@ describe("SliceDetailPage", () => {
     expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
+  it("renders empty thread placeholder", async () => {
+    fetchSliceMock = vi.fn(async () => ({
+      ...MOCK_SLICE,
+      docs: { ...MOCK_SLICE.docs, thread: "" },
+    }));
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
+        5
+      );
+    });
+
+    const tabs = container.querySelectorAll(".slice-detail-tab-btn");
+    (tabs[4] as HTMLElement).click();
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-detail-empty")?.textContent).toBe(
+        "No thread entries yet."
+      );
+    });
+  });
+
+  it("renders recent runs timestamps only when available", async () => {
+    fetchSubagentsMock = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        items: [
+          {
+            slug: "worker",
+            name: "Worker",
+            status: "replied",
+            sliceId: "PRO-1-S01",
+            lastActive: "2026-01-02T00:02:00.000Z",
+          },
+          {
+            slug: "reviewer",
+            name: "Reviewer",
+            status: "running",
+            sliceId: "PRO-1-S01",
+            startedAt: "2026-01-01T22:05:00.000Z",
+          },
+          {
+            slug: "untimed",
+            name: "Untimed",
+            status: "error",
+            sliceId: "PRO-1-S01",
+          },
+          {
+            slug: "other-slice",
+            name: "Other Slice",
+            status: "replied",
+            sliceId: "PRO-1-S02",
+            lastActive: "2026-01-02T00:04:00.000Z",
+          },
+        ] satisfies SubagentListItem[],
+      },
+    }));
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll(".slice-detail-run-row").length).toBe(
+        3
+      );
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll(".slice-detail-run-row")
+    );
+    expect(rows[0]?.textContent).toContain("Worker");
+    expect(rows[0]?.querySelector(".slice-detail-run-time")?.textContent).toBe(
+      "3m ago"
+    );
+    expect(rows[1]?.textContent).toContain("Reviewer");
+    expect(rows[1]?.querySelector(".slice-detail-run-time")?.textContent).toBe(
+      "2h ago"
+    );
+    expect(rows[2]?.textContent).toContain("Untimed");
+    expect(rows[2]?.querySelector(".slice-detail-run-time")).toBeNull();
+    expect(container.textContent).not.toContain("Other Slice");
+  });
+
   it("saves each editable document tab through updateSlice", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
-      expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(5);
+      expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
+        5
+      );
     });
 
-    const tabs = Array.from(container.querySelectorAll(".slice-detail-tab-btn")) as HTMLElement[];
+    const tabs = Array.from(
+      container.querySelectorAll(".slice-detail-tab-btn")
+    ) as HTMLElement[];
     const cases = [
       { tab: tabs[0], key: "README", payload: { readme: "saved:README" } },
       { tab: tabs[1], key: "SPECS", payload: { specs: "saved:SPECS" } },
@@ -269,7 +397,9 @@ describe("SliceDetailPage", () => {
       item.tab.click();
       await vi.waitFor(() => {
         expect(
-          container.querySelector("[data-testid='doc-editor']")?.getAttribute("data-dockey")
+          container
+            .querySelector("[data-testid='doc-editor']")
+            ?.getAttribute("data-dockey")
         ).toBe(item.key);
       });
       const button = container.querySelector(
@@ -277,7 +407,11 @@ describe("SliceDetailPage", () => {
       ) as HTMLButtonElement;
       button.click();
       await vi.waitFor(() => {
-        expect(updateSlice).toHaveBeenCalledWith("PRO-1", "PRO-1-S01", item.payload);
+        expect(updateSlice).toHaveBeenCalledWith(
+          "PRO-1",
+          "PRO-1-S01",
+          item.payload
+        );
       });
     }
   });
