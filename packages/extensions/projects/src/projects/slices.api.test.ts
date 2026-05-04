@@ -4,6 +4,7 @@ import * as path from "node:path";
 import os from "node:os";
 
 let clearProjectsContextForTest: (() => void) | undefined;
+let emittedEvents: unknown[] = [];
 
 describe("slices HTTP API", () => {
   let tmpDir: string;
@@ -49,9 +50,8 @@ describe("slices HTTP API", () => {
     );
 
     vi.resetModules();
-    const { setProjectsContext, clearProjectsContext } = await import(
-      "../context.js"
-    );
+    const { setProjectsContext, clearProjectsContext } =
+      await import("../context.js");
     clearProjectsContextForTest = clearProjectsContext;
     setProjectsContext({
       getConfig: () => config,
@@ -71,20 +71,19 @@ describe("slices HTTP API", () => {
       invalidateHistoryCache: async () => {},
       getSessionHistory: async () => [],
       subscribe: () => () => {},
-      emit: () => {},
+      emit: (_event: string, payload: unknown) => {
+        emittedEvents.push(payload);
+      },
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
 
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../../../../../apps/gateway/src/config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../../../../../apps/gateway/src/config/index.js");
     clearConfigCacheForTests();
-    const { loadExtensions } = await import(
-      "../../../../../apps/gateway/src/extensions/registry.js"
-    );
-    const mod = await import(
-      "../../../../../apps/gateway/src/server/api.core.js"
-    );
+    const { loadExtensions } =
+      await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod =
+      await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -116,9 +115,7 @@ describe("slices HTTP API", () => {
   });
 
   it("GET /projects/:id/slices returns empty list initially", async () => {
-    const res = await api.request(
-      `/projects/${createdProjectId}/slices`
-    );
+    const res = await api.request(`/projects/${createdProjectId}/slices`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { slices: unknown[] };
     expect(Array.isArray(body.slices)).toBe(true);
@@ -126,14 +123,12 @@ describe("slices HTTP API", () => {
   });
 
   it("POST /projects/:id/slices creates a slice", async () => {
-    const res = await api.request(
-      `/projects/${createdProjectId}/slices`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Auth flow" }),
-      }
-    );
+    emittedEvents = [];
+    const res = await api.request(`/projects/${createdProjectId}/slices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Auth flow" }),
+    });
     expect(res.status).toBe(201);
     const slice = (await res.json()) as {
       id: string;
@@ -142,12 +137,24 @@ describe("slices HTTP API", () => {
     expect(slice.id).toMatch(/^PRO-\d+-S\d+$/);
     expect(slice.frontmatter.title).toBe("Auth flow");
     expect(slice.frontmatter.status).toBe("todo");
+    expect(emittedEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file_changed",
+          projectId: createdProjectId,
+          file: expect.stringMatching(new RegExp(`/${slice.id}/README\\.md$`)),
+        }),
+        expect.objectContaining({
+          type: "file_changed",
+          projectId: createdProjectId,
+          file: expect.stringMatching(/\/SCOPE_MAP\.md$/),
+        }),
+      ])
+    );
   });
 
   it("GET /projects/:id/slices lists created slices", async () => {
-    const res = await api.request(
-      `/projects/${createdProjectId}/slices`
-    );
+    const res = await api.request(`/projects/${createdProjectId}/slices`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { slices: Array<{ id: string }> };
     expect(body.slices.length).toBeGreaterThanOrEqual(1);
@@ -174,7 +181,12 @@ describe("slices HTTP API", () => {
     expect(res.status).toBe(200);
     const slice = (await res.json()) as {
       id: string;
-      docs: { specs: string; tasks: string; validation: string; thread: string };
+      docs: {
+        specs: string;
+        tasks: string;
+        validation: string;
+        thread: string;
+      };
     };
     expect(slice.id).toBe(created.id);
     expect(slice.docs.specs).toContain("Profile spec");
@@ -191,6 +203,7 @@ describe("slices HTTP API", () => {
       }
     );
     const created = (await createRes.json()) as { id: string };
+    emittedEvents = [];
 
     const patchRes = await api.request(
       `/projects/${createdProjectId}/slices/${created.id}`,
@@ -205,6 +218,22 @@ describe("slices HTTP API", () => {
       frontmatter: { status: string };
     };
     expect(updated.frontmatter.status).toBe("in_progress");
+    expect(emittedEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file_changed",
+          projectId: createdProjectId,
+          file: expect.stringMatching(
+            new RegExp(`/${created.id}/README\\.md$`)
+          ),
+        }),
+        expect.objectContaining({
+          type: "file_changed",
+          projectId: createdProjectId,
+          file: expect.stringMatching(/\/SCOPE_MAP\.md$/),
+        }),
+      ])
+    );
   });
 
   it("PATCH /projects/:id/slices/:sliceId updates docs and preserves README frontmatter", async () => {
@@ -272,14 +301,11 @@ describe("slices HTTP API", () => {
   });
 
   it("POST with missing title returns 400", async () => {
-    const res = await api.request(
-      `/projects/${createdProjectId}/slices`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }
-    );
+    const res = await api.request(`/projects/${createdProjectId}/slices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     expect(res.status).toBe(400);
   });
 

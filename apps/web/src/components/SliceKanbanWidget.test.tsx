@@ -51,6 +51,13 @@ let updateSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
 let fetchSubagentsMock: ReturnType<typeof vi.fn>;
 let subagentChangeCallback: (() => void) | undefined;
+let fileChangeCallbacks:
+  | {
+      onFileChanged?: (projectId: string, file: string) => void;
+      onAgentChanged?: (projectId: string) => void;
+      onError?: (error: string) => void;
+    }
+  | undefined;
 
 vi.mock("../api/client", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
@@ -65,11 +72,22 @@ vi.mock("../api/client", () => ({
       title: "New slice",
     },
   })),
-  subscribeToFileChanges: vi.fn(() => () => {}),
   subscribeToSubagentChanges: vi.fn(
     (callbacks: { onSubagentChanged?: () => void }) => {
       subagentChangeCallback = callbacks.onSubagentChanged;
       return () => {};
+    }
+  ),
+  subscribeToFileChanges: vi.fn(
+    (callbacks: {
+      onFileChanged?: (projectId: string, file: string) => void;
+      onAgentChanged?: (projectId: string) => void;
+      onError?: (error: string) => void;
+    }) => {
+      fileChangeCallbacks = callbacks;
+      return () => {
+        fileChangeCallbacks = undefined;
+      };
     }
   ),
 }));
@@ -95,10 +113,13 @@ beforeEach(() => {
       },
     })
   );
+  fileChangeCallbacks = undefined;
+  subagentChangeCallback = undefined;
 });
 
 afterEach(() => {
   document.body.removeChild(container);
+  vi.useRealTimers();
 });
 
 describe("SliceKanbanWidget", () => {
@@ -194,6 +215,31 @@ describe("SliceKanbanWidget", () => {
     expect(todoBadge?.textContent).toBe("1");
   });
 
+  it("debounces matching project file changes before refetching slices", async () => {
+    vi.useFakeTimers();
+    render(() => <SliceKanbanWidget projectId="PRO-1" />, container);
+    await vi.runAllTimersAsync();
+
+    const initialCalls = fetchSlicesMock.mock.calls.length;
+    expect(initialCalls).toBeGreaterThan(0);
+    expect(fileChangeCallbacks?.onFileChanged).toBeTypeOf("function");
+
+    fileChangeCallbacks?.onFileChanged?.("PRO-2", "PRO-2_other/README.md");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(fetchSlicesMock.mock.calls.length).toBe(initialCalls);
+
+    fileChangeCallbacks?.onFileChanged?.(
+      "PRO-1",
+      "PRO-1_test/slices/PRO-1-S01/README.md"
+    );
+    await vi.advanceTimersByTimeAsync(249);
+    expect(fetchSlicesMock.mock.calls.length).toBe(initialCalls);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchSlicesMock.mock.calls.length).toBe(initialCalls + 1);
+    vi.useRealTimers();
+  });
+
   it("shows blocked badge and dims card when any blocker is non-terminal", async () => {
     fetchSlicesMock = vi.fn(async (projectId: string) => {
       if (projectId === "PRO-2") {
@@ -272,6 +318,7 @@ describe("SliceKanbanWidget", () => {
   });
 
   it("removes the active agent pill after subagent changes refetch", async () => {
+    vi.useFakeTimers();
     fetchSubagentsMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -295,6 +342,7 @@ describe("SliceKanbanWidget", () => {
     });
 
     subagentChangeCallback?.();
+    await vi.advanceTimersByTimeAsync(250);
 
     await vi.waitFor(() => {
       expect(container.querySelector(".slice-card-agent-active")).toBeNull();

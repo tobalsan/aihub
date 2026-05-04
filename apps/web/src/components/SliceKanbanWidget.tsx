@@ -6,6 +6,7 @@
 import {
   For,
   Show,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -60,14 +61,6 @@ function blockerStatusLabel(status: SliceStatus | undefined): string {
   return status ?? "unknown";
 }
 
-function debounce(callback: () => void, delayMs: number): () => void {
-  let timer: number | undefined;
-  return () => {
-    if (timer !== undefined) window.clearTimeout(timer);
-    timer = window.setTimeout(callback, delayMs);
-  };
-}
-
 export function SliceKanbanWidget(props: Props) {
   const navigate = useNavigate();
 
@@ -80,33 +73,6 @@ export function SliceKanbanWidget(props: Props) {
     async (projectId) => {
       const result = await fetchSubagents(projectId, true);
       return result.ok ? result.data.items : ([] as SubagentListItem[]);
-    }
-  );
-
-  // Live refresh on project file changes (scope map or slice readme edits)
-  createResource(
-    () => props.projectId,
-    (projectId) => {
-      const debouncedRefetchRuns = debounce(() => {
-        void refetchAgentRuns();
-      }, 250);
-      const unsub = subscribeToFileChanges({
-        onFileChanged: (changedProjectId) => {
-          if (changedProjectId === projectId) {
-            void refetch();
-          }
-        },
-        onAgentChanged: (changedProjectId) => {
-          if (changedProjectId === projectId) debouncedRefetchRuns();
-        },
-      });
-      const unsubSubagents = subscribeToSubagentChanges({
-        onSubagentChanged: () => debouncedRefetchRuns(),
-      });
-      onCleanup(() => {
-        unsub();
-        unsubSubagents();
-      });
     }
   );
 
@@ -135,22 +101,80 @@ export function SliceKanbanWidget(props: Props) {
     ),
   ]);
 
-  const [externalBlockerSlices] = createResource(
-    () => blockerProjectIds().join(","),
-    async (key) => {
-      if (!key) return [] as SliceRecord[];
-      const nested = await Promise.all(
-        key.split(",").map(async (pid) => {
-          try {
-            return await fetchSlices(pid);
-          } catch {
-            return [] as SliceRecord[];
-          }
-        })
-      );
-      return nested.flat();
-    }
-  );
+  const [externalBlockerSlices, { refetch: refetchExternalBlockers }] =
+    createResource(
+      () => blockerProjectIds().join(","),
+      async (key) => {
+        if (!key) return [] as SliceRecord[];
+        const nested = await Promise.all(
+          key.split(",").map(async (pid) => {
+            try {
+              return await fetchSlices(pid);
+            } catch {
+              return [] as SliceRecord[];
+            }
+          })
+        );
+        return nested.flat();
+      }
+    );
+
+  // Live refresh on slice/project file changes. Debounced to collapse CLI and
+  // orchestrator bursts that rewrite README + SCOPE_MAP together.
+  createEffect(() => {
+    const projectId = props.projectId;
+    const externalProjectIds = blockerProjectIds();
+    let refreshTimer: number | undefined;
+    let agentRefreshTimer: number | undefined;
+    let shouldRefreshSlices = false;
+    let shouldRefreshExternalBlockers = false;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        if (shouldRefreshSlices) void refetch();
+        if (shouldRefreshExternalBlockers) void refetchExternalBlockers();
+        shouldRefreshSlices = false;
+        shouldRefreshExternalBlockers = false;
+        refreshTimer = undefined;
+      }, 250);
+    };
+
+    const scheduleAgentRefresh = () => {
+      if (agentRefreshTimer) window.clearTimeout(agentRefreshTimer);
+      agentRefreshTimer = window.setTimeout(() => {
+        void refetchAgentRuns();
+        agentRefreshTimer = undefined;
+      }, 250);
+    };
+
+    const unsubscribe = subscribeToFileChanges({
+      onFileChanged: (changedProjectId) => {
+        if (changedProjectId === projectId) {
+          shouldRefreshSlices = true;
+          scheduleRefresh();
+          return;
+        }
+        if (externalProjectIds.includes(changedProjectId)) {
+          shouldRefreshExternalBlockers = true;
+          scheduleRefresh();
+        }
+      },
+      onAgentChanged: (changedProjectId) => {
+        if (changedProjectId === projectId) scheduleAgentRefresh();
+      },
+    });
+    const unsubscribeSubagents = subscribeToSubagentChanges({
+      onSubagentChanged: () => scheduleAgentRefresh(),
+    });
+
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      if (agentRefreshTimer) window.clearTimeout(agentRefreshTimer);
+      unsubscribe();
+      unsubscribeSubagents();
+    });
+  });
 
   const blockerStatusIndex = createMemo(() => {
     const index = new Map<string, SliceStatus>();

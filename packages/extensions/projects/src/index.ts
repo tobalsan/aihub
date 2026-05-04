@@ -312,6 +312,37 @@ function emitUpdatedProjectFiles(
   }
 }
 
+function emitUpdatedSliceFiles(
+  projectId: string,
+  projectDirName: string,
+  sliceId: string,
+  input: {
+    status?: unknown;
+    specs?: unknown;
+    tasks?: unknown;
+    validation?: unknown;
+    thread?: unknown;
+  }
+): void {
+  const updatedFiles = new Set<string>([
+    `slices/${sliceId}/README.md`,
+    "SCOPE_MAP.md",
+  ]);
+  if (input.specs !== undefined) updatedFiles.add(`slices/${sliceId}/SPECS.md`);
+  if (input.tasks !== undefined) updatedFiles.add(`slices/${sliceId}/TASKS.md`);
+  if (input.validation !== undefined) {
+    updatedFiles.add(`slices/${sliceId}/VALIDATION.md`);
+  }
+  if (input.thread !== undefined)
+    updatedFiles.add(`slices/${sliceId}/THREAD.md`);
+  if (input.status === "done" || input.status === "cancelled") {
+    updatedFiles.add("README.md");
+  }
+  for (const fileName of updatedFiles) {
+    emitProjectFileChanged(projectId, projectDirName, fileName);
+  }
+}
+
 function normalizeRunAgent(
   value?: string
 ): { type: "aihub"; id: string } | { type: "cli"; id: string } | null {
@@ -1149,6 +1180,12 @@ export function registerProjectRoutes(app: Hono): void {
         typeof body.validation === "string" ? body.validation : undefined,
       thread: typeof body.thread === "string" ? body.thread : undefined,
     });
+    emitUpdatedSliceFiles(
+      id,
+      projectDirNameFromPath(project.data.path),
+      slice.id,
+      body
+    );
     return c.json(slice, 201);
   });
 
@@ -1196,6 +1233,12 @@ export function registerProjectRoutes(app: Hono): void {
           typeof body.validation === "string" ? body.validation : undefined,
         thread: typeof body.thread === "string" ? body.thread : undefined,
       });
+      emitUpdatedSliceFiles(
+        id,
+        projectDirNameFromPath(project.data.path),
+        sliceId,
+        body
+      );
       return c.json(slice);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "not found";
