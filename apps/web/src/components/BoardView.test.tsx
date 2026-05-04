@@ -18,6 +18,7 @@ const searchParamsProxy = new Proxy(
 
 const {
   fetchAgentsMock,
+  fetchAreaSummariesMock,
   fetchBoardProjectsMock,
   fetchFullHistoryMock,
   fetchProjectMock,
@@ -29,6 +30,7 @@ const {
   uploadFilesMock,
 } = vi.hoisted(() => ({
   fetchAgentsMock: vi.fn(),
+  fetchAreaSummariesMock: vi.fn(),
   fetchBoardProjectsMock: vi.fn(),
   fetchFullHistoryMock: vi.fn(),
   fetchProjectMock: vi.fn(),
@@ -51,14 +53,48 @@ vi.mock("@solidjs/router", () => ({
   ],
 }));
 
+// Mock heavy sub-components used by BoardProjectDetailPage
+vi.mock("./board/DocEditor", () => ({
+  DocEditor: (props: {
+    projectId: string;
+    docKey: string;
+    content: string;
+  }) => (
+    <div
+      data-testid="doc-editor"
+      data-dockey={props.docKey}
+      data-project-id={props.projectId}
+    />
+  ),
+}));
+
+vi.mock("../SliceKanbanWidget", () => ({
+  SliceKanbanWidget: (props: { projectId: string }) => (
+    <div data-testid="slice-kanban" data-project-id={props.projectId} />
+  ),
+}));
+
+vi.mock("../ActivityFeed", () => ({
+  ActivityFeed: (props: { projectId: string }) => (
+    <div data-testid="activity-feed" data-project-id={props.projectId} />
+  ),
+}));
+
 vi.mock("../api/client", () => ({
+  addProjectComment: vi.fn(),
   createProject: vi.fn(),
+  createSlice: vi.fn(),
   fetchAgents: fetchAgentsMock,
+  fetchAreas: vi.fn(async () => []),
+  fetchAreaSummaries: fetchAreaSummariesMock,
+  fetchBoardActivity: vi.fn(async () => ({ items: [] })),
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchFullHistory: fetchFullHistoryMock,
   fetchProject: fetchProjectMock,
   fetchRuntimeSubagentLogs: vi.fn(),
+  fetchSlices: vi.fn(async () => []),
   getSessionKey: getSessionKeyMock,
+  moveBoardProject: vi.fn(),
   interruptRuntimeSubagent: vi.fn(),
   postAbort: vi.fn(),
   resumeRuntimeSubagent: vi.fn(),
@@ -67,6 +103,7 @@ vi.mock("../api/client", () => ({
   subscribeToSubagentChanges: subscribeToSubagentChangesMock,
   subscribeToSession: subscribeToSessionMock,
   updateProject: vi.fn(),
+  updateSlice: vi.fn(),
   uploadFiles: uploadFilesMock,
 }));
 
@@ -123,11 +160,18 @@ describe("BoardView attachments", () => {
         id: "PRO-1",
         title: "Embedded Overview Project",
         area: "platform",
-        status: "maybe",
+        status: "active",
+        lifecycleStatus: "active",
         group: "active",
         created: "2026-04-30T10:00:00.000Z",
+        sliceProgress: { done: 1, total: 2 },
+        lastActivity: "2026-04-30T10:00:00.000Z",
+        activeRunCount: 0,
         worktrees: [],
       },
+    ]);
+    fetchAreaSummariesMock.mockResolvedValue([
+      { id: "platform", title: "Platform", projectCount: 1 },
     ]);
     fetchProjectMock.mockResolvedValue({
       id: "PRO-1",
@@ -247,19 +291,21 @@ describe("BoardView attachments", () => {
     dispose();
   });
 
-  it("renders ProjectsOverview in the Projects tab", async () => {
+  it("renders the lifecycle list in the Project lifecycle tab", async () => {
     const { container, dispose } = renderView();
     await tick();
     await tick();
 
     const projectsTab = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
-    ).find((button) => button.textContent === "Projects");
+    ).find((button) => button.textContent === "Project lifecycle");
     projectsTab?.click();
     await tick();
     await tick();
 
-    expect(container.querySelector(".projects-overview")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="project-list-grouped"]')
+    ).not.toBeNull();
     expect(container.textContent).toContain("Embedded Overview Project");
 
     dispose();
@@ -271,39 +317,59 @@ describe("BoardView attachments", () => {
         id: "PRO-1",
         title: "Embedded Overview Project",
         area: "platform",
-        status: "maybe",
+        status: "active",
+        lifecycleStatus: "active",
         group: "active",
         created: "2026-04-30T10:00:00.000Z",
+        sliceProgress: { done: 0, total: 1 },
+        lastActivity: "2026-04-30T10:00:00.000Z",
+        activeRunCount: 0,
         worktrees: [],
       },
       {
         id: "PRO-2",
         title: "Second Embedded Project",
         area: "platform",
-        status: "maybe",
+        status: "active",
+        lifecycleStatus: "active",
         group: "active",
         created: "2026-04-30T10:00:00.000Z",
+        sliceProgress: { done: 0, total: 1 },
+        lastActivity: "2026-04-30T10:00:00.000Z",
+        activeRunCount: 0,
         worktrees: [],
       },
     ]);
+    fetchProjectMock.mockResolvedValue({
+      id: "PRO-2",
+      title: "Second Embedded Project",
+      path: "PRO-2",
+      absolutePath: "/tmp/PRO-2",
+      repoValid: true,
+      frontmatter: { status: "active" },
+      docs: { README: "# Second Embedded Project" },
+      thread: [],
+    });
     const { container, dispose } = renderView();
     await tick();
     await tick();
 
     const projectsTab = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
-    ).find((button) => button.textContent === "Projects");
+    ).find((button) => button.textContent === "Project lifecycle");
     projectsTab?.click();
     await tick();
     await tick();
 
     vi.mocked(fetch).mockClear();
-    const row = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".po-project-row")
-    ).find((button) => button.textContent?.includes("Second Embedded Project"));
+    const row = container.querySelector<HTMLElement>(
+      '[data-testid="project-card-PRO-2"]'
+    );
     row?.click();
     await tick();
+    await tick();
 
+    // Canvas state must NOT be updated to projects:detail
     expect(
       vi
         .mocked(fetch)
@@ -311,9 +377,51 @@ describe("BoardView attachments", () => {
           String(init?.body ?? "").includes("projects:detail")
         )
     ).toBe(false);
-    expect(container.querySelector(".po-detail")?.textContent).toContain(
-      "Second Embedded Project"
+    // Detail page shown inline — .bpd element present
+    expect(container.querySelector(".bpd")).not.toBeNull();
+    // No router navigation triggered
+    expect(container.textContent).toContain("Second Embedded Project");
+
+    dispose();
+  });
+
+  it("clicking a project in lifecycle tab shows BoardProjectDetailPage inline", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Project lifecycle");
+    projectsTab?.click();
+    await tick();
+    await tick();
+
+    // List is visible before clicking
+    expect(
+      container.querySelector('[data-testid="project-list-grouped"]')
+    ).not.toBeNull();
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-testid="project-card-PRO-1"]'
     );
+    row?.click();
+    await tick();
+    await tick();
+
+    // List hidden, detail page shown
+    expect(
+      container.querySelector('[data-testid="project-list-grouped"]')
+    ).toBeNull();
+    expect(container.querySelector(".bpd")).not.toBeNull();
+    // Back button returns to list
+    const back = container.querySelector(".bpd-back") as HTMLButtonElement;
+    back?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    expect(
+      container.querySelector('[data-testid="project-list-grouped"]')
+    ).not.toBeNull();
+    expect(container.querySelector(".bpd")).toBeNull();
 
     dispose();
   });

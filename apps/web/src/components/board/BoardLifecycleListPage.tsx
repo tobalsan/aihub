@@ -6,9 +6,17 @@ import {
   subscribeToFileChanges,
   subscribeToSubagentChanges,
 } from "../../api/client";
+import type { BoardProject } from "../../api/types";
 import { ProjectListGrouped } from "./ProjectListGrouped";
 
-export function BoardLifecycleListPage() {
+export type BoardLifecycleListPageProps = {
+  /** Override default navigate-to-route behavior for project clicks (e.g. inline embedding). */
+  onProjectClick?: (project: BoardProject) => void;
+};
+
+export function BoardLifecycleListPage(
+  props: BoardLifecycleListPageProps = {}
+) {
   const navigate = useNavigate();
   const [projects, { refetch: refetchProjects }] = createResource(() =>
     fetchBoardProjects(true)
@@ -40,11 +48,18 @@ export function BoardLifecycleListPage() {
     <div class="board-lifecycle-page" data-testid="board-lifecycle-page">
       <ProjectListGrouped
         projects={projects() ?? []}
-        areas={(areas() ?? []).map((area) => ({ id: area.id, name: area.title }))}
+        areas={(areas() ?? []).map((area) => ({
+          id: area.id,
+          name: area.title,
+        }))}
         loading={projects.loading}
         error={projects.error ? "Failed to load projects" : undefined}
         onRetry={() => void refetchProjects()}
-        onProjectClick={(project) => navigate(`/board/projects/${encodeURIComponent(project.id)}`)}
+        onProjectClick={(project) =>
+          props.onProjectClick
+            ? props.onProjectClick(project)
+            : navigate(`/board/projects/${encodeURIComponent(project.id)}`)
+        }
       />
       <style>{`
         .board-lifecycle-page {

@@ -1,4 +1,10 @@
-import { Router, Route, useParams, useLocation, useNavigate } from "@solidjs/router";
+import {
+  Router,
+  Route,
+  useParams,
+  useLocation,
+  useNavigate,
+} from "@solidjs/router";
 import {
   Show,
   Suspense,
@@ -41,6 +47,11 @@ const LazyAreasOverview = lazy(() =>
 const LazyBoardLifecycleListPage = lazy(() =>
   import("./components/board/BoardLifecycleListPage").then((mod) => ({
     default: mod.BoardLifecycleListPage,
+  }))
+);
+const LazyBoardView = lazy(() =>
+  import("./components/BoardView").then((mod) => ({
+    default: mod.BoardView,
   }))
 );
 const LazyAgentsView = lazy(() =>
@@ -104,7 +115,9 @@ function pickDefaultQuickAgentId(agents: Agent[]): string | null {
 
 function Layout(props: { children?: JSX.Element }) {
   const location = useLocation();
-  const isLoginPage = createMemo(() => stripBase(location.pathname).startsWith("/login"));
+  const isLoginPage = createMemo(() =>
+    stripBase(location.pathname).startsWith("/login")
+  );
   const canLoadQuickChatAgents = createMemo(
     () =>
       capabilitiesReady() &&
@@ -384,6 +397,16 @@ function BoardRouteShell() {
   );
 }
 
+function BoardHomeRouteShell() {
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazyBoardView />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
+
 function BoardAgentsRouteShell() {
   return (
     <LeftNavShell>
@@ -397,7 +420,7 @@ function BoardAgentsRouteShell() {
 // Home route registry: maps extension IDs to lazy-loaded components.
 // Extensions register here — no gateway or App code needs to know about them.
 const HOME_REGISTRY: Record<string, () => JSX.Element> = {
-  board: () => <BoardRouteShell />,
+  board: () => <BoardHomeRouteShell />,
   projects: () => <AreasOverviewRouteShell />,
 };
 
@@ -442,9 +465,15 @@ function LeftNavShell(props: { children?: JSX.Element }) {
     }
   });
 
-  createEffect(on(isMobile, (mobile) => {
-    if (mobile) setSidebarCollapsedPersistent(true);
-  }, { defer: true }));
+  createEffect(
+    on(
+      isMobile,
+      (mobile) => {
+        if (mobile) setSidebarCollapsedPersistent(true);
+      },
+      { defer: true }
+    )
+  );
 
   return (
     <div class="left-nav-shell" classList={{ "zen-mode": zenMode() }}>

@@ -41,7 +41,7 @@ describe("BoardLifecycleListPage", () => {
     fetchAreaSummariesMock.mockReset();
   });
 
-  it("loads board projects + areas, maps area title, navigates on card click", async () => {
+  it("loads board projects + areas, maps area title, navigates on card click when no onProjectClick prop", async () => {
     fetchBoardProjectsMock.mockResolvedValue([
       {
         id: "PRO-101",
@@ -75,15 +75,56 @@ describe("BoardLifecycleListPage", () => {
 
     await vi.waitFor(() => {
       expect(projectListPropsMock).toHaveBeenCalled();
-      const lastCall = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+      const lastCall = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<
+        string,
+        unknown
+      >;
       expect(lastCall.projects).toHaveLength(1);
       expect(lastCall.areas).toEqual([{ id: "web", name: "Web" }]);
     });
 
-    const lastCall = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    const onProjectClick = lastCall.onProjectClick as (project: { id: string }) => void;
+    const lastCall = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    const onProjectClick = lastCall.onProjectClick as (project: {
+      id: string;
+    }) => void;
     onProjectClick({ id: "PRO-101" });
     expect(navigateMock).toHaveBeenCalledWith("/board/projects/PRO-101");
+
+    dispose();
+    document.body.removeChild(container);
+  });
+
+  it("calls onProjectClick prop instead of navigating when provided (embedded mode)", async () => {
+    fetchBoardProjectsMock.mockResolvedValue([]);
+    fetchAreaSummariesMock.mockResolvedValue([]);
+
+    const onProjectClick = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => <BoardLifecycleListPage onProjectClick={onProjectClick} />,
+      container
+    );
+
+    await vi.waitFor(() => {
+      expect(projectListPropsMock).toHaveBeenCalled();
+    });
+
+    const lastCall = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    const clickHandler = lastCall.onProjectClick as (project: {
+      id: string;
+    }) => void;
+    clickHandler({ id: "PRO-202" });
+
+    // Custom handler called, navigate NOT called
+    expect(onProjectClick).toHaveBeenCalledWith({ id: "PRO-202" });
+    expect(navigateMock).not.toHaveBeenCalled();
 
     dispose();
     document.body.removeChild(container);

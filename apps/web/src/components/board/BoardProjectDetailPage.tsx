@@ -40,7 +40,9 @@ type LifecycleAction = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function getLifecycleStatus(frontmatter: Record<string, unknown>): ProjectLifecycleStatus {
+function getLifecycleStatus(
+  frontmatter: Record<string, unknown>
+): ProjectLifecycleStatus {
   const s = frontmatter.status;
   if (
     s === "shaping" ||
@@ -100,12 +102,31 @@ function fmtDate(dateStr: string): string {
   }
 }
 
+// ── Props ────────────────────────────────────────────────────────────
+
+export type BoardProjectDetailPageProps = {
+  /**
+   * Project ID to display. When omitted (standalone route), read from URL params.
+   * When provided (embedded in BoardView), use this value directly.
+   */
+  projectId?: string;
+  /** Called when back button clicked. Defaults to navigate('/board'). */
+  onBack?: () => void;
+  /**
+   * Called when navigating to another project (e.g. via ActivityFeed).
+   * Defaults to navigate('/board/projects/:id').
+   */
+  onOpenProject?: (id: string) => void;
+};
+
 // ── Component ────────────────────────────────────────────────────────
 
-export function BoardProjectDetailPage() {
+export function BoardProjectDetailPage(
+  props: BoardProjectDetailPageProps = {}
+) {
   const params = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const projectId = createMemo(() => params.projectId ?? "");
+  const projectId = createMemo(() => props.projectId ?? params.projectId ?? "");
 
   const [activeTab, setActiveTab] = createSignal<BpdTab>("pitch");
   const [menuOpen, setMenuOpen] = createSignal(false);
@@ -178,7 +199,13 @@ export function BoardProjectDetailPage() {
 
   const validActions = createMemo(() => getValidActions(lifecycleStatus()));
 
-  const handleBack = () => navigate("/board");
+  const handleBack = () => {
+    if (props.onBack) {
+      props.onBack();
+    } else {
+      navigate("/board");
+    }
+  };
 
   const handleLifecycleAction = async (nextStatus: string) => {
     setMenuOpen(false);
@@ -243,15 +270,32 @@ export function BoardProjectDetailPage() {
     <div class="bpd">
       {/* ── Header ── */}
       <header class="bpd-header">
-        <button type="button" class="bpd-back" onClick={handleBack} aria-label="Back">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-            stroke-linejoin="round" aria-hidden="true">
-            <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
+        <button
+          type="button"
+          class="bpd-back"
+          onClick={handleBack}
+          aria-label="Back"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
           </svg>
         </button>
 
-        <Show when={project()} fallback={<span class="bpd-loading-inline">Loading…</span>}>
+        <Show
+          when={project()}
+          fallback={<span class="bpd-loading-inline">Loading…</span>}
+        >
           {(p) => (
             <div class="bpd-header-info">
               <span class="bpd-id">{p().id}</span>
@@ -290,8 +334,12 @@ export function BoardProjectDetailPage() {
                       type="button"
                       role="menuitem"
                       class="bpd-action-item"
-                      classList={{ "bpd-action-item--danger": Boolean(action.dangerous) }}
-                      onClick={() => void handleLifecycleAction(action.nextStatus)}
+                      classList={{
+                        "bpd-action-item--danger": Boolean(action.dangerous),
+                      }}
+                      onClick={() =>
+                        void handleLifecycleAction(action.nextStatus)
+                      }
                     >
                       {action.label}
                     </button>
@@ -362,22 +410,33 @@ export function BoardProjectDetailPage() {
                         </button>
                       }
                     >
-                      <form class="bpd-add-slice-form" onSubmit={handleAddSlice}>
+                      <form
+                        class="bpd-add-slice-form"
+                        onSubmit={handleAddSlice}
+                      >
                         <input
                           autofocus
                           class="bpd-add-slice-input"
                           placeholder="Slice title…"
                           value={newSliceTitle()}
-                          onInput={(e) => setNewSliceTitle(e.currentTarget.value)}
+                          onInput={(e) =>
+                            setNewSliceTitle(e.currentTarget.value)
+                          }
                         />
-                        <button type="submit" class="bpd-add-slice-submit"
-                          disabled={sliceCreating() || !newSliceTitle().trim()}>
+                        <button
+                          type="submit"
+                          class="bpd-add-slice-submit"
+                          disabled={sliceCreating() || !newSliceTitle().trim()}
+                        >
                           {sliceCreating() ? "Adding…" : "Add"}
                         </button>
                         <button
                           type="button"
                           class="bpd-add-slice-cancel"
-                          onClick={() => { setAddingSlice(false); setNewSliceTitle(""); }}
+                          onClick={() => {
+                            setAddingSlice(false);
+                            setNewSliceTitle("");
+                          }}
                         >
                           Cancel
                         </button>
@@ -398,7 +457,9 @@ export function BoardProjectDetailPage() {
                       projectId={projectId()}
                       docKey="THREAD"
                       content={p().docs?.["THREAD"] ?? ""}
-                      onSave={(content) => void handleSaveDoc("THREAD", content)}
+                      onSave={(content) =>
+                        void handleSaveDoc("THREAD", content)
+                      }
                     />
                   </div>
                   <div class="bpd-thread-comments">
@@ -408,8 +469,12 @@ export function BoardProjectDetailPage() {
                           {(entry) => (
                             <div class="bpd-comment">
                               <div class="bpd-comment-meta">
-                                <span class="bpd-comment-author">{entry.author}</span>
-                                <span class="bpd-comment-date">{fmtDate(entry.date)}</span>
+                                <span class="bpd-comment-author">
+                                  {entry.author}
+                                </span>
+                                <span class="bpd-comment-date">
+                                  {fmtDate(entry.date)}
+                                </span>
                               </div>
                               <div class="bpd-comment-body">{entry.body}</div>
                             </div>
@@ -441,7 +506,11 @@ export function BoardProjectDetailPage() {
                 <div class="bpd-tab-panel bpd-activity-feed">
                   <ActivityFeed
                     projectId={projectId()}
-                    onOpenProject={(id) => navigate(`/board/projects/${id}`)}
+                    onOpenProject={(id) =>
+                      props.onOpenProject
+                        ? props.onOpenProject(id)
+                        : navigate(`/board/projects/${id}`)
+                    }
                   />
                 </div>
               </Match>

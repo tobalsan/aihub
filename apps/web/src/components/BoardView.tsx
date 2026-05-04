@@ -27,8 +27,8 @@ import type {
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
 import { ScratchpadEditor } from "./ScratchpadEditor";
-import { ProjectsOverview } from "./ProjectsOverview";
-import { useNavigate } from "@solidjs/router";
+import { BoardLifecycleListPage } from "./board/BoardLifecycleListPage";
+import { BoardProjectDetailPage } from "./board/BoardProjectDetailPage";
 import {
   attachmentToFileBlock,
   createPendingFile,
@@ -42,11 +42,7 @@ import {
 
 // ── Types ───────────────────────────────────────────────────────────
 
-type CanvasPanel =
-  | "overview"
-  | "projects"
-  | "projects:detail"
-  | "spec";
+type CanvasPanel = "overview" | "projects" | "projects:detail" | "spec";
 
 interface CanvasState {
   panel: CanvasPanel;
@@ -1085,7 +1081,7 @@ export function BoardView() {
                 setCanvasState(selectedAgentId()!, "overview");
             }}
           >
-            Overview
+            Scratchpad
           </button>
           <button
             classList={{
@@ -1098,7 +1094,7 @@ export function BoardView() {
                 setCanvasState(selectedAgentId()!, "projects");
             }}
           >
-            Projects
+            Project lifecycle
           </button>
         </div>
 
@@ -1108,9 +1104,7 @@ export function BoardView() {
             "board-canvas-content-projects": canvas().panel === "projects",
           }}
         >
-          <CanvasPanelRenderer
-            state={canvas()}
-          />
+          <CanvasPanelRenderer state={canvas()} />
         </div>
       </div>
 
@@ -1585,9 +1579,7 @@ export function BoardView() {
 
 // ── Canvas panels ───────────────────────────────────────────────────
 
-function CanvasPanelRenderer(props: {
-  state: CanvasState;
-}) {
+function CanvasPanelRenderer(props: { state: CanvasState }) {
   return (
     <>
       <div
@@ -1652,18 +1644,33 @@ function OverviewPanel() {
 }
 
 function ProjectsPanel() {
-  const navigate = useNavigate();
+  const [selectedProjectId, setSelectedProjectId] = createSignal<string | null>(
+    null
+  );
+
   return (
     <div class="canvas-projects-overview">
-      <ProjectsOverview
-        embedded
-        onDetailNavigate={(id) => navigate(`/board/projects/${id}`)}
-      />
+      <Show
+        when={selectedProjectId()}
+        fallback={
+          <BoardLifecycleListPage
+            onProjectClick={(project) => setSelectedProjectId(project.id)}
+          />
+        }
+      >
+        <BoardProjectDetailPage
+          projectId={selectedProjectId()!}
+          onBack={() => setSelectedProjectId(null)}
+          onOpenProject={(id) => setSelectedProjectId(id)}
+        />
+      </Show>
       <style>{`
         .canvas-projects-overview {
           width: 100%;
           height: 100%;
           min-height: 0;
+          display: flex;
+          flex-direction: column;
         }
       `}</style>
     </div>
