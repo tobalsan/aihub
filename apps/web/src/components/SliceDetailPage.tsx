@@ -21,6 +21,7 @@ import {
   subscribeToFileChanges,
 } from "../api/client";
 import type { SliceStatus, SliceRecord, SubagentListItem, SubagentStatus } from "../api/types";
+import { renderMarkdown } from "../lib/markdown";
 
 const RUN_STATUS_LABELS: Record<SubagentStatus, string> = {
   running: "Running",
@@ -114,6 +115,25 @@ function SliceMarkdownSection(props: { label: string; content: string }) {
         fallback={<p class="slice-detail-empty">No content yet.</p>}
       >
         <pre class="slice-detail-preformatted">{props.content}</pre>
+      </Show>
+    </div>
+  );
+}
+
+function SliceThreadSection(props: { content: string }) {
+  return (
+    <div class="slice-detail-section">
+      <h3 class="slice-detail-section-title">THREAD.md</h3>
+      <Show
+        when={props.content.trim()}
+        fallback={<p class="slice-detail-empty">No comments yet.</p>}
+      >
+        <div
+          class="slice-detail-thread-markdown"
+          innerHTML={renderMarkdown(props.content, {
+            rewriteHref: (href) => href,
+          })}
+        />
       </Show>
     </div>
   );
@@ -466,7 +486,7 @@ export function SliceDetailPage() {
                     <SliceMarkdownSection label="VALIDATION.md" content={docs()?.validation ?? ""} />
                   </Show>
                   <Show when={activeTab() === "thread"}>
-                    <SliceMarkdownSection label="THREAD.md" content={docs()?.thread ?? ""} />
+                    <SliceThreadSection content={docs()?.thread ?? ""} />
                   </Show>
                 </div>
               </main>
@@ -753,6 +773,58 @@ export function SliceDetailPage() {
           padding: 12px;
           margin: 0;
           line-height: 1.6;
+        }
+
+        .slice-detail-thread-markdown {
+          font-size: 13px;
+          color: var(--text-primary);
+          line-height: 1.55;
+          word-break: break-word;
+        }
+
+        .slice-detail-thread-markdown > :first-child {
+          margin-top: 0;
+        }
+
+        .slice-detail-thread-markdown > :last-child {
+          margin-bottom: 0;
+        }
+
+        .slice-detail-thread-markdown p,
+        .slice-detail-thread-markdown pre,
+        .slice-detail-thread-markdown blockquote,
+        .slice-detail-thread-markdown ul,
+        .slice-detail-thread-markdown ol {
+          margin: 0 0 10px;
+        }
+
+        .slice-detail-thread-markdown ul,
+        .slice-detail-thread-markdown ol {
+          padding-left: 18px;
+        }
+
+        .slice-detail-thread-markdown code {
+          font-family: var(--font-mono, monospace);
+          font-size: 12px;
+          background: var(--bg-elevated);
+          border-radius: 4px;
+          padding: 1px 4px;
+        }
+
+        .slice-detail-thread-markdown pre {
+          overflow-x: auto;
+          background: var(--bg-surface);
+          border-radius: 6px;
+          padding: 10px;
+        }
+
+        .slice-detail-thread-markdown pre code {
+          background: transparent;
+          padding: 0;
+        }
+
+        .slice-detail-thread-markdown a {
+          color: var(--accent);
         }
 
         .slice-detail-empty {

@@ -4,11 +4,9 @@ import { render } from "solid-js/web";
 import { BoardProjectDetailPage } from "./BoardProjectDetailPage";
 import {
   fetchProject,
-  fetchAreas,
   updateProject,
   addProjectComment,
   createSlice,
-  subscribeToFileChanges,
   fetchBoardActivity,
 } from "../../api/client";
 
@@ -31,7 +29,11 @@ const MOCK_PROJECT = {
     THREAD: "# Thread\n\nDiscussion here.",
   },
   thread: [
-    { author: "Alice", date: "2026-01-15T10:00:00Z", body: "First comment." },
+    {
+      author: "Alice",
+      date: "2026-01-15T10:00:00Z",
+      body: "First **comment** with [link](https://example.com).\n\n<script>alert(1)</script>",
+    },
   ],
 };
 
@@ -257,8 +259,16 @@ describe("BoardProjectDetailPage", () => {
     expect(editor).toBeNull();
 
     // Existing comment shown
-    expect(container.textContent).toContain("First comment.");
+    expect(container.textContent).toContain("First comment with link.");
     expect(container.textContent).toContain("Alice");
+
+    const body = container.querySelector(".bpd-comment-body") as HTMLElement;
+    expect(body.innerHTML).toContain("<strong>comment</strong>");
+    expect(body.innerHTML).not.toContain("<script>");
+    const link = body.querySelector("a");
+    expect(link?.getAttribute("href")).toBe("https://example.com");
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
 
     // Comment form present
     const commentInput = container.querySelector(".bpd-comment-input");

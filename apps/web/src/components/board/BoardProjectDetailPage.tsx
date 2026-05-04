@@ -27,6 +27,7 @@ import type { ProjectLifecycleStatus } from "../../api/types";
 import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
 import { ActivityFeed } from "../ActivityFeed";
+import { renderMarkdown } from "../../lib/markdown";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -471,7 +472,12 @@ export function BoardProjectDetailPage(
                                   {fmtDate(entry.date)}
                                 </span>
                               </div>
-                              <div class="bpd-comment-body">{entry.body}</div>
+                              <div
+                                class="bpd-comment-body bpd-comment-markdown"
+                                innerHTML={renderMarkdown(entry.body, {
+                                  rewriteHref: (href) => href,
+                                })}
+                              />
                             </div>
                           )}
                         </For>
@@ -871,8 +877,52 @@ export function BoardProjectDetailPage(
         .bpd-comment-body {
           font-size: 13px;
           color: var(--text-primary);
-          white-space: pre-wrap;
           line-height: 1.5;
+        }
+
+        .bpd-comment-markdown > :first-child {
+          margin-top: 0;
+        }
+
+        .bpd-comment-markdown > :last-child {
+          margin-bottom: 0;
+        }
+
+        .bpd-comment-markdown p,
+        .bpd-comment-markdown pre,
+        .bpd-comment-markdown blockquote,
+        .bpd-comment-markdown ul,
+        .bpd-comment-markdown ol {
+          margin: 0 0 8px;
+        }
+
+        .bpd-comment-markdown ul,
+        .bpd-comment-markdown ol {
+          padding-left: 18px;
+        }
+
+        .bpd-comment-markdown code {
+          font-family: var(--font-mono, monospace);
+          font-size: 12px;
+          background: var(--bg-elevated);
+          border-radius: 4px;
+          padding: 1px 4px;
+        }
+
+        .bpd-comment-markdown pre {
+          overflow-x: auto;
+          background: var(--bg-elevated);
+          border-radius: 6px;
+          padding: 10px;
+        }
+
+        .bpd-comment-markdown pre code {
+          background: transparent;
+          padding: 0;
+        }
+
+        .bpd-comment-markdown a {
+          color: var(--accent);
         }
 
         .bpd-comment-form {

@@ -22,7 +22,8 @@ const MOCK_SLICE: SliceRecord = {
     specs: "# Specs\nImplement OAuth login.",
     tasks: "- [ ] Implement login\n- [x] DB schema",
     validation: "- [ ] Login works end-to-end\n",
-    thread: "Worker: Done with initial auth.\n",
+    thread:
+      "## 2026-01-02T00:00:00.000Z\n\nWorker: **Done** with [auth](https://example.com).\n\n<script>alert(1)</script>\n",
   },
 };
 
@@ -185,5 +186,29 @@ describe("SliceDetailPage", () => {
       expect(container.querySelector(".slice-detail-readme")).not.toBeNull();
     });
     expect(container.querySelector(".slice-detail-readme")?.textContent).toContain("Must");
+  });
+
+  it("renders thread markdown safely", async () => {
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      const tabs = container.querySelectorAll(".slice-detail-tab-btn");
+      expect(tabs.length).toBe(4);
+    });
+
+    const tabs = container.querySelectorAll(".slice-detail-tab-btn");
+    (tabs[3] as HTMLElement).click();
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-detail-thread-markdown")).not.toBeNull();
+    });
+
+    const body = container.querySelector(".slice-detail-thread-markdown") as HTMLElement;
+    expect(body.textContent).toContain("Worker: Done with auth.");
+    expect(body.innerHTML).toContain("<strong>Done</strong>");
+    expect(body.innerHTML).not.toContain("<script>");
+    const link = body.querySelector("a");
+    expect(link?.getAttribute("href")).toBe("https://example.com");
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
   });
 });

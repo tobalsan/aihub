@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import yaml from "js-yaml";
 
 const REMOVED_KEYS = ["appetite", "domain", "owner", "executionMode"];
@@ -77,17 +78,17 @@ async function main() {
     const result = await stripFile(filePath);
     if (result === "updated") {
       updated += 1;
-      console.log(`updated ${filePath}`);
+      globalThis.console.log(`updated ${filePath}`);
     } else {
       skipped += 1;
-      console.log(`skipped ${filePath}`);
+      globalThis.console.log(`skipped ${filePath}`);
     }
   }
 
-  console.log(`done: ${updated} updated, ${skipped} skipped`);
+  globalThis.console.log(`done: ${updated} updated, ${skipped} skipped`);
 }
 
 main().catch((err) => {
-  console.error(err);
+  globalThis.console.error(err);
   process.exit(1);
 });

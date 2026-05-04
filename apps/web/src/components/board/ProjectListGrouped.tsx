@@ -170,8 +170,6 @@ type DragState = {
   sourceStatus: ProjectLifecycleStatus;
 };
 
-let activeDrag: DragState | null = null;
-
 // ── Project Card ───────────────────────────────────────────────────
 
 function ProjectCard(props: {
@@ -528,7 +526,6 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
     const drag = dragging();
     if (!drag) return;
     setDragging(null);
-    activeDrag = null;
 
     if (drag.sourceStatus === targetStatus) return;
 
@@ -564,12 +561,11 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
       sourceStatus: project.lifecycleStatus,
     };
     setDragging(state);
-    activeDrag = state;
   }
 
   const loadingSkeleton = (
     <div data-testid="project-list-loading" aria-label="Loading projects">
-      {GROUPS.slice(0, 2).map((g) => (
+      {GROUPS.slice(0, 2).map(() => (
         <div style={{ "margin-bottom": "16px" }}>
           <div
             style={{

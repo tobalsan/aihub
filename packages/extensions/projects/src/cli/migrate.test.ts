@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { runMigration, isGatewayRunning } from "./migrate.js";
+import { runMigration } from "./migrate.js";
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 

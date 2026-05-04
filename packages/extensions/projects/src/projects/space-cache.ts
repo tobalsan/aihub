@@ -137,8 +137,11 @@ export async function getCachedSpace(
   if (pending) return pending;
 
   const generation = getGeneration(projectId);
-  let promise: Promise<SpaceFile | null>;
-  promise = readSpaceFromDisk(config, projectId, generation).finally(() => {
+  const promise: Promise<SpaceFile | null> = readSpaceFromDisk(
+    config,
+    projectId,
+    generation
+  ).finally(() => {
     if (inflight.get(projectId) === promise) {
       inflight.delete(projectId);
     }

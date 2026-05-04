@@ -331,7 +331,7 @@ function normalizeStatus(value: unknown): string {
 }
 
 function projectStatusMigrationHint(status: string): string {
-  return `Legacy project status \"${status}\" no longer supported. Run \`aihub projects migrate-to-slices\`.`;
+  return `Legacy project status "${status}" no longer supported. Run \`aihub projects migrate-to-slices\`.`;
 }
 
 function validateProjectStatus(status: unknown): string | null {
