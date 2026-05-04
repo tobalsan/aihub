@@ -26,6 +26,27 @@ const MOCK_SLICE: SliceRecord = {
   },
 };
 
+function mockSlice(
+  id: string,
+  title: string,
+  status: SliceRecord["frontmatter"]["status"],
+  blockedBy?: string[]
+): SliceRecord {
+  return {
+    ...MOCK_SLICE,
+    id,
+    projectId: id.match(/^(PRO-\d+)-S\d+$/)?.[1] ?? "PRO-1",
+    frontmatter: {
+      ...MOCK_SLICE.frontmatter,
+      id,
+      project_id: id.match(/^(PRO-\d+)-S\d+$/)?.[1] ?? "PRO-1",
+      title,
+      status,
+      blocked_by: blockedBy,
+    },
+  };
+}
+
 let updateSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
 
@@ -145,5 +166,54 @@ describe("SliceKanbanWidget", () => {
     // todo column should show count 1
     const todoBadge = container.querySelectorAll(".slice-kanban-column-count")[0];
     expect(todoBadge?.textContent).toBe("1");
+  });
+
+  it("shows blocked badge and dims card when any blocker is non-terminal", async () => {
+    fetchSlicesMock = vi.fn(async (projectId: string) => {
+      if (projectId === "PRO-2") {
+        return [mockSlice("PRO-2-S01", "External prerequisite", "in_progress")];
+      }
+      return [mockSlice("PRO-1-S01", "Auth flow", "todo", ["PRO-2-S01"])];
+    });
+
+    render(() => <SliceKanbanWidget projectId="PRO-1" />, container);
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".slice-card-blocked-badge")
+      ).not.toBeNull();
+    });
+
+    const card = container.querySelector(".slice-kanban-card") as HTMLElement;
+    const badge = container.querySelector(
+      ".slice-card-blocked-badge"
+    ) as HTMLElement;
+    expect(card.classList.contains("blocked")).toBe(true);
+    expect(badge.textContent).toContain("blocked");
+    expect(badge.getAttribute("aria-label")).toBe("Blocked by PRO-2-S01");
+    await vi.waitFor(() => {
+      expect(badge.getAttribute("title")).toContain("PRO-2-S01: in_progress");
+    });
+  });
+
+  it("does not show blocked badge when all blockers are terminal", async () => {
+    fetchSlicesMock = vi.fn(async () => [
+      mockSlice("PRO-1-S01", "Auth flow", "todo", [
+        "PRO-1-S02",
+        "PRO-1-S03",
+        "PRO-1-S04",
+      ]),
+      mockSlice("PRO-1-S02", "Done prerequisite", "done"),
+      mockSlice("PRO-1-S03", "Merge prerequisite", "ready_to_merge"),
+      mockSlice("PRO-1-S04", "Cancelled prerequisite", "cancelled"),
+    ]);
+
+    render(() => <SliceKanbanWidget projectId="PRO-1" />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-kanban-card")).not.toBeNull();
+    });
+
+    const card = container.querySelector(".slice-kanban-card") as HTMLElement;
+    expect(container.querySelector(".slice-card-blocked-badge")).toBeNull();
+    expect(card.classList.contains("blocked")).toBe(false);
   });
 });

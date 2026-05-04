@@ -26,8 +26,12 @@ const MOCK_SLICE: SliceRecord = {
   },
 };
 
+let fetchSliceMock: ReturnType<typeof vi.fn>;
+let fetchSlicesMock: ReturnType<typeof vi.fn>;
+
 vi.mock("../api/client", () => ({
-  fetchSlice: vi.fn(async () => MOCK_SLICE),
+  fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
+  fetchSlice: (...args: unknown[]) => fetchSliceMock(...args),
   updateSlice: vi.fn(async () => MOCK_SLICE),
   subscribeToFileChanges: vi.fn(() => () => {}),
   fetchSubagents: vi.fn(async () => ({ ok: true as const, data: { items: [] } })),
@@ -43,6 +47,8 @@ let container: HTMLElement;
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
+  fetchSliceMock = vi.fn(async () => MOCK_SLICE);
+  fetchSlicesMock = vi.fn(async () => [MOCK_SLICE]);
 });
 
 afterEach(() => {
@@ -74,6 +80,72 @@ describe("SliceDetailPage", () => {
     });
     const sidebar = container.querySelector(".slice-detail-sidebar")!;
     expect(sidebar.textContent).toContain("executing"); // hill_position
+  });
+
+  it("renders blockers list with count and statuses", async () => {
+    fetchSliceMock = vi.fn(async () => ({
+      ...MOCK_SLICE,
+      frontmatter: {
+        ...MOCK_SLICE.frontmatter,
+        blocked_by: ["PRO-1-S02", "PRO-1-S03"],
+      },
+    }));
+    fetchSlicesMock = vi.fn(async () => [
+      MOCK_SLICE,
+      {
+        ...MOCK_SLICE,
+        id: "PRO-1-S02",
+        frontmatter: {
+          ...MOCK_SLICE.frontmatter,
+          id: "PRO-1-S02",
+          title: "Database schema",
+          status: "review",
+        },
+      },
+      {
+        ...MOCK_SLICE,
+        id: "PRO-1-S03",
+        frontmatter: {
+          ...MOCK_SLICE.frontmatter,
+          id: "PRO-1-S03",
+          title: "OAuth provider",
+          status: "done",
+        },
+      },
+    ]);
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(
+        container.querySelectorAll(".slice-detail-blocker-row").length
+      ).toBe(2);
+    });
+
+    const blockers = container.querySelector(".slice-detail-blockers")!;
+    expect(blockers.textContent).toContain("Blockers (2)");
+    expect(blockers.textContent).toContain("PRO-1-S02");
+    expect(blockers.textContent).toContain("Review");
+    expect(blockers.textContent).toContain("Database schema");
+    expect(blockers.textContent).toContain("PRO-1-S03");
+    expect(blockers.textContent).toContain("Done");
+    expect(blockers.textContent).toContain("OAuth provider");
+  });
+
+  it("hides blockers section when blocked_by is empty", async () => {
+    fetchSliceMock = vi.fn(async () => ({
+      ...MOCK_SLICE,
+      frontmatter: { ...MOCK_SLICE.frontmatter, blocked_by: [] },
+    }));
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-detail-sidebar")).not.toBeNull();
+    });
+
+    expect(container.querySelector(".slice-detail-blockers")).toBeNull();
+    expect(
+      container.querySelector(".slice-detail-sidebar")?.textContent
+    ).not.toContain("Blockers");
   });
 
   it("renders specs tab content by default", async () => {

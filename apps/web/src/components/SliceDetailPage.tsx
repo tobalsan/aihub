@@ -14,6 +14,7 @@ import {
   onCleanup,
 } from "solid-js";
 import {
+  fetchSlices,
   fetchSlice,
   fetchSubagents,
   updateSlice,
@@ -55,7 +56,28 @@ const ALL_STATUSES: SliceStatus[] = [
   "cancelled",
 ];
 
+const UNKNOWN_STATUS_COLOR = "#6b6b6b";
+const UNKNOWN_STATUS_LABEL = "Unknown";
+
 type SectionTab = "specs" | "tasks" | "validation" | "thread";
+type BlockerDetail = {
+  id: string;
+  projectId: string;
+  status: SliceStatus | null;
+  title: string;
+};
+
+function blockedBy(slice: SliceRecord | undefined): string[] {
+  return Array.isArray(slice?.frontmatter.blocked_by)
+    ? slice.frontmatter.blocked_by.filter(
+        (item): item is string => typeof item === "string"
+      )
+    : [];
+}
+
+function projectIdFromSliceId(sliceId: string): string {
+  return sliceId.match(/^(PRO-\d+)-S\d+$/)?.[1] ?? "";
+}
 
 function parseChecklistItems(text: string): Array<{ checked: boolean; label: string }> {
   return text
@@ -202,6 +224,40 @@ export function SliceDetailPage() {
 
   const frontmatter = createMemo(() => slice()?.frontmatter);
   const docs = createMemo(() => slice()?.docs);
+  const blockerIds = createMemo(() => blockedBy(slice()));
+  const blockerProjectIds = createMemo(() => [
+    ...new Set(blockerIds().map(projectIdFromSliceId).filter(Boolean)),
+  ]);
+  const [blockerSlices] = createResource(
+    () => blockerProjectIds().join(","),
+    async (key) => {
+      if (!key) return [] as SliceRecord[];
+      const nested = await Promise.all(
+        key.split(",").map(async (pid) => {
+          try {
+            return await fetchSlices(pid);
+          } catch {
+            return [] as SliceRecord[];
+          }
+        })
+      );
+      return nested.flat();
+    }
+  );
+  const blockerDetails = createMemo<BlockerDetail[]>(() => {
+    const byId = new Map(
+      (blockerSlices() ?? []).map((item) => [item.id, item])
+    );
+    return blockerIds().map((id) => {
+      const resolved = byId.get(id);
+      return {
+        id,
+        projectId: projectIdFromSliceId(id) || projectId(),
+        status: resolved?.frontmatter.status ?? null,
+        title: resolved?.frontmatter.title ?? "Missing slice",
+      };
+    });
+  });
 
   return (
     <div class="slice-detail-page">
@@ -269,6 +325,47 @@ export function SliceDetailPage() {
                   </div>
                 </div>
 
+                <Show when={blockerDetails().length > 0}>
+                  <div class="slice-detail-meta-group slice-detail-blockers">
+                    <div class="slice-detail-meta-label">
+                      Blockers ({blockerDetails().length})
+                    </div>
+                    <For each={blockerDetails()}>
+                      {(blocker) => (
+                        <a
+                          class="slice-detail-blocker-row"
+                          href={`/projects/${encodeURIComponent(blocker.projectId)}/slices/${encodeURIComponent(blocker.id)}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            navigate(
+                              `/projects/${encodeURIComponent(blocker.projectId)}/slices/${encodeURIComponent(blocker.id)}`
+                            );
+                          }}
+                        >
+                          <span class="slice-detail-blocker-id">
+                            {blocker.id}
+                          </span>
+                          <span
+                            class="slice-detail-status-pill slice-detail-blocker-status"
+                            style={{
+                              background: blocker.status
+                                ? STATUS_COLORS[blocker.status]
+                                : UNKNOWN_STATUS_COLOR,
+                            }}
+                          >
+                            {blocker.status
+                              ? STATUS_LABELS[blocker.status]
+                              : UNKNOWN_STATUS_LABEL}
+                          </span>
+                          <span class="slice-detail-blocker-title">
+                            {blocker.title}
+                          </span>
+                        </a>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+
                 <div class="slice-detail-meta-group">
                   <div class="slice-detail-meta-label">Created</div>
                   <div class="slice-detail-meta-value">
@@ -312,7 +409,7 @@ export function SliceDetailPage() {
 
                 {/* Frontmatter extras (any keys beyond known ones) */}
                 <For each={Object.entries(frontmatter() ?? {}).filter(
-                  ([k]) => !["id","project_id","title","status","hill_position","created_at","updated_at"].includes(k)
+                  ([k]) => !["id","project_id","title","status","blocked_by","hill_position","created_at","updated_at"].includes(k)
                 )}>
                   {([key, value]) => (
                     <div class="slice-detail-meta-group">
@@ -484,6 +581,53 @@ export function SliceDetailPage() {
           font-size: 11px;
           font-weight: 600;
           color: #fff;
+        }
+
+        .slice-detail-blockers {
+          gap: 6px;
+        }
+
+        .slice-detail-blocker-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 4px;
+          padding: 7px 8px;
+          border: 1px solid var(--border-subtle);
+          border-radius: 6px;
+          color: inherit;
+          text-decoration: none;
+          background: var(--bg-surface);
+        }
+
+        .slice-detail-blocker-row:hover {
+          border-color: var(--border-default);
+          background: var(--bg-elevated);
+        }
+
+        .slice-detail-blocker-row:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 1px;
+        }
+
+        .slice-detail-blocker-id {
+          font-family: var(--font-mono, monospace);
+          font-size: 11px;
+          color: var(--text-tertiary);
+        }
+
+        .slice-detail-blocker-status {
+          width: fit-content;
+          font-size: 10px;
+          padding: 1px 6px;
+        }
+
+        .slice-detail-blocker-title {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 12px;
+          color: var(--text-secondary);
         }
 
         .slice-detail-status-buttons {

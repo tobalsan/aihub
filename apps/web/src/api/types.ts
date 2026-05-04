@@ -427,6 +427,7 @@ export type SliceFrontmatter = {
   project_id: string;
   title: string;
   status: SliceStatus;
+  blocked_by?: string[];
   hill_position: SliceHillPosition;
   created_at: string;
   updated_at: string;

@@ -6,6 +6,7 @@
 import {
   For,
   Show,
+  createMemo,
   createResource,
   createSignal,
   onCleanup,
@@ -25,11 +26,33 @@ const COLUMNS: ColumnDef[] = [
   { id: "cancelled", title: "Cancelled", color: "#6b6b6b" },
 ];
 
+const TERMINAL_BLOCKER_STATUSES = new Set<SliceStatus>([
+  "done",
+  "ready_to_merge",
+  "cancelled",
+]);
+
 type Props = {
   projectId: string;
   /** Navigate to slice detail on card click. Default: /projects/:projectId/slices/:sliceId */
   onSliceClick?: (sliceId: string) => void;
 };
+
+function blockedBy(slice: SliceRecord): string[] {
+  return Array.isArray(slice.frontmatter.blocked_by)
+    ? slice.frontmatter.blocked_by.filter(
+        (item): item is string => typeof item === "string"
+      )
+    : [];
+}
+
+function projectIdFromSliceId(sliceId: string): string {
+  return sliceId.match(/^(PRO-\d+)-S\d+$/)?.[1] ?? "";
+}
+
+function blockerStatusLabel(status: SliceStatus | undefined): string {
+  return status ?? "unknown";
+}
 
 export function SliceKanbanWidget(props: Props) {
   const navigate = useNavigate();
@@ -61,6 +84,59 @@ export function SliceKanbanWidget(props: Props) {
   const slicesByStatus = (status: SliceStatus): SliceRecord[] => {
     return (slices() ?? []).filter((s) => s.frontmatter.status === status);
   };
+
+  const blockerProjectIds = createMemo(() => [
+    ...new Set(
+      (slices() ?? [])
+        .flatMap(blockedBy)
+        .map(projectIdFromSliceId)
+        .filter((pid) => pid && pid !== props.projectId)
+    ),
+  ]);
+
+  const [externalBlockerSlices] = createResource(
+    () => blockerProjectIds().join(","),
+    async (key) => {
+      if (!key) return [] as SliceRecord[];
+      const nested = await Promise.all(
+        key.split(",").map(async (pid) => {
+          try {
+            return await fetchSlices(pid);
+          } catch {
+            return [] as SliceRecord[];
+          }
+        })
+      );
+      return nested.flat();
+    }
+  );
+
+  const blockerStatusIndex = createMemo(() => {
+    const index = new Map<string, SliceStatus>();
+    for (const item of [
+      ...(slices() ?? []),
+      ...(externalBlockerSlices() ?? []),
+    ]) {
+      index.set(item.id, item.frontmatter.status);
+    }
+    return index;
+  });
+
+  const pendingBlockers = (slice: SliceRecord): string[] => {
+    const statusIndex = blockerStatusIndex();
+    return blockedBy(slice).filter((blockerId) => {
+      const status = statusIndex.get(blockerId);
+      return !status || !TERMINAL_BLOCKER_STATUSES.has(status);
+    });
+  };
+
+  const blockerTooltip = (slice: SliceRecord): string =>
+    blockedBy(slice)
+      .map(
+        (blockerId) =>
+          `${blockerId}: ${blockerStatusLabel(blockerStatusIndex().get(blockerId))}`
+      )
+      .join("\n");
 
   const handleCardDragStart = (slice: SliceRecord) => (e: DragEvent) => {
     setDraggingId(slice.id);
@@ -216,28 +292,46 @@ export function SliceKanbanWidget(props: Props) {
 
               <div class="slice-kanban-cards">
                 <For each={slicesByStatus(col.id)}>
-                  {(slice) => (
-                    <div
-                      class="slice-kanban-card"
-                      classList={{ dragging: draggingId() === slice.id }}
-                      draggable={true}
-                      onDragStart={handleCardDragStart(slice)}
-                      onDragEnd={handleCardDragEnd}
-                      onClick={() => handleCardClick(slice)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") handleCardClick(slice);
-                      }}
-                      aria-label={`Slice: ${slice.frontmatter.title}`}
-                    >
-                      <div class="slice-card-id">{slice.id}</div>
-                      <div class="slice-card-title">{slice.frontmatter.title}</div>
-                      <div class="slice-card-meta">
-                        <span class="slice-card-hill">{slice.frontmatter.hill_position}</span>
+                  {(slice) => {
+                    const activeBlockers = createMemo(() => pendingBlockers(slice));
+                    const isBlocked = createMemo(() => activeBlockers().length > 0);
+                    return (
+                      <div
+                        class="slice-kanban-card"
+                        classList={{
+                          dragging: draggingId() === slice.id,
+                          blocked: isBlocked(),
+                        }}
+                        draggable={true}
+                        onDragStart={handleCardDragStart(slice)}
+                        onDragEnd={handleCardDragEnd}
+                        onClick={() => handleCardClick(slice)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") handleCardClick(slice);
+                        }}
+                        aria-label={`Slice: ${slice.frontmatter.title}`}
+                      >
+                        <div class="slice-card-id">{slice.id}</div>
+                        <div class="slice-card-title-row">
+                          <div class="slice-card-title">{slice.frontmatter.title}</div>
+                          <Show when={isBlocked()}>
+                            <span
+                              class="slice-card-blocked-badge"
+                              title={blockerTooltip(slice)}
+                              aria-label={`Blocked by ${activeBlockers().join(", ")}`}
+                            >
+                              ⛔ blocked
+                            </span>
+                          </Show>
+                        </div>
+                        <div class="slice-card-meta">
+                          <span class="slice-card-hill">{slice.frontmatter.hill_position}</span>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  }}
                 </For>
               </div>
             </div>
@@ -393,8 +487,12 @@ export function SliceKanbanWidget(props: Props) {
           border: 1px solid var(--border-subtle);
           border-radius: 6px;
           cursor: pointer;
-          transition: border-color 0.15s, box-shadow 0.15s;
+          transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
           user-select: none;
+        }
+
+        .slice-kanban-card.blocked {
+          opacity: 0.7;
         }
 
         .slice-kanban-card:hover {
@@ -424,6 +522,28 @@ export function SliceKanbanWidget(props: Props) {
           color: var(--text-primary);
           line-height: 1.4;
           word-break: break-word;
+        }
+
+        .slice-card-title-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 6px;
+        }
+
+        .slice-card-title-row .slice-card-title {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .slice-card-blocked-badge {
+          flex-shrink: 0;
+          font-size: 10px;
+          line-height: 1.2;
+          color: #9a3412;
+          background: #fff7ed;
+          border: 1px solid #fed7aa;
+          border-radius: 4px;
+          padding: 1px 5px;
         }
 
         .slice-card-meta {
