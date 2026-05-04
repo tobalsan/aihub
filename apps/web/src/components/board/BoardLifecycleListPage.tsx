@@ -47,8 +47,8 @@ export function BoardLifecycleListPage(
   return (
     <div class="board-lifecycle-page" data-testid="board-lifecycle-page">
       <ProjectListGrouped
-        projects={projects() ?? []}
-        areas={(areas() ?? []).map((area) => ({
+        projects={projects.latest ?? []}
+        areas={(areas.latest ?? []).map((area) => ({
           id: area.id,
           name: area.title,
         }))}
