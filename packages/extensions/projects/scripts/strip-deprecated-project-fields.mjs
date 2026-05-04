@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { console } from "node:console";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

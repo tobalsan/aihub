@@ -77,6 +77,12 @@ function renderComponent(projects: BoardProject[], extraProps = {}) {
   );
 }
 
+function dragEventWithDataTransfer(type: string, dataTransfer: DataTransfer) {
+  const event = new DragEvent(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+  return event;
+}
+
 // ── Group rendering ────────────────────────────────────────────────
 
 describe("ProjectListGrouped — group rendering", () => {
@@ -104,7 +110,11 @@ describe("ProjectListGrouped — group rendering", () => {
       makeProject({ id: "PRO-001", lifecycleStatus: "active" }),
       makeProject({ id: "PRO-002", lifecycleStatus: "shaping" }),
       makeProject({ id: "PRO-003", lifecycleStatus: "done", status: "done" }),
-      makeProject({ id: "PRO-004", lifecycleStatus: "cancelled", status: "cancelled" }),
+      makeProject({
+        id: "PRO-004",
+        lifecycleStatus: "cancelled",
+        status: "cancelled",
+      }),
     ];
     renderComponent(projects);
     // active and shaping are expanded by default
@@ -119,13 +129,21 @@ describe("ProjectListGrouped — group rendering", () => {
         ?.querySelector('[data-testid="project-card-PRO-002"]')
     ).toBeTruthy();
     // done and cancelled are collapsed — expand headers first
-    (container.querySelector('[data-testid="group-header-done"]') as HTMLElement)?.click();
+    (
+      container.querySelector(
+        '[data-testid="group-header-done"]'
+      ) as HTMLElement
+    )?.click();
     expect(
       container
         .querySelector('[data-testid="group-section-done"]')
         ?.querySelector('[data-testid="project-card-PRO-003"]')
     ).toBeTruthy();
-    (container.querySelector('[data-testid="group-header-cancelled"]') as HTMLElement)?.click();
+    (
+      container.querySelector(
+        '[data-testid="group-header-cancelled"]'
+      ) as HTMLElement
+    )?.click();
     expect(
       container
         .querySelector('[data-testid="group-section-cancelled"]')
@@ -232,26 +250,20 @@ describe("ProjectListGrouped — group rendering", () => {
     expect(
       container.querySelector('[data-testid="project-list-empty"]')
     ).toBeTruthy();
-    expect(
-      container.querySelector('[data-testid="create-cta"]')
-    ).toBeTruthy();
+    expect(container.querySelector('[data-testid="create-cta"]')).toBeTruthy();
   });
 
   it("shows loading skeleton", () => {
     dispose = render(
-      () => (
-        <ProjectListGrouped
-          projects={[]}
-          areas={[]}
-          loading={true}
-        />
-      ),
+      () => <ProjectListGrouped projects={[]} areas={[]} loading={true} />,
       container
     );
     expect(
       container.querySelector('[data-testid="project-list-loading"]')
     ).toBeTruthy();
-    expect(container.querySelectorAll('[data-testid="skeleton-row"]').length).toBeGreaterThan(0);
+    expect(
+      container.querySelectorAll('[data-testid="skeleton-row"]').length
+    ).toBeGreaterThan(0);
   });
 
   it("shows error state with retry button", () => {
@@ -267,9 +279,13 @@ describe("ProjectListGrouped — group rendering", () => {
       ),
       container
     );
-    const errorEl = container.querySelector('[data-testid="project-list-error"]');
+    const errorEl = container.querySelector(
+      '[data-testid="project-list-error"]'
+    );
     expect(errorEl).toBeTruthy();
-    const retry = container.querySelector('[data-testid="retry-button"]') as HTMLElement;
+    const retry = container.querySelector(
+      '[data-testid="retry-button"]'
+    ) as HTMLElement;
     retry?.click();
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -291,14 +307,28 @@ describe("ProjectListGrouped — card content", () => {
       }),
     ];
     renderComponent(projects);
-    const card = container.querySelector('[data-testid="project-card-PRO-100"]')!;
-    expect(card.querySelector('[data-testid="project-id"]')?.textContent).toContain("PRO-100");
-    expect(card.querySelector('[data-testid="status-pill-active"]')).toBeTruthy();
-    expect(card.querySelector('[data-testid="project-title"]')?.textContent).toContain("My Feature");
-    expect(card.querySelector('[data-testid="progress-bar-label"]')?.textContent).toContain("2/5");
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-100"]'
+    )!;
+    expect(
+      card.querySelector('[data-testid="project-id"]')?.textContent
+    ).toContain("PRO-100");
+    expect(
+      card.querySelector('[data-testid="status-pill-active"]')
+    ).toBeTruthy();
+    expect(
+      card.querySelector('[data-testid="project-title"]')?.textContent
+    ).toContain("My Feature");
+    expect(
+      card.querySelector('[data-testid="progress-bar-label"]')?.textContent
+    ).toContain("2/5");
     expect(card.querySelector('[data-testid="active-run-dot"]')).toBeTruthy();
-    expect(card.querySelector('[data-testid="project-last-activity"]')?.textContent).toMatch(/ago/);
-    expect(card.querySelector('[data-testid="project-area-chip"]')?.textContent).toContain("Infrastructure");
+    expect(
+      card.querySelector('[data-testid="project-last-activity"]')?.textContent
+    ).toMatch(/ago/);
+    expect(
+      card.querySelector('[data-testid="project-area-chip"]')?.textContent
+    ).toContain("Infrastructure");
   });
 
   it("omits active run dot when no runs", () => {
@@ -311,7 +341,9 @@ describe("ProjectListGrouped — card content", () => {
     ];
     renderComponent(projects);
     expect(
-      container.querySelector('[data-testid="project-card-PRO-101"] [data-testid="active-run-dot"]')
+      container.querySelector(
+        '[data-testid="project-card-PRO-101"] [data-testid="active-run-dot"]'
+      )
     ).toBeNull();
   });
 });
@@ -321,15 +353,29 @@ describe("ProjectListGrouped — card content", () => {
 describe("ProjectListGrouped — search", () => {
   it("filters by title", () => {
     const projects = [
-      makeProject({ id: "PRO-001", title: "Auth flow", lifecycleStatus: "active" }),
-      makeProject({ id: "PRO-002", title: "Payment gateway", lifecycleStatus: "active" }),
+      makeProject({
+        id: "PRO-001",
+        title: "Auth flow",
+        lifecycleStatus: "active",
+      }),
+      makeProject({
+        id: "PRO-002",
+        title: "Payment gateway",
+        lifecycleStatus: "active",
+      }),
     ];
     renderComponent(projects);
-    const search = container.querySelector('[data-testid="project-search"]') as HTMLInputElement;
+    const search = container.querySelector(
+      '[data-testid="project-search"]'
+    ) as HTMLInputElement;
     search.value = "auth";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(container.querySelector('[data-testid="project-card-PRO-001"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="project-card-PRO-002"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-001"]')
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-002"]')
+    ).toBeNull();
   });
 
   it("filters by project ID", () => {
@@ -338,11 +384,17 @@ describe("ProjectListGrouped — search", () => {
       makeProject({ id: "PRO-002", title: "Beta", lifecycleStatus: "active" }),
     ];
     renderComponent(projects);
-    const search = container.querySelector('[data-testid="project-search"]') as HTMLInputElement;
+    const search = container.querySelector(
+      '[data-testid="project-search"]'
+    ) as HTMLInputElement;
     search.value = "PRO-002";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(container.querySelector('[data-testid="project-card-PRO-001"]')).toBeNull();
-    expect(container.querySelector('[data-testid="project-card-PRO-002"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-001"]')
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-002"]')
+    ).toBeTruthy();
   });
 });
 
@@ -351,9 +403,15 @@ describe("ProjectListGrouped — search", () => {
 describe("ProjectListGrouped — area filter chips", () => {
   it("renders area chips", () => {
     renderComponent([]);
-    expect(container.querySelector('[data-testid="area-chip-all"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="area-chip-infra"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="area-chip-web"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="area-chip-all"]')
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="area-chip-infra"]')
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="area-chip-web"]')
+    ).toBeTruthy();
   });
 
   it("filters by area when chip clicked", () => {
@@ -362,10 +420,16 @@ describe("ProjectListGrouped — area filter chips", () => {
       makeProject({ id: "PRO-002", lifecycleStatus: "active", area: "web" }),
     ];
     renderComponent(projects);
-    const chip = container.querySelector('[data-testid="area-chip-infra"]') as HTMLElement;
+    const chip = container.querySelector(
+      '[data-testid="area-chip-infra"]'
+    ) as HTMLElement;
     chip?.click();
-    expect(container.querySelector('[data-testid="project-card-PRO-001"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="project-card-PRO-002"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-001"]')
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-002"]')
+    ).toBeNull();
   });
 
   it("All chip resets filter", () => {
@@ -375,17 +439,99 @@ describe("ProjectListGrouped — area filter chips", () => {
     ];
     renderComponent(projects);
     // Filter to infra
-    (container.querySelector('[data-testid="area-chip-infra"]') as HTMLElement)?.click();
-    expect(container.querySelector('[data-testid="project-card-PRO-002"]')).toBeNull();
+    (
+      container.querySelector('[data-testid="area-chip-infra"]') as HTMLElement
+    )?.click();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-002"]')
+    ).toBeNull();
     // Reset
-    (container.querySelector('[data-testid="area-chip-all"]') as HTMLElement)?.click();
-    expect(container.querySelector('[data-testid="project-card-PRO-002"]')).toBeTruthy();
+    (
+      container.querySelector('[data-testid="area-chip-all"]') as HTMLElement
+    )?.click();
+    expect(
+      container.querySelector('[data-testid="project-card-PRO-002"]')
+    ).toBeTruthy();
   });
 });
 
 // ── Drag and drop ──────────────────────────────────────────────────
 
 describe("ProjectListGrouped — drag and optimistic revert", () => {
+  it("sets drag data and move effect on drag start", () => {
+    const dataTransfer = {
+      setData: vi.fn(),
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+
+    renderComponent([
+      makeProject({ id: "PRO-001", lifecycleStatus: "active" }),
+    ]);
+
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-001"]'
+    ) as HTMLElement;
+    card.dispatchEvent(dragEventWithDataTransfer("dragstart", dataTransfer));
+
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "PRO-001");
+    expect(dataTransfer.effectAllowed).toBe("move");
+  });
+
+  it("prevents default on drag enter so drop zones register", () => {
+    renderComponent([
+      makeProject({ id: "PRO-001", lifecycleStatus: "active" }),
+    ]);
+
+    const shapingZone = container.querySelector(
+      '[data-testid="group-drop-zone-shaping"]'
+    ) as HTMLElement;
+    const event = new DragEvent("dragenter", {
+      bubbles: true,
+      cancelable: true,
+    });
+    const prevented = !shapingZone.dispatchEvent(event);
+
+    expect(prevented).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("sets move drop effect on drag over", () => {
+    const dataTransfer = {
+      dropEffect: "none",
+    } as unknown as DataTransfer;
+
+    renderComponent([
+      makeProject({ id: "PRO-001", lifecycleStatus: "active" }),
+    ]);
+
+    const shapingZone = container.querySelector(
+      '[data-testid="group-drop-zone-shaping"]'
+    ) as HTMLElement;
+    shapingZone.dispatchEvent(
+      dragEventWithDataTransfer("dragover", dataTransfer)
+    );
+
+    expect(dataTransfer.dropEffect).toBe("move");
+  });
+
+  it("does not render status selects by default", () => {
+    renderComponent([
+      makeProject({ id: "PRO-004", lifecycleStatus: "active" }),
+    ]);
+
+    expect(
+      container.querySelector('[data-testid^="project-status-select-"]')
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[data-testid="project-status-menu-trigger-PRO-004"]'
+      )
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="project-status-menu-PRO-004"]')
+    ).toBeNull();
+  });
+
   it("calls moveBoardProject on drop and shows optimistic update", async () => {
     let resolveMove: (value: {
       ok: true;
@@ -404,11 +550,15 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
     renderComponent(projects);
 
     // Simulate dragstart on card (active group is expanded by default)
-    const card = container.querySelector('[data-testid="project-card-PRO-001"]') as HTMLElement;
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-001"]'
+    ) as HTMLElement;
     card?.dispatchEvent(new DragEvent("dragstart", { bubbles: true }));
 
     // Drop on shaping zone (also expanded by default)
-    const shapingZone = container.querySelector('[data-testid="group-drop-zone-shaping"]') as HTMLElement;
+    const shapingZone = container.querySelector(
+      '[data-testid="group-drop-zone-shaping"]'
+    ) as HTMLElement;
     shapingZone?.dispatchEvent(new DragEvent("drop", { bubbles: true }));
 
     expect(
@@ -424,7 +574,7 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
     resolveMove({ ok: true, status: "shaping", previousStatus: "active" });
   });
 
-  it("moves through the keyboard status select without opening detail", async () => {
+  it("moves through the status menu without opening detail", async () => {
     moveBoardProjectMock.mockResolvedValue({
       ok: true,
       status: "done",
@@ -436,11 +586,14 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
       { onProjectClick }
     );
 
-    const select = container.querySelector(
-      '[data-testid="project-status-select-PRO-004"]'
-    ) as HTMLSelectElement;
-    select.value = "done";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const trigger = container.querySelector(
+      '[data-testid="project-status-menu-trigger-PRO-004"]'
+    ) as HTMLButtonElement;
+    trigger.click();
+    const item = container.querySelector(
+      '[data-testid="project-status-menu-item-PRO-004-done"]'
+    ) as HTMLButtonElement;
+    item.click();
 
     await vi.waitFor(() => {
       expect(moveBoardProjectMock).toHaveBeenCalledWith("PRO-004", "done");
@@ -457,8 +610,11 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
     renderComponent([
       makeProject({ id: "PRO-005", lifecycleStatus: "done", status: "done" }),
     ]);
-    (container.querySelector('[data-testid="group-header-done"]') as HTMLElement)
-      ?.click();
+    (
+      container.querySelector(
+        '[data-testid="group-header-done"]'
+      ) as HTMLElement
+    )?.click();
 
     const card = container.querySelector(
       '[data-testid="project-card-PRO-005"]'
@@ -499,11 +655,15 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
       container
     );
 
-    const card = container.querySelector('[data-testid="project-card-PRO-002"]') as HTMLElement;
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-002"]'
+    ) as HTMLElement;
     card?.dispatchEvent(new DragEvent("dragstart", { bubbles: true }));
 
     // Drop on shaping (expanded, always visible)
-    const shapingZone = container.querySelector('[data-testid="group-drop-zone-shaping"]') as HTMLElement;
+    const shapingZone = container.querySelector(
+      '[data-testid="group-drop-zone-shaping"]'
+    ) as HTMLElement;
     shapingZone?.dispatchEvent(new DragEvent("drop", { bubbles: true }));
 
     await vi.waitFor(() => {
@@ -512,7 +672,9 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
 
     // Toast with error
     await vi.waitFor(() => {
-      expect(toastMessages).toContain("Cannot mark done: 2 slice(s) not yet finished");
+      expect(toastMessages).toContain(
+        "Cannot mark done: 2 slice(s) not yet finished"
+      );
     });
 
     // Card should still be in active group (reverted)
@@ -535,18 +697,26 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
     ];
     renderComponent(projects);
 
-    const card = container.querySelector('[data-testid="project-card-PRO-003"]') as HTMLElement;
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-003"]'
+    ) as HTMLElement;
     card?.dispatchEvent(new DragEvent("dragstart", { bubbles: true }));
     // Drop on shaping zone (expanded and visible)
-    const shapingZone = container.querySelector('[data-testid="group-drop-zone-shaping"]') as HTMLElement;
+    const shapingZone = container.querySelector(
+      '[data-testid="group-drop-zone-shaping"]'
+    ) as HTMLElement;
     shapingZone?.dispatchEvent(new DragEvent("drop", { bubbles: true }));
 
     await vi.waitFor(() => {
-      expect(container.querySelector('[data-testid="toast-error"]')).toBeTruthy();
+      expect(
+        container.querySelector('[data-testid="toast-error"]')
+      ).toBeTruthy();
     });
 
     // Close the toast
-    const closeBtn = container.querySelector('[data-testid="toast-close"]') as HTMLElement;
+    const closeBtn = container.querySelector(
+      '[data-testid="toast-close"]'
+    ) as HTMLElement;
     closeBtn?.click();
     expect(container.querySelector('[data-testid="toast-error"]')).toBeNull();
   });

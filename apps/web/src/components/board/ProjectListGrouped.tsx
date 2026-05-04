@@ -184,6 +184,13 @@ function ProjectCard(props: {
   onClick?: () => void;
   onStatusChange?: (status: ProjectLifecycleStatus) => void;
 }) {
+  const [menuOpen, setMenuOpen] = createSignal(false);
+
+  function moveToStatus(status: ProjectLifecycleStatus) {
+    setMenuOpen(false);
+    props.onStatusChange?.(status);
+  }
+
   return (
     <div
       data-testid={`project-card-${props.project.id}`}
@@ -224,33 +231,6 @@ function ProjectCard(props: {
           {props.project.id}
         </span>
         <StatusPill status={props.project.lifecycleStatus} />
-        <select
-          data-testid={`project-status-select-${props.project.id}`}
-          aria-label={`Move ${props.project.id}`}
-          value={props.project.lifecycleStatus}
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            const nextStatus = e.currentTarget.value as ProjectLifecycleStatus;
-            props.onStatusChange?.(nextStatus);
-            e.currentTarget.value = props.project.lifecycleStatus;
-          }}
-          style={{
-            "font-size": "11px",
-            color: "var(--text-secondary)",
-            background: "var(--bg-base)",
-            border: "1px solid var(--border-default)",
-            "border-radius": "4px",
-            padding: "1px 4px",
-          }}
-        >
-          <For each={LIFECYCLE_STATUSES}>
-            {(status) => (
-              <option value={status}>{lifecycleStatusLabel(status)}</option>
-            )}
-          </For>
-        </select>
         <Show when={props.areaName}>
           <span
             data-testid="project-area-chip"
@@ -265,6 +245,88 @@ function ProjectCard(props: {
             {props.areaName}
           </span>
         </Show>
+        <div
+          style={{ position: "relative", "margin-left": "auto" }}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            data-testid={`project-status-menu-trigger-${props.project.id}`}
+            aria-label={`Move ${props.project.id}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen()}
+            onClick={() => setMenuOpen((open) => !open)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setMenuOpen(false);
+            }}
+            style={{
+              width: "24px",
+              height: "22px",
+              display: "inline-flex",
+              "align-items": "center",
+              "justify-content": "center",
+              color: "var(--text-secondary)",
+              background: "transparent",
+              border: "1px solid transparent",
+              "border-radius": "4px",
+              cursor: "pointer",
+              "font-size": "16px",
+              "line-height": 1,
+            }}
+          >
+            …
+          </button>
+          <Show when={menuOpen()}>
+            <div
+              data-testid={`project-status-menu-${props.project.id}`}
+              role="menu"
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                "z-index": 20,
+                "min-width": "132px",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-default)",
+                "border-radius": "6px",
+                "box-shadow": "0 4px 14px rgba(0,0,0,0.18)",
+                overflow: "hidden",
+              }}
+            >
+              <For each={LIFECYCLE_STATUSES}>
+                {(status) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid={`project-status-menu-item-${props.project.id}-${status}`}
+                    disabled={status === props.project.lifecycleStatus}
+                    onClick={() => moveToStatus(status)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "7px 10px",
+                      "text-align": "left",
+                      "font-size": "12px",
+                      color: "var(--text-primary)",
+                      background:
+                        status === props.project.lifecycleStatus
+                          ? "var(--bg-base)"
+                          : "transparent",
+                      border: "none",
+                      cursor:
+                        status === props.project.lifecycleStatus
+                          ? "default"
+                          : "pointer",
+                    }}
+                  >
+                    {lifecycleStatusLabel(status)}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
       </div>
       {/* Line 2: Title */}
       <div
@@ -315,7 +377,7 @@ function GroupSection(props: {
   projects: BoardProject[];
   areas: Map<string, string>;
   onDrop?: (targetStatus: ProjectLifecycleStatus) => void;
-  onCardDragStart?: (project: BoardProject) => void;
+  onCardDragStart?: (project: BoardProject, e: DragEvent) => void;
   onCardDragEnd?: () => void;
   onCardClick?: (project: BoardProject) => void;
   onStatusChange?: (
@@ -398,6 +460,11 @@ function GroupSection(props: {
         }}
         onDragOver={(e) => {
           e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+          setDragOver(true);
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
@@ -430,8 +497,8 @@ function GroupSection(props: {
                 <ProjectCard
                   project={project}
                   areaName={props.areas.get(project.area) ?? project.area}
-                  onDragStart={() => {
-                    props.onCardDragStart?.(project);
+                  onDragStart={(e) => {
+                    props.onCardDragStart?.(project, e);
                   }}
                   onDragEnd={props.onCardDragEnd}
                   onClick={() => props.onCardClick?.(project)}
@@ -612,11 +679,13 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
     await moveProject(drag.projectId, drag.sourceStatus, targetStatus);
   }
 
-  function handleCardDragStart(project: BoardProject) {
+  function handleCardDragStart(project: BoardProject, e: DragEvent) {
     const state: DragState = {
       projectId: project.id,
       sourceStatus: project.lifecycleStatus,
     };
+    e.dataTransfer?.setData("text/plain", project.id);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
     setDragging(state);
     setSuppressNextClick(true);
   }
