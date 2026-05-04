@@ -2,14 +2,34 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { Hono } from "hono";
 import type { ExtensionContext } from "@aihub/shared";
 import { boardExtension } from "./index.js";
 
-function context(dataDir: string, contentRoot?: string): ExtensionContext {
+function context(
+  dataDir: string,
+  contentRoot?: string,
+  projectsConfig?: {
+    legacyRoot?: string;
+    canonicalRoot?: string;
+    worktreeDir?: string;
+  }
+): ExtensionContext {
   return {
     getConfig: () => ({
       agents: [],
-      extensions: { board: contentRoot ? { contentRoot } : {} },
+      projects: projectsConfig?.legacyRoot
+        ? { root: projectsConfig.legacyRoot }
+        : undefined,
+      extensions: {
+        board: contentRoot ? { contentRoot } : {},
+        projects: projectsConfig?.canonicalRoot
+          ? {
+              root: projectsConfig.canonicalRoot,
+              worktreeDir: projectsConfig.worktreeDir,
+            }
+          : undefined,
+      },
     }),
     getDataDir: () => dataDir,
     getAgent: () => undefined,
@@ -37,6 +57,30 @@ function context(dataDir: string, contentRoot?: string): ExtensionContext {
       error: () => undefined,
     },
   };
+}
+
+async function buildApp(
+  dataDir: string,
+  projectsConfig: {
+    legacyRoot?: string;
+    canonicalRoot?: string;
+    worktreeDir?: string;
+  }
+): Promise<Hono> {
+  const app = new Hono().basePath("/api");
+  boardExtension.registerRoutes(app);
+  await boardExtension.start(context(dataDir, undefined, projectsConfig));
+  return app;
+}
+
+function writeProject(root: string, id: string, title: string): void {
+  const dir = path.join(root, `${id}_test`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "README.md"),
+    `---\nid: "${id}"\ntitle: "${title}"\nstatus: "active"\ncreated: "2026-01-01T00:00:00.000Z"\n---\n# ${title}\n`,
+    "utf-8"
+  );
 }
 
 describe("board extension system prompt contribution", () => {
@@ -133,6 +177,56 @@ describe("board extension system prompt contribution", () => {
     } finally {
       await boardExtension.stop();
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses extensions.projects.root before deprecated projects.root", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-board-roots-"));
+    const legacyRoot = path.join(dataDir, "legacy-projects");
+    const canonicalRoot = path.join(dataDir, "canonical-projects");
+    try {
+      writeProject(legacyRoot, "PRO-401", "Legacy Project");
+      writeProject(canonicalRoot, "PRO-402", "Canonical Project");
+
+      const app = await buildApp(dataDir, { legacyRoot, canonicalRoot });
+      const res = await app.request("/api/board/projects");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { items: Array<{ id: string }> };
+      const ids = body.items.map((item) => item.id);
+      expect(ids).toContain("PRO-402");
+      expect(ids).not.toContain("PRO-401");
+    } finally {
+      await boardExtension.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses extensions.projects.root for board areas", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-board-areas-"));
+    const legacyRoot = path.join(dataDir, "legacy-projects");
+    const canonicalRoot = path.join(dataDir, "canonical-projects");
+    try {
+      fs.mkdirSync(path.join(legacyRoot, ".areas"), { recursive: true });
+      fs.writeFileSync(
+        path.join(legacyRoot, ".areas", "legacy.yaml"),
+        "id: legacy\ntitle: Legacy\ncolor: '#999999'\n",
+        "utf-8"
+      );
+      fs.mkdirSync(path.join(canonicalRoot, ".areas"), { recursive: true });
+      fs.writeFileSync(
+        path.join(canonicalRoot, ".areas", "canonical.yaml"),
+        "id: canonical\ntitle: Canonical\ncolor: '#336699'\n",
+        "utf-8"
+      );
+
+      const app = await buildApp(dataDir, { legacyRoot, canonicalRoot });
+      const res = await app.request("/api/board/areas");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { items: Array<{ id: string }> };
+      expect(body.items.map((item) => item.id)).toEqual(["canonical"]);
+    } finally {
+      await boardExtension.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });
 

@@ -4,8 +4,8 @@ import { expandPath } from "@aihub/shared";
 
 export function getProjectsRoot(config: GatewayConfig): string {
   const root =
-    config.projects?.root ??
     (config.extensions?.projects as { root?: string } | undefined)?.root ??
+    config.projects?.root ??
     "~/projects";
   return expandPath(root);
 }

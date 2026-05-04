@@ -178,7 +178,7 @@ Projects extension. Owns project APIs, project subagent orchestration, and the g
 - Runtime `--profile <name>` resolves `extensions.subagents.profiles[]` first, then top-level `subagents[]` templates. Both config surfaces use `cli` (`codex`/`claude`/`pi`) for the CLI harness; top-level templates keep `reasoning` while runtime profiles can carry `reasoning`/`reasoningEffort`. Unknown profile names fail with a profile-specific 400 error instead of falling through to missing CLI validation.
 - Projects orchestrator v0.3 (post kanban-slice-refactor) is opt-in via `extensions.projects.orchestrator`. **Config key is a historical artifact** — the key stays at `extensions.projects.orchestrator` to avoid backward-compat breaks even though the dispatcher now operates on slices, not projects. When enabled, the daemon polls at `poll_interval_ms`, enumerates slices per configured status bindings, and dispatches only against slices whose parent project is `active`. Slices under `shaping`/`done`/`cancelled` projects are visible on the board but not dispatched. Worker spawns move slice `todo → in_progress`; cooldown and dedupe are keyed by `sliceId` (not `projectId`) so one failing slice does not block siblings. Reviewer spawns leave slice in `review`, use the most-recent orchestrator Worker workspace for that `sliceId`, and move slice `review → ready_to_merge` (pass) or `review → todo` with a THREAD.md gap comment (fail). Manual subagent runs default to `source: "manual"` and do not count against orchestrator concurrency. Project auto-transitions to `done` when all child slices are terminal (`done`/`cancelled`) and ≥1 is `done`.
 - **Slice CLI surface** (`aihub slices <verb>`) — `add --project <PRO-XXX> "<title>"`, `list [--project] [--status]`, `get <sliceId>`, `move <sliceId> <status>`, `rename <sliceId> "<title>"`, `comment <sliceId> "<body>"`, `cancel <sliceId>`. Every mutation regenerates `SCOPE_MAP.md` atomically. Status enum: `todo | in_progress | review | ready_to_merge | done | cancelled`.
-- Slice CLI project-root resolution supports both `projects.root` and `extensions.projects.root` from `aihub.json`, so gateway-created slugged project directories are discovered consistently.
+- Project root resolution is extension-first: `extensions.projects.root` is canonical; deprecated top-level `projects.root` is fallback only. Slice CLI, board routes, project stores, migration, and orchestrator must discover gateway-created slugged project directories via the canonical root.
 - **`aihub projects migrate-to-slices`** — idempotent migration. Wraps each legacy project's `SPECS.md`/`TASKS.md`/`VALIDATION.md` into `slices/<PRO-XXX-S01>/`, generates `SCOPE_MAP.md`, maps legacy project statuses to the new project lifecycle enum + default slice status per spec §10.1. `maybe`/`not_now` projects become `shaping` with no auto-slice. Refuses to run while gateway is detected running.
 - **Slice data model** — slices live at `<projectDir>/slices/<PRO-XXX-Snn>/` with `README.md` (YAML frontmatter: `id`, `project_id`, `title`, `status`, `hill_position`, `created_at`, `updated_at`), `SPECS.md`, `TASKS.md`, `VALIDATION.md`, `THREAD.md`. Per-project counter at `<projectDir>/.meta/counters.json` (`lastSliceId`). `SCOPE_MAP.md` is auto-generated — do not edit by hand.
 - **Project lifecycle** (post-refactor) — `shaping → active → done / cancelled`. Projects are containers; they do not sit on a kanban. Orchestrator only dispatches slices for `active` projects. Auto-done fires when all child slices reach terminal status and ≥1 is `done`. Cancellation cascades: non-terminal slices flip to `cancelled`.
@@ -258,7 +258,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
       blockedPatterns?: string[]      // Default: .ssh, .gnupg, .aws, .env
     }
   },
-  extensions?: Record<string, unknown>, // extension-specific root defaults
+  extensions?: Record<string, unknown>, // extension-specific config; use extensions.projects.root for project storage
   extensionsPath?: string,              // external extension directory; default $AIHUB_HOME/extensions
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
@@ -292,7 +292,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     sessionSecret?: string
   },
   web?: { baseUrl? },
-  projects?: { root? },            // Projects root (default: ~/projects)
+  projects?: { root? },            // Deprecated fallback; prefer extensions.projects.root
   ui?: { enabled?, port?, bind?, tailscale? }  // enabled: default true; bind: loopback|lan|tailnet; tailscale: { mode: off|serve }
   // Note: tailscale.mode=serve requires gateway.bind and ui.bind to be loopback
 }

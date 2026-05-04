@@ -237,11 +237,22 @@ function resolveProjectRoots(ctx: ExtensionContext): {
   root: string;
   worktreesRoot: string;
 } {
-  const projectsConfig = ctx.getConfig().projects;
-  return {
-    root: expandPath(projectsConfig?.root ?? "~/projects"),
-    worktreesRoot: expandPath(projectsConfig?.worktrees ?? "~/.worktrees"),
-  };
+  const config = ctx.getConfig();
+  const root = expandPath(
+    config.extensions?.projects?.root ?? config.projects?.root ?? "~/projects"
+  );
+  const legacyProjectsConfig = config.projects as
+    | ({ worktrees?: string } & typeof config.projects)
+    | undefined;
+  const worktreeSetting =
+    config.extensions?.projects?.worktreeDir ??
+    legacyProjectsConfig?.worktrees ??
+    "~/.worktrees";
+  const worktreesRoot =
+    worktreeSetting.startsWith("/") || worktreeSetting.startsWith("~")
+      ? expandPath(worktreeSetting)
+      : path.join(root, worktreeSetting);
+  return { root, worktreesRoot };
 }
 
 function isReadmeChange(payload: unknown): boolean {
@@ -408,9 +419,7 @@ function registerBoardRoutes(app: Hono): void {
   });
 
   app.get("/board/areas", async (c) => {
-    const root = expandPath(
-      getContext().getConfig().projects?.root ?? "~/projects"
-    );
+    const { root } = resolveProjectRoots(getContext());
     const items = await scanAreaSummaries(root);
     return c.json({ items });
   });
@@ -419,9 +428,7 @@ function registerBoardRoutes(app: Hono): void {
     const areaId = c.req.param("areaId");
     const body = await c.req.json();
     const hidden = body.hidden === true;
-    const root = expandPath(
-      getContext().getConfig().projects?.root ?? "~/projects"
-    );
+    const { root } = resolveProjectRoots(getContext());
     await toggleAreaHidden(root, areaId, hidden);
     return c.json({ ok: true, areaId, hidden });
   });
@@ -434,9 +441,7 @@ function registerBoardRoutes(app: Hono): void {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return c.json({ error: "Invalid date format, expected YYYY-MM-DD" }, 400);
     }
-    const root = expandPath(
-      getContext().getConfig().projects?.root ?? "~/projects"
-    );
+    const { root } = resolveProjectRoots(getContext());
     await updateLoopEntry(root, areaId, date, content);
     return c.json({ ok: true, areaId, date });
   });

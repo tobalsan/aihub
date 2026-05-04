@@ -332,6 +332,47 @@ describe("slices CLI", () => {
     expect(scopeMap).toContain("Gateway slice");
   });
 
+  it("prefers extensions.projects.root over deprecated projects.root", async () => {
+    const legacyRoot = path.join(homeDir, "projects-legacy");
+    const canonicalRoot = path.join(homeDir, "projects-canonical");
+    await fs.mkdir(legacyRoot, { recursive: true });
+    await fs.mkdir(canonicalRoot, { recursive: true });
+
+    await fs.writeFile(
+      path.join(homeDir, "aihub.json"),
+      JSON.stringify({
+        agents: [],
+        projects: { root: legacyRoot },
+        extensions: { projects: { root: canonicalRoot } },
+      }),
+      "utf8"
+    );
+
+    const canonicalProjectDir = path.join(canonicalRoot, "PRO-333_canonical");
+    await fs.mkdir(canonicalProjectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(canonicalProjectDir, "README.md"),
+      `---\nid: "PRO-333"\ntitle: "Canonical Project"\nstatus: "active"\n---\n`,
+      "utf8"
+    );
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-333",
+      "Canonical slice",
+    ]);
+
+    await expect(
+      fs.stat(path.join(canonicalProjectDir, "slices", "PRO-333-S01", "README.md"))
+    ).resolves.toBeTruthy();
+    await expect(
+      fs.stat(path.join(legacyRoot, "PRO-333_canonical", "slices", "PRO-333-S01", "README.md"))
+    ).rejects.toThrow();
+  });
+
   it("prints clear errors for missing project and missing slice", async () => {
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {

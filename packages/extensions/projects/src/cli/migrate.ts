@@ -334,7 +334,7 @@ async function loadGatewayConfig(): Promise<GatewayConfig> {
     const raw = await fs.readFile(getConfigPath(), "utf8");
     return JSON.parse(raw) as GatewayConfig;
   } catch {
-    return { agents: [], extensions: {}, sessions: {} } as GatewayConfig;
+    return { agents: [], extensions: {}, sessions: { idleMinutes: 360 } };
   }
 }
 
@@ -361,7 +361,7 @@ export async function runMigration(opts: MigrateOptions = {}): Promise<MigrateRe
       const raw = await fs.readFile(opts.config, "utf8");
       config = JSON.parse(raw) as GatewayConfig;
     } catch {
-      config = { agents: [], extensions: {}, sessions: {} } as GatewayConfig;
+      config = { agents: [], extensions: {}, sessions: { idleMinutes: 360 } };
     }
   } else {
     config = await loadGatewayConfig();
