@@ -38,9 +38,9 @@ const LazyAreasOverview = lazy(() =>
     default: mod.AreasOverview,
   }))
 );
-const LazyBoardView = lazy(() =>
-  import("./components/BoardView").then((mod) => ({
-    default: mod.BoardView,
+const LazyBoardLifecycleListPage = lazy(() =>
+  import("./components/board/BoardLifecycleListPage").then((mod) => ({
+    default: mod.BoardLifecycleListPage,
   }))
 );
 const LazyAgentsView = lazy(() =>
@@ -378,7 +378,7 @@ function BoardRouteShell() {
   return (
     <LeftNavShell>
       <Suspense>
-        <LazyBoardView />
+        <LazyBoardLifecycleListPage />
       </Suspense>
     </LeftNavShell>
   );

@@ -23,29 +23,32 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 ###############################################################################
-# Setup temp AIHUB_HOME
+# Setup isolated temp AIHUB_HOME (never mutate caller home/config)
 ###############################################################################
 
-CREATED_HOME=0
-if [[ -z "${AIHUB_HOME:-}" ]]; then
-  AIHUB_HOME="$(mktemp -d)"
-  CREATED_HOME=1
-fi
-export AIHUB_HOME
+ORIGINAL_AIHUB_HOME="${AIHUB_HOME:-}"
+SMOKE_AIHUB_HOME="$(mktemp -d)"
+export AIHUB_HOME="$SMOKE_AIHUB_HOME"
 
 cleanup() {
-  if [[ "$CREATED_HOME" == "1" && "${KEEP_HOME:-0}" != "1" ]]; then
-    rm -rf "$AIHUB_HOME"
+  if [[ "${KEEP_HOME:-0}" != "1" ]]; then
+    rm -rf "$SMOKE_AIHUB_HOME"
   fi
 }
 trap cleanup EXIT
 
 PROJECTS_ROOT="$AIHUB_HOME/projects"
 mkdir -p "$PROJECTS_ROOT"
-# Seed aihub.json with explicit projects root so slices CLI reads it
+# Seed isolated aihub.json so slices CLI reads projects root from temp home
 cat > "$AIHUB_HOME/aihub.json" << JSON
 { "agents": [], "server": { "port": 4099 }, "projects": { "root": "$PROJECTS_ROOT" } }
 JSON
+
+if [[ -n "$ORIGINAL_AIHUB_HOME" ]]; then
+  echo "Using isolated AIHUB_HOME: $AIHUB_HOME (caller AIHUB_HOME preserved: $ORIGINAL_AIHUB_HOME)"
+else
+  echo "Using isolated AIHUB_HOME: $AIHUB_HOME"
+fi
 
 PASS=0
 FAIL=0

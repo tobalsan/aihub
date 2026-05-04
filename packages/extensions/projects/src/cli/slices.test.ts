@@ -293,6 +293,45 @@ describe("slices CLI", () => {
     expect(scopeMap).toContain("cancelled");
   });
 
+  it("works for slugged project dir when config uses extensions.projects.root", async () => {
+    await fs.writeFile(
+      path.join(homeDir, "aihub.json"),
+      JSON.stringify({ agents: [], extensions: { projects: { root: projectsRoot } } }),
+      "utf8"
+    );
+
+    const projectDir = path.join(projectsRoot, "PRO-222_gateway-created-project");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "README.md"),
+      `---\nid: "PRO-222"\ntitle: "Gateway Created Project"\nstatus: "active"\n---\n`,
+      "utf8"
+    );
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
+      logs.push(String(msg ?? ""));
+    });
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-222",
+      "Gateway slice",
+    ]);
+
+    expect(logs[0]).toBe("PRO-222-S01");
+
+    await expect(
+      fs.stat(path.join(projectDir, "slices", "PRO-222-S01", "README.md"))
+    ).resolves.toBeTruthy();
+    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    expect(scopeMap).toContain("PRO-222-S01");
+    expect(scopeMap).toContain("Gateway slice");
+  });
+
   it("prints clear errors for missing project and missing slice", async () => {
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {

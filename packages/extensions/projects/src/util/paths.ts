@@ -3,7 +3,11 @@ import type { GatewayConfig } from "@aihub/shared";
 import { expandPath } from "@aihub/shared";
 
 export function getProjectsRoot(config: GatewayConfig): string {
-  return expandPath(config.projects?.root ?? "~/projects");
+  const root =
+    config.projects?.root ??
+    (config.extensions?.projects as { root?: string } | undefined)?.root ??
+    "~/projects";
+  return expandPath(root);
 }
 
 /**

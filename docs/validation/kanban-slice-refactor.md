@@ -18,7 +18,7 @@ Purpose: exact manual E2E protocol for validating `docs/specs/kanban-slice-refac
 
 ```bash
 export AIHUB_HOME="$PWD/.aihub"
-export AIHUB_API_URL="http://127.0.0.1:4001/aihub"
+export AIHUB_API_URL="http://127.0.0.1:4001"
 export UI_URL="http://127.0.0.1:3001"
 ```
 
