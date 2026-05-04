@@ -163,11 +163,6 @@ async function getValidatedAuthContext(
 
 export const createAuthMiddleware = (): MiddlewareHandler => {
   return async (c, next) => {
-    if (shouldSkipAuth(c.req.path)) {
-      await next();
-      return;
-    }
-
     const runtime = getMultiUserRuntime();
     if (!runtime) {
       await next();
@@ -177,6 +172,20 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
     const session = await runtime.auth.api.getSession({
       headers: c.req.raw.headers,
     });
+
+    if (shouldSkipAuth(c.req.path)) {
+      // Public path — attach session if present but never reject
+      if (session) {
+        const authContext = normalizeAuthContext(session);
+        refreshApprovalFromDb(authContext);
+        if (isApproved(authContext)) {
+          c.set(REQUEST_AUTH_CONTEXT_KEY, authContext);
+        }
+      }
+      await next();
+      return;
+    }
+
     if (!session) {
       return c.json({ error: "unauthorized" }, 401);
     }
