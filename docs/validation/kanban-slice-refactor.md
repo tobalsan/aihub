@@ -9,6 +9,7 @@ Purpose: exact manual E2E protocol for validating `docs/specs/kanban-slice-refac
 - `node_modules` installed. If missing: `pnpm install`.
 - Local config exists under this worktree: `.aihub/aihub.json`.
   - If missing, seed from repo template: `pnpm init-dev-config` (runs `scripts/create-local-config.js`, using `scripts/config-template.json`).
+  - `extensions.projects.root` is canonical. Deprecated top-level `projects.root` may exist only as a fallback; validation should pass when only `extensions.projects.root` is set.
 - Gateway/web ports come from `.aihub/aihub.json` unless `pnpm dev` chooses next free ports.
 - Use a disposable `AIHUB_HOME` only. Never run this smoke against real `~/.aihub` project data.
 
@@ -56,41 +57,45 @@ Keep video recording active through the full browser smoke. Add `playwright-cli 
 
 ## Smoke data setup
 
-Create one project and one slice.
+Create one project and one slice. Use `pnpm --silent aihub:dev` for command output that feeds shell variables or `jq`; regular `pnpm aihub:dev` prints the pnpm script header before JSON.
+
+Project directories are slugged. Use `absolutePath` from the create response as `PROJECT_DIR`; do not assume `$AIHUB_HOME/projects/$PROJECT_ID`.
 
 ```bash
-PROJECT_JSON=$(pnpm aihub:dev projects create \
+PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Slice refactor E2E smoke" \
   --specs "Validate slice kanban refactor end to end." \
   --status active \
   --json)
 PROJECT_ID=$(printf '%s' "$PROJECT_JSON" | jq -r '.id')
+PROJECT_DIR=$(printf '%s' "$PROJECT_JSON" | jq -r '.absolutePath')
 
-SLICE_ID=$(pnpm aihub:dev slices add --project "$PROJECT_ID" "E2E vertical slice")
+SLICE_ID=$(pnpm --silent aihub:dev slices add --project "$PROJECT_ID" "E2E vertical slice")
 
 echo "PROJECT_ID=$PROJECT_ID"
+echo "PROJECT_DIR=$PROJECT_DIR"
 echo "SLICE_ID=$SLICE_ID"
 ```
 
 Expected filesystem:
 
 ```bash
-test -f "$AIHUB_HOME/projects/$PROJECT_ID/SCOPE_MAP.md"
-test -f "$AIHUB_HOME/projects/$PROJECT_ID/slices/$SLICE_ID/README.md"
-test -f "$AIHUB_HOME/projects/$PROJECT_ID/slices/$SLICE_ID/SPECS.md"
-test -f "$AIHUB_HOME/projects/$PROJECT_ID/slices/$SLICE_ID/TASKS.md"
-test -f "$AIHUB_HOME/projects/$PROJECT_ID/slices/$SLICE_ID/VALIDATION.md"
-test -f "$AIHUB_HOME/projects/$PROJECT_ID/slices/$SLICE_ID/THREAD.md"
+test -f "$PROJECT_DIR/SCOPE_MAP.md"
+test -f "$PROJECT_DIR/slices/$SLICE_ID/README.md"
+test -f "$PROJECT_DIR/slices/$SLICE_ID/SPECS.md"
+test -f "$PROJECT_DIR/slices/$SLICE_ID/TASKS.md"
+test -f "$PROJECT_DIR/slices/$SLICE_ID/VALIDATION.md"
+test -f "$PROJECT_DIR/slices/$SLICE_ID/THREAD.md"
 ```
 
 Expected CLI:
 
 ```bash
-pnpm aihub:dev slices get "$SLICE_ID" | tee /tmp/slice-before.txt
+pnpm --silent aihub:dev slices get "$SLICE_ID" | tee /tmp/slice-before.txt
 grep -q "id: $SLICE_ID" /tmp/slice-before.txt
 grep -q "project_id: $PROJECT_ID" /tmp/slice-before.txt
 grep -q "status: todo" /tmp/slice-before.txt
-grep -q "$SLICE_ID" "$AIHUB_HOME/projects/$PROJECT_ID/SCOPE_MAP.md"
+grep -q "$SLICE_ID" "$PROJECT_DIR/SCOPE_MAP.md"
 ```
 
 ## Feature validation matrix
@@ -100,9 +105,9 @@ grep -q "$SLICE_ID" "$AIHUB_HOME/projects/$PROJECT_ID/SCOPE_MAP.md"
 Commands:
 
 ```bash
-pnpm aihub:dev slices list --project "$PROJECT_ID" --json | jq .
-pnpm aihub:dev slices list --status todo --json | jq --arg id "$SLICE_ID" 'map(.id == $id) | any'
-pnpm aihub:dev slices get "$SLICE_ID" --json | jq .
+pnpm --silent aihub:dev slices list --project "$PROJECT_ID" --json | jq .
+pnpm --silent aihub:dev slices list --status todo --json | jq --arg id "$SLICE_ID" 'map(.id == $id) | any'
+pnpm --silent aihub:dev slices get "$SLICE_ID" --json | jq .
 ```
 
 Pass when:
@@ -117,11 +122,11 @@ Pass when:
 Commands:
 
 ```bash
-cp "$AIHUB_HOME/projects/$PROJECT_ID/SCOPE_MAP.md" /tmp/scope-before.md
-pnpm aihub:dev slices rename "$SLICE_ID" "E2E renamed slice"
-cp "$AIHUB_HOME/projects/$PROJECT_ID/SCOPE_MAP.md" /tmp/scope-after-rename.md
-pnpm aihub:dev slices move "$SLICE_ID" in_progress
-cp "$AIHUB_HOME/projects/$PROJECT_ID/SCOPE_MAP.md" /tmp/scope-after-move.md
+cp "$PROJECT_DIR/SCOPE_MAP.md" /tmp/scope-before.md
+pnpm --silent aihub:dev slices rename "$SLICE_ID" "E2E renamed slice"
+cp "$PROJECT_DIR/SCOPE_MAP.md" /tmp/scope-after-rename.md
+pnpm --silent aihub:dev slices move "$SLICE_ID" in_progress
+cp "$PROJECT_DIR/SCOPE_MAP.md" /tmp/scope-after-move.md
 
 grep -q "E2E renamed slice" /tmp/scope-after-rename.md
 grep -q "in_progress" /tmp/scope-after-move.md
@@ -139,18 +144,18 @@ Pass when:
 Commands:
 
 ```bash
-pnpm aihub:dev slices comment "$SLICE_ID" "E2E comment $(date -u +%FT%TZ)"
-pnpm aihub:dev slices move "$SLICE_ID" review
-pnpm aihub:dev slices get "$SLICE_ID" | tee /tmp/slice-after-mutations.txt
+pnpm --silent aihub:dev slices comment "$SLICE_ID" "E2E comment $(date -u +%FT%TZ)"
+pnpm --silent aihub:dev slices move "$SLICE_ID" review
+pnpm --silent aihub:dev slices get "$SLICE_ID" | tee /tmp/slice-after-mutations.txt
 
 grep -q "status: review" /tmp/slice-after-mutations.txt
-grep -q "E2E comment" "$AIHUB_HOME/projects/$PROJECT_ID/slices/$SLICE_ID/THREAD.md"
+grep -q "E2E comment" "$PROJECT_DIR/slices/$SLICE_ID/THREAD.md"
 ```
 
 Invalid input check:
 
 ```bash
-! pnpm aihub:dev slices move "$SLICE_ID" bogus_status
+! pnpm --silent aihub:dev slices move "$SLICE_ID" bogus_status
 ```
 
 Pass when:
@@ -165,24 +170,24 @@ Pass when:
 Create extra slice to validate cascade:
 
 ```bash
-CASCADE_SLICE_ID=$(pnpm aihub:dev slices add --project "$PROJECT_ID" "Cascade slice")
-pnpm aihub:dev slices move "$CASCADE_SLICE_ID" in_progress
-pnpm aihub:dev projects update "$PROJECT_ID" --status cancelled
-pnpm aihub:dev slices get "$CASCADE_SLICE_ID" | grep -q "status: cancelled"
+CASCADE_SLICE_ID=$(pnpm --silent aihub:dev slices add --project "$PROJECT_ID" "Cascade slice")
+pnpm --silent aihub:dev slices move "$CASCADE_SLICE_ID" in_progress
+pnpm --silent aihub:dev projects update "$PROJECT_ID" --status cancelled
+pnpm --silent aihub:dev slices get "$CASCADE_SLICE_ID" | grep -q "status: cancelled"
 ```
 
 Create fresh single-slice project to validate auto-done:
 
 ```bash
-DONE_PROJECT_JSON=$(pnpm aihub:dev projects create \
+DONE_PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Auto done E2E" \
   --specs "Single slice auto done." \
   --status active \
   --json)
 DONE_PROJECT_ID=$(printf '%s' "$DONE_PROJECT_JSON" | jq -r '.id')
-DONE_SLICE_ID=$(pnpm aihub:dev slices add --project "$DONE_PROJECT_ID" "Only slice")
-pnpm aihub:dev slices move "$DONE_SLICE_ID" done
-pnpm aihub:dev projects get "$DONE_PROJECT_ID" --json | jq -e '.status == "done"'
+DONE_SLICE_ID=$(pnpm --silent aihub:dev slices add --project "$DONE_PROJECT_ID" "Only slice")
+pnpm --silent aihub:dev slices move "$DONE_SLICE_ID" done
+pnpm --silent aihub:dev projects get "$DONE_PROJECT_ID" --json | jq -e '.frontmatter.status == "done"'
 ```
 
 Pass when:
@@ -200,8 +205,8 @@ Use separate disposable home:
 MIG_HOME=$(mktemp -d)
 AIHUB_HOME="$MIG_HOME" pnpm init-dev-config
 # create legacy fixture per status, or use checked-in migration fixture when issue #06 lands
-AIHUB_HOME="$MIG_HOME" pnpm aihub:dev projects migrate-to-slices
-AIHUB_HOME="$MIG_HOME" pnpm aihub:dev projects migrate-to-slices
+AIHUB_HOME="$MIG_HOME" pnpm --silent aihub:dev projects migrate-to-slices
+AIHUB_HOME="$MIG_HOME" pnpm --silent aihub:dev projects migrate-to-slices
 ```
 
 Pass when:
@@ -217,13 +222,14 @@ Pass when:
 Use active project + todo slice:
 
 ```bash
-RUN_PROJECT_JSON=$(pnpm aihub:dev projects create \
+RUN_PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Dispatcher E2E" \
   --specs "Dispatcher/reviewer smoke." \
   --status active \
   --json)
 RUN_PROJECT_ID=$(printf '%s' "$RUN_PROJECT_JSON" | jq -r '.id')
-RUN_SLICE_ID=$(pnpm aihub:dev slices add --project "$RUN_PROJECT_ID" "Worker reviewer slice")
+pnpm --silent aihub:dev projects update "$RUN_PROJECT_ID" --repo "$PWD" --json | jq -e '.repoValid == true'
+RUN_SLICE_ID=$(pnpm --silent aihub:dev slices add --project "$RUN_PROJECT_ID" "Worker reviewer slice")
 ```
 
 Wait for orchestrator Worker dispatch, or trigger manual orchestrator tick if implementation exposes a test hook.
@@ -231,9 +237,9 @@ Wait for orchestrator Worker dispatch, or trigger manual orchestrator tick if im
 Polling assertions:
 
 ```bash
-until pnpm aihub:dev slices get "$RUN_SLICE_ID" | grep -Eq "status: (in_progress|review|ready_to_merge)"; do sleep 5; done
+until pnpm --silent aihub:dev slices get "$RUN_SLICE_ID" | grep -Eq "status: (in_progress|review|ready_to_merge)"; do sleep 5; done
 
-pnpm aihub:dev subagents list --json | jq \
+pnpm --silent aihub:dev subagents list --json | jq \
   --arg p "$RUN_PROJECT_ID" --arg s "$RUN_SLICE_ID" \
   '.items[] | select(.projectId == $p and .sliceId == $s)'
 ```
@@ -249,7 +255,7 @@ Expected Worker path:
 Expected Reviewer path:
 
 ```bash
-until pnpm aihub:dev slices get "$RUN_SLICE_ID" | grep -Eq "status: (ready_to_merge|todo)"; do sleep 5; done
+until pnpm --silent aihub:dev slices get "$RUN_SLICE_ID" | grep -Eq "status: (ready_to_merge|todo)"; do sleep 5; done
 ```
 
 Pass path:
@@ -267,7 +273,7 @@ Fail path (if Reviewer fails intentionally):
 Sibling isolation check:
 
 ```bash
-SIBLING_SLICE_ID=$(pnpm aihub:dev slices add --project "$RUN_PROJECT_ID" "Sibling slice")
+SIBLING_SLICE_ID=$(pnpm --silent aihub:dev slices add --project "$RUN_PROJECT_ID" "Sibling slice")
 # Force one slice into cooldown/failure using issue-specific fixture or failing profile.
 # Verify sibling still dispatches when capacity exists.
 ```
@@ -332,7 +338,7 @@ Slice kanban drag:
 # Replace refs from snapshot.
 playwright-cli drag eSLICE_CARD eREADY_TO_MERGE_COLUMN
 playwright-cli snapshot --filename=docs/validation/smoke-12-slice-drag.yml
-pnpm aihub:dev slices get "$RUN_SLICE_ID" | grep -q "status: ready_to_merge"
+pnpm --silent aihub:dev slices get "$RUN_SLICE_ID" | grep -q "status: ready_to_merge"
 ```
 
 Pass when browser drag persists via backend and SCOPE_MAP updates.
@@ -408,13 +414,14 @@ Pass when feed includes newest-first items for:
 Use one fresh project with one slice:
 
 ```bash
-FINAL_PROJECT_JSON=$(pnpm aihub:dev projects create \
+FINAL_PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Final slice smoke" \
   --specs "Worker to reviewer to done." \
   --status active \
   --json)
 FINAL_PROJECT_ID=$(printf '%s' "$FINAL_PROJECT_JSON" | jq -r '.id')
-FINAL_SLICE_ID=$(pnpm aihub:dev slices add --project "$FINAL_PROJECT_ID" "Final slice")
+pnpm --silent aihub:dev projects update "$FINAL_PROJECT_ID" --repo "$PWD" --json | jq -e '.repoValid == true'
+FINAL_SLICE_ID=$(pnpm --silent aihub:dev slices add --project "$FINAL_PROJECT_ID" "Final slice")
 ```
 
 Validate sequence:
@@ -430,9 +437,9 @@ Validate sequence:
 9. Move slice to done:
 
 ```bash
-pnpm aihub:dev slices move "$FINAL_SLICE_ID" done
-pnpm aihub:dev slices get "$FINAL_SLICE_ID" | grep -q "status: done"
-pnpm aihub:dev projects get "$FINAL_PROJECT_ID" --json | jq -e '.status == "done"'
+pnpm --silent aihub:dev slices move "$FINAL_SLICE_ID" done
+pnpm --silent aihub:dev slices get "$FINAL_SLICE_ID" | grep -q "status: done"
+pnpm --silent aihub:dev projects get "$FINAL_PROJECT_ID" --json | jq -e '.frontmatter.status == "done"'
 ```
 
 10. Browser updates without full reload: slice appears in `done`; project appears in `done` group after refresh/event.
