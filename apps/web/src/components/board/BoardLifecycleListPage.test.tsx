@@ -37,6 +37,30 @@ vi.mock("./ProjectListGrouped", () => ({
   },
 }));
 
+function boardResponse(projects: unknown[] = [], done = 0) {
+  return {
+    projects,
+    lifecycleCounts: {
+      shaping: projects.filter(
+        (project) =>
+          (project as { lifecycleStatus?: string }).lifecycleStatus ===
+          "shaping"
+      ).length,
+      active: projects.filter(
+        (project) =>
+          (project as { lifecycleStatus?: string }).lifecycleStatus === "active"
+      ).length,
+      done,
+      cancelled: projects.filter(
+        (project) =>
+          (project as { lifecycleStatus?: string }).lifecycleStatus ===
+          "cancelled"
+      ).length,
+      archived: 0,
+    },
+  };
+}
+
 describe("BoardLifecycleListPage", () => {
   beforeEach(() => {
     navigateMock.mockReset();
@@ -50,21 +74,23 @@ describe("BoardLifecycleListPage", () => {
   });
 
   it("loads board projects + areas, maps area title, navigates on card click when no onProjectClick prop", async () => {
-    fetchBoardProjectsMock.mockResolvedValue([
-      {
-        id: "PRO-101",
-        title: "Alpha",
-        area: "web",
-        status: "active",
-        lifecycleStatus: "active",
-        group: "active",
-        created: "2026-01-01",
-        sliceProgress: { done: 1, total: 2 },
-        lastActivity: null,
-        activeRunCount: 0,
-        worktrees: [],
-      },
-    ]);
+    fetchBoardProjectsMock.mockResolvedValue(
+      boardResponse([
+        {
+          id: "PRO-101",
+          title: "Alpha",
+          area: "web",
+          status: "active",
+          lifecycleStatus: "active",
+          group: "active",
+          created: "2026-01-01",
+          sliceProgress: { done: 1, total: 2 },
+          lastActivity: null,
+          activeRunCount: 0,
+          worktrees: [],
+        },
+      ])
+    );
     fetchAreaSummariesMock.mockResolvedValue([
       {
         id: "web",
@@ -90,6 +116,7 @@ describe("BoardLifecycleListPage", () => {
       expect(lastCall.projects).toHaveLength(1);
       expect(lastCall.areas).toEqual([{ id: "web", name: "Web" }]);
     });
+    expect(fetchBoardProjectsMock).toHaveBeenCalledWith(false);
 
     const lastCall = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<
       string,
@@ -106,7 +133,7 @@ describe("BoardLifecycleListPage", () => {
   });
 
   it("calls onProjectClick prop instead of navigating when provided (embedded mode)", async () => {
-    fetchBoardProjectsMock.mockResolvedValue([]);
+    fetchBoardProjectsMock.mockResolvedValue(boardResponse());
     fetchAreaSummariesMock.mockResolvedValue([]);
 
     const onProjectClick = vi.fn();
@@ -141,7 +168,7 @@ describe("BoardLifecycleListPage", () => {
   it("debounces file changes and subagent lifecycle transitions", async () => {
     vi.useFakeTimers();
     try {
-      fetchBoardProjectsMock.mockResolvedValue([]);
+      fetchBoardProjectsMock.mockResolvedValue(boardResponse());
       fetchAreaSummariesMock.mockResolvedValue([]);
 
       const container = document.createElement("div");
@@ -157,10 +184,12 @@ describe("BoardLifecycleListPage", () => {
       fileCallbacks.onFileChanged("PRO-1", "PRO-1/README.md");
       fileCallbacks.onFileChanged("PRO-2", "PRO-2/SPECS.md");
       await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenLastCalledWith(false);
       expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
 
       runCallbacks.onSubagentChanged({ runId: "run-1", status: "running" });
       await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenLastCalledWith(false);
       expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(3);
 
       runCallbacks.onSubagentChanged({ runId: "run-1", status: "running" });
@@ -176,5 +205,62 @@ describe("BoardLifecycleListPage", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("lazy-loads done projects once when the done group expands", async () => {
+    fetchBoardProjectsMock
+      .mockResolvedValueOnce(boardResponse([], 2))
+      .mockResolvedValueOnce(
+        boardResponse(
+          [
+            {
+              id: "PRO-D1",
+              title: "Done",
+              area: "",
+              status: "done",
+              lifecycleStatus: "done",
+              group: "done",
+              created: "2026-01-01",
+              sliceProgress: { done: 0, total: 0 },
+              lastActivity: null,
+              activeRunCount: 0,
+              worktrees: [],
+            },
+          ],
+          1
+        )
+      );
+    fetchAreaSummariesMock.mockResolvedValue([]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <BoardLifecycleListPage />, container);
+
+    await vi.waitFor(() => expect(projectListPropsMock).toHaveBeenCalled());
+    const firstProps = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    const onDoneExpandedChange = firstProps.onDoneExpandedChange as (
+      expanded: boolean
+    ) => void;
+
+    onDoneExpandedChange(true);
+    await vi.waitFor(() =>
+      expect(fetchBoardProjectsMock).toHaveBeenCalledWith(true)
+    );
+
+    const loadedProps = projectListPropsMock.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(loadedProps.projects).toHaveLength(1);
+
+    onDoneExpandedChange(false);
+    onDoneExpandedChange(true);
+    expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
+
+    dispose();
+    document.body.removeChild(container);
   });
 });

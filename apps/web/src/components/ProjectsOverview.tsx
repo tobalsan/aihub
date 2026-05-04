@@ -17,7 +17,11 @@ import {
   subscribeToSubagentChanges,
   updateProject,
 } from "../api/client";
-import type { BoardProject, BoardWorktree } from "../api/types";
+import type {
+  BoardProject,
+  BoardWorktree,
+  ProjectLifecycleStatus,
+} from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 import { ProjectDetailPanel } from "./board/ProjectDetailPanel";
 import { SubagentRunsPanel } from "./SubagentRunsPanel";
@@ -33,6 +37,29 @@ type WorktreeStatus = {
 
 const UNASSIGNED_PROJECT_ID = "__unassigned";
 const TERMINAL_STATUSES = new Set(["archived", "trashed", "cancelled"]);
+
+function emptyBoardProjectsResponse() {
+  return {
+    projects: [],
+    lifecycleCounts: {
+      shaping: 0,
+      active: 0,
+      done: 0,
+      cancelled: 0,
+      archived: 0,
+    },
+  };
+}
+
+function lifecycleStatusFromProjectStatus(
+  status: string
+): ProjectLifecycleStatus {
+  if (status === "active") return "active";
+  if (status === "done") return "done";
+  if (status === "cancelled") return "cancelled";
+  if (status === "archived") return "archived";
+  return "shaping";
+}
 
 function shortPath(path: string): string {
   const parts = path.split("/").filter(Boolean);
@@ -141,6 +168,13 @@ export function ProjectsOverview(
   const [projects, { mutate, refetch }] = createResource(() =>
     fetchBoardProjects(true)
   );
+  const projectItems = createMemo(() => {
+    const response = projects() as unknown;
+    if (Array.isArray(response)) return response as BoardProject[];
+    return (
+      (response as { projects?: BoardProject[] } | undefined)?.projects ?? []
+    );
+  });
   const selectedProjectId = createMemo(() => {
     if (props.embedded) {
       const raw = searchParams.project;
@@ -151,7 +185,7 @@ export function ProjectsOverview(
   });
   const selectedProject = createMemo(() => {
     const id = selectedProjectId();
-    return (projects() ?? []).find((project) => project.id === id) ?? null;
+    return projectItems().find((project) => project.id === id) ?? null;
   });
   const [detail] = createResource(selectedProjectId, async (id) =>
     id && id !== UNASSIGNED_PROJECT_ID ? fetchProject(id) : null
@@ -168,7 +202,7 @@ export function ProjectsOverview(
   const preview = createMemo(() => lastPreview());
   const filteredProjects = createMemo(() => {
     const needle = query().trim().toLowerCase();
-    const matched = (projects() ?? []).filter((project) => {
+    const matched = projectItems().filter((project) => {
       if (isUnassignedProject(project)) return true;
       if (!projectMatchesFilter(project, filter())) return false;
       return !needle || project.title.toLowerCase().includes(needle);
@@ -181,7 +215,7 @@ export function ProjectsOverview(
   });
   const trackedWorktreeCwds = createMemo(() => {
     const paths = new Set<string>();
-    for (const project of projects() ?? []) {
+    for (const project of projectItems()) {
       for (const worktree of project.worktrees) {
         paths.add(worktree.worktreePath || worktree.path);
       }
@@ -257,10 +291,17 @@ export function ProjectsOverview(
   }
 
   function replaceProject(project: BoardProject) {
-    mutate(
-      (current) =>
-        current?.map((item) => (item.id === project.id ? project : item)) ?? []
-    );
+    mutate((current) => {
+      const existing = Array.isArray(current)
+        ? { ...emptyBoardProjectsResponse(), projects: current }
+        : (current ?? emptyBoardProjectsResponse());
+      return {
+        ...existing,
+        projects: existing.projects.map((item) =>
+          item.id === project.id ? project : item
+        ),
+      };
+    });
   }
 
   async function saveTitle() {
@@ -316,27 +357,40 @@ export function ProjectsOverview(
         return;
       }
       const created = result.data;
-      mutate((current) => [
-        {
-          id: created.id,
-          title: created.title,
-          area:
-            typeof created.frontmatter.area === "string"
-              ? created.frontmatter.area
-              : "",
-          status:
-            typeof created.frontmatter.status === "string"
-              ? created.frontmatter.status
-              : "maybe",
-          group: "active",
-          created:
-            typeof created.frontmatter.created === "string"
-              ? created.frontmatter.created
-              : new Date().toISOString(),
-          worktrees: [],
-        },
-        ...(current ?? []),
-      ]);
+      mutate((current) => {
+        const existing = Array.isArray(current)
+          ? { ...emptyBoardProjectsResponse(), projects: current }
+          : (current ?? emptyBoardProjectsResponse());
+        const status =
+          typeof created.frontmatter.status === "string"
+            ? created.frontmatter.status
+            : "maybe";
+        return {
+          ...existing,
+          projects: [
+            {
+              id: created.id,
+              title: created.title,
+              area:
+                typeof created.frontmatter.area === "string"
+                  ? created.frontmatter.area
+                  : "",
+              status,
+              group: "active",
+              created:
+                typeof created.frontmatter.created === "string"
+                  ? created.frontmatter.created
+                  : new Date().toISOString(),
+              lifecycleStatus: lifecycleStatusFromProjectStatus(status),
+              sliceProgress: { done: 0, total: 0 },
+              lastActivity: null,
+              activeRunCount: 0,
+              worktrees: [],
+            },
+            ...existing.projects,
+          ],
+        };
+      });
       setCreateOpen(false);
       setCreateTitle("");
       setFilter("active");

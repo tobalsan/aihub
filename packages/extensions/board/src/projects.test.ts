@@ -8,6 +8,7 @@ import {
   UNASSIGNED_PROJECT_ID,
   invalidateProjectCache,
   resetProjectCaches,
+  scanProjectLifecycleCounts,
   scanProjects,
   statusToGroup,
 } from "./projects.js";
@@ -251,10 +252,16 @@ describe("scanProjects", () => {
       status: "done",
       created: "2026-01-02",
     });
+    await makeProject(tmp, "PRO-003", {
+      title: "C",
+      status: "cancelled",
+      created: "2026-01-03",
+    });
 
     const without = await scanProjects(tmp, false, emptyWtRoot);
-    expect(without.map((p) => p.id)).toEqual([
+    expect(without.map((p) => p.id).sort()).toEqual([
       "PRO-001",
+      "PRO-003",
       UNASSIGNED_PROJECT_ID,
     ]);
 
@@ -262,8 +269,35 @@ describe("scanProjects", () => {
     expect(withDone.map((p) => p.id).sort()).toEqual([
       "PRO-001",
       "PRO-002",
+      "PRO-003",
       UNASSIGNED_PROJECT_ID,
     ]);
+  });
+
+  it("counts projects by lifecycle status", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "A",
+      status: "active",
+      created: "2026-01-01",
+    });
+    await makeProject(tmp, "PRO-002", {
+      title: "B",
+      status: "done",
+      created: "2026-01-02",
+    });
+    await makeProject(tmp, "PRO-003", {
+      title: "C",
+      status: "cancelled",
+      created: "2026-01-03",
+    });
+
+    await expect(scanProjectLifecycleCounts(tmp)).resolves.toEqual({
+      shaping: 0,
+      active: 1,
+      done: 1,
+      cancelled: 1,
+      archived: 0,
+    });
   });
 
   it("sorts by group then created desc", async () => {

@@ -128,7 +128,7 @@ describe("ProjectListGrouped — group rendering", () => {
         .querySelector('[data-testid="group-section-shaping"]')
         ?.querySelector('[data-testid="project-card-PRO-002"]')
     ).toBeTruthy();
-    // done and cancelled are collapsed — expand headers first
+    // done is collapsed; cancelled is expanded by default
     (
       container.querySelector(
         '[data-testid="group-header-done"]'
@@ -139,11 +139,6 @@ describe("ProjectListGrouped — group rendering", () => {
         .querySelector('[data-testid="group-section-done"]')
         ?.querySelector('[data-testid="project-card-PRO-003"]')
     ).toBeTruthy();
-    (
-      container.querySelector(
-        '[data-testid="group-header-cancelled"]'
-      ) as HTMLElement
-    )?.click();
     expect(
       container
         .querySelector('[data-testid="group-section-cancelled"]')
@@ -197,7 +192,36 @@ describe("ProjectListGrouped — group rendering", () => {
     expect(count?.textContent).toContain("2");
   });
 
-  it("done and cancelled groups are collapsed by default", () => {
+  it("uses lifecycleCounts for cold done count", () => {
+    renderComponent([], {
+      lifecycleCounts: {
+        shaping: 0,
+        active: 0,
+        done: 47,
+        cancelled: 0,
+        archived: 0,
+      },
+    });
+    const count = container.querySelector('[data-testid="group-count-done"]');
+    expect(count?.textContent).toContain("47");
+    expect(
+      container.querySelector('[data-testid^="project-card-"]')
+    ).toBeNull();
+  });
+
+  it("notifies when done expands and collapses", () => {
+    const onDoneExpandedChange = vi.fn();
+    renderComponent([], { onDoneExpandedChange });
+    const header = container.querySelector(
+      '[data-testid="group-header-done"]'
+    ) as HTMLElement;
+    header.click();
+    header.click();
+    expect(onDoneExpandedChange).toHaveBeenNthCalledWith(1, true);
+    expect(onDoneExpandedChange).toHaveBeenNthCalledWith(2, false);
+  });
+
+  it("done is collapsed and cancelled is expanded by default", () => {
     const projects = [
       makeProject({ id: "PRO-D1", lifecycleStatus: "done", status: "done" }),
       makeProject({
@@ -207,13 +231,12 @@ describe("ProjectListGrouped — group rendering", () => {
       }),
     ];
     renderComponent(projects);
-    // Cards should NOT be visible when collapsed
     expect(
       container.querySelector('[data-testid="project-card-PRO-D1"]')
     ).toBeNull();
     expect(
       container.querySelector('[data-testid="project-card-PRO-C1"]')
-    ).toBeNull();
+    ).toBeTruthy();
   });
 
   it("active and shaping groups expanded by default", () => {

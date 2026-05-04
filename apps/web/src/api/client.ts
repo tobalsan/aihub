@@ -37,6 +37,8 @@ import type {
   Task,
   TasksResponse,
   BoardProject,
+  BoardProjectsResponse,
+  ProjectLifecycleCounts,
   AreaSummary,
   SliceRecord,
   SliceListResponse,
@@ -804,14 +806,34 @@ export async function fetchTaskboardItem(
 
 export async function fetchBoardProjects(
   includeDone = false
-): Promise<BoardProject[]> {
+): Promise<BoardProjectsResponse> {
   const url = includeDone
     ? `${API_BASE}/board/projects?include=done`
     : `${API_BASE}/board/projects`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch board projects");
-  const data = (await res.json()) as { items?: BoardProject[] };
-  return data.items ?? [];
+  const data = (await res.json()) as {
+    items?: BoardProject[];
+    lifecycleCounts?: Partial<ProjectLifecycleCounts>;
+  };
+  const projects = data.items ?? [];
+  const fallbackCounts: ProjectLifecycleCounts = {
+    shaping: 0,
+    active: 0,
+    done: 0,
+    cancelled: 0,
+    archived: 0,
+  };
+  for (const project of projects) {
+    fallbackCounts[project.lifecycleStatus] += 1;
+  }
+  return {
+    projects,
+    lifecycleCounts: {
+      ...fallbackCounts,
+      ...data.lifecycleCounts,
+    },
+  };
 }
 
 export type MoveBoardProjectResult =

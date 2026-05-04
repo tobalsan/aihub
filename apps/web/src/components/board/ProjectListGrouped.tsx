@@ -12,7 +12,11 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import type { BoardProject, ProjectLifecycleStatus } from "../../api/types";
+import type {
+  BoardProject,
+  ProjectLifecycleCounts,
+  ProjectLifecycleStatus,
+} from "../../api/types";
 import { moveBoardProject } from "../../api/client";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -27,7 +31,7 @@ const GROUPS: GroupDef[] = [
   { status: "active", label: "Active", defaultExpanded: true },
   { status: "shaping", label: "Shaping", defaultExpanded: true },
   { status: "done", label: "Done", defaultExpanded: false },
-  { status: "cancelled", label: "Cancelled", defaultExpanded: false },
+  { status: "cancelled", label: "Cancelled", defaultExpanded: true },
   { status: "archived", label: "Archived", defaultExpanded: false },
 ];
 
@@ -38,6 +42,9 @@ const LIFECYCLE_STATUSES = GROUPS.map((group) => group.status);
 export type ProjectListGroupedProps = {
   /** All projects from GET /board/projects (archived already omitted server-side) */
   projects: BoardProject[];
+  lifecycleCounts?: ProjectLifecycleCounts;
+  doneLoading?: boolean;
+  onDoneExpandedChange?: (expanded: boolean) => void;
   /** Area names keyed by id (for filter chips) */
   areas: { id: string; name: string }[];
   /** Loading state — show skeletons */
@@ -375,6 +382,8 @@ function ProjectCard(props: {
 function GroupSection(props: {
   group: GroupDef;
   projects: BoardProject[];
+  totalCount: number;
+  loading?: boolean;
   areas: Map<string, string>;
   onDrop?: (targetStatus: ProjectLifecycleStatus) => void;
   onCardDragStart?: (project: BoardProject, e: DragEvent) => void;
@@ -384,9 +393,15 @@ function GroupSection(props: {
     project: BoardProject,
     targetStatus: ProjectLifecycleStatus
   ) => void;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const [expanded, setExpanded] = createSignal(props.group.defaultExpanded);
   const [dragOver, setDragOver] = createSignal(false);
+  const toggleExpanded = () => {
+    const next = !expanded();
+    setExpanded(next);
+    if (props.group.status === "done") props.onExpandedChange?.(next);
+  };
 
   return (
     <div
@@ -405,7 +420,7 @@ function GroupSection(props: {
           "border-bottom": "1px solid var(--border-default)",
           cursor: "pointer",
         }}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggleExpanded}
       >
         <span
           style={{
@@ -425,7 +440,7 @@ function GroupSection(props: {
             color: "var(--text-secondary)",
           }}
         >
-          ({props.projects.length})
+          ({props.totalCount})
         </span>
         <Show when={!props.group.defaultExpanded}>
           <span
@@ -435,7 +450,7 @@ function GroupSection(props: {
               "margin-left": "4px",
             }}
           >
-            {expanded() ? "hide" : "show"}
+            {props.loading ? "loading" : expanded() ? "hide" : "show"}
           </span>
         </Show>
         <span style={{ "margin-left": "auto", "font-size": "12px" }}>
@@ -477,10 +492,10 @@ function GroupSection(props: {
         {/* Cards — only visible when expanded */}
         <Show when={expanded()}>
           <Show
-            when={props.projects.length > 0}
+            when={!props.loading}
             fallback={
               <div
-                data-testid={`group-empty-${props.group.status}`}
+                data-testid={`group-loading-${props.group.status}`}
                 style={{
                   "text-align": "center",
                   color: "var(--text-secondary)",
@@ -488,26 +503,43 @@ function GroupSection(props: {
                   padding: "12px 0",
                 }}
               >
-                No projects
+                Loading projects
               </div>
             }
           >
-            <For each={props.projects}>
-              {(project) => (
-                <ProjectCard
-                  project={project}
-                  areaName={props.areas.get(project.area) ?? project.area}
-                  onDragStart={(e) => {
-                    props.onCardDragStart?.(project, e);
+            <Show
+              when={props.projects.length > 0}
+              fallback={
+                <div
+                  data-testid={`group-empty-${props.group.status}`}
+                  style={{
+                    "text-align": "center",
+                    color: "var(--text-secondary)",
+                    "font-size": "12px",
+                    padding: "12px 0",
                   }}
-                  onDragEnd={props.onCardDragEnd}
-                  onClick={() => props.onCardClick?.(project)}
-                  onStatusChange={(targetStatus) =>
-                    props.onStatusChange?.(project, targetStatus)
-                  }
-                />
-              )}
-            </For>
+                >
+                  No projects
+                </div>
+              }
+            >
+              <For each={props.projects}>
+                {(project) => (
+                  <ProjectCard
+                    project={project}
+                    areaName={props.areas.get(project.area) ?? project.area}
+                    onDragStart={(e) => {
+                      props.onCardDragStart?.(project, e);
+                    }}
+                    onDragEnd={props.onCardDragEnd}
+                    onClick={() => props.onCardClick?.(project)}
+                    onStatusChange={(targetStatus) =>
+                      props.onStatusChange?.(project, targetStatus)
+                    }
+                  />
+                )}
+              </For>
+            </Show>
           </Show>
         </Show>
       </div>
@@ -627,6 +659,21 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
     }
     return result;
   });
+  const fallbackCounts = createMemo(() => {
+    const counts: ProjectLifecycleCounts = {
+      shaping: 0,
+      active: 0,
+      done: 0,
+      cancelled: 0,
+      archived: 0,
+    };
+    for (const project of filteredProjects()) {
+      counts[project.lifecycleStatus] += 1;
+    }
+    return counts;
+  });
+  const groupCount = (status: ProjectLifecycleStatus) =>
+    props.lifecycleCounts?.[status] ?? fallbackCounts()[status];
 
   function showToast(message: string, variant: "error" | "info" = "info") {
     setToast({ message, variant });
@@ -759,9 +806,16 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
 
   // Empty state — only when there are no non-archived projects
   const hasProjects = createMemo(() =>
-    props.projects.some(
-      (p) => p.id !== UNASSIGNED_PROJECT_ID && p.lifecycleStatus !== "archived"
-    )
+    props.lifecycleCounts
+      ? props.lifecycleCounts.shaping +
+          props.lifecycleCounts.active +
+          props.lifecycleCounts.done +
+          props.lifecycleCounts.cancelled >
+        0
+      : props.projects.some(
+          (p) =>
+            p.id !== UNASSIGNED_PROJECT_ID && p.lifecycleStatus !== "archived"
+        )
   );
 
   return (
@@ -894,7 +948,12 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
                 <GroupSection
                   group={group}
                   projects={projects()}
+                  totalCount={groupCount(group.status)}
+                  loading={group.status === "done" && props.doneLoading}
                   areas={areaMap()}
+                  onExpandedChange={(expanded) =>
+                    props.onDoneExpandedChange?.(expanded)
+                  }
                   onDrop={(targetStatus) => void handleDrop(targetStatus)}
                   onCardDragStart={handleCardDragStart}
                   onCardDragEnd={handleCardDragEnd}

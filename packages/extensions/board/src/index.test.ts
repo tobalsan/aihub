@@ -73,12 +73,17 @@ async function buildApp(
   return app;
 }
 
-function writeProject(root: string, id: string, title: string): void {
+function writeProject(
+  root: string,
+  id: string,
+  title: string,
+  status = "active"
+): void {
   const dir = path.join(root, `${id}_test`);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "README.md"),
-    `---\nid: "${id}"\ntitle: "${title}"\nstatus: "active"\ncreated: "2026-01-01T00:00:00.000Z"\n---\n# ${title}\n`,
+    `---\nid: "${id}"\ntitle: "${title}"\nstatus: "${status}"\ncreated: "2026-01-01T00:00:00.000Z"\n---\n# ${title}\n`,
     "utf-8"
   );
 }
@@ -94,7 +99,9 @@ describe("board extension system prompt contribution", () => {
       queueMode: "queue",
     });
     const resolved = await Promise.resolve(contribution);
-    const text = Array.isArray(resolved) ? resolved.join("\n") : resolved ?? "";
+    const text = Array.isArray(resolved)
+      ? resolved.join("\n")
+      : (resolved ?? "");
 
     expect(text).toContain("Board scratchpad tools");
     expect(text).toContain("scratchpad_read");
@@ -136,14 +143,15 @@ describe("board extension system prompt contribution", () => {
       });
       const byName = new Map(tools?.map((tool) => [tool.name, tool]));
 
-      await byName.get("scratchpad.write")?.execute(
-        { content: "one\ntwo\nthree\n" },
-        { agent: {} as never }
-      );
-      const read = (await byName.get("scratchpad.read_lines")?.execute(
-        {},
-        { agent: {} as never }
-      )) as { updatedAt: string; lines: Array<{ line: number; text: string }> };
+      await byName
+        .get("scratchpad.write")
+        ?.execute({ content: "one\ntwo\nthree\n" }, { agent: {} as never });
+      const read = (await byName
+        .get("scratchpad.read_lines")
+        ?.execute({}, { agent: {} as never })) as {
+        updatedAt: string;
+        lines: Array<{ line: number; text: string }>;
+      };
       expect(read.lines).toEqual([
         { line: 1, text: "one" },
         { line: 2, text: "two" },
@@ -160,19 +168,19 @@ describe("board extension system prompt contribution", () => {
         },
         { agent: {} as never }
       );
-      await byName.get("scratchpad.insert_lines")?.execute(
-        { afterLine: 3, content: "four" },
-        { agent: {} as never }
-      );
-      await byName.get("scratchpad.delete_lines")?.execute(
-        { startLine: 1, endLine: 1, expectedContent: "one" },
-        { agent: {} as never }
-      );
+      await byName
+        .get("scratchpad.insert_lines")
+        ?.execute({ afterLine: 3, content: "four" }, { agent: {} as never });
+      await byName
+        .get("scratchpad.delete_lines")
+        ?.execute(
+          { startLine: 1, endLine: 1, expectedContent: "one" },
+          { agent: {} as never }
+        );
 
-      const final = (await byName.get("scratchpad.read")?.execute(
-        {},
-        { agent: {} as never }
-      )) as { content: string };
+      const final = (await byName
+        .get("scratchpad.read")
+        ?.execute({}, { agent: {} as never })) as { content: string };
       expect(final.content).toBe("TWO\nthree\nfour\n");
     } finally {
       await boardExtension.stop();
@@ -181,7 +189,9 @@ describe("board extension system prompt contribution", () => {
   });
 
   it("uses extensions.projects.root before deprecated projects.root", async () => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-board-roots-"));
+    const dataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "aihub-board-roots-")
+    );
     const legacyRoot = path.join(dataDir, "legacy-projects");
     const canonicalRoot = path.join(dataDir, "canonical-projects");
     try {
@@ -201,8 +211,52 @@ describe("board extension system prompt contribution", () => {
     }
   });
 
+  it("returns lifecycle counts while omitting done projects by default", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-board-list-"));
+    const root = path.join(dataDir, "projects");
+    try {
+      writeProject(root, "PRO-501", "Active Project", "active");
+      writeProject(root, "PRO-502", "Done Project", "done");
+      writeProject(root, "PRO-503", "Cancelled Project", "cancelled");
+
+      const app = await buildApp(dataDir, { canonicalRoot: root });
+      const res = await app.request("/api/board/projects");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+        lifecycleCounts: Record<string, number>;
+      };
+      expect(body.items.map((item) => item.id).sort()).toEqual([
+        "PRO-501",
+        "PRO-503",
+        "__unassigned",
+      ]);
+      expect(body.lifecycleCounts).toMatchObject({
+        active: 1,
+        done: 1,
+        cancelled: 1,
+      });
+
+      const withDone = await app.request("/api/board/projects?include=done");
+      const withDoneBody = (await withDone.json()) as {
+        items: Array<{ id: string }>;
+      };
+      expect(withDoneBody.items.map((item) => item.id).sort()).toEqual([
+        "PRO-501",
+        "PRO-502",
+        "PRO-503",
+        "__unassigned",
+      ]);
+    } finally {
+      await boardExtension.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses extensions.projects.root for board areas", async () => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-board-areas-"));
+    const dataDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "aihub-board-areas-")
+    );
     const legacyRoot = path.join(dataDir, "legacy-projects");
     const canonicalRoot = path.join(dataDir, "canonical-projects");
     try {
@@ -250,7 +304,9 @@ describe("board extension system prompt contribution", () => {
         ?.execute({ content: "home" }, { agent: {} as never });
       expect(fs.existsSync(path.join(dataDir, "SCRATCHPAD.md"))).toBe(true);
       expect(
-        fs.existsSync(path.join(dataDir, "extensions", "board", "SCRATCHPAD.md"))
+        fs.existsSync(
+          path.join(dataDir, "extensions", "board", "SCRATCHPAD.md")
+        )
       ).toBe(false);
       await boardExtension.stop();
 

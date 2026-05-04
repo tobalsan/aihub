@@ -486,6 +486,8 @@ export type SliceProgress = {
   total: number;
 };
 
+export type ProjectLifecycleCounts = Record<ProjectLifecycleStatus, number>;
+
 export type BoardProject = {
   id: string;
   title: string;
@@ -499,4 +501,9 @@ export type BoardProject = {
   lastActivity: string | null;
   activeRunCount: number;
   worktrees: BoardWorktree[];
+};
+
+export type BoardProjectsResponse = {
+  projects: BoardProject[];
+  lifecycleCounts: ProjectLifecycleCounts;
 };

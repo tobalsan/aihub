@@ -1,5 +1,11 @@
 import { useNavigate } from "@solidjs/router";
-import { createResource, createEffect, onCleanup } from "solid-js";
+import {
+  createResource,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+} from "solid-js";
 import {
   fetchBoardProjects,
   fetchAreaSummaries,
@@ -18,10 +24,95 @@ export function BoardLifecycleListPage(
   props: BoardLifecycleListPageProps = {}
 ) {
   const navigate = useNavigate();
-  const [projects, { refetch: refetchProjects }] = createResource(() =>
-    fetchBoardProjects(true)
-  );
+  const [doneExpanded, setDoneExpanded] = createSignal(false);
+  const [doneLoaded, setDoneLoaded] = createSignal(false);
+  const [doneLoading, setDoneLoading] = createSignal(false);
+  const [doneProjects, setDoneProjects] = createSignal<BoardProject[]>([]);
+  const [projects, { refetch: refetchProjects, mutate: mutateProjects }] =
+    createResource(() => fetchBoardProjects(false));
   const [areas] = createResource(fetchAreaSummaries);
+  const projectResponse = createMemo(() => {
+    const response = projects.latest as unknown;
+    if (Array.isArray(response)) {
+      const counts = {
+        shaping: 0,
+        active: 0,
+        done: 0,
+        cancelled: 0,
+        archived: 0,
+      };
+      for (const project of response as BoardProject[]) {
+        counts[project.lifecycleStatus] += 1;
+      }
+      return {
+        projects: response as BoardProject[],
+        lifecycleCounts: counts,
+      };
+    }
+    return response as
+      | {
+          projects: BoardProject[];
+          lifecycleCounts: {
+            shaping: number;
+            active: number;
+            done: number;
+            cancelled: number;
+            archived: number;
+          };
+        }
+      | undefined;
+  });
+  const visibleProjects = createMemo(() =>
+    doneExpanded()
+      ? [
+          ...(projectResponse()?.projects ?? []).filter(
+            (project) => project.lifecycleStatus !== "done"
+          ),
+          ...doneProjects(),
+        ]
+      : (projectResponse()?.projects ?? []).filter(
+          (project) => project.lifecycleStatus !== "done"
+        )
+  );
+  const lifecycleCounts = createMemo(
+    () =>
+      projectResponse()?.lifecycleCounts ?? {
+        shaping: 0,
+        active: 0,
+        done: doneProjects().length,
+        cancelled: 0,
+        archived: 0,
+      }
+  );
+
+  async function refreshVisibleProjects() {
+    if (!doneExpanded()) {
+      await refetchProjects();
+      return;
+    }
+    const next = await fetchBoardProjects(true);
+    mutateProjects(next);
+    setDoneProjects(
+      next.projects.filter((project) => project.lifecycleStatus === "done")
+    );
+    setDoneLoaded(true);
+  }
+
+  async function showDoneProjects() {
+    setDoneExpanded(true);
+    if (doneLoaded()) return;
+    setDoneLoading(true);
+    try {
+      const next = await fetchBoardProjects(true);
+      mutateProjects(next);
+      setDoneProjects(
+        next.projects.filter((project) => project.lifecycleStatus === "done")
+      );
+      setDoneLoaded(true);
+    } finally {
+      setDoneLoading(false);
+    }
+  }
 
   createEffect(() => {
     let refreshTimer: number | undefined;
@@ -29,7 +120,7 @@ export function BoardLifecycleListPage(
     const scheduleRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
-        void refetchProjects();
+        void refreshVisibleProjects();
         refreshTimer = undefined;
       }, 250);
     };
@@ -55,7 +146,13 @@ export function BoardLifecycleListPage(
   return (
     <div class="board-lifecycle-page" data-testid="board-lifecycle-page">
       <ProjectListGrouped
-        projects={projects.latest ?? []}
+        projects={visibleProjects()}
+        lifecycleCounts={lifecycleCounts()}
+        doneLoading={doneLoading()}
+        onDoneExpandedChange={(expanded) => {
+          if (expanded) void showDoneProjects();
+          else setDoneExpanded(false);
+        }}
         areas={(areas.latest ?? []).map((area) => ({
           id: area.id,
           name: area.title,

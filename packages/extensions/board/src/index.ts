@@ -31,6 +31,7 @@ import {
   MOVEABLE_LIFECYCLE_STATUSES,
   readSliceProgress,
   resetProjectCaches,
+  scanProjectLifecycleMetadata,
   scanProjects,
   validateLifecycleTransition,
 } from "./projects.js";
@@ -337,12 +338,14 @@ function registerBoardRoutes(app: Hono): void {
     const includeDone = c.req.query("include") === "done";
     const { root, worktreesRoot } = resolveProjectRoots(getContext());
     const config = getContext().getConfig();
+    const lifecycle = await scanProjectLifecycleMetadata(root);
     const items = await scanProjects(root, includeDone, worktreesRoot, {
       getSpace: (projectId) => getCachedSpace(config, projectId),
       runsByCwd: getLiveSubagentRunsByCwd(),
+      lifecycleStatuses: lifecycle.statuses,
     });
     if (profile) c.header("X-Profile-Ms", String(Date.now() - startedAt));
-    return c.json({ items });
+    return c.json({ items, lifecycleCounts: lifecycle.counts });
   });
 
   // ── Project lifecycle move ────────────────────────────────────────────
@@ -427,13 +430,23 @@ function registerBoardRoutes(app: Hono): void {
     if (targetLifecycle === "archived") {
       const archiveResult = await archiveProject(config, projectId);
       if (!archiveResult.ok) {
-        return c.json({ error: archiveResult.error, code: "update_failed" }, 500);
+        return c.json(
+          { error: archiveResult.error, code: "update_failed" },
+          500
+        );
       }
       changedProjectPath = archiveResult.data.archivedPath;
     } else if (currentLifecycle === "archived") {
-      const unarchiveResult = await unarchiveProject(config, projectId, targetLifecycle);
+      const unarchiveResult = await unarchiveProject(
+        config,
+        projectId,
+        targetLifecycle
+      );
       if (!unarchiveResult.ok) {
-        return c.json({ error: unarchiveResult.error, code: "update_failed" }, 500);
+        return c.json(
+          { error: unarchiveResult.error, code: "update_failed" },
+          500
+        );
       }
       changedProjectPath = unarchiveResult.data.path;
     } else {
@@ -441,7 +454,10 @@ function registerBoardRoutes(app: Hono): void {
         status: targetStatus,
       });
       if (!updateResult.ok) {
-        return c.json({ error: updateResult.error, code: "update_failed" }, 500);
+        return c.json(
+          { error: updateResult.error, code: "update_failed" },
+          500
+        );
       }
       changedProjectPath = updateResult.data.path;
     }

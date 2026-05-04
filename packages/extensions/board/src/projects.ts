@@ -11,7 +11,19 @@ const execFileAsync = promisify(execFile);
 export type BoardProjectGroup = "active" | "review" | "stale" | "done";
 
 /** Lifecycle status per §5.4 of the kanban-slice-refactor spec. */
-export type ProjectLifecycleStatus = "shaping" | "active" | "done" | "cancelled" | "archived";
+export type ProjectLifecycleStatus =
+  | "shaping"
+  | "active"
+  | "done"
+  | "cancelled"
+  | "archived";
+
+export type ProjectLifecycleCounts = Record<ProjectLifecycleStatus, number>;
+
+export type ProjectLifecycleScan = {
+  counts: ProjectLifecycleCounts;
+  statuses: Map<string, ProjectLifecycleStatus>;
+};
 
 export type SliceProgress = {
   done: number;
@@ -142,7 +154,9 @@ export function validateLifecycleTransition(
 const SLICE_ID_PATTERN = /^PRO-\d+-S\d+$/;
 
 /** Read slice progress (done/total) from a project directory. */
-export async function readSliceProgress(projectDir: string): Promise<SliceProgress> {
+export async function readSliceProgress(
+  projectDir: string
+): Promise<SliceProgress> {
   const slicesDir = path.join(projectDir, "slices");
   try {
     const entries = await fs.readdir(slicesDir, { withFileTypes: true });
@@ -158,7 +172,8 @@ export async function readSliceProgress(projectDir: string): Promise<SliceProgre
         try {
           const raw = await fs.readFile(readmePath, "utf-8");
           const { frontmatter } = splitFrontmatter(raw);
-          const status = typeof frontmatter.status === "string" ? frontmatter.status : "";
+          const status =
+            typeof frontmatter.status === "string" ? frontmatter.status : "";
           if (status === "done" || status === "cancelled") done++;
         } catch {
           // ignore unreadable slices
@@ -193,6 +208,7 @@ export type ScanProjectsOptions = {
   dirtyAheadTtlMs?: number;
   getSpace?: (projectId: string) => Promise<SpaceView | null>;
   runsByCwd?: Map<string, AgentRunSummaryView>;
+  lifecycleStatuses?: Map<string, ProjectLifecycleStatus>;
 };
 
 type SpaceQueueEntryView = {
@@ -451,7 +467,75 @@ async function readProjectMeta(
     asString(frontmatter.updated_at) ?? (mtime ? mtime.toISOString() : null);
   const repo = asString(frontmatter.repo);
   const worktrees = readProjectWorktreeRefs(frontmatter.worktrees);
-  return { id, title, area, status, created, updatedAt, repo, worktrees, projectDir };
+  return {
+    id,
+    title,
+    area,
+    status,
+    created,
+    updatedAt,
+    repo,
+    worktrees,
+    projectDir,
+  };
+}
+
+async function readProjectLifecycleStatus(
+  projectsRoot: string,
+  dirName: string
+): Promise<ProjectLifecycleStatus | null> {
+  try {
+    const raw = await fs.readFile(
+      path.join(projectsRoot, dirName, "README.md"),
+      "utf-8"
+    );
+    const { frontmatter } = splitFrontmatter(raw);
+    return mapToLifecycleStatus(asString(frontmatter.status) ?? "");
+  } catch {
+    return null;
+  }
+}
+
+export async function scanProjectLifecycleMetadata(
+  projectsRoot: string
+): Promise<ProjectLifecycleScan> {
+  const counts: ProjectLifecycleCounts = {
+    shaping: 0,
+    active: 0,
+    done: 0,
+    cancelled: 0,
+    archived: 0,
+  };
+  const statuses = new Map<string, ProjectLifecycleStatus>();
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(projectsRoot, { withFileTypes: true });
+  } catch {
+    return { counts, statuses };
+  }
+  const projectEntries = entries.filter(
+    (entry) =>
+      entry.isDirectory() &&
+      !SKIP_DIRS.has(entry.name) &&
+      PROJECT_DIR_PATTERN.test(entry.name)
+  );
+  const readStatuses = await Promise.all(
+    projectEntries.map((entry) =>
+      readProjectLifecycleStatus(projectsRoot, entry.name)
+    )
+  );
+  for (let i = 0; i < readStatuses.length; i += 1) {
+    const status = readStatuses[i];
+    if (status) counts[status] += 1;
+    if (status) statuses.set(projectEntries[i]!.name, status);
+  }
+  return { counts, statuses };
+}
+
+export async function scanProjectLifecycleCounts(
+  projectsRoot: string
+): Promise<ProjectLifecycleCounts> {
+  return (await scanProjectLifecycleMetadata(projectsRoot)).counts;
 }
 
 async function gitText(args: string[], cwd: string): Promise<string> {
@@ -1389,9 +1473,23 @@ async function scanProjectsUncached(
       !SKIP_DIRS.has(entry.name) &&
       PROJECT_DIR_PATTERN.test(entry.name)
   );
+  const entriesToRead = includeDone
+    ? projectEntries
+    : (
+        await Promise.all(
+          projectEntries.map(async (entry) => ({
+            entry,
+            lifecycleStatus:
+              options?.lifecycleStatuses?.get(entry.name) ??
+              (await readProjectLifecycleStatus(projectsRoot, entry.name)),
+          }))
+        )
+      )
+        .filter((item) => item.lifecycleStatus !== "done")
+        .map((item) => item.entry);
   const metas = (
     await Promise.all(
-      projectEntries.map((entry) => readProjectMeta(projectsRoot, entry.name))
+      entriesToRead.map((entry) => readProjectMeta(projectsRoot, entry.name))
     )
   ).filter((meta): meta is ProjectMeta => meta !== null);
   const worktreeIndex = await buildWorktreeIndex(metas, wtRoot, options);
@@ -1399,7 +1497,6 @@ async function scanProjectsUncached(
   const projects: BoardProject[] = [];
   for (const meta of metas) {
     const group = statusToGroup(meta.status);
-    if (!includeDone && group === "done") continue;
     const worktrees = await buildProjectWorktreeViews(
       meta,
       await lookupWorktrees(worktreeIndex.attributed, meta),
