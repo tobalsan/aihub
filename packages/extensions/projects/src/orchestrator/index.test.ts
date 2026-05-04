@@ -461,7 +461,9 @@ describe("orchestrator dispatcher", () => {
 
   it("records an attempt + cleans the orphan dir when spawnSubagent throws", async () => {
     const removed: string[] = [];
+    const logs: string[] = [];
     const recorded: Array<{ sliceId: string; atMs: number }> = [];
+    const updates = makeUpdateSliceMock();
     const tracker = {
       record: (sliceId: string, atMs: number) => {
         recorded.push({ sliceId, atMs });
@@ -480,23 +482,134 @@ describe("orchestrator dispatcher", () => {
       spawnSubagent: async () => {
         throw new Error("git worktree add failed");
       },
-      updateSlice: makeUpdateSliceMock().fn,
+      updateSlice: updates.fn,
       attempts: tracker,
       removeOrphanDir: async (dirPath: string) => {
         removed.push(dirPath);
       },
       now: () => new Date("2026-05-03T17:00:00.000Z"),
-      log: () => {},
+      log: (msg) => logs.push(msg),
     });
 
     expect(result.decisions).toHaveLength(1);
     expect(result.decisions[0]?.action).toBe("skipped");
-    expect(result.decisions[0]?.reason).toBe("git worktree add failed");
+    expect(result.decisions[0]?.reason).toBe("spawn_failed");
     expect(result.decisions[0]?.sliceId).toBe("PRO-1-S01");
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.sliceId).toBe("PRO-1-S01");
+    expect(updates.calls).toEqual([{ sliceId: "PRO-1-S01", status: "todo" }]);
+    expect(
+      logs.some(
+        (m) =>
+          m.includes("action=spawn_failed_revert") &&
+          m.includes("reason=git worktree add failed") &&
+          m.includes("status_reverted=true")
+      )
+    ).toBe(true);
     expect(removed).toHaveLength(1);
     expect(removed[0]).toMatch(/\/tmp\/projects\/PRO-1\/sessions\/pro-1-s01-/);
+  });
+
+  it("reverts Worker slice when spawnSubagent returns ok false", async () => {
+    const logs: string[] = [];
+    const recorded: Array<{ sliceId: string; atMs: number }> = [];
+    const updates = makeUpdateSliceMock();
+
+    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async () => ({ ok: false, error: "missing repo" }),
+      updateSlice: updates.fn,
+      attempts: {
+        record: (sliceId, atMs) => recorded.push({ sliceId, atMs }),
+        isCoolingDown: () => false,
+        clear: () => {},
+      },
+      now: () => new Date("2026-05-03T17:00:00.000Z"),
+      log: (msg) => logs.push(msg),
+    });
+
+    expect(result.decisions).toEqual([
+      {
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        action: "skipped",
+        reason: "spawn_failed",
+      },
+    ]);
+    expect(recorded).toEqual([
+      { sliceId: "PRO-1-S01", atMs: 1_777_827_600_000 },
+    ]);
+    expect(updates.calls).toEqual([{ sliceId: "PRO-1-S01", status: "todo" }]);
+    expect(
+      logs.some(
+        (m) =>
+          m.includes("action=spawn_failed_revert") &&
+          m.includes("reason=missing repo") &&
+          m.includes("status_reverted=true")
+      )
+    ).toBe(true);
+  });
+
+  it("reverts only failed Worker spawns in a mixed tick", async () => {
+    const updates = makeUpdateSliceMock();
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1"),
+        slice("PRO-1-S02", "PRO-1"),
+      ],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        if (input.sliceId === "PRO-1-S01") {
+          return { ok: false, error: "missing repo" };
+        }
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: updates.fn,
+      log: () => {},
+    });
+
+    expect(updates.calls).toEqual([
+      { sliceId: "PRO-1-S01", status: "todo" },
+      { sliceId: "PRO-1-S02", status: "in_progress" },
+    ]);
+  });
+
+  it("logs revert_failed when Worker spawn failure cannot be reverted", async () => {
+    const logs: string[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async () => ({ ok: false, error: "missing repo" }),
+      updateSlice: async () => {
+        throw new Error("disk full");
+      },
+      log: (msg) => logs.push(msg),
+    });
+
+    expect(
+      logs.some(
+        (m) =>
+          m.includes("action=revert_failed") &&
+          m.includes("reason=disk full") &&
+          m.includes("spawn_reason=missing repo") &&
+          m.includes("status_reverted=false")
+      )
+    ).toBe(true);
   });
 
   it("sibling slices are independent — active run on S01 does not block S02", async () => {

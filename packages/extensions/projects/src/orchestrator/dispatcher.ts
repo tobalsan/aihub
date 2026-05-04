@@ -662,16 +662,49 @@ async function dispatchForStatus(
         projectId: project.id,
         sliceId: slice.id,
         action: "skipped",
-        reason: spawned.error,
+        reason: "spawn_failed",
       });
-      keyValueLog(log, {
-        component: "orchestrator",
-        status: statusKey,
-        action: "spawn_failed",
-        project: project.id,
-        slice: slice.id,
-        reason: spawned.error,
-      });
+      if (statusKey === WORKER_SLICE_STATUS) {
+        try {
+          await (deps.updateSlice ?? updateSlice)(
+            project.absolutePath,
+            slice.id,
+            { status: "todo" }
+          );
+          keyValueLog(log, {
+            component: "orchestrator",
+            status: statusKey,
+            action: "spawn_failed_revert",
+            project: project.id,
+            slice: slice.id,
+            reason: spawned.error,
+            status_reverted: "true",
+          });
+        } catch (revertError) {
+          keyValueLog(log, {
+            component: "orchestrator",
+            status: statusKey,
+            action: "revert_failed",
+            project: project.id,
+            slice: slice.id,
+            reason:
+              revertError instanceof Error
+                ? revertError.message
+                : String(revertError),
+            spawn_reason: spawned.error,
+            status_reverted: "false",
+          });
+        }
+      } else {
+        keyValueLog(log, {
+          component: "orchestrator",
+          status: statusKey,
+          action: "spawn_failed",
+          project: project.id,
+          slice: slice.id,
+          reason: spawned.error,
+        });
+      }
       // Best-effort orphan cleanup: spawnSubagent may have created the slug
       // directory before failing (e.g. mkdir succeeded, git worktree add
       // failed). Without cleanup, the UI shows ghost agent rows.
