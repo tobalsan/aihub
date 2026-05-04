@@ -27,6 +27,7 @@ import {
 import type { ProjectLifecycleStatus } from "../../api/types";
 import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
+import { SliceDetailPage } from "../SliceDetailPage";
 import { ActivityFeed } from "../ActivityFeed";
 import { renderMarkdown } from "../../lib/markdown";
 
@@ -38,6 +39,13 @@ type LifecycleAction = {
   label: string;
   nextStatus: string;
   dangerous?: boolean;
+};
+
+type BoardSliceHistoryState = {
+  aihubBoardSlice?: {
+    projectId: string;
+    sliceId: string;
+  };
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -134,6 +142,9 @@ export function BoardProjectDetailPage(
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
+  const [selectedSliceId, setSelectedSliceId] = createSignal<string | null>(
+    null
+  );
 
   // Slice creation form state
   const [addingSlice, setAddingSlice] = createSignal(false);
@@ -187,14 +198,14 @@ export function BoardProjectDetailPage(
   });
 
   const area = createMemo(() => {
-    const p = project();
+    const p = project.latest;
     const areaId = p?.frontmatter?.area;
     if (!areaId || typeof areaId !== "string") return undefined;
-    return (areas() ?? []).find((a) => a.id === areaId);
+    return (areas.latest ?? []).find((a) => a.id === areaId);
   });
 
   const lifecycleStatus = createMemo((): ProjectLifecycleStatus => {
-    const p = project();
+    const p = project.latest;
     if (!p) return "shaping";
     return getLifecycleStatus(p.frontmatter);
   });
@@ -202,12 +213,67 @@ export function BoardProjectDetailPage(
   const validActions = createMemo(() => getValidActions(lifecycleStatus()));
 
   const handleBack = () => {
+    if (selectedSliceId()) {
+      closeSliceDetail();
+      return;
+    }
     if (props.onBack) {
       props.onBack();
     } else {
       navigate("/board");
     }
   };
+
+  const openSliceDetail = (sliceId: string) => {
+    const id = projectId();
+    if (!id) return;
+    setActiveTab("slices");
+    setSelectedSliceId(sliceId);
+    window.history.pushState(
+      {
+        ...(window.history.state ?? {}),
+        aihubBoardSlice: { projectId: id, sliceId },
+      },
+      "",
+      window.location.href
+    );
+  };
+
+  const closeSliceDetail = () => {
+    const currentState = window.history.state as BoardSliceHistoryState | null;
+    if (currentState?.aihubBoardSlice?.projectId === projectId()) {
+      window.history.back();
+      return;
+    }
+    setSelectedSliceId(null);
+  };
+
+  createEffect(() => {
+    const id = projectId();
+    const state = window.history.state as BoardSliceHistoryState | null;
+    const sliceState = state?.aihubBoardSlice;
+    if (sliceState?.projectId === id) {
+      setActiveTab("slices");
+      setSelectedSliceId(sliceState.sliceId);
+    } else {
+      setSelectedSliceId(null);
+    }
+  });
+
+  createEffect(() => {
+    const handler = (event: PopStateEvent) => {
+      const state = event.state as BoardSliceHistoryState | null;
+      const sliceState = state?.aihubBoardSlice;
+      if (sliceState?.projectId === projectId()) {
+        setActiveTab("slices");
+        setSelectedSliceId(sliceState.sliceId);
+      } else {
+        setSelectedSliceId(null);
+      }
+    };
+    window.addEventListener("popstate", handler);
+    onCleanup(() => window.removeEventListener("popstate", handler));
+  });
 
   const handleLifecycleAction = async (nextStatus: string) => {
     setMenuOpen(false);
@@ -295,7 +361,7 @@ export function BoardProjectDetailPage(
         </button>
 
         <Show
-          when={project()}
+          when={project.latest}
           fallback={<span class="bpd-loading-inline">Loading…</span>}
         >
           {(p) => (
@@ -374,14 +440,14 @@ export function BoardProjectDetailPage(
 
       {/* ── Body ── */}
       <div class="bpd-body">
-        <Show when={project.loading && !project()}>
+        <Show when={project.loading && !project.latest}>
           <div class="bpd-loading">Loading project…</div>
         </Show>
-        <Show when={project.error && !project()}>
+        <Show when={project.error && !project.latest}>
           <div class="bpd-error">Failed to load project.</div>
         </Show>
 
-        <Show when={project()}>
+        <Show when={project.latest}>
           {(p) => (
             <Switch>
               {/* Pitch tab — README.md */}
@@ -445,11 +511,40 @@ export function BoardProjectDetailPage(
                       </form>
                     </Show>
                   </div>
-                  <div class="bpd-slices-kanban">
-                    <Suspense fallback={<SlicesLoading />}>
-                      <SliceKanbanWidget projectId={projectId()} />
-                    </Suspense>
-                  </div>
+                  <Show
+                    when={selectedSliceId()}
+                    fallback={
+                      <div class="bpd-slices-kanban">
+                        <Suspense fallback={<SlicesLoading />}>
+                          <SliceKanbanWidget
+                            projectId={projectId()}
+                            onSliceClick={openSliceDetail}
+                          />
+                        </Suspense>
+                      </div>
+                    }
+                  >
+                    {(sliceId) => (
+                      <div class="bpd-slices-detail">
+                        <SliceDetailPage
+                          projectId={projectId()}
+                          sliceId={sliceId()}
+                          onBack={closeSliceDetail}
+                          onOpenSlice={(nextProjectId, nextSliceId) => {
+                            if (nextProjectId === projectId()) {
+                              openSliceDetail(nextSliceId);
+                            } else if (props.onOpenProject) {
+                              props.onOpenProject(nextProjectId);
+                            } else {
+                              navigate(
+                                `/projects/${encodeURIComponent(nextProjectId)}/slices/${encodeURIComponent(nextSliceId)}`
+                              );
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                  </Show>
                 </div>
               </Match>
 
@@ -820,6 +915,12 @@ export function BoardProjectDetailPage(
         }
 
         .bpd-slices-kanban {
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
+
+        .bpd-slices-detail {
           flex: 1;
           min-height: 0;
           overflow: hidden;

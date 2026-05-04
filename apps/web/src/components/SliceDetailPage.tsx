@@ -186,12 +186,19 @@ function SliceTasksSection(props: { content: string }) {
   );
 }
 
-export function SliceDetailPage() {
+export type SliceDetailPageProps = {
+  projectId?: string;
+  sliceId?: string;
+  onBack?: () => void;
+  onOpenSlice?: (projectId: string, sliceId: string) => void;
+};
+
+export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   const params = useParams<{ projectId: string; sliceId: string }>();
   const navigate = useNavigate();
 
-  const projectId = createMemo(() => params.projectId ?? "");
-  const sliceId = createMemo(() => params.sliceId ?? "");
+  const projectId = createMemo(() => props.projectId ?? params.projectId ?? "");
+  const sliceId = createMemo(() => props.sliceId ?? params.sliceId ?? "");
 
   const [activeTab, setActiveTab] = createSignal<SectionTab>("specs");
   const [statusChanging, setStatusChanging] = createSignal(false);
@@ -239,6 +246,10 @@ export function SliceDetailPage() {
   };
 
   const handleBack = () => {
+    if (props.onBack) {
+      props.onBack();
+      return;
+    }
     navigate(`/projects/${encodeURIComponent(projectId())}`);
   };
 
@@ -357,9 +368,13 @@ export function SliceDetailPage() {
                           href={`/projects/${encodeURIComponent(blocker.projectId)}/slices/${encodeURIComponent(blocker.id)}`}
                           onClick={(event) => {
                             event.preventDefault();
-                            navigate(
-                              `/projects/${encodeURIComponent(blocker.projectId)}/slices/${encodeURIComponent(blocker.id)}`
-                            );
+                            if (props.onOpenSlice) {
+                              props.onOpenSlice(blocker.projectId, blocker.id);
+                            } else {
+                              navigate(
+                                `/projects/${encodeURIComponent(blocker.projectId)}/slices/${encodeURIComponent(blocker.id)}`
+                              );
+                            }
                           }}
                         >
                           <span class="slice-detail-blocker-id">

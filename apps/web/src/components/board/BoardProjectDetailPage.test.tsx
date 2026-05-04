@@ -114,7 +114,10 @@ vi.mock("./DocEditor", () => ({
 
 // Mock SliceKanbanWidget
 vi.mock("../SliceKanbanWidget", () => ({
-  SliceKanbanWidget: (props: { projectId: string }) => {
+  SliceKanbanWidget: (props: {
+    projectId: string;
+    onSliceClick?: (sliceId: string) => void;
+  }) => {
     const [ready] = createResource(
       () => props.projectId,
       async () => {
@@ -123,8 +126,35 @@ vi.mock("../SliceKanbanWidget", () => ({
       }
     );
     ready();
-    return <div data-testid="slice-kanban" data-project-id={props.projectId} />;
+    return (
+      <button
+        type="button"
+        data-testid="slice-kanban"
+        data-project-id={props.projectId}
+        onClick={() => props.onSliceClick?.("PRO-42-S01")}
+      >
+        Open slice
+      </button>
+    );
   },
+}));
+
+vi.mock("../SliceDetailPage", () => ({
+  SliceDetailPage: (props: {
+    projectId: string;
+    sliceId: string;
+    onBack?: () => void;
+  }) => (
+    <div
+      data-testid="slice-detail"
+      data-project-id={props.projectId}
+      data-slice-id={props.sliceId}
+    >
+      <button type="button" data-testid="slice-back" onClick={props.onBack}>
+        Back to project
+      </button>
+    </div>
+  ),
 }));
 
 function wait(ms = 0) {
@@ -136,6 +166,7 @@ describe("BoardProjectDetailPage", () => {
   let dispose: () => void;
 
   beforeEach(() => {
+    window.history.replaceState(null, "", "/board/projects/PRO-42");
     container = document.createElement("div");
     document.body.appendChild(container);
     vi.clearAllMocks();
@@ -146,6 +177,7 @@ describe("BoardProjectDetailPage", () => {
 
   afterEach(() => {
     dispose?.();
+    window.history.replaceState(null, "", "/board/projects/PRO-42");
     document.body.removeChild(container);
     container = document.createElement("div");
   });
@@ -247,6 +279,32 @@ describe("BoardProjectDetailPage", () => {
     expect(container.querySelector(".bpd-header")).not.toBeNull();
     expect(container.querySelector(".bpd-tabs")).not.toBeNull();
     expect(container.querySelector(".bpd-slices-kanban")).not.toBeNull();
+  });
+
+  it("opens slice detail inside the Slices tab pane", async () => {
+    dispose = render(() => <BoardProjectDetailPage />, container);
+    await wait();
+    await wait();
+
+    const slicesTab = Array.from(container.querySelectorAll(".bpd-tab")).find(
+      (t) => t.textContent?.trim() === "Slices"
+    ) as HTMLButtonElement;
+    slicesTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    const kanban = container.querySelector(
+      "[data-testid='slice-kanban']"
+    ) as HTMLButtonElement;
+    kanban.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    const activeTab = container.querySelector(".bpd-tab.active");
+    expect(activeTab?.textContent?.trim()).toBe("Slices");
+    const detail = container.querySelector("[data-testid='slice-detail']");
+    expect(detail).not.toBeNull();
+    expect(detail?.getAttribute("data-project-id")).toBe("PRO-42");
+    expect(detail?.getAttribute("data-slice-id")).toBe("PRO-42-S01");
+    expect(container.querySelector(".bpd-header")).not.toBeNull();
   });
 
   it("slice creation form appears and submits on click", async () => {
