@@ -6,10 +6,15 @@ import { resolveHomeDir } from "@aihub/shared";
 import {
   createSlice,
   getSlice,
+  listSlices,
   updateSlice,
   type SliceRecord,
   type SliceStatus,
 } from "../projects/slices.js";
+import {
+  recordSliceBlockedActivity,
+  recordSliceUnblockedActivity,
+} from "../activity/index.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { getProjectsRoot } from "../util/paths.js";
 
@@ -26,6 +31,8 @@ type SliceListItem = {
   hillPosition: string;
   updatedAt: string;
 };
+
+type LocatedSlice = { project: ProjectLocation; slice: SliceRecord };
 
 function fail(err: unknown): never {
   if (err instanceof Error) console.error(err.message);
@@ -128,6 +135,57 @@ async function findSliceAcrossProjects(sliceId: string): Promise<{ project: Proj
     }
   }
   return null;
+}
+
+function parseSliceIdList(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function frontmatterBlockers(slice: SliceRecord): string[] {
+  const value = slice.frontmatter.blocked_by;
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+async function listAllLocatedSlices(): Promise<LocatedSlice[]> {
+  const projects = await listProjectLocations();
+  const nested = await Promise.all(
+    projects.map(async (project) =>
+      (await listSlices(project.dirPath)).map((slice) => ({ project, slice }))
+    )
+  );
+  return nested.flat();
+}
+
+function findCyclePath(
+  graph: Map<string, string[]>,
+  start: string,
+  target: string
+): string[] | null {
+  const visited = new Set<string>();
+
+  function walk(current: string, pathSoFar: string[]): string[] | null {
+    if (current === target) return pathSoFar;
+    if (visited.has(current)) return null;
+    visited.add(current);
+    for (const next of graph.get(current) ?? []) {
+      const path = walk(next, [...pathSoFar, next]);
+      if (path) return path;
+    }
+    return null;
+  }
+
+  return walk(start, [start]);
+}
+
+function formatBlockedBy(blockers: string[]): string {
+  return `blocked_by: [${blockers.join(", ")}]`;
 }
 
 function renderSliceTable(items: SliceListItem[]): string {
@@ -296,6 +354,86 @@ export function registerSlicesCommands(program: Command): Command {
         if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
         await updateSlice(found.project.dirPath, found.slice.id, { title: String(title) });
         console.log(`${found.slice.id} renamed to ${JSON.stringify(String(title))}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("block")
+    .description("Block slice on prerequisite slices")
+    .argument("<sliceId>", "Slice ID")
+    .requiredOption("--on <blockerIds>", "Comma-separated blocker slice IDs")
+    .action(async (sliceId, opts) => {
+      try {
+        const targetId = String(sliceId).trim().toUpperCase();
+        const blockers = parseSliceIdList(String(opts.on ?? ""));
+        if (blockers.length === 0) throw new Error("--on must include at least one blocker ID");
+
+        const allSlices = await listAllLocatedSlices();
+        const byId = new Map(allSlices.map((item) => [item.slice.id, item]));
+        const found = byId.get(targetId);
+        if (!found) throw new Error(`Slice not found: ${targetId}`);
+
+        for (const blocker of blockers) {
+          if (!byId.has(blocker)) throw new Error(`Blocker slice not found: ${blocker}`);
+          if (blocker === targetId) throw new Error(`Slice cannot block itself: ${targetId}`);
+        }
+
+        const nextBlockers = [...new Set([...frontmatterBlockers(found.slice), ...blockers])];
+        const graph = new Map<string, string[]>(
+          allSlices.map((item) => [item.slice.id, frontmatterBlockers(item.slice)])
+        );
+        graph.set(targetId, nextBlockers);
+
+        for (const blocker of blockers) {
+          const cyclePath = findCyclePath(graph, blocker, targetId);
+          if (cyclePath) {
+            throw new Error(`would create cycle: ${[targetId, ...cyclePath].join(" → ")}`);
+          }
+        }
+
+        const updated = await updateSlice(found.project.dirPath, targetId, {
+          frontmatter: { blocked_by: nextBlockers },
+        });
+        await recordSliceBlockedActivity({
+          actor: "AIHub",
+          projectId: found.project.id,
+          sliceId: targetId,
+          blockers,
+        });
+        console.log(formatBlockedBy(frontmatterBlockers(updated)));
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("unblock")
+    .description("Remove slice blockers")
+    .argument("<sliceId>", "Slice ID")
+    .option("--from <blockerIds>", "Comma-separated blocker slice IDs")
+    .action(async (sliceId, opts) => {
+      try {
+        const targetId = String(sliceId).trim().toUpperCase();
+        const found = await findSliceAcrossProjects(targetId);
+        if (!found) throw new Error(`Slice not found: ${targetId}`);
+
+        const current = frontmatterBlockers(found.slice);
+        const remove = typeof opts.from === "string" ? parseSliceIdList(opts.from) : undefined;
+        const nextBlockers = remove
+          ? current.filter((blocker) => !remove.includes(blocker))
+          : [];
+        const updated = await updateSlice(found.project.dirPath, targetId, {
+          frontmatter: { blocked_by: nextBlockers.length > 0 ? nextBlockers : undefined },
+        });
+        await recordSliceUnblockedActivity({
+          actor: "AIHub",
+          projectId: found.project.id,
+          sliceId: targetId,
+          blockers: remove,
+        });
+        console.log(formatBlockedBy(frontmatterBlockers(updated)));
       } catch (err) {
         fail(err);
       }

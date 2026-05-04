@@ -31,6 +31,7 @@ export type SliceFrontmatter = {
   project_id: string;
   title: string;
   status: SliceStatus;
+  blocked_by?: string[];
   hill_position: SliceHillPosition;
   created_at: string;
   updated_at: string;
@@ -329,6 +330,9 @@ export async function updateSlice(
     ...(input.hillPosition ? { hill_position: input.hillPosition } : {}),
     updated_at: now,
   };
+  if (Array.isArray(nextFrontmatter.blocked_by) && nextFrontmatter.blocked_by.length === 0) {
+    nextFrontmatter.blocked_by = undefined;
+  }
 
   const sliceDir = current.dirPath;
   await Promise.all([

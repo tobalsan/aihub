@@ -14,6 +14,7 @@ import {
   listSlices,
   updateSlice,
   type SliceRecord,
+  type SliceStatus,
 } from "../projects/slices.js";
 import { listSubagents, type SubagentListItem } from "../subagents/index.js";
 import {
@@ -102,10 +103,12 @@ export type SliceDispatchItem = {
   project: ProjectListItem;
 };
 
-function keyValueLog(log: Logger, data: Record<string, string | number>): void {
+function keyValueLog(log: Logger, data: Record<string, string | number | string[]>): void {
   log(
     Object.entries(data)
-      .map(([key, value]) => `${key}=${String(value)}`)
+      .map(([key, value]) =>
+        `${key}=${Array.isArray(value) ? value.join(",") : String(value)}`
+      )
       .join(" ")
   );
 }
@@ -118,6 +121,47 @@ function projectStatus(project: ProjectListItem): string {
 
 function sourceOf(run: SubagentListItem): string {
   return run.source ?? "manual";
+}
+
+const TERMINAL_BLOCKER_STATUSES = new Set<SliceStatus>([
+  "done",
+  "ready_to_merge",
+  "cancelled",
+]);
+
+function blockedBy(slice: SliceRecord): string[] {
+  const value = slice.frontmatter.blocked_by;
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function pendingBlockers(
+  slice: SliceRecord,
+  sliceStatusIndex: Map<string, SliceStatus>
+): string[] {
+  return blockedBy(slice).filter((blockerId) => {
+    const status = sliceStatusIndex.get(blockerId);
+    return !status || !TERMINAL_BLOCKER_STATUSES.has(status);
+  });
+}
+
+async function buildGlobalSliceStatusIndex(
+  config: GatewayConfig,
+  deps: OrchestratorDispatcherDeps
+): Promise<Map<string, SliceStatus>> {
+  const index = new Map<string, SliceStatus>();
+  const projectResult = await (deps.listProjects ?? listProjects)(config);
+  if (!projectResult.ok) return index;
+
+  await Promise.all(
+    projectResult.data.map(async (project) => {
+      const slices = await (deps.listSlices ?? listSlices)(project.absolutePath);
+      for (const slice of slices) {
+        index.set(slice.id, slice.frontmatter.status);
+      }
+    })
+  );
+
+  return index;
 }
 
 export function isActiveOrchestratorRun(
@@ -430,7 +474,8 @@ async function dispatchForStatus(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
   statusKey: string,
-  deps: OrchestratorDispatcherDeps
+  deps: OrchestratorDispatcherDeps,
+  globalSliceStatusIndex: Map<string, SliceStatus>
 ): Promise<DispatchResult> {
   const log = deps.log ?? console.log;
   const statusConfig = statusConfigFor(orchestratorConfig, statusKey);
@@ -525,10 +570,23 @@ async function dispatchForStatus(
   const attempts = deps.attempts;
   const cooldownMs = orchestratorConfig.failure_cooldown_ms;
 
-  // --- Step 5: Cooldown filtering (per sliceId) ---
+  // --- Step 5: Blocker + cooldown filtering (per sliceId) ---
   const eligible = allItems.filter((item) => {
     const sliceId = item.slice.id;
     if ((activeBySlice.get(sliceId)?.length ?? 0) > 0) return false;
+    const pending = pendingBlockers(item.slice, globalSliceStatusIndex);
+    if (pending.length > 0) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: statusKey,
+        action: "skip",
+        project: item.project.id,
+        slice: sliceId,
+        reason: "blocked_by_pending",
+        pending,
+      });
+      return false;
+    }
     if (attempts?.isCoolingDown(sliceId, nowMs, cooldownMs)) {
       keyValueLog(log, {
         component: "orchestrator",
@@ -675,9 +733,16 @@ export async function dispatchOrchestratorTick(
   deps: OrchestratorDispatcherDeps = {}
 ): Promise<DispatchResult> {
   const results: DispatchResult[] = [];
+  const globalSliceStatusIndex = await buildGlobalSliceStatusIndex(config, deps);
   for (const statusKey of configuredStatusKeys(orchestratorConfig)) {
     results.push(
-      await dispatchForStatus(config, orchestratorConfig, statusKey, deps)
+      await dispatchForStatus(
+        config,
+        orchestratorConfig,
+        statusKey,
+        deps,
+        globalSliceStatusIndex
+      )
     );
   }
   return results.reduce<DispatchResult>(

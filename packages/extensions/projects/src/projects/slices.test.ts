@@ -69,6 +69,7 @@ describe("slice storage primitives", () => {
     const escaped = "A \"quote\" with \\ slash and \n newline";
     const updated = await updateSlice(projectDir, created.id, {
       frontmatter: {
+        blocked_by: ["PRO-238-S02"],
         extra_json: { nested: [1, "two", true] },
         extra_text: "hello",
         escaped_text: escaped,
@@ -78,6 +79,7 @@ describe("slice storage primitives", () => {
       status: "in_progress",
     });
 
+    expect(updated.frontmatter.blocked_by).toEqual(["PRO-238-S02"]);
     expect(updated.frontmatter.extra_text).toBe("hello");
     expect(updated.frontmatter.extra_json).toEqual({ nested: [1, "two", true] });
     expect(updated.frontmatter.escaped_text).toBe(escaped);
@@ -86,11 +88,22 @@ describe("slice storage primitives", () => {
     expect(updated.frontmatter.status).toBe("in_progress");
 
     const reread = await getSlice(projectDir, created.id);
+    expect(reread.frontmatter.blocked_by).toEqual(["PRO-238-S02"]);
     expect(reread.frontmatter.extra_text).toBe("hello");
     expect(reread.frontmatter.extra_json).toEqual({ nested: [1, "two", true] });
     expect(reread.frontmatter.escaped_text).toBe(escaped);
     expect(reread.frontmatter.nullable).toBeNull();
     expect(reread.frontmatter.empty_list).toEqual([]);
+
+    const cleared = await updateSlice(projectDir, created.id, {
+      frontmatter: { blocked_by: [] },
+    });
+    expect(cleared.frontmatter.blocked_by).toBeUndefined();
+    const raw = await fs.readFile(
+      path.join(projectDir, "slices", created.id, "README.md"),
+      "utf8"
+    );
+    expect(raw).not.toContain("blocked_by");
   });
 
   it("regenerates empty scope map", async () => {

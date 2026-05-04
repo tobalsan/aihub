@@ -211,6 +211,123 @@ describe("slices CLI", () => {
     expect(scopeMap).not.toContain("Old Name");
   });
 
+  it("block adds blockers with dedupe and unblock removes them", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "A"]);
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "B"]);
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "C"]);
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
+      logs.push(String(msg ?? ""));
+    });
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "block",
+      "PRO-101-S01",
+      "--on",
+      "PRO-101-S02,PRO-101-S02,PRO-101-S03",
+    ]);
+    expect(logs.at(-1)).toBe("blocked_by: [PRO-101-S02, PRO-101-S03]");
+
+    const projectDir = path.join(projectsRoot, "PRO-101_test");
+    let readme = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    expect(readme).toContain('blocked_by: ["PRO-101-S02","PRO-101-S03"]');
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "unblock",
+      "PRO-101-S01",
+      "--from",
+      "PRO-101-S02",
+    ]);
+    expect(logs.at(-1)).toBe("blocked_by: [PRO-101-S03]");
+
+    await createProgram().parseAsync(["node", "slices", "unblock", "PRO-101-S01"]);
+    expect(logs.at(-1)).toBe("blocked_by: []");
+    readme = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
+      "utf8"
+    );
+    expect(readme).not.toContain("blocked_by");
+  });
+
+  it("block rejects missing blockers, self-blocks, and cycles", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "A"]);
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "B"]);
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "C"]);
+
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
+      errors.push(String(msg ?? ""));
+    });
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`EXIT:${code}`);
+    }) as never);
+
+    await expect(
+      createProgram().parseAsync([
+        "node",
+        "slices",
+        "block",
+        "PRO-101-S01",
+        "--on",
+        "PRO-101-S99",
+      ])
+    ).rejects.toThrow("EXIT:1");
+    expect(errors.at(-1)).toContain("Blocker slice not found: PRO-101-S99");
+
+    await expect(
+      createProgram().parseAsync([
+        "node",
+        "slices",
+        "block",
+        "PRO-101-S01",
+        "--on",
+        "PRO-101-S01",
+      ])
+    ).rejects.toThrow("EXIT:1");
+    expect(errors.at(-1)).toContain("Slice cannot block itself: PRO-101-S01");
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "block",
+      "PRO-101-S01",
+      "--on",
+      "PRO-101-S02",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "block",
+      "PRO-101-S02",
+      "--on",
+      "PRO-101-S03",
+    ]);
+
+    await expect(
+      createProgram().parseAsync([
+        "node",
+        "slices",
+        "block",
+        "PRO-101-S03",
+        "--on",
+        "PRO-101-S01",
+      ])
+    ).rejects.toThrow("EXIT:1");
+    expect(errors.at(-1)).toContain(
+      "would create cycle: PRO-101-S03 → PRO-101-S01 → PRO-101-S02 → PRO-101-S03"
+    );
+  });
+
   it("comment appends timestamped entry to THREAD.md and preserves prior content", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
     await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);

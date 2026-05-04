@@ -18,10 +18,13 @@ export type ActivityEvent = {
     | "project_status"
     | "agent_message"
     | "subagent_action"
-    | "project_comment";
+    | "project_comment"
+    | "slice_blocked"
+    | "slice_unblocked";
   actor: string;
   action: string;
   projectId?: string;
+  sliceId?: string;
   subagentSlug?: string;
   timestamp: string;
   color: ActivityColor;
@@ -250,6 +253,52 @@ export async function recordCommentActivity(params: {
     actor: params.actor,
     action: `commented on ${params.projectId}: ${excerpt}`,
     projectId: params.projectId,
+    timestamp: params.timestamp ?? new Date().toISOString(),
+    color: "blue",
+  };
+  await recordActivityEvents([event]);
+}
+
+export async function recordSliceBlockedActivity(params: {
+  actor: string;
+  projectId: string;
+  sliceId: string;
+  blockers: string[];
+  timestamp?: string;
+}): Promise<void> {
+  ensureLoaded();
+  const event: ActivityEvent = {
+    id: `slice-blocked-${params.sliceId}-${Date.now()}`,
+    type: "slice_blocked",
+    actor: params.actor,
+    action: `blocked ${params.sliceId} on ${params.blockers.join(", ")}`,
+    projectId: params.projectId,
+    sliceId: params.sliceId,
+    timestamp: params.timestamp ?? new Date().toISOString(),
+    color: "yellow",
+  };
+  await recordActivityEvents([event]);
+}
+
+export async function recordSliceUnblockedActivity(params: {
+  actor: string;
+  projectId: string;
+  sliceId: string;
+  blockers?: string[];
+  timestamp?: string;
+}): Promise<void> {
+  ensureLoaded();
+  const action =
+    params.blockers && params.blockers.length > 0
+      ? `unblocked ${params.sliceId} from ${params.blockers.join(", ")}`
+      : `cleared blockers for ${params.sliceId}`;
+  const event: ActivityEvent = {
+    id: `slice-unblocked-${params.sliceId}-${Date.now()}`,
+    type: "slice_unblocked",
+    actor: params.actor,
+    action,
+    projectId: params.projectId,
+    sliceId: params.sliceId,
     timestamp: params.timestamp ?? new Date().toISOString(),
     color: "blue",
   };

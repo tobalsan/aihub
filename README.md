@@ -36,7 +36,7 @@ All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
-Projects can opt into the v0.2 orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured status bindings, starts `Worker` subagents for `todo`, and starts `Reviewer` subagents for `review`. Passing reviewer runs move projects to `ready_to_merge`; only humans move them to `done`.
+Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, and starts `Reviewer` subagents for `review`. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`.
 
 ```json
 {
@@ -468,6 +468,10 @@ pnpm aihub projects move <id> <status>
 pnpm aihub projects start <id> [--agent <cli|aihub:id>] [--subagent <name>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 pnpm aihub projects rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
 pnpm aihub projects status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
+
+# Slices CLI (local filesystem)
+pnpm aihub slices block <sliceId> --on <blockerId>[,<blockerId>...]
+pnpm aihub slices unblock <sliceId> [--from <blockerId>[,<blockerId>...]]
 
 # Local config CLI
 pnpm aihub projects config migrate [--config <path>] [--dry-run]
