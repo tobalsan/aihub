@@ -29,6 +29,8 @@ const GROUPS: GroupDef[] = [
   { status: "cancelled", label: "Cancelled", defaultExpanded: false },
 ];
 
+const UNASSIGNED_PROJECT_ID = "__unassigned";
+
 export type ProjectListGroupedProps = {
   /** All projects from GET /board/projects (archived already omitted server-side) */
   projects: BoardProject[];
@@ -490,6 +492,7 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
     const area = selectedArea();
     const overrides = optimisticOverrides();
     return props.projects
+      .filter((p) => p.id !== UNASSIGNED_PROJECT_ID)
       .filter((p) => p.lifecycleStatus !== "archived")
       .map((p) => {
         const ov = overrides.get(p.id);
@@ -623,7 +626,9 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
 
   // Empty state — only when there are no non-archived projects
   const hasProjects = createMemo(() =>
-    props.projects.some((p) => p.lifecycleStatus !== "archived")
+    props.projects.some(
+      (p) => p.id !== UNASSIGNED_PROJECT_ID && p.lifecycleStatus !== "archived"
+    )
   );
 
   return (

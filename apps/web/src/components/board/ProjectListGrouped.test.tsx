@@ -144,6 +144,28 @@ describe("ProjectListGrouped — group rendering", () => {
     ).toBeNull();
   });
 
+  it("does not render the synthetic unassigned project", () => {
+    const projects = [
+      makeProject({
+        id: "__unassigned",
+        title: "Unassigned",
+        status: "unassigned",
+        lifecycleStatus: "shaping",
+      }),
+    ];
+    renderComponent(projects);
+    expect(
+      container.querySelector('[data-testid="project-card-__unassigned"]')
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="project-list-empty"]')
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="group-count-shaping"]')
+        ?.textContent
+    ).toContain("0");
+  });
+
   it("shows count in group headers", () => {
     const projects = [
       makeProject({ id: "PRO-001", lifecycleStatus: "active" }),
