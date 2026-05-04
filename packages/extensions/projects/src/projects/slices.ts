@@ -31,6 +31,7 @@ export type SliceFrontmatter = {
   project_id: string;
   title: string;
   status: SliceStatus;
+  repo?: string;
   blocked_by?: string[];
   hill_position: SliceHillPosition;
   created_at: string;
@@ -156,6 +157,26 @@ function assertValidSliceId(sliceId: string): void {
   if (!SLICE_ID_PATTERN.test(sliceId)) {
     throw new Error(`Invalid sliceId: ${sliceId}`);
   }
+}
+
+async function assertValidSliceRepo(repo: unknown): Promise<string | undefined> {
+  if (repo === undefined) return undefined;
+  if (typeof repo !== "string") {
+    throw new Error("Slice repo must be an absolute path");
+  }
+  const trimmed = repo.trim();
+  if (!trimmed) return undefined;
+  if (!path.isAbsolute(trimmed)) {
+    throw new Error("Slice repo must be an absolute path");
+  }
+  const hasGit = await fs
+    .stat(path.join(trimmed, ".git"))
+    .then(() => true)
+    .catch(() => false);
+  if (!hasGit) {
+    throw new Error(`Slice repo is not a git repo: ${trimmed}`);
+  }
+  return trimmed;
 }
 
 function formatSliceId(projectId: string, sliceNumber: number): string {
@@ -333,6 +354,7 @@ export async function updateSlice(
   if (Array.isArray(nextFrontmatter.blocked_by) && nextFrontmatter.blocked_by.length === 0) {
     nextFrontmatter.blocked_by = undefined;
   }
+  nextFrontmatter.repo = await assertValidSliceRepo(nextFrontmatter.repo);
 
   const sliceDir = current.dirPath;
   await Promise.all([

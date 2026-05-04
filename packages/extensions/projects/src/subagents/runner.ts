@@ -8,6 +8,7 @@ import type { GatewayConfig, OrchestratorSource } from "@aihub/shared";
 import { expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { findProjectLocation, getProject } from "../projects/store.js";
+import { getSlice } from "../projects/slices.js";
 import {
   ensureProjectSpace,
   recordWorkerDelivery,
@@ -124,18 +125,36 @@ function parsePromptLimitEnv(name: string, fallback: number): number {
 async function resolveProjectRepo(
   config: GatewayConfig,
   projectId: string,
-  frontmatter?: Record<string, unknown>
+  projectDir?: string,
+  sliceId?: string,
+  projectFrontmatter?: Record<string, unknown>
 ): Promise<string> {
-  const readRepo = async (candidate: string): Promise<string> => {
-    const expanded = expandPath(candidate.trim());
+  const expandRepo = (candidate: string): string => {
+    return expandPath(candidate.trim());
+  };
+  const readExistingRepo = async (candidate: string): Promise<string> => {
+    const expanded = expandRepo(candidate);
     if (!expanded) return "";
     return (await dirExists(expanded)) ? expanded : "";
   };
 
+  if (projectDir && sliceId) {
+    try {
+      const slice = await getSlice(projectDir, sliceId);
+      const sliceRepo =
+        typeof slice.frontmatter.repo === "string"
+          ? slice.frontmatter.repo
+          : "";
+      if (sliceRepo.trim()) return expandRepo(sliceRepo);
+    } catch {
+      // Missing/invalid slices fall back to project repo for legacy callers.
+    }
+  }
+
   const directRepo =
-    typeof frontmatter?.repo === "string" ? frontmatter.repo : "";
-  if (directRepo) {
-    const resolved = await readRepo(directRepo);
+    typeof projectFrontmatter?.repo === "string" ? projectFrontmatter.repo : "";
+  if (directRepo.trim()) {
+    const resolved = await readExistingRepo(directRepo);
     if (resolved) return resolved;
   }
 
@@ -146,7 +165,7 @@ async function resolveProjectRepo(
       ? project.data.frontmatter.repo
       : "";
   if (!inheritedRepo) return "";
-  return readRepo(inheritedRepo);
+  return readExistingRepo(inheritedRepo);
 }
 
 async function appendHistory(
@@ -560,7 +579,13 @@ export async function spawnSubagent(
       fullContent
     );
   }
-  const repo = await resolveProjectRepo(config, input.projectId, frontmatter);
+  const repo = await resolveProjectRepo(
+    config,
+    input.projectId,
+    projectDir,
+    input.sliceId,
+    frontmatter
+  );
 
   let mode: SubagentMode = input.mode ?? "clone";
   if (input.resume) {
@@ -582,7 +607,7 @@ export async function spawnSubagent(
   }
 
   if (mode !== "none" && !repo) {
-    return { ok: false, error: "Project repo not set in frontmatter" };
+    return { ok: false, error: "Project repo not set" };
   }
 
   const repoHasGit = repo
@@ -1138,6 +1163,7 @@ export async function killSubagent(
     supervisor_pid?: number;
     run_mode?: string;
     worktree_path?: string;
+    slice_id?: string;
   } | null = null;
   try {
     const raw = await fs.readFile(statePath, "utf8");
@@ -1145,6 +1171,7 @@ export async function killSubagent(
       supervisor_pid?: number;
       run_mode?: string;
       worktree_path?: string;
+      slice_id?: string;
     };
   } catch {
     state = null;
@@ -1192,7 +1219,12 @@ export async function killSubagent(
   if (!runMode) runMode = "main-run";
 
   if (runMode === "worktree") {
-    const repo = await resolveProjectRepo(config, projectId);
+    const repo = await resolveProjectRepo(
+      config,
+      projectId,
+      projectDir,
+      state?.slice_id
+    );
     if (!repo) {
       return { ok: false, error: "Project repo not set" };
     }
@@ -1240,7 +1272,12 @@ export async function killSubagent(
       // ignore
     }
   } else if (runMode === "clone") {
-    const repo = await resolveProjectRepo(config, projectId);
+    const repo = await resolveProjectRepo(
+      config,
+      projectId,
+      projectDir,
+      state?.slice_id
+    );
 
     if (repo) {
       await removeCloneRemote(repo, projectId);

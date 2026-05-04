@@ -106,6 +106,51 @@ describe("slice storage primitives", () => {
     expect(raw).not.toContain("blocked_by");
   });
 
+  it("round-trips slice repo frontmatter", async () => {
+    const repoDir = path.join(tmpDir, "repo");
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Auth",
+    });
+
+    const updated = await updateSlice(projectDir, created.id, {
+      frontmatter: { repo: repoDir },
+    });
+
+    expect(updated.frontmatter.repo).toBe(repoDir);
+    const reread = await getSlice(projectDir, created.id);
+    expect(reread.frontmatter.repo).toBe(repoDir);
+
+    const cleared = await updateSlice(projectDir, created.id, {
+      frontmatter: { repo: "" },
+    });
+    expect(cleared.frontmatter.repo).toBeUndefined();
+    const raw = await fs.readFile(
+      path.join(projectDir, "slices", created.id, "README.md"),
+      "utf8"
+    );
+    expect(raw).not.toContain("repo:");
+  });
+
+  it("rejects invalid slice repo frontmatter", async () => {
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Auth",
+    });
+
+    await expect(
+      updateSlice(projectDir, created.id, {
+        frontmatter: { repo: "relative/repo" },
+      })
+    ).rejects.toThrow("Slice repo must be an absolute path");
+    await expect(
+      updateSlice(projectDir, created.id, {
+        frontmatter: { repo: path.join(tmpDir, "missing") },
+      })
+    ).rejects.toThrow("Slice repo is not a git repo");
+  });
+
   it("regenerates empty scope map", async () => {
     await regenerateScopeMap(projectDir, "PRO-238");
 
