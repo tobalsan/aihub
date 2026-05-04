@@ -15,6 +15,39 @@ const searchParamsProxy = new Proxy(
     },
   }
 );
+const [pathSignal, setPathSignal] = createSignal("/");
+const locationProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      if (key === "pathname") return pathSignal();
+      return undefined;
+    },
+  }
+) as { pathname: string };
+const paramsProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      const match = pathSignal().match(
+        /^\/board\/projects(?:\/([^/]+)(?:\/slices\/([^/]+))?)?/
+      );
+      if (key === "projectId") {
+        return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+      }
+      if (key === "sliceId") {
+        return match?.[2] ? decodeURIComponent(match[2]) : undefined;
+      }
+      return undefined;
+    },
+  }
+) as { projectId?: string; sliceId?: string };
+const navigateMock = vi.fn((to: string) => {
+  const url = new URL(to, "http://localhost");
+  window.history.pushState(null, "", `${url.pathname}${url.search}`);
+  setPathSignal(url.pathname);
+  setSearchParamsSignal(Object.fromEntries(url.searchParams.entries()));
+});
 
 const {
   fetchAgentsMock,
@@ -43,8 +76,9 @@ const {
 }));
 
 vi.mock("@solidjs/router", () => ({
-  useParams: () => ({}),
-  useNavigate: () => vi.fn(),
+  useParams: () => paramsProxy,
+  useLocation: () => locationProxy,
+  useNavigate: () => navigateMock,
   useSearchParams: () => [
     searchParamsProxy,
     (next: Record<string, string | undefined>) => {
@@ -148,6 +182,9 @@ function renderViewWithParentSuspense() {
 
 describe("BoardView attachments", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    window.history.replaceState(null, "", "/");
+    setPathSignal("/");
     setSearchParamsSignal({});
     delegateEvents(["change", "click", "input", "keydown"]);
     URL.createObjectURL = vi.fn(() => "blob:preview");
@@ -156,6 +193,13 @@ describe("BoardView attachments", () => {
       "fetch",
       vi.fn(async () => new Response(JSON.stringify({ panel: "overview" })))
     );
+
+    navigateMock.mockImplementation((to: string) => {
+      const url = new URL(to, "http://localhost");
+      window.history.pushState(null, "", `${url.pathname}${url.search}`);
+      setPathSignal(url.pathname);
+      setSearchParamsSignal(Object.fromEntries(url.searchParams.entries()));
+    });
 
     fetchAgentsMock.mockResolvedValue([
       {
@@ -438,6 +482,24 @@ describe("BoardView attachments", () => {
       container.querySelector('[data-testid="project-list-grouped"]')
     ).not.toBeNull();
     expect(container.querySelector(".bpd")).toBeNull();
+
+    dispose();
+  });
+
+  it("opens the project lifecycle detail from a board project URL", async () => {
+    window.history.replaceState(null, "", "/board/projects/PRO-1");
+    setPathSignal("/board/projects/PRO-1");
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Project lifecycle");
+    expect(projectsTab?.classList.contains("active")).toBe(true);
+    expect(container.querySelector(".bpd")).not.toBeNull();
+    expect(container.textContent).toContain("Embedded Overview Project");
 
     dispose();
   });

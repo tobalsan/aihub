@@ -1,9 +1,23 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
 import { SliceDetailPage } from "./SliceDetailPage";
 import type { SliceRecord, SubagentListItem } from "../api/types";
 import { updateSlice } from "../api/client";
+
+const navigateMock = vi.fn();
+const [searchParamsSignal, setSearchParamsSignal] = createSignal<
+  Record<string, string | undefined>
+>({});
+const searchParamsProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      return searchParamsSignal()[key];
+    },
+  }
+) as Record<string, string | undefined>;
 
 const MOCK_SLICE: SliceRecord = {
   id: "PRO-1-S01",
@@ -54,8 +68,9 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("@solidjs/router", () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigateMock,
   useParams: () => ({ projectId: "PRO-1", sliceId: "PRO-1-S01" }),
+  useSearchParams: () => [searchParamsProxy, vi.fn()],
 }));
 
 vi.mock("./board/DocEditor", () => ({
@@ -84,6 +99,13 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setSearchParamsSignal({});
+  window.history.replaceState(null, "", "/projects/PRO-1/slices/PRO-1-S01");
+  navigateMock.mockImplementation((to: string) => {
+    const url = new URL(to, "http://localhost");
+    window.history.pushState(null, "", `${url.pathname}${url.search}`);
+    setSearchParamsSignal(Object.fromEntries(url.searchParams.entries()));
+  });
   dateNowSpy = vi
     .spyOn(Date, "now")
     .mockReturnValue(new Date("2026-01-02T00:05:00.000Z").getTime());
@@ -524,5 +546,34 @@ describe("SliceDetailPage", () => {
         );
       });
     }
+  });
+
+  it("activates slice tabs from the URL and updates the URL on tab click", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/board/projects/PRO-1/slices/PRO-1-S01?tab=tasks"
+    );
+    setSearchParamsSignal({ tab: "tasks" });
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(
+        container
+          .querySelector("[data-testid='doc-editor']")
+          ?.getAttribute("data-dockey")
+      ).toBe("TASKS");
+    });
+
+    const validationTab = Array.from(
+      container.querySelectorAll(".slice-detail-tab-btn")
+    ).find((tab) => tab.textContent?.trim() === "Validation") as HTMLElement;
+    validationTab.click();
+
+    await vi.waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe(
+        "/board/projects/PRO-1/slices/PRO-1-S01?tab=validation"
+      );
+    });
   });
 });

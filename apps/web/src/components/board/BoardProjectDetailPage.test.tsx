@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
-import { Suspense, createResource } from "solid-js";
+import { Suspense, createResource, createSignal } from "solid-js";
 import { BoardProjectDetailPage } from "./BoardProjectDetailPage";
 import {
   fetchProject,
@@ -12,14 +12,44 @@ import {
 } from "../../api/client";
 
 const navigateMock = vi.fn();
+const [searchParamsSignal, setSearchParamsSignal] = createSignal<
+  Record<string, string | undefined>
+>({});
+const [pathSignal, setPathSignal] = createSignal("/board/projects/PRO-42");
+const searchParamsProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      return searchParamsSignal()[key];
+    },
+  }
+) as Record<string, string | undefined>;
+const paramsProxy = new Proxy(
+  {},
+  {
+    get(_target, key: string) {
+      const match = pathSignal().match(
+        /^\/board\/projects\/([^/]+)(?:\/slices\/([^/]+))?/
+      );
+      if (key === "projectId") {
+        return decodeURIComponent(match?.[1] ?? "PRO-42");
+      }
+      if (key === "sliceId") {
+        return match?.[2] ? decodeURIComponent(match[2]) : undefined;
+      }
+      return undefined;
+    },
+  }
+) as { projectId: string; sliceId?: string };
 const { sliceKanbanSuspendedMock, sliceKanbanPromise } = vi.hoisted(() => ({
   sliceKanbanSuspendedMock: vi.fn(() => false),
   sliceKanbanPromise: new Promise(() => {}),
 }));
 
 vi.mock("@solidjs/router", () => ({
-  useParams: () => ({ projectId: "PRO-42" }),
+  useParams: () => paramsProxy,
   useNavigate: () => navigateMock,
+  useSearchParams: () => [searchParamsProxy, vi.fn()],
 }));
 
 const MOCK_PROJECT = {
@@ -166,10 +196,18 @@ describe("BoardProjectDetailPage", () => {
   let dispose: () => void;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     window.history.replaceState(null, "", "/board/projects/PRO-42");
+    setPathSignal("/board/projects/PRO-42");
+    setSearchParamsSignal({});
+    navigateMock.mockImplementation((to: string) => {
+      const url = new URL(to, "http://localhost");
+      window.history.pushState(null, "", `${url.pathname}${url.search}`);
+      setPathSignal(url.pathname);
+      setSearchParamsSignal(Object.fromEntries(url.searchParams.entries()));
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
-    vi.clearAllMocks();
     sliceKanbanSuspendedMock.mockReturnValue(false);
     vi.mocked(fetchProject).mockResolvedValue(MOCK_PROJECT);
     vi.mocked(updateProject).mockResolvedValue(MOCK_PROJECT);
@@ -228,6 +266,32 @@ describe("BoardProjectDetailPage", () => {
     expect(editor).not.toBeNull();
     expect(editor?.getAttribute("data-dockey")).toBe("README");
     expect(editor?.getAttribute("data-content")).toContain("Refactor Auth");
+  });
+
+  it("activates project tabs from the URL and updates the URL on tab click", async () => {
+    window.history.replaceState(null, "", "/board/projects/PRO-42?tab=thread");
+    setSearchParamsSignal({ tab: "thread" });
+
+    dispose = render(() => <BoardProjectDetailPage />, container);
+    await wait();
+    await wait();
+
+    expect(container.querySelector(".bpd-tab.active")?.textContent?.trim()).toBe(
+      "Thread"
+    );
+
+    const activityTab = Array.from(container.querySelectorAll(".bpd-tab")).find(
+      (t) => t.textContent?.trim() === "Activity"
+    ) as HTMLButtonElement;
+    activityTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/board/projects/PRO-42?tab=activity"
+    );
+    expect(window.location.pathname + window.location.search).toBe(
+      "/board/projects/PRO-42?tab=activity"
+    );
   });
 
   it("switching to Slices tab shows SliceKanbanWidget and Add slice button", async () => {
@@ -308,6 +372,29 @@ describe("BoardProjectDetailPage", () => {
     expect(detail?.getAttribute("data-project-id")).toBe("PRO-42");
     expect(detail?.getAttribute("data-slice-id")).toBe("PRO-42-S01");
     expect(container.querySelector(".bpd-header")).not.toBeNull();
+    expect(window.location.pathname).toBe(
+      "/board/projects/PRO-42/slices/PRO-42-S01"
+    );
+  });
+
+  it("opens slice detail from a nested board slice URL", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/board/projects/PRO-42/slices/PRO-42-S01"
+    );
+    setPathSignal("/board/projects/PRO-42/slices/PRO-42-S01");
+
+    dispose = render(() => <BoardProjectDetailPage />, container);
+    await wait();
+    await wait();
+
+    expect(container.querySelector(".bpd-tab.active")?.textContent?.trim()).toBe(
+      "Slices"
+    );
+    const detail = container.querySelector("[data-testid='slice-detail']");
+    expect(detail).not.toBeNull();
+    expect(detail?.getAttribute("data-slice-id")).toBe("PRO-42-S01");
   });
 
   it("slice creation form appears and submits on click", async () => {

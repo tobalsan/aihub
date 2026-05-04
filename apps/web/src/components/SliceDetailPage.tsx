@@ -4,7 +4,7 @@
  *
  * Renders: frontmatter + Specs + Tasks + Validation + Thread + recent runs.
  */
-import { useNavigate, useParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import {
   For,
   Show,
@@ -87,6 +87,17 @@ type BlockerDetail = {
   status: SliceStatus | null;
   title: string;
 };
+
+function isSectionTab(value: unknown): value is SectionTab {
+  return (
+    value === "readme" ||
+    value === "specs" ||
+    value === "tasks" ||
+    value === "validation" ||
+    value === "thread" ||
+    value === "agent"
+  );
+}
 
 function blockedBy(slice: SliceRecord | undefined): string[] {
   return Array.isArray(slice?.frontmatter.blocked_by)
@@ -356,11 +367,15 @@ export type SliceDetailPageProps = {
 export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   const params = useParams<{ projectId: string; sliceId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const projectId = createMemo(() => props.projectId ?? params.projectId ?? "");
   const sliceId = createMemo(() => props.sliceId ?? params.sliceId ?? "");
 
-  const [activeTab, setActiveTab] = createSignal<SectionTab>("readme");
+  const activeTab = createMemo<SectionTab>(() => {
+    const tab = searchParams.tab;
+    return isSectionTab(tab) ? tab : "readme";
+  });
   const [statusChanging, setStatusChanging] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
 
@@ -445,6 +460,18 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
       return;
     }
     navigate(`/projects/${encodeURIComponent(projectId())}`);
+  };
+
+  const tabUrl = (tab: SectionTab) => {
+    const boardHosted = window.location.pathname.startsWith("/board/projects/");
+    const base = boardHosted
+      ? `/board/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`
+      : `/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`;
+    return tab === "readme" ? base : `${base}?tab=${tab}`;
+  };
+
+  const openTab = (tab: SectionTab) => {
+    navigate(tabUrl(tab));
   };
 
   const handleSaveDoc = async (
@@ -744,7 +771,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                         type="button"
                         class="slice-detail-tab-btn"
                         classList={{ active: activeTab() === tab.id }}
-                        onClick={() => setActiveTab(tab.id)}
+                        onClick={() => openTab(tab.id)}
                       >
                         {tab.label}
                       </button>

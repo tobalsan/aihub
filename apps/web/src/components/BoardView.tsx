@@ -8,6 +8,7 @@ import {
   For,
   Suspense,
 } from "solid-js";
+import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import {
   fetchAgents,
   fetchFullHistory,
@@ -102,6 +103,7 @@ function normalizeCanvasState(state: CanvasState): CanvasState {
 // ── BoardView ───────────────────────────────────────────────────────
 
 export function BoardView() {
+  const location = useLocation();
   const [agents, setAgents] = createSignal<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(
     readSelectedAgentId()
@@ -141,6 +143,20 @@ export function BoardView() {
   const displayedLogItems = createMemo<BoardLogItem[]>(() => {
     return [...logItems(), ...streamingLogItems()];
   });
+
+  createEffect(() => {
+    if (location.pathname.startsWith("/board/projects")) {
+      setCanvas({ panel: "projects" });
+    }
+  });
+
+  function setCanvasForRoute(state: CanvasState) {
+    setCanvas(
+      location.pathname.startsWith("/board/projects")
+        ? { panel: "projects" }
+        : state
+    );
+  }
 
   function cleanupStream() {
     stopStream?.();
@@ -514,11 +530,11 @@ export function BoardView() {
     if (!agentId) return;
 
     // Initial fetch
-    getCanvasState(agentId).then(setCanvas);
+    getCanvasState(agentId).then(setCanvasForRoute);
 
     // Poll every 2s
     pollTimer = setInterval(() => {
-      getCanvasState(agentId).then(setCanvas);
+      getCanvasState(agentId).then(setCanvasForRoute);
     }, 2000);
   });
 
@@ -1662,9 +1678,22 @@ function OverviewPanel() {
 }
 
 function ProjectsPanel() {
-  const [selectedProjectId, setSelectedProjectId] = createSignal<string | null>(
-    null
+  const params = useParams<{ projectId?: string }>();
+  const navigate = useNavigate();
+  const [localProjectId, setLocalProjectId] = createSignal<string | null>(null);
+  const selectedProjectId = createMemo(
+    () => params.projectId ?? localProjectId()
   );
+
+  const openProject = (id: string) => {
+    setLocalProjectId(id);
+    navigate(`/board/projects/${encodeURIComponent(id)}`);
+  };
+
+  const closeProject = () => {
+    setLocalProjectId(null);
+    navigate("/board/projects");
+  };
 
   return (
     <div class="canvas-projects-overview">
@@ -1672,14 +1701,14 @@ function ProjectsPanel() {
         when={selectedProjectId()}
         fallback={
           <BoardLifecycleListPage
-            onProjectClick={(project) => setSelectedProjectId(project.id)}
+            onProjectClick={(project) => openProject(project.id)}
           />
         }
       >
         <BoardProjectDetailPage
           projectId={selectedProjectId()!}
-          onBack={() => setSelectedProjectId(null)}
-          onOpenProject={(id) => setSelectedProjectId(id)}
+          onBack={closeProject}
+          onOpenProject={openProject}
         />
       </Show>
       <style>{`

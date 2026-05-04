@@ -3,7 +3,7 @@
  * Route: /board/projects/:projectId
  * Tabs: Pitch | Slices | Thread | Activity
  */
-import { useParams, useNavigate } from "@solidjs/router";
+import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
 import {
   For,
   Match,
@@ -39,13 +39,6 @@ type LifecycleAction = {
   label: string;
   nextStatus: string;
   dangerous?: boolean;
-};
-
-type BoardSliceHistoryState = {
-  aihubBoardSlice?: {
-    projectId: string;
-    sliceId: string;
-  };
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -112,6 +105,15 @@ function fmtDate(dateStr: string): string {
   }
 }
 
+function isBpdTab(value: unknown): value is BpdTab {
+  return (
+    value === "pitch" ||
+    value === "slices" ||
+    value === "thread" ||
+    value === "activity"
+  );
+}
+
 // ── Props ────────────────────────────────────────────────────────────
 
 export type BoardProjectDetailPageProps = {
@@ -134,17 +136,20 @@ export type BoardProjectDetailPageProps = {
 export function BoardProjectDetailPage(
   props: BoardProjectDetailPageProps = {}
 ) {
-  const params = useParams<{ projectId: string }>();
+  const params = useParams<{ projectId: string; sliceId?: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const projectId = createMemo(() => props.projectId ?? params.projectId ?? "");
 
-  const [activeTab, setActiveTab] = createSignal<BpdTab>("pitch");
+  const selectedSliceId = createMemo(() => params.sliceId ?? null);
+  const activeTab = createMemo<BpdTab>(() => {
+    if (selectedSliceId()) return "slices";
+    const tab = searchParams.tab;
+    return isBpdTab(tab) ? tab : "pitch";
+  });
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
-  const [selectedSliceId, setSelectedSliceId] = createSignal<string | null>(
-    null
-  );
 
   // Slice creation form state
   const [addingSlice, setAddingSlice] = createSignal(false);
@@ -212,6 +217,22 @@ export function BoardProjectDetailPage(
 
   const validActions = createMemo(() => getValidActions(lifecycleStatus()));
 
+  const projectUrl = (tab: BpdTab = "pitch") => {
+    const id = projectId();
+    const base = `/board/projects/${encodeURIComponent(id)}`;
+    return tab === "pitch" ? base : `${base}?tab=${tab}`;
+  };
+
+  const sliceUrl = (sliceId: string, tab?: string) => {
+    const id = projectId();
+    const base = `/board/projects/${encodeURIComponent(id)}/slices/${encodeURIComponent(sliceId)}`;
+    return tab ? `${base}?tab=${encodeURIComponent(tab)}` : base;
+  };
+
+  const openProjectTab = (tab: BpdTab) => {
+    navigate(projectUrl(tab));
+  };
+
   const handleBack = () => {
     if (selectedSliceId()) {
       closeSliceDetail();
@@ -225,55 +246,13 @@ export function BoardProjectDetailPage(
   };
 
   const openSliceDetail = (sliceId: string) => {
-    const id = projectId();
-    if (!id) return;
-    setActiveTab("slices");
-    setSelectedSliceId(sliceId);
-    window.history.pushState(
-      {
-        ...(window.history.state ?? {}),
-        aihubBoardSlice: { projectId: id, sliceId },
-      },
-      "",
-      window.location.href
-    );
+    if (!projectId()) return;
+    navigate(sliceUrl(sliceId));
   };
 
   const closeSliceDetail = () => {
-    const currentState = window.history.state as BoardSliceHistoryState | null;
-    if (currentState?.aihubBoardSlice?.projectId === projectId()) {
-      window.history.back();
-      return;
-    }
-    setSelectedSliceId(null);
+    navigate(projectUrl("slices"), { replace: true });
   };
-
-  createEffect(() => {
-    const id = projectId();
-    const state = window.history.state as BoardSliceHistoryState | null;
-    const sliceState = state?.aihubBoardSlice;
-    if (sliceState?.projectId === id) {
-      setActiveTab("slices");
-      setSelectedSliceId(sliceState.sliceId);
-    } else {
-      setSelectedSliceId(null);
-    }
-  });
-
-  createEffect(() => {
-    const handler = (event: PopStateEvent) => {
-      const state = event.state as BoardSliceHistoryState | null;
-      const sliceState = state?.aihubBoardSlice;
-      if (sliceState?.projectId === projectId()) {
-        setActiveTab("slices");
-        setSelectedSliceId(sliceState.sliceId);
-      } else {
-        setSelectedSliceId(null);
-      }
-    };
-    window.addEventListener("popstate", handler);
-    onCleanup(() => window.removeEventListener("popstate", handler));
-  });
 
   const handleLifecycleAction = async (nextStatus: string) => {
     setMenuOpen(false);
@@ -431,7 +410,7 @@ export function BoardProjectDetailPage(
             role="tab"
             aria-selected={activeTab() === tab}
             classList={{ "bpd-tab": true, active: activeTab() === tab }}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => openProjectTab(tab)}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -535,9 +514,12 @@ export function BoardProjectDetailPage(
                               openSliceDetail(nextSliceId);
                             } else if (props.onOpenProject) {
                               props.onOpenProject(nextProjectId);
+                              navigate(
+                                `/board/projects/${encodeURIComponent(nextProjectId)}/slices/${encodeURIComponent(nextSliceId)}`
+                              );
                             } else {
                               navigate(
-                                `/projects/${encodeURIComponent(nextProjectId)}/slices/${encodeURIComponent(nextSliceId)}`
+                                `/board/projects/${encodeURIComponent(nextProjectId)}/slices/${encodeURIComponent(nextSliceId)}`
                               );
                             }
                           }}

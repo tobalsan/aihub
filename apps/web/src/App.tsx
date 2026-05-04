@@ -74,11 +74,6 @@ const LazySliceDetailPage = lazy(() =>
     default: mod.SliceDetailPage,
   }))
 );
-const LazyBoardProjectDetailPage = lazy(() =>
-  import("./components/board/BoardProjectDetailPage").then((mod) => ({
-    default: mod.BoardProjectDetailPage,
-  }))
-);
 const LazyAuthGuard = lazy(() => import("./auth/AuthGuard"));
 const LazyLoginPage = lazy(() => import("./pages/Login"));
 const LazyAdminUsersPage = lazy(() => import("./pages/admin/Users"));
@@ -561,19 +556,6 @@ function AgentsRouteShell() {
   );
 }
 
-function BoardProjectDetailRouteShell() {
-  if (!isExtensionEnabled("projects")) {
-    return <ExtensionUnavailable extension="projects" />;
-  }
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyBoardProjectDetailPage />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
 function SliceDetailRouteShell() {
   if (!isExtensionEnabled("projects")) {
     return <ExtensionUnavailable extension="projects" />;
@@ -689,7 +671,23 @@ export default function App() {
         path="/board/projects/:projectId"
         component={() => (
           <GuardedRoute>
-            <BoardProjectDetailRouteShell />
+            <BoardHomeRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/board/projects/:projectId/slices/:sliceId"
+        component={() => (
+          <GuardedRoute>
+            <BoardHomeRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/board/projects"
+        component={() => (
+          <GuardedRoute>
+            <BoardHomeRouteShell />
           </GuardedRoute>
         )}
       />
