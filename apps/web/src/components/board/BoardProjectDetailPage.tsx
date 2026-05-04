@@ -449,21 +449,16 @@ export function BoardProjectDetailPage(
                 </div>
               </Match>
 
-              {/* Thread tab — THREAD.md + comment form */}
+              {/* Thread tab — comment log + comment form */}
               <Match when={activeTab() === "thread"}>
                 <div class="bpd-tab-panel bpd-tab-panel--thread">
-                  <div class="bpd-thread-doc">
-                    <DocEditor
-                      projectId={projectId()}
-                      docKey="THREAD"
-                      content={p().docs?.["THREAD"] ?? ""}
-                      onSave={(content) =>
-                        void handleSaveDoc("THREAD", content)
-                      }
-                    />
-                  </div>
                   <div class="bpd-thread-comments">
-                    <Show when={p().thread.length > 0}>
+                    <Show
+                      when={p().thread.length > 0}
+                      fallback={
+                        <div class="bpd-comment-empty">No comments yet.</div>
+                      }
+                    >
                       <div class="bpd-comment-list">
                         <For each={p().thread}>
                           {(entry) => (
@@ -827,12 +822,6 @@ export function BoardProjectDetailPage(
           overflow: auto;
         }
 
-        .bpd-thread-doc {
-          flex-shrink: 0;
-          min-height: 200px;
-          max-height: 40%;
-        }
-
         .bpd-thread-comments {
           flex: 1;
           min-height: 0;
@@ -845,6 +834,14 @@ export function BoardProjectDetailPage(
           display: flex;
           flex-direction: column;
           gap: 8px;
+        }
+
+        .bpd-comment-empty {
+          padding: 12px;
+          border: 1px dashed var(--border-default);
+          border-radius: 8px;
+          color: var(--text-secondary);
+          font-size: 13px;
         }
 
         .bpd-comment {

@@ -242,7 +242,7 @@ describe("BoardProjectDetailPage", () => {
     });
   });
 
-  it("Thread tab shows DocEditor for THREAD and comment form", async () => {
+  it("Thread tab shows comments and comment form without DocEditor", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();
     await wait();
@@ -254,8 +254,7 @@ describe("BoardProjectDetailPage", () => {
     await wait();
 
     const editor = container.querySelector("[data-testid='doc-editor']");
-    expect(editor).not.toBeNull();
-    expect(editor?.getAttribute("data-dockey")).toBe("THREAD");
+    expect(editor).toBeNull();
 
     // Existing comment shown
     expect(container.textContent).toContain("First comment.");
@@ -266,6 +265,26 @@ describe("BoardProjectDetailPage", () => {
     expect(commentInput).not.toBeNull();
     const submitBtn = container.querySelector(".bpd-comment-submit");
     expect(submitBtn).not.toBeNull();
+  });
+
+  it("Thread tab shows empty state when there are no comments", async () => {
+    vi.mocked(fetchProject).mockResolvedValue({
+      ...MOCK_PROJECT,
+      thread: [],
+    });
+    dispose = render(() => <BoardProjectDetailPage />, container);
+    await wait();
+    await wait();
+
+    const threadTab = Array.from(container.querySelectorAll(".bpd-tab")).find(
+      (t) => t.textContent?.trim() === "Thread"
+    ) as HTMLButtonElement;
+    threadTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    expect(container.textContent).toContain("No comments yet.");
+    expect(container.querySelector("[data-testid='doc-editor']")).toBeNull();
+    expect(container.querySelector(".bpd-comment-input")).not.toBeNull();
   });
 
   it("post comment calls addProjectComment and refetches", async () => {

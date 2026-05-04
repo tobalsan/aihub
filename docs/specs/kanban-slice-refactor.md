@@ -418,7 +418,7 @@ Drilled via /drill-specs as part of this refactor. The `board` extension is the 
 |-----|---------|
 | Pitch | README.md rendered + edited via `DocEditor` (Tiptap WYSIWYG). Inline save. |
 | Slices | `SliceKanbanWidget` from `projects` ext, scoped to this project. Columns: `todo | in_progress | review | ready_to_merge | done | cancelled`. `[+ Add slice]` button at top. |
-| Thread | THREAD.md via `DocEditor` + comment-append form. |
+| Thread | Comment cards from THREAD.md, empty state when none, and comment-append form. No free-form doc editor. |
 | Activity | Aggregated activity feed (see §15.5), scoped to this project. |
 
 **Edit lock:** none. Concurrent edits during orchestrator runs allowed; Worker reads at dispatch time.
@@ -525,7 +525,7 @@ Out of scope for v1. Existing `agent_assignments` table is not surfaced on the b
 2. Search + area filter chips functional on the list.
 3. Project card displays rich content (status, area, progress, last activity, run dot).
 4. Drag-to-change-status calls validated backend; rejected transitions surface a toast.
-5. Project detail page has all four tabs (Pitch, Slices, Thread, Activity); WYSIWYG editor reused for Pitch and Thread.
+5. Project detail page has all four tabs (Pitch, Slices, Thread, Activity); WYSIWYG editor reused for Pitch only, while Thread shows comment cards and the comment form.
 6. Slices tab embeds `SliceKanbanWidget` scoped to the project, with `[+ Add slice]`.
 7. `/board/agents` view shows live runs grouped by project with kill action; killing a run sends SIGTERM and disappears from the list once exit detected.
 8. Activity feed surfaces project + slice + run events without new persistence.
