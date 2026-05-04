@@ -210,8 +210,8 @@ describe("BoardProjectDetailPage", () => {
     await wait();
     await wait();
 
-    const tabs = Array.from(container.querySelectorAll(".bpd-tab")).map(
-      (t) => t.textContent?.trim()
+    const tabs = Array.from(container.querySelectorAll(".bpd-tab")).map((t) =>
+      t.textContent?.trim()
     );
     expect(tabs).toEqual(["Pitch", "Slices", "Thread", "Activity"]);
   });
@@ -242,9 +242,12 @@ describe("BoardProjectDetailPage", () => {
     await wait();
     await wait();
 
-    expect(container.querySelector("[data-testid='slice-kanban']")).not.toBeNull();
     expect(
-      (container.querySelector("[data-testid='slice-kanban']") as HTMLElement)?.dataset.projectId
+      container.querySelector("[data-testid='slice-kanban']")
+    ).not.toBeNull();
+    expect(
+      (container.querySelector("[data-testid='slice-kanban']") as HTMLElement)
+        ?.dataset.projectId
     ).toBe("PRO-42");
 
     const addBtn = container.querySelector(".bpd-add-slice-btn");
@@ -320,7 +323,9 @@ describe("BoardProjectDetailPage", () => {
     await wait();
 
     // Click + Add slice
-    const addBtn = container.querySelector(".bpd-add-slice-btn") as HTMLButtonElement;
+    const addBtn = container.querySelector(
+      ".bpd-add-slice-btn"
+    ) as HTMLButtonElement;
     addBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
 
@@ -329,12 +334,16 @@ describe("BoardProjectDetailPage", () => {
     expect(form).not.toBeNull();
 
     // Fill in title
-    const input = container.querySelector(".bpd-add-slice-input") as HTMLInputElement;
+    const input = container.querySelector(
+      ".bpd-add-slice-input"
+    ) as HTMLInputElement;
     input.value = "My new slice";
     input.dispatchEvent(new Event("input", { bubbles: true }));
 
     // Submit
-    const submit = container.querySelector(".bpd-add-slice-submit") as HTMLButtonElement;
+    const submit = container.querySelector(
+      ".bpd-add-slice-submit"
+    ) as HTMLButtonElement;
     submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     form?.dispatchEvent(new Event("submit", { bubbles: true }));
     await wait();
@@ -410,12 +419,16 @@ describe("BoardProjectDetailPage", () => {
     threadTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
 
-    const input = container.querySelector(".bpd-comment-input") as HTMLTextAreaElement;
+    const input = container.querySelector(
+      ".bpd-comment-input"
+    ) as HTMLTextAreaElement;
     input.value = "Hello world";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     await wait();
 
-    const form = container.querySelector(".bpd-comment-form") as HTMLFormElement;
+    const form = container.querySelector(
+      ".bpd-comment-form"
+    ) as HTMLFormElement;
     form.dispatchEvent(new Event("submit", { bubbles: true }));
     await wait();
     await wait();
@@ -466,14 +479,16 @@ describe("BoardProjectDetailPage", () => {
     await wait();
     await wait();
 
-    const trigger = container.querySelector(".bpd-action-menu-trigger") as HTMLButtonElement;
+    const trigger = container.querySelector(
+      ".bpd-action-menu-trigger"
+    ) as HTMLButtonElement;
     expect(trigger).not.toBeNull();
     trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
 
-    const items = Array.from(container.querySelectorAll(".bpd-action-item")).map(
-      (el) => el.textContent?.trim()
-    );
+    const items = Array.from(
+      container.querySelectorAll(".bpd-action-item")
+    ).map((el) => el.textContent?.trim());
     expect(items).toContain("Move to active");
   });
 
@@ -482,11 +497,15 @@ describe("BoardProjectDetailPage", () => {
     await wait();
     await wait();
 
-    const trigger = container.querySelector(".bpd-action-menu-trigger") as HTMLButtonElement;
+    const trigger = container.querySelector(
+      ".bpd-action-menu-trigger"
+    ) as HTMLButtonElement;
     trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
 
-    const moveActive = Array.from(container.querySelectorAll(".bpd-action-item")).find(
+    const moveActive = Array.from(
+      container.querySelectorAll(".bpd-action-item")
+    ).find(
       (el) => el.textContent?.trim() === "Move to active"
     ) as HTMLButtonElement;
     moveActive.dispatchEvent(new MouseEvent("click", { bubbles: true }));

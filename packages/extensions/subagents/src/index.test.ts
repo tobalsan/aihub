@@ -73,6 +73,47 @@ async function writeRun(
   await fs.writeFile(path.join(runDir, "logs.jsonl"), "", "utf8");
 }
 
+async function writeProjectSubagentRun(
+  projectsRoot: string,
+  params: {
+    projectId: string;
+    sliceId: string;
+    slug: string;
+    source: "manual" | "orchestrator";
+  }
+) {
+  const runDir = path.join(
+    projectsRoot,
+    `${params.projectId}_test`,
+    "sessions",
+    params.slug
+  );
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "config.json"),
+    JSON.stringify({
+      type: "subagent",
+      cli: "codex",
+      name: "Worker",
+      projectId: params.projectId,
+      sliceId: params.sliceId,
+      source: params.source,
+    }),
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(runDir, "state.json"),
+    JSON.stringify({
+      supervisor_pid: process.pid,
+      project_id: params.projectId,
+      slice_id: params.sliceId,
+      started_at: new Date().toISOString(),
+    }),
+    "utf8"
+  );
+  await fs.writeFile(path.join(runDir, "history.jsonl"), "", "utf8");
+}
+
 describe("subagents extension profile resolution", () => {
   it("contributes subagent command guidance to the system prompt", async () => {
     const contribution = subagentsExtension.getSystemPromptContributions?.({
@@ -189,6 +230,57 @@ describe("subagents extension profile resolution", () => {
       const data = (await res.json()) as { items: Array<{ id: string }> };
 
       expect(data.items.map((run) => run.id)).toEqual(["run-match"]);
+    } finally {
+      await subagentsExtension.stop();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes running project orchestrator runs in the default list", async () => {
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-subagents-")
+    );
+    const projectsRoot = path.join(dataDir, "projects");
+    const app = new Hono();
+    try {
+      await writeProjectSubagentRun(projectsRoot, {
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        slug: "worker",
+        source: "orchestrator",
+      });
+      await subagentsExtension.start(
+        context(
+          {
+            agents: [],
+            sessions: { idleMinutes: 360 },
+            extensions: { projects: { root: projectsRoot } },
+          },
+          dataDir
+        )
+      );
+      subagentsExtension.registerRoutes(app);
+
+      const res = await app.request("/subagents?status=running");
+      const data = (await res.json()) as {
+        items: Array<{
+          id?: string;
+          projectId?: string;
+          sliceId?: string;
+          source?: string;
+          status?: string;
+        }>;
+      };
+
+      expect(data.items).toEqual([
+        expect.objectContaining({
+          id: "worker",
+          projectId: "PRO-1",
+          sliceId: "PRO-1-S01",
+          source: "orchestrator",
+          status: "running",
+        }),
+      ]);
     } finally {
       await subagentsExtension.stop();
       await fs.rm(dataDir, { recursive: true, force: true });

@@ -12,8 +12,14 @@ import {
   onCleanup,
 } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { fetchSlices, updateSlice, subscribeToFileChanges } from "../api/client";
-import type { SliceRecord, SliceStatus } from "../api/types";
+import {
+  fetchSlices,
+  fetchSubagents,
+  updateSlice,
+  subscribeToFileChanges,
+  subscribeToSubagentChanges,
+} from "../api/client";
+import type { SliceRecord, SliceStatus, SubagentListItem } from "../api/types";
 
 type ColumnDef = { id: SliceStatus; title: string; color: string };
 
@@ -54,6 +60,14 @@ function blockerStatusLabel(status: SliceStatus | undefined): string {
   return status ?? "unknown";
 }
 
+function debounce(callback: () => void, delayMs: number): () => void {
+  let timer: number | undefined;
+  return () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+    timer = window.setTimeout(callback, delayMs);
+  };
+}
+
 export function SliceKanbanWidget(props: Props) {
   const navigate = useNavigate();
 
@@ -61,23 +75,50 @@ export function SliceKanbanWidget(props: Props) {
     () => props.projectId,
     fetchSlices
   );
+  const [agentRuns, { refetch: refetchAgentRuns }] = createResource(
+    () => props.projectId,
+    async (projectId) => {
+      const result = await fetchSubagents(projectId, true);
+      return result.ok ? result.data.items : ([] as SubagentListItem[]);
+    }
+  );
 
   // Live refresh on project file changes (scope map or slice readme edits)
-  createResource(() => props.projectId, (projectId) => {
-    const unsub = subscribeToFileChanges({
-      onFileChanged: (changedProjectId) => {
-        if (changedProjectId === projectId) {
-          void refetch();
-        }
-      },
-    });
-    onCleanup(unsub);
-  });
+  createResource(
+    () => props.projectId,
+    (projectId) => {
+      const debouncedRefetchRuns = debounce(() => {
+        void refetchAgentRuns();
+      }, 250);
+      const unsub = subscribeToFileChanges({
+        onFileChanged: (changedProjectId) => {
+          if (changedProjectId === projectId) {
+            void refetch();
+          }
+        },
+        onAgentChanged: (changedProjectId) => {
+          if (changedProjectId === projectId) debouncedRefetchRuns();
+        },
+      });
+      const unsubSubagents = subscribeToSubagentChanges({
+        onSubagentChanged: () => debouncedRefetchRuns(),
+      });
+      onCleanup(() => {
+        unsub();
+        unsubSubagents();
+      });
+    }
+  );
 
   const [draggingId, setDraggingId] = createSignal<string | null>(null);
-  const [draggingFromStatus, setDraggingFromStatus] = createSignal<SliceStatus | null>(null);
-  const [dragOverColumn, setDragOverColumn] = createSignal<SliceStatus | null>(null);
-  const [addingToColumn, setAddingToColumn] = createSignal<SliceStatus | null>(null);
+  const [draggingFromStatus, setDraggingFromStatus] =
+    createSignal<SliceStatus | null>(null);
+  const [dragOverColumn, setDragOverColumn] = createSignal<SliceStatus | null>(
+    null
+  );
+  const [addingToColumn, setAddingToColumn] = createSignal<SliceStatus | null>(
+    null
+  );
   const [newSliceTitle, setNewSliceTitle] = createSignal("");
   const [creating, setCreating] = createSignal(false);
 
@@ -120,6 +161,14 @@ export function SliceKanbanWidget(props: Props) {
       index.set(item.id, item.frontmatter.status);
     }
     return index;
+  });
+
+  const activeAgentSliceIds = createMemo(() => {
+    const ids = new Set<string>();
+    for (const run of agentRuns() ?? []) {
+      if (run.status === "running" && run.sliceId) ids.add(run.sliceId);
+    }
+    return ids;
   });
 
   const pendingBlockers = (slice: SliceRecord): string[] => {
@@ -177,11 +226,11 @@ export function SliceKanbanWidget(props: Props) {
     }
     // Optimistic update
     const prev = slices() ?? [];
-    mutate(prev.map((s) =>
-      s.id === id
-        ? { ...s, frontmatter: { ...s.frontmatter, status } }
-        : s
-    ));
+    mutate(
+      prev.map((s) =>
+        s.id === id ? { ...s, frontmatter: { ...s.frontmatter, status } } : s
+      )
+    );
     setDragOverColumn(null);
     setDraggingId(null);
     setDraggingFromStatus(null);
@@ -197,7 +246,9 @@ export function SliceKanbanWidget(props: Props) {
     if (props.onSliceClick) {
       props.onSliceClick(slice.id);
     } else {
-      navigate(`/projects/${encodeURIComponent(props.projectId)}/slices/${encodeURIComponent(slice.id)}`);
+      navigate(
+        `/projects/${encodeURIComponent(props.projectId)}/slices/${encodeURIComponent(slice.id)}`
+      );
     }
   };
 
@@ -293,8 +344,12 @@ export function SliceKanbanWidget(props: Props) {
               <div class="slice-kanban-cards">
                 <For each={slicesByStatus(col.id)}>
                   {(slice) => {
-                    const activeBlockers = createMemo(() => pendingBlockers(slice));
-                    const isBlocked = createMemo(() => activeBlockers().length > 0);
+                    const activeBlockers = createMemo(() =>
+                      pendingBlockers(slice)
+                    );
+                    const isBlocked = createMemo(
+                      () => activeBlockers().length > 0
+                    );
                     return (
                       <div
                         class="slice-kanban-card"
@@ -309,13 +364,16 @@ export function SliceKanbanWidget(props: Props) {
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") handleCardClick(slice);
+                          if (e.key === "Enter" || e.key === " ")
+                            handleCardClick(slice);
                         }}
                         aria-label={`Slice: ${slice.frontmatter.title}`}
                       >
                         <div class="slice-card-id">{slice.id}</div>
                         <div class="slice-card-title-row">
-                          <div class="slice-card-title">{slice.frontmatter.title}</div>
+                          <div class="slice-card-title">
+                            {slice.frontmatter.title}
+                          </div>
                           <Show when={isBlocked()}>
                             <span
                               class="slice-card-blocked-badge"
@@ -325,9 +383,19 @@ export function SliceKanbanWidget(props: Props) {
                               ⛔ blocked
                             </span>
                           </Show>
+                          <Show when={activeAgentSliceIds().has(slice.id)}>
+                            <span
+                              class="slice-card-agent-active"
+                              aria-label={`Agent active on slice ${slice.id}`}
+                            >
+                              ● agent active
+                            </span>
+                          </Show>
                         </div>
                         <div class="slice-card-meta">
-                          <span class="slice-card-hill">{slice.frontmatter.hill_position}</span>
+                          <span class="slice-card-hill">
+                            {slice.frontmatter.hill_position}
+                          </span>
                         </div>
                       </div>
                     );
@@ -542,6 +610,17 @@ export function SliceKanbanWidget(props: Props) {
           color: #9a3412;
           background: #fff7ed;
           border: 1px solid #fed7aa;
+          border-radius: 4px;
+          padding: 1px 5px;
+        }
+
+        .slice-card-agent-active {
+          flex-shrink: 0;
+          font-size: 10px;
+          line-height: 1.2;
+          color: #166534;
+          background: #dcfce7;
+          border: 1px solid #86efac;
           border-radius: 4px;
           padding: 1px 5px;
         }

@@ -361,13 +361,17 @@ async function cascadeProjectCancellation(projectDir: string): Promise<void> {
   );
 }
 
-function shouldAutoMarkProjectDone(status: string | null, slices: SliceRecord[]): boolean {
+function shouldAutoMarkProjectDone(
+  status: string | null,
+  slices: SliceRecord[]
+): boolean {
   if (status !== "active") return false;
   if (slices.length === 0) return false;
   const hasDone = slices.some((slice) => slice.frontmatter.status === "done");
   const allTerminal = slices.every(
     (slice) =>
-      slice.frontmatter.status === "done" || slice.frontmatter.status === "cancelled"
+      slice.frontmatter.status === "done" ||
+      slice.frontmatter.status === "cancelled"
   );
   return hasDone && allTerminal;
 }
@@ -642,7 +646,8 @@ export async function createProject(
   const created = new Date().toISOString();
   let requestedStatus = "shaping";
   try {
-    requestedStatus = validateProjectStatus(input.status ?? "shaping") ?? "shaping";
+    requestedStatus =
+      validateProjectStatus(input.status ?? "shaping") ?? "shaping";
   } catch (error) {
     return {
       ok: false,
@@ -730,7 +735,9 @@ export async function updateProject(
   let requestedStatus: string | null;
   try {
     requestedStatus =
-      input.status !== undefined ? validateProjectStatus(input.status) : currentStatus;
+      input.status !== undefined
+        ? validateProjectStatus(input.status)
+        : currentStatus;
   } catch (error) {
     return {
       ok: false,
@@ -835,7 +842,9 @@ export async function updateProject(
       ...nextFrontmatter,
       status: "done",
     };
-    const existingReadme = await readMarkdownIfExists(path.join(finalDirPath, "README.md"));
+    const existingReadme = await readMarkdownIfExists(
+      path.join(finalDirPath, "README.md")
+    );
     await fs.writeFile(
       path.join(finalDirPath, "README.md"),
       formatMarkdown(nextFrontmatter, existingReadme?.content ?? ""),

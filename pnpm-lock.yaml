@@ -345,6 +345,9 @@ importers:
 
   packages/extensions/subagents:
     dependencies:
+      '@aihub/extension-projects':
+        specifier: workspace:*
+        version: link:../projects
       '@aihub/shared':
         specifier: workspace:*
         version: link:../../shared

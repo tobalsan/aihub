@@ -32,6 +32,7 @@ export type SubagentListItem = {
   status: SubagentStatus;
   lastActive?: string;
   startedAt?: string;
+  finishedAt?: string;
   baseBranch?: string;
   worktreePath?: string;
   source?: OrchestratorSource;
@@ -783,6 +784,7 @@ export async function listSubagents(
       status,
       lastActive: progress?.last_active,
       startedAt: state?.started_at,
+      finishedAt: state?.finished_at,
       baseBranch: configData?.baseBranch ?? state?.base_branch,
       worktreePath: state?.worktree_path,
       source: configData?.source ?? "manual",
@@ -1053,6 +1055,7 @@ export async function listAllSubagents(
           status,
           lastActive: progress?.last_active,
           runStartedAt: state?.started_at,
+          finishedAt: state?.finished_at,
         });
       }
     }

@@ -90,14 +90,14 @@ function run(
 
 /** Default updateSlice mock — records calls + returns a slice record. */
 function makeUpdateSliceMock(): {
-  fn: typeof import("../projects/slices.js")["updateSlice"];
+  fn: (typeof import("../projects/slices.js"))["updateSlice"];
   calls: Array<{ sliceId: string; status?: string }>;
 } {
   const calls: Array<{ sliceId: string; status?: string }> = [];
   const fn = (async (_projectDir, sliceId, input) => {
     calls.push({ sliceId, status: input.status });
     return slice(sliceId, sliceId.split("-S")[0] ?? sliceId);
-  }) as typeof import("../projects/slices.js")["updateSlice"];
+  }) as (typeof import("../projects/slices.js"))["updateSlice"];
   return { fn, calls };
 }
 
@@ -153,10 +153,7 @@ describe("orchestrator dispatcher", () => {
       // PRO-1 has 2 slices in todo, PRO-2 has 1, PRO-3 has 1
       listSlices: async (projectDir) => {
         if (projectDir.includes("PRO-1")) {
-          return [
-            slice("PRO-1-S01", "PRO-1"),
-            slice("PRO-1-S02", "PRO-1"),
-          ];
+          return [slice("PRO-1-S01", "PRO-1"), slice("PRO-1-S02", "PRO-1")];
         }
         if (projectDir.includes("PRO-2")) {
           return [slice("PRO-2-S01", "PRO-2")];
@@ -178,13 +175,17 @@ describe("orchestrator dispatcher", () => {
     expect(result.eligible).toBe(4);
     expect(spawned).toHaveLength(2);
     // First two slices across projects (PRO-1-S01, PRO-1-S02)
-    expect(spawned.every((input) => input.source === "orchestrator")).toBe(true);
+    expect(spawned.every((input) => input.source === "orchestrator")).toBe(
+      true
+    );
     expect(spawned.every((input) => input.cli === "codex")).toBe(true);
     expect(spawned.every((input) => input.mode === "clone")).toBe(true);
     // sliceId is set on each spawn
     expect(spawned.map((s) => s.sliceId)).toEqual(["PRO-1-S01", "PRO-1-S02"]);
     // Prompt uses `aihub slices move` (not `projects move`)
-    expect(spawned[0]?.prompt).toContain("`aihub slices move PRO-1-S01 review`");
+    expect(spawned[0]?.prompt).toContain(
+      "`aihub slices move PRO-1-S01 review`"
+    );
     expect(spawned[0]?.prompt).not.toContain("projects move");
     // Worker lock: slices moved to in_progress
     expect(updates.calls.map((c) => c.sliceId)).toEqual([
@@ -202,7 +203,7 @@ describe("orchestrator dispatcher", () => {
         ok: true,
         data: [
           project("PRO-1", "shaping"), // shaping → not dispatched
-          project("PRO-2", "active"),  // active → dispatched
+          project("PRO-2", "active"), // active → dispatched
         ],
       }),
       listSlices: async (projectDir) => {
@@ -224,75 +225,87 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.projectId).toBe("PRO-2");
   });
 
-  it.each([
-    ["done"],
-    ["ready_to_merge"],
-    ["cancelled"],
-  ] as const)("dispatches slices when blocker is %s", async (blockerStatus) => {
-    const spawned: SpawnSubagentInput[] = [];
+  it.each([["done"], ["ready_to_merge"], ["cancelled"]] as const)(
+    "dispatches slices when blocker is %s",
+    async (blockerStatus) => {
+      const spawned: SpawnSubagentInput[] = [];
 
-    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
-      listProjects: async () => ({
-        ok: true,
-        data: [project("PRO-1"), project("PRO-2", "done")],
-      }),
-      listSlices: async (projectDir) => {
-        if (projectDir.includes("PRO-1")) {
-          return [
-            slice("PRO-1-S01", "PRO-1", "todo", {
-              blocked_by: ["PRO-2-S01"],
-            }),
-          ];
+      const result = await dispatchOrchestratorTick(
+        config,
+        orchestratorConfig,
+        {
+          listProjects: async () => ({
+            ok: true,
+            data: [project("PRO-1"), project("PRO-2", "done")],
+          }),
+          listSlices: async (projectDir) => {
+            if (projectDir.includes("PRO-1")) {
+              return [
+                slice("PRO-1-S01", "PRO-1", "todo", {
+                  blocked_by: ["PRO-2-S01"],
+                }),
+              ];
+            }
+            return [slice("PRO-2-S01", "PRO-2", blockerStatus)];
+          },
+          listSubagents: async () => ({
+            ok: true as const,
+            data: { items: [] },
+          }),
+          spawnSubagent: async (_config, input) => {
+            spawned.push(input);
+            return { ok: true, data: { slug: input.slug } };
+          },
+          updateSlice: makeUpdateSliceMock().fn,
+          log: () => {},
         }
-        return [slice("PRO-2-S01", "PRO-2", blockerStatus)];
-      },
-      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
-      spawnSubagent: async (_config, input) => {
-        spawned.push(input);
-        return { ok: true, data: { slug: input.slug } };
-      },
-      updateSlice: makeUpdateSliceMock().fn,
-      log: () => {},
-    });
+      );
 
-    expect(result.eligible).toBe(1);
-    expect(spawned.map((input) => input.sliceId)).toEqual(["PRO-1-S01"]);
-  });
+      expect(result.eligible).toBe(1);
+      expect(spawned.map((input) => input.sliceId)).toEqual(["PRO-1-S01"]);
+    }
+  );
 
-  it.each([
-    ["todo"],
-    ["in_progress"],
-    ["review"],
-  ] as const)("skips slices when blocker is %s", async (blockerStatus) => {
-    const spawned: SpawnSubagentInput[] = [];
+  it.each([["todo"], ["in_progress"], ["review"]] as const)(
+    "skips slices when blocker is %s",
+    async (blockerStatus) => {
+      const spawned: SpawnSubagentInput[] = [];
 
-    const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
-      listProjects: async () => ({
-        ok: true,
-        data: [project("PRO-1"), project("PRO-2", "done")],
-      }),
-      listSlices: async (projectDir) => {
-        if (projectDir.includes("PRO-1")) {
-          return [
-            slice("PRO-1-S01", "PRO-1", "todo", {
-              blocked_by: ["PRO-2-S01"],
-            }),
-          ];
+      const result = await dispatchOrchestratorTick(
+        config,
+        orchestratorConfig,
+        {
+          listProjects: async () => ({
+            ok: true,
+            data: [project("PRO-1"), project("PRO-2", "done")],
+          }),
+          listSlices: async (projectDir) => {
+            if (projectDir.includes("PRO-1")) {
+              return [
+                slice("PRO-1-S01", "PRO-1", "todo", {
+                  blocked_by: ["PRO-2-S01"],
+                }),
+              ];
+            }
+            return [slice("PRO-2-S01", "PRO-2", blockerStatus)];
+          },
+          listSubagents: async () => ({
+            ok: true as const,
+            data: { items: [] },
+          }),
+          spawnSubagent: async (_config, input) => {
+            spawned.push(input);
+            return { ok: true, data: { slug: input.slug } };
+          },
+          updateSlice: makeUpdateSliceMock().fn,
+          log: () => {},
         }
-        return [slice("PRO-2-S01", "PRO-2", blockerStatus)];
-      },
-      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
-      spawnSubagent: async (_config, input) => {
-        spawned.push(input);
-        return { ok: true, data: { slug: input.slug } };
-      },
-      updateSlice: makeUpdateSliceMock().fn,
-      log: () => {},
-    });
+      );
 
-    expect(result.eligible).toBe(0);
-    expect(spawned).toHaveLength(0);
-  });
+      expect(result.eligible).toBe(0);
+      expect(spawned).toHaveLength(0);
+    }
+  );
 
   it("logs blocked slices and still dispatches unblocked siblings", async () => {
     const spawned: SpawnSubagentInput[] = [];
@@ -627,9 +640,7 @@ describe("orchestrator dispatcher", () => {
       listSubagents: async () => ({
         ok: true,
         data: {
-          items: [
-            run("running", "orchestrator", { sliceId: "PRO-1-S01" }),
-          ],
+          items: [run("running", "orchestrator", { sliceId: "PRO-1-S01" })],
         },
       }),
       spawnSubagent: async (_config, input) => {
@@ -792,9 +803,7 @@ describe("orchestrator dispatcher", () => {
           ok: true,
           data: [project("PRO-1")],
         }),
-        listSlices: async () => [
-          slice("PRO-1-S01", "PRO-1", "review"),
-        ],
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "review")],
         listSubagents: async () => ({ ok: true, data: { items: [] } }),
         spawnSubagent: async (_config, input) => {
           spawned.push(input);
@@ -1024,12 +1033,8 @@ describe("orchestrator dispatcher", () => {
     // Stay-in-slice clause
     expect(prompt).toContain("Stay in Your Slice");
     // Slice doc links
-    expect(prompt).toContain(
-      `/tmp/projects/PRO-1/slices/PRO-1-S01/SPECS.md`
-    );
-    expect(prompt).toContain(
-      `/tmp/projects/PRO-1/slices/PRO-1-S01/TASKS.md`
-    );
+    expect(prompt).toContain(`/tmp/projects/PRO-1/slices/PRO-1-S01/SPECS.md`);
+    expect(prompt).toContain(`/tmp/projects/PRO-1/slices/PRO-1-S01/TASKS.md`);
     expect(prompt).toContain(
       `/tmp/projects/PRO-1/slices/PRO-1-S01/VALIDATION.md`
     );

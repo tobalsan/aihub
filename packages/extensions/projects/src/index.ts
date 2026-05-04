@@ -171,7 +171,11 @@ async function updateProjectWithCancelInterrupt(
       : [];
   const result = await updateProject(config, projectId, input);
   if (result.ok && input.status === "cancelled") {
-    await interruptCancelledOrchestratorRuns(config, projectId, cancelledSliceIds);
+    await interruptCancelledOrchestratorRuns(
+      config,
+      projectId,
+      cancelledSliceIds
+    );
   }
   return result;
 }
@@ -587,10 +591,18 @@ async function clearLeadSessionState(
   sessionKey: string,
   userId?: string
 ): Promise<void> {
-  const cleared = await getProjectsContext().clearSessionEntry(agentId, sessionKey, userId);
+  const cleared = await getProjectsContext().clearSessionEntry(
+    agentId,
+    sessionKey,
+    userId
+  );
   if (!cleared) return;
   getProjectsContext().deleteSession(agentId, cleared.sessionId);
-  await getProjectsContext().invalidateHistoryCache(agentId, cleared.sessionId, userId);
+  await getProjectsContext().invalidateHistoryCache(
+    agentId,
+    cleared.sessionId,
+    userId
+  );
 }
 
 function isUploadedFile(
@@ -688,9 +700,11 @@ export function registerProjectRoutes(app: Hono): void {
     // Subagent template resolution
     const subagentTemplateName = startInput.subagentTemplate;
     if (subagentTemplateName) {
-      const match = getProjectsContext().getSubagentTemplates().find(
-        (t) => t.name.toLowerCase() === subagentTemplateName.toLowerCase()
-      );
+      const match = getProjectsContext()
+        .getSubagentTemplates()
+        .find(
+          (t) => t.name.toLowerCase() === subagentTemplateName.toLowerCase()
+        );
       if (!match) {
         return c.json(
           { error: `Unknown subagent template: ${subagentTemplateName}` },
@@ -1042,7 +1056,9 @@ export function registerProjectRoutes(app: Hono): void {
   });
 
   app.get("/config/spawn-options", (c) => {
-    const agents = getProjectsContext().getAgents().map((a) => ({ id: a.id, name: a.name }));
+    const agents = getProjectsContext()
+      .getAgents()
+      .map((a) => ({ id: a.id, name: a.name }));
     const subagentTemplates = getProjectsContext().getSubagentTemplates();
     return c.json({ agents, subagentTemplates });
   });
@@ -1120,12 +1136,17 @@ export function registerProjectRoutes(app: Hono): void {
     const slice = await createSlice(project.data.absolutePath, {
       projectId: id,
       title,
-      status: typeof body.status === "string" ? body.status as SliceStatus : "todo",
-      hillPosition: typeof body.hill_position === "string" ? body.hill_position as SliceHillPosition : "figuring",
+      status:
+        typeof body.status === "string" ? (body.status as SliceStatus) : "todo",
+      hillPosition:
+        typeof body.hill_position === "string"
+          ? (body.hill_position as SliceHillPosition)
+          : "figuring",
       readme: typeof body.readme === "string" ? body.readme : undefined,
       specs: typeof body.specs === "string" ? body.specs : undefined,
       tasks: typeof body.tasks === "string" ? body.tasks : undefined,
-      validation: typeof body.validation === "string" ? body.validation : undefined,
+      validation:
+        typeof body.validation === "string" ? body.validation : undefined,
       thread: typeof body.thread === "string" ? body.thread : undefined,
     });
     return c.json(slice, 201);
@@ -1160,12 +1181,19 @@ export function registerProjectRoutes(app: Hono): void {
     try {
       const slice = await updateSlice(project.data.absolutePath, sliceId, {
         title: typeof body.title === "string" ? body.title : undefined,
-        status: typeof body.status === "string" ? body.status as SliceStatus : undefined,
-        hillPosition: typeof body.hill_position === "string" ? body.hill_position as SliceHillPosition : undefined,
+        status:
+          typeof body.status === "string"
+            ? (body.status as SliceStatus)
+            : undefined,
+        hillPosition:
+          typeof body.hill_position === "string"
+            ? (body.hill_position as SliceHillPosition)
+            : undefined,
         readme: typeof body.readme === "string" ? body.readme : undefined,
         specs: typeof body.specs === "string" ? body.specs : undefined,
         tasks: typeof body.tasks === "string" ? body.tasks : undefined,
-        validation: typeof body.validation === "string" ? body.validation : undefined,
+        validation:
+          typeof body.validation === "string" ? body.validation : undefined,
         thread: typeof body.thread === "string" ? body.thread : undefined,
       });
       return c.json(slice);
@@ -1388,7 +1416,11 @@ export function registerProjectRoutes(app: Hono): void {
       }
       return c.json(detail.data);
     }
-    const result = await updateProjectWithCancelInterrupt(config, id, parsed.data);
+    const result = await updateProjectWithCancelInterrupt(
+      config,
+      id,
+      parsed.data
+    );
     if (!result.ok) {
       const status = result.error.startsWith("Project already exists")
         ? 409
@@ -2262,15 +2294,13 @@ export function registerProjectRoutes(app: Hono): void {
         return c.json({ error: "Space rebase conflict not found" }, 409);
       }
 
-      const reviewerConfig = getProjectsContext().getSubagentTemplates().find(
-        (t) => t.type === "reviewer"
-      );
+      const reviewerConfig = getProjectsContext()
+        .getSubagentTemplates()
+        .find((t) => t.type === "reviewer");
       if (!reviewerConfig) {
         return c.json({ error: "No reviewer subagent configured" }, 400);
       }
-      const reviewerRunAgent = normalizeRunAgent(
-        `cli:${reviewerConfig.cli}`
-      );
+      const reviewerRunAgent = normalizeRunAgent(`cli:${reviewerConfig.cli}`);
       if (
         !reviewerRunAgent ||
         reviewerRunAgent.type !== "cli" ||
@@ -2625,6 +2655,8 @@ export function registerProjectRoutes(app: Hono): void {
 // Re-exports for gateway/internal consumers
 export { recordCommentActivity } from "./activity/index.js";
 export * from "./projects/index.js";
+export { listAllSubagents } from "./subagents/index.js";
+export { interruptSubagent } from "./subagents/runner.js";
 export {
   createProjectCommentHandler,
   createProjectsCommand,

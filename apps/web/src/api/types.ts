@@ -199,6 +199,7 @@ export type SubagentListItem = {
   status: SubagentStatus;
   lastActive?: string;
   startedAt?: string;
+  finishedAt?: string;
   baseBranch?: string;
   worktreePath?: string;
   lastError?: string;

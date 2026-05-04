@@ -991,6 +991,7 @@ export type SubagentGlobalListItem = {
   status: "running" | "replied" | "error" | "idle";
   lastActive?: string;
   runStartedAt?: string;
+  finishedAt?: string;
 };
 
 export const SubagentRunStatusSchema = z.enum([

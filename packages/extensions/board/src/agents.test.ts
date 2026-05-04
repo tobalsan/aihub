@@ -15,13 +15,14 @@ import { Hono } from "hono";
 
 function context(dataDir: string): ExtensionContext {
   return {
-    getConfig: () => ({
-      agents: [],
-      extensions: { board: {} },
-      // Scope project root to dataDir so warmup scan is fast and isolated
-      projects: { root: path.join(dataDir, "projects") },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any),
+    getConfig: () =>
+      ({
+        agents: [],
+        extensions: { board: {} },
+        // Scope project root to dataDir so warmup scan is fast and isolated
+        projects: { root: path.join(dataDir, "projects") },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
     getDataDir: () => dataDir,
     getAgent: () => undefined,
     getAgents: () => [],
@@ -68,13 +69,7 @@ function writeRunFiles(
     label?: string;
   } = {}
 ) {
-  const dir = path.join(
-    dataDir,
-    "sessions",
-    "subagents",
-    "runs",
-    runId
-  );
+  const dir = path.join(dataDir, "sessions", "subagents", "runs", runId);
   fs.mkdirSync(dir, { recursive: true });
   const now = new Date().toISOString();
   fs.writeFileSync(
@@ -101,6 +96,48 @@ function writeRunFiles(
   );
 }
 
+function writeProjectRunFiles(
+  dataDir: string,
+  slug: string,
+  opts: {
+    projectId: string;
+    sliceId?: string;
+    pid?: number;
+    source?: "manual" | "orchestrator";
+  }
+) {
+  const dir = path.join(
+    dataDir,
+    "projects",
+    `${opts.projectId}_test`,
+    "sessions",
+    slug
+  );
+  fs.mkdirSync(dir, { recursive: true });
+  const now = new Date().toISOString();
+  fs.writeFileSync(
+    path.join(dir, "config.json"),
+    JSON.stringify({
+      type: "subagent",
+      cli: "codex",
+      name: "Worker",
+      projectId: opts.projectId,
+      sliceId: opts.sliceId,
+      source: opts.source ?? "orchestrator",
+    })
+  );
+  fs.writeFileSync(
+    path.join(dir, "state.json"),
+    JSON.stringify({
+      supervisor_pid: opts.pid ?? process.pid,
+      started_at: now,
+      project_id: opts.projectId,
+      slice_id: opts.sliceId,
+    })
+  );
+  fs.writeFileSync(path.join(dir, "history.jsonl"), "");
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("GET /board/agents", () => {
@@ -119,7 +156,7 @@ describe("GET /board/agents", () => {
     const app = await buildApp(tmpDir);
     const res = await app.request("/api/board/agents");
     expect(res.status).toBe(200);
-    const body = await res.json() as { runs: unknown[] };
+    const body = (await res.json()) as { runs: unknown[] };
     expect(body.runs).toEqual([]);
   });
 
@@ -134,7 +171,9 @@ describe("GET /board/agents", () => {
     });
     const res = await app.request("/api/board/agents");
     expect(res.status).toBe(200);
-    const body = await res.json() as { runs: Array<{ id: string; projectId?: string; sliceId?: string }> };
+    const body = (await res.json()) as {
+      runs: Array<{ id: string; projectId?: string; sliceId?: string }>;
+    };
     expect(body.runs.length).toBe(1);
     expect(body.runs[0].id).toBe("sar_test001");
     expect(body.runs[0].projectId).toBe("PRO-1");
@@ -152,7 +191,7 @@ describe("GET /board/agents", () => {
       projectId: "PRO-2",
     });
     const res = await app.request("/api/board/agents");
-    const body = await res.json() as { runs: Array<{ id: string }> };
+    const body = (await res.json()) as { runs: Array<{ id: string }> };
     expect(body.runs.map((r) => r.id)).toEqual(["sar_live001"]);
   });
 
@@ -166,9 +205,28 @@ describe("GET /board/agents", () => {
       // no sliceId
     });
     const res = await app.request("/api/board/agents");
-    const body = await res.json() as { runs: Array<{ sliceId?: string }> };
+    const body = (await res.json()) as { runs: Array<{ sliceId?: string }> };
     expect(body.runs.length).toBe(1);
     expect(body.runs[0].sliceId).toBeUndefined();
+  });
+
+  it("includes running project-backed orchestrator runs", async () => {
+    const app = await buildApp(tmpDir);
+    writeProjectRunFiles(tmpDir, "worker", {
+      projectId: "PRO-5",
+      sliceId: "PRO-5-S01",
+    });
+    const res = await app.request("/api/board/agents");
+    const body = (await res.json()) as {
+      runs: Array<{ id: string; projectId?: string; sliceId?: string }>;
+    };
+    expect(body.runs).toEqual([
+      expect.objectContaining({
+        id: "PRO-5:worker",
+        projectId: "PRO-5",
+        sliceId: "PRO-5-S01",
+      }),
+    ]);
   });
 });
 
@@ -190,7 +248,7 @@ describe("POST /board/agents/:runId/kill", () => {
       method: "POST",
     });
     expect(res.status).toBe(404);
-    const body = await res.json() as { code: string };
+    const body = (await res.json()) as { code: string };
     expect(body.code).toBe("not_found");
   });
 
@@ -204,7 +262,7 @@ describe("POST /board/agents/:runId/kill", () => {
       method: "POST",
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean; status: string };
+    const body = (await res.json()) as { ok: boolean; status: string };
     expect(body.ok).toBe(true);
     expect(body.status).toBe("done");
   });
@@ -214,11 +272,14 @@ describe("POST /board/agents/:runId/kill", () => {
     writeRunFiles(tmpDir, "sar_interrupted_idem", {
       status: "interrupted",
     });
-    const res = await app.request("/api/board/agents/sar_interrupted_idem/kill", {
-      method: "POST",
-    });
+    const res = await app.request(
+      "/api/board/agents/sar_interrupted_idem/kill",
+      {
+        method: "POST",
+      }
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean };
+    const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
   });
 
@@ -238,10 +299,43 @@ describe("POST /board/agents/:runId/kill", () => {
         method: "POST",
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { ok: boolean; runId: string; status: string };
+      const body = (await res.json()) as {
+        ok: boolean;
+        runId: string;
+        status: string;
+      };
       expect(body.ok).toBe(true);
       expect(body.runId).toBe("sar_running_kill");
       expect(body.status).toBe("interrupted");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("interrupts project-backed orchestrator runs", async () => {
+    const app = await buildApp(tmpDir);
+    const child = spawn("sleep", ["60"]);
+    const childPid = child.pid!;
+    writeProjectRunFiles(tmpDir, "worker", {
+      projectId: "PRO-6",
+      sliceId: "PRO-6-S01",
+      pid: childPid,
+    });
+    try {
+      const res = await app.request("/api/board/agents/PRO-6:worker/kill", {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        ok: boolean;
+        runId: string;
+        status: string;
+      };
+      expect(body).toEqual({
+        ok: true,
+        runId: "PRO-6:worker",
+        status: "interrupted",
+      });
     } finally {
       child.kill("SIGKILL");
     }

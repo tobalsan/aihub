@@ -34,7 +34,7 @@ Core TypeScript/Node.js application. Exports:
 - Inbound Slack/Discord message runs now normalize `channel`, `place`, `conversation_type`, and `sender`, render a fallback-filled `[CHANNEL CONTEXT]` block, and append it to the true system prompt. This applies to both in-process and sandbox/container runs. First-party gateway/CLI runs do not get channel context. Web UI runs in multi-user mode pass a name-only `[USER CONTEXT]` block from the authenticated OAuth profile.
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module.
-  - `subagents` is a default-enabled first-party extension for project-agnostic CLI subagent runtime. It owns `/api/subagents`, `aihub subagents ...`, process lifecycle, normalized logs, `subagent_changed` websocket broadcasts, run storage under `$AIHUB_HOME/sessions/subagents/runs/<runId>`, and contributes subagent command guidance through `Extension.getSystemPromptContributions()`. Codex/Claude CLI lifecycle chatter remains in raw `logs.jsonl` but is filtered from the logs API and latest-output summaries.
+  - `subagents` is a default-enabled first-party extension for project-agnostic CLI subagent runtime. It owns `/api/subagents`, `aihub subagents ...`, process lifecycle, normalized logs, `subagent_changed` websocket broadcasts, run storage under `$AIHUB_HOME/sessions/subagents/runs/<runId>`, and contributes subagent command guidance through `Extension.getSystemPromptContributions()`. Codex/Claude CLI lifecycle chatter remains in raw `logs.jsonl` but is filtered from the logs API and latest-output summaries. Default `/api/subagents` list responses also merge project-backed subagent sessions so orchestrator runs are visible to `aihub subagents list --status running`; runtime-only filters (`cwd`, `parent`, `includeArchived`) keep returning runtime records only.
   - `multiUser` is an auth component that enables Better Auth + SQLite, guards `/api/*` and `/ws`, exposes `/api/auth/*`, `/api/me`, `/api/admin/*`, keeps session/history storage isolated per user, and must finish startup before the HTTP server begins accepting requests.
   - `langfuse` is an optional tracing component. Its registry entry is lazy-loaded, has no routes, validates `publicKey`/`secretKey` from component config or `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, and subscribes to `agentEventBus` stream/history events. `langfuse/tracer.ts` maps `agentId:sessionId` to traces, honors per-run trace context (`enabled`, explicit `surface`/`name`, metadata), buffers text/thinking into generations, maps HistoryEvent user/meta/tool_call/tool_result data into generation input/model/usage and tool spans, finalizes on `done`/`error`, catches flush/shutdown failures as warnings, and idle-cleans traces after 30 minutes.
   - `system_prompt` history events now capture the harness-assembled prompt text itself. Langfuse generation observations are emitted as chat-style input arrays (`system` + `user`), so the Langfuse UI shows the real system prompt section. `system_context` remains separate metadata for normalized Slack/Discord channel details.
@@ -106,7 +106,8 @@ Features:
 - Subagent chat polling guards prevent stale interval races on fast panel re-renders/remounts, preserving run-state UI (spinner, Stop visibility, optimistic queued follow-ups, enabled textarea) until meaningful assistant output arrives.
 - Project detail center-panel Activity tab intersperses two entry types in one timeline: thread comments (card-style) and synthesized subagent lifecycle events (plain rows). Start rows are concise (`<cli> started.`); completion/error rows can include short outcome snippets from recent subagent logs. Activity rows show compact relative time (`now|Xm|Xh|Xd ago`) appended after the event text.
 - Subagent shell tool cards render a warning state when exec/bash output is empty (`No output captured`) instead of appearing as blank success.
-- Project UI live refresh is event-driven via `/ws` broadcasts: board project list and slice kanban refetch on project/slice `file_changed` events and subagent lifecycle `subagent_changed` events, project detail refetches on project file changes (`README.md`/`SCOPE_MAP.md`/`THREAD.md`), slice detail refetches on slice file changes, and project subagent panels refetch immediately on `agent_changed` with a 2s polling fallback to recover from missed websocket events. Board overview deliberately ignores `agent_changed` because running subagent stream logs can emit it several times per second.
+- Project UI live refresh is event-driven via `/ws` broadcasts: board project list and slice kanban refetch on project/slice `file_changed` events and subagent lifecycle `subagent_changed` events, project detail refetches on project file changes (`README.md`/`SCOPE_MAP.md`/`THREAD.md`), slice detail refetches on slice file changes, and project subagent panels refetch immediately on `agent_changed` with a 2s polling fallback to recover from missed websocket events. Slice kanban also watches `agent_changed` and `subagent_changed` with a 250ms debounce to keep per-slice green agent-active pills current. Board overview deliberately ignores `agent_changed` because running subagent stream logs can emit it several times per second.
+- Slice detail includes a read-only Agent tab. It filters project subagent sessions by `sliceId`, sorts live runs first, shows status/start/duration/branch, links raw logs, copies `projectId:slug`, and interrupts running runs through the project subagent interrupt endpoint.
 - Right-sidebar `ACTIVE PROJECTS` refresh is also event-driven now; the old unconditional 5s subagent/project polling loop in `AgentDirectory` was removed to avoid shell-wide rerender churn, and `scripts/verify-sidebar.sh` browser-verifies the path by creating/removing `sessions/<slug>/state.json` under a temp `PRO-*` project while the page is open.
 - `subscribeToStatus()` now mirrors `subscribeToFileChanges()`: shared `/ws` socket, 1s reconnect-on-close, and `AgentDirectory` refetches lead-agent statuses on reconnect to recover after gateway/tab/network drops.
 - Coordinator prompts include canonical main repo path plus project Space worktree path for planning/delegation context.
@@ -581,49 +582,49 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 
 ## API Endpoints
 
-| Method | Path                                             | Description                                                |
-| ------ | ------------------------------------------------ | ---------------------------------------------------------- |
-| GET    | `/api/agents`                                    | List active agents                                         |
-| GET    | `/api/agents/:id/status`                         | Agent status                                               |
-| POST   | `/api/agents/:id/messages`                       | Send message (returns result)                              |
-| GET    | `/api/agents/:id/history`                        | Get session history (query: sessionKey, view=simple\|full) |
-| WS     | `/ws`                                            | WebSocket streaming (JSON protocol)                        |
-| GET    | `/api/schedules`                                 | List schedules                                             |
-| POST   | `/api/schedules`                                 | Create schedule                                            |
-| PATCH  | `/api/schedules/:id`                             | Update schedule                                            |
-| DELETE | `/api/schedules/:id`                             | Delete schedule                                            |
-| GET    | `/api/projects`                                  | List projects                                              |
-| POST   | `/api/projects`                                  | Create project                                             |
-| GET    | `/api/projects/:id`                              | Get project                                                |
-| PATCH  | `/api/projects/:id`                              | Update project                                             |
-| GET    | `/api/projects/:id/subagents`                    | List project subagents                                     |
-| POST   | `/api/projects/:id/subagents`                    | Spawn project subagent                                     |
-| PATCH  | `/api/projects/:id/subagents/:slug`              | Rename project subagent run                                |
-| GET    | `/api/subagents`                                 | List runtime runs; supports parent/status/cwd/archive      |
-| POST   | `/api/subagents`                                 | Start project-agnostic CLI subagent run                    |
-| GET    | `/api/subagents/:runId`                          | Get runtime subagent run                                   |
-| POST   | `/api/subagents/:runId/resume`                   | Resume completed/interrupted runtime run                   |
-| POST   | `/api/subagents/:runId/interrupt`                | Interrupt runtime run                                      |
-| POST   | `/api/subagents/:runId/archive`                  | Archive runtime run                                        |
-| POST   | `/api/subagents/:runId/unarchive`                | Unarchive runtime run                                      |
-| DELETE | `/api/subagents/:runId`                          | Delete runtime run record                                  |
-| GET    | `/api/subagents/:runId/logs`                     | Read normalized runtime run logs                           |
-| GET    | `/api/projects/:id/space`                        | Get project Space state                                    |
-| POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                             |
-| POST   | `/api/projects/:id/space/entries/skip`           | Mark selected pending Space entries as skipped             |
-| POST   | `/api/projects/:id/space/entries/integrate`      | Integrate only selected pending Space entries              |
-| POST   | `/api/projects/:id/space/rebase`                 | Rebase Space branch onto base and refresh pending workers  |
-| POST   | `/api/projects/:id/space/rebase/fix`             | Spawn Space-level rebase fixer agent in main-run mode      |
-| POST   | `/api/projects/:id/space/merge`                  | Merge Space branch into base + optional cleanup            |
-| GET    | `/api/projects/:id/space/commits`                | Get Space commit log                                       |
-| GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log                        |
-| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Resume original conflicted worker                          |
-| GET    | `/api/projects/:id/space/lease`                  | Get Space write lease (feature-flagged)                    |
-| POST   | `/api/projects/:id/space/lease`                  | Acquire Space write lease (feature-flagged)                |
-| DELETE | `/api/projects/:id/space/lease`                  | Release Space write lease (feature-flagged)                |
-| GET    | `/api/projects/:id/changes`                      | Get project changes (Space-first source resolution)        |
-| POST   | `/api/projects/:id/commit`                       | Commit project changes in resolved source                  |
-| GET    | `/api/projects/:id/pr-target`                    | Get PR compare target for current resolved branch          |
+| Method | Path                                             | Description                                                                                                                 |
+| ------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/agents`                                    | List active agents                                                                                                          |
+| GET    | `/api/agents/:id/status`                         | Agent status                                                                                                                |
+| POST   | `/api/agents/:id/messages`                       | Send message (returns result)                                                                                               |
+| GET    | `/api/agents/:id/history`                        | Get session history (query: sessionKey, view=simple\|full)                                                                  |
+| WS     | `/ws`                                            | WebSocket streaming (JSON protocol)                                                                                         |
+| GET    | `/api/schedules`                                 | List schedules                                                                                                              |
+| POST   | `/api/schedules`                                 | Create schedule                                                                                                             |
+| PATCH  | `/api/schedules/:id`                             | Update schedule                                                                                                             |
+| DELETE | `/api/schedules/:id`                             | Delete schedule                                                                                                             |
+| GET    | `/api/projects`                                  | List projects                                                                                                               |
+| POST   | `/api/projects`                                  | Create project                                                                                                              |
+| GET    | `/api/projects/:id`                              | Get project                                                                                                                 |
+| PATCH  | `/api/projects/:id`                              | Update project                                                                                                              |
+| GET    | `/api/projects/:id/subagents`                    | List project subagents                                                                                                      |
+| POST   | `/api/projects/:id/subagents`                    | Spawn project subagent                                                                                                      |
+| PATCH  | `/api/projects/:id/subagents/:slug`              | Rename project subagent run                                                                                                 |
+| GET    | `/api/subagents`                                 | List runtime runs plus project-backed runs for default/status views; runtime-only filters support parent/status/cwd/archive |
+| POST   | `/api/subagents`                                 | Start project-agnostic CLI subagent run                                                                                     |
+| GET    | `/api/subagents/:runId`                          | Get runtime subagent run                                                                                                    |
+| POST   | `/api/subagents/:runId/resume`                   | Resume completed/interrupted runtime run                                                                                    |
+| POST   | `/api/subagents/:runId/interrupt`                | Interrupt runtime run                                                                                                       |
+| POST   | `/api/subagents/:runId/archive`                  | Archive runtime run                                                                                                         |
+| POST   | `/api/subagents/:runId/unarchive`                | Unarchive runtime run                                                                                                       |
+| DELETE | `/api/subagents/:runId`                          | Delete runtime run record                                                                                                   |
+| GET    | `/api/subagents/:runId/logs`                     | Read normalized runtime run logs                                                                                            |
+| GET    | `/api/projects/:id/space`                        | Get project Space state                                                                                                     |
+| POST   | `/api/projects/:id/space/integrate`              | Resume Space integration queue                                                                                              |
+| POST   | `/api/projects/:id/space/entries/skip`           | Mark selected pending Space entries as skipped                                                                              |
+| POST   | `/api/projects/:id/space/entries/integrate`      | Integrate only selected pending Space entries                                                                               |
+| POST   | `/api/projects/:id/space/rebase`                 | Rebase Space branch onto base and refresh pending workers                                                                   |
+| POST   | `/api/projects/:id/space/rebase/fix`             | Spawn Space-level rebase fixer agent in main-run mode                                                                       |
+| POST   | `/api/projects/:id/space/merge`                  | Merge Space branch into base + optional cleanup                                                                             |
+| GET    | `/api/projects/:id/space/commits`                | Get Space commit log                                                                                                        |
+| GET    | `/api/projects/:id/space/contributions/:entryId` | Get per-entry contribution diff/log                                                                                         |
+| POST   | `/api/projects/:id/space/conflicts/:entryId/fix` | Resume original conflicted worker                                                                                           |
+| GET    | `/api/projects/:id/space/lease`                  | Get Space write lease (feature-flagged)                                                                                     |
+| POST   | `/api/projects/:id/space/lease`                  | Acquire Space write lease (feature-flagged)                                                                                 |
+| DELETE | `/api/projects/:id/space/lease`                  | Release Space write lease (feature-flagged)                                                                                 |
+| GET    | `/api/projects/:id/changes`                      | Get project changes (Space-first source resolution)                                                                         |
+| POST   | `/api/projects/:id/commit`                       | Commit project changes in resolved source                                                                                   |
+| GET    | `/api/projects/:id/pr-target`                    | Get PR compare target for current resolved branch                                                                           |
 
 ### Space-First Workspace Model
 

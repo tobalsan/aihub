@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { repairOrphanedToolCalls } from "../session-repair.js";
 
+type ToolResultMessage = AgentMessage & {
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
+};
+
 function makeSession(messages: AgentMessage[]) {
   const state = { messages };
   return {
@@ -20,7 +26,10 @@ describe("repairOrphanedToolCalls", () => {
 
   it("no-ops when session has only user messages", () => {
     const session = makeSession([
-      { role: "user", content: [{ type: "text", text: "hello" }] } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+      } as AgentMessage,
     ]);
     repairOrphanedToolCalls(session);
     expect(session.agent.state.messages).toHaveLength(1);
@@ -58,7 +67,10 @@ describe("repairOrphanedToolCalls", () => {
 
   it("repairs single orphaned tool call", () => {
     const session = makeSession([
-      { role: "user", content: [{ type: "text", text: "run it" }] } as AgentMessage,
+      {
+        role: "user",
+        content: [{ type: "text", text: "run it" }],
+      } as AgentMessage,
       {
         role: "assistant",
         stopReason: "toolUse",
@@ -70,9 +82,9 @@ describe("repairOrphanedToolCalls", () => {
     const result = session.agent.state.messages;
     expect(result).toHaveLength(3);
     expect(result[2].role).toBe("toolResult");
-    expect((result[2] as any).toolCallId).toBe("tc_abc");
-    expect((result[2] as any).toolName).toBe("bash");
-    expect((result[2] as any).isError).toBe(true);
+    expect((result[2] as ToolResultMessage).toolCallId).toBe("tc_abc");
+    expect((result[2] as ToolResultMessage).toolName).toBe("bash");
+    expect((result[2] as ToolResultMessage).isError).toBe(true);
   });
 
   it("repairs multiple orphaned tool calls", () => {
@@ -91,11 +103,11 @@ describe("repairOrphanedToolCalls", () => {
     const result = session.agent.state.messages;
     expect(result).toHaveLength(3);
     expect(result[1].role).toBe("toolResult");
-    expect((result[1] as any).toolCallId).toBe("tc1");
+    expect((result[1] as ToolResultMessage).toolCallId).toBe("tc1");
     expect(result[2].role).toBe("toolResult");
-    expect((result[2] as any).toolCallId).toBe("tc2");
-    expect((result[1] as any).isError).toBe(true);
-    expect((result[2] as any).isError).toBe(true);
+    expect((result[2] as ToolResultMessage).toolCallId).toBe("tc2");
+    expect((result[1] as ToolResultMessage).isError).toBe(true);
+    expect((result[2] as ToolResultMessage).isError).toBe(true);
   });
 
   it("no-ops when toolUse has no toolCall blocks", () => {

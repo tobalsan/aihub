@@ -49,16 +49,29 @@ function mockSlice(
 
 let updateSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
+let fetchSubagentsMock: ReturnType<typeof vi.fn>;
+let subagentChangeCallback: (() => void) | undefined;
 
 vi.mock("../api/client", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
+  fetchSubagents: (...args: unknown[]) => fetchSubagentsMock(...args),
   updateSlice: (...args: unknown[]) => updateSliceMock(...args),
   createSlice: vi.fn(async () => ({
     ...MOCK_SLICE,
     id: "PRO-1-S02",
-    frontmatter: { ...MOCK_SLICE.frontmatter, id: "PRO-1-S02", title: "New slice" },
+    frontmatter: {
+      ...MOCK_SLICE.frontmatter,
+      id: "PRO-1-S02",
+      title: "New slice",
+    },
   })),
   subscribeToFileChanges: vi.fn(() => () => {}),
+  subscribeToSubagentChanges: vi.fn(
+    (callbacks: { onSubagentChanged?: () => void }) => {
+      subagentChangeCallback = callbacks.onSubagentChanged;
+      return () => {};
+    }
+  ),
 }));
 
 // Router mock (useNavigate)
@@ -72,10 +85,16 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   fetchSlicesMock = vi.fn(async () => [MOCK_SLICE]);
-  updateSliceMock = vi.fn(async (projectId: string, sliceId: string, payload: unknown) => ({
-    ...MOCK_SLICE,
-    frontmatter: { ...MOCK_SLICE.frontmatter, ...(payload as Record<string, unknown>) },
-  }));
+  fetchSubagentsMock = vi.fn(async () => ({ ok: true, data: { items: [] } }));
+  updateSliceMock = vi.fn(
+    async (projectId: string, sliceId: string, payload: unknown) => ({
+      ...MOCK_SLICE,
+      frontmatter: {
+        ...MOCK_SLICE.frontmatter,
+        ...(payload as Record<string, unknown>),
+      },
+    })
+  );
 });
 
 afterEach(() => {
@@ -133,7 +152,12 @@ describe("SliceKanbanWidget", () => {
 
     const dragStart = makeEvent("dragstart");
     Object.defineProperty(dragStart, "dataTransfer", {
-      value: { effectAllowed: "", setData: vi.fn(), getData: vi.fn(() => "PRO-1-S01"), dropEffect: "" },
+      value: {
+        effectAllowed: "",
+        setData: vi.fn(),
+        getData: vi.fn(() => "PRO-1-S01"),
+        dropEffect: "",
+      },
       configurable: true,
     });
     card.dispatchEvent(dragStart);
@@ -164,7 +188,9 @@ describe("SliceKanbanWidget", () => {
       expect(badges.length).toBe(6);
     });
     // todo column should show count 1
-    const todoBadge = container.querySelectorAll(".slice-kanban-column-count")[0];
+    const todoBadge = container.querySelectorAll(
+      ".slice-kanban-column-count"
+    )[0];
     expect(todoBadge?.textContent).toBe("1");
   });
 
@@ -215,5 +241,63 @@ describe("SliceKanbanWidget", () => {
     const card = container.querySelector(".slice-kanban-card") as HTMLElement;
     expect(container.querySelector(".slice-card-blocked-badge")).toBeNull();
     expect(card.classList.contains("blocked")).toBe(false);
+  });
+
+  it("shows an active agent pill for running slice runs", async () => {
+    fetchSubagentsMock = vi.fn(async () => ({
+      ok: true,
+      data: {
+        items: [
+          {
+            slug: "worker",
+            status: "running",
+            sliceId: "PRO-1-S01",
+          },
+        ],
+      },
+    }));
+
+    render(() => <SliceKanbanWidget projectId="PRO-1" />, container);
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".slice-card-agent-active")
+      ).not.toBeNull();
+    });
+    expect(
+      container
+        .querySelector(".slice-card-agent-active")
+        ?.getAttribute("aria-label")
+    ).toBe("Agent active on slice PRO-1-S01");
+  });
+
+  it("removes the active agent pill after subagent changes refetch", async () => {
+    fetchSubagentsMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          items: [{ slug: "worker", status: "running", sliceId: "PRO-1-S01" }],
+        },
+      })
+      .mockResolvedValue({
+        ok: true,
+        data: {
+          items: [{ slug: "worker", status: "replied", sliceId: "PRO-1-S01" }],
+        },
+      });
+
+    render(() => <SliceKanbanWidget projectId="PRO-1" />, container);
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".slice-card-agent-active")
+      ).not.toBeNull();
+    });
+
+    subagentChangeCallback?.();
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-card-agent-active")).toBeNull();
+    });
   });
 });

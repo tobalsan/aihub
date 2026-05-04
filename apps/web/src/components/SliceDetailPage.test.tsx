@@ -31,13 +31,25 @@ const MOCK_SLICE: SliceRecord = {
 let fetchSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
 let fetchSubagentsMock: ReturnType<typeof vi.fn>;
+let interruptSubagentMock: ReturnType<typeof vi.fn>;
 let dateNowSpy: { mockRestore: () => void };
+let fileChangeCallbacks:
+  | {
+      onAgentChanged?: (projectId: string) => void;
+      onFileChanged?: (projectId: string) => void;
+    }
+  | undefined;
 
 vi.mock("../api/client", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
   fetchSlice: (...args: unknown[]) => fetchSliceMock(...args),
   updateSlice: vi.fn(async () => MOCK_SLICE),
-  subscribeToFileChanges: vi.fn(() => () => {}),
+  interruptSubagent: (...args: unknown[]) => interruptSubagentMock(...args),
+  subscribeToFileChanges: vi.fn((callbacks) => {
+    fileChangeCallbacks = callbacks;
+    return () => {};
+  }),
+  subscribeToSubagentChanges: vi.fn(() => () => {}),
   fetchSubagents: (...args: unknown[]) => fetchSubagentsMock(...args),
 }));
 
@@ -83,6 +95,11 @@ beforeEach(() => {
     ok: true as const,
     data: { items: [] as SubagentListItem[] },
   }));
+  interruptSubagentMock = vi.fn(async () => ({
+    ok: true as const,
+    data: { slug: "worker" },
+  }));
+  fileChangeCallbacks = undefined;
 });
 
 afterEach(() => {
@@ -199,7 +216,7 @@ describe("SliceDetailPage", () => {
       ).not.toBeNull();
     });
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    expect(tabs.length).toBe(5);
+    expect(tabs.length).toBe(6);
     expect(tabs[0]?.textContent).toBe("README");
     expect(tabs[0]?.classList.contains("active")).toBe(true);
     const editor = container.querySelector("[data-testid='doc-editor']");
@@ -213,7 +230,7 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(5);
+      expect(tabs.length).toBe(6);
     });
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
     // Tab order: README, specs, tasks, validation, thread
@@ -233,7 +250,7 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(5);
+      expect(tabs.length).toBe(6);
     });
     const specsTab = container.querySelectorAll(
       ".slice-detail-tab-btn"
@@ -255,7 +272,7 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(5);
+      expect(tabs.length).toBe(6);
     });
 
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
@@ -298,7 +315,7 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
-        5
+        6
       );
     });
 
@@ -358,24 +375,117 @@ describe("SliceDetailPage", () => {
     const rows = Array.from(
       container.querySelectorAll(".slice-detail-run-row")
     );
-    expect(rows[0]?.textContent).toContain("Worker");
+    expect(rows[0]?.textContent).toContain("Reviewer");
     expect(rows[0]?.querySelector(".slice-detail-run-time")?.textContent).toBe(
-      "3m ago"
-    );
-    expect(rows[1]?.textContent).toContain("Reviewer");
-    expect(rows[1]?.querySelector(".slice-detail-run-time")?.textContent).toBe(
       "2h ago"
+    );
+    expect(rows[1]?.textContent).toContain("Worker");
+    expect(rows[1]?.querySelector(".slice-detail-run-time")?.textContent).toBe(
+      "3m ago"
     );
     expect(rows[2]?.textContent).toContain("Untimed");
     expect(rows[2]?.querySelector(".slice-detail-run-time")).toBeNull();
     expect(container.textContent).not.toContain("Other Slice");
   });
 
+  it("renders agent tab rows with status, timing, branch, and copyable run ID", async () => {
+    fetchSubagentsMock = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        items: [
+          {
+            slug: "worker",
+            name: "Worker",
+            status: "running",
+            sliceId: "PRO-1-S01",
+            startedAt: "2026-01-02T00:03:00.000Z",
+            baseBranch: "main",
+          },
+          {
+            slug: "other-slice",
+            name: "Other Slice",
+            status: "replied",
+            sliceId: "PRO-1-S02",
+            startedAt: "2026-01-02T00:04:00.000Z",
+          },
+        ] satisfies SubagentListItem[],
+      },
+    }));
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn() },
+    });
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
+        6
+      );
+    });
+    const agentTab = container.querySelectorAll(
+      ".slice-detail-tab-btn"
+    )[5] as HTMLElement;
+    agentTab.click();
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-agent-run-row")).not.toBeNull();
+    });
+    expect(
+      container.querySelector(".slice-agent-run-row")?.textContent
+    ).toContain("Worker");
+    expect(
+      container.querySelector(".slice-agent-run-row")?.textContent
+    ).toContain("Running");
+    expect(
+      container.querySelector(".slice-agent-run-row")?.textContent
+    ).toContain("started 2m ago");
+    expect(
+      container.querySelector(".slice-agent-run-row")?.textContent
+    ).toContain("duration 2m");
+    expect(
+      container.querySelector(".slice-agent-run-row")?.textContent
+    ).toContain("branch main");
+    expect(container.textContent).not.toContain("Other Slice");
+
+    const copy = Array.from(
+      container.querySelectorAll(".slice-agent-run-action")
+    ).find((el) => el.textContent === "Copy ID") as HTMLElement;
+    copy.click();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("PRO-1:worker");
+  });
+
+  it("refreshes agent runs when project agent state changes", async () => {
+    fetchSubagentsMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true as const, data: { items: [] } })
+      .mockResolvedValue({
+        ok: true as const,
+        data: {
+          items: [
+            {
+              slug: "worker",
+              status: "running",
+              sliceId: "PRO-1-S01",
+            },
+          ] satisfies SubagentListItem[],
+        },
+      });
+
+    render(() => <SliceDetailPage />, container);
+    await vi.waitFor(() => {
+      expect(fileChangeCallbacks).toBeDefined();
+    });
+    fileChangeCallbacks?.onAgentChanged?.("PRO-1");
+
+    await vi.waitFor(() => {
+      expect(fetchSubagentsMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("saves each editable document tab through updateSlice", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
-        5
+        6
       );
     });
 

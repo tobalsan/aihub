@@ -6,11 +6,14 @@ import {
   expandPath,
   type Extension,
   type ExtensionContext,
+  type SubagentRun,
 } from "@aihub/shared";
 import {
   getCachedSpace,
   archiveProject,
   getProject,
+  interruptSubagent as interruptProjectSubagent,
+  listAllSubagents,
   listSlices,
   startSpaceCacheWatcher,
   unarchiveProject,
@@ -351,11 +354,21 @@ function registerBoardRoutes(app: Hono): void {
       typeof body.status === "string" ? body.status : undefined;
 
     if (!targetStatus) {
-      return c.json({ error: "status is required", code: "missing_status" }, 400);
-    }
-    if (!MOVEABLE_LIFECYCLE_STATUSES.has(targetStatus as Parameters<typeof validateLifecycleTransition>[1])) {
       return c.json(
-        { error: `Unknown lifecycle status: ${targetStatus}`, code: "unknown_status" },
+        { error: "status is required", code: "missing_status" },
+        400
+      );
+    }
+    if (
+      !MOVEABLE_LIFECYCLE_STATUSES.has(
+        targetStatus as Parameters<typeof validateLifecycleTransition>[1]
+      )
+    ) {
+      return c.json(
+        {
+          error: `Unknown lifecycle status: ${targetStatus}`,
+          code: "unknown_status",
+        },
         400
       );
     }
@@ -372,7 +385,9 @@ function registerBoardRoutes(app: Hono): void {
         ? result.data.frontmatter.status
         : "shaping";
     const currentLifecycle = mapToLifecycleStatus(currentRawStatus);
-    const targetLifecycle = targetStatus as Parameters<typeof validateLifecycleTransition>[1];
+    const targetLifecycle = targetStatus as Parameters<
+      typeof validateLifecycleTransition
+    >[1];
 
     // For active→done, validate slice progress
     let sliceProgress: { done: number; total: number } | undefined;
@@ -382,9 +397,13 @@ function registerBoardRoutes(app: Hono): void {
       const slices = await listSlices(result.data.absolutePath);
       const total = slices.length;
       const terminalCount = slices.filter(
-        (s) => s.frontmatter.status === "done" || s.frontmatter.status === "cancelled"
+        (s) =>
+          s.frontmatter.status === "done" ||
+          s.frontmatter.status === "cancelled"
       ).length;
-      const doneCount = slices.filter((s) => s.frontmatter.status === "done").length;
+      const doneCount = slices.filter(
+        (s) => s.frontmatter.status === "done"
+      ).length;
       if (total > 0 && terminalCount < total) {
         sliceProgress = { done: terminalCount, total };
       } else if (total > 0 && doneCount === 0) {
@@ -401,10 +420,7 @@ function registerBoardRoutes(app: Hono): void {
       sliceProgress
     );
     if (!validation.ok) {
-      return c.json(
-        { error: validation.reason, code: validation.code },
-        422
-      );
+      return c.json({ error: validation.reason, code: validation.code }, 422);
     }
 
     let changedProjectPath: string;
@@ -481,6 +497,40 @@ function registerBoardRoutes(app: Hono): void {
     };
   }
 
+  function projectRunId(projectId: string, slug: string): string {
+    return `${projectId}:${slug}`;
+  }
+
+  function isRuntimeCli(
+    value: string | undefined
+  ): value is SubagentRun["cli"] {
+    return (
+      value === "claude" ||
+      value === "codex" ||
+      value === "pi" ||
+      value === "openclaw"
+    );
+  }
+
+  function toBoardProjectRun(
+    item: Awaited<ReturnType<typeof listAllSubagents>>[number]
+  ): SubagentRun | null {
+    if (item.status !== "running" || !item.projectId) return null;
+    return {
+      id: projectRunId(item.projectId, item.slug),
+      label: item.name ?? item.slug,
+      projectId: item.projectId,
+      sliceId: item.sliceId,
+      cli: isRuntimeCli(item.cli) ? item.cli : "codex",
+      cwd: item.worktreePath ?? "",
+      prompt: "",
+      status: "running",
+      startedAt:
+        item.runStartedAt ?? item.lastActive ?? new Date(0).toISOString(),
+      lastActiveAt: item.lastActive,
+    };
+  }
+
   app.get("/board/agents", async (c) => {
     const runs = await listSubagentRuns(boardRuntimeOptions(), {
       includeArchived: false,
@@ -488,13 +538,28 @@ function registerBoardRoutes(app: Hono): void {
     const liveRuns = runs.filter(
       (r) => r.status === "running" || r.status === "starting"
     );
-    return c.json({ runs: liveRuns });
+    const projectRuns = (await listAllSubagents(getContext().getConfig()))
+      .map(toBoardProjectRun)
+      .filter((run): run is SubagentRun => run !== null);
+    return c.json({ runs: [...liveRuns, ...projectRuns] });
   });
 
   app.post("/board/agents/:runId/kill", async (c) => {
     const runId = c.req.param("runId");
     const existing = await getSubagentRun(boardRuntimeOptions(), runId);
     if (!existing) {
+      const [projectId, slug] = runId.split(":");
+      if (projectId && slug) {
+        const result = await interruptProjectSubagent(
+          getContext().getConfig(),
+          projectId,
+          slug
+        );
+        if (!result.ok) {
+          return c.json({ error: result.error, code: "kill_failed" }, 500);
+        }
+        return c.json({ ok: true, runId, status: "interrupted" });
+      }
       return c.json({ error: "Run not found", code: "not_found" }, 404);
     }
     if (

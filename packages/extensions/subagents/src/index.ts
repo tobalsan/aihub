@@ -3,10 +3,12 @@ import { z } from "zod";
 import type {
   Extension,
   ExtensionContext,
+  OrchestratorSource,
   SubagentRuntimeCli,
   SubagentRuntimeProfile,
 } from "@aihub/shared";
 import { SubagentsExtensionConfigSchema } from "@aihub/shared";
+import { listAllSubagents } from "@aihub/extension-projects";
 import {
   deleteSubagentRun,
   getLiveSubagentRunsByCwd,
@@ -93,6 +95,13 @@ function statusFromQuery(value: string | undefined) {
   return parsed.success ? parsed.data : undefined;
 }
 
+function sourceFromQuery(
+  value: string | undefined
+): OrchestratorSource | "all" {
+  if (value === "manual" || value === "orchestrator") return value;
+  return "all";
+}
+
 function registerSubagentRoutes(app: Hono): void {
   if (registeredApps.has(app)) return;
   registeredApps.add(app);
@@ -100,16 +109,34 @@ function registerSubagentRoutes(app: Hono): void {
   app.get("/subagents", async (c) => {
     const parent = parseSubagentParent(c.req.query("parent"));
     const status = statusFromQuery(c.req.query("status"));
+    const statusQuery = c.req.query("status");
+    const source = sourceFromQuery(c.req.query("source"));
     const includeArchived = ["1", "true"].includes(
       c.req.query("includeArchived") ?? ""
     );
     const cwd = readOptionalString(c.req.query("cwd"));
-    const items = await listSubagentRuns(runtimeOptions(), {
+    const runtimeItems = await listSubagentRuns(runtimeOptions(), {
       parent,
       status,
       includeArchived,
       cwd,
     });
+    if (parent || cwd || includeArchived) {
+      return c.json({ items: runtimeItems });
+    }
+    const projectItems = (await listAllSubagents(getContext().getConfig()))
+      .filter((item) => source === "all" || item.source === source)
+      .filter((item) => !statusQuery || item.status === statusQuery)
+      .map((item) => ({
+        ...item,
+        id: item.slug,
+        label: item.name ?? item.slug,
+        startedAt: item.runStartedAt,
+      }));
+    const items =
+      source === "orchestrator"
+        ? projectItems
+        : [...runtimeItems, ...projectItems];
     return c.json({ items });
   });
 
