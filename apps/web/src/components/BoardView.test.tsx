@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSignal } from "solid-js";
+import { Suspense, createSignal } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { BoardView } from "./BoardView";
 
@@ -127,6 +127,22 @@ function renderView() {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const dispose = render(() => <BoardView />, container);
+  return { container, dispose };
+}
+
+function renderViewWithParentSuspense() {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const dispose = render(
+    () => (
+      <Suspense
+        fallback={<div data-testid="parent-suspense">Parent loading</div>}
+      >
+        <BoardView />
+      </Suspense>
+    ),
+    container
+  );
   return { container, dispose };
 }
 
@@ -422,6 +438,36 @@ describe("BoardView attachments", () => {
       container.querySelector('[data-testid="project-list-grouped"]')
     ).not.toBeNull();
     expect(container.querySelector(".bpd")).toBeNull();
+
+    dispose();
+  });
+
+  it("project detail loading stays inside the canvas Suspense boundary", async () => {
+    fetchProjectMock.mockImplementation(() => new Promise(() => {}));
+    const { container, dispose } = renderViewWithParentSuspense();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Project lifecycle");
+    projectsTab?.click();
+    await tick();
+    await tick();
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-testid="project-card-PRO-1"]'
+    );
+    row?.click();
+    await tick();
+
+    expect(
+      container.querySelector("[data-testid='parent-suspense']")
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='canvas-loading']")
+    ).not.toBeNull();
+    expect(container.querySelector(".board-chat")).not.toBeNull();
 
     dispose();
   });

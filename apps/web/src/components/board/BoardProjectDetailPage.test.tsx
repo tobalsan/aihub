@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
+import { Suspense, createResource } from "solid-js";
 import { BoardProjectDetailPage } from "./BoardProjectDetailPage";
 import {
   fetchProject,
@@ -11,6 +12,10 @@ import {
 } from "../../api/client";
 
 const navigateMock = vi.fn();
+const { sliceKanbanSuspendedMock, sliceKanbanPromise } = vi.hoisted(() => ({
+  sliceKanbanSuspendedMock: vi.fn(() => false),
+  sliceKanbanPromise: new Promise(() => {}),
+}));
 
 vi.mock("@solidjs/router", () => ({
   useParams: () => ({ projectId: "PRO-42" }),
@@ -109,9 +114,17 @@ vi.mock("./DocEditor", () => ({
 
 // Mock SliceKanbanWidget
 vi.mock("../SliceKanbanWidget", () => ({
-  SliceKanbanWidget: (props: { projectId: string }) => (
-    <div data-testid="slice-kanban" data-project-id={props.projectId} />
-  ),
+  SliceKanbanWidget: (props: { projectId: string }) => {
+    const [ready] = createResource(
+      () => props.projectId,
+      async () => {
+        if (sliceKanbanSuspendedMock()) await sliceKanbanPromise;
+        return true;
+      }
+    );
+    ready();
+    return <div data-testid="slice-kanban" data-project-id={props.projectId} />;
+  },
 }));
 
 function wait(ms = 0) {
@@ -126,6 +139,7 @@ describe("BoardProjectDetailPage", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     vi.clearAllMocks();
+    sliceKanbanSuspendedMock.mockReturnValue(false);
     vi.mocked(fetchProject).mockResolvedValue(MOCK_PROJECT);
     vi.mocked(updateProject).mockResolvedValue(MOCK_PROJECT);
   });
@@ -194,6 +208,7 @@ describe("BoardProjectDetailPage", () => {
     ) as HTMLButtonElement;
     slicesTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
+    await wait();
 
     expect(container.querySelector("[data-testid='slice-kanban']")).not.toBeNull();
     expect(
@@ -203,6 +218,35 @@ describe("BoardProjectDetailPage", () => {
     const addBtn = container.querySelector(".bpd-add-slice-btn");
     expect(addBtn).not.toBeNull();
     expect(addBtn?.textContent?.trim()).toContain("Add slice");
+  });
+
+  it("Slices tab loading stays inside the tab panel Suspense boundary", async () => {
+    sliceKanbanSuspendedMock.mockReturnValue(true);
+    dispose = render(
+      () => (
+        <Suspense
+          fallback={<div data-testid="parent-suspense">Parent loading</div>}
+        >
+          <BoardProjectDetailPage />
+        </Suspense>
+      ),
+      container
+    );
+    await wait();
+    await wait();
+
+    const slicesTab = Array.from(container.querySelectorAll(".bpd-tab")).find(
+      (t) => t.textContent?.trim() === "Slices"
+    ) as HTMLButtonElement;
+    slicesTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    expect(
+      container.querySelector("[data-testid='parent-suspense']")
+    ).toBeNull();
+    expect(container.querySelector(".bpd-header")).not.toBeNull();
+    expect(container.querySelector(".bpd-tabs")).not.toBeNull();
+    expect(container.querySelector(".bpd-slices-kanban")).not.toBeNull();
   });
 
   it("slice creation form appears and submits on click", async () => {

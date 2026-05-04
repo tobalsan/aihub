@@ -8,6 +8,7 @@ import {
   For,
   Match,
   Show,
+  Suspense,
   Switch,
   createEffect,
   createMemo,
@@ -445,7 +446,9 @@ export function BoardProjectDetailPage(
                     </Show>
                   </div>
                   <div class="bpd-slices-kanban">
-                    <SliceKanbanWidget projectId={projectId()} />
+                    <Suspense fallback={<SlicesLoading />}>
+                      <SliceKanbanWidget projectId={projectId()} />
+                    </Suspense>
                   </div>
                 </div>
               </Match>
@@ -1003,4 +1006,8 @@ export function BoardProjectDetailPage(
       `}</style>
     </div>
   );
+}
+
+function SlicesLoading() {
+  return <div class="bpd-loading">Loading slices…</div>;
 }

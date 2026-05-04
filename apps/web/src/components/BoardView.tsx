@@ -6,6 +6,7 @@ import {
   createMemo,
   Show,
   For,
+  Suspense,
 } from "solid-js";
 import {
   fetchAgents,
@@ -1104,7 +1105,9 @@ export function BoardView() {
             "board-canvas-content-projects": canvas().panel === "projects",
           }}
         >
-          <CanvasPanelRenderer state={canvas()} />
+          <Suspense fallback={<CanvasLoading />}>
+            <CanvasPanelRenderer state={canvas()} />
+          </Suspense>
         </div>
       </div>
 
@@ -1602,6 +1605,21 @@ function CanvasPanelRenderer(props: { state: CanvasState }) {
         }
       `}</style>
     </>
+  );
+}
+
+function CanvasLoading() {
+  return (
+    <div class="canvas-loading" data-testid="canvas-loading">
+      Loading…
+      <style>{`
+        .canvas-loading {
+          padding: 24px;
+          color: var(--text-secondary);
+          font-size: 13px;
+        }
+      `}</style>
+    </div>
   );
 }
 
