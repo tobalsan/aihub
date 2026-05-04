@@ -255,13 +255,18 @@ function resolveProjectRoots(ctx: ExtensionContext): {
   return { root, worktreesRoot };
 }
 
-function isReadmeChange(payload: unknown): boolean {
+function isProjectFileChange(payload: unknown): boolean {
   if (typeof payload !== "object" || payload === null) return false;
   const file = (payload as { file?: unknown }).file;
-  return (
-    typeof file === "string" &&
-    (file === "README.md" || file.endsWith("/README.md"))
-  );
+  return typeof file === "string" && file.endsWith(".md");
+}
+
+function emitBoardProjectChanged(projectId: string, projectPath: string): void {
+  getContext().emit("file.changed", {
+    type: "file_changed",
+    projectId,
+    file: `${projectPath}/README.md`,
+  });
 }
 
 // ── Simplified project statuses ─────────────────────────────────────
@@ -409,6 +414,7 @@ function registerBoardRoutes(app: Hono): void {
     }
 
     invalidateProjectCache(undefined);
+    emitBoardProjectChanged(projectId, updateResult.data.path);
 
     return c.json({
       ok: true,
@@ -555,7 +561,7 @@ const boardExtension: Extension = {
     fs.mkdirSync(boardRoot, { recursive: true });
     const { root, worktreesRoot } = resolveProjectRoots(ctx);
     unsubscribeFileChanged = ctx.subscribe("file.changed", (payload) => {
-      if (!isReadmeChange(payload)) return;
+      if (!isProjectFileChange(payload)) return;
       invalidateProjectCache(root);
     });
     stopSpaceCacheWatcher = startSpaceCacheWatcher(config, () => {

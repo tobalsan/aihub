@@ -25,20 +25,28 @@ export function BoardLifecycleListPage(
 
   createEffect(() => {
     let refreshTimer: number | undefined;
+    const lastSubagentStatus = new Map<string, string>();
     const scheduleRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         void refetchProjects();
+        refreshTimer = undefined;
       }, 250);
     };
     const offFiles = subscribeToFileChanges({
       onFileChanged: scheduleRefresh,
     });
     const offRuns = subscribeToSubagentChanges({
-      onSubagentChanged: scheduleRefresh,
+      onSubagentChanged: (event) => {
+        const previous = lastSubagentStatus.get(event.runId);
+        if (previous === event.status) return;
+        lastSubagentStatus.set(event.runId, event.status);
+        scheduleRefresh();
+      },
     });
     onCleanup(() => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
+      lastSubagentStatus.clear();
       offFiles();
       offRuns();
     });

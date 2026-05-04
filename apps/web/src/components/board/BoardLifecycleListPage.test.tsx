@@ -8,11 +8,15 @@ const {
   projectListPropsMock,
   fetchBoardProjectsMock,
   fetchAreaSummariesMock,
+  subscribeToFileChangesMock,
+  subscribeToSubagentChangesMock,
 } = vi.hoisted(() => ({
   navigateMock: vi.fn(),
   projectListPropsMock: vi.fn(),
   fetchBoardProjectsMock: vi.fn(),
   fetchAreaSummariesMock: vi.fn(),
+  subscribeToFileChangesMock: vi.fn(() => () => undefined),
+  subscribeToSubagentChangesMock: vi.fn(() => () => undefined),
 }));
 
 vi.mock("@solidjs/router", () => ({
@@ -22,8 +26,8 @@ vi.mock("@solidjs/router", () => ({
 vi.mock("../../api/client", () => ({
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchAreaSummaries: fetchAreaSummariesMock,
-  subscribeToFileChanges: () => () => undefined,
-  subscribeToSubagentChanges: () => () => undefined,
+  subscribeToFileChanges: subscribeToFileChangesMock,
+  subscribeToSubagentChanges: subscribeToSubagentChangesMock,
 }));
 
 vi.mock("./ProjectListGrouped", () => ({
@@ -39,6 +43,10 @@ describe("BoardLifecycleListPage", () => {
     projectListPropsMock.mockReset();
     fetchBoardProjectsMock.mockReset();
     fetchAreaSummariesMock.mockReset();
+    subscribeToFileChangesMock.mockReset();
+    subscribeToFileChangesMock.mockReturnValue(() => undefined);
+    subscribeToSubagentChangesMock.mockReset();
+    subscribeToSubagentChangesMock.mockReturnValue(() => undefined);
   });
 
   it("loads board projects + areas, maps area title, navigates on card click when no onProjectClick prop", async () => {
@@ -128,5 +136,45 @@ describe("BoardLifecycleListPage", () => {
 
     dispose();
     document.body.removeChild(container);
+  });
+
+  it("debounces file changes and subagent lifecycle transitions", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchBoardProjectsMock.mockResolvedValue([]);
+      fetchAreaSummariesMock.mockResolvedValue([]);
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispose = render(() => <BoardLifecycleListPage />, container);
+      await vi.runAllTimersAsync();
+
+      const fileCallbacks = subscribeToFileChangesMock.mock.calls[0]?.[0];
+      const runCallbacks = subscribeToSubagentChangesMock.mock.calls[0]?.[0];
+      expect(fileCallbacks).toBeTruthy();
+      expect(runCallbacks).toBeTruthy();
+
+      fileCallbacks.onFileChanged("PRO-1", "PRO-1/README.md");
+      fileCallbacks.onFileChanged("PRO-2", "PRO-2/SPECS.md");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
+
+      runCallbacks.onSubagentChanged({ runId: "run-1", status: "running" });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(3);
+
+      runCallbacks.onSubagentChanged({ runId: "run-1", status: "running" });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(3);
+
+      runCallbacks.onSubagentChanged({ runId: "run-1", status: "done" });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(4);
+
+      dispose();
+      document.body.removeChild(container);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1078,6 +1078,7 @@ export function registerProjectRoutes(app: Hono): void {
     if (!result.ok) {
       return c.json({ error: result.error }, 400);
     }
+    emitProjectFileChanged(result.data.id, result.data.path, "README.md");
     return c.json(result.data, 201);
   });
 
