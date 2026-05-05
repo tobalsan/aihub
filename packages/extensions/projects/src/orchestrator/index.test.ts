@@ -16,6 +16,8 @@ import {
   resolveAihubNotifyCommand,
   runAihubNotify,
 } from "./dispatcher.js";
+import { resolveHitlNotifyChannel } from "./index.js";
+import type { HitlEvent } from "./hitl.js";
 import type { OrchestratorConfig } from "./config.js";
 
 vi.mock("../projects/branches.js", () => ({
@@ -1129,6 +1131,9 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.slug).toContain("pro-1-s01-merger-");
     expect(spawned[0]?.prompt).toContain("git merge PRO-1/pro-1-s01-worker");
     expect(spawned[0]?.prompt).toContain("aihub slices move PRO-1-S01 done");
+    expect(spawned[0]?.prompt).toContain(
+      "aihub slices merger-conflict PRO-1-S01"
+    );
     expect(updates.calls).toEqual([]);
   });
 
@@ -1235,6 +1240,283 @@ describe("orchestrator dispatcher", () => {
       },
     ]);
     expect(updates.calls).toEqual([]);
+  });
+
+  it("emits HITL and parks a ready_to_merge slice with Merger conflict metadata", async () => {
+    const events: HitlEvent[] = [];
+    const spawned: SpawnSubagentInput[] = [];
+    const conflictSlice = slice("PRO-1-S01", "PRO-1", "ready_to_merge", {
+      merger_conflict: {
+        summary: "src/app.ts, package.json",
+        at: "2026-05-03T00:04:00.000Z",
+        source: "merger_outcome",
+      },
+    });
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [conflictSlice],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("replied", "orchestrator", {
+                name: "Merger",
+                slug: "pro-1-s01-merger",
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T00:03:00.000Z",
+                finishedAt: "2026-05-03T00:04:30.000Z",
+              }),
+            ],
+          },
+        }),
+        ensureProjectIntegrationBranch: async () => "PRO-1/integration",
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        hitl: { add: (event) => events.push(event) },
+        log: () => {},
+      }
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: "merger_conflict",
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        summary: "src/app.ts, package.json",
+      }),
+    ]);
+    expect(result.eligible).toBe(0);
+    expect(spawned).toEqual([]);
+  });
+
+  it("parks Merger conflicts even when HITL is not injected", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const conflictSlice = slice("PRO-1-S01", "PRO-1", "ready_to_merge", {
+      merger_conflict: {
+        summary: "src/app.ts",
+        at: "2026-05-03T00:04:00.000Z",
+        source: "merger_outcome",
+      },
+    });
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [conflictSlice],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("replied", "orchestrator", {
+                name: "Merger",
+                slug: "pro-1-s01-merger",
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T00:03:00.000Z",
+                finishedAt: "2026-05-03T00:04:30.000Z",
+              }),
+            ],
+          },
+        }),
+        ensureProjectIntegrationBranch: async () => "PRO-1/integration",
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        log: () => {},
+      }
+    );
+
+    expect(result.eligible).toBe(0);
+    expect(spawned).toEqual([]);
+  });
+
+  it("uses Merger conflict comments as a fallback parking signal", async () => {
+    const events: HitlEvent[] = [];
+    const conflictSlice = {
+      ...slice("PRO-1-S01", "PRO-1", "ready_to_merge"),
+      docs: {
+        ...slice("PRO-1-S01", "PRO-1").docs,
+        thread: [
+          "## 2026-05-03T00:04:00.000Z",
+          "[author:Merger]",
+          "[date:2026-05-03T00:04:00.000Z]",
+          "",
+          "Merge conflict - needs human: src/app.ts",
+          "",
+        ].join("\n"),
+      },
+    };
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [conflictSlice],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("replied", "orchestrator", {
+                name: "Merger",
+                slug: "pro-1-s01-merger",
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T00:03:00.000Z",
+                finishedAt: "2026-05-03T00:04:30.000Z",
+              }),
+            ],
+          },
+        }),
+        hitl: { add: (event) => events.push(event) },
+        log: () => {},
+      }
+    );
+
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        kind: "merger_conflict",
+        summary: "src/app.ts",
+      })
+    );
+    expect(result.eligible).toBe(0);
+  });
+
+  it("does not park stale Merger conflict metadata", async () => {
+    const events: HitlEvent[] = [];
+    const spawned: SpawnSubagentInput[] = [];
+    const conflictSlice = slice("PRO-1-S01", "PRO-1", "ready_to_merge", {
+      merger_conflict: {
+        summary: "src/app.ts",
+        at: "2026-05-03T00:04:00.000Z",
+        source: "merger_outcome",
+      },
+    });
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [conflictSlice],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("replied", "orchestrator", {
+                name: "Merger",
+                slug: "pro-1-s01-merger-later",
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T00:10:00.000Z",
+                finishedAt: "2026-05-03T00:11:00.000Z",
+              }),
+            ],
+          },
+        }),
+        ensureProjectIntegrationBranch: async () => "PRO-1/integration",
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        hitl: { add: (event) => events.push(event) },
+        log: () => {},
+      }
+    );
+
+    expect(events).toEqual([]);
+    expect(result.eligible).toBe(1);
+    expect(spawned).toHaveLength(1);
+  });
+
+  it("emits a HITL event when a reviewer-failed slice is back in todo", async () => {
+    const events: HitlEvent[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "todo")],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("idle", "orchestrator", {
+              name: "Reviewer",
+              sliceId: "PRO-1-S01",
+              finishedAt: "2026-05-03T00:00:00.000Z",
+            }),
+          ],
+        },
+      }),
+      spawnSubagent: async (_config, input) => ({
+        ok: true,
+        data: { slug: input.slug },
+      }),
+      updateSlice: makeUpdateSliceMock().fn,
+      hitl: { add: (event) => events.push(event) },
+      log: () => {},
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: "reviewer_fail",
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+      }),
+    ]);
+  });
+
+  it("does not emit reviewer-fail HITL for manual reviewer runs", async () => {
+    const events: HitlEvent[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "todo")],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("idle", "manual", {
+              name: "Reviewer",
+              sliceId: "PRO-1-S01",
+              finishedAt: "2026-05-03T00:00:00.000Z",
+            }),
+          ],
+        },
+      }),
+      spawnSubagent: async (_config, input) => ({
+        ok: true,
+        data: { slug: input.slug },
+      }),
+      updateSlice: makeUpdateSliceMock().fn,
+      hitl: { add: (event) => events.push(event) },
+      log: () => {},
+    });
+
+    expect(events).toEqual([]);
   });
 
   it("accounts todo and review slots independently", async () => {
@@ -2203,5 +2485,22 @@ describe("orchestrator dispatcher", () => {
       if (oldRoot === undefined) delete process.env.AIHUB_WORKSPACE_ROOT;
       else process.env.AIHUB_WORKSPACE_ROOT = oldRoot;
     }
+  });
+});
+
+describe("orchestrator HITL channel config", () => {
+  it("requires a configured HITL channel", () => {
+    expect(() => resolveHitlNotifyChannel(config, undefined)).toThrow(
+      "hitl_channel"
+    );
+    expect(() => resolveHitlNotifyChannel(config, "ops")).toThrow(
+      "not configured"
+    );
+    expect(
+      resolveHitlNotifyChannel(
+        { ...config, notifications: { channels: { ops: { discord: "123" } } } },
+        "ops"
+      )
+    ).toBe("ops");
   });
 });

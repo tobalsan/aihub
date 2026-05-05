@@ -494,6 +494,7 @@ export const ProjectsOrchestratorConfigSchema = z.object({
     .nonnegative()
     .optional()
     .default(30 * 60_000),
+  hitl_channel: z.string().min(1).optional(),
   statuses: z
     .object({
       todo: ProjectsOrchestratorStatusConfigSchema.optional(),

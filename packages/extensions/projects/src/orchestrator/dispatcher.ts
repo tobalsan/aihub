@@ -189,6 +189,11 @@ const ORCHESTRATOR_STALL_AUTHOR = "Orchestrator";
 
 const defaultLastDonePingDates = new Map<string, string>();
 
+type MergerConflictState = {
+  summary: string;
+  dedupeKey: string;
+};
+
 /** A slice paired with its resolved parent project info. */
 export type SliceDispatchItem = {
   slice: SliceRecord;
@@ -810,6 +815,11 @@ function describeRun(run: SubagentListItem | undefined): string {
   return details.join(" / ");
 }
 
+function parseTimeMs(value: string | undefined): number {
+  const parsed = Date.parse(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function sliceUpdatedAt(slice: SliceRecord): number {
   const parsed = Date.parse(slice.frontmatter.updated_at ?? "");
   return Number.isFinite(parsed) ? parsed : 0;
@@ -957,6 +967,126 @@ function emitReviewerFailureHitl(
         latestReviewer.startedAt ??
         latestReviewer.slug
       }`,
+    });
+  }
+}
+
+function latestMergerRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  item: SliceDispatchItem & { runs: SubagentListItem[] }
+): SubagentListItem | undefined {
+  return item.runs
+    .filter(
+      (run) =>
+        sourceOf(run) === "orchestrator" &&
+        run.status !== "running" &&
+        isMergerRun(config, orchestratorConfig, run) &&
+        run.sliceId === item.slice.id
+    )
+    .sort((a, b) => runEventTime(b) - runEventTime(a))[0];
+}
+
+function frontmatterMergerConflict(
+  item: SliceDispatchItem & { runs: SubagentListItem[] },
+  latestMerger: SubagentListItem
+): MergerConflictState | undefined {
+  const metadata = item.slice.frontmatter.merger_conflict;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return undefined;
+  }
+  const data = metadata as Record<string, unknown>;
+  const summary = data.summary;
+  const at = data.at;
+  if (typeof summary !== "string" || !summary.trim()) return undefined;
+  if (typeof at !== "string") return undefined;
+  const atMs = parseTimeMs(at);
+  if (atMs === 0) return undefined;
+  const startedAt = parseTimeMs(latestMerger.startedAt);
+  const finishedAt = runEventTime(latestMerger);
+  if (startedAt > 0 && atMs < startedAt) return undefined;
+  if (finishedAt > 0 && atMs > finishedAt) return undefined;
+
+  return {
+    summary: summary.trim(),
+    dedupeKey: `merger_conflict:${item.slice.id}:${
+      latestMerger.finishedAt ??
+      latestMerger.lastActive ??
+      latestMerger.startedAt ??
+      latestMerger.slug
+    }:${at}`,
+  };
+}
+
+function threadMergerConflict(
+  item: SliceDispatchItem & { runs: SubagentListItem[] },
+  latestMerger: SubagentListItem
+): MergerConflictState | undefined {
+  const entries = item.slice.docs.thread.split(/^##\s+/m).slice(1);
+  const startedAt = parseTimeMs(latestMerger.startedAt);
+  const finishedAt = runEventTime(latestMerger);
+  for (const rawEntry of entries.reverse()) {
+    const [heading = "", ...bodyParts] = rawEntry.split(/\r?\n/);
+    const at = heading.trim();
+    const atMs = parseTimeMs(at);
+    if (atMs === 0) continue;
+    if (startedAt > 0 && atMs < startedAt) continue;
+    if (finishedAt > 0 && atMs > finishedAt) continue;
+    const body = bodyParts.join("\n");
+    if (!body.includes("[author:Merger]")) continue;
+    const summaryMatch = body.match(
+      /Merge conflict\s+(?:—|-)\s+needs human:\s*([^\n]+)?/i
+    );
+    if (!summaryMatch) continue;
+    const summary = (summaryMatch[1] ?? "").trim();
+    return {
+      summary: summary || "Merge conflict needs human.",
+      dedupeKey: `merger_conflict:${item.slice.id}:${
+        latestMerger.finishedAt ??
+        latestMerger.lastActive ??
+        latestMerger.startedAt ??
+        latestMerger.slug
+      }:${at}`,
+    };
+  }
+  return undefined;
+}
+
+function latestMergerConflictState(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  item: SliceDispatchItem & { runs: SubagentListItem[] }
+): MergerConflictState | undefined {
+  if (item.slice.frontmatter.status !== MERGER_SLICE_STATUS) return undefined;
+  const latest = latestMergerRun(config, orchestratorConfig, item);
+  if (!latest) return undefined;
+  return (
+    frontmatterMergerConflict(item, latest) ??
+    threadMergerConflict(item, latest)
+  );
+}
+
+function addMergerConflictHitlEvents(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  items: Array<SliceDispatchItem & { runs: SubagentListItem[] }>,
+  deps: OrchestratorDispatcherDeps
+): void {
+  if (!deps.hitl) return;
+  for (const item of items) {
+    const conflict = latestMergerConflictState(
+      config,
+      orchestratorConfig,
+      item
+    );
+    if (!conflict) continue;
+    deps.hitl.add({
+      kind: "merger_conflict",
+      projectId: item.project.id,
+      sliceId: item.slice.id,
+      summary: conflict.summary,
+      link: item.slice.dirPath,
+      dedupeKey: conflict.dedupeKey,
     });
   }
 }
@@ -1315,7 +1445,7 @@ async function buildMergerSpawnInput(
     "If the merge is clean, commit if needed, then run targeted validation you can discover plus `pnpm typecheck` when available.",
     "If conflicts are trivial, resolve them, commit, and run validation.",
     `On success: run \`${cli} slices comment ${slice.id} --author Merger "Merged to integration."\` then \`${cli} slices move ${slice.id} done\`. Exit.`,
-    `On irrecoverable conflict or validation failure: run \`${cli} slices comment ${slice.id} --author Merger "Merge conflict — needs human: <files or failing checks>"\`. Leave the slice in \`ready_to_merge\` and exit.`,
+    `On irrecoverable conflict or validation failure: run \`${cli} slices merger-conflict ${slice.id} "<files or failing checks>"\`, then run \`${cli} slices comment ${slice.id} --author Merger "Merge conflict — needs human: <files or failing checks>"\`. Leave the slice in \`ready_to_merge\` and exit.`,
     "Do not push. Do not merge integration into main.",
     signoffInstruction,
   ]
@@ -1494,10 +1624,26 @@ async function dispatchForStatus(
   const attempts = deps.attempts;
   const dispatchKind = dispatchKindForStatus(statusKey);
 
+  addMergerConflictHitlEvents(config, orchestratorConfig, allItems, deps);
+
   // --- Step 5: Blocker + cooldown filtering (per sliceId) ---
   const eligible = allItems.filter((item) => {
     const sliceId = item.slice.id;
     if ((activeBySlice.get(sliceId)?.length ?? 0) > 0) return false;
+    if (
+      statusKey === MERGER_SLICE_STATUS &&
+      latestMergerConflictState(config, orchestratorConfig, item)
+    ) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: statusKey,
+        action: "skip",
+        project: item.project.id,
+        slice: sliceId,
+        reason: "merger_conflict_parked",
+      });
+      return false;
+    }
     const pending = pendingBlockers(item.slice, globalSliceStatusIndex);
     if (pending.length > 0) {
       keyValueLog(log, {

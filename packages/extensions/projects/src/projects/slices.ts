@@ -33,6 +33,11 @@ export type SliceFrontmatter = {
   title: string;
   status: SliceStatus;
   repo?: string;
+  merger_conflict?: {
+    summary: string;
+    at: string;
+    source: "merger_outcome" | "merger_comment";
+  };
   blocked_by?: string[];
   hill_position: SliceHillPosition;
   created_at: string;
@@ -524,6 +529,9 @@ export async function updateSlice(
     nextFrontmatter.blocked_by.length === 0
   ) {
     nextFrontmatter.blocked_by = undefined;
+  }
+  if (input.status && input.status !== "ready_to_merge") {
+    nextFrontmatter.merger_conflict = undefined;
   }
   nextFrontmatter.repo = await assertValidSliceRepo(nextFrontmatter.repo);
   await assertSliceRepoInvariant(projectDir, nextFrontmatter, "update");

@@ -36,10 +36,64 @@ type SliceListItem = {
 type LocatedSlice = { project: ProjectLocation; slice: SliceRecord };
 type ReadStdin = () => Promise<string>;
 
+const MERGER_CONFLICT_PREFIX_RE =
+  /^Merge conflict\s+(?:—|-)\s+needs human:\s*/i;
+
 function fail(err: unknown): never {
   if (err instanceof Error) console.error(err.message);
   else console.error("Request failed");
   process.exit(1);
+}
+
+function summarizeCommentBody(body: string): string {
+  return (
+    body
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(", ") || "Merge conflict needs human."
+  );
+}
+
+function mergerConflictSummary(body: string): string | undefined {
+  const trimmed = body.trim();
+  const firstLineEnd = trimmed.indexOf("\n");
+  const firstLine =
+    firstLineEnd === -1 ? trimmed : trimmed.slice(0, firstLineEnd);
+  const match = firstLine.match(MERGER_CONFLICT_PREFIX_RE);
+  if (!match) return undefined;
+  const inlineSummary = firstLine.slice(match[0].length).trim();
+  const remainingSummary =
+    firstLineEnd === -1 ? "" : trimmed.slice(firstLineEnd + 1).trim();
+  const summary = [inlineSummary, remainingSummary]
+    .join("\n")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(", ");
+  return summary || "Merge conflict needs human.";
+}
+
+function sliceCommentFrontmatter(
+  existing: unknown,
+  author: string,
+  body: string,
+  at: string
+): Record<string, unknown> {
+  if (author !== "Merger") return {};
+  if (
+    existing &&
+    typeof existing === "object" &&
+    !Array.isArray(existing) &&
+    (existing as { source?: unknown }).source === "merger_outcome"
+  ) {
+    return {};
+  }
+  const summary = mergerConflictSummary(body);
+  return summary
+    ? { merger_conflict: { summary, at, source: "merger_comment" } }
+    : {};
 }
 
 async function readStdin(): Promise<string> {
@@ -577,8 +631,39 @@ export function registerSlicesCommands(program: Command): Command {
         const newThread = `${existing.trimEnd()}${separator}${entry}\n`;
         await updateSlice(found.project.dirPath, found.slice.id, {
           thread: newThread,
+          frontmatter: sliceCommentFrontmatter(
+            found.slice.frontmatter.merger_conflict,
+            author,
+            String(body),
+            now
+          ),
         });
         console.log(`Comment added to ${found.slice.id}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("merger-conflict")
+    .description("Record an irrecoverable Merger conflict for a slice")
+    .argument("<sliceId>", "Slice ID")
+    .argument("<summary>", "Conflict files or failing checks")
+    .action(async (sliceId, summary) => {
+      try {
+        const found = await findSliceAcrossProjects(String(sliceId));
+        if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
+        const now = new Date().toISOString();
+        await updateSlice(found.project.dirPath, found.slice.id, {
+          frontmatter: {
+            merger_conflict: {
+              summary: summarizeCommentBody(String(summary)),
+              at: now,
+              source: "merger_outcome",
+            },
+          },
+        });
+        console.log(`Merger conflict recorded for ${found.slice.id}`);
       } catch (err) {
         fail(err);
       }

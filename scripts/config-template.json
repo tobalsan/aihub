@@ -82,6 +82,7 @@
         "enabled": true,
         "poll_interval_ms": 15000,
         "failure_cooldown_ms": 60000,
+        "hitl_channel": "default",
         "statuses": {
           "todo": {
             "profile": "Worker",
@@ -98,6 +99,13 @@
         }
       },
       "root": __PROJECTS_ROOT__
+    }
+  },
+  "notifications": {
+    "channels": {
+      "default": {
+        "slack": "dev-null"
+      }
     }
   },
   "gateway": {

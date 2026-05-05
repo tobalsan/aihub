@@ -749,6 +749,122 @@ describe("slices CLI", () => {
     expect(thread).toContain("Implemented.");
   });
 
+  it("merger-conflict records explicit conflict metadata", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "Work",
+    ]);
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "merger-conflict",
+      "PRO-101-S01",
+      "src/app.ts\npackage.json",
+    ]);
+
+    const readme = await fs.readFile(
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "README.md"
+      ),
+      "utf8"
+    );
+    expect(readme).toContain('"summary":"src/app.ts, package.json"');
+    expect(readme).toContain('"source":"merger_outcome"');
+  });
+
+  it("Merger conflict comments do not downgrade explicit conflict metadata", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "Work",
+    ]);
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "merger-conflict",
+      "PRO-101-S01",
+      "src/app.ts",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "comment",
+      "PRO-101-S01",
+      "--author",
+      "Merger",
+      "Merge conflict - needs human: package.json",
+    ]);
+
+    const readme = await fs.readFile(
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "README.md"
+      ),
+      "utf8"
+    );
+    expect(readme).toContain('"summary":"src/app.ts"');
+    expect(readme).toContain('"source":"merger_outcome"');
+    expect(readme).not.toContain('"summary":"package.json"');
+    expect(readme).not.toContain('"source":"merger_comment"');
+  });
+
+  it("moving a slice away from ready_to_merge clears Merger conflict metadata", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "Work",
+    ]);
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "merger-conflict",
+      "PRO-101-S01",
+      "src/app.ts",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "move",
+      "PRO-101-S01",
+      "todo",
+    ]);
+
+    const readme = await fs.readFile(
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "README.md"
+      ),
+      "utf8"
+    );
+    expect(readme).not.toContain("merger_conflict");
+  });
+
   it("comment bumps updated_at", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
     await createProgram().parseAsync([

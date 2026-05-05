@@ -14,6 +14,22 @@ export type OrchestratorDaemon = {
   stop(): Promise<void>;
 };
 
+export function resolveHitlNotifyChannel(
+  config: GatewayConfig,
+  channel: string | undefined
+): string {
+  if (!channel) {
+    throw new Error(
+      "Orchestrator HITL requires extensions.projects.orchestrator.hitl_channel"
+    );
+  }
+  if (config.notifications?.channels?.[channel]) return channel;
+  throw new Error(
+    `Orchestrator HITL channel "${channel}" is not configured in notifications.channels`
+  );
+}
+
+
 export function startOrchestratorDaemon(
   config: GatewayConfig
 ): OrchestratorDaemon | null {
@@ -22,11 +38,15 @@ export function startOrchestratorDaemon(
 
   const attempts = createOrchestratorAttemptTracker();
   const stalls = createStallTracker();
+  const hitlChannel = resolveHitlNotifyChannel(
+    config,
+    orchestratorConfig.hitl_channel
+  );
   const hitl = createHitlBurstBuffer({
     notify: async (message) => {
       const summary = await notify({
         config: config.notifications,
-        channel: "default",
+        channel: hitlChannel,
         message,
         surface: "both",
         discordToken: config.extensions?.discord?.token,
