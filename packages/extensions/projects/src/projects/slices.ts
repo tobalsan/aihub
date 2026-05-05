@@ -55,6 +55,7 @@ export type SliceRecord = {
 export type CreateSliceInput = {
   projectId: string;
   title: string;
+  sliceId?: string;
   status?: SliceStatus;
   hillPosition?: SliceHillPosition;
   readme?: string;
@@ -183,14 +184,77 @@ function formatSliceId(projectId: string, sliceNumber: number): string {
   return `${projectId}-S${String(sliceNumber).padStart(2, "0")}`;
 }
 
+function parseSliceNumber(projectId: string, candidate: string): number | null {
+  const prefix = `${projectId}-S`;
+  if (!candidate.startsWith(prefix)) return null;
+  const suffix = candidate.slice(prefix.length);
+  if (!/^\d+$/.test(suffix)) return null;
+  return Number.parseInt(suffix, 10);
+}
+
+async function findMaxSliceNumberOnDisk(projectDir: string, projectId: string): Promise<number> {
+  const slicesDir = path.join(projectDir, SLICES_DIR);
+  let max = 0;
+
+  async function visit(dir: string): Promise<void> {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const sliceNumber = parseSliceNumber(projectId, entry.name);
+      if (sliceNumber !== null) max = Math.max(max, sliceNumber);
+      await visit(path.join(dir, entry.name));
+    }
+  }
+
+  await visit(slicesDir);
+  return max;
+}
+
 async function allocateSliceId(projectDir: string, projectId: string): Promise<string> {
   return withCounterLock(projectDir, async () => {
     const countersPath = path.join(projectDir, META_DIR, COUNTERS_FILE);
     const state = await readJsonFile<CountersState>(countersPath, { lastSliceId: 0 });
-    const next = state.lastSliceId + 1;
+    const maxOnDisk = await findMaxSliceNumberOnDisk(projectDir, projectId);
+    const next = Math.max(state.lastSliceId, maxOnDisk) + 1;
     await writeFileAtomic(countersPath, JSON.stringify({ lastSliceId: next }, null, 2));
     await fs.mkdir(path.join(projectDir, SLICES_DIR), { recursive: true });
     return formatSliceId(projectId, next);
+  });
+}
+
+async function reserveSliceId(
+  projectDir: string,
+  projectId: string,
+  requestedId?: string
+): Promise<string> {
+  if (!requestedId) return allocateSliceId(projectDir, projectId);
+  assertValidSliceId(requestedId);
+  if (!requestedId.startsWith(`${projectId}-S`)) {
+    throw new Error(`sliceId ${requestedId} does not belong to project ${projectId}`);
+  }
+
+  return withCounterLock(projectDir, async () => {
+    const countersPath = path.join(projectDir, META_DIR, COUNTERS_FILE);
+    const state = await readJsonFile<CountersState>(countersPath, { lastSliceId: 0 });
+    const maxOnDisk = await findMaxSliceNumberOnDisk(projectDir, projectId);
+    const maxEver = Math.max(state.lastSliceId, maxOnDisk);
+    const requestedNumber = parseSliceNumber(projectId, requestedId);
+    if (requestedNumber === null || requestedNumber <= maxEver) {
+      throw new Error(`Slice id already assigned: ${requestedId}`);
+    }
+    await writeFileAtomic(
+      countersPath,
+      JSON.stringify({ lastSliceId: requestedNumber }, null, 2)
+    );
+    await fs.mkdir(path.join(projectDir, SLICES_DIR), { recursive: true });
+    return requestedId;
   });
 }
 
@@ -267,9 +331,10 @@ export async function regenerateScopeMap(projectDir: string, projectId: string):
 export async function createSlice(projectDir: string, input: CreateSliceInput): Promise<SliceRecord> {
   assertValidProjectId(input.projectId);
   const now = new Date().toISOString();
-  const id = await allocateSliceId(projectDir, input.projectId);
+  const id = await reserveSliceId(projectDir, input.projectId, input.sliceId);
   const sliceDir = path.join(projectDir, SLICES_DIR, id);
-  await fs.mkdir(sliceDir, { recursive: true });
+  await fs.mkdir(path.join(projectDir, SLICES_DIR), { recursive: true });
+  await fs.mkdir(sliceDir);
 
   const readmeBody = input.readme ?? "## Must\n\n## Nice\n";
   const frontmatter: SliceFrontmatter = {

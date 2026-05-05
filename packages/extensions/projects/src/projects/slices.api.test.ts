@@ -153,6 +153,47 @@ describe("slices HTTP API", () => {
     );
   });
 
+  it("POST /projects/:id/slices heals stale counters instead of overwriting", async () => {
+    const projectRes = await api.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Stale Counter Project" }),
+    });
+    const project = (await projectRes.json()) as { id: string };
+    const firstRes = await api.request(`/projects/${project.id}/slices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Original", readme: "## Original\n" }),
+    });
+    const first = (await firstRes.json()) as { id: string };
+    expect(first.id).toBe(`${project.id}-S01`);
+
+    const [projectDirName] = (await fs.readdir(projectsRoot)).filter((name) =>
+      name.startsWith(project.id)
+    );
+    const projectDir = path.join(projectsRoot, projectDirName!);
+    await fs.writeFile(
+      path.join(projectDir, ".meta", "counters.json"),
+      JSON.stringify({ lastSliceId: 0 }, null, 2)
+    );
+
+    const secondRes = await api.request(`/projects/${project.id}/slices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Next" }),
+    });
+
+    expect(secondRes.status).toBe(201);
+    const second = (await secondRes.json()) as { id: string };
+    expect(second.id).toBe(`${project.id}-S02`);
+    const originalReadme = await fs.readFile(
+      path.join(projectDir, "slices", first.id, "README.md"),
+      "utf8"
+    );
+    expect(originalReadme).toContain('title: "Original"');
+    expect(originalReadme).toContain("## Original");
+  });
+
   it("GET /projects/:id/slices lists created slices", async () => {
     const res = await api.request(`/projects/${createdProjectId}/slices`);
     expect(res.status).toBe(200);

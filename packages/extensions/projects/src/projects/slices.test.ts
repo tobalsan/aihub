@@ -60,6 +60,104 @@ describe("slice storage primitives", () => {
     expect((await readSliceCounters(projectDir)).lastSliceId).toBe(2);
   });
 
+  it("seeds missing counter from max slice id already on disk", async () => {
+    for (const [id, title] of [
+      ["PRO-238-S01", "First"],
+      ["PRO-238-S02", "Second"],
+      ["PRO-238-S03", "Third"],
+    ]) {
+      await createSlice(projectDir, {
+        projectId: "PRO-238",
+        sliceId: id,
+        title,
+        status: "done",
+      });
+    }
+
+    await fs.rm(path.join(projectDir, ".meta", "counters.json"), { force: true });
+
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Fourth",
+    });
+
+    expect(created.id).toBe("PRO-238-S04");
+    expect((await readSliceCounters(projectDir)).lastSliceId).toBe(4);
+    const third = await getSlice(projectDir, "PRO-238-S03");
+    expect(third.frontmatter.title).toBe("Third");
+  });
+
+  it("seeds missing counter from archived slice dirs under slices", async () => {
+    await createSlice(projectDir, {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S03",
+      title: "Archived",
+      status: "done",
+    });
+    await fs.mkdir(path.join(projectDir, "slices", ".done"), { recursive: true });
+    await fs.rename(
+      path.join(projectDir, "slices", "PRO-238-S03"),
+      path.join(projectDir, "slices", ".done", "PRO-238-S03")
+    );
+    await fs.rm(path.join(projectDir, ".meta", "counters.json"), { force: true });
+
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Next",
+    });
+
+    expect(created.id).toBe("PRO-238-S04");
+    expect((await readSliceCounters(projectDir)).lastSliceId).toBe(4);
+  });
+
+  it("rejects direct duplicate slice id creation without overwriting", async () => {
+    await createSlice(projectDir, {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S03",
+      title: "Original",
+      readme: "## Original\n",
+    });
+
+    await expect(
+      createSlice(projectDir, {
+        projectId: "PRO-238",
+        sliceId: "PRO-238-S03",
+        title: "Duplicate",
+        readme: "## Duplicate\n",
+      })
+    ).rejects.toThrow("Slice id already assigned: PRO-238-S03");
+
+    const original = await getSlice(projectDir, "PRO-238-S03");
+    expect(original.frontmatter.title).toBe("Original");
+    expect(original.docs.readme).toBe("## Original\n");
+  });
+
+  it("rejects direct reuse of a previously assigned slice id after folder removal", async () => {
+    await createSlice(projectDir, {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S03",
+      title: "Original",
+    });
+    await fs.rm(path.join(projectDir, "slices", "PRO-238-S03"), {
+      recursive: true,
+      force: true,
+    });
+
+    await expect(
+      createSlice(projectDir, {
+        projectId: "PRO-238",
+        sliceId: "PRO-238-S03",
+        title: "Duplicate",
+      })
+    ).rejects.toThrow("Slice id already assigned: PRO-238-S03");
+
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Next",
+    });
+    expect(created.id).toBe("PRO-238-S04");
+  });
+
   it("round-trips frontmatter without loss on update", async () => {
     const created = await createSlice(projectDir, {
       projectId: "PRO-238",
