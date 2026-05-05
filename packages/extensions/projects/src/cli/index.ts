@@ -18,6 +18,7 @@ import {
   resolveLocalConfigPath,
   validateLocalConfig,
 } from "./local-config.js";
+import { migrateProjectPitchFromReadme } from "./doc-migration.js";
 import { runMigration as runProjectsMigration } from "./migrate.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -521,6 +522,22 @@ export function registerProjectsCommands(program: Command): Command {
           return;
         }
         console.log(renderTable([data]));
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("pitch")
+    .argument("<id>", "Project ID")
+    .requiredOption("--from-readme", "Copy README.md body to PITCH.md")
+    .option("--force", "Overwrite existing PITCH.md")
+    .action(async (id, opts) => {
+      try {
+        const result = await migrateProjectPitchFromReadme(id, {
+          force: opts.force === true,
+        });
+        console.log(result.message);
       } catch (err) {
         fail(err);
       }

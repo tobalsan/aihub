@@ -17,6 +17,7 @@ import {
 } from "../activity/index.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { getProjectsRoot } from "../util/paths.js";
+import { migrateSliceSpecsFromReadme } from "./doc-migration.js";
 
 const PROJECT_ID_PATTERN = /^PRO-\d+$/;
 const ARCHIVE_DIR = ".archive";
@@ -327,6 +328,23 @@ export function registerSlicesCommands(program: Command): Command {
           return;
         }
         console.log(renderSliceTable(all));
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("specs")
+    .description("Copy slice README body to SPECS.md")
+    .argument("<sliceId>", "Slice ID")
+    .requiredOption("--from-readme", "Copy README.md body to SPECS.md")
+    .option("--force", "Overwrite existing SPECS.md")
+    .action(async (sliceId, opts) => {
+      try {
+        const result = await migrateSliceSpecsFromReadme(String(sliceId), {
+          force: opts.force === true,
+        });
+        console.log(result.message);
       } catch (err) {
         fail(err);
       }
