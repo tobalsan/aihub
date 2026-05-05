@@ -450,14 +450,20 @@ export function registerSlicesCommands(program: Command): Command {
     .description("Append timestamped comment to slice THREAD.md")
     .argument("<sliceId>", "Slice ID")
     .argument("<body>", "Comment body")
-    .action(async (sliceId, body) => {
+    .option("--author <author>", "Comment author")
+    .action(async (sliceId, body, opts) => {
       try {
         const found = await findSliceAcrossProjects(String(sliceId));
         if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
         const now = new Date().toISOString();
         const existing = found.slice.docs.thread;
         const separator = existing.trim().length > 0 ? "\n\n" : "";
-        const entry = `## ${now}\n\n${String(body).trim()}`;
+        const author =
+          typeof opts.author === "string" && opts.author.trim()
+            ? opts.author.trim()
+            : "";
+        const metadata = author ? `\n[author:${author}]\n[date:${now}]` : "";
+        const entry = `## ${now}${metadata}\n\n${String(body).trim()}`;
         const newThread = `${existing.trimEnd()}${separator}${entry}\n`;
         await updateSlice(found.project.dirPath, found.slice.id, { thread: newThread });
         console.log(`Comment added to ${found.slice.id}`);

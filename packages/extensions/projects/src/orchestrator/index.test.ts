@@ -186,6 +186,9 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.prompt).toContain(
       "`aihub slices move PRO-1-S01 review`"
     );
+    expect(spawned[0]?.prompt).toContain("always pass `--author Worker`");
+    expect(spawned[0]?.prompt).toContain("aihub projects comment");
+    expect(spawned[0]?.prompt).toContain("aihub slices comment");
     expect(spawned[0]?.prompt).not.toContain("projects move");
     // Worker lock: slices moved to in_progress
     expect(updates.calls.map((c) => c.sliceId)).toEqual([
@@ -827,6 +830,12 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.prompt).toContain(
       "`aihub slices move PRO-1-S01 ready_to_merge`"
     );
+    expect(spawned[0]?.prompt).toContain("always pass `--author Reviewer`");
+    expect(spawned[0]?.prompt).toContain(
+      '`aihub slices comment PRO-1-S01 --author Reviewer "<one-line PASS summary>"`'
+    );
+    expect(spawned[0]?.prompt).toContain("aihub projects comment");
+    expect(spawned[0]?.prompt).toContain("aihub slices comment");
     // Reviewer does NOT lock the slice status
     expect(updates.calls).toEqual([]);
   });

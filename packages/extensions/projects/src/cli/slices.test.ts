@@ -396,6 +396,29 @@ describe("slices CLI", () => {
     expect(threadAfterSecond).toContain("Second comment");
   });
 
+  it("comment writes explicit author metadata when --author is passed", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "comment",
+      "PRO-101-S01",
+      "--author",
+      "Worker",
+      "Implemented.",
+    ]);
+
+    const thread = await fs.readFile(
+      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "THREAD.md"),
+      "utf8"
+    );
+    expect(thread).toContain("[author:Worker]");
+    expect(thread).toContain("[date:");
+    expect(thread).toContain("Implemented.");
+  });
+
   it("comment bumps updated_at", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
     await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);

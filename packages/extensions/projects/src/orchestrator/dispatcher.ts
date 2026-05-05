@@ -314,6 +314,8 @@ function buildSliceWorkerPrompt({
   sliceDirPath: string;
   aihubCli: string;
 }): string {
+  const signoffInstruction =
+    "When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Worker`. Do not let comments default to \"AIHub\".";
   return [
     `## Working on Slice: ${sliceId} — ${sliceTitle}`,
     "",
@@ -342,6 +344,7 @@ function buildSliceWorkerPrompt({
     "## Orchestrator Handoff",
     "Read SPECS.md, TASKS.md, and VALIDATION.md inside your slice directory.",
     `For any \`aihub\` CLI calls, invoke \`${aihubCli}\` (this targets the gateway that owns this project - prod or dev).`,
+    signoffInstruction,
     `When all VALIDATION.md criteria pass, run \`${aihubCli} slices move ${sliceId} review\` and exit.`,
   ].join("\n").trim();
 }
@@ -387,6 +390,8 @@ function buildReviewerSpawnInput(
   const sliceDirPath = slice.dirPath;
   const projectDirPath = project.absolutePath;
   const cli = resolveAihubCli();
+  const signoffInstruction =
+    "When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Reviewer`. Do not let comments default to \"AIHub\".";
 
   // Build reviewer prompt inline (similar to current reviewer, but slice-aware)
   const workerWorkspaces = recentWorkerWorkspaces(
@@ -426,10 +431,11 @@ function buildReviewerSpawnInput(
     "Review the worker's implementation against SPECS.md / TASKS.md / VALIDATION.md.",
     "Worker workspaces are listed above; inspect their diffs and run their tests as needed.",
     `For any \`aihub\` CLI calls, invoke \`${cli}\` (this targets the gateway that owns this project - prod or dev).`,
+    signoffInstruction,
     "",
     "Decision protocol:",
-    `- If ALL VALIDATION.md criteria pass: run \`${cli} slices comment ${slice.id} "<one-line PASS summary>"\` then \`${cli} slices move ${slice.id} ready_to_merge\`. Exit.`,
-    `- If ANY criterion fails or the diff has blocking issues: run \`${cli} slices comment ${slice.id} "<crisp list of gaps, file:line where applicable>"\` then \`${cli} slices move ${slice.id} todo\`. Exit.`,
+    `- If ALL VALIDATION.md criteria pass: run \`${cli} slices comment ${slice.id} --author Reviewer "<one-line PASS summary>"\` then \`${cli} slices move ${slice.id} ready_to_merge\`. Exit.`,
+    `- If ANY criterion fails or the diff has blocking issues: run \`${cli} slices comment ${slice.id} --author Reviewer "<crisp list of gaps, file:line where applicable>"\` then \`${cli} slices move ${slice.id} todo\`. Exit.`,
     "",
     "Do NOT move to `done` - that's a manual merge gate. Do NOT push, do NOT merge.",
   ].join("\n").trim();

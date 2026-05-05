@@ -54,6 +54,7 @@ By default, if you don't specify anything, all projects are saved in `~/projects
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
 Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, and starts `Reviewer` subagents for `review`. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`.
+Orchestrated Worker/Reviewer prompts tell agents to pass `--author Worker` or `--author Reviewer` when posting project or slice comments, so THREAD.md keeps role attribution.
 
 ```json
 {
@@ -561,6 +562,7 @@ Coordinator prompts now include:
 - `aihub projects` delegation preflight (`command -v aihub && aihub projects --version`) before `aihub projects start --subagent ...`.
 - `aihub projects start --subagent <name>` delegation examples that avoid locked flags unless `--allow-overrides` is set, plus a reminder to choose an exact configured subagent name from `## Available Subagent Types` (or inspect AIHub config first if none are listed).
 - Post-run comment instructions use `--author <your name>`; the deprecated Cloud/openclaw follow-up step was removed.
+  `aihub slices comment` also accepts `--author <name>` for slice THREAD.md attribution.
   Shell tool cards show a warning callout (`No output captured`) when exec/bash output is structurally empty.
   Worker/reviewer prompts remain scoped to their run workspace (`clone`/`worktree`/`main-run`/`none`).
   Worker prompts explicitly require committing implementation once checks pass.
