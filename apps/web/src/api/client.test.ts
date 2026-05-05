@@ -214,6 +214,20 @@ describe("api client (projects/subagents)", () => {
     );
   });
 
+  it("fetches runtime subagents with project and slice filters", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] }),
+    });
+
+    await fetchRuntimeSubagents({
+      projectId: "PRO-1",
+      sliceId: "PRO-1-S01",
+    });
+
+    expectFetchCall("/api/subagents?projectId=PRO-1&sliceId=PRO-1-S01");
+  });
+
   it("archives runtime subagent", async () => {
     fetchMock.mockResolvedValue({
       ok: true,

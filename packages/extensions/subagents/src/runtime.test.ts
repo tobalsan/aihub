@@ -214,6 +214,28 @@ describe("subagent runtime logs", () => {
     expect(runs[0]?.sliceId).toBe("PRO-238-S01");
   });
 
+  it("filters runs by projectId and sliceId", async () => {
+    await writeRun("run-match", [], undefined, {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S01",
+    });
+    await writeRun("run-other-project", [], undefined, {
+      projectId: "PRO-239",
+      sliceId: "PRO-239-S01",
+    });
+    await writeRun("run-other-slice", [], undefined, {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S02",
+    });
+
+    const runs = await listSubagentRuns(runtimeOptions(), {
+      projectId: "PRO-238",
+      sliceId: "PRO-238-S01",
+    });
+
+    expect(runs.map((run) => run.id)).toEqual(["run-match"]);
+  });
+
   it("persists projectId/sliceId for new runs", async () => {
     const binDir = await fs.mkdtemp(path.join(tempDir, "bin-"));
     const codexPath = path.join(binDir, "codex");

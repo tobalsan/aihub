@@ -8,7 +8,13 @@ import type {
   SubagentRuntimeProfile,
 } from "@aihub/shared";
 import { SubagentsExtensionConfigSchema } from "@aihub/shared";
-import { listAllSubagents } from "@aihub/extension-projects";
+import {
+  archiveSubagent,
+  getSubagentLogs as getProjectSubagentLogs,
+  interruptSubagent as interruptProjectSubagent,
+  killSubagent as killProjectSubagent,
+  listAllSubagents,
+} from "@aihub/extension-projects";
 import {
   deleteSubagentRun,
   getLiveSubagentRunsByCwd,
@@ -102,6 +108,24 @@ function sourceFromQuery(
   return "all";
 }
 
+function projectRunId(projectId: string, slug: string): string {
+  return `${projectId}:${slug}`;
+}
+
+function parseProjectRunId(runId: string):
+  | { projectId: string; slug: string }
+  | undefined {
+  const match = runId.match(/^(PRO-\d+):(.+)$/);
+  if (!match?.[1] || !match[2]) return undefined;
+  return { projectId: match[1], slug: match[2] };
+}
+
+function mapProjectStatus(status: string) {
+  if (status === "running") return "running";
+  if (status === "error") return "error";
+  return "done";
+}
+
 function registerSubagentRoutes(app: Hono): void {
   if (registeredApps.has(app)) return;
   registeredApps.add(app);
@@ -111,6 +135,8 @@ function registerSubagentRoutes(app: Hono): void {
     const status = statusFromQuery(c.req.query("status"));
     const statusQuery = c.req.query("status");
     const source = sourceFromQuery(c.req.query("source"));
+    const projectId = readOptionalString(c.req.query("projectId"));
+    const sliceId = readOptionalString(c.req.query("sliceId"));
     const includeArchived = ["1", "true"].includes(
       c.req.query("includeArchived") ?? ""
     );
@@ -120,17 +146,22 @@ function registerSubagentRoutes(app: Hono): void {
       status,
       includeArchived,
       cwd,
+      projectId,
+      sliceId,
     });
     if (parent || cwd || includeArchived) {
-      return c.json({ items: runtimeItems });
+      if (!projectId && !sliceId) return c.json({ items: runtimeItems });
     }
     const projectItems = (await listAllSubagents(getContext().getConfig()))
       .filter((item) => source === "all" || item.source === source)
+      .filter((item) => !projectId || item.projectId === projectId)
+      .filter((item) => !sliceId || item.sliceId === sliceId)
       .filter((item) => !statusQuery || item.status === statusQuery)
       .map((item) => ({
         ...item,
-        id: item.slug,
+        id: projectRunId(item.projectId ?? "", item.slug),
         label: item.name ?? item.slug,
+        status: mapProjectStatus(item.status),
         startedAt: item.runStartedAt,
       }));
     const items =
@@ -224,6 +255,16 @@ function registerSubagentRoutes(app: Hono): void {
 
   app.post("/subagents/:runId/interrupt", async (c) => {
     try {
+      const projectRun = parseProjectRunId(c.req.param("runId"));
+      if (projectRun) {
+        const result = await interruptProjectSubagent(
+          getContext().getConfig(),
+          projectRun.projectId,
+          projectRun.slug
+        );
+        if (!result.ok) return c.json({ error: result.error }, 400);
+        return c.json(result.data);
+      }
       const run = await interruptSubagentRun(
         runtimeOptions(),
         c.req.param("runId")
@@ -238,6 +279,16 @@ function registerSubagentRoutes(app: Hono): void {
 
   app.post("/subagents/:runId/archive", async (c) => {
     try {
+      const projectRun = parseProjectRunId(c.req.param("runId"));
+      if (projectRun) {
+        const result = await archiveSubagent(
+          getContext().getConfig(),
+          projectRun.projectId,
+          projectRun.slug
+        );
+        if (!result.ok) return c.json({ error: result.error }, 400);
+        return c.json(result.data);
+      }
       const run = await setSubagentArchived(
         runtimeOptions(),
         c.req.param("runId"),
@@ -268,6 +319,16 @@ function registerSubagentRoutes(app: Hono): void {
 
   app.delete("/subagents/:runId", async (c) => {
     try {
+      const projectRun = parseProjectRunId(c.req.param("runId"));
+      if (projectRun) {
+        const result = await killProjectSubagent(
+          getContext().getConfig(),
+          projectRun.projectId,
+          projectRun.slug
+        );
+        if (!result.ok) return c.json({ error: result.error }, 400);
+        return c.json({ ok: true });
+      }
       await deleteSubagentRun(runtimeOptions(), c.req.param("runId"));
       return c.json({ ok: true });
     } catch (error) {
@@ -281,6 +342,17 @@ function registerSubagentRoutes(app: Hono): void {
     const since = Number(c.req.query("since") ?? "0");
     if (!Number.isFinite(since) || since < 0) {
       return c.json({ error: "Invalid since cursor" }, 400);
+    }
+    const projectRun = parseProjectRunId(c.req.param("runId"));
+    if (projectRun) {
+      const result = await getProjectSubagentLogs(
+        getContext().getConfig(),
+        projectRun.projectId,
+        projectRun.slug,
+        since
+      );
+      if (!result.ok) return c.json({ error: result.error }, 404);
+      return c.json(result.data);
     }
     const run = await getSubagentRun(runtimeOptions(), c.req.param("runId"));
     if (!run) return c.json({ error: "Subagent not found" }, 404);

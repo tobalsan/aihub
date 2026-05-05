@@ -95,6 +95,24 @@ vi.mock("./board/DocEditor", () => ({
   ),
 }));
 
+vi.mock("./SubagentRunsPanel", () => ({
+  SubagentRunsPanel: (props: {
+    projectId?: string;
+    sliceId?: string;
+    rawLogHref?: (run: { id: string }) => string | undefined;
+  }) => (
+    <div
+      data-testid="subagent-runs-panel"
+      data-project-id={props.projectId}
+      data-slice-id={props.sliceId}
+    >
+      <a href={props.rawLogHref?.({ id: `${props.projectId}:worker` })}>
+        View raw JSON
+      </a>
+    </div>
+  ),
+}));
+
 let container: HTMLElement;
 
 beforeEach(() => {
@@ -411,7 +429,7 @@ describe("SliceDetailPage", () => {
     expect(container.textContent).not.toContain("Other Slice");
   });
 
-  it("renders agent tab rows with status, timing, branch, and copyable run ID", async () => {
+  it("renders the agent tab with the scoped run timeline panel", async () => {
     fetchSubagentsMock = vi.fn(async () => ({
       ok: true as const,
       data: {
@@ -434,9 +452,6 @@ describe("SliceDetailPage", () => {
         ] satisfies SubagentListItem[],
       },
     }));
-    Object.assign(navigator, {
-      clipboard: { writeText: vi.fn() },
-    });
 
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
@@ -450,30 +465,18 @@ describe("SliceDetailPage", () => {
     agentTab.click();
 
     await vi.waitFor(() => {
-      expect(container.querySelector(".slice-agent-run-row")).not.toBeNull();
+      expect(
+        container.querySelector("[data-testid='subagent-runs-panel']")
+      ).not.toBeNull();
     });
-    expect(
-      container.querySelector(".slice-agent-run-row")?.textContent
-    ).toContain("Worker");
-    expect(
-      container.querySelector(".slice-agent-run-row")?.textContent
-    ).toContain("Running");
-    expect(
-      container.querySelector(".slice-agent-run-row")?.textContent
-    ).toContain("started 2m ago");
-    expect(
-      container.querySelector(".slice-agent-run-row")?.textContent
-    ).toContain("duration 2m");
-    expect(
-      container.querySelector(".slice-agent-run-row")?.textContent
-    ).toContain("branch main");
-    expect(container.textContent).not.toContain("Other Slice");
-
-    const copy = Array.from(
-      container.querySelectorAll(".slice-agent-run-action")
-    ).find((el) => el.textContent === "Copy ID") as HTMLElement;
-    copy.click();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("PRO-1:worker");
+    const panel = container.querySelector(
+      "[data-testid='subagent-runs-panel']"
+    ) as HTMLElement;
+    expect(panel.getAttribute("data-project-id")).toBe("PRO-1");
+    expect(panel.getAttribute("data-slice-id")).toBe("PRO-1-S01");
+    expect(panel.querySelector("a")?.getAttribute("href")).toBe(
+      "/api/projects/PRO-1/subagents/worker/logs?since=0"
+    );
   });
 
   it("refreshes agent runs when project agent state changes", async () => {

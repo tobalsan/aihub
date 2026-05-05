@@ -17,7 +17,6 @@ import {
   fetchSlices,
   fetchSlice,
   fetchSubagents,
-  interruptSubagent,
   updateSlice,
   subscribeToFileChanges,
   subscribeToSubagentChanges,
@@ -30,6 +29,7 @@ import type {
 } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 import { DocEditor } from "./board/DocEditor";
+import { SubagentRunsPanel } from "./SubagentRunsPanel";
 
 const RUN_STATUS_LABELS: Record<SubagentStatus, string> = {
   running: "Running",
@@ -117,27 +117,13 @@ function formatRelative(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function formatDuration(startIso?: string, endIso?: string): string {
-  if (!startIso) return "—";
-  const start = Date.parse(startIso);
-  const end = endIso ? Date.parse(endIso) : Date.now();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
-    return "—";
-  }
-  const minutes = Math.floor((end - start) / 60000);
-  if (minutes < 1) return "<1m";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
-}
-
 function runStartedAt(run: SubagentListItem): string | undefined {
   return run.startedAt;
 }
 
-function runId(projectId: string, run: SubagentListItem): string {
-  return `${projectId}:${run.slug}`;
+function runSlugFromPanelId(runId: string, projectId: string): string {
+  const prefix = `${projectId}:`;
+  return runId.startsWith(prefix) ? runId.slice(prefix.length) : runId;
 }
 
 function sortRuns(a: SubagentListItem, b: SubagentListItem): number {
@@ -260,92 +246,18 @@ function SliceThreadSection(props: { content: string }) {
   );
 }
 
-function SliceAgentRunsSection(props: {
-  projectId: string;
-  runs: SubagentListItem[];
-  loading: boolean;
-  onInterrupt: (run: SubagentListItem) => void;
-  busySlug: string | null;
-  error: string | null;
-}) {
+function SliceAgentRunsSection(props: { projectId: string; sliceId: string }) {
   return (
     <div class="slice-detail-section">
       <h3 class="slice-detail-section-title">Agent runs</h3>
-      <Show when={props.error}>
-        <p class="slice-detail-error">{props.error}</p>
-      </Show>
-      <Show when={props.loading}>
-        <p class="slice-detail-empty">Loading agent runs…</p>
-      </Show>
-      <Show when={!props.loading && props.runs.length === 0}>
-        <p class="slice-detail-empty">No agent runs yet for this slice.</p>
-      </Show>
-      <Show when={props.runs.length > 0}>
-        <div class="slice-agent-runs">
-          <For each={props.runs}>
-            {(run) => (
-              <div class="slice-agent-run-row">
-                <div class="slice-agent-run-main">
-                  <span class="slice-agent-run-name">
-                    {run.name ?? run.slug}
-                  </span>
-                  <span
-                    class="slice-agent-run-status"
-                    classList={{
-                      running: run.status === "running",
-                      done: run.status === "replied",
-                      error: run.status === "error",
-                    }}
-                  >
-                    {RUN_STATUS_LABELS[run.status] ?? run.status}
-                  </span>
-                </div>
-                <div class="slice-agent-run-meta">
-                  <span>
-                    started{" "}
-                    {runStartedAt(run)
-                      ? formatRelative(runStartedAt(run)!)
-                      : "—"}
-                  </span>
-                  <span>
-                    duration {formatDuration(runStartedAt(run), run.finishedAt)}
-                  </span>
-                  <span>branch {run.baseBranch || "—"}</span>
-                </div>
-                <div class="slice-agent-run-actions">
-                  <Show when={run.status === "running"}>
-                    <button
-                      type="button"
-                      class="slice-agent-run-action"
-                      disabled={props.busySlug === run.slug}
-                      onClick={() => props.onInterrupt(run)}
-                    >
-                      Kill
-                    </button>
-                  </Show>
-                  <a
-                    class="slice-agent-run-action"
-                    href={`/api/projects/${encodeURIComponent(props.projectId)}/subagents/${encodeURIComponent(run.slug)}/logs?since=0`}
-                  >
-                    Logs
-                  </a>
-                  <button
-                    type="button"
-                    class="slice-agent-run-action"
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(
-                        runId(props.projectId, run)
-                      );
-                    }}
-                  >
-                    Copy ID
-                  </button>
-                </div>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
+      <SubagentRunsPanel
+        projectId={props.projectId}
+        sliceId={props.sliceId}
+        rawLogHref={(run) => {
+          const slug = runSlugFromPanelId(run.id, props.projectId);
+          return `/api/projects/${encodeURIComponent(props.projectId)}/subagents/${encodeURIComponent(slug)}/logs?since=0`;
+        }}
+      />
     </div>
   );
 }
@@ -416,22 +328,6 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
       });
     }
   );
-
-  const [busyRunSlug, setBusyRunSlug] = createSignal<string | null>(null);
-  const [runActionError, setRunActionError] = createSignal<string | null>(null);
-
-  const handleInterruptRun = async (run: SubagentListItem) => {
-    if (busyRunSlug()) return;
-    setBusyRunSlug(run.slug);
-    setRunActionError(null);
-    const result = await interruptSubagent(projectId(), run.slug);
-    setBusyRunSlug(null);
-    if (!result.ok) {
-      setRunActionError(result.error);
-      return;
-    }
-    await refetchRuns();
-  };
 
   const handleStatusChange = async (status: SliceStatus) => {
     if (statusChanging()) return;
@@ -815,11 +711,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                   <Show when={activeTab() === "agent"}>
                     <SliceAgentRunsSection
                       projectId={projectId()}
-                      runs={recentRuns() ?? []}
-                      loading={recentRuns.loading}
-                      onInterrupt={(run) => void handleInterruptRun(run)}
-                      busySlug={busyRunSlug()}
-                      error={runActionError()}
+                      sliceId={sliceId()}
                     />
                   </Show>
                 </div>

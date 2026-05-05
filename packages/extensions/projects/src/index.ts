@@ -2725,8 +2725,12 @@ export function registerProjectRoutes(app: Hono): void {
 // Re-exports for gateway/internal consumers
 export { recordCommentActivity } from "./activity/index.js";
 export * from "./projects/index.js";
-export { listAllSubagents } from "./subagents/index.js";
-export { interruptSubagent } from "./subagents/runner.js";
+export {
+  archiveSubagent,
+  getSubagentLogs,
+  listAllSubagents,
+} from "./subagents/index.js";
+export { interruptSubagent, killSubagent } from "./subagents/runner.js";
 export {
   createProjectCommentHandler,
   createProjectsCommand,

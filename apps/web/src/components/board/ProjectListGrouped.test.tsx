@@ -6,7 +6,6 @@ import type { BoardProject } from "../../api/types";
 
 // jsdom doesn't implement DragEvent — provide a minimal polyfill
 if (typeof DragEvent === "undefined") {
-  // @ts-expect-error jsdom polyfill
   globalThis.DragEvent = class DragEvent extends MouseEvent {
     dataTransfer = null;
     constructor(type: string, init?: EventInit) {

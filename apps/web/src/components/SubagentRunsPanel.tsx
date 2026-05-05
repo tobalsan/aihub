@@ -7,6 +7,7 @@ import {
   fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
   interruptRuntimeSubagent,
+  subscribeToFileChanges,
   subscribeToSubagentChanges,
 } from "../api/client";
 import type { SubagentLogEvent } from "../api/types";
@@ -182,10 +183,13 @@ function MonitorHistoryBody(props: { item: MonitorHistoryItem }) {
 export function SubagentRunsPanel(props: {
   cwd?: string;
   parent?: string;
+  projectId?: string;
+  sliceId?: string;
   includeArchived?: boolean;
   mode?: "cwd" | "unassigned";
   excludeCwds?: string[];
   status?: SubagentRunStatus;
+  rawLogHref?: (run: SubagentRun) => string | undefined;
 }) {
   const [runs, setRuns] = createSignal<SubagentRun[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -203,6 +207,8 @@ export function SubagentRunsPanel(props: {
     const filters = {
       cwd: props.cwd,
       parent: props.parent,
+      projectId: props.projectId,
+      sliceId: props.sliceId,
       status: props.status,
       includeArchived: props.includeArchived,
     };
@@ -369,6 +375,20 @@ export function SubagentRunsPanel(props: {
   });
   onCleanup(unsubscribe);
 
+  const unsubscribeProjectChanges = props.projectId
+    ? subscribeToFileChanges({
+        onAgentChanged: (projectId) => {
+          if (projectId !== props.projectId) return;
+          void loadRuns();
+          for (const runId of expandedRunIds()) {
+            void loadRunLogs(runId, true);
+          }
+        },
+        onError: setError,
+      })
+    : undefined;
+  onCleanup(() => unsubscribeProjectChanges?.());
+
   const runningCount = () =>
     runs().filter((run) => run.status === "running").length;
   const runningLabel = () => {
@@ -465,6 +485,28 @@ export function SubagentRunsPanel(props: {
                         <path d="M7 12h10" />
                       </svg>
                     </button>
+                    <Show when={props.rawLogHref?.(run)}>
+                      {(href) => (
+                        <a
+                          aria-label={`View raw JSON logs for ${run.label}`}
+                          class="canvas-monitor-icon-action"
+                          href={href()}
+                          onClick={(event) => event.stopPropagation()}
+                          title="View raw JSON"
+                        >
+                          <svg
+                            aria-hidden="true"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <path d="M14 2v6h6" />
+                            <path d="M10 13l-2 2 2 2" />
+                            <path d="M14 13l2 2-2 2" />
+                          </svg>
+                        </a>
+                      )}
+                    </Show>
                     <button
                       aria-label={`Kill ${run.label}`}
                       class="canvas-monitor-icon-action danger"
@@ -648,6 +690,7 @@ export function SubagentRunsPanel(props: {
           color: var(--text-secondary);
           cursor: pointer;
           padding: 0;
+          text-decoration: none;
         }
         .canvas-monitor-icon-action:hover {
           color: var(--text-primary);

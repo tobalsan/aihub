@@ -569,6 +569,8 @@ export async function listSubagentRuns(
     status?: SubagentRunStatus;
     includeArchived?: boolean;
     cwd?: string;
+    projectId?: string;
+    sliceId?: string;
   } = {}
 ): Promise<SubagentRun[]> {
   await fs.mkdir(runsRoot(options.dataDir), { recursive: true });
@@ -587,6 +589,8 @@ export async function listSubagentRuns(
     }
     if (filters.status && run.status !== filters.status) continue;
     if (cwd && (await canonicalPath(run.cwd)) !== cwd) continue;
+    if (filters.projectId && run.projectId !== filters.projectId) continue;
+    if (filters.sliceId && run.sliceId !== filters.sliceId) continue;
     runs.push(run);
   }
   return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));

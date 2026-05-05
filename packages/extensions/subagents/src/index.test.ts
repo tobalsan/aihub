@@ -112,6 +112,14 @@ async function writeProjectSubagentRun(
     "utf8"
   );
   await fs.writeFile(path.join(runDir, "history.jsonl"), "", "utf8");
+  await fs.writeFile(
+    path.join(runDir, "logs.jsonl"),
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "done" },
+    }),
+    "utf8"
+  );
 }
 
 describe("subagents extension profile resolution", () => {
@@ -274,13 +282,70 @@ describe("subagents extension profile resolution", () => {
 
       expect(data.items).toEqual([
         expect.objectContaining({
-          id: "worker",
+          id: "PRO-1:worker",
           projectId: "PRO-1",
           sliceId: "PRO-1-S01",
           source: "orchestrator",
           status: "running",
         }),
       ]);
+    } finally {
+      await subagentsExtension.stop();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("filters project runs by project and slice and serves logs by synthetic id", async () => {
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-subagents-")
+    );
+    const projectsRoot = path.join(dataDir, "projects");
+    const app = new Hono();
+    try {
+      await writeProjectSubagentRun(projectsRoot, {
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        slug: "worker",
+        source: "orchestrator",
+      });
+      await writeProjectSubagentRun(projectsRoot, {
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S02",
+        slug: "reviewer",
+        source: "orchestrator",
+      });
+      await subagentsExtension.start(
+        context(
+          {
+            agents: [],
+            sessions: { idleMinutes: 360 },
+            extensions: { projects: { root: projectsRoot } },
+          },
+          dataDir
+        )
+      );
+      subagentsExtension.registerRoutes(app);
+
+      const listRes = await app.request(
+        "/subagents?projectId=PRO-1&sliceId=PRO-1-S01"
+      );
+      const listData = (await listRes.json()) as {
+        items: Array<{ id?: string; sliceId?: string }>;
+      };
+
+      expect(listData.items).toEqual([
+        expect.objectContaining({
+          id: "PRO-1:worker",
+          sliceId: "PRO-1-S01",
+        }),
+      ]);
+
+      const logsRes = await app.request("/subagents/PRO-1:worker/logs?since=0");
+      const logsData = (await logsRes.json()) as {
+        events: Array<{ text?: string }>;
+      };
+
+      expect(logsData.events[0]?.text).toBe("done");
     } finally {
       await subagentsExtension.stop();
       await fs.rm(dataDir, { recursive: true, force: true });
