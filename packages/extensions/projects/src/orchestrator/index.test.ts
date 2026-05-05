@@ -6,6 +6,7 @@ import type { SubagentListItem } from "../subagents/index.js";
 import type { SpawnSubagentInput } from "../subagents/runner.js";
 import {
   createOrchestratorAttemptTracker,
+  createStallTracker,
   dispatchOrchestratorTick,
   isActiveOrchestratorRun,
   reconcileLiveRuns,
@@ -38,6 +39,7 @@ const orchestratorConfig: OrchestratorConfig = {
   enabled: true,
   poll_interval_ms: 30_000,
   failure_cooldown_ms: 60_000,
+  stall_threshold_ms: 30 * 60_000,
   statuses: {
     todo: { profile: "Worker", max_concurrent: 2 },
   },
@@ -102,11 +104,11 @@ function run(
 /** Default updateSlice mock — records calls + returns a slice record. */
 function makeUpdateSliceMock(): {
   fn: (typeof import("../projects/slices.js"))["updateSlice"];
-  calls: Array<{ sliceId: string; status?: string }>;
+  calls: Array<{ sliceId: string; status?: string; thread?: string }>;
 } {
-  const calls: Array<{ sliceId: string; status?: string }> = [];
+  const calls: Array<{ sliceId: string; status?: string; thread?: string }> = [];
   const fn = (async (_projectDir, sliceId, input) => {
-    calls.push({ sliceId, status: input.status });
+    calls.push({ sliceId, status: input.status, thread: input.thread });
     return slice(sliceId, sliceId.split("-S")[0] ?? sliceId);
   }) as (typeof import("../projects/slices.js"))["updateSlice"];
   return { fn, calls };
@@ -1489,5 +1491,172 @@ describe("orchestrator dispatcher", () => {
 
     // Slug starts with lowercase sliceId prefix
     expect(spawned[0]?.slug).toMatch(/^pro-1-s01-/);
+  });
+
+  it("comments once for long-idle in_progress slices with no live run", async () => {
+    const updates = makeUpdateSliceMock();
+    const logs: string[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", "in_progress", {
+          updated_at: "2026-05-03T00:00:00.000Z",
+        }),
+      ],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:31:00.000Z"),
+      stalls: createStallTracker(),
+      log: (msg) => logs.push(msg),
+    });
+
+    expect(updates.calls).toHaveLength(1);
+    expect(updates.calls[0]?.sliceId).toBe("PRO-1-S01");
+    expect(updates.calls[0]?.thread).toContain(
+      "Stall detected: slice PRO-1-S01 has been in in_progress for 31m with no live subagent run. Last run: none."
+    );
+    expect(updates.calls[0]?.thread).toContain("[author:Orchestrator]");
+    expect(logs.some((msg) => msg.includes("action=stall_detected"))).toBe(true);
+  });
+
+  it("suppresses duplicate stall comments for the same stall", async () => {
+    const updates = makeUpdateSliceMock();
+    const stalls = createStallTracker();
+    const deps = {
+      listProjects: async () => ({
+        ok: true as const,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", "in_progress", {
+          updated_at: "2026-05-03T00:00:00.000Z",
+        }),
+      ],
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:31:00.000Z"),
+      stalls,
+      log: () => {},
+    };
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, deps);
+    await dispatchOrchestratorTick(config, orchestratorConfig, deps);
+
+    expect(updates.calls).toHaveLength(1);
+  });
+
+  it("does not comment for slices below the stall threshold", async () => {
+    const updates = makeUpdateSliceMock();
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", "in_progress", {
+          updated_at: "2026-05-03T00:00:00.000Z",
+        }),
+      ],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:29:00.000Z"),
+      stalls: createStallTracker(),
+      log: () => {},
+    });
+
+    expect(updates.calls).toEqual([]);
+  });
+
+  it("does not comment for long-idle slices with a live orchestrator run", async () => {
+    const updates = makeUpdateSliceMock();
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", "in_progress", {
+          updated_at: "2026-05-03T00:00:00.000Z",
+        }),
+      ],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("running", "orchestrator", { sliceId: "PRO-1-S01" }),
+          ],
+        },
+      }),
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:31:00.000Z"),
+      stalls: createStallTracker(),
+      log: () => {},
+    });
+
+    expect(updates.calls).toEqual([]);
+  });
+
+  it("does not comment for long-idle slices with a live manual run", async () => {
+    const updates = makeUpdateSliceMock();
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", "in_progress", {
+          updated_at: "2026-05-03T00:00:00.000Z",
+        }),
+      ],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [run("running", "manual", { sliceId: "PRO-1-S01" })],
+        },
+      }),
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:31:00.000Z"),
+      stalls: createStallTracker(),
+      log: () => {},
+    });
+
+    expect(updates.calls).toEqual([]);
+  });
+
+  it("comments again after a stalled slice changes status away and back", async () => {
+    const updates = makeUpdateSliceMock();
+    const stalls = createStallTracker();
+    let status: SliceRecord["frontmatter"]["status"] = "in_progress";
+    const deps = {
+      listProjects: async () => ({
+        ok: true as const,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", status, {
+          updated_at: "2026-05-03T00:00:00.000Z",
+        }),
+      ],
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:31:00.000Z"),
+      stalls,
+      log: () => {},
+    };
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, deps);
+    status = "ready_to_merge";
+    await dispatchOrchestratorTick(config, orchestratorConfig, deps);
+    status = "in_progress";
+    await dispatchOrchestratorTick(config, orchestratorConfig, deps);
+
+    expect(updates.calls).toHaveLength(2);
   });
 });

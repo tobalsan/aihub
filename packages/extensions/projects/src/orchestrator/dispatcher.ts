@@ -105,6 +105,13 @@ export function createOrchestratorAttemptTracker(): OrchestratorAttemptTracker {
   };
 }
 
+export type OrchestratorStallTracker = {
+  recordStatus(sliceId: string, status: SliceStatus): boolean;
+  isReported(sliceId: string, status: SliceStatus, runKey: string): boolean;
+  markReported(sliceId: string, status: SliceStatus, runKey: string): void;
+  clear(): void;
+};
+
 export type OrchestratorDispatcherDeps = {
   listProjects?: typeof listProjects;
   listSlices?: typeof listSlices;
@@ -116,6 +123,7 @@ export type OrchestratorDispatcherDeps = {
   now?: () => Date;
   log?: Logger;
   attempts?: OrchestratorAttemptTracker;
+  stalls?: OrchestratorStallTracker;
   removeOrphanDir?: (dirPath: string) => Promise<void>;
 };
 
@@ -163,6 +171,8 @@ const WORKER_SLICE_STATUS = "todo";
 const REVIEWER_SLICE_STATUS = "review";
 // Slice status that triggers Merger dispatch.
 const MERGER_SLICE_STATUS = "ready_to_merge";
+const STALL_SLICE_STATUSES = new Set<SliceStatus>(["in_progress", "review"]);
+const ORCHESTRATOR_STALL_AUTHOR = "Orchestrator";
 
 /** A slice paired with its resolved parent project info. */
 export type SliceDispatchItem = {
@@ -192,6 +202,33 @@ function projectStatus(project: ProjectListItem): string {
 
 function sourceOf(run: SubagentListItem): string {
   return run.source ?? "manual";
+}
+
+export function createStallTracker(): OrchestratorStallTracker {
+  const lastStatus = new Map<string, SliceStatus>();
+  const reported = new Set<string>();
+  return {
+    recordStatus(sliceId: string, status: SliceStatus): boolean {
+      const previous = lastStatus.get(sliceId);
+      if (previous !== undefined && previous !== status) {
+        for (const key of reported) {
+          if (key.startsWith(`${sliceId}:`)) reported.delete(key);
+        }
+      }
+      lastStatus.set(sliceId, status);
+      return previous !== status;
+    },
+    isReported(sliceId: string, status: SliceStatus, runKey: string): boolean {
+      return reported.has(`${sliceId}:${status}:${runKey}`);
+    },
+    markReported(sliceId: string, status: SliceStatus, runKey: string): void {
+      reported.add(`${sliceId}:${status}:${runKey}`);
+    },
+    clear(): void {
+      lastStatus.clear();
+      reported.clear();
+    },
+  };
 }
 
 const TERMINAL_BLOCKER_STATUSES = new Set<SliceStatus>([
@@ -251,6 +288,21 @@ export function isActiveOrchestratorRun(
   if (run.sliceId) return run.sliceId === sliceId;
   if (!run.worktreePath) return false;
   const worktreePath = run.worktreePath;
+  return fallbackCwds.some(
+    (fallback) =>
+      worktreePath === fallback || worktreePath.startsWith(`${fallback}/`)
+  );
+}
+
+function isLiveSliceRun(
+  run: SubagentListItem,
+  sliceId: string,
+  fallbackCwds: string[] = []
+): boolean {
+  if (run.status !== "running") return false;
+  if (run.sliceId) return run.sliceId === sliceId;
+  const worktreePath = run.worktreePath;
+  if (!worktreePath) return false;
   return fallbackCwds.some(
     (fallback) =>
       worktreePath === fallback || worktreePath.startsWith(`${fallback}/`)
@@ -496,6 +548,148 @@ export async function reconcileLiveRuns(
 function runStartedAt(run: SubagentListItem): number {
   const parsed = Date.parse(run.startedAt ?? run.lastActive ?? "");
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function runLastActivityAt(run: SubagentListItem): number {
+  const parsed = Date.parse(run.lastActive ?? run.startedAt ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function lastRunForSlice(
+  runs: SubagentListItem[],
+  sliceId: string,
+  fallbackCwds: string[]
+): SubagentListItem | undefined {
+  return runs
+    .filter((run) => {
+      if (run.sliceId) return run.sliceId === sliceId;
+      const worktreePath = run.worktreePath;
+      if (!worktreePath) return false;
+      return fallbackCwds.some(
+        (fallback) =>
+          worktreePath === fallback ||
+          worktreePath.startsWith(`${fallback}/`)
+      );
+    })
+    .sort((a, b) => runLastActivityAt(b) - runLastActivityAt(a))[0];
+}
+
+function lastRunKey(run: SubagentListItem | undefined): string {
+  if (!run) return "none";
+  return [
+    run.slug,
+    run.status,
+    run.finishedAt ?? run.lastActive ?? run.startedAt ?? "",
+    run.lastError ?? "",
+  ].join("|");
+}
+
+function describeRun(run: SubagentListItem | undefined): string {
+  if (!run) return "none";
+  const details = [
+    run.slug,
+    run.status,
+    run.lastError ? `error=${run.lastError}` : "",
+    run.finishedAt ? `finished=${run.finishedAt}` : "",
+  ].filter(Boolean);
+  return details.join(" / ");
+}
+
+function sliceUpdatedAt(slice: SliceRecord): number {
+  const parsed = Date.parse(slice.frontmatter.updated_at ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function appendThreadComment(
+  existing: string,
+  body: string,
+  now: Date
+): string {
+  const separator = existing.trim().length > 0 ? "\n\n" : "";
+  const entry = [
+    `## ${now.toISOString()}`,
+    `[author:${ORCHESTRATOR_STALL_AUTHOR}]`,
+    `[date:${now.toISOString()}]`,
+    "",
+    body,
+  ].join("\n");
+  return `${existing.trimEnd()}${separator}${entry}\n`;
+}
+
+async function detectStalls(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  deps: OrchestratorDispatcherDeps
+): Promise<void> {
+  const thresholdMs = orchestratorConfig.stall_threshold_ms;
+  if (thresholdMs <= 0) return;
+
+  const log = deps.log ?? console.log;
+  const now = (deps.now ?? (() => new Date()))();
+  const nowMs = now.getTime();
+  const tracker = deps.stalls;
+  if (!tracker) return;
+
+  const projectResult = await (deps.listProjects ?? listProjects)(config);
+  if (!projectResult.ok) {
+    keyValueLog(log, {
+      component: "orchestrator",
+      action: "stall_check_failed",
+      reason: "list_projects_failed",
+    });
+    return;
+  }
+
+  const activeProjects = projectResult.data.filter(
+    (project) => projectStatus(project) === "active"
+  );
+
+  await Promise.all(
+    activeProjects.map(async (project) => {
+      const [slices, runsResult] = await Promise.all([
+        (deps.listSlices ?? listSlices)(project.absolutePath),
+        (deps.listSubagents ?? listSubagents)(config, project.id),
+      ]);
+      const runs = runsResult.ok ? runsResult.data.items : [];
+      const fallbackCwds = fallbackCwdsForProject(config, project);
+
+      for (const slice of slices) {
+        tracker.recordStatus(slice.id, slice.frontmatter.status);
+        if (!STALL_SLICE_STATUSES.has(slice.frontmatter.status)) continue;
+
+        const updatedAt = sliceUpdatedAt(slice);
+        if (updatedAt === 0 || nowMs - updatedAt < thresholdMs) continue;
+
+        const liveRun = runs.find((run) =>
+          isLiveSliceRun(run, slice.id, fallbackCwds)
+        );
+        if (liveRun) continue;
+
+        const lastRun = lastRunForSlice(runs, slice.id, fallbackCwds);
+        const runKey = lastRunKey(lastRun);
+        if (tracker.isReported(slice.id, slice.frontmatter.status, runKey)) {
+          continue;
+        }
+
+        const idleMinutes = Math.floor((nowMs - updatedAt) / 60_000);
+        const body = `Stall detected: slice ${slice.id} has been in ${slice.frontmatter.status} for ${idleMinutes}m with no live subagent run. Last run: ${describeRun(lastRun)}.`;
+        keyValueLog(log, {
+          component: "orchestrator",
+          action: "stall_detected",
+          project: project.id,
+          slice: slice.id,
+          status: slice.frontmatter.status,
+          idle_minutes: idleMinutes,
+          last_run: describeRun(lastRun),
+        });
+
+        await (deps.updateSlice ?? updateSlice)(project.absolutePath, slice.id, {
+          thread: appendThreadComment(slice.docs.thread, body, now),
+        });
+        tracker.markReported(slice.id, slice.frontmatter.status, runKey);
+      }
+    })
+  );
 }
 
 function recentWorkerWorkspaces(
@@ -1196,6 +1390,7 @@ export async function dispatchOrchestratorTick(
   orchestratorConfig: OrchestratorConfig,
   deps: OrchestratorDispatcherDeps = {}
 ): Promise<DispatchResult> {
+  await detectStalls(config, orchestratorConfig, deps);
   const results: DispatchResult[] = [];
   await reconcileLiveRuns(config, orchestratorConfig, deps);
   const globalSliceStatusIndex = await buildGlobalSliceStatusIndex(

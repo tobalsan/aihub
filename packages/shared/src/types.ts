@@ -475,6 +475,12 @@ export const ProjectsOrchestratorConfigSchema = z.object({
     .nonnegative()
     .optional()
     .default(60_000),
+  stall_threshold_ms: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .default(30 * 60_000),
   statuses: z
     .object({
       todo: ProjectsOrchestratorStatusConfigSchema.optional(),

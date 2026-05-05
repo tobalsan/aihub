@@ -1,6 +1,7 @@
 import type { GatewayConfig } from "@aihub/shared";
 import {
   createOrchestratorAttemptTracker,
+  createStallTracker,
   dispatchOrchestratorTick,
 } from "./dispatcher.js";
 import {
@@ -19,6 +20,7 @@ export function startOrchestratorDaemon(
   if (!orchestratorConfig.enabled) return null;
 
   const attempts = createOrchestratorAttemptTracker();
+  const stalls = createStallTracker();
   let stopped = false;
   let running = false;
   let timer: NodeJS.Timeout | null = null;
@@ -29,6 +31,7 @@ export function startOrchestratorDaemon(
     try {
       await dispatchOrchestratorTick(config, orchestratorConfig, {
         attempts,
+        stalls,
       });
     } catch (error) {
       console.error(
@@ -52,6 +55,7 @@ export function startOrchestratorDaemon(
         timer = null;
       }
       attempts.clear();
+      stalls.clear();
     },
   };
 }
