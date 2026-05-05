@@ -7,6 +7,7 @@ import type { SpawnSubagentInput } from "../subagents/runner.js";
 import {
   dispatchOrchestratorTick,
   isActiveOrchestratorRun,
+  reconcileLiveRuns,
 } from "./dispatcher.js";
 import type { OrchestratorConfig } from "./config.js";
 
@@ -111,6 +112,115 @@ function makeUpdateSliceMock(): {
 }
 
 describe("orchestrator dispatcher", () => {
+  it("reconciles a Worker run whose slice moved out of in_progress", async () => {
+    const interrupted: Array<{ projectId: string; slug: string }> = [];
+    const logs: string[] = [];
+
+    const result = await reconcileLiveRuns(config, orchestratorConfig, {
+      listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "done")],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("running", "orchestrator", {
+              slug: "worker-run",
+              name: "Worker",
+              sliceId: "PRO-1-S01",
+            }),
+          ],
+        },
+      }),
+      interruptSubagent: async (_config, projectId, slug) => {
+        interrupted.push({ projectId, slug });
+        return { ok: true, data: { slug } };
+      },
+      log: (message) => logs.push(message),
+    });
+
+    expect(result.interrupted).toBe(1);
+    expect(interrupted).toEqual([{ projectId: "PRO-1", slug: "worker-run" }]);
+    expect(result.decisions[0]).toMatchObject({
+      action: "interrupted",
+      reason: "status_mismatch",
+      sliceId: "PRO-1-S01",
+    });
+    expect(
+      logs.some(
+        (line) =>
+          line.includes("action=reconcile_interrupt") &&
+          line.includes("expected_status=in_progress") &&
+          line.includes("actual_status=done")
+      )
+    ).toBe(true);
+  });
+
+  it("leaves a Worker run alone while its slice is in_progress", async () => {
+    const interrupted: Array<{ projectId: string; slug: string }> = [];
+
+    const result = await reconcileLiveRuns(config, orchestratorConfig, {
+      listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "in_progress")],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("running", "orchestrator", {
+              slug: "worker-run",
+              name: "Worker",
+              sliceId: "PRO-1-S01",
+            }),
+          ],
+        },
+      }),
+      interruptSubagent: async (_config, projectId, slug) => {
+        interrupted.push({ projectId, slug });
+        return { ok: true, data: { slug } };
+      },
+      log: () => {},
+    });
+
+    expect(result.interrupted).toBe(0);
+    expect(result.decisions).toEqual([
+      {
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        slug: "worker-run",
+        action: "skipped",
+        reason: "status_matches",
+      },
+    ]);
+    expect(interrupted).toEqual([]);
+  });
+
+  it("ignores legacy running orchestrator runs without sliceId", async () => {
+    const interrupted: Array<{ projectId: string; slug: string }> = [];
+
+    const result = await reconcileLiveRuns(config, orchestratorConfig, {
+      listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "done")],
+      listSubagents: async () => ({
+        ok: true,
+        data: {
+          items: [
+            run("running", "orchestrator", {
+              slug: "legacy-worker-run",
+              name: "Worker",
+            }),
+          ],
+        },
+      }),
+      interruptSubagent: async (_config, projectId, slug) => {
+        interrupted.push({ projectId, slug });
+        return { ok: true, data: { slug } };
+      },
+      log: () => {},
+    });
+
+    expect(result).toEqual({ inspected: 0, interrupted: 0, decisions: [] });
+    expect(interrupted).toEqual([]);
+  });
+
   it("matches active orchestrator run by sliceId", () => {
     expect(
       isActiveOrchestratorRun(

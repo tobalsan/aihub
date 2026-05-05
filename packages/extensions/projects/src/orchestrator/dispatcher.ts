@@ -16,6 +16,7 @@ import {
 } from "../projects/slices.js";
 import { listSubagents, type SubagentListItem } from "../subagents/index.js";
 import {
+  interruptSubagent,
   spawnSubagent,
   type SpawnSubagentInput,
   type SpawnSubagentResult,
@@ -60,6 +61,7 @@ export type OrchestratorDispatcherDeps = {
   listSubagents?: typeof listSubagents;
   spawnSubagent?: typeof spawnSubagent;
   ensureProjectIntegrationBranch?: typeof ensureProjectIntegrationBranch;
+  interruptSubagent?: typeof interruptSubagent;
   updateSlice?: typeof updateSlice;
   now?: () => Date;
   log?: Logger;
@@ -88,6 +90,20 @@ export type DispatchResult = {
   availableSlots: number;
   eligible: number;
   decisions: DispatchDecision[];
+};
+
+export type ReconcileDecision = {
+  projectId: string;
+  sliceId: string;
+  slug: string;
+  action: "interrupted" | "skipped";
+  reason?: string;
+};
+
+export type ReconcileResult = {
+  inspected: number;
+  interrupted: number;
+  decisions: ReconcileDecision[];
 };
 
 // Slice status that triggers Worker dispatch (slices in this status under
@@ -274,6 +290,157 @@ function isMergerRun(
     run.name ===
       statusConfigFor(orchestratorConfig, MERGER_SLICE_STATUS)?.profile
   );
+}
+
+function expectedStatusForRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  run: SubagentListItem
+): SliceStatus | undefined {
+  const profile = profileForRun(config, run);
+  const profileType = profile?.type?.toLowerCase();
+  if (profileType === "worker") return "in_progress";
+  if (profileType === "reviewer") return "review";
+  if (profileType === "merger") return "ready_to_merge";
+
+  for (const statusKey of configuredStatusKeys(orchestratorConfig)) {
+    const statusConfig = statusConfigFor(orchestratorConfig, statusKey);
+    if (run.name !== statusConfig?.profile) continue;
+    if (statusKey === WORKER_SLICE_STATUS) return "in_progress";
+    if (
+      statusKey === "review" ||
+      statusKey === "ready_to_merge" ||
+      statusKey === "done" ||
+      statusKey === "cancelled"
+    ) {
+      return statusKey;
+    }
+  }
+
+  return undefined;
+}
+
+export async function reconcileLiveRuns(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  deps: OrchestratorDispatcherDeps = {}
+): Promise<ReconcileResult> {
+  const log = deps.log ?? console.log;
+  const decisions: ReconcileDecision[] = [];
+  const projectResult = await (deps.listProjects ?? listProjects)(config);
+  if (!projectResult.ok) {
+    keyValueLog(log, {
+      component: "orchestrator",
+      action: "reconcile_failed",
+      reason: "list_projects_failed",
+    });
+    return { inspected: 0, interrupted: 0, decisions };
+  }
+
+  for (const project of projectResult.data) {
+    const slices = await (deps.listSlices ?? listSlices)(project.absolutePath);
+    const sliceStatuses = new Map(
+      slices.map((slice) => [slice.id, slice.frontmatter.status])
+    );
+    const runsResult = await (deps.listSubagents ?? listSubagents)(
+      config,
+      project.id
+    );
+    if (!runsResult.ok) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        action: "reconcile_failed",
+        project: project.id,
+        reason: "list_subagents_failed",
+      });
+      continue;
+    }
+
+    for (const run of runsResult.data.items) {
+      if (
+        sourceOf(run) !== "orchestrator" ||
+        run.status !== "running" ||
+        !run.sliceId
+      ) {
+        continue;
+      }
+
+      const expectedStatus = expectedStatusForRun(
+        config,
+        orchestratorConfig,
+        run
+      );
+      if (!expectedStatus) {
+        decisions.push({
+          projectId: project.id,
+          sliceId: run.sliceId,
+          slug: run.slug,
+          action: "skipped",
+          reason: "unknown_expected_status",
+        });
+        continue;
+      }
+
+      const actualStatus = sliceStatuses.get(run.sliceId);
+      if (actualStatus === expectedStatus) {
+        decisions.push({
+          projectId: project.id,
+          sliceId: run.sliceId,
+          slug: run.slug,
+          action: "skipped",
+          reason: "status_matches",
+        });
+        continue;
+      }
+
+      const result = await (deps.interruptSubagent ?? interruptSubagent)(
+        config,
+        project.id,
+        run.slug
+      );
+      if (result.ok) {
+        decisions.push({
+          projectId: project.id,
+          sliceId: run.sliceId,
+          slug: run.slug,
+          action: "interrupted",
+          reason: actualStatus ? "status_mismatch" : "slice_missing",
+        });
+        keyValueLog(log, {
+          component: "orchestrator",
+          action: "reconcile_interrupt",
+          project: project.id,
+          slice: run.sliceId,
+          slug: run.slug,
+          expected_status: expectedStatus,
+          actual_status: actualStatus ?? "missing",
+        });
+      } else {
+        decisions.push({
+          projectId: project.id,
+          sliceId: run.sliceId,
+          slug: run.slug,
+          action: "skipped",
+          reason: "interrupt_failed",
+        });
+        keyValueLog(log, {
+          component: "orchestrator",
+          action: "reconcile_interrupt_failed",
+          project: project.id,
+          slice: run.sliceId,
+          slug: run.slug,
+          reason: result.error,
+        });
+      }
+    }
+  }
+
+  return {
+    inspected: decisions.length,
+    interrupted: decisions.filter((decision) => decision.action === "interrupted")
+      .length,
+    decisions,
+  };
 }
 
 function runStartedAt(run: SubagentListItem): number {
@@ -973,6 +1140,7 @@ export async function dispatchOrchestratorTick(
   deps: OrchestratorDispatcherDeps = {}
 ): Promise<DispatchResult> {
   const results: DispatchResult[] = [];
+  await reconcileLiveRuns(config, orchestratorConfig, deps);
   const globalSliceStatusIndex = await buildGlobalSliceStatusIndex(
     config,
     deps
