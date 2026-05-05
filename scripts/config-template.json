@@ -37,7 +37,22 @@
   ],
   "extensions": {
     "projects": {
-      "root": __PROJECTS_ROOT__
+      "orchestrator": {
+        "enabled": true,
+        "poll_interval_ms": 15000,
+        "failure_cooldown_ms": 60000,
+        "statuses": {
+          "todo": {
+            "profile": "Worker",
+            "max_concurrent": 1
+          },
+          "review": {
+            "profile": "Reviewer",
+            "max_concurrent": 1
+          }
+        }
+      },
+      "root": __PROJECTS_ROOT__,
     }
   },
   "gateway": {
