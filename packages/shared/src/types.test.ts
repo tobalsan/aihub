@@ -4,6 +4,7 @@ import {
   ContainerInputSchema,
   ContainerOutputSchema,
   GatewayConfigSchema,
+  ProjectsOrchestratorConfigSchema,
 } from "./types.js";
 
 describe("AgentConfigSchema openclaw model handling", () => {
@@ -102,6 +103,17 @@ describe("AgentConfigSchema openclaw model handling", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("ProjectsOrchestratorConfigSchema", () => {
+  it("accepts done-ping notify channel", () => {
+    const result = ProjectsOrchestratorConfigSchema.parse({
+      enabled: true,
+      notify_channel: "ops",
+    });
+
+    expect(result.notify_channel).toBe("ops");
   });
 });
 

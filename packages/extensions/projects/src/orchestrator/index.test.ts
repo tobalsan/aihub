@@ -13,6 +13,8 @@ import {
   dispatchOrchestratorTick,
   isActiveOrchestratorRun,
   reconcileLiveRuns,
+  resolveAihubNotifyCommand,
+  runAihubNotify,
 } from "./dispatcher.js";
 import type { OrchestratorConfig } from "./config.js";
 
@@ -46,6 +48,12 @@ const orchestratorConfig: OrchestratorConfig = {
   statuses: {
     todo: { profile: "Worker", max_concurrent: 2 },
   },
+};
+
+const donePingConfig: OrchestratorConfig = {
+  ...orchestratorConfig,
+  notify_channel: "ops",
+  statuses: {},
 };
 
 /** Create a project in `active` status (the project gate for slice dispatch). */
@@ -1939,5 +1947,261 @@ describe("orchestrator dispatcher", () => {
         summary: "Reviewer returned the slice to todo.",
       }),
     ]);
+  });
+
+  it("pings once per day when integration is ahead of main", async () => {
+    const notifications: Array<{ channel: string; message: string }> = [];
+    const lastDonePingDates = new Map<string, string>();
+
+    const deps = {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [
+        slice("PRO-1-S01", "PRO-1", "done"),
+        slice("PRO-1-S02", "PRO-1", "done"),
+      ],
+      countIntegrationAhead: async () => 2,
+      notify: async (input: { channel: string; message: string }) => {
+        notifications.push(input);
+      },
+      lastDonePingDates,
+      now: () => new Date("2026-05-05T10:00:00.000Z"),
+      log: () => {},
+    };
+
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+
+    expect(notifications).toEqual([
+      {
+        channel: "ops",
+        message:
+          "PRO-1 has 2 slices `done` on integration, ready for main merge: PRO-1-S01, PRO-1-S02",
+      },
+    ]);
+  });
+
+  it("does not ping when integration has no unmerged commits", async () => {
+    const notifications: Array<{ channel: string; message: string }> = [];
+
+    await dispatchOrchestratorTick(config, donePingConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "done")],
+      countIntegrationAhead: async () => 0,
+      notify: async (input) => {
+        notifications.push(input);
+      },
+      lastDonePingDates: new Map(),
+      now: () => new Date("2026-05-05T10:00:00.000Z"),
+      log: () => {},
+    });
+
+    expect(notifications).toEqual([]);
+  });
+
+  it("pings again on a different day while integration remains ahead", async () => {
+    const notifications: Array<{ channel: string; message: string }> = [];
+    const lastDonePingDates = new Map<string, string>();
+    let now = new Date("2026-05-05T10:00:00.000Z");
+
+    const deps = {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1", "done")],
+      countIntegrationAhead: async () => 1,
+      notify: async (input: { channel: string; message: string }) => {
+        notifications.push(input);
+      },
+      lastDonePingDates,
+      now: () => now,
+      log: () => {},
+    };
+
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+    now = new Date("2026-05-06T10:00:00.000Z");
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+
+    expect(notifications).toHaveLength(2);
+  });
+
+  it("clears the daily ping gate after integration is merged to main", async () => {
+    const notifications: Array<{ channel: string; message: string }> = [];
+    const lastDonePingDates = new Map<string, string>();
+    let aheadCount = 1;
+    let now = new Date("2026-05-05T10:00:00.000Z");
+    let slices = [slice("PRO-1-S01", "PRO-1", "done")];
+
+    const deps = {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => slices,
+      countIntegrationAhead: async () => aheadCount,
+      notify: async (input: { channel: string; message: string }) => {
+        notifications.push(input);
+      },
+      lastDonePingDates,
+      now: () => now,
+      log: () => {},
+    };
+
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+    expect(notifications).toHaveLength(1);
+
+    aheadCount = 0;
+    now = new Date("2026-05-06T10:00:00.000Z");
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+    expect(notifications).toHaveLength(1);
+
+    aheadCount = 1;
+    now = new Date("2026-05-07T10:00:00.000Z");
+    slices = [
+      slice("PRO-1-S01", "PRO-1", "done"),
+      slice("PRO-1-S02", "PRO-1", "done"),
+    ];
+    await dispatchOrchestratorTick(config, donePingConfig, deps);
+
+    expect(notifications).toEqual([
+      {
+        channel: "ops",
+        message:
+          "PRO-1 has 1 slices `done` on integration, ready for main merge: PRO-1-S01",
+      },
+      {
+        channel: "ops",
+        message:
+          "PRO-1 has 2 slices `done` on integration, ready for main merge: PRO-1-S01, PRO-1-S02",
+      },
+    ]);
+  });
+
+  it("resolves prod notify CLI args", () => {
+    const oldDev = process.env.AIHUB_DEV;
+    const oldRoot = process.env.AIHUB_WORKSPACE_ROOT;
+    delete process.env.AIHUB_DEV;
+    delete process.env.AIHUB_WORKSPACE_ROOT;
+
+    try {
+      expect(
+        resolveAihubNotifyCommand({ channel: "ops", message: "ready" })
+      ).toEqual({
+        file: "aihub",
+        args: ["notify", "--channel", "ops", "--message", "ready"],
+      });
+    } finally {
+      if (oldDev === undefined) delete process.env.AIHUB_DEV;
+      else process.env.AIHUB_DEV = oldDev;
+      if (oldRoot === undefined) delete process.env.AIHUB_WORKSPACE_ROOT;
+      else process.env.AIHUB_WORKSPACE_ROOT = oldRoot;
+    }
+  });
+
+  it("resolves dev notify CLI args", () => {
+    const oldDev = process.env.AIHUB_DEV;
+    const oldRoot = process.env.AIHUB_WORKSPACE_ROOT;
+    process.env.AIHUB_DEV = "1";
+    process.env.AIHUB_WORKSPACE_ROOT = "/repo";
+
+    try {
+      expect(
+        resolveAihubNotifyCommand({ channel: "ops", message: "ready" })
+      ).toEqual({
+        file: "pnpm",
+        args: [
+          "--dir",
+          "/repo",
+          "aihub:dev",
+          "notify",
+          "--channel",
+          "ops",
+          "--message",
+          "ready",
+        ],
+      });
+    } finally {
+      if (oldDev === undefined) delete process.env.AIHUB_DEV;
+      else process.env.AIHUB_DEV = oldDev;
+      if (oldRoot === undefined) delete process.env.AIHUB_WORKSPACE_ROOT;
+      else process.env.AIHUB_WORKSPACE_ROOT = oldRoot;
+    }
+  });
+
+  it("runs prod notify CLI args through the default notifier path", async () => {
+    const oldDev = process.env.AIHUB_DEV;
+    const oldRoot = process.env.AIHUB_WORKSPACE_ROOT;
+    delete process.env.AIHUB_DEV;
+    delete process.env.AIHUB_WORKSPACE_ROOT;
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const execFile = ((
+      file: string,
+      args: string[],
+      callback: (error: Error | null) => void
+    ) => {
+      calls.push({ file, args });
+      callback(null);
+    }) as typeof import("node:child_process").execFile;
+
+    try {
+      await runAihubNotify({ channel: "ops", message: "ready" }, execFile);
+      expect(calls).toEqual([
+        {
+          file: "aihub",
+          args: ["notify", "--channel", "ops", "--message", "ready"],
+        },
+      ]);
+    } finally {
+      if (oldDev === undefined) delete process.env.AIHUB_DEV;
+      else process.env.AIHUB_DEV = oldDev;
+      if (oldRoot === undefined) delete process.env.AIHUB_WORKSPACE_ROOT;
+      else process.env.AIHUB_WORKSPACE_ROOT = oldRoot;
+    }
+  });
+
+  it("runs dev notify CLI args through the default notifier path", async () => {
+    const oldDev = process.env.AIHUB_DEV;
+    const oldRoot = process.env.AIHUB_WORKSPACE_ROOT;
+    process.env.AIHUB_DEV = "1";
+    process.env.AIHUB_WORKSPACE_ROOT = "/repo";
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const execFile = ((
+      file: string,
+      args: string[],
+      callback: (error: Error | null) => void
+    ) => {
+      calls.push({ file, args });
+      callback(null);
+    }) as typeof import("node:child_process").execFile;
+
+    try {
+      await runAihubNotify({ channel: "ops", message: "ready" }, execFile);
+      expect(calls).toEqual([
+        {
+          file: "pnpm",
+          args: [
+            "--dir",
+            "/repo",
+            "aihub:dev",
+            "notify",
+            "--channel",
+            "ops",
+            "--message",
+            "ready",
+          ],
+        },
+      ]);
+    } finally {
+      if (oldDev === undefined) delete process.env.AIHUB_DEV;
+      else process.env.AIHUB_DEV = oldDev;
+      if (oldRoot === undefined) delete process.env.AIHUB_WORKSPACE_ROOT;
+      else process.env.AIHUB_WORKSPACE_ROOT = oldRoot;
+    }
   });
 });

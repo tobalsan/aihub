@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import {
   expandPath,
   type GatewayConfig,
@@ -25,6 +27,9 @@ import {
 import type { OrchestratorConfig } from "./config.js";
 import { getProjectsWorktreeRoot } from "../util/paths.js";
 import type { HitlEvent } from "./hitl.js";
+
+const execFileAsync = promisify(execFile);
+type ExecFileFn = typeof execFile;
 
 type Logger = (message: string) => void;
 
@@ -127,6 +132,12 @@ export type OrchestratorDispatcherDeps = {
   attempts?: OrchestratorAttemptTracker;
   stalls?: OrchestratorStallTracker;
   removeOrphanDir?: (dirPath: string) => Promise<void>;
+  countIntegrationAhead?: (
+    repoPath: string,
+    projectId: string
+  ) => Promise<number>;
+  notify?: (input: { channel: string; message: string }) => Promise<void>;
+  lastDonePingDates?: Map<string, string>;
 };
 
 async function defaultRemoveOrphanDir(dirPath: string): Promise<void> {
@@ -176,6 +187,8 @@ const MERGER_SLICE_STATUS = "ready_to_merge";
 const STALL_SLICE_STATUSES = new Set<SliceStatus>(["in_progress", "review"]);
 const ORCHESTRATOR_STALL_AUTHOR = "Orchestrator";
 
+const defaultLastDonePingDates = new Map<string, string>();
+
 /** A slice paired with its resolved parent project info. */
 export type SliceDispatchItem = {
   slice: SliceRecord;
@@ -200,6 +213,168 @@ function projectStatus(project: ProjectListItem): string {
   return typeof project.frontmatter.status === "string"
     ? project.frontmatter.status
     : "";
+}
+
+async function runGitInRepo(repoPath: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", repoPath, ...args]);
+  return stdout.trim();
+}
+
+async function defaultCountIntegrationAhead(
+  repoPath: string,
+  projectId: string
+): Promise<number> {
+  const branch = `${projectId}/integration`;
+  try {
+    await runGitInRepo(repoPath, [
+      "rev-parse",
+      "--verify",
+      `refs/heads/${branch}`,
+    ]);
+  } catch {
+    return 0;
+  }
+
+  const rawCount = await runGitInRepo(repoPath, [
+    "rev-list",
+    "--count",
+    `main..${branch}`,
+  ]);
+  const count = Number(rawCount);
+  return Number.isFinite(count) ? count : 0;
+}
+
+export function resolveAihubNotifyCommand(input: {
+  channel: string;
+  message: string;
+}): { file: string; args: string[] } {
+  if (process.env.AIHUB_DEV) {
+    const root = process.env.AIHUB_WORKSPACE_ROOT ?? process.cwd();
+    return {
+      file: "pnpm",
+      args: [
+        "--dir",
+        root,
+        "aihub:dev",
+        "notify",
+        "--channel",
+        input.channel,
+        "--message",
+        input.message,
+      ],
+    };
+  }
+
+  return {
+    file: "aihub",
+    args: ["notify", "--channel", input.channel, "--message", input.message],
+  };
+}
+
+export async function runAihubNotify(
+  input: {
+    channel: string;
+    message: string;
+  },
+  execFileImpl: ExecFileFn = execFile
+): Promise<void> {
+  const command = resolveAihubNotifyCommand(input);
+  const execFileWithImpl = promisify(execFileImpl);
+  await execFileWithImpl(command.file, command.args);
+}
+
+async function defaultNotify(input: {
+  channel: string;
+  message: string;
+}): Promise<void> {
+  await runAihubNotify(input);
+}
+
+function dayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildDonePingMessage(
+  project: ProjectListItem,
+  doneSlices: SliceRecord[]
+): string {
+  const sliceList =
+    doneSlices.length > 0
+      ? doneSlices.map((slice) => slice.id).join(", ")
+      : "(no done slices found)";
+  return `${project.id} has ${doneSlices.length} slices \`done\` on integration, ready for main merge: ${sliceList}`;
+}
+
+async function pingDoneOnIntegration(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  deps: OrchestratorDispatcherDeps
+): Promise<void> {
+  const channel = orchestratorConfig.notify_channel?.trim();
+  if (!channel) return;
+
+  const projectResult = await (deps.listProjects ?? listProjects)(config);
+  if (!projectResult.ok) return;
+
+  const now = (deps.now ?? (() => new Date()))();
+  const today = dayKey(now);
+  const lastPingDates = deps.lastDonePingDates ?? defaultLastDonePingDates;
+  const countAhead = deps.countIntegrationAhead ?? defaultCountIntegrationAhead;
+  const notify = deps.notify ?? defaultNotify;
+  const log = deps.log ?? console.log;
+
+  for (const project of projectResult.data) {
+    const repo =
+      typeof project.frontmatter.repo === "string"
+        ? project.frontmatter.repo.trim()
+        : "";
+    if (!repo) continue;
+
+    let aheadCount = 0;
+    try {
+      aheadCount = await countAhead(expandPath(repo), project.id);
+    } catch (error) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        action: "done_ping_failed",
+        project: project.id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+
+    if (aheadCount <= 0) {
+      lastPingDates.delete(project.id);
+      continue;
+    }
+    if (lastPingDates.get(project.id) === today) continue;
+
+    const slices = await (deps.listSlices ?? listSlices)(project.absolutePath);
+    const doneSlices = slices.filter(
+      (slice) => slice.frontmatter.status === "done"
+    );
+    if (doneSlices.length === 0) continue;
+
+    const message = buildDonePingMessage(project, doneSlices);
+    try {
+      await notify({ channel, message });
+      lastPingDates.set(project.id, today);
+      keyValueLog(log, {
+        component: "orchestrator",
+        action: "done_ping_sent",
+        project: project.id,
+        done_slices: doneSlices.map((slice) => slice.id),
+        ahead_commits: aheadCount,
+      });
+    } catch (error) {
+      keyValueLog(log, {
+        component: "orchestrator",
+        action: "done_ping_failed",
+        project: project.id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }
 
 function sourceOf(run: SubagentListItem): string {
@@ -1574,6 +1749,7 @@ export async function dispatchOrchestratorTick(
   await detectStalls(config, orchestratorConfig, deps);
   const results: DispatchResult[] = [];
   await reconcileLiveRuns(config, orchestratorConfig, deps);
+  await pingDoneOnIntegration(config, orchestratorConfig, deps);
   const globalSliceStatusIndex = await buildGlobalSliceStatusIndex(
     config,
     deps

@@ -503,6 +503,7 @@ export const ProjectsOrchestratorConfigSchema = z.object({
     .passthrough()
     .optional()
     .default({}),
+  notify_channel: z.string().optional(),
 });
 export type ProjectsOrchestratorConfig = z.infer<
   typeof ProjectsOrchestratorConfigSchema
