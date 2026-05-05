@@ -39,20 +39,23 @@ export async function startSlackBots(
     return;
   }
 
-  for (const agent of ctx.getAgents()) {
-    if (!agent.slack?.token || !agent.slack?.appToken) continue;
+  const agentBots = ctx
+    .getAgents()
+    .filter((agent) => agent.slack?.token && agent.slack?.appToken)
+    .map((agent) => ({ agent, bot: createSlackAgentBot(agent) }))
+    .filter((entry): entry is { agent: AgentConfig; bot: SlackBot } => !!entry.bot);
 
-    const bot = createSlackAgentBot(agent);
-    if (!bot) continue;
-
-    try {
-      await bot.start();
-      activeBots.set(agent.id, bot);
-      console.log(`[slack] Started bot for agent: ${agent.id}`);
-    } catch (err) {
-      console.error(`[slack] Failed to start bot for agent ${agent.id}:`, err);
-    }
-  }
+  await Promise.all(
+    agentBots.map(async ({ agent, bot }) => {
+      try {
+        await bot.start();
+        activeBots.set(agent.id, bot);
+        console.log(`[slack] Started bot for agent: ${agent.id}`);
+      } catch (err) {
+        console.error(`[slack] Failed to start bot for agent ${agent.id}:`, err);
+      }
+    })
+  );
 }
 
 export async function stopSlackBots(): Promise<void> {
