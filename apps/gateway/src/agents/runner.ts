@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
+  RunAgentParams as SharedRunAgentParams,
+  RunAgentResult as SharedRunAgentResult,
   ThinkLevel,
   StreamEvent,
   SimpleHistoryMessage,
@@ -60,18 +62,8 @@ import {
   invalidateResolvedHistoryFile,
 } from "../history/store.js";
 
-export type RunAgentParams = {
-  agentId: string;
+export type InternalRunAgentParams = SharedRunAgentParams & {
   userId?: string;
-  message: string;
-  attachments?: FileAttachment[]; // file attachments (paths from upload)
-  sessionId?: string;
-  sessionKey?: string; // Resolves to sessionId with idle timeout + reset triggers
-  thinkLevel?: ThinkLevel;
-  context?: AgentContext; // Structured context (Discord metadata, etc.)
-  source?: RunSource;
-  trace?: AgentTraceContext;
-  onEvent?: (event: StreamEvent) => void;
   resolvedSession?: {
     sessionId: string;
     sessionKey?: string;
@@ -80,15 +72,7 @@ export type RunAgentParams = {
   };
 };
 
-export type RunAgentResult = {
-  payloads: Array<{ text?: string; mediaUrls?: string[] }>;
-  meta: {
-    durationMs: number;
-    sessionId: string;
-    aborted?: boolean;
-    queued?: boolean;
-  };
-};
+export type InternalRunAgentResult = SharedRunAgentResult;
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -152,8 +136,8 @@ async function waitForStreamingEnd(
 }
 
 export async function runAgent(
-  params: RunAgentParams
-): Promise<RunAgentResult> {
+  params: InternalRunAgentParams
+): Promise<InternalRunAgentResult> {
   const agent = getAgent(params.agentId);
   if (!agent) {
     throw new Error(`Agent not found: ${params.agentId}`);
