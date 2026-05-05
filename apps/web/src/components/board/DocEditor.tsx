@@ -5,6 +5,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
 import { MarkdownLinkShortcut } from "./tiptap-utils";
+import type { JSX } from "solid-js";
 
 type DocEditorProps = {
   projectId: string;
@@ -12,6 +13,7 @@ type DocEditorProps = {
   content: string;
   onSave: (content: string) => void;
   onContentChange?: (content: string) => void;
+  headerContent?: JSX.Element;
 };
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -124,7 +126,9 @@ export function DocEditor(props: DocEditorProps) {
   return (
     <section class="doc-editor">
       <header class="doc-editor-header">
-        <span class="doc-editor-key">{props.docKey}</span>
+        {props.headerContent ?? (
+          <span class="doc-editor-key">{props.docKey}</span>
+        )}
         <span class="doc-editor-status" data-status={status()}>
           <Show when={status() === "saving"}>saving…</Show>
           <Show when={status() === "saved"}>saved</Show>

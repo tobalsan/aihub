@@ -34,6 +34,7 @@ import { renderMarkdown } from "../../lib/markdown";
 // ── Types ────────────────────────────────────────────────────────────
 
 type BpdTab = "pitch" | "slices" | "thread" | "activity";
+type PitchDocKey = "README" | "SPECS";
 
 type LifecycleAction = {
   label: string;
@@ -150,6 +151,7 @@ export function BoardProjectDetailPage(
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
+  const [pitchDocKey, setPitchDocKey] = createSignal<PitchDocKey>("README");
 
   // Slice creation form state
   const [addingSlice, setAddingSlice] = createSignal(false);
@@ -174,7 +176,11 @@ export function BoardProjectDetailPage(
       onFileChanged: (changedId, file) => {
         if (changedId !== id) return;
         const upper = file.toUpperCase();
-        if (upper.includes("README") || upper.includes("THREAD")) {
+        if (
+          upper.includes("README") ||
+          upper.includes("SPECS") ||
+          upper.includes("THREAD")
+        ) {
           if (refreshTimer) window.clearTimeout(refreshTimer);
           refreshTimer = window.setTimeout(() => {
             void refetchProject();
@@ -187,6 +193,11 @@ export function BoardProjectDetailPage(
       if (refreshTimer) window.clearTimeout(refreshTimer);
       unsubscribe();
     });
+  });
+
+  createEffect(() => {
+    projectId();
+    setPitchDocKey("README");
   });
 
   // Close menu on outside click
@@ -276,6 +287,24 @@ export function BoardProjectDetailPage(
     const updated = await updateProject(id, { docs: { [docKey]: content } });
     mutateProject(updated);
   };
+
+  const renderPitchDocSelector = () => (
+    <div class="bpd-pitch-doc-selector" aria-label="Pitch document">
+      <For each={["README", "SPECS"] as PitchDocKey[]}>
+        {(key) => (
+          <button
+            type="button"
+            class="bpd-pitch-doc-option"
+            classList={{ active: pitchDocKey() === key }}
+            aria-pressed={pitchDocKey() === key}
+            onClick={() => setPitchDocKey(key)}
+          >
+            {key}
+          </button>
+        )}
+      </For>
+    </div>
+  );
 
   const handleAddSlice = async (e: Event) => {
     e.preventDefault();
@@ -429,15 +458,46 @@ export function BoardProjectDetailPage(
         <Show when={project.latest}>
           {(p) => (
             <Switch>
-              {/* Pitch tab — README.md */}
+              {/* Pitch tab — README.md editor + read-only SPECS.md */}
               <Match when={activeTab() === "pitch"}>
                 <div class="bpd-tab-panel">
-                  <DocEditor
-                    projectId={projectId()}
-                    docKey="README"
-                    content={p().docs?.["README"] ?? ""}
-                    onSave={(content) => void handleSaveDoc("README", content)}
-                  />
+                  <Switch>
+                    <Match when={pitchDocKey() === "README"}>
+                      <DocEditor
+                        projectId={projectId()}
+                        docKey="README"
+                        content={p().docs?.["README"] ?? ""}
+                        onSave={(content) =>
+                          void handleSaveDoc("README", content)
+                        }
+                        headerContent={renderPitchDocSelector()}
+                      />
+                    </Match>
+                    <Match when={pitchDocKey() === "SPECS"}>
+                      <section class="bpd-pitch-readonly">
+                        <header class="bpd-pitch-readonly-header">
+                          {renderPitchDocSelector()}
+                          <span class="bpd-pitch-readonly-status">
+                            read-only
+                          </span>
+                        </header>
+                        <Show
+                          when={(p().docs?.["SPECS"] ?? "").trim().length > 0}
+                          fallback={
+                            <div class="bpd-pitch-empty">No SPECS yet.</div>
+                          }
+                        >
+                          <div
+                            class="bpd-pitch-markdown"
+                            innerHTML={renderMarkdown(
+                              p().docs?.["SPECS"] ?? "",
+                              { stripFrontmatter: true }
+                            )}
+                          />
+                        </Show>
+                      </section>
+                    </Match>
+                  </Switch>
                 </div>
               </Match>
 
@@ -818,6 +878,144 @@ export function BoardProjectDetailPage(
           flex-direction: column;
           height: 100%;
           padding: 16px;
+        }
+
+        .bpd-pitch-doc-selector {
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .bpd-pitch-doc-option {
+          border: 0;
+          background: transparent;
+          color: var(--text-secondary);
+          font: inherit;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 11px;
+          letter-spacing: 0.02em;
+          padding: 2px 0;
+          cursor: pointer;
+        }
+
+        .bpd-pitch-doc-option:hover,
+        .bpd-pitch-doc-option:focus-visible {
+          color: var(--text-primary);
+        }
+
+        .bpd-pitch-doc-option:focus-visible {
+          outline: 2px solid var(--text-accent, #6366f1);
+          outline-offset: 3px;
+          border-radius: 3px;
+        }
+
+        .bpd-pitch-doc-option.active {
+          color: #dc2626;
+          font-weight: 700;
+        }
+
+        .bpd-pitch-readonly {
+          min-height: 200px;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          border: 1px solid var(--border-default);
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        .bpd-pitch-readonly-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          border-bottom: 1px solid var(--border-default);
+          background: var(--bg-surface);
+          font-size: 11px;
+          color: var(--text-secondary);
+        }
+
+        .bpd-pitch-readonly-status {
+          min-width: 56px;
+          text-align: right;
+          opacity: 0.75;
+        }
+
+        .bpd-pitch-markdown {
+          flex: 1 1 auto;
+          min-height: 200px;
+          overflow: auto;
+          padding: 14px;
+          line-height: 1.55;
+        }
+
+        .bpd-pitch-empty {
+          padding: 14px;
+          color: var(--text-secondary);
+          font-size: 13px;
+        }
+
+        .bpd-pitch-markdown > :first-child {
+          margin-top: 0;
+        }
+
+        .bpd-pitch-markdown > :last-child {
+          margin-bottom: 0;
+        }
+
+        .bpd-pitch-markdown p,
+        .bpd-pitch-markdown ul,
+        .bpd-pitch-markdown ol,
+        .bpd-pitch-markdown blockquote,
+        .bpd-pitch-markdown pre {
+          margin: 0 0 12px;
+        }
+
+        .bpd-pitch-markdown h1,
+        .bpd-pitch-markdown h2,
+        .bpd-pitch-markdown h3 {
+          margin: 18px 0 8px;
+          line-height: 1.2;
+        }
+
+        .bpd-pitch-markdown h1 { font-size: 28px; }
+        .bpd-pitch-markdown h2 { font-size: 23px; }
+        .bpd-pitch-markdown h3 { font-size: 19px; }
+
+        .bpd-pitch-markdown ul,
+        .bpd-pitch-markdown ol {
+          padding-left: 24px;
+        }
+
+        .bpd-pitch-markdown blockquote {
+          padding-left: 12px;
+          border-left: 3px solid var(--text-accent, #6366f1);
+          color: var(--text-secondary);
+        }
+
+        .bpd-pitch-markdown code,
+        .bpd-pitch-markdown pre {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        }
+
+        .bpd-pitch-markdown code {
+          background: var(--bg-base);
+          border-radius: 4px;
+          padding: 1px 4px;
+        }
+
+        .bpd-pitch-markdown pre {
+          overflow: auto;
+          padding: 10px;
+          border-radius: 6px;
+          background: var(--bg-base);
+        }
+
+        .bpd-pitch-markdown pre code {
+          background: transparent;
+          padding: 0;
         }
 
         /* Slices tab */
