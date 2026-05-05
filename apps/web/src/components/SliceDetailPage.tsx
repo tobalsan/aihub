@@ -360,9 +360,11 @@ function SliceAgentRunsSection(props: {
 export type SliceDetailPageProps = {
   projectId?: string;
   sliceId?: string;
+  tab?: string;
   routeBase?: "board" | "standalone";
   onBack?: () => void;
   onOpenSlice?: (projectId: string, sliceId: string) => void;
+  onNavigate?: (to: string, options?: { replace?: boolean }) => void;
 };
 
 export function SliceDetailPage(props: SliceDetailPageProps = {}) {
@@ -374,7 +376,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   const sliceId = createMemo(() => props.sliceId ?? params.sliceId ?? "");
 
   const activeTab = createMemo<SectionTab>(() => {
-    const tab = searchParams.tab;
+    const tab = props.tab ?? searchParams.tab;
     return isSectionTab(tab) ? tab : "readme";
   });
   const [statusChanging, setStatusChanging] = createSignal(false);
@@ -475,7 +477,12 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   };
 
   const openTab = (tab: SectionTab) => {
-    navigate(tabUrl(tab));
+    const to = tabUrl(tab);
+    if (props.onNavigate) {
+      props.onNavigate(to);
+      return;
+    }
+    navigate(to);
   };
 
   const handleSaveDoc = async (
