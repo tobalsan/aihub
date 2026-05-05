@@ -2,6 +2,11 @@ import type { NotificationsConfig } from "./types.js";
 
 export type NotifySurface = "discord" | "slack" | "both";
 
+export type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => Promise<Response>;
+
 export type NotifyOptions = {
   config?: NotificationsConfig;
   channel: string;
@@ -10,7 +15,7 @@ export type NotifyOptions = {
   mention?: string;
   discordToken?: string;
   slackToken?: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
   adapters?: Partial<NotifyAdapters>;
 };
 
@@ -35,7 +40,7 @@ export type NotifyAdapterParams = {
   channelId: string;
   text: string;
   token: string;
-  fetchImpl: typeof fetch;
+  fetchImpl: FetchLike;
 };
 
 type ConcreteSurface = Exclude<NotifySurface, "both">;
