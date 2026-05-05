@@ -32,14 +32,18 @@ vi.mock("chokidar", () => ({
   },
 }));
 
-vi.mock("../../../../../apps/gateway/src/agents/events.js", () => ({
-  agentEventBus: {
-    emitFileChanged: vi.fn(),
-    emitAgentChanged: vi.fn(),
-  },
-}));
+vi.mock("@aihub/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@aihub/shared")>();
+  return {
+    ...actual,
+    agentEventBus: {
+      emitFileChanged: vi.fn(),
+      emitAgentChanged: vi.fn(),
+    },
+  };
+});
 
-import { agentEventBus } from "../../../../../apps/gateway/src/agents/events.js";
+import { agentEventBus } from "@aihub/shared";
 import { startProjectWatcher } from "./watcher.js";
 
 describe("project watcher file debounce", () => {
