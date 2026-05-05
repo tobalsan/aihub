@@ -177,6 +177,23 @@ function startService(): void {
   console.log(`Started: ${LABEL}`);
 }
 
+function restartService(): void {
+  assertDarwin();
+  const plistPath = getPlistPath();
+  if (!fs.existsSync(plistPath)) {
+    console.error(
+      `Service not installed. Run 'aihub gateway install' first.`
+    );
+    process.exit(1);
+  }
+  if (!isLoaded()) {
+    runLaunchctl(["bootstrap", getDomainTarget(), plistPath]);
+  }
+  // kickstart -k stops and restarts in one shot
+  runLaunchctl(["kickstart", "-k", getServiceTarget()]);
+  console.log(`Restarted: ${LABEL}`);
+}
+
 function stopService(): void {
   assertDarwin();
   if (!isLoaded()) {
@@ -319,6 +336,21 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       } catch (err) {
         console.error(
           "start failed:",
+          err instanceof Error ? err.message : err
+        );
+        process.exit(1);
+      }
+    });
+
+  gatewayCmd
+    .command("restart")
+    .description("Restart the installed gateway service (stop + start)")
+    .action(() => {
+      try {
+        restartService();
+      } catch (err) {
+        console.error(
+          "restart failed:",
           err instanceof Error ? err.message : err
         );
         process.exit(1);
