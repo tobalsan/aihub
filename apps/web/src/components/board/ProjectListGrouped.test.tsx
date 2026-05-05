@@ -494,6 +494,7 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
     const card = container.querySelector(
       '[data-testid="project-card-PRO-001"]'
     ) as HTMLElement;
+    expect((card as HTMLDivElement).draggable).toBe(true);
     card.dispatchEvent(dragEventWithDataTransfer("dragstart", dataTransfer));
 
     expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "PRO-001");
@@ -595,6 +596,41 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
       expect(moveBoardProjectMock).toHaveBeenCalledWith("PRO-001", "shaping");
     });
     resolveMove({ ok: true, status: "shaping", previousStatus: "active" });
+  });
+
+  it("accepts drops on the whole lifecycle bucket, including the header", async () => {
+    moveBoardProjectMock.mockResolvedValue({
+      ok: true,
+      status: "cancelled",
+      previousStatus: "active",
+    });
+
+    renderComponent([
+      makeProject({ id: "PRO-009", lifecycleStatus: "active" }),
+    ]);
+
+    const card = container.querySelector(
+      '[data-testid="project-card-PRO-009"]'
+    ) as HTMLElement;
+    card.dispatchEvent(new DragEvent("dragstart", { bubbles: true }));
+    expect(card.getAttribute("aria-grabbed")).toBe("true");
+
+    const cancelledHeader = container.querySelector(
+      '[data-testid="group-header-cancelled"]'
+    ) as HTMLElement;
+    cancelledHeader.dispatchEvent(new DragEvent("drop", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(moveBoardProjectMock).toHaveBeenCalledWith(
+        "PRO-009",
+        "cancelled"
+      );
+    });
+    expect(
+      container
+        .querySelector('[data-testid="group-section-cancelled"]')
+        ?.querySelector('[data-testid="project-card-PRO-009"]')
+    ).toBeTruthy();
   });
 
   it("moves through the status menu without opening detail", async () => {

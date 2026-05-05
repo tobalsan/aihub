@@ -186,6 +186,7 @@ type DragState = {
 function ProjectCard(props: {
   project: BoardProject;
   areaName: string;
+  dragging?: boolean;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: () => void;
   onClick?: () => void;
@@ -203,7 +204,8 @@ function ProjectCard(props: {
       data-testid={`project-card-${props.project.id}`}
       data-project-id={props.project.id}
       data-lifecycle-status={props.project.lifecycleStatus}
-      draggable
+      aria-grabbed={props.dragging ? "true" : "false"}
+      draggable={true}
       onDragStart={props.onDragStart}
       onDragEnd={props.onDragEnd}
       onClick={props.onClick}
@@ -212,10 +214,11 @@ function ProjectCard(props: {
         "border-radius": "6px",
         background: "var(--bg-surface)",
         border: "1px solid var(--border-default)",
-        cursor: "pointer",
+        cursor: props.dragging ? "grabbing" : "grab",
         "margin-bottom": "6px",
+        opacity: props.dragging ? 0.55 : 1,
         "user-select": "none",
-        transition: "border-color 0.15s",
+        transition: "border-color 0.15s, opacity 0.15s",
       }}
     >
       {/* Line 1: ID, status pill, area */}
@@ -385,6 +388,7 @@ function GroupSection(props: {
   totalCount: number;
   loading?: boolean;
   areas: Map<string, string>;
+  draggingProjectId?: string | null;
   onDrop?: (targetStatus: ProjectLifecycleStatus) => void;
   onCardDragStart?: (project: BoardProject, e: DragEvent) => void;
   onCardDragEnd?: () => void;
@@ -402,11 +406,38 @@ function GroupSection(props: {
     setExpanded(next);
     if (props.group.status === "done") props.onExpandedChange?.(next);
   };
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    setDragOver(true);
+  };
+  const handleDragLeave = (e: DragEvent) => {
+    const nextTarget = e.relatedTarget as Node | null;
+    if (nextTarget && e.currentTarget.contains(nextTarget)) return;
+    setDragOver(false);
+  };
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    props.onDrop?.(props.group.status);
+  };
 
   return (
     <div
       data-testid={`group-section-${props.group.status}`}
-      style={{ "margin-bottom": "16px" }}
+      style={{
+        "margin-bottom": "16px",
+        "border-radius": "8px",
+        outline: dragOver()
+          ? "2px dashed var(--color-link, #4a9eff)"
+          : "2px dashed transparent",
+        "outline-offset": "2px",
+      }}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {/* Group header */}
       <div
@@ -473,21 +504,10 @@ function GroupSection(props: {
           transition: "all 0.15s",
           padding: expanded() ? "2px" : "0",
         }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-          setDragOver(true);
-        }}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          props.onDrop?.(props.group.status);
-        }}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         {/* Cards — only visible when expanded */}
         <Show when={expanded()}>
@@ -528,6 +548,7 @@ function GroupSection(props: {
                   <ProjectCard
                     project={project}
                     areaName={props.areas.get(project.area) ?? project.area}
+                    dragging={props.draggingProjectId === project.id}
                     onDragStart={(e) => {
                       props.onCardDragStart?.(project, e);
                     }}
@@ -951,6 +972,7 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
                   totalCount={groupCount(group.status)}
                   loading={group.status === "done" && props.doneLoading}
                   areas={areaMap()}
+                  draggingProjectId={dragging()?.projectId ?? null}
                   onExpandedChange={(expanded) =>
                     props.onDoneExpandedChange?.(expanded)
                   }

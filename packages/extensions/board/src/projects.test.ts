@@ -225,7 +225,7 @@ describe("scanProjects", () => {
     expect(items[1]?.group).toBe("active");
   });
 
-  it("skips .done project folder", async () => {
+  it("includes .done project folder only when includeDone is true", async () => {
     await makeProject(tmp, "PRO-001", {
       title: "Alpha",
       status: "current",
@@ -237,8 +237,35 @@ describe("scanProjects", () => {
       created: "2026-01-02",
     });
 
-    const items = await scanProjects(tmp, true, emptyWtRoot);
-    expect(items.map((p) => p.id)).toEqual(["PRO-001", UNASSIGNED_PROJECT_ID]);
+    const withoutDone = await scanProjects(tmp, false, emptyWtRoot);
+    expect(withoutDone.map((p) => p.id)).toEqual([
+      "PRO-001",
+      UNASSIGNED_PROJECT_ID,
+    ]);
+
+    const withDone = await scanProjects(tmp, true, emptyWtRoot);
+    expect(withDone.map((p) => p.id).sort()).toEqual([
+      "PRO-001",
+      "PRO-002",
+      UNASSIGNED_PROJECT_ID,
+    ]);
+  });
+
+  it("keeps cancelled projects visible when they are stored under .done", async () => {
+    await makeProject(path.join(tmp, ".done"), "PRO-002", {
+      title: "Cancelled",
+      status: "cancelled",
+      created: "2026-01-02",
+    });
+
+    const items = await scanProjects(tmp, false, emptyWtRoot);
+    expect(items.map((p) => p.id).sort()).toEqual([
+      "PRO-002",
+      UNASSIGNED_PROJECT_ID,
+    ]);
+    expect(items.find((p) => p.id === "PRO-002")?.lifecycleStatus).toBe(
+      "cancelled"
+    );
   });
 
   it("filters out done projects unless includeDone", async () => {
@@ -296,6 +323,27 @@ describe("scanProjects", () => {
       active: 1,
       done: 1,
       cancelled: 1,
+      archived: 0,
+    });
+  });
+
+  it("counts done projects stored under .done", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "A",
+      status: "active",
+      created: "2026-01-01",
+    });
+    await makeProject(path.join(tmp, ".done"), "PRO-002", {
+      title: "B",
+      status: "done",
+      created: "2026-01-02",
+    });
+
+    await expect(scanProjectLifecycleCounts(tmp)).resolves.toEqual({
+      shaping: 0,
+      active: 1,
+      done: 1,
+      cancelled: 0,
       archived: 0,
     });
   });

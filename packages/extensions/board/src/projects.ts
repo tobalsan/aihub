@@ -188,6 +188,7 @@ export async function readSliceProgress(
 
 const PROJECT_DIR_PATTERN = /^PRO-/;
 const SKIP_DIRS = new Set([".workspaces", ".archive", ".done", ".trash"]);
+const DONE_DIR = ".done";
 
 const GROUP_ORDER: Record<BoardProjectGroup, number> = {
   review: 0,
@@ -225,6 +226,11 @@ type SpaceQueueEntryView = {
 type SpaceView = {
   worktreePath: string;
   queue: SpaceQueueEntryView[];
+};
+
+type ProjectEntryLocation = {
+  root: string;
+  dirName: string;
 };
 
 type ProjectWorktreeRef = {
@@ -496,6 +502,42 @@ async function readProjectLifecycleStatus(
   }
 }
 
+async function readProjectEntryLocations(
+  projectsRoot: string,
+  options?: { includeDone?: boolean }
+): Promise<ProjectEntryLocation[]> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(projectsRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const locations = entries
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        !SKIP_DIRS.has(entry.name) &&
+        PROJECT_DIR_PATTERN.test(entry.name)
+    )
+    .map((entry) => ({ root: projectsRoot, dirName: entry.name }));
+
+  if (!options?.includeDone) return locations;
+
+  let doneEntries: import("node:fs").Dirent[];
+  const doneRoot = path.join(projectsRoot, DONE_DIR);
+  try {
+    doneEntries = await fs.readdir(doneRoot, { withFileTypes: true });
+  } catch {
+    return locations;
+  }
+  for (const entry of doneEntries) {
+    if (entry.isDirectory() && PROJECT_DIR_PATTERN.test(entry.name)) {
+      locations.push({ root: doneRoot, dirName: entry.name });
+    }
+  }
+  return locations;
+}
+
 export async function scanProjectLifecycleMetadata(
   projectsRoot: string
 ): Promise<ProjectLifecycleScan> {
@@ -507,27 +549,20 @@ export async function scanProjectLifecycleMetadata(
     archived: 0,
   };
   const statuses = new Map<string, ProjectLifecycleStatus>();
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await fs.readdir(projectsRoot, { withFileTypes: true });
-  } catch {
-    return { counts, statuses };
-  }
-  const projectEntries = entries.filter(
-    (entry) =>
-      entry.isDirectory() &&
-      !SKIP_DIRS.has(entry.name) &&
-      PROJECT_DIR_PATTERN.test(entry.name)
-  );
+  const projectEntries = await readProjectEntryLocations(projectsRoot, {
+    includeDone: true,
+  });
   const readStatuses = await Promise.all(
     projectEntries.map((entry) =>
-      readProjectLifecycleStatus(projectsRoot, entry.name)
+      readProjectLifecycleStatus(entry.root, entry.dirName)
     )
   );
   for (let i = 0; i < readStatuses.length; i += 1) {
     const status = readStatuses[i];
     if (status) counts[status] += 1;
-    if (status) statuses.set(projectEntries[i]!.name, status);
+    if (status && projectEntries[i]!.root === projectsRoot) {
+      statuses.set(projectEntries[i]!.dirName, status);
+    }
   }
   return { counts, statuses };
 }
@@ -1458,21 +1493,15 @@ async function scanProjectsUncached(
   worktreesRoot?: string,
   options?: ScanProjectsOptions
 ): Promise<BoardProject[]> {
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await fs.readdir(projectsRoot, { withFileTypes: true });
-  } catch {
+  const projectEntries = await readProjectEntryLocations(projectsRoot, {
+    includeDone: true,
+  });
+  if (projectEntries.length === 0) {
     return [await buildUnassignedProject([], options)];
   }
 
   const wtRoot = worktreesRoot ?? expandPath("~/.worktrees");
 
-  const projectEntries = entries.filter(
-    (entry) =>
-      entry.isDirectory() &&
-      !SKIP_DIRS.has(entry.name) &&
-      PROJECT_DIR_PATTERN.test(entry.name)
-  );
   const entriesToRead = includeDone
     ? projectEntries
     : (
@@ -1480,8 +1509,8 @@ async function scanProjectsUncached(
           projectEntries.map(async (entry) => ({
             entry,
             lifecycleStatus:
-              options?.lifecycleStatuses?.get(entry.name) ??
-              (await readProjectLifecycleStatus(projectsRoot, entry.name)),
+              options?.lifecycleStatuses?.get(entry.dirName) ??
+              (await readProjectLifecycleStatus(entry.root, entry.dirName)),
           }))
         )
       )
@@ -1489,7 +1518,7 @@ async function scanProjectsUncached(
         .map((item) => item.entry);
   const metas = (
     await Promise.all(
-      entriesToRead.map((entry) => readProjectMeta(projectsRoot, entry.name))
+      entriesToRead.map((entry) => readProjectMeta(entry.root, entry.dirName))
     )
   ).filter((meta): meta is ProjectMeta => meta !== null);
   const worktreeIndex = await buildWorktreeIndex(metas, wtRoot, options);
