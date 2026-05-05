@@ -481,6 +481,9 @@ pnpm aihub gateway [--port 4000] [--host 127.0.0.1] [--agent-id <id>]
 pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
+# Notifications CLI (Discord/Slack)
+pnpm aihub notify --channel default --message "Hello" [--surface discord|slack|both] [--mention userId]
+
 # Projects CLI (aihub projects; uses gateway API)
 pnpm aihub projects list [--status <status>]
 pnpm aihub projects create --title "My Project" [pitch] [--pitch <text>|@file|-] [--status <status>] [--area <area>]

@@ -435,6 +435,19 @@ export const SlackAgentConfigSchema = z.object({
 });
 export type SlackAgentConfig = z.infer<typeof SlackAgentConfigSchema>;
 
+export const NotificationChannelConfigSchema = z.object({
+  discord: z.string().min(1).optional(),
+  slack: z.string().min(1).optional(),
+});
+export type NotificationChannelConfig = z.infer<
+  typeof NotificationChannelConfigSchema
+>;
+
+export const NotificationsConfigSchema = z.object({
+  channels: z.record(z.string(), NotificationChannelConfigSchema).optional(),
+});
+export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
+
 export const SchedulerExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   tickSeconds: z.number().optional(),
@@ -637,6 +650,7 @@ export const GatewayConfigSchema = z.object({
   taskboard: TaskboardConfigSchema.optional(),
   projects: ProjectsConfigSchema.optional(),
   subagents: z.array(SubagentConfigSchema).optional(),
+  notifications: NotificationsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(), // Env vars to set (only if not already set)
 });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;

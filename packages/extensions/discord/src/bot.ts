@@ -54,6 +54,21 @@ type ResolvedDiscordReactionTarget = DiscordReactionTarget & {
   logPrefix: string;
 };
 
+function disconnectGateway(client: CarbonClient): void {
+  const gateway = getGatewayPlugin(client);
+  if (!gateway) return;
+  if (!gateway.isConnected) return;
+
+  try {
+    gateway.disconnect();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("closed before the connection was established")) {
+      throw err;
+    }
+  }
+}
+
 type DiscordBotFactoryOptions = {
   agentId: string;
   token: string;
@@ -781,10 +796,7 @@ async function createConfiguredDiscordBot(
       handledThreadIds.clear();
       unlockedThreadIds.clear();
       stopAllTyping();
-      const gateway = getGatewayPlugin(client);
-      if (gateway) {
-        gateway.disconnect();
-      }
+      disconnectGateway(client);
     },
   };
 }

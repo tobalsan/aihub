@@ -23,7 +23,7 @@ aihub/
 
 Core TypeScript/Node.js application. Exports:
 
-- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub projects ...`, `aihub subagents ...`, `aihub eval run`
+- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub notify`, `aihub projects ...`, `aihub subagents ...`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + extensions + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
 - **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
@@ -269,6 +269,9 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
   server?: { host?, port?, baseUrl? },
   gateway?: { host?, port?, bind? },  // bind: loopback|lan|tailnet
   sessions?: { idleMinutes? },        // Default: 360 (6 hours)
+  notifications?: {
+    channels?: Record<string, { discord?: string, slack?: string }>
+  },
   onecli?: {
     enabled?: boolean,                // Default: false
     mode?: "proxy",                   // Default: "proxy"
@@ -732,6 +735,9 @@ pnpm aihub auth status
 
 # Logout from a provider
 pnpm aihub auth logout anthropic
+
+# Send a configured Discord/Slack notification
+pnpm aihub notify --channel default --message "hello" [--surface discord|slack|both] [--mention userId]
 ```
 
 ### OAuth Agent Config
