@@ -72,6 +72,7 @@ Orchestrated Worker/Reviewer prompts tell agents to pass `--author Worker` or `-
   }
 }
 ```
+
 Startup now resolves `$env:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
@@ -459,6 +460,7 @@ packages/
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
 - The full project editor remains available from the overview through `?detail=1`; it opens `ProjectDetailPage` over the overview for README editing, chat, activity, changes, and spec work
+- Board project detail uses one editable Pitch surface backed by `PITCH.md`; legacy projects without `PITCH.md` display the `README.md` body as fallback while `README.md` remains the frontmatter carrier.
 - Project detail is mobile/tablet responsive: `<=768px` uses a single-column `Overview | Chat | Activity | Changes | Spec` tabbed view, and `769px-1199px` uses a `280px` left rail with merged center/right tabs
 - In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
 - Right context panel `Recent` list shows the 5 most recently viewed projects from browser localStorage

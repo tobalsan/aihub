@@ -253,7 +253,7 @@ describe("BoardView attachments", () => {
       absolutePath: "/tmp/PRO-1",
       repoValid: true,
       frontmatter: { status: "maybe" },
-      docs: { README: "# Embedded Overview Project\n\nBoard tab content." },
+      docs: { PITCH: "# Embedded Overview Project\n\nBoard tab content." },
       thread: [],
     });
     fetchSubagentsMock.mockResolvedValue({ ok: true, data: { items: [] } });
@@ -421,7 +421,7 @@ describe("BoardView attachments", () => {
       absolutePath: "/tmp/PRO-2",
       repoValid: true,
       frontmatter: { status: "active" },
-      docs: { README: "# Second Embedded Project" },
+      docs: { PITCH: "# Second Embedded Project" },
       thread: [],
     });
     const { container, dispose } = renderView();

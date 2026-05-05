@@ -61,8 +61,7 @@ const MOCK_PROJECT = {
   repoValid: true,
   frontmatter: { area: "aihub", status: "shaping" },
   docs: {
-    README: "# Refactor Auth\n\nThis is the pitch.",
-    SPECS: "# Specs Marker\n\n- one\n- two",
+    PITCH: "# Refactor Auth\n\nThis is the pitch.",
     THREAD: "# Thread\n\nDiscussion here.",
   },
   thread: [
@@ -260,7 +259,7 @@ describe("BoardProjectDetailPage", () => {
     expect(tabs).toEqual(["Pitch", "Slices", "Thread", "Activity"]);
   });
 
-  it("Pitch tab is active by default and shows DocEditor for README", async () => {
+  it("Pitch tab is active by default and shows DocEditor for PITCH", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();
     await wait();
@@ -270,92 +269,8 @@ describe("BoardProjectDetailPage", () => {
 
     const editor = container.querySelector("[data-testid='doc-editor']");
     expect(editor).not.toBeNull();
-    expect(editor?.getAttribute("data-dockey")).toBe("README");
+    expect(editor?.getAttribute("data-dockey")).toBe("PITCH");
     expect(editor?.getAttribute("data-content")).toContain("Refactor Auth");
-    expect(container.querySelector(".bpd-pitch-doc-option.active")?.textContent).toBe(
-      "README"
-    );
-    expect(container.textContent).toContain("SPECS");
-  });
-
-  it("Pitch doc selector swaps to read-only SPECS without changing URL", async () => {
-    dispose = render(() => <BoardProjectDetailPage />, container);
-    await wait();
-    await wait();
-
-    const beforeUrl = window.location.pathname + window.location.search;
-    const specsButton = Array.from(
-      container.querySelectorAll(".bpd-pitch-doc-option")
-    ).find((button) => button.textContent?.trim() === "SPECS") as HTMLButtonElement;
-
-    specsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await wait();
-
-    expect(window.location.pathname + window.location.search).toBe(beforeUrl);
-    expect(container.querySelector("[data-testid='doc-editor']")).toBeNull();
-    expect(container.querySelector(".bpd-pitch-doc-option.active")?.textContent).toBe(
-      "SPECS"
-    );
-    const markdown = container.querySelector(".bpd-pitch-markdown") as HTMLElement;
-    expect(markdown.textContent).toContain("Specs Marker");
-    expect(markdown.querySelectorAll("ul li")).toHaveLength(2);
-
-    const readmeButton = Array.from(
-      container.querySelectorAll(".bpd-pitch-doc-option")
-    ).find((button) => button.textContent?.trim() === "README") as HTMLButtonElement;
-    readmeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await wait();
-
-    const editor = container.querySelector("[data-testid='doc-editor']");
-    expect(editor?.getAttribute("data-dockey")).toBe("README");
-    expect(container.querySelector(".bpd-pitch-doc-option.active")?.textContent).toBe(
-      "README"
-    );
-  });
-
-  it("Pitch SPECS selector shows placeholder when SPECS is absent", async () => {
-    vi.mocked(fetchProject).mockResolvedValue({
-      ...MOCK_PROJECT,
-      docs: { README: MOCK_PROJECT.docs.README },
-    });
-
-    dispose = render(() => <BoardProjectDetailPage />, container);
-    await wait();
-    await wait();
-
-    const specsButton = Array.from(
-      container.querySelectorAll(".bpd-pitch-doc-option")
-    ).find((button) => button.textContent?.trim() === "SPECS") as HTMLButtonElement;
-    specsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await wait();
-
-    expect(container.textContent).toContain("No SPECS yet.");
-    expect(container.querySelector(".bpd-pitch-doc-option.active")?.textContent).toBe(
-      "SPECS"
-    );
-  });
-
-  it("resets Pitch doc selector to README when project changes", async () => {
-    dispose = render(() => <BoardProjectDetailPage />, container);
-    await wait();
-    await wait();
-
-    const specsButton = Array.from(
-      container.querySelectorAll(".bpd-pitch-doc-option")
-    ).find((button) => button.textContent?.trim() === "SPECS") as HTMLButtonElement;
-    specsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await wait();
-    expect(container.querySelector(".bpd-pitch-doc-option.active")?.textContent).toBe(
-      "SPECS"
-    );
-
-    window.history.replaceState(null, "", "/board/projects/PRO-99");
-    setPathSignal("/board/projects/PRO-99");
-    await wait();
-
-    expect(container.querySelector(".bpd-pitch-doc-option.active")?.textContent).toBe(
-      "README"
-    );
   });
 
   it("activates project tabs from the URL and updates the URL on tab click", async () => {
@@ -366,9 +281,9 @@ describe("BoardProjectDetailPage", () => {
     await wait();
     await wait();
 
-    expect(container.querySelector(".bpd-tab.active")?.textContent?.trim()).toBe(
-      "Thread"
-    );
+    expect(
+      container.querySelector(".bpd-tab.active")?.textContent?.trim()
+    ).toBe("Thread");
 
     const activityTab = Array.from(container.querySelectorAll(".bpd-tab")).find(
       (t) => t.textContent?.trim() === "Activity"
@@ -480,9 +395,9 @@ describe("BoardProjectDetailPage", () => {
     await wait();
     await wait();
 
-    expect(container.querySelector(".bpd-tab.active")?.textContent?.trim()).toBe(
-      "Slices"
-    );
+    expect(
+      container.querySelector(".bpd-tab.active")?.textContent?.trim()
+    ).toBe("Slices");
     const detail = container.querySelector("[data-testid='slice-detail']");
     expect(detail).not.toBeNull();
     expect(detail?.getAttribute("data-slice-id")).toBe("PRO-42-S01");
@@ -635,20 +550,20 @@ describe("BoardProjectDetailPage", () => {
     expect(container.textContent).toContain("→ active");
   });
 
-  it("Pitch tab save calls updateProject with README content", async () => {
+  it("Pitch tab save calls updateProject with PITCH content", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();
     await wait();
 
     const saveBtn = container.querySelector(
-      "[data-testid='save-doc-README']"
+      "[data-testid='save-doc-PITCH']"
     ) as HTMLButtonElement;
     expect(saveBtn).not.toBeNull();
     saveBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait();
 
     expect(updateProject).toHaveBeenCalledWith("PRO-42", {
-      docs: { README: "saved:README" },
+      docs: { PITCH: "saved:PITCH" },
     });
   });
 
