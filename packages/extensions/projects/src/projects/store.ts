@@ -14,6 +14,7 @@ import { listAreas } from "../areas/store.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot } from "../util/paths.js";
 import { listSlices, updateSlice, type SliceRecord } from "./slices.js";
+import { emitProjectPitchFallbackHint } from "./fallback-hints.js";
 
 function getProjectsStatePath(): string {
   return path.join(getProjectsContext().getDataDir(), "projects.json");
@@ -585,6 +586,10 @@ export async function getProject(
         title = parsed.title;
       }
     }
+  }
+  if (docs.PITCH === undefined && docs.README !== undefined) {
+    docs.PITCH = docs.README;
+    emitProjectPitchFallbackHint(toStringField(frontmatter.id) ?? id);
   }
 
   const resolvedTitle = toStringField(frontmatter.title) ?? title;

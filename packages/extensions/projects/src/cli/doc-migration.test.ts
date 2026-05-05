@@ -78,8 +78,12 @@ describe("doc migration helpers", () => {
   it("projects pitch copies README body and logs through the command", async () => {
     const projectDir = await setupProject("PRO-101", "Legacy pitch\n");
     const logs: string[] = [];
+    const errors: string[] = [];
     vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
       logs.push(String(msg ?? ""));
+    });
+    vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
+      errors.push(String(msg ?? ""));
     });
 
     await createProjectsCommand()
@@ -90,6 +94,7 @@ describe("doc migration helpers", () => {
       fs.readFile(path.join(projectDir, "PITCH.md"), "utf8")
     ).resolves.toBe("Legacy pitch\n");
     expect(logs[0]).toBe("PITCH.md written from README.md for PRO-101.");
+    expect(errors).toEqual([]);
   });
 
   it("projects pitch refuses overwrite unless --force is passed", async () => {
@@ -136,8 +141,12 @@ describe("doc migration helpers", () => {
       "Legacy specs\n"
     );
     const logs: string[] = [];
+    const errors: string[] = [];
     vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
       logs.push(String(msg ?? ""));
+    });
+    vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
+      errors.push(String(msg ?? ""));
     });
 
     await createSlicesProgram().parseAsync([
@@ -152,6 +161,7 @@ describe("doc migration helpers", () => {
       fs.readFile(path.join(sliceDir, "SPECS.md"), "utf8")
     ).resolves.toBe("Legacy specs\n");
     expect(logs[0]).toBe("SPECS.md written from README.md for PRO-201-S01.");
+    expect(errors).toEqual([]);
   });
 
   it("slices specs refuses overwrite unless --force is passed", async () => {

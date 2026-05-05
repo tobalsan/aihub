@@ -11,6 +11,7 @@ describe("projects store", () => {
   let projectsRoot: string;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
+  let warnings: string[];
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-projects-store-"));
@@ -20,6 +21,7 @@ describe("projects store", () => {
     prevUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
+    warnings = [];
 
     vi.resetModules();
     const { setProjectsContext, clearProjectsContext } =
@@ -48,7 +50,11 @@ describe("projects store", () => {
       getSessionHistory: async () => [],
       subscribe: () => () => {},
       emit: () => {},
-      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      logger: {
+        info: () => {},
+        warn: (message: unknown) => warnings.push(String(message)),
+        error: () => {},
+      },
     } as never);
   });
 
@@ -134,6 +140,56 @@ describe("projects store", () => {
     expect(getResult.data.repoValid).toBe(false);
     expect(getResult.data.docs.PITCH).toBe("Ship it.");
     expect(getResult.data.thread.length).toBe(0);
+  });
+
+  it("falls back to README body for missing PITCH and emits one hint", async () => {
+    const { getProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+    const projectDir = path.join(projectsRoot, "PRO-42_legacy_pitch");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "README.md"),
+      '---\nid: "PRO-42"\ntitle: "Legacy Pitch"\nstatus: "active"\n---\nLegacy body\n',
+      "utf8"
+    );
+
+    const first = await getProject(config, "PRO-42");
+    const second = await getProject(config, "PRO-42");
+
+    if (!first.ok) throw new Error(first.error);
+    if (!second.ok) throw new Error(second.error);
+    expect(first.data.docs.PITCH).toBe("Legacy body\n");
+    expect(second.data.docs.PITCH).toBe("Legacy body\n");
+    expect(warnings).toEqual([
+      "Project PRO-42 is missing PITCH.md; using README.md body. Run: aihub projects pitch PRO-42 --from-readme",
+    ]);
+  });
+
+  it("does not emit a pitch fallback hint when PITCH exists", async () => {
+    const { getProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+    const projectDir = path.join(projectsRoot, "PRO-43_current_pitch");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "README.md"),
+      '---\nid: "PRO-43"\ntitle: "Current Pitch"\nstatus: "active"\n---\nLegacy body\n',
+      "utf8"
+    );
+    await fs.writeFile(path.join(projectDir, "PITCH.md"), "Current body\n");
+
+    const result = await getProject(config, "PRO-43");
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.docs.PITCH).toBe("Current body\n");
+    expect(warnings).toEqual([]);
   });
 
   it("rejects titles with fewer than two words", async () => {

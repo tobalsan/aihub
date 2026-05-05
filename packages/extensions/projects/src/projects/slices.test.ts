@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
@@ -21,6 +21,7 @@ describe("slice storage primitives", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -330,6 +331,10 @@ describe("slice storage primitives", () => {
   });
 
   it("falls back to README body when SPECS is missing", async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((message?: unknown) => {
+      errors.push(String(message ?? ""));
+    });
     const created = await createSlice(projectDir, {
       projectId: "PRO-238",
       title: "Legacy specs",
@@ -339,9 +344,31 @@ describe("slice storage primitives", () => {
     await fs.rm(path.join(projectDir, "slices", created.id, "SPECS.md"));
 
     const legacy = await getSlice(projectDir, created.id);
+    await getSlice(projectDir, created.id);
 
     expect(legacy.docs.readme).toBe("## Legacy specs\n\nUse README body.\n");
     expect(legacy.docs.specs).toBe("## Legacy specs\n\nUse README body.\n");
+    expect(errors).toEqual([
+      "Slice PRO-238-S01 is missing SPECS.md; using README.md body. Run: aihub slices specs PRO-238-S01 --from-readme",
+    ]);
+  });
+
+  it("does not emit a specs fallback hint when SPECS exists", async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((message?: unknown) => {
+      errors.push(String(message ?? ""));
+    });
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Current specs",
+      readme: "## README body\n",
+      specs: "## Specs body\n",
+    });
+
+    const slice = await getSlice(projectDir, created.id);
+
+    expect(slice.docs.specs).toBe("## Specs body\n");
+    expect(errors).toEqual([]);
   });
 
   it("editing fallback specs creates SPECS without changing README body", async () => {

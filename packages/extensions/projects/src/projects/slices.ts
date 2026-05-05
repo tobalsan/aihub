@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseMarkdownFile } from "../taskboard/parser.js";
+import { emitSliceSpecsFallbackHint } from "./fallback-hints.js";
 
 const COUNTERS_FILE = "counters.json";
 const README_FILE = "README.md";
@@ -412,8 +413,10 @@ export async function getSlice(
   const parsed = await parseMarkdownFile(path.join(sliceDir, README_FILE));
   const [specs, tasks, validation, thread] = await Promise.all([
     fs.readFile(path.join(sliceDir, SPECS_FILE), "utf8").catch((error) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        emitSliceSpecsFallbackHint(sliceId);
         return parsed.content;
+      }
       throw error;
     }),
     fs.readFile(path.join(sliceDir, TASKS_FILE), "utf8").catch(() => ""),
