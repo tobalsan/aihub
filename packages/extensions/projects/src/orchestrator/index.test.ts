@@ -836,6 +836,14 @@ describe("orchestrator dispatcher", () => {
     );
     expect(spawned[0]?.prompt).toContain("aihub projects comment");
     expect(spawned[0]?.prompt).toContain("aihub slices comment");
+    // BLOCK path must instruct Reviewer to record durable feedback in SPECS.md
+    // (PRO-249 — prevents identical reject loops across fresh Worker iterations)
+    expect(spawned[0]?.prompt).toContain("## Known traps");
+    expect(spawned[0]?.prompt).toContain(
+      "/tmp/projects/PRO-1/slices/PRO-1-S01/SPECS.md"
+    );
+    expect(spawned[0]?.prompt).toContain("Wrong fix to avoid");
+    expect(spawned[0]?.prompt).toContain("Correct fix");
     // Reviewer does NOT lock the slice status
     expect(updates.calls).toEqual([]);
   });
@@ -1047,9 +1055,15 @@ describe("orchestrator dispatcher", () => {
     expect(prompt).toContain(
       `/tmp/projects/PRO-1/slices/PRO-1-S01/VALIDATION.md`
     );
-    // Project context (pitch + scope map)
+    // Project context (pitch + scope map + thread)
     expect(prompt).toContain(`/tmp/projects/PRO-1/README.md`);
     expect(prompt).toContain(`/tmp/projects/PRO-1/SCOPE_MAP.md`);
+    expect(prompt).toContain(`/tmp/projects/PRO-1/THREAD.md`);
+    // Prior iteration feedback framing (PRO-249)
+    expect(prompt).toContain("Prior Iteration Feedback");
+    expect(prompt).toContain("Known traps");
+    expect(prompt).toContain("Do NOT repeat the rejected approach");
+    expect(prompt).toContain("investigate root cause before band-aiding");
   });
 
   it("Worker run gets projectId + sliceId in spawn input", async () => {
