@@ -6,10 +6,8 @@ import {
   type ProjectsOrchestratorStatusConfig,
   type SubagentRuntimeProfile,
 } from "@aihub/shared";
-import {
-  listProjects,
-  type ProjectListItem,
-} from "../projects/store.js";
+import { listProjects, type ProjectListItem } from "../projects/store.js";
+import { ensureProjectIntegrationBranch } from "../projects/branches.js";
 import {
   listSlices,
   updateSlice,
@@ -61,6 +59,7 @@ export type OrchestratorDispatcherDeps = {
   listSlices?: typeof listSlices;
   listSubagents?: typeof listSubagents;
   spawnSubagent?: typeof spawnSubagent;
+  ensureProjectIntegrationBranch?: typeof ensureProjectIntegrationBranch;
   updateSlice?: typeof updateSlice;
   now?: () => Date;
   log?: Logger;
@@ -103,11 +102,15 @@ export type SliceDispatchItem = {
   project: ProjectListItem;
 };
 
-function keyValueLog(log: Logger, data: Record<string, string | number | string[]>): void {
+function keyValueLog(
+  log: Logger,
+  data: Record<string, string | number | string[]>
+): void {
   log(
     Object.entries(data)
-      .map(([key, value]) =>
-        `${key}=${Array.isArray(value) ? value.join(",") : String(value)}`
+      .map(
+        ([key, value]) =>
+          `${key}=${Array.isArray(value) ? value.join(",") : String(value)}`
       )
       .join(" ")
   );
@@ -131,7 +134,9 @@ const TERMINAL_BLOCKER_STATUSES = new Set<SliceStatus>([
 
 function blockedBy(slice: SliceRecord): string[] {
   const value = slice.frontmatter.blocked_by;
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function pendingBlockers(
@@ -154,7 +159,9 @@ async function buildGlobalSliceStatusIndex(
 
   await Promise.all(
     projectResult.data.map(async (project) => {
-      const slices = await (deps.listSlices ?? listSlices)(project.absolutePath);
+      const slices = await (deps.listSlices ?? listSlices)(
+        project.absolutePath
+      );
       for (const slice of slices) {
         index.set(slice.id, slice.frontmatter.status);
       }
@@ -212,7 +219,9 @@ function statusConfigFor(
   orchestratorConfig: OrchestratorConfig,
   statusKey: string
 ): ProjectsOrchestratorStatusConfig | undefined {
-  const value = (orchestratorConfig.statuses as Record<string, unknown>)[statusKey];
+  const value = (orchestratorConfig.statuses as Record<string, unknown>)[
+    statusKey
+  ];
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<ProjectsOrchestratorStatusConfig>;
   if (typeof candidate.profile !== "string") return undefined;
@@ -242,7 +251,8 @@ function isWorkerRun(
   if (profile?.type?.toLowerCase() === "worker") return true;
   return Boolean(
     run.name &&
-    run.name === statusConfigFor(orchestratorConfig, WORKER_SLICE_STATUS)?.profile
+    run.name ===
+      statusConfigFor(orchestratorConfig, WORKER_SLICE_STATUS)?.profile
   );
 }
 
@@ -315,7 +325,7 @@ function buildSliceWorkerPrompt({
   aihubCli: string;
 }): string {
   const signoffInstruction =
-    "When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Worker`. Do not let comments default to \"AIHub\".";
+    'When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Worker`. Do not let comments default to "AIHub".';
   return [
     `## Working on Slice: ${sliceId} — ${sliceTitle}`,
     "",
@@ -353,18 +363,31 @@ function buildSliceWorkerPrompt({
     `For any \`aihub\` CLI calls, invoke \`${aihubCli}\` (this targets the gateway that owns this project - prod or dev).`,
     signoffInstruction,
     `When all VALIDATION.md criteria pass, run \`${aihubCli} slices move ${sliceId} review\` and exit.`,
-  ].join("\n").trim();
+  ]
+    .join("\n")
+    .trim();
 }
 
-function buildWorkerSpawnInput(
+async function buildWorkerSpawnInput(
   config: GatewayConfig,
   item: SliceDispatchItem,
   profile: SubagentRuntimeProfile,
-  slug: string
-): SpawnSubagentInput {
+  slug: string,
+  deps: OrchestratorDispatcherDeps
+): Promise<SpawnSubagentInput> {
   const { slice, project } = item;
   const sliceDirPath = slice.dirPath;
   const projectDirPath = project.absolutePath;
+  const repo =
+    typeof project.frontmatter.repo === "string"
+      ? project.frontmatter.repo.trim()
+      : "";
+  if (!repo) {
+    throw new Error("Project repo is required for Worker dispatch");
+  }
+  const baseBranch = await (
+    deps.ensureProjectIntegrationBranch ?? ensureProjectIntegrationBranch
+  )(expandPath(repo), project.id);
   return {
     projectId: project.id,
     sliceId: slice.id,
@@ -381,6 +404,7 @@ function buildWorkerSpawnInput(
     model: profile.model,
     reasoningEffort: profile.reasoningEffort ?? profile.reasoning,
     mode: normalizeRunMode(profile.runMode),
+    baseBranch,
     source: "orchestrator",
   };
 }
@@ -398,7 +422,7 @@ function buildReviewerSpawnInput(
   const projectDirPath = project.absolutePath;
   const cli = resolveAihubCli();
   const signoffInstruction =
-    "When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Reviewer`. Do not let comments default to \"AIHub\".";
+    'When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Reviewer`. Do not let comments default to "AIHub".';
 
   // Build reviewer prompt inline (similar to current reviewer, but slice-aware)
   const workerWorkspaces = recentWorkerWorkspaces(
@@ -452,7 +476,9 @@ function buildReviewerSpawnInput(
     `    3. Run \`${cli} slices move ${slice.id} todo\`. Exit.`,
     "",
     "Do NOT move to `done` - that's a manual merge gate. Do NOT push, do NOT merge.",
-  ].join("\n").trim();
+  ]
+    .join("\n")
+    .trim();
 
   return {
     projectId: project.id,
@@ -523,7 +549,10 @@ async function dispatchForStatus(
 
   // Only support todo (Worker) and review (Reviewer) slice statuses for now.
   // Other status keys are not dispatched.
-  if (statusKey !== WORKER_SLICE_STATUS && statusKey !== REVIEWER_SLICE_STATUS) {
+  if (
+    statusKey !== WORKER_SLICE_STATUS &&
+    statusKey !== REVIEWER_SLICE_STATUS
+  ) {
     keyValueLog(log, {
       component: "orchestrator",
       status: statusKey,
@@ -553,11 +582,11 @@ async function dispatchForStatus(
   const projectData = await Promise.all(
     activeProjects.map(async (project) => {
       const [slicesResult, runsResult] = await Promise.all([
-        (deps.listSlices ?? listSlices)(project.absolutePath).then(
-          (slices) => slices.filter((s) => s.frontmatter.status === statusKey)
+        (deps.listSlices ?? listSlices)(project.absolutePath).then((slices) =>
+          slices.filter((s) => s.frontmatter.status === statusKey)
         ),
-        (deps.listSubagents ?? listSubagents)(config, project.id).then(
-          (r) => (r.ok ? r.data.items : [])
+        (deps.listSubagents ?? listSubagents)(config, project.id).then((r) =>
+          r.ok ? r.data.items : []
         ),
       ]);
       return { project, slices: slicesResult, runs: runsResult };
@@ -639,18 +668,40 @@ async function dispatchForStatus(
     const { slice, project, runs } = item;
     const slug = slugForSlice(slice.id, nowDate, index);
 
+    // Record attempt up-front so cooldown applies even when input construction
+    // or spawn throws (e.g. git branch/worktree setup failed).
+    attempts?.record(slice.id, nowMs);
+
     let input: SpawnSubagentInput | undefined;
-    if (statusKey === WORKER_SLICE_STATUS) {
-      input = buildWorkerSpawnInput(config, item, profile, slug);
-    } else if (statusKey === REVIEWER_SLICE_STATUS) {
-      input = buildReviewerSpawnInput(
-        config,
-        orchestratorConfig,
-        item,
-        profile,
-        slug,
-        runs
-      );
+    try {
+      if (statusKey === WORKER_SLICE_STATUS) {
+        input = await buildWorkerSpawnInput(config, item, profile, slug, deps);
+      } else if (statusKey === REVIEWER_SLICE_STATUS) {
+        input = buildReviewerSpawnInput(
+          config,
+          orchestratorConfig,
+          item,
+          profile,
+          slug,
+          runs
+        );
+      }
+    } catch (error) {
+      decisions.push({
+        projectId: project.id,
+        sliceId: slice.id,
+        action: "skipped",
+        reason: "spawn_failed",
+      });
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: statusKey,
+        action: "spawn_failed",
+        project: project.id,
+        slice: slice.id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
     }
 
     if (!input) {
@@ -662,10 +713,6 @@ async function dispatchForStatus(
       });
       continue;
     }
-
-    // Record attempt up-front so cooldown applies even when spawn throws
-    // (e.g. `git worktree add failed` from runner.ts).
-    attempts?.record(slice.id, nowMs);
 
     let spawned: SpawnSubagentResult;
     try {
@@ -765,7 +812,8 @@ async function dispatchForStatus(
           action: "lock_failed",
           project: project.id,
           slice: slice.id,
-          reason: lockError instanceof Error ? lockError.message : String(lockError),
+          reason:
+            lockError instanceof Error ? lockError.message : String(lockError),
         });
         // Do not unwind the spawn; the run is already started.
       }
@@ -786,7 +834,10 @@ export async function dispatchOrchestratorTick(
   deps: OrchestratorDispatcherDeps = {}
 ): Promise<DispatchResult> {
   const results: DispatchResult[] = [];
-  const globalSliceStatusIndex = await buildGlobalSliceStatusIndex(config, deps);
+  const globalSliceStatusIndex = await buildGlobalSliceStatusIndex(
+    config,
+    deps
+  );
   for (const statusKey of configuredStatusKeys(orchestratorConfig)) {
     results.push(
       await dispatchForStatus(

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import type { ProjectListItem } from "../projects/store.js";
 import type { SliceRecord } from "../projects/slices.js";
@@ -9,6 +9,14 @@ import {
   isActiveOrchestratorRun,
 } from "./dispatcher.js";
 import type { OrchestratorConfig } from "./config.js";
+
+vi.mock("../projects/branches.js", () => ({
+  ensureProjectIntegrationBranch: vi.fn(
+    async (_repo: string, projectId: string) => `${projectId}/integration`
+  ),
+  projectIntegrationBranchName: (projectId: string) =>
+    `${projectId}/integration`,
+}));
 
 const config = {
   agents: [],
@@ -825,6 +833,7 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.projectId).toBe("PRO-1");
     expect(spawned[0]?.name).toBe("Reviewer");
     expect(spawned[0]?.mode).toBe("none");
+    expect(spawned[0]?.baseBranch).toBeUndefined();
     expect(spawned[0]?.source).toBe("orchestrator");
     // Reviewer uses `slices move` for both pass and fail paths
     expect(spawned[0]?.prompt).toContain(
@@ -1086,6 +1095,27 @@ describe("orchestrator dispatcher", () => {
 
     expect(spawned[0]?.projectId).toBe("PRO-1");
     expect(spawned[0]?.sliceId).toBe("PRO-1-S01");
+  });
+
+  it("Worker dispatch forks from the project integration branch", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    await dispatchOrchestratorTick(config, orchestratorConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1")],
+      }),
+      listSlices: async () => [slice("PRO-1-S01", "PRO-1")],
+      listSubagents: async () => ({ ok: true, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: makeUpdateSliceMock().fn,
+      log: () => {},
+    });
+
+    expect(spawned[0]?.baseBranch).toBe("PRO-1/integration");
   });
 
   it("worktree slug encodes sliceId for §5.8 path layout", async () => {
