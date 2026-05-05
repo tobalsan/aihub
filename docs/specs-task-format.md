@@ -1,8 +1,8 @@
 # SPECS Task/Acceptance Format Guide
 
-This guide defines the markdown shape that AIHub project detail uses to parse and render `Tasks` and `Acceptance Criteria` from `SPECS.md`.
+This guide defines the markdown shape that AIHub slice Specs views use to parse and render `Tasks` and `Acceptance Criteria` from `SPECS.md`.
 
-Use this format when writing or updating project specs.
+Use this format when writing or updating slice specs.
 
 ## Required Sections
 

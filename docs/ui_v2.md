@@ -157,7 +157,7 @@ Clicking a project card opens a **near-maximized overlay** (existing behavior pr
 
 ### Content
 
-- Left pane: Project README (markdown rendered)
+- Left pane: Project Pitch (`PITCH.md`, markdown rendered)
 - Right pane: **Agent Runs** list (replaces current monitoring pane)
   - Shows active + past runs for this project
   - Click a run → opens that session's logs

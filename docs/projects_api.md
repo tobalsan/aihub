@@ -1,6 +1,6 @@
 # Projects API
 
-Projects live in a flat directory (default `~/projects`). Each project is a folder with `README.md` containing YAML frontmatter + markdown body.
+Projects live in a flat directory (default `~/projects`). Each project is a folder with `README.md` for YAML frontmatter and `PITCH.md` for the user-facing pitch body. Legacy projects without `PITCH.md` fall back to the stripped `README.md` body when read.
 
 ## Config
 
@@ -16,7 +16,8 @@ Projects live in a flat directory (default `~/projects`). Each project is a fold
 
 - Counter: `~/.aihub/projects.json` (`{ "lastId": N }`)
 - Folder: `PRO-<n>_<slug>` (slug from title, lowercase, `_` separators)
-- File: `README.md`
+- Frontmatter file: `README.md`
+- Pitch file: `PITCH.md`
 
 ## Frontmatter fields
 
@@ -43,17 +44,18 @@ Body:
 ```json
 {
   "title": "Project Mgmt API",
+  "pitch": "Pitch body.",
   "status": "maybe",
   "area": "aihub"
 }
 ```
 
-Only `title` is required. Omitted optional fields are left unset in frontmatter.
+Only `title` is required. Omitted optional frontmatter fields are left unset; omitted pitch creates an empty `PITCH.md`.
 
 ### Get project
 `GET /api/projects/:id`
 
-Returns frontmatter + README body.
+Returns frontmatter + pitch body.
 
 ### Update project
 `PATCH /api/projects/:id`
@@ -63,7 +65,7 @@ Body fields are optional:
 {
   "title": "New Title",
   "status": "shaping",
-  "content": "# New Title\n\nUpdated content.\n"
+  "content": "# New Title\n\nUpdated pitch.\n"
 }
 ```
 

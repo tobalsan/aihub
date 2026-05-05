@@ -64,7 +64,7 @@ Project directories are slugged. Use `absolutePath` from the create response as 
 ```bash
 PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Slice refactor E2E smoke" \
-  --specs "Validate slice kanban refactor end to end." \
+  --pitch "Validate slice kanban refactor end to end." \
   --status active \
   --json)
 PROJECT_ID=$(printf '%s' "$PROJECT_JSON" | jq -r '.id')
@@ -181,7 +181,7 @@ Create fresh single-slice project to validate auto-done:
 ```bash
 DONE_PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Auto done E2E" \
-  --specs "Single slice auto done." \
+  --pitch "Single slice auto done." \
   --status active \
   --json)
 DONE_PROJECT_ID=$(printf '%s' "$DONE_PROJECT_JSON" | jq -r '.id')
@@ -224,7 +224,7 @@ Use active project + todo slice:
 ```bash
 RUN_PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Dispatcher E2E" \
-  --specs "Dispatcher/reviewer smoke." \
+  --pitch "Dispatcher/reviewer smoke." \
   --status active \
   --json)
 RUN_PROJECT_ID=$(printf '%s' "$RUN_PROJECT_JSON" | jq -r '.id')
@@ -416,7 +416,7 @@ Use one fresh project with one slice:
 ```bash
 FINAL_PROJECT_JSON=$(pnpm --silent aihub:dev projects create \
   --title "Final slice smoke" \
-  --specs "Worker to reviewer to done." \
+  --pitch "Worker to reviewer to done." \
   --status active \
   --json)
 FINAL_PROJECT_ID=$(printf '%s' "$FINAL_PROJECT_JSON" | jq -r '.id')

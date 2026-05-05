@@ -43,19 +43,19 @@ Create a project.
 
 Arguments:
 
-- `[description]`: optional description for the README body.
+- `[pitch]`: optional pitch body written to `PITCH.md`.
 
 Options:
 
 - `-t, --title <title>`: required. Must contain at least two words.
-- `--specs <content>`: optional raw markdown for `SPECS.md`. Use `-` to read from stdin.
+- `--pitch <content>`: optional pitch content string, `@file`, or `-` for stdin. Mutually exclusive with positional pitch.
 - `--status <status>`: initial status.
 - `--area <area>`: optional area id. Validated against `GET /api/areas`; invalid values print the valid ids.
 - `-j, --json`: JSON output.
 
 ### `aihub projects get <id>`
 
-Fetch a single project (full README).
+Fetch a single project (frontmatter plus pitch body).
 
 Options:
 
@@ -78,13 +78,17 @@ Options:
   - `worktree`: create/use a git worktree at `projects/.workspaces/...`, slug required.
 - `--repo <path>`: repo path (used by subagents and start prompt).
 - `--readme <content>`: raw markdown content for `README.md` (no frontmatter). Use `-` to read from stdin.
-- `--specs <content>`: raw markdown content for `SPECS.md`. Use `-` to read from stdin.
+- `--specs <content>`: raw markdown content for legacy project-level `SPECS.md`. Use `-` to read from stdin.
 - `-j, --json`: JSON output.
 
 Notes:
 
 - To unset optional fields, pass empty string.
-- If stdin is piped and neither `--readme` nor `--specs` is provided, piped content is written to `SPECS.md`.
+- If stdin is piped and neither `--readme` nor `--specs` is provided, piped content is written to legacy project-level `SPECS.md`.
+
+### `aihub projects pitch <id> --from-readme`
+
+Copy the stripped legacy `README.md` body into `PITCH.md`. Refuses to overwrite an existing `PITCH.md` unless `--force` is passed.
 
 ### `aihub projects move <id> <status>`
 
@@ -168,11 +172,11 @@ Options:
 ## Examples
 
 ```bash
-# Create with description
+# Create with pitch
 aihub projects create -t "Add kill tool" "Implement a kill command for subagents"
 
-# Create with SPECS content
-aihub projects create -t "Add kill tool" --specs "## Tasks\n- [ ] Implement"
+# Create with pitch from file
+aihub projects create -t "Add kill tool" --pitch @PITCH.md
 
 # Update run metadata
 aihub projects update PRO-19 --run-agent cli:codex --repo ~/code/aihub --run-mode worktree
@@ -182,6 +186,9 @@ cat README.md | aihub projects update PRO-19 --readme -
 
 # Update SPECS via stdin
 cat SPECS.md | aihub projects update PRO-19 --specs -
+
+# Migrate legacy README prose into PITCH.md
+aihub projects pitch PRO-19 --from-readme
 
 # Default stdin update target is SPECS.md
 cat SPECS.md | aihub projects update PRO-19

@@ -459,8 +459,9 @@ packages/
 - Legacy direct-chat agent list remains at `/agents`
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
-- The full project editor remains available from the overview through `?detail=1`; it opens `ProjectDetailPage` over the overview for README editing, chat, activity, changes, and spec work
-- Board project detail uses one editable Pitch surface backed by `PITCH.md`; legacy projects without `PITCH.md` display the `README.md` body as fallback while `README.md` remains the frontmatter carrier.
+- The full project editor remains available from the overview through `?detail=1`; it opens `ProjectDetailPage` over the overview for Pitch editing, chat, activity, changes, and slice spec work
+- Board project detail uses one editable Pitch surface backed by `PITCH.md`; legacy projects without `PITCH.md` display the `README.md` body as fallback while `README.md` remains the frontmatter carrier. Project-level `SPECS.md` files are legacy artifacts and are not surfaced in project detail.
+- Slice detail uses one editable Specs surface backed by `SPECS.md`; legacy slices without `SPECS.md` display the `README.md` body as fallback while slice `README.md` remains the frontmatter carrier. `TASKS.md`, `VALIDATION.md`, and `THREAD.md` remain separate slice tabs.
 - Project detail is mobile/tablet responsive: `<=768px` uses a single-column `Overview | Chat | Activity | Changes | Spec` tabbed view, and `769px-1199px` uses a `280px` left rail with merged center/right tabs
 - In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
 - Right context panel `Recent` list shows the 5 most recently viewed projects from browser localStorage
@@ -484,6 +485,7 @@ pnpm aihub projects list [--status <status>]
 pnpm aihub projects create --title "My Project" [pitch] [--pitch <text>|@file|-] [--status <status>] [--area <area>]
 pnpm aihub projects get <id>
 pnpm aihub projects update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
+pnpm aihub projects pitch <id> --from-readme [--force]
 pnpm aihub projects move <id> <status>
 pnpm aihub projects start <id> [--agent <cli|aihub:id>] [--subagent <name>] [--name <run-name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>] [--mode <main-run|clone|worktree|none>] [--branch <branch>] [--slug <slug>] [--prompt-role <coordinator|worker|reviewer|legacy>] [--allow-overrides] [--include-default-prompt|--exclude-default-prompt] [--include-role-instructions|--exclude-role-instructions] [--include-post-run|--exclude-post-run] [--custom-prompt <text>|-]
 pnpm aihub projects rename <id> --slug <slug> [--name <name>] [--model <id>] [--reasoning-effort <level>] [--thinking <level>]
@@ -492,6 +494,7 @@ pnpm aihub projects status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
 # Slices CLI (local filesystem)
 pnpm aihub slices add --project <PRO-N> "Slice title" [specs]
 pnpm aihub slices add --project <PRO-N> "Slice title" --specs <text|@file|->
+pnpm aihub slices specs <sliceId> --from-readme [--force]
 pnpm aihub slices block <sliceId> --on <blockerId>[,<blockerId>...]
 pnpm aihub slices unblock <sliceId> [--from <blockerId>[,<blockerId>...]]
 
@@ -555,7 +558,7 @@ Project subagent CLIs:
 
 ## SPECS Task/Acceptance Format
 
-Project detail parses `SPECS.md` with a specific markdown shape for `## Tasks` and `## Acceptance Criteria`.
+Slice Specs views parse `SPECS.md` with a specific markdown shape for `## Tasks` and `## Acceptance Criteria`.
 Both sections now support optional `###` subgroup headings for organization.
 The coordinator prompt also reminds agents to use this parse-safe format when updating `SPECS.md`.
 Coordinator prompts now include:

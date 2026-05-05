@@ -33,9 +33,9 @@ This refactor introduces slices as a child of projects, makes them the kanban un
 
 | Term | Meaning |
 |------|---------|
-| Project | A 6-week bet. Container. Holds pitch (README), high-level thread, scope map, slices/. Lifecycle but no kanban. |
+| Project | A 6-week bet. Container. Holds pitch (`PITCH.md`), high-level thread, scope map, slices/. Lifecycle but no kanban. |
 | Slice | Vertical, independently finishable scope. Kanban card. Holds own SPECS/TASKS/VALIDATION + thread. Unit of agent dispatch. |
-| Pitch | Project README.md content: appetite, no-gos, rabbit holes. |
+| Pitch | Project `PITCH.md` content: appetite, no-gos, rabbit holes. |
 | Scope map | Generated index (`SCOPE_MAP.md`) of slices under a project. |
 | Hill position | Per-slice metadata: `figuring`, `executing`, `done`. Surfaced as a future hill chart view. |
 
@@ -45,14 +45,15 @@ This refactor introduces slices as a child of projects, makes them the kanban un
 
 ```
 ~/projects/<PRO-XXX>/
-  README.md              # pitch (appetite, no-gos, rabbit holes)
+  README.md              # frontmatter carrier
+  PITCH.md               # pitch (appetite, no-gos, rabbit holes)
   THREAD.md              # project-level discussion (decisions, pitch chatter)
   SCOPE_MAP.md           # generated index of slices
   .meta/
     counters.json        # { lastSliceId: <int> }   per-project slice counter
   slices/
     <PRO-XXX-Snn>/
-      README.md          # slice card (frontmatter + must/nice sections)
+      README.md          # frontmatter carrier
       SPECS.md           # slice spec
       TASKS.md           # checklist (grows as work happens)
       VALIDATION.md      # done-criteria
@@ -196,8 +197,8 @@ For each configured status binding `(statusKey, profile, max_concurrent)`:
 Worker context: **pitch + scope map only** from project, full slice docs.
 
 Reads:
-- Parent project: `README.md` (pitch), `SCOPE_MAP.md` (sibling slice index, titles only).
-- Slice: `README.md` (must/nice), `SPECS.md`, `TASKS.md`, `VALIDATION.md`.
+- Parent project: `PITCH.md` (pitch), `SCOPE_MAP.md` (sibling slice index, titles only).
+- Slice: `SPECS.md`, `TASKS.md`, `VALIDATION.md`.
 
 Plus a **"stay in your slice"** clause in the prompt: Worker must not modify other slices' files, and must not modify project-level docs without explicit instruction.
 
@@ -301,7 +302,7 @@ Note: `not_now` and `maybe` legacy projects are NOT auto-sliced — their status
 3. Create `<projectDir>/slices/PRO-XXX-S01/`. Move SPECS/TASKS/VALIDATION there. Create slice README with frontmatter (title = project title, status mapped per table, hill_position = `figuring` default). Initialize empty slice THREAD.
 4. Generate SCOPE_MAP.md.
 5. Update project frontmatter status per mapping.
-6. Project README.md remains as-is (legacy descriptions become the pitch).
+6. Project README.md remains as-is; legacy descriptions can be copied to `PITCH.md` with `aihub projects pitch <PRO-XXX> --from-readme`.
 7. Project THREAD.md remains as-is.
 
 Idempotent: if `slices/` already exists, skip the project.
@@ -416,7 +417,7 @@ Drilled via /drill-specs as part of this refactor. The `board` extension is the 
 
 | Tab | Content |
 |-----|---------|
-| Pitch | README.md rendered + edited via `DocEditor` (Tiptap WYSIWYG). Inline save. |
+| Pitch | `PITCH.md` rendered + edited via `DocEditor` (Tiptap WYSIWYG). Inline save. |
 | Slices | `SliceKanbanWidget` from `projects` ext, scoped to this project. Columns: `todo | in_progress | review | ready_to_merge | done | cancelled`. `[+ Add slice]` button at top. |
 | Thread | Comment cards from THREAD.md, empty state when none, and comment-append form. No free-form doc editor. |
 | Activity | Aggregated activity feed (see §15.5), scoped to this project. |
