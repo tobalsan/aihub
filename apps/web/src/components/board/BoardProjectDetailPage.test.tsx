@@ -173,12 +173,14 @@ vi.mock("../SliceDetailPage", () => ({
   SliceDetailPage: (props: {
     projectId: string;
     sliceId: string;
+    routeBase?: string;
     onBack?: () => void;
   }) => (
     <div
       data-testid="slice-detail"
       data-project-id={props.projectId}
       data-slice-id={props.sliceId}
+      data-route-base={props.routeBase}
     >
       <button type="button" data-testid="slice-back" onClick={props.onBack}>
         Back to project
@@ -371,6 +373,7 @@ describe("BoardProjectDetailPage", () => {
     expect(detail).not.toBeNull();
     expect(detail?.getAttribute("data-project-id")).toBe("PRO-42");
     expect(detail?.getAttribute("data-slice-id")).toBe("PRO-42-S01");
+    expect(detail?.getAttribute("data-route-base")).toBe("board");
     expect(container.querySelector(".bpd-header")).not.toBeNull();
     expect(window.location.pathname).toBe(
       "/board/projects/PRO-42/slices/PRO-42-S01"

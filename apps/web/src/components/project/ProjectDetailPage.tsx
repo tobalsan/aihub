@@ -167,6 +167,11 @@ export function ProjectDetailPage() {
     includeCustomInstructions: false,
     customInstructions: "",
   });
+  const openSliceDetail = (sliceId: string) => {
+    navigate(
+      `/board/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId)}`
+    );
+  };
   const [isEditingTitle, setIsEditingTitle] = createSignal(false);
   const [titleDraft, setTitleDraft] = createSignal("");
   let titleInputRef: HTMLInputElement | undefined;
@@ -815,7 +820,10 @@ export function ProjectDetailPage() {
                               />
                             </Match>
                             <Match when={mobileTab() === "slices"}>
-                              <SliceKanbanWidget projectId={projectId()} />
+                              <SliceKanbanWidget
+                                projectId={projectId()}
+                                onSliceClick={openSliceDetail}
+                              />
                             </Match>
                             <Match
                               when={
@@ -1036,7 +1044,10 @@ export function ProjectDetailPage() {
                           />
                         </Show>
                         <Show when={mergedTab() === "slices"}>
-                          <SliceKanbanWidget projectId={projectId()} />
+                          <SliceKanbanWidget
+                            projectId={projectId()}
+                            onSliceClick={openSliceDetail}
+                          />
                         </Show>
                       </div>
                     </Match>
@@ -1182,7 +1193,10 @@ export function ProjectDetailPage() {
                             />
                           </Show>
                           <Show when={mergedTab() === "slices"}>
-                            <SliceKanbanWidget projectId={projectId()} />
+                            <SliceKanbanWidget
+                              projectId={projectId()}
+                              onSliceClick={openSliceDetail}
+                            />
                           </Show>
                           <Show when={mergedTab() !== "spec" && mergedTab() !== "slices"}>
                             <CenterPanel

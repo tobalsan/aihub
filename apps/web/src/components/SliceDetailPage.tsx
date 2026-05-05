@@ -360,6 +360,7 @@ function SliceAgentRunsSection(props: {
 export type SliceDetailPageProps = {
   projectId?: string;
   sliceId?: string;
+  routeBase?: "board" | "standalone";
   onBack?: () => void;
   onOpenSlice?: (projectId: string, sliceId: string) => void;
 };
@@ -463,7 +464,10 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   };
 
   const tabUrl = (tab: SectionTab) => {
-    const boardHosted = window.location.pathname.startsWith("/board/projects/");
+    const boardHosted =
+      props.routeBase === "board" ||
+      (props.routeBase !== "standalone" &&
+        window.location.pathname.startsWith("/board/projects/"));
     const base = boardHosted
       ? `/board/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`
       : `/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`;

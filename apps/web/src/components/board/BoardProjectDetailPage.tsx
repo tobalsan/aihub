@@ -508,6 +508,7 @@ export function BoardProjectDetailPage(
                         <SliceDetailPage
                           projectId={projectId()}
                           sliceId={sliceId()}
+                          routeBase="board"
                           onBack={closeSliceDetail}
                           onOpenSlice={(nextProjectId, nextSliceId) => {
                             if (nextProjectId === projectId()) {

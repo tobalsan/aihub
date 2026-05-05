@@ -576,4 +576,36 @@ describe("SliceDetailPage", () => {
       );
     });
   });
+
+  it("keeps embedded board slice tabs on board routes", async () => {
+    window.history.replaceState(null, "", "/projects/PRO-1");
+
+    render(
+      () => (
+        <SliceDetailPage
+          projectId="PRO-1"
+          sliceId="PRO-1-S01"
+          routeBase="board"
+        />
+      ),
+      container
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-testid='doc-editor']")
+      ).not.toBeNull();
+    });
+
+    const tasksTab = Array.from(
+      container.querySelectorAll(".slice-detail-tab-btn")
+    ).find((tab) => tab.textContent?.trim() === "Tasks") as HTMLElement;
+    tasksTab.click();
+
+    await vi.waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe(
+        "/board/projects/PRO-1/slices/PRO-1-S01?tab=tasks"
+      );
+    });
+  });
 });
