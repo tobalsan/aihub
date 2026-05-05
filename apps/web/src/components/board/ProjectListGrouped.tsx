@@ -31,7 +31,7 @@ const GROUPS: GroupDef[] = [
   { status: "active", label: "Active", defaultExpanded: true },
   { status: "shaping", label: "Shaping", defaultExpanded: true },
   { status: "done", label: "Done", defaultExpanded: false },
-  { status: "cancelled", label: "Cancelled", defaultExpanded: true },
+  { status: "cancelled", label: "Cancelled", defaultExpanded: false },
   { status: "archived", label: "Archived", defaultExpanded: false },
 ];
 
