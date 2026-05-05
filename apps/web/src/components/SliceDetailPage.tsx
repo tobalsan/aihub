@@ -363,6 +363,7 @@ export type SliceDetailPageProps = {
   routeBase?: "board" | "standalone";
   onBack?: () => void;
   onOpenSlice?: (projectId: string, sliceId: string) => void;
+  onNavigate?: (to: string, options?: { replace?: boolean }) => void;
 };
 
 export function SliceDetailPage(props: SliceDetailPageProps = {}) {
@@ -475,7 +476,12 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   };
 
   const openTab = (tab: SectionTab) => {
-    navigate(tabUrl(tab));
+    const to = tabUrl(tab);
+    if (props.onNavigate) {
+      props.onNavigate(to);
+      return;
+    }
+    navigate(to);
   };
 
   const handleSaveDoc = async (

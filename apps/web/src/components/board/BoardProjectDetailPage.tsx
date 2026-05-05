@@ -580,6 +580,7 @@ export function BoardProjectDetailPage(
                           sliceId={sliceId()}
                           routeBase="board"
                           onBack={closeSliceDetail}
+                          onNavigate={navigateTo}
                           onOpenSlice={(nextProjectId, nextSliceId) => {
                             if (nextProjectId === projectId()) {
                               openSliceDetail(nextSliceId);
