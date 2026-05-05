@@ -128,10 +128,15 @@ describe("ProjectListGrouped — group rendering", () => {
         .querySelector('[data-testid="group-section-shaping"]')
         ?.querySelector('[data-testid="project-card-PRO-002"]')
     ).toBeTruthy();
-    // done is collapsed; cancelled is expanded by default
+    // done and cancelled are both collapsed by default
     (
       container.querySelector(
         '[data-testid="group-header-done"]'
+      ) as HTMLElement
+    )?.click();
+    (
+      container.querySelector(
+        '[data-testid="group-header-cancelled"]'
       ) as HTMLElement
     )?.click();
     expect(
@@ -221,7 +226,7 @@ describe("ProjectListGrouped — group rendering", () => {
     expect(onDoneExpandedChange).toHaveBeenNthCalledWith(2, false);
   });
 
-  it("done is collapsed and cancelled is expanded by default", () => {
+  it("done and cancelled are both collapsed by default", () => {
     const projects = [
       makeProject({ id: "PRO-D1", lifecycleStatus: "done", status: "done" }),
       makeProject({
@@ -236,7 +241,7 @@ describe("ProjectListGrouped — group rendering", () => {
     ).toBeNull();
     expect(
       container.querySelector('[data-testid="project-card-PRO-C1"]')
-    ).toBeTruthy();
+    ).toBeNull();
   });
 
   it("active and shaping groups expanded by default", () => {
@@ -626,6 +631,12 @@ describe("ProjectListGrouped — drag and optimistic revert", () => {
         "cancelled"
       );
     });
+    // Cancelled is collapsed by default; expand to verify the drop target rendered the card.
+    (
+      container.querySelector(
+        '[data-testid="group-header-cancelled"]'
+      ) as HTMLElement
+    )?.click();
     expect(
       container
         .querySelector('[data-testid="group-section-cancelled"]')
