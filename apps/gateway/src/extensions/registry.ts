@@ -117,7 +117,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
 };
 
-const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler", "subagents"]);
+const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
 
 let loadedExtensions: Extension[] = [];
 let loadedExtensionIds = new Set<string>();

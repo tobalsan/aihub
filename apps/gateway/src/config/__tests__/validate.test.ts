@@ -37,7 +37,7 @@ describe("startup validation", () => {
       const extensions = await loadExtensions(config);
       // core runtime extensions are loaded by default even without explicit config
       await expect(validateStartupConfig(config, extensions)).resolves.toEqual({
-        loaded: ["subagents", "scheduler", "heartbeat"],
+        loaded: ["scheduler", "heartbeat"],
         skipped: [],
       });
       expect(
@@ -125,7 +125,7 @@ describe("startup validation", () => {
 
     const extensions = await loadExtensions(config);
     await expect(validateStartupConfig(config, extensions)).resolves.toEqual({
-      loaded: ["subagents", "scheduler", "heartbeat"],
+      loaded: ["scheduler", "heartbeat"],
       skipped: [],
     });
   });
