@@ -380,6 +380,37 @@ function isWorkerRun(
   );
 }
 
+function isReviewerRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  run: SubagentListItem
+): boolean {
+  const profile = profileForRun(config, run);
+  if (profile?.type?.toLowerCase() === "reviewer") return true;
+  return Boolean(
+    run.name &&
+    run.name === statusConfigFor(orchestratorConfig, REVIEWER_SLICE_STATUS)?.profile
+  );
+}
+
+function isActiveRunForStatus(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  statusKey: string,
+  run: SubagentListItem,
+  sliceId: string,
+  fallbackCwds: string[]
+): boolean {
+  if (!isActiveOrchestratorRun(run, sliceId, fallbackCwds)) return false;
+  if (statusKey === WORKER_SLICE_STATUS) {
+    return !run.name || isWorkerRun(config, orchestratorConfig, run);
+  }
+  if (statusKey === REVIEWER_SLICE_STATUS) {
+    return !run.name || isReviewerRun(config, orchestratorConfig, run);
+  }
+  return true;
+}
+
 function isMergerRun(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
@@ -692,7 +723,16 @@ async function detectStalls(
   );
 }
 
-function recentWorkerWorkspaces(
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function workerWorkspaceRuns(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
   runs: SubagentListItem[],
@@ -708,6 +748,21 @@ function recentWorkerWorkspaces(
         (sliceId === undefined || run.sliceId === sliceId)
     )
     .sort((a, b) => runStartedAt(b) - runStartedAt(a))
+}
+
+async function recentWorkerWorkspaces(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  runs: SubagentListItem[],
+  sliceId?: string
+) {
+  const existing = [];
+  for (const run of workerWorkspaceRuns(config, orchestratorConfig, runs, sliceId)) {
+    if (run.worktreePath && (await pathExists(run.worktreePath))) {
+      existing.push(run);
+    }
+  }
+  return existing
     .slice(0, 1)
     .map((run) => ({
       name: run.name ?? run.slug,
@@ -733,6 +788,41 @@ function recentWorkerBranch(
     )
     .sort((a, b) => runStartedAt(b) - runStartedAt(a))[0];
   return latest ? `${projectId}/${latest.slug}` : undefined;
+}
+
+async function logStaleWorkerWorkspaces(
+  log: Logger,
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  projectId: string,
+  runs: SubagentListItem[]
+): Promise<void> {
+  for (const run of workerWorkspaceRuns(config, orchestratorConfig, runs)) {
+    if (!run.worktreePath || (await pathExists(run.worktreePath))) continue;
+    keyValueLog(log, {
+      component: "orchestrator",
+      action: "prune_stale_worker_workspace",
+      project: projectId,
+      slice: run.sliceId ?? "",
+      slug: run.slug,
+      path: run.worktreePath,
+    });
+  }
+}
+
+function hasLiveWorkerRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  runs: SubagentListItem[],
+  sliceId: string
+): boolean {
+  return runs.some(
+    (run) =>
+      sourceOf(run) === "orchestrator" &&
+      run.status === "running" &&
+      isWorkerRun(config, orchestratorConfig, run) &&
+      run.sliceId === sliceId
+  );
 }
 
 function normalizeRunMode(value: string | undefined): SubagentMode | undefined {
@@ -873,12 +963,10 @@ async function buildWorkerSpawnInput(
 }
 
 function buildReviewerSpawnInput(
-  config: GatewayConfig,
-  orchestratorConfig: OrchestratorConfig,
   item: SliceDispatchItem,
   profile: SubagentRuntimeProfile,
   slug: string,
-  runs: SubagentListItem[]
+  workerWorkspaces: Array<{ name: string; cli?: string; path: string }>
 ): SpawnSubagentInput {
   const { slice, project } = item;
   const sliceDirPath = slice.dirPath;
@@ -887,13 +975,6 @@ function buildReviewerSpawnInput(
   const signoffInstruction =
     'When posting comments via `aihub projects comment` or `aihub slices comment`, always pass `--author Reviewer`. Do not let comments default to "AIHub".';
 
-  // Build reviewer prompt inline (similar to current reviewer, but slice-aware)
-  const workerWorkspaces = recentWorkerWorkspaces(
-    config,
-    orchestratorConfig,
-    runs,
-    slice.id
-  );
   const workspacesBlock =
     workerWorkspaces.length > 0
       ? [
@@ -1131,6 +1212,13 @@ async function dispatchForStatus(
           r.ok ? r.data.items : []
         ),
       ]);
+      await logStaleWorkerWorkspaces(
+        log,
+        config,
+        orchestratorConfig,
+        project.id,
+        runsResult
+      );
       return { project, slices: slicesResult, runs: runsResult };
     })
   );
@@ -1146,7 +1234,16 @@ async function dispatchForStatus(
   for (const item of allItems) {
     const fallbackCwds = fallbackCwdsForProject(config, item.project);
     const active = item.runs.filter((run) => {
-      if (!isActiveOrchestratorRun(run, item.slice.id, fallbackCwds)) {
+      if (
+        !isActiveRunForStatus(
+          config,
+          orchestratorConfig,
+          statusKey,
+          run,
+          item.slice.id,
+          fallbackCwds
+        )
+      ) {
         return false;
       }
       if (statusKey === MERGER_SLICE_STATUS) {
@@ -1221,14 +1318,43 @@ async function dispatchForStatus(
       if (statusKey === WORKER_SLICE_STATUS) {
         input = await buildWorkerSpawnInput(config, item, profile, slug, deps);
       } else if (statusKey === REVIEWER_SLICE_STATUS) {
-        input = buildReviewerSpawnInput(
+        const workerWorkspaces = await recentWorkerWorkspaces(
           config,
           orchestratorConfig,
-          item,
-          profile,
-          slug,
-          runs
+          runs,
+          slice.id
         );
+        if (workerWorkspaces.length === 0) {
+          const liveWorker = hasLiveWorkerRun(
+            config,
+            orchestratorConfig,
+            runs,
+            slice.id
+          );
+          decisions.push({
+            projectId: project.id,
+            sliceId: slice.id,
+            action: "skipped",
+            reason: "reviewer_skipped_no_worker_workspace",
+          });
+          keyValueLog(log, {
+            component: "orchestrator",
+            status: statusKey,
+            action: "reviewer_skipped_no_worker_workspace",
+            project: project.id,
+            slice: slice.id,
+            live_worker: liveWorker ? "true" : "false",
+          });
+          if (!liveWorker) {
+            await (deps.updateSlice ?? updateSlice)(
+              project.absolutePath,
+              slice.id,
+              { status: "todo" }
+            );
+          }
+          continue;
+        }
+        input = buildReviewerSpawnInput(item, profile, slug, workerWorkspaces);
       } else if (statusKey === MERGER_SLICE_STATUS) {
         input = await buildMergerSpawnInput(
           config,

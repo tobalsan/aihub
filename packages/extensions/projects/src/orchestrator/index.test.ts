@@ -1,3 +1,6 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import type { ProjectListItem } from "../projects/store.js";
@@ -99,6 +102,10 @@ function run(
     source,
     ...extra,
   };
+}
+
+async function tempWorkspace(name: string): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), `aihub-${name}-`));
 }
 
 /** Default updateSlice mock — records calls + returns a slice record. */
@@ -995,6 +1002,7 @@ describe("orchestrator dispatcher", () => {
   it("dispatches Reviewers for slices in review status under active projects", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const updates = makeUpdateSliceMock();
+    const workerDir = await tempWorkspace("reviewer-dispatch");
 
     const result = await dispatchOrchestratorTick(
       config,
@@ -1008,7 +1016,19 @@ describe("orchestrator dispatcher", () => {
           data: [project("PRO-1")],
         }),
         listSlices: async () => [slice("PRO-1-S01", "PRO-1", "review")],
-        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("idle", "orchestrator", {
+                name: "Worker",
+                cli: "codex",
+                worktreePath: workerDir,
+                sliceId: "PRO-1-S01",
+              }),
+            ],
+          },
+        }),
         spawnSubagent: async (_config, input) => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
@@ -1212,6 +1232,7 @@ describe("orchestrator dispatcher", () => {
   it("accounts todo and review slots independently", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const updates = makeUpdateSliceMock();
+    const workerDir = await tempWorkspace("reviewer-slots");
 
     const result = await dispatchOrchestratorTick(
       config,
@@ -1236,7 +1257,22 @@ describe("orchestrator dispatcher", () => {
           }
           return [slice("PRO-2-S01", "PRO-2", "todo")];
         },
-        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        listSubagents: async (_config, projectId) => ({
+          ok: true,
+          data: {
+            items:
+              projectId === "PRO-1"
+                ? [
+                    run("idle", "orchestrator", {
+                      name: "Worker",
+                      cli: "codex",
+                      worktreePath: workerDir,
+                      sliceId: "PRO-1-S02",
+                    }),
+                  ]
+                : [],
+          },
+        }),
         spawnSubagent: async (_config, input) => {
           spawned.push(input);
           return { ok: true, data: { slug: input.slug } };
@@ -1292,6 +1328,10 @@ describe("orchestrator dispatcher", () => {
 
   it("includes the most recent worker workspace in reviewer prompts (filtered by sliceId)", async () => {
     const spawned: SpawnSubagentInput[] = [];
+    const oldDir = await tempWorkspace("reviewer-old");
+    const newDir = await tempWorkspace("reviewer-new");
+    const otherSliceDir = await tempWorkspace("reviewer-other-slice");
+    const manualDir = await tempWorkspace("reviewer-manual");
 
     await dispatchOrchestratorTick(
       config,
@@ -1312,14 +1352,14 @@ describe("orchestrator dispatcher", () => {
               run("idle", "orchestrator", {
                 name: "Worker",
                 cli: "codex",
-                worktreePath: "/tmp/workspaces/old",
+                worktreePath: oldDir,
                 sliceId: "PRO-1-S01",
                 startedAt: "2026-05-03T00:00:00.000Z",
               }),
               run("idle", "orchestrator", {
                 name: "Worker",
                 cli: "codex",
-                worktreePath: "/tmp/workspaces/new",
+                worktreePath: newDir,
                 sliceId: "PRO-1-S01",
                 startedAt: "2026-05-03T01:00:00.000Z",
               }),
@@ -1327,7 +1367,7 @@ describe("orchestrator dispatcher", () => {
               run("idle", "orchestrator", {
                 name: "Worker",
                 cli: "codex",
-                worktreePath: "/tmp/workspaces/other-slice",
+                worktreePath: otherSliceDir,
                 sliceId: "PRO-1-S02",
                 startedAt: "2026-05-03T02:00:00.000Z",
               }),
@@ -1335,7 +1375,7 @@ describe("orchestrator dispatcher", () => {
               run("idle", "manual", {
                 name: "Worker",
                 cli: "codex",
-                worktreePath: "/tmp/workspaces/manual",
+                worktreePath: manualDir,
                 startedAt: "2026-05-03T02:00:00.000Z",
               }),
             ],
@@ -1351,10 +1391,193 @@ describe("orchestrator dispatcher", () => {
     );
 
     expect(spawned).toHaveLength(1);
-    expect(spawned[0]?.prompt).toContain("Worker (codex): /tmp/workspaces/new");
-    expect(spawned[0]?.prompt).not.toContain("/tmp/workspaces/old");
-    expect(spawned[0]?.prompt).not.toContain("/tmp/workspaces/other-slice");
-    expect(spawned[0]?.prompt).not.toContain("/tmp/workspaces/manual");
+    expect(spawned[0]?.prompt).toContain(`Worker (codex): ${newDir}`);
+    expect(spawned[0]?.prompt).not.toContain(oldDir);
+    expect(spawned[0]?.prompt).not.toContain(otherSliceDir);
+    expect(spawned[0]?.prompt).not.toContain(manualDir);
+  });
+
+  it("prunes stale worker workspace refs before reviewer prompt assembly", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const logs: string[] = [];
+    const existingDir = await tempWorkspace("reviewer-existing");
+    const missingDir = path.join(
+      await tempWorkspace("reviewer-missing-parent"),
+      "missing"
+    );
+
+    await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { review: { profile: "Reviewer", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "review")],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("idle", "orchestrator", {
+                name: "Worker",
+                cli: "codex",
+                worktreePath: existingDir,
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T00:00:00.000Z",
+              }),
+              run("idle", "orchestrator", {
+                name: "Worker",
+                cli: "codex",
+                worktreePath: missingDir,
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T01:00:00.000Z",
+              }),
+            ],
+          },
+        }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: makeUpdateSliceMock().fn,
+        log: (msg) => logs.push(msg),
+      }
+    );
+
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.prompt).toContain(`Worker (codex): ${existingDir}`);
+    expect(spawned[0]?.prompt).not.toContain(missingDir);
+    expect(
+      logs.some(
+        (line) =>
+          line.includes("action=prune_stale_worker_workspace") &&
+          line.includes(`path=${missingDir}`)
+      )
+    ).toBe(true);
+  });
+
+  it("reverts review slice to todo when no worker workspace exists and no worker is live", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const logs: string[] = [];
+    const updates = makeUpdateSliceMock();
+    const missingDir = path.join(
+      await tempWorkspace("reviewer-all-missing-parent"),
+      "missing"
+    );
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { review: { profile: "Reviewer", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "review")],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("idle", "orchestrator", {
+                name: "Worker",
+                cli: "codex",
+                worktreePath: missingDir,
+                sliceId: "PRO-1-S01",
+              }),
+            ],
+          },
+        }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: updates.fn,
+        log: (msg) => logs.push(msg),
+      }
+    );
+
+    expect(result.decisions).toContainEqual({
+      projectId: "PRO-1",
+      sliceId: "PRO-1-S01",
+      action: "skipped",
+      reason: "reviewer_skipped_no_worker_workspace",
+    });
+    expect(spawned).toEqual([]);
+    expect(updates.calls).toEqual([{ sliceId: "PRO-1-S01", status: "todo" }]);
+    expect(
+      logs.some(
+        (line) =>
+          line.includes("action=reviewer_skipped_no_worker_workspace") &&
+          line.includes("live_worker=false")
+      )
+    ).toBe(true);
+  });
+
+  it("leaves review slice alone when no worker workspace exists but a worker is live", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const logs: string[] = [];
+    const updates = makeUpdateSliceMock();
+    const missingDir = path.join(
+      await tempWorkspace("reviewer-live-missing-parent"),
+      "missing"
+    );
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { review: { profile: "Reviewer", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "review")],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("running", "orchestrator", {
+                name: "Worker",
+                cli: "codex",
+                worktreePath: missingDir,
+                sliceId: "PRO-1-S01",
+              }),
+            ],
+          },
+        }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: updates.fn,
+        log: (msg) => logs.push(msg),
+      }
+    );
+
+    expect(result.decisions).toContainEqual({
+      projectId: "PRO-1",
+      sliceId: "PRO-1-S01",
+      action: "skipped",
+      reason: "reviewer_skipped_no_worker_workspace",
+    });
+    expect(spawned).toEqual([]);
+    expect(updates.calls).toEqual([]);
+    expect(
+      logs.some(
+        (line) =>
+          line.includes("action=reviewer_skipped_no_worker_workspace") &&
+          line.includes("live_worker=true")
+      )
+    ).toBe(true);
   });
 
   it("logs lock_failed but does not unwind a successful spawn", async () => {
