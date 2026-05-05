@@ -6,6 +6,7 @@ import { resolveConfig } from "./config.js";
 
 describe("cli config", () => {
   let prevHome: string | undefined;
+  let prevAihubHome: string | undefined;
   let prevApiUrl: string | undefined;
   let prevUrl: string | undefined;
   let prevToken: string | undefined;
@@ -13,12 +14,14 @@ describe("cli config", () => {
 
   beforeEach(async () => {
     prevHome = process.env.HOME;
+    prevAihubHome = process.env.AIHUB_HOME;
     prevApiUrl = process.env.AIHUB_API_URL;
     prevUrl = process.env.AIHUB_URL;
     prevToken = process.env.AIHUB_TOKEN;
 
     tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-cli-test-"));
     process.env.HOME = tmpHome;
+    process.env.AIHUB_HOME = path.join(tmpHome, ".aihub");
     delete process.env.AIHUB_API_URL;
     delete process.env.AIHUB_URL;
     delete process.env.AIHUB_TOKEN;
@@ -27,6 +30,8 @@ describe("cli config", () => {
   afterEach(async () => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevApiUrl === undefined) delete process.env.AIHUB_API_URL;
     else process.env.AIHUB_API_URL = prevApiUrl;
     if (prevUrl === undefined) delete process.env.AIHUB_URL;

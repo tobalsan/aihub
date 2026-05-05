@@ -6,15 +6,18 @@ import { runConfigMigrateCommand, runConfigValidateCommand } from "./index.js";
 
 describe("aihub projects config commands", () => {
   let prevHome: string | undefined;
+  let prevAihubHome: string | undefined;
   let prevConfig: string | undefined;
   let tmpHome = "";
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     prevHome = process.env.HOME;
+    prevAihubHome = process.env.AIHUB_HOME;
     prevConfig = process.env.AIHUB_CONFIG;
     tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-cli-"));
     process.env.HOME = tmpHome;
+    process.env.AIHUB_HOME = path.join(tmpHome, ".aihub");
     delete process.env.AIHUB_CONFIG;
     logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
   });
@@ -23,6 +26,8 @@ describe("aihub projects config commands", () => {
     logSpy.mockRestore();
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevConfig === undefined) delete process.env.AIHUB_CONFIG;
     else process.env.AIHUB_CONFIG = prevConfig;
     await fs.rm(tmpHome, { recursive: true, force: true });
