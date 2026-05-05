@@ -8,7 +8,7 @@ import {
   For,
   Suspense,
 } from "solid-js";
-import { useLocation, useNavigate, useParams } from "@solidjs/router";
+import { useLocation, useParams } from "@solidjs/router";
 import {
   fetchAgents,
   fetchFullHistory,
@@ -50,6 +50,12 @@ interface CanvasState {
   panel: CanvasPanel;
   props?: Record<string, unknown>;
 }
+
+type BoardProjectRoute = {
+  projectId: string;
+  sliceId: string | null;
+  tab: string | undefined;
+} | null;
 
 type DropZone = "history" | "composer" | "attach";
 
@@ -98,6 +104,21 @@ async function setCanvasState(
 
 function normalizeCanvasState(state: CanvasState): CanvasState {
   return state.panel === "projects:detail" ? { panel: "projects" } : state;
+}
+
+function parseBoardProjectRoute(
+  pathname: string,
+  search: string
+): BoardProjectRoute {
+  const match = pathname.match(
+    /^\/board\/projects\/([^/]+)(?:\/slices\/([^/]+))?$/
+  );
+  if (!match) return null;
+  return {
+    projectId: decodeURIComponent(match[1]),
+    sliceId: match[2] ? decodeURIComponent(match[2]) : null,
+    tab: new URLSearchParams(search).get("tab") ?? undefined,
+  };
 }
 
 // ── BoardView ───────────────────────────────────────────────────────
@@ -1679,20 +1700,42 @@ function OverviewPanel() {
 
 function ProjectsPanel() {
   const params = useParams<{ projectId?: string }>();
-  const navigate = useNavigate();
-  const [localProjectId, setLocalProjectId] = createSignal<string | null>(null);
-  const selectedProjectId = createMemo(
-    () => params.projectId ?? localProjectId()
+  const [localRoute, setLocalRoute] = createSignal<BoardProjectRoute>(
+    parseBoardProjectRoute(window.location.pathname, window.location.search)
   );
+  const selectedProjectId = createMemo(
+    () => localRoute()?.projectId ?? params.projectId ?? null
+  );
+  const selectedSliceId = createMemo(() => localRoute()?.sliceId ?? null);
+  const selectedTab = createMemo(() => localRoute()?.tab);
+
+  onMount(() => {
+    const updateLocalRoute = () => {
+      setLocalRoute(
+        parseBoardProjectRoute(window.location.pathname, window.location.search)
+      );
+    };
+    window.addEventListener("popstate", updateLocalRoute);
+    onCleanup(() => window.removeEventListener("popstate", updateLocalRoute));
+  });
+
+  const setEmbeddedUrl = (to: string, options?: { replace?: boolean }) => {
+    const url = new URL(to, window.location.origin);
+    if (options?.replace) {
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    } else {
+      window.history.pushState(null, "", `${url.pathname}${url.search}`);
+    }
+    setLocalRoute(parseBoardProjectRoute(url.pathname, url.search));
+  };
 
   const openProject = (id: string) => {
-    setLocalProjectId(id);
-    navigate(`/board/projects/${encodeURIComponent(id)}`);
+    setEmbeddedUrl(`/board/projects/${encodeURIComponent(id)}`);
   };
 
   const closeProject = () => {
-    setLocalProjectId(null);
-    navigate("/board/projects");
+    window.history.pushState(null, "", "/board/projects");
+    setLocalRoute(null);
   };
 
   return (
@@ -1707,8 +1750,11 @@ function ProjectsPanel() {
       >
         <BoardProjectDetailPage
           projectId={selectedProjectId()!}
+          sliceId={selectedSliceId()}
+          tab={selectedTab()}
           onBack={closeProject}
           onOpenProject={openProject}
+          onNavigate={setEmbeddedUrl}
         />
       </Show>
       <style>{`

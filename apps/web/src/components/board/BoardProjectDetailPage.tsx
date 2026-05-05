@@ -123,6 +123,8 @@ export type BoardProjectDetailPageProps = {
    * When provided (embedded in BoardView), use this value directly.
    */
   projectId?: string;
+  sliceId?: string | null;
+  tab?: string;
   /** Called when back button clicked. Defaults to navigate('/board'). */
   onBack?: () => void;
   /**
@@ -130,6 +132,7 @@ export type BoardProjectDetailPageProps = {
    * Defaults to navigate('/board/projects/:id').
    */
   onOpenProject?: (id: string) => void;
+  onNavigate?: (to: string, options?: { replace?: boolean }) => void;
 };
 
 // ── Component ────────────────────────────────────────────────────────
@@ -141,11 +144,18 @@ export function BoardProjectDetailPage(
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const projectId = createMemo(() => props.projectId ?? params.projectId ?? "");
+  const navigateTo = (to: string, options?: { replace?: boolean }) => {
+    if (props.onNavigate) props.onNavigate(to, options);
+    else if (options) navigate(to, options);
+    else navigate(to);
+  };
 
-  const selectedSliceId = createMemo(() => params.sliceId ?? null);
+  const selectedSliceId = createMemo(
+    () => props.sliceId ?? params.sliceId ?? null
+  );
   const activeTab = createMemo<BpdTab>(() => {
     if (selectedSliceId()) return "slices";
-    const tab = searchParams.tab;
+    const tab = props.tab ?? searchParams.tab;
     return isBpdTab(tab) ? tab : "pitch";
   });
   const [menuOpen, setMenuOpen] = createSignal(false);
@@ -241,7 +251,7 @@ export function BoardProjectDetailPage(
   };
 
   const openProjectTab = (tab: BpdTab) => {
-    navigate(projectUrl(tab));
+    navigateTo(projectUrl(tab));
   };
 
   const handleBack = () => {
@@ -258,11 +268,11 @@ export function BoardProjectDetailPage(
 
   const openSliceDetail = (sliceId: string) => {
     if (!projectId()) return;
-    navigate(sliceUrl(sliceId));
+    navigateTo(sliceUrl(sliceId));
   };
 
   const closeSliceDetail = () => {
-    navigate(projectUrl("slices"), { replace: true });
+    navigateTo(projectUrl("slices"), { replace: true });
   };
 
   const handleLifecycleAction = async (nextStatus: string) => {
@@ -575,11 +585,11 @@ export function BoardProjectDetailPage(
                               openSliceDetail(nextSliceId);
                             } else if (props.onOpenProject) {
                               props.onOpenProject(nextProjectId);
-                              navigate(
+                              navigateTo(
                                 `/board/projects/${encodeURIComponent(nextProjectId)}/slices/${encodeURIComponent(nextSliceId)}`
                               );
                             } else {
-                              navigate(
+                              navigateTo(
                                 `/board/projects/${encodeURIComponent(nextProjectId)}/slices/${encodeURIComponent(nextSliceId)}`
                               );
                             }
@@ -651,7 +661,7 @@ export function BoardProjectDetailPage(
                     onOpenProject={(id) =>
                       props.onOpenProject
                         ? props.onOpenProject(id)
-                        : navigate(`/board/projects/${id}`)
+                        : navigateTo(`/board/projects/${id}`)
                     }
                   />
                 </div>

@@ -55,6 +55,7 @@ const {
   fetchBoardProjectsMock,
   fetchFullHistoryMock,
   fetchProjectMock,
+  fetchSubagentsMock,
   getSessionKeyMock,
   streamMessageMock,
   subscribeToSessionMock,
@@ -67,6 +68,7 @@ const {
   fetchBoardProjectsMock: vi.fn(),
   fetchFullHistoryMock: vi.fn(),
   fetchProjectMock: vi.fn(),
+  fetchSubagentsMock: vi.fn(),
   getSessionKeyMock: vi.fn(),
   streamMessageMock: vi.fn(),
   subscribeToSessionMock: vi.fn(),
@@ -114,6 +116,16 @@ vi.mock("../ActivityFeed", () => ({
   ),
 }));
 
+vi.mock("./SliceDetailPage", () => ({
+  SliceDetailPage: (props: { projectId: string; sliceId: string }) => (
+    <div
+      data-testid="slice-detail"
+      data-project-id={props.projectId}
+      data-slice-id={props.sliceId}
+    />
+  ),
+}));
+
 vi.mock("../api/client", () => ({
   addProjectComment: vi.fn(),
   createProject: vi.fn(),
@@ -125,6 +137,7 @@ vi.mock("../api/client", () => ({
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchFullHistory: fetchFullHistoryMock,
   fetchProject: fetchProjectMock,
+  fetchSubagents: fetchSubagentsMock,
   fetchRuntimeSubagentLogs: vi.fn(),
   fetchSlices: vi.fn(async () => []),
   getSessionKey: getSessionKeyMock,
@@ -243,6 +256,7 @@ describe("BoardView attachments", () => {
       docs: { README: "# Embedded Overview Project\n\nBoard tab content." },
       thread: [],
     });
+    fetchSubagentsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getSessionKeyMock.mockReturnValue("main");
     streamMessageMock.mockImplementation(() => () => {});
     subscribeToSessionMock.mockImplementation(() => () => {});
@@ -437,10 +451,86 @@ describe("BoardView attachments", () => {
           String(init?.body ?? "").includes("projects:detail")
         )
     ).toBe(false);
+    expect(navigateMock).not.toHaveBeenCalled();
     // Detail page shown inline — .bpd element present
     expect(container.querySelector(".bpd")).not.toBeNull();
     // No router navigation triggered
     expect(container.textContent).toContain("Second Embedded Project");
+
+    dispose();
+  });
+
+  it("keeps board chat DOM state mounted when opening a lifecycle project", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Project lifecycle");
+    projectsTab?.click();
+    await tick();
+    await tick();
+
+    const chat = container.querySelector<HTMLElement>(".board-chat");
+    const textarea =
+      container.querySelector<HTMLTextAreaElement>(".board-chat-input");
+    if (!chat || !textarea) {
+      throw new Error("Expected board chat and textarea");
+    }
+    chat.dataset.canary = "alive";
+    textarea.value = "CANARY-SENTINEL";
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-testid="project-card-PRO-1"]'
+    );
+    row?.click();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".board-chat")).toBe(chat);
+    expect(chat.dataset.canary).toBe("alive");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(".board-chat-input")?.value
+    ).toBe("CANARY-SENTINEL");
+    expect(container.querySelector(".bpd")).not.toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/board/projects/PRO-1");
+
+    dispose();
+  });
+
+  it("keeps embedded project tab navigation out of the router", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const projectsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".board-canvas-tab")
+    ).find((button) => button.textContent === "Project lifecycle");
+    projectsTab?.click();
+    await tick();
+    await tick();
+
+    container
+      .querySelector<HTMLElement>('[data-testid="project-card-PRO-1"]')
+      ?.click();
+    await tick();
+    await tick();
+
+    const slicesTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".bpd-tab")
+    ).find((button) => button.textContent?.trim() === "Slices");
+    slicesTab?.click();
+    await tick();
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/board/projects/PRO-1");
+    expect(window.location.search).toBe("?tab=slices");
+    expect(container.querySelector(".bpd-tab.active")?.textContent).toBe(
+      "Slices"
+    );
 
     dispose();
   });
@@ -500,6 +590,30 @@ describe("BoardView attachments", () => {
     expect(projectsTab?.classList.contains("active")).toBe(true);
     expect(container.querySelector(".bpd")).not.toBeNull();
     expect(container.textContent).toContain("Embedded Overview Project");
+
+    dispose();
+  });
+
+  it("opens board-hosted slice detail from a board slice URL", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/board/projects/PRO-1/slices/PRO-1-S01?tab=specs"
+    );
+    setPathSignal("/board/projects/PRO-1/slices/PRO-1-S01");
+    setSearchParamsSignal({ tab: "specs" });
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".bpd")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="slice-detail"]')
+    ).not.toBeNull();
+    expect(container.querySelector(".bpd-tab.active")?.textContent).toBe(
+      "Slices"
+    );
 
     dispose();
   });
