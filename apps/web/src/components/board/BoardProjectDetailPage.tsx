@@ -578,6 +578,7 @@ export function BoardProjectDetailPage(
                         <SliceDetailPage
                           projectId={projectId()}
                           sliceId={sliceId()}
+                          tab={props.tab}
                           routeBase="board"
                           onBack={closeSliceDetail}
                           onNavigate={navigateTo}

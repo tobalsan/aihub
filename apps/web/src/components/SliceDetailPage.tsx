@@ -360,6 +360,7 @@ function SliceAgentRunsSection(props: {
 export type SliceDetailPageProps = {
   projectId?: string;
   sliceId?: string;
+  tab?: string;
   routeBase?: "board" | "standalone";
   onBack?: () => void;
   onOpenSlice?: (projectId: string, sliceId: string) => void;
@@ -375,7 +376,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   const sliceId = createMemo(() => props.sliceId ?? params.sliceId ?? "");
 
   const activeTab = createMemo<SectionTab>(() => {
-    const tab = searchParams.tab;
+    const tab = props.tab ?? searchParams.tab;
     return isSectionTab(tab) ? tab : "readme";
   });
   const [statusChanging, setStatusChanging] = createSignal(false);
