@@ -62,6 +62,13 @@ function shouldIgnoreSessionPath(
   return parsed.parts.length !== 4 || parsed.parts[3] !== "state.json";
 }
 
+function shouldIgnoreMarkdownPath(targetPath: string, stats?: fs.Stats): boolean {
+  const parts = targetPath.split(path.sep);
+  if (parts.includes("sessions") || parts.includes(".git")) return true;
+  if (stats?.isFile()) return path.extname(targetPath).toLowerCase() !== ".md";
+  return false;
+}
+
 function readSessionDirs(scanRoot: string): string[] {
   let entries: fs.Dirent[];
   try {
@@ -147,20 +154,19 @@ export function startProjectWatcher(config: GatewayConfig): ProjectWatcher {
 
   const markdownWatcher: FSWatcher = chokidar.watch(
     [
-      path.join(projectsRoot, "**/*.md"),
-      ...[...COLLECTION_DIRS].map((dir) =>
-        path.join(projectsRoot, dir, "**/*.md")
-      ),
+      projectsRoot,
+      ...[...COLLECTION_DIRS].map((dir) => path.join(projectsRoot, dir)),
     ],
     {
       ignoreInitial: true,
-      ignored: ["**/sessions/**", "**/.git/**", "**/.*"],
+      ignored: shouldIgnoreMarkdownPath,
     }
   );
   closeOnWatcherError(markdownWatcher);
 
   markdownWatcher.on("all", (event, changedPath) => {
     if (event !== "add" && event !== "change" && event !== "unlink") return;
+    if (path.extname(changedPath).toLowerCase() !== ".md") return;
     const parsed = parseProjectPath(projectsRoot, changedPath);
     if (!parsed) return;
     queueFileChanged(parsed.projectId, parsed.relativePath);

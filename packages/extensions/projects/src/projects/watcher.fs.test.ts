@@ -96,4 +96,40 @@ describe("project watcher filesystem events", () => {
       await watcher.close();
     }
   });
+
+  it("emits file_changed for markdown under a hidden AIHUB_HOME root", async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), ".aihub-watcher-"));
+    const readmePath = path.join(
+      root,
+      "projects",
+      "PRO-201_test",
+      "slices",
+      "PRO-201-S01",
+      "README.md"
+    );
+    await fs.mkdir(path.dirname(readmePath), { recursive: true });
+    await fs.writeFile(readmePath, "before\n", "utf8");
+
+    const received: Array<{ projectId: string; file: string }> = [];
+    const offEvent = agentEventBus.onFileChanged((event) => {
+      received.push({ projectId: event.projectId, file: event.file });
+    });
+    const watcher = startProjectWatcher({
+      projects: { root: path.join(root, "projects") },
+    } as GatewayConfig);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await fs.writeFile(readmePath, "after\n", "utf8");
+
+      const event = await waitFor(() => received[0], 2_000);
+      expect(event).toEqual({
+        projectId: "PRO-201",
+        file: "PRO-201_test/slices/PRO-201-S01/README.md",
+      });
+    } finally {
+      offEvent();
+      await watcher.close();
+    }
+  });
 });
