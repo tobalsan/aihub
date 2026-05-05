@@ -106,11 +106,26 @@ function normalizeCanvasState(state: CanvasState): CanvasState {
   return state.panel === "projects:detail" ? { panel: "projects" } : state;
 }
 
+const basePath = import.meta.env.BASE_URL?.replace(/\/+$/, "") ?? "";
+
+function stripBase(pathname: string): string {
+  if (basePath && pathname.startsWith(basePath)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function withBase(path: string): string {
+  if (!basePath) return path;
+  if (path.startsWith(basePath + "/") || path === basePath) return path;
+  return `${basePath}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
 function parseBoardProjectRoute(
   pathname: string,
   search: string
 ): BoardProjectRoute {
-  const match = pathname.match(
+  const match = stripBase(pathname).match(
     /^\/board\/projects\/([^/]+)(?:\/slices\/([^/]+))?$/
   );
   if (!match) return null;
@@ -1721,10 +1736,11 @@ function ProjectsPanel() {
 
   const setEmbeddedUrl = (to: string, options?: { replace?: boolean }) => {
     const url = new URL(to, window.location.origin);
+    const target = `${withBase(url.pathname)}${url.search}`;
     if (options?.replace) {
-      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+      window.history.replaceState(null, "", target);
     } else {
-      window.history.pushState(null, "", `${url.pathname}${url.search}`);
+      window.history.pushState(null, "", target);
     }
     setLocalRoute(parseBoardProjectRoute(url.pathname, url.search));
   };
@@ -1734,7 +1750,7 @@ function ProjectsPanel() {
   };
 
   const closeProject = () => {
-    window.history.pushState(null, "", "/board/projects");
+    window.history.pushState(null, "", withBase("/board/projects"));
     setLocalRoute(null);
   };
 
