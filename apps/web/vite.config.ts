@@ -123,7 +123,10 @@ const hmrHostOverride = process.env.AIHUB_HMR_HOST;
 
 // Resolve gateway target for proxy
 // In dev mode, use AIHUB_GATEWAY_PORT from orchestrator
-const gatewayHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
+const gatewayBindHost = gatewayConfig.host ?? resolveHost(gatewayConfig.bind);
+// The proxy connects (not listens), so 0.0.0.0 isn't a valid destination on
+// macOS — rewrite to loopback. The gateway still listens on all interfaces.
+const gatewayHost = gatewayBindHost === "0.0.0.0" ? "127.0.0.1" : gatewayBindHost;
 const gatewayPort = process.env.AIHUB_GATEWAY_PORT
   ? parseInt(process.env.AIHUB_GATEWAY_PORT, 10)
   : (gatewayConfig.port ?? 4000);
