@@ -500,6 +500,77 @@ describe("projects store", () => {
     expect(list.data[0]?.repoValid).toBe(false);
   });
 
+  it("rejects clearing project repo while slices rely on it", async () => {
+    const { createProject, updateProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+    const repoPath = path.join(tmpDir, "clear-repo");
+    await createGitRepo(repoPath);
+    const created = await createProject(config, {
+      title: "Clear Repo Project",
+    });
+    if (!created.ok) throw new Error(created.error);
+    const withRepo = await updateProject(config, created.data.id, {
+      repo: repoPath,
+    });
+    if (!withRepo.ok) throw new Error(withRepo.error);
+    await createSlice(withRepo.data.absolutePath, {
+      projectId: created.data.id,
+      title: "inherits repo",
+    });
+
+    const cleared = await updateProject(config, created.data.id, { repo: "" });
+
+    expect(cleared.ok).toBe(false);
+    if (cleared.ok) return;
+    expect(cleared.error).toBe(
+      `Cannot clear project repo: slice(s) ${created.data.id}-S01 rely on it (no slice-level repo set). Set their repo first, then clear the project repo.`
+    );
+  });
+
+  it("normalizes whitespace project repo clears and allows clear when slices have repos", async () => {
+    const { createProject, updateProject, getProject } =
+      await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+    const repoPath = path.join(tmpDir, "project-repo");
+    const sliceRepoPath = path.join(tmpDir, "slice-repo");
+    await createGitRepo(repoPath);
+    await createGitRepo(sliceRepoPath);
+    const created = await createProject(config, {
+      title: "Whitespace Repo Project",
+    });
+    if (!created.ok) throw new Error(created.error);
+    const withRepo = await updateProject(config, created.data.id, {
+      repo: `  ${repoPath}  `,
+    });
+    if (!withRepo.ok) throw new Error(withRepo.error);
+    expect(withRepo.data.frontmatter.repo).toBe(repoPath);
+    await createSlice(withRepo.data.absolutePath, {
+      projectId: created.data.id,
+      title: "own repo",
+      repo: sliceRepoPath,
+    });
+
+    const cleared = await updateProject(config, created.data.id, {
+      repo: "   ",
+    });
+
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(cleared.data.frontmatter.repo).toBeUndefined();
+    const fetched = await getProject(config, created.data.id);
+    expect(fetched.ok).toBe(true);
+    if (!fetched.ok) return;
+    expect(fetched.data.frontmatter.repo).toBeUndefined();
+  });
+
   it("rejects legacy project statuses with migration hint", async () => {
     const { createProject, updateProject } = await import("./store.js");
     const config = {
@@ -521,7 +592,9 @@ describe("projects store", () => {
     });
     if (!valid.ok) throw new Error(valid.error);
 
-    const updated = await updateProject(config, valid.data.id, { status: "review" });
+    const updated = await updateProject(config, valid.data.id, {
+      status: "review",
+    });
     expect(updated.ok).toBe(false);
     if (updated.ok) return;
     expect(updated.error).toContain("migrate-to-slices");
@@ -539,7 +612,7 @@ describe("projects store", () => {
     await fs.mkdir(legacyDir, { recursive: true });
     await fs.writeFile(
       path.join(legacyDir, "README.md"),
-      "---\nid: \"PRO-99\"\ntitle: \"Legacy\"\nstatus: \"todo\"\n---\n# Legacy\n",
+      '---\nid: "PRO-99"\ntitle: "Legacy"\nstatus: "todo"\n---\n# Legacy\n',
       "utf8"
     );
 
@@ -548,7 +621,9 @@ describe("projects store", () => {
     if (!listed.ok) return;
     const item = listed.data.find((entry) => entry.id === "PRO-99");
     expect(item).toBeDefined();
-    expect(item?.frontmatter.statusValidationError).toContain("migrate-to-slices");
+    expect(item?.frontmatter.statusValidationError).toContain(
+      "migrate-to-slices"
+    );
   });
 
   it("cancels non-terminal slices and keeps done slices unchanged", async () => {
@@ -559,22 +634,30 @@ describe("projects store", () => {
       projects: { root: projectsRoot },
     };
 
-    const created = await createProject(config, { title: "Cascade Cancel Project" });
+    const created = await createProject(config, {
+      title: "Cascade Cancel Project",
+    });
     if (!created.ok) throw new Error(created.error);
     const projectDir = path.join(projectsRoot, created.data.path);
+    const repoPath = path.join(tmpDir, "cascade-repo");
+    await createGitRepo(repoPath);
 
     const doneSlice = await createSlice(projectDir, {
       projectId: created.data.id,
       title: "done",
       status: "done",
+      repo: repoPath,
     });
     const todoSlice = await createSlice(projectDir, {
       projectId: created.data.id,
       title: "todo",
       status: "todo",
+      repo: repoPath,
     });
 
-    const cancelled = await updateProject(config, created.data.id, { status: "cancelled" });
+    const cancelled = await updateProject(config, created.data.id, {
+      status: "cancelled",
+    });
     expect(cancelled.ok).toBe(true);
     if (!cancelled.ok) return;
 
@@ -586,7 +669,8 @@ describe("projects store", () => {
   });
 
   it("auto-marks active project done when all slices terminal and at least one done", async () => {
-    const { createProject, updateProject, getProject } = await import("./store.js");
+    const { createProject, updateProject, getProject } =
+      await import("./store.js");
     const config = {
       agents: [],
       sessions: { idleMinutes: 360 },
@@ -598,15 +682,19 @@ describe("projects store", () => {
     await updateProject(config, created.data.id, { status: "active" });
 
     const projectDir = path.join(projectsRoot, created.data.path);
+    const repoPath = path.join(tmpDir, "auto-done-repo");
+    await createGitRepo(repoPath);
     const first = await createSlice(projectDir, {
       projectId: created.data.id,
       title: "first",
       status: "in_progress",
+      repo: repoPath,
     });
     await createSlice(projectDir, {
       projectId: created.data.id,
       title: "second",
       status: "cancelled",
+      repo: repoPath,
     });
 
     await updateSlice(projectDir, first.id, { status: "done" });

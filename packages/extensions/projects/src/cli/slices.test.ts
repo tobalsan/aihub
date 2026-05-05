@@ -5,7 +5,28 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Command } from "commander";
 import { registerSlicesCommands, resolveAddSliceSpecs } from "./slices.js";
 
-async function setupProject(root: string, id: string, title: string): Promise<string> {
+async function setupProject(
+  root: string,
+  id: string,
+  title: string
+): Promise<string> {
+  const dir = path.join(root, `${id}_test`);
+  const repoDir = path.join(root, ".repos", id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "README.md"),
+    `---\nid: ${JSON.stringify(id)}\ntitle: ${JSON.stringify(title)}\nstatus: "active"\nrepo: ${JSON.stringify(repoDir)}\n---\n`,
+    "utf8"
+  );
+  return dir;
+}
+
+async function setupProjectWithoutRepo(
+  root: string,
+  id: string,
+  title: string
+): Promise<string> {
   const dir = path.join(root, `${id}_test`);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(
@@ -61,6 +82,8 @@ describe("slices CLI", () => {
       "add",
       "--project",
       "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
       "Auth flow",
     ]);
 
@@ -78,9 +101,41 @@ describe("slices CLI", () => {
     );
     expect(specs).toBe("");
 
-    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    const scopeMap = await fs.readFile(
+      path.join(projectDir, "SCOPE_MAP.md"),
+      "utf8"
+    );
     expect(scopeMap).toContain("# Scope map — PRO-101");
     expect(scopeMap).toContain("| PRO-101-S01 | Auth flow | todo | figuring |");
+  });
+
+  it("add accepts --repo when project has no repo", async () => {
+    await setupProjectWithoutRepo(projectsRoot, "PRO-101", "Proj");
+    const repoDir = path.join(homeDir, "slice-repo");
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      repoDir,
+      "Auth flow",
+    ]);
+
+    const readme = await fs.readFile(
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "README.md"
+      ),
+      "utf8"
+    );
+    expect(readme).toContain(`repo: ${JSON.stringify(repoDir)}`);
   });
 
   it("add writes positional specs to SPECS.md", async () => {
@@ -92,12 +147,20 @@ describe("slices CLI", () => {
       "add",
       "--project",
       "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
       "Auth flow",
       "Specs body",
     ]);
 
     const specs = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "SPECS.md"),
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "SPECS.md"
+      ),
       "utf8"
     );
     expect(specs).toBe("Specs body");
@@ -112,13 +175,21 @@ describe("slices CLI", () => {
       "add",
       "--project",
       "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
       "Auth flow",
       "--specs",
       "Inline specs",
     ]);
 
     const specs = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "SPECS.md"),
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "SPECS.md"
+      ),
       "utf8"
     );
     expect(specs).toBe("Inline specs");
@@ -135,13 +206,21 @@ describe("slices CLI", () => {
       "add",
       "--project",
       "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
       "Auth flow",
       "--specs",
       `@${specsPath}`,
     ]);
 
     const specs = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "SPECS.md"),
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "SPECS.md"
+      ),
       "utf8"
     );
     expect(specs).toBe("File specs\n");
@@ -226,14 +305,29 @@ describe("slices CLI", () => {
 
   it("move updates slice status and regenerates SCOPE_MAP", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Work",
+    ]);
 
     const logs: string[] = [];
     vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
       logs.push(String(msg ?? ""));
     });
 
-    await createProgram().parseAsync(["node", "slices", "move", "PRO-101-S01", "in_progress"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "move",
+      "PRO-101-S01",
+      "in_progress",
+    ]);
     expect(logs[0]).toContain("PRO-101-S01");
     expect(logs[0]).toContain("in_progress");
 
@@ -244,13 +338,25 @@ describe("slices CLI", () => {
     );
     expect(readme).toContain('"in_progress"');
 
-    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    const scopeMap = await fs.readFile(
+      path.join(projectDir, "SCOPE_MAP.md"),
+      "utf8"
+    );
     expect(scopeMap).toContain("in_progress");
   });
 
   it("move rejects invalid status with clear message", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Work",
+    ]);
 
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
@@ -261,7 +367,13 @@ describe("slices CLI", () => {
     }) as never);
 
     await expect(
-      createProgram().parseAsync(["node", "slices", "move", "PRO-101-S01", "shipped"])
+      createProgram().parseAsync([
+        "node",
+        "slices",
+        "move",
+        "PRO-101-S01",
+        "shipped",
+      ])
     ).rejects.toThrow("EXIT:1");
     expect(errors[0]).toContain('Invalid status "shipped"');
     expect(errors[0]).toContain("todo");
@@ -270,14 +382,29 @@ describe("slices CLI", () => {
 
   it("rename updates title in frontmatter and SCOPE_MAP", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Old Name"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Old Name",
+    ]);
 
     const logs: string[] = [];
     vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
       logs.push(String(msg ?? ""));
     });
 
-    await createProgram().parseAsync(["node", "slices", "rename", "PRO-101-S01", "New Name"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "rename",
+      "PRO-101-S01",
+      "New Name",
+    ]);
     expect(logs[0]).toContain("PRO-101-S01");
     expect(logs[0]).toContain("New Name");
 
@@ -288,16 +415,46 @@ describe("slices CLI", () => {
     );
     expect(readme).toContain('"New Name"');
 
-    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    const scopeMap = await fs.readFile(
+      path.join(projectDir, "SCOPE_MAP.md"),
+      "utf8"
+    );
     expect(scopeMap).toContain("New Name");
     expect(scopeMap).not.toContain("Old Name");
   });
 
   it("block adds blockers with dedupe and unblock removes them", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "A"]);
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "B"]);
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "C"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "A",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "B",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "C",
+    ]);
 
     const logs: string[] = [];
     vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
@@ -331,7 +488,12 @@ describe("slices CLI", () => {
     ]);
     expect(logs.at(-1)).toBe("blocked_by: [PRO-101-S03]");
 
-    await createProgram().parseAsync(["node", "slices", "unblock", "PRO-101-S01"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "unblock",
+      "PRO-101-S01",
+    ]);
     expect(logs.at(-1)).toBe("blocked_by: []");
     readme = await fs.readFile(
       path.join(projectDir, "slices", "PRO-101-S01", "README.md"),
@@ -342,9 +504,36 @@ describe("slices CLI", () => {
 
   it("block rejects missing blockers, self-blocks, and cycles", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "A"]);
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "B"]);
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "C"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "A",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "B",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "C",
+    ]);
 
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((msg?: unknown) => {
@@ -412,9 +601,36 @@ describe("slices CLI", () => {
 
   it("unblock --from rejects blockers not currently present", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "A"]);
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "B"]);
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "C"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "A",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "B",
+    ]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "C",
+    ]);
     await createProgram().parseAsync([
       "node",
       "slices",
@@ -449,11 +665,24 @@ describe("slices CLI", () => {
 
   it("comment appends timestamped entry to THREAD.md and preserves prior content", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Work",
+    ]);
 
     // First comment
     await createProgram().parseAsync([
-      "node", "slices", "comment", "PRO-101-S01", "First comment",
+      "node",
+      "slices",
+      "comment",
+      "PRO-101-S01",
+      "First comment",
     ]);
 
     const projectDir = path.join(projectsRoot, "PRO-101_test");
@@ -467,7 +696,11 @@ describe("slices CLI", () => {
 
     // Second comment — prior content must be preserved
     await createProgram().parseAsync([
-      "node", "slices", "comment", "PRO-101-S01", "Second comment",
+      "node",
+      "slices",
+      "comment",
+      "PRO-101-S01",
+      "Second comment",
     ]);
 
     const threadAfterSecond = await fs.readFile(
@@ -480,7 +713,16 @@ describe("slices CLI", () => {
 
   it("comment writes explicit author metadata when --author is passed", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Work",
+    ]);
 
     await createProgram().parseAsync([
       "node",
@@ -493,7 +735,13 @@ describe("slices CLI", () => {
     ]);
 
     const thread = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "THREAD.md"),
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "THREAD.md"
+      ),
       "utf8"
     );
     expect(thread).toContain("[author:Worker]");
@@ -503,10 +751,25 @@ describe("slices CLI", () => {
 
   it("comment bumps updated_at", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Work",
+    ]);
 
     const beforeReadme = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "README.md"),
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "README.md"
+      ),
       "utf8"
     );
     const beforeMatch = beforeReadme.match(/updated_at: "([^"]+)"/);
@@ -515,10 +778,22 @@ describe("slices CLI", () => {
     // Wait a tiny bit to ensure timestamp differs
     await new Promise((r) => setTimeout(r, 5));
 
-    await createProgram().parseAsync(["node", "slices", "comment", "PRO-101-S01", "hello"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "comment",
+      "PRO-101-S01",
+      "hello",
+    ]);
 
     const afterReadme = await fs.readFile(
-      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "README.md"),
+      path.join(
+        projectsRoot,
+        "PRO-101_test",
+        "slices",
+        "PRO-101-S01",
+        "README.md"
+      ),
       "utf8"
     );
     const afterMatch = afterReadme.match(/updated_at: "([^"]+)"/);
@@ -530,14 +805,28 @@ describe("slices CLI", () => {
 
   it("cancel moves slice to cancelled status", async () => {
     await setupProject(projectsRoot, "PRO-101", "Proj");
-    await createProgram().parseAsync(["node", "slices", "add", "--project", "PRO-101", "Work"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "--repo",
+      path.join(projectsRoot, ".repos", "PRO-101"),
+      "Work",
+    ]);
 
     const logs: string[] = [];
     vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
       logs.push(String(msg ?? ""));
     });
 
-    await createProgram().parseAsync(["node", "slices", "cancel", "PRO-101-S01"]);
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "cancel",
+      "PRO-101-S01",
+    ]);
     expect(logs[0]).toContain("PRO-101-S01");
     expect(logs[0]).toContain("cancelled");
 
@@ -548,19 +837,30 @@ describe("slices CLI", () => {
     );
     expect(readme).toContain('"cancelled"');
 
-    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    const scopeMap = await fs.readFile(
+      path.join(projectDir, "SCOPE_MAP.md"),
+      "utf8"
+    );
     expect(scopeMap).toContain("cancelled");
   });
 
   it("works for slugged project dir when config uses extensions.projects.root", async () => {
     await fs.writeFile(
       path.join(homeDir, "aihub.json"),
-      JSON.stringify({ agents: [], extensions: { projects: { root: projectsRoot } } }),
+      JSON.stringify({
+        agents: [],
+        extensions: { projects: { root: projectsRoot } },
+      }),
       "utf8"
     );
 
-    const projectDir = path.join(projectsRoot, "PRO-222_gateway-created-project");
+    const projectDir = path.join(
+      projectsRoot,
+      "PRO-222_gateway-created-project"
+    );
+    const repoDir = path.join(projectsRoot, ".repos", "PRO-222");
     await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
     await fs.writeFile(
       path.join(projectDir, "README.md"),
       `---\nid: "PRO-222"\ntitle: "Gateway Created Project"\nstatus: "active"\n---\n`,
@@ -578,6 +878,8 @@ describe("slices CLI", () => {
       "add",
       "--project",
       "PRO-222",
+      "--repo",
+      repoDir,
       "Gateway slice",
     ]);
 
@@ -586,7 +888,10 @@ describe("slices CLI", () => {
     await expect(
       fs.stat(path.join(projectDir, "slices", "PRO-222-S01", "README.md"))
     ).resolves.toBeTruthy();
-    const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
+    const scopeMap = await fs.readFile(
+      path.join(projectDir, "SCOPE_MAP.md"),
+      "utf8"
+    );
     expect(scopeMap).toContain("PRO-222-S01");
     expect(scopeMap).toContain("Gateway slice");
   });
@@ -608,7 +913,9 @@ describe("slices CLI", () => {
     );
 
     const canonicalProjectDir = path.join(canonicalRoot, "PRO-333_canonical");
+    const repoDir = path.join(canonicalRoot, ".repos", "PRO-333");
     await fs.mkdir(canonicalProjectDir, { recursive: true });
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
     await fs.writeFile(
       path.join(canonicalProjectDir, "README.md"),
       `---\nid: "PRO-333"\ntitle: "Canonical Project"\nstatus: "active"\n---\n`,
@@ -621,14 +928,26 @@ describe("slices CLI", () => {
       "add",
       "--project",
       "PRO-333",
+      "--repo",
+      repoDir,
       "Canonical slice",
     ]);
 
     await expect(
-      fs.stat(path.join(canonicalProjectDir, "slices", "PRO-333-S01", "README.md"))
+      fs.stat(
+        path.join(canonicalProjectDir, "slices", "PRO-333-S01", "README.md")
+      )
     ).resolves.toBeTruthy();
     await expect(
-      fs.stat(path.join(legacyRoot, "PRO-333_canonical", "slices", "PRO-333-S01", "README.md"))
+      fs.stat(
+        path.join(
+          legacyRoot,
+          "PRO-333_canonical",
+          "slices",
+          "PRO-333-S01",
+          "README.md"
+        )
+      )
     ).rejects.toThrow();
   });
 

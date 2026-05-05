@@ -59,6 +59,7 @@ export type CreateSliceInput = {
   sliceId?: string;
   status?: SliceStatus;
   hillPosition?: SliceHillPosition;
+  repo?: string;
   readme?: string;
   specs?: string;
   tasks?: string;
@@ -174,15 +175,21 @@ function assertValidSliceId(sliceId: string): void {
   }
 }
 
-async function assertValidSliceRepo(
-  repo: unknown
-): Promise<string | undefined> {
+export function normalizeRepoValue(repo: unknown): string | undefined {
   if (repo === undefined) return undefined;
   if (typeof repo !== "string") {
     throw new Error("Slice repo must be an absolute path");
   }
   const trimmed = repo.trim();
   if (!trimmed) return undefined;
+  return trimmed;
+}
+
+async function assertValidSliceRepo(
+  repo: unknown
+): Promise<string | undefined> {
+  const trimmed = normalizeRepoValue(repo);
+  if (trimmed === undefined) return undefined;
   if (!path.isAbsolute(trimmed)) {
     throw new Error("Slice repo must be an absolute path");
   }
@@ -194,6 +201,39 @@ async function assertValidSliceRepo(
     throw new Error(`Slice repo is not a git repo: ${trimmed}`);
   }
   return trimmed;
+}
+
+async function readProjectRepo(
+  projectDir: string
+): Promise<string | undefined> {
+  const parsed = await parseMarkdownFile(
+    path.join(projectDir, README_FILE)
+  ).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  });
+  if (!parsed) return undefined;
+  return normalizeRepoValue(parsed.frontmatter.repo);
+}
+
+function repoRequiredMessage(
+  projectId: string,
+  action: "create" | "update"
+): string {
+  const verb = action === "create" ? "create" : "update";
+  return `Cannot ${verb} slice: project ${projectId} has no repo. Pass --repo <abs path> or set the project repo first (\`aihub projects update ${projectId} --repo …\`).`;
+}
+
+export async function assertSliceRepoInvariant(
+  projectDir: string,
+  sliceFrontmatter: Pick<SliceFrontmatter, "project_id" | "repo">,
+  action: "create" | "update"
+): Promise<void> {
+  const projectRepo = await readProjectRepo(projectDir);
+  const sliceRepo = normalizeRepoValue(sliceFrontmatter.repo);
+  if (!projectRepo && !sliceRepo) {
+    throw new Error(repoRequiredMessage(sliceFrontmatter.project_id, action));
+  }
 }
 
 function formatSliceId(projectId: string, sliceNumber: number): string {
@@ -370,6 +410,12 @@ export async function createSlice(
 ): Promise<SliceRecord> {
   assertValidProjectId(input.projectId);
   const now = new Date().toISOString();
+  const repo = await assertValidSliceRepo(input.repo);
+  await assertSliceRepoInvariant(
+    projectDir,
+    { project_id: input.projectId, repo },
+    "create"
+  );
   const id = await reserveSliceId(projectDir, input.projectId, input.sliceId);
   const sliceDir = path.join(projectDir, SLICES_DIR, id);
   await fs.mkdir(path.join(projectDir, SLICES_DIR), { recursive: true });
@@ -381,6 +427,7 @@ export async function createSlice(
     project_id: input.projectId,
     title: input.title,
     status: input.status ?? "todo",
+    repo,
     hill_position: input.hillPosition ?? "figuring",
     created_at: now,
     updated_at: now,
@@ -479,6 +526,7 @@ export async function updateSlice(
     nextFrontmatter.blocked_by = undefined;
   }
   nextFrontmatter.repo = await assertValidSliceRepo(nextFrontmatter.repo);
+  await assertSliceRepoInvariant(projectDir, nextFrontmatter, "update");
 
   const sliceDir = current.dirPath;
   await Promise.all([

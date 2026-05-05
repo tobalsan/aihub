@@ -455,6 +455,7 @@ export type SliceListResponse = {
 export type CreateSlicePayload = {
   title: string;
   status?: SliceStatus;
+  repo?: string;
   hill_position?: SliceHillPosition;
   readme?: string;
   specs?: string;
@@ -466,6 +467,7 @@ export type CreateSlicePayload = {
 export type UpdateSlicePayload = {
   title?: string;
   status?: SliceStatus;
+  repo?: string;
   hill_position?: SliceHillPosition;
   readme?: string;
   specs?: string;

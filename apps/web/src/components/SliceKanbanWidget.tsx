@@ -87,6 +87,7 @@ export function SliceKanbanWidget(props: Props) {
   );
   const [newSliceTitle, setNewSliceTitle] = createSignal("");
   const [creating, setCreating] = createSignal(false);
+  const [createError, setCreateError] = createSignal<string | null>(null);
 
   const slicesByStatus = (status: SliceStatus): SliceRecord[] => {
     return (slices() ?? []).filter((s) => s.frontmatter.status === status);
@@ -280,14 +281,17 @@ export function SliceKanbanWidget(props: Props) {
     const title = newSliceTitle().trim();
     if (!title || creating()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const { createSlice } = await import("../api/client");
       const created = await createSlice(props.projectId, { title, status });
       mutate([...(slices() ?? []), created]);
       setAddingToColumn(null);
       setNewSliceTitle("");
-    } catch {
-      // ignore; user can retry
+    } catch (error) {
+      setCreateError(
+        error instanceof Error ? error.message : "Failed to create slice"
+      );
     } finally {
       setCreating(false);
     }
@@ -346,8 +350,16 @@ export function SliceKanbanWidget(props: Props) {
                     class="slice-kanban-add-input"
                     placeholder="Slice title…"
                     value={newSliceTitle()}
-                    onInput={(e) => setNewSliceTitle(e.currentTarget.value)}
+                    onInput={(e) => {
+                      setNewSliceTitle(e.currentTarget.value);
+                      setCreateError(null);
+                    }}
                   />
+                  <Show when={createError()}>
+                    {(message) => (
+                      <div class="slice-kanban-add-error">{message()}</div>
+                    )}
+                  </Show>
                   <div class="slice-kanban-add-actions">
                     <button type="submit" disabled={creating()}>
                       {creating() ? "Adding…" : "Add"}
@@ -357,6 +369,7 @@ export function SliceKanbanWidget(props: Props) {
                       onClick={() => {
                         setAddingToColumn(null);
                         setNewSliceTitle("");
+                        setCreateError(null);
                       }}
                     >
                       Cancel
@@ -443,6 +456,12 @@ export function SliceKanbanWidget(props: Props) {
           padding: 24px;
           color: var(--text-secondary);
           font-size: 13px;
+        }
+
+        .slice-kanban-add-error {
+          color: var(--danger, #d25656);
+          font-size: 12px;
+          line-height: 1.35;
         }
 
         .slice-kanban-columns {

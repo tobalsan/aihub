@@ -18,6 +18,7 @@ describe("slices HTTP API", () => {
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
   let createdProjectId: string;
+  let sliceRepoDir: string;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slices-api-"));
@@ -98,6 +99,16 @@ describe("slices HTTP API", () => {
       body: JSON.stringify({ title: "Slice Test Project" }),
     });
     expect(projectRes.status).toBe(201);
+    const projectId = ((await projectRes.clone().json()) as { id: string }).id;
+    // S13 invariant: slices need a repo if the project has none. Update the project to set repo.
+    sliceRepoDir = path.join(tmpDir, "slices-api-test-repo");
+    await fs.mkdir(path.join(sliceRepoDir, ".git"), { recursive: true });
+    const updateRes = await api.request(`/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: sliceRepoDir }),
+    });
+    expect(updateRes.status).toBe(200);
     const project = (await projectRes.json()) as { id: string };
     createdProjectId = project.id;
   });
@@ -160,6 +171,11 @@ describe("slices HTTP API", () => {
       body: JSON.stringify({ title: "Stale Counter Project" }),
     });
     const project = (await projectRes.json()) as { id: string };
+    await api.request(`/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: sliceRepoDir }),
+    });
     const firstRes = await api.request(`/projects/${project.id}/slices`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -270,6 +270,23 @@ function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function projectMutationErrorStatus(error: string): 400 | 404 | 409 {
+  if (error.startsWith("Project already exists")) return 409;
+  if (error.startsWith("Cannot clear project repo")) return 400;
+  return 404;
+}
+
+function sliceMutationErrorStatus(error: string): 400 | 404 {
+  if (
+    error.startsWith("Cannot create slice") ||
+    error.startsWith("Cannot update slice") ||
+    error.startsWith("Slice repo ")
+  ) {
+    return 400;
+  }
+  return 404;
+}
+
 function expandHomePath(value: string): string {
   if (value.startsWith("~/")) {
     return path.join(os.homedir(), value.slice(2));
@@ -1164,29 +1181,37 @@ export function registerProjectRoutes(app: Hono): void {
     if (!project.ok) {
       return c.json({ error: project.error }, 404);
     }
-    const slice = await createSlice(project.data.absolutePath, {
-      projectId: id,
-      title,
-      status:
-        typeof body.status === "string" ? (body.status as SliceStatus) : "todo",
-      hillPosition:
-        typeof body.hill_position === "string"
-          ? (body.hill_position as SliceHillPosition)
-          : "figuring",
-      readme: typeof body.readme === "string" ? body.readme : undefined,
-      specs: typeof body.specs === "string" ? body.specs : undefined,
-      tasks: typeof body.tasks === "string" ? body.tasks : undefined,
-      validation:
-        typeof body.validation === "string" ? body.validation : undefined,
-      thread: typeof body.thread === "string" ? body.thread : undefined,
-    });
-    emitUpdatedSliceFiles(
-      id,
-      projectDirNameFromPath(project.data.path),
-      slice.id,
-      body
-    );
-    return c.json(slice, 201);
+    try {
+      const slice = await createSlice(project.data.absolutePath, {
+        projectId: id,
+        title,
+        status:
+          typeof body.status === "string"
+            ? (body.status as SliceStatus)
+            : "todo",
+        repo: typeof body.repo === "string" ? body.repo : undefined,
+        hillPosition:
+          typeof body.hill_position === "string"
+            ? (body.hill_position as SliceHillPosition)
+            : "figuring",
+        readme: typeof body.readme === "string" ? body.readme : undefined,
+        specs: typeof body.specs === "string" ? body.specs : undefined,
+        tasks: typeof body.tasks === "string" ? body.tasks : undefined,
+        validation:
+          typeof body.validation === "string" ? body.validation : undefined,
+        thread: typeof body.thread === "string" ? body.thread : undefined,
+      });
+      emitUpdatedSliceFiles(
+        id,
+        projectDirNameFromPath(project.data.path),
+        slice.id,
+        body
+      );
+      return c.json(slice, 201);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "not found";
+      return c.json({ error: msg }, sliceMutationErrorStatus(msg));
+    }
   });
 
   app.get("/projects/:id/slices/:sliceId", async (c) => {
@@ -1232,6 +1257,8 @@ export function registerProjectRoutes(app: Hono): void {
         validation:
           typeof body.validation === "string" ? body.validation : undefined,
         thread: typeof body.thread === "string" ? body.thread : undefined,
+        frontmatter:
+          typeof body.repo === "string" ? { repo: body.repo } : undefined,
       });
       emitUpdatedSliceFiles(
         id,
@@ -1242,7 +1269,7 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json(slice);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "not found";
-      return c.json({ error: msg }, 404);
+      return c.json({ error: msg }, sliceMutationErrorStatus(msg));
     }
   });
 
@@ -1428,10 +1455,10 @@ export function registerProjectRoutes(app: Hono): void {
       if (Object.keys(rest).length > 0) {
         const updated = await updateProject(config, id, rest);
         if (!updated.ok) {
-          const status = updated.error.startsWith("Project already exists")
-            ? 409
-            : 404;
-          return c.json({ error: updated.error }, status);
+          return c.json(
+            { error: updated.error },
+            projectMutationErrorStatus(updated.error)
+          );
         }
         emitUpdatedProjectFiles(
           id,
@@ -1465,10 +1492,10 @@ export function registerProjectRoutes(app: Hono): void {
       parsed.data
     );
     if (!result.ok) {
-      const status = result.error.startsWith("Project already exists")
-        ? 409
-        : 404;
-      return c.json({ error: result.error }, status);
+      return c.json(
+        { error: result.error },
+        projectMutationErrorStatus(result.error)
+      );
     }
     emitUpdatedProjectFiles(
       id,

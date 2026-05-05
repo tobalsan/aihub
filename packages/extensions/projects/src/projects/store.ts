@@ -13,7 +13,12 @@ import { getProjectsContext } from "../context.js";
 import { listAreas } from "../areas/store.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot } from "../util/paths.js";
-import { listSlices, updateSlice, type SliceRecord } from "./slices.js";
+import {
+  listSlices,
+  normalizeRepoValue,
+  updateSlice,
+  type SliceRecord,
+} from "./slices.js";
 import { emitProjectPitchFallbackHint } from "./fallback-hints.js";
 
 function getProjectsStatePath(): string {
@@ -97,6 +102,19 @@ async function isValidGitRepo(repoPath?: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function projectRepoClearError(sliceIds: string[]): string {
+  return `Cannot clear project repo: slice(s) ${sliceIds.join(", ")} rely on it (no slice-level repo set). Set their repo first, then clear the project repo.`;
+}
+
+async function assertCanClearProjectRepo(projectDir: string): Promise<void> {
+  const relyingSlices = (await listSlices(projectDir))
+    .filter((slice) => !normalizeRepoValue(slice.frontmatter.repo))
+    .map((slice) => slice.id);
+  if (relyingSlices.length > 0) {
+    throw new Error(projectRepoClearError(relyingSlices));
   }
 }
 
@@ -772,8 +790,22 @@ export async function updateProject(
     ...(nextStatus ? { status: nextStatus } : {}),
   };
 
-  if (input.repo === "") delete nextFrontmatter.repo;
-  else if (input.repo) nextFrontmatter.repo = input.repo;
+  if (input.repo !== undefined) {
+    try {
+      const repo = normalizeRepoValue(input.repo);
+      if (repo === undefined) {
+        await assertCanClearProjectRepo(finalDirPath);
+        delete nextFrontmatter.repo;
+      } else {
+        nextFrontmatter.repo = repo;
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 
   if (input.area === "") delete nextFrontmatter.area;
   else if (input.area) nextFrontmatter.area = input.area;

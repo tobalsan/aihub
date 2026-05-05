@@ -448,6 +448,36 @@ describe("BoardProjectDetailPage", () => {
     });
   });
 
+  it("shows slice creation API errors", async () => {
+    vi.mocked(createSlice).mockRejectedValueOnce(
+      new Error("Cannot create slice")
+    );
+    dispose = render(() => <BoardProjectDetailPage />, container);
+    await wait();
+    await wait();
+
+    const slicesTab = Array.from(container.querySelectorAll(".bpd-tab")).find(
+      (t) => t.textContent?.trim() === "Slices"
+    ) as HTMLButtonElement;
+    slicesTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    const addBtn = container.querySelector(
+      ".bpd-add-slice-btn"
+    ) as HTMLButtonElement;
+    addBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const input = container.querySelector(
+      ".bpd-add-slice-input"
+    ) as HTMLInputElement;
+    input.value = "My new slice";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const form = container.querySelector(".bpd-add-slice-form");
+    form?.dispatchEvent(new Event("submit", { bubbles: true }));
+
+    await wait();
+    expect(container.textContent).toContain("Cannot create slice");
+  });
+
   it("Thread tab shows comments and comment form without DocEditor", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();

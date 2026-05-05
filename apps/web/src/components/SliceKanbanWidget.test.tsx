@@ -48,6 +48,7 @@ function mockSlice(
 }
 
 let updateSliceMock: ReturnType<typeof vi.fn>;
+let createSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
 let fetchSubagentsMock: ReturnType<typeof vi.fn>;
 let subagentChangeCallback: (() => void) | undefined;
@@ -63,15 +64,7 @@ vi.mock("../api/client", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
   fetchSubagents: (...args: unknown[]) => fetchSubagentsMock(...args),
   updateSlice: (...args: unknown[]) => updateSliceMock(...args),
-  createSlice: vi.fn(async () => ({
-    ...MOCK_SLICE,
-    id: "PRO-1-S02",
-    frontmatter: {
-      ...MOCK_SLICE.frontmatter,
-      id: "PRO-1-S02",
-      title: "New slice",
-    },
-  })),
+  createSlice: (...args: unknown[]) => createSliceMock(...args),
   subscribeToSubagentChanges: vi.fn(
     (callbacks: { onSubagentChanged?: () => void }) => {
       subagentChangeCallback = callbacks.onSubagentChanged;
@@ -104,6 +97,15 @@ beforeEach(() => {
   document.body.appendChild(container);
   fetchSlicesMock = vi.fn(async () => [MOCK_SLICE]);
   fetchSubagentsMock = vi.fn(async () => ({ ok: true, data: { items: [] } }));
+  createSliceMock = vi.fn(async () => ({
+    ...MOCK_SLICE,
+    id: "PRO-1-S02",
+    frontmatter: {
+      ...MOCK_SLICE.frontmatter,
+      id: "PRO-1-S02",
+      title: "New slice",
+    },
+  }));
   updateSliceMock = vi.fn(
     async (projectId: string, sliceId: string, payload: unknown) => ({
       ...MOCK_SLICE,
@@ -138,6 +140,32 @@ describe("SliceKanbanWidget", () => {
     expect(titles).toContain("Ready to Merge");
     expect(titles).toContain("Done");
     expect(titles).toContain("Cancelled");
+  });
+
+  it("shows create slice API errors", async () => {
+    createSliceMock.mockRejectedValueOnce(new Error("Cannot create slice"));
+    render(() => <SliceKanbanWidget projectId="PRO-1" />, container);
+    await vi.waitFor(() => {
+      expect(container.querySelector(".slice-kanban-column")).not.toBeNull();
+    });
+
+    const addButton = container.querySelector(
+      ".slice-kanban-add-btn"
+    ) as HTMLButtonElement;
+    addButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const input = container.querySelector(
+      ".slice-kanban-add-input"
+    ) as HTMLInputElement;
+    input.value = "New slice";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const form = container.querySelector(
+      ".slice-kanban-add-form"
+    ) as HTMLFormElement;
+    form.dispatchEvent(new Event("submit", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Cannot create slice");
+    });
   });
 
   it("renders slice card in todo column", async () => {

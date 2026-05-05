@@ -48,9 +48,8 @@ describe("projects API", () => {
     );
 
     vi.resetModules();
-    const { setProjectsContext, clearProjectsContext } = await import(
-      "../context.js"
-    );
+    const { setProjectsContext, clearProjectsContext } =
+      await import("../context.js");
     clearProjectsContextForTest = clearProjectsContext;
     setProjectsContext({
       getConfig: () => config,
@@ -74,12 +73,13 @@ describe("projects API", () => {
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
 
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../../../../../apps/gateway/src/config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../../../../../apps/gateway/src/config/index.js");
     clearConfigCacheForTests();
-    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
+    const { loadExtensions } =
+      await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod =
+      await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -209,6 +209,112 @@ describe("projects API", () => {
     expect(readme).not.toContain("Track the active form fields.");
     expect(pitch).toContain("Track the active form fields.");
     expect(readme).toContain('status: "shaping"');
+  });
+
+  it("requires slice repo when project has no repo", async () => {
+    const repoDir = path.join(tmpDir, "api-slice-repo");
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Slice Repo Required" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const project = await createRes.json();
+
+    const missingRepo = await Promise.resolve(
+      api.request(`/projects/${project.id}/slices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "No repo" }),
+      })
+    );
+    expect(missingRepo.status).toBe(400);
+    expect((await missingRepo.json()).error).toContain(
+      `Cannot create slice: project ${project.id} has no repo. Pass --repo <abs path>`
+    );
+
+    const withRepo = await Promise.resolve(
+      api.request(`/projects/${project.id}/slices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Own repo", repo: repoDir }),
+      })
+    );
+    expect(withRepo.status).toBe(201);
+    const slice = await withRepo.json();
+    expect(slice.frontmatter.repo).toBe(repoDir);
+
+    const clearSliceRepo = await Promise.resolve(
+      api.request(`/projects/${project.id}/slices/${slice.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: "" }),
+      })
+    );
+    expect(clearSliceRepo.status).toBe(400);
+    expect((await clearSliceRepo.json()).error).toContain(
+      `Cannot update slice: project ${project.id} has no repo. Pass --repo <abs path>`
+    );
+  });
+
+  it("rejects clearing project repo when slices rely on it", async () => {
+    const repoDir = path.join(tmpDir, "api-project-repo");
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+    const createRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Project Repo Clear" }),
+      })
+    );
+    expect(createRes.status).toBe(201);
+    const project = await createRes.json();
+
+    const setRepo = await Promise.resolve(
+      api.request(`/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir }),
+      })
+    );
+    expect(setRepo.status).toBe(200);
+
+    const sliceRes = await Promise.resolve(
+      api.request(`/projects/${project.id}/slices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Inherit repo" }),
+      })
+    );
+    expect(sliceRes.status).toBe(201);
+    const slice = await sliceRes.json();
+
+    const clearRepo = await Promise.resolve(
+      api.request(`/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: "" }),
+      })
+    );
+    expect(clearRepo.status).toBe(400);
+    expect((await clearRepo.json()).error).toBe(
+      `Cannot clear project repo: slice(s) ${slice.id} rely on it (no slice-level repo set). Set their repo first, then clear the project repo.`
+    );
+
+    const archiveClearRepo = await Promise.resolve(
+      api.request(`/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "archived", repo: "" }),
+      })
+    );
+    expect(archiveClearRepo.status).toBe(400);
+    expect((await archiveClearRepo.json()).error).toContain(
+      "Cannot clear project repo"
+    );
   });
 
   it("filters projects by area query parameter", async () => {

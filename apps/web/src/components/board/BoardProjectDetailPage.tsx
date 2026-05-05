@@ -165,6 +165,9 @@ export function BoardProjectDetailPage(
   const [addingSlice, setAddingSlice] = createSignal(false);
   const [newSliceTitle, setNewSliceTitle] = createSignal("");
   const [sliceCreating, setSliceCreating] = createSignal(false);
+  const [sliceCreateError, setSliceCreateError] = createSignal<string | null>(
+    null
+  );
 
   // Thread comment form state
   const [commentDraft, setCommentDraft] = createSignal("");
@@ -299,12 +302,15 @@ export function BoardProjectDetailPage(
     const id = projectId();
     if (!id) return;
     setSliceCreating(true);
+    setSliceCreateError(null);
     try {
       await createSlice(id, { title, status: "todo" });
       setNewSliceTitle("");
       setAddingSlice(false);
-    } catch {
-      // silently ignore; kanban will show current state
+    } catch (error) {
+      setSliceCreateError(
+        error instanceof Error ? error.message : "Failed to create slice"
+      );
     } finally {
       setSliceCreating(false);
     }
@@ -481,9 +487,10 @@ export function BoardProjectDetailPage(
                           class="bpd-add-slice-input"
                           placeholder="Slice title…"
                           value={newSliceTitle()}
-                          onInput={(e) =>
-                            setNewSliceTitle(e.currentTarget.value)
-                          }
+                          onInput={(e) => {
+                            setNewSliceTitle(e.currentTarget.value);
+                            setSliceCreateError(null);
+                          }}
                         />
                         <button
                           type="submit"
@@ -498,10 +505,16 @@ export function BoardProjectDetailPage(
                           onClick={() => {
                             setAddingSlice(false);
                             setNewSliceTitle("");
+                            setSliceCreateError(null);
                           }}
                         >
                           Cancel
                         </button>
+                        <Show when={sliceCreateError()}>
+                          {(message) => (
+                            <div class="bpd-add-slice-error">{message()}</div>
+                          )}
+                        </Show>
                       </form>
                     </Show>
                   </div>
@@ -870,6 +883,7 @@ export function BoardProjectDetailPage(
           align-items: center;
           gap: 6px;
           flex: 1;
+          flex-wrap: wrap;
         }
 
         .bpd-add-slice-input {
@@ -912,6 +926,13 @@ export function BoardProjectDetailPage(
           background: transparent;
           color: var(--text-secondary);
           cursor: pointer;
+        }
+
+        .bpd-add-slice-error {
+          flex-basis: 100%;
+          color: var(--danger, #d25656);
+          font-size: 12px;
+          line-height: 1.35;
         }
 
         .bpd-slices-kanban {

@@ -54,7 +54,10 @@ async function readStdin(): Promise<string> {
   });
 }
 
-async function readMarkdownArg(value: string, readStdinFn: ReadStdin): Promise<string> {
+async function readMarkdownArg(
+  value: string,
+  readStdinFn: ReadStdin
+): Promise<string> {
   if (value === "-") return readStdinFn();
   if (value.startsWith("@")) return fs.readFile(value.slice(1), "utf8");
   return value;
@@ -123,7 +126,9 @@ async function listProjectLocations(): Promise<ProjectLocation[]> {
   return [...found.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-async function findProjectLocation(projectId: string): Promise<ProjectLocation | null> {
+async function findProjectLocation(
+  projectId: string
+): Promise<ProjectLocation | null> {
   const normalized = projectId.trim().toUpperCase();
   if (!PROJECT_ID_PATTERN.test(normalized)) {
     throw new Error(`Invalid projectId: ${projectId}`);
@@ -132,7 +137,9 @@ async function findProjectLocation(projectId: string): Promise<ProjectLocation |
   return projects.find((project) => project.id === normalized) ?? null;
 }
 
-async function listSlicesForProject(project: ProjectLocation): Promise<SliceListItem[]> {
+async function listSlicesForProject(
+  project: ProjectLocation
+): Promise<SliceListItem[]> {
   const slicesDir = path.join(project.dirPath, "slices");
   if (!(await pathExists(slicesDir))) return [];
   const entries = await fs.readdir(slicesDir, { withFileTypes: true });
@@ -157,7 +164,9 @@ async function listSlicesForProject(project: ProjectLocation): Promise<SliceList
   return out;
 }
 
-async function findSliceAcrossProjects(sliceId: string): Promise<{ project: ProjectLocation; slice: SliceRecord } | null> {
+async function findSliceAcrossProjects(
+  sliceId: string
+): Promise<{ project: ProjectLocation; slice: SliceRecord } | null> {
   const projects = await listProjectLocations();
   for (const project of projects) {
     try {
@@ -183,7 +192,9 @@ function parseSliceIdList(value: string): string[] {
 
 function frontmatterBlockers(slice: SliceRecord): string[] {
   const value = slice.frontmatter.blocked_by;
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 async function listAllLocatedSlices(): Promise<LocatedSlice[]> {
@@ -224,9 +235,14 @@ function formatBlockedBy(blockers: string[]): string {
 function renderSliceTable(items: SliceListItem[]): string {
   const headers = ["id", "project", "title", "status", "hill", "updated"];
   const rows = items.map((item) =>
-    [item.id, item.projectId, item.title, item.status, item.hillPosition, item.updatedAt].map((value) =>
-      value.replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|")
-    )
+    [
+      item.id,
+      item.projectId,
+      item.title,
+      item.status,
+      item.hillPosition,
+      item.updatedAt,
+    ].map((value) => value.replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|"))
   );
   const headerRow = `| ${headers.join(" | ")} |`;
   const separator = `| ${headers.map(() => "---").join(" | ")} |`;
@@ -268,13 +284,20 @@ export function registerSlicesCommands(program: Command): Command {
     .command("add")
     .description("Create slice")
     .requiredOption("--project <id>", "Project ID")
-    .option("--specs <content>", "Specs content string, @file, or '-' for stdin")
+    .option(
+      "--specs <content>",
+      "Specs content string, @file, or '-' for stdin"
+    )
+    .option("--repo <path>", "Slice repo path")
     .argument("<title>", "Slice title")
     .argument("[specs]", "Slice specs body")
     .action(async (title, specs, opts) => {
       try {
         const project = await findProjectLocation(String(opts.project));
-        if (!project) throw new Error(`Project not found: ${String(opts.project).trim().toUpperCase()}`);
+        if (!project)
+          throw new Error(
+            `Project not found: ${String(opts.project).trim().toUpperCase()}`
+          );
         const specsBody = await resolveAddSliceSpecs(
           specs === undefined ? undefined : String(specs),
           opts.specs === undefined ? undefined : String(opts.specs)
@@ -283,6 +306,7 @@ export function registerSlicesCommands(program: Command): Command {
           projectId: project.id,
           title: String(title),
           status: "todo",
+          repo: typeof opts.repo === "string" ? opts.repo : undefined,
           specs: specsBody,
         });
         console.log(created.id);
@@ -317,10 +341,14 @@ export function registerSlicesCommands(program: Command): Command {
         }
 
         const all = (
-          await Promise.all(filteredProjects.map((project) => listSlicesForProject(project)))
+          await Promise.all(
+            filteredProjects.map((project) => listSlicesForProject(project))
+          )
         )
           .flat()
-          .filter((slice) => (statusFilter ? slice.status === statusFilter : true))
+          .filter((slice) =>
+            statusFilter ? slice.status === statusFilter : true
+          )
           .sort((a, b) => a.id.localeCompare(b.id));
 
         if (opts.json) {
@@ -393,7 +421,9 @@ export function registerSlicesCommands(program: Command): Command {
         }
         const found = await findSliceAcrossProjects(String(sliceId));
         if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
-        await updateSlice(found.project.dirPath, found.slice.id, { status: normalizedStatus });
+        await updateSlice(found.project.dirPath, found.slice.id, {
+          status: normalizedStatus,
+        });
         console.log(`${found.slice.id} → ${normalizedStatus}`);
       } catch (err) {
         fail(err);
@@ -409,8 +439,12 @@ export function registerSlicesCommands(program: Command): Command {
       try {
         const found = await findSliceAcrossProjects(String(sliceId));
         if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
-        await updateSlice(found.project.dirPath, found.slice.id, { title: String(title) });
-        console.log(`${found.slice.id} renamed to ${JSON.stringify(String(title))}`);
+        await updateSlice(found.project.dirPath, found.slice.id, {
+          title: String(title),
+        });
+        console.log(
+          `${found.slice.id} renamed to ${JSON.stringify(String(title))}`
+        );
       } catch (err) {
         fail(err);
       }
@@ -425,7 +459,8 @@ export function registerSlicesCommands(program: Command): Command {
       try {
         const targetId = String(sliceId).trim().toUpperCase();
         const blockers = parseSliceIdList(String(opts.on ?? ""));
-        if (blockers.length === 0) throw new Error("--on must include at least one blocker ID");
+        if (blockers.length === 0)
+          throw new Error("--on must include at least one blocker ID");
 
         const allSlices = await listAllLocatedSlices();
         const byId = new Map(allSlices.map((item) => [item.slice.id, item]));
@@ -433,20 +468,29 @@ export function registerSlicesCommands(program: Command): Command {
         if (!found) throw new Error(`Slice not found: ${targetId}`);
 
         for (const blocker of blockers) {
-          if (!byId.has(blocker)) throw new Error(`Blocker slice not found: ${blocker}`);
-          if (blocker === targetId) throw new Error(`Slice cannot block itself: ${targetId}`);
+          if (!byId.has(blocker))
+            throw new Error(`Blocker slice not found: ${blocker}`);
+          if (blocker === targetId)
+            throw new Error(`Slice cannot block itself: ${targetId}`);
         }
 
-        const nextBlockers = [...new Set([...frontmatterBlockers(found.slice), ...blockers])];
+        const nextBlockers = [
+          ...new Set([...frontmatterBlockers(found.slice), ...blockers]),
+        ];
         const graph = new Map<string, string[]>(
-          allSlices.map((item) => [item.slice.id, frontmatterBlockers(item.slice)])
+          allSlices.map((item) => [
+            item.slice.id,
+            frontmatterBlockers(item.slice),
+          ])
         );
         graph.set(targetId, nextBlockers);
 
         for (const blocker of blockers) {
           const cyclePath = findCyclePath(graph, blocker, targetId);
           if (cyclePath) {
-            throw new Error(`would create cycle: ${[targetId, ...cyclePath].join(" → ")}`);
+            throw new Error(
+              `would create cycle: ${[targetId, ...cyclePath].join(" → ")}`
+            );
           }
         }
 
@@ -477,18 +521,27 @@ export function registerSlicesCommands(program: Command): Command {
         if (!found) throw new Error(`Slice not found: ${targetId}`);
 
         const current = frontmatterBlockers(found.slice);
-        const remove = typeof opts.from === "string" ? parseSliceIdList(opts.from) : undefined;
+        const remove =
+          typeof opts.from === "string"
+            ? parseSliceIdList(opts.from)
+            : undefined;
         if (remove) {
-          const missing = remove.filter((blocker) => !current.includes(blocker));
+          const missing = remove.filter(
+            (blocker) => !current.includes(blocker)
+          );
           if (missing.length > 0) {
-            throw new Error(`Blockers not found on ${targetId}: ${missing.join(", ")}`);
+            throw new Error(
+              `Blockers not found on ${targetId}: ${missing.join(", ")}`
+            );
           }
         }
         const nextBlockers = remove
           ? current.filter((blocker) => !remove.includes(blocker))
           : [];
         const updated = await updateSlice(found.project.dirPath, targetId, {
-          frontmatter: { blocked_by: nextBlockers.length > 0 ? nextBlockers : undefined },
+          frontmatter: {
+            blocked_by: nextBlockers.length > 0 ? nextBlockers : undefined,
+          },
         });
         await recordSliceUnblockedActivity({
           actor: "AIHub",
@@ -522,7 +575,9 @@ export function registerSlicesCommands(program: Command): Command {
         const metadata = author ? `\n[author:${author}]\n[date:${now}]` : "";
         const entry = `## ${now}${metadata}\n\n${String(body).trim()}`;
         const newThread = `${existing.trimEnd()}${separator}${entry}\n`;
-        await updateSlice(found.project.dirPath, found.slice.id, { thread: newThread });
+        await updateSlice(found.project.dirPath, found.slice.id, {
+          thread: newThread,
+        });
         console.log(`Comment added to ${found.slice.id}`);
       } catch (err) {
         fail(err);
@@ -537,7 +592,9 @@ export function registerSlicesCommands(program: Command): Command {
       try {
         const found = await findSliceAcrossProjects(String(sliceId));
         if (!found) throw new Error(`Slice not found: ${String(sliceId)}`);
-        await updateSlice(found.project.dirPath, found.slice.id, { status: "cancelled" });
+        await updateSlice(found.project.dirPath, found.slice.id, {
+          status: "cancelled",
+        });
         console.log(`${found.slice.id} → cancelled`);
       } catch (err) {
         fail(err);

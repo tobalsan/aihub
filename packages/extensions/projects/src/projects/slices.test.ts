@@ -13,11 +13,19 @@ import {
 describe("slice storage primitives", () => {
   let tmpDir: string;
   let projectDir: string;
+  let repoDir: string;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slices-"));
     projectDir = path.join(tmpDir, "PRO-238_auth-flow");
+    repoDir = path.join(tmpDir, "repo");
     await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "README.md"),
+      `---\nid: "PRO-238"\ntitle: "Auth Flow"\nstatus: "active"\nrepo: "${repoDir}"\n---\n`,
+      "utf8"
+    );
   });
 
   afterEach(async () => {
@@ -214,20 +222,20 @@ describe("slice storage primitives", () => {
   });
 
   it("round-trips slice repo frontmatter", async () => {
-    const repoDir = path.join(tmpDir, "repo");
-    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+    const sliceRepoDir = path.join(tmpDir, "slice-repo");
+    await fs.mkdir(path.join(sliceRepoDir, ".git"), { recursive: true });
     const created = await createSlice(projectDir, {
       projectId: "PRO-238",
       title: "Auth",
     });
 
     const updated = await updateSlice(projectDir, created.id, {
-      frontmatter: { repo: repoDir },
+      frontmatter: { repo: sliceRepoDir },
     });
 
-    expect(updated.frontmatter.repo).toBe(repoDir);
+    expect(updated.frontmatter.repo).toBe(sliceRepoDir);
     const reread = await getSlice(projectDir, created.id);
-    expect(reread.frontmatter.repo).toBe(repoDir);
+    expect(reread.frontmatter.repo).toBe(sliceRepoDir);
 
     const cleared = await updateSlice(projectDir, created.id, {
       frontmatter: { repo: "" },
@@ -238,6 +246,51 @@ describe("slice storage primitives", () => {
       "utf8"
     );
     expect(raw).not.toContain("repo:");
+  });
+
+  it("requires a slice repo when the project has no repo", async () => {
+    await fs.writeFile(
+      path.join(projectDir, "README.md"),
+      '---\nid: "PRO-238"\ntitle: "Auth Flow"\nstatus: "active"\n---\n',
+      "utf8"
+    );
+
+    await expect(
+      createSlice(projectDir, {
+        projectId: "PRO-238",
+        title: "Auth",
+      })
+    ).rejects.toThrow(
+      "Cannot create slice: project PRO-238 has no repo. Pass --repo <abs path>"
+    );
+
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Auth",
+      repo: repoDir,
+    });
+    expect(created.frontmatter.repo).toBe(repoDir);
+  });
+
+  it("rejects clearing slice repo when the project has no repo", async () => {
+    await fs.writeFile(
+      path.join(projectDir, "README.md"),
+      '---\nid: "PRO-238"\ntitle: "Auth Flow"\nstatus: "active"\n---\n',
+      "utf8"
+    );
+    const created = await createSlice(projectDir, {
+      projectId: "PRO-238",
+      title: "Auth",
+      repo: repoDir,
+    });
+
+    await expect(
+      updateSlice(projectDir, created.id, {
+        frontmatter: { repo: "" },
+      })
+    ).rejects.toThrow(
+      "Cannot update slice: project PRO-238 has no repo. Pass --repo <abs path>"
+    );
   });
 
   it("rejects invalid slice repo frontmatter", async () => {
