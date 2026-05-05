@@ -13,6 +13,7 @@ describe("areas + tasks API", () => {
     ) => Response | Promise<Response>;
   };
   let prevHome: string | undefined;
+  let prevAihubHome: string | undefined;
   let prevUserProfile: string | undefined;
   let extensions: Array<{
     id: string;
@@ -25,8 +26,10 @@ describe("areas + tasks API", () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-areas-tasks-api-"));
     projectsRoot = path.join(tmpDir, "projects");
 
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -58,9 +61,8 @@ describe("areas + tasks API", () => {
     );
 
     vi.resetModules();
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../config/index.js");
     clearConfigCacheForTests();
     const { loadExtensions } = await import("../extensions/registry.js");
     const mod = await import("./api.core.js");
@@ -101,6 +103,8 @@ describe("areas + tasks API", () => {
     for (const extension of extensions) {
       await extension.stop?.();
     }
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

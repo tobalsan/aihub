@@ -7,6 +7,7 @@ import { WebSocket } from "ws";
 
 describe("gateway status websocket", () => {
   let tmpDir: string;
+  let prevAihubHome: string | undefined;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
   let server: ReturnType<typeof import("./index.js").startServer>;
@@ -21,8 +22,10 @@ describe("gateway status websocket", () => {
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-status-ws-"));
 
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -61,6 +64,8 @@ describe("gateway status websocket", () => {
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;
@@ -180,6 +185,7 @@ describe("gateway status websocket", () => {
 
 describe("gateway status websocket in multi-user mode", () => {
   let tmpDir: string;
+  let prevAihubHome: string | undefined;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
   let server: ReturnType<typeof import("./index.js").startServer>;
@@ -194,8 +200,10 @@ describe("gateway status websocket in multi-user mode", () => {
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-status-ws-mu-"));
 
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -286,6 +294,8 @@ describe("gateway status websocket in multi-user mode", () => {
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

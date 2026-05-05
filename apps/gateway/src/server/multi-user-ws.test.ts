@@ -7,6 +7,7 @@ import { WebSocket } from "ws";
 
 describe("gateway multi-user websocket auth", () => {
   let tmpDir: string;
+  let prevAihubHome: string | undefined;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
   let server: ReturnType<typeof import("./index.js").startServer>;
@@ -14,8 +15,10 @@ describe("gateway multi-user websocket auth", () => {
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-ws-auth-"));
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -49,9 +52,8 @@ describe("gateway multi-user websocket auth", () => {
     );
 
     vi.resetModules();
-    const { clearConfigCacheForTests, loadConfig } = await import(
-      "../config/index.js"
-    );
+    const { clearConfigCacheForTests, loadConfig } =
+      await import("../config/index.js");
     clearConfigCacheForTests();
     const { loadExtensions } = await import("../extensions/registry.js");
     await loadExtensions(loadConfig());
@@ -69,6 +71,8 @@ describe("gateway multi-user websocket auth", () => {
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

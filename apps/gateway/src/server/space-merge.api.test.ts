@@ -39,6 +39,7 @@ describe("space merge API", () => {
     ) => Response | Promise<Response>;
   };
   let prevHome: string | undefined;
+  let prevAihubHome: string | undefined;
   let prevUserProfile: string | undefined;
   let extensions: Array<{
     id: string;
@@ -60,8 +61,10 @@ describe("space merge API", () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-space-merge-api-"));
     projectsRoot = path.join(tmpDir, "projects");
 
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -136,6 +139,8 @@ describe("space merge API", () => {
     for (const extension of extensions) {
       await extension.stop?.();
     }
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

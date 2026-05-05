@@ -173,6 +173,46 @@ describe("sandbox config schemas", () => {
   });
 });
 
+describe("Projects orchestrator config", () => {
+  it("defaults ready_to_merge concurrency to two", () => {
+    const result = GatewayConfigSchema.parse({
+      agents: [],
+      extensions: {
+        projects: {
+          orchestrator: {
+            statuses: {
+              ready_to_merge: { profile: "Merger" },
+            },
+          },
+        },
+      },
+    });
+
+    expect(
+      result.extensions?.projects?.orchestrator?.statuses.ready_to_merge
+        ?.max_concurrent
+    ).toBe(2);
+  });
+
+  it("accepts legacy top-level Merger profiles", () => {
+    const result = GatewayConfigSchema.safeParse({
+      agents: [],
+      subagents: [
+        {
+          name: "Merger",
+          cli: "codex",
+          model: "gpt-5.5",
+          reasoning: "medium",
+          type: "merger",
+          runMode: "worktree",
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
 describe("container IPC schemas", () => {
   it("parses container input and output", () => {
     const input = ContainerInputSchema.parse({

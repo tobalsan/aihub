@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 
 describe("/api/debug/events", () => {
   let tmpDir: string;
+  let prevAihubHome: string | undefined;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
   let server: ReturnType<typeof import("./index.js").startServer>;
@@ -15,9 +16,11 @@ describe("/api/debug/events", () => {
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-debug-events-"));
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
     prevDev = process.env.AIHUB_DEV;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
     process.env.AIHUB_DEV = "1";
@@ -53,6 +56,8 @@ describe("/api/debug/events", () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

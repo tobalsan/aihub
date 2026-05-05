@@ -5,13 +5,16 @@ import os from "node:os";
 
 describe("extension-disabled API responses", () => {
   let tmpDir: string;
+  let prevAihubHome: string | undefined;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-component-404-"));
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -38,6 +41,8 @@ describe("extension-disabled API responses", () => {
   });
 
   afterAll(async () => {
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

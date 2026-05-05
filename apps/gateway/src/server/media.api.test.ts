@@ -12,14 +12,17 @@ describe("media upload API", () => {
     ) => Response | Promise<Response>;
   };
   let mediaMetadata: typeof import("../media/metadata.js");
+  let prevAihubHome: string | undefined;
   let prevHome: string | undefined;
   let prevUserProfile: string | undefined;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-media-"));
 
+    prevAihubHome = process.env.AIHUB_HOME;
     prevHome = process.env.HOME;
     prevUserProfile = process.env.USERPROFILE;
+    process.env.AIHUB_HOME = path.join(tmpDir, ".aihub");
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
@@ -30,6 +33,8 @@ describe("media upload API", () => {
   });
 
   afterAll(async () => {
+    if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
+    else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
     if (prevUserProfile === undefined) delete process.env.USERPROFILE;

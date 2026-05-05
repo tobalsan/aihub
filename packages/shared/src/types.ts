@@ -461,6 +461,11 @@ export type ProjectsOrchestratorStatusConfig = z.infer<
   typeof ProjectsOrchestratorStatusConfigSchema
 >;
 
+const ProjectsOrchestratorMergerStatusConfigSchema =
+  ProjectsOrchestratorStatusConfigSchema.extend({
+    max_concurrent: z.number().int().nonnegative().default(2),
+  });
+
 export const ProjectsOrchestratorConfigSchema = z.object({
   enabled: z.boolean().optional().default(false),
   poll_interval_ms: z.number().int().positive().optional().default(30_000),
@@ -474,6 +479,7 @@ export const ProjectsOrchestratorConfigSchema = z.object({
     .object({
       todo: ProjectsOrchestratorStatusConfigSchema.optional(),
       review: ProjectsOrchestratorStatusConfigSchema.optional(),
+      ready_to_merge: ProjectsOrchestratorMergerStatusConfigSchema.optional(),
     })
     .passthrough()
     .optional()
@@ -566,7 +572,7 @@ export const SubagentConfigSchema = z.object({
   cli: z.enum(["codex", "claude", "pi"]),
   model: z.string(),
   reasoning: z.string(),
-  type: z.enum(["worker", "reviewer"]),
+  type: z.enum(["worker", "reviewer", "merger"]),
   runMode: z.enum(["clone", "main", "worktree", "none"]),
 });
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;

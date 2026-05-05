@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { Command } from "commander";
 import { GatewayConfigSchema, type GatewayConfig } from "@aihub/shared";
-import {
-  clearConfigCacheForTests,
-  setLoadedConfig,
-} from "../config/index.js";
+import { clearConfigCacheForTests, setLoadedConfig } from "../config/index.js";
 import {
   createRuntimeSubagentHandlers,
   createSubagentHandlers,
@@ -20,13 +17,13 @@ function stubConsoleLog(): string[] {
   return lines;
 }
 
-function setTestConfig(
-  extensions?: GatewayConfig["extensions"]
-): void {
-  setLoadedConfig(GatewayConfigSchema.parse({
-    agents: [],
-    extensions,
-  }));
+function setTestConfig(extensions?: GatewayConfig["extensions"]): void {
+  setLoadedConfig(
+    GatewayConfigSchema.parse({
+      agents: [],
+      extensions,
+    })
+  );
 }
 
 let previousApiUrl: string | undefined;
@@ -199,9 +196,7 @@ describe("runtime subagents profiles CLI", () => {
 
     await program.parseAsync(["node", "aihub", "subagents", "profiles"]);
 
-    expect(lines).toEqual([
-      "Worker  codex  gpt-5.3-codex  worker  worktree",
-    ]);
+    expect(lines).toEqual(["Worker  codex  gpt-5.3-codex  worker  worktree"]);
   });
 
   it("outputs raw profile JSON", () => {
@@ -231,6 +226,29 @@ describe("runtime subagents profiles CLI", () => {
         runMode: "none",
       },
     ]);
+  });
+
+  it("includes legacy top-level Merger profiles", () => {
+    setLoadedConfig(
+      GatewayConfigSchema.parse({
+        agents: [],
+        subagents: [
+          {
+            name: "Merger",
+            cli: "codex",
+            model: "gpt-5.5",
+            reasoning: "medium",
+            type: "merger",
+            runMode: "worktree",
+          },
+        ],
+      })
+    );
+    const lines = stubConsoleLog();
+
+    printSubagentProfiles(false);
+
+    expect(lines).toEqual(["Merger  codex  gpt-5.5  merger  worktree"]);
   });
 
   it("handles missing or empty profiles", () => {

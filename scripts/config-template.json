@@ -33,11 +33,50 @@
       "reasoning": "high",
       "type": "reviewer",
       "runMode": "none"
+    },
+    {
+      "name": "Merger",
+      "description": "Merge ready slices into the project integration branch",
+      "cli": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "type": "merger",
+      "runMode": "worktree"
     }
   ],
   "extensions": {
     "board": {},
-    "subagents": {},
+    "subagents": {
+      "profiles": [
+        {
+          "name": "Worker",
+          "description": "Implements code in isolated worktree",
+          "cli": "codex",
+          "model": "gpt-5.3-codex",
+          "reasoning": "medium",
+          "type": "worker",
+          "runMode": "worktree"
+        },
+        {
+          "name": "Reviewer",
+          "description": "Review code in worker worktree",
+          "cli": "codex",
+          "model": "gpt-5.5",
+          "reasoning": "high",
+          "type": "reviewer",
+          "runMode": "none"
+        },
+        {
+          "name": "Merger",
+          "description": "Merge ready slices into the project integration branch",
+          "cli": "codex",
+          "model": "gpt-5.5",
+          "reasoning": "medium",
+          "type": "merger",
+          "runMode": "worktree"
+        }
+      ]
+    },
     "projects": {
       "orchestrator": {
         "enabled": true,
@@ -51,6 +90,10 @@
           "review": {
             "profile": "Reviewer",
             "max_concurrent": 1
+          },
+          "ready_to_merge": {
+            "profile": "Merger",
+            "max_concurrent": 2
           }
         }
       },

@@ -25,6 +25,7 @@ const config = {
       profiles: [
         { name: "Worker", cli: "codex", runMode: "clone", type: "worker" },
         { name: "Reviewer", cli: "codex", runMode: "none", type: "reviewer" },
+        { name: "Merger", cli: "codex", runMode: "worktree", type: "merger" },
       ],
     },
     projects: {},
@@ -854,6 +855,165 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0]?.prompt).toContain("Wrong fix to avoid");
     expect(spawned[0]?.prompt).toContain("Correct fix");
     // Reviewer does NOT lock the slice status
+    expect(updates.calls).toEqual([]);
+  });
+
+  it("dispatches Merger for ready_to_merge slices from the integration branch", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const updates = makeUpdateSliceMock();
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 2 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "ready_to_merge")],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("replied", "orchestrator", {
+                name: "Worker",
+                slug: "pro-1-s01-worker",
+                sliceId: "PRO-1-S01",
+                startedAt: "2026-05-03T00:00:00.000Z",
+              }),
+            ],
+          },
+        }),
+        ensureProjectIntegrationBranch: async () => "PRO-1/integration",
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: updates.fn,
+        now: () => new Date("2026-05-03T00:00:00.000Z"),
+        log: () => {},
+      }
+    );
+
+    expect(result.availableSlots).toBe(2);
+    expect(result.eligible).toBe(1);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]).toMatchObject({
+      projectId: "PRO-1",
+      sliceId: "PRO-1-S01",
+      name: "Merger",
+      mode: "worktree",
+      baseBranch: "PRO-1/integration",
+      source: "orchestrator",
+    });
+    expect(spawned[0]?.slug).toContain("pro-1-s01-merger-");
+    expect(spawned[0]?.prompt).toContain("git merge PRO-1/pro-1-s01-worker");
+    expect(spawned[0]?.prompt).toContain("aihub slices move PRO-1-S01 done");
+    expect(updates.calls).toEqual([]);
+  });
+
+  it("defaults ready_to_merge Merger concurrency to two", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger" } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [
+          slice("PRO-1-S01", "PRO-1", "ready_to_merge"),
+          slice("PRO-1-S02", "PRO-1", "ready_to_merge"),
+          slice("PRO-1-S03", "PRO-1", "ready_to_merge"),
+        ],
+        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        ensureProjectIntegrationBranch: async () => "PRO-1/integration",
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: makeUpdateSliceMock().fn,
+        now: () => new Date("2026-05-03T00:00:00.000Z"),
+        log: () => {},
+      }
+    );
+
+    expect(result.availableSlots).toBe(2);
+    expect(result.eligible).toBe(3);
+    expect(spawned.map((input) => input.sliceId)).toEqual([
+      "PRO-1-S01",
+      "PRO-1-S02",
+    ]);
+  });
+
+  it("does not dispatch a second Merger when one is already running", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 2 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "ready_to_merge")],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("running", "orchestrator", {
+                name: "Merger",
+                sliceId: "PRO-1-S01",
+              }),
+            ],
+          },
+        }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        updateSlice: makeUpdateSliceMock().fn,
+        log: () => {},
+      }
+    );
+
+    expect(result.running).toBe(1);
+    expect(result.availableSlots).toBe(1);
+    expect(result.eligible).toBe(0);
+    expect(spawned).toEqual([]);
+  });
+
+  it("leaves ready_to_merge slices unchanged when Merger spawn fails", async () => {
+    const updates = makeUpdateSliceMock();
+
+    const result = await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { ready_to_merge: { profile: "Merger", max_concurrent: 1 } },
+      },
+      {
+        listProjects: async () => ({ ok: true, data: [project("PRO-1")] }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "ready_to_merge")],
+        listSubagents: async () => ({ ok: true, data: { items: [] } }),
+        ensureProjectIntegrationBranch: async () => "PRO-1/integration",
+        spawnSubagent: async () => ({ ok: false, error: "boom" }),
+        updateSlice: updates.fn,
+        log: () => {},
+      }
+    );
+
+    expect(result.decisions).toEqual([
+      {
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        action: "skipped",
+        reason: "spawn_failed",
+      },
+    ]);
     expect(updates.calls).toEqual([]);
   });
 

@@ -95,6 +95,8 @@ export type DispatchResult = {
 const WORKER_SLICE_STATUS = "todo";
 // Slice status that triggers Reviewer dispatch.
 const REVIEWER_SLICE_STATUS = "review";
+// Slice status that triggers Merger dispatch.
+const MERGER_SLICE_STATUS = "ready_to_merge";
 
 /** A slice paired with its resolved parent project info. */
 export type SliceDispatchItem = {
@@ -230,8 +232,12 @@ function statusConfigFor(
     max_concurrent:
       typeof candidate.max_concurrent === "number"
         ? candidate.max_concurrent
-        : 1,
+        : defaultMaxConcurrentForStatus(statusKey),
   };
+}
+
+function defaultMaxConcurrentForStatus(statusKey: string): number {
+  return statusKey === MERGER_SLICE_STATUS ? 2 : 1;
 }
 
 function profileForRun(
@@ -253,6 +259,20 @@ function isWorkerRun(
     run.name &&
     run.name ===
       statusConfigFor(orchestratorConfig, WORKER_SLICE_STATUS)?.profile
+  );
+}
+
+function isMergerRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  run: SubagentListItem
+): boolean {
+  const profile = profileForRun(config, run);
+  if (profile?.type?.toLowerCase() === "merger") return true;
+  return Boolean(
+    run.name &&
+    run.name ===
+      statusConfigFor(orchestratorConfig, MERGER_SLICE_STATUS)?.profile
   );
 }
 
@@ -285,6 +305,25 @@ function recentWorkerWorkspaces(
     }));
 }
 
+function recentWorkerBranch(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  runs: SubagentListItem[],
+  projectId: string,
+  sliceId: string
+): string | undefined {
+  const latest = runs
+    .filter(
+      (run) =>
+        sourceOf(run) === "orchestrator" &&
+        isWorkerRun(config, orchestratorConfig, run) &&
+        Boolean(run.slug) &&
+        run.sliceId === sliceId
+    )
+    .sort((a, b) => runStartedAt(b) - runStartedAt(a))[0];
+  return latest ? `${projectId}/${latest.slug}` : undefined;
+}
+
 function normalizeRunMode(value: string | undefined): SubagentMode | undefined {
   if (value === "main-run") return "main-run";
   if (value === "worktree") return "worktree";
@@ -302,6 +341,19 @@ function slugForSlice(sliceId: string, now: Date, index: number): string {
   const stamp = now.getTime().toString(36);
   const suffix = index > 0 ? `-${index + 1}` : "";
   return `${sliceId.toLowerCase()}-${stamp}${suffix}`;
+}
+
+function slugForStatus(
+  statusKey: string,
+  sliceId: string,
+  now: Date,
+  index: number
+): string {
+  if (statusKey !== MERGER_SLICE_STATUS)
+    return slugForSlice(sliceId, now, index);
+  const stamp = now.getTime().toString(36);
+  const suffix = index > 0 ? `-${index + 1}` : "";
+  return `${sliceId.toLowerCase()}-merger-${stamp}${suffix}`;
 }
 
 /**
@@ -494,6 +546,76 @@ function buildReviewerSpawnInput(
   };
 }
 
+async function buildMergerSpawnInput(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  item: SliceDispatchItem,
+  profile: SubagentRuntimeProfile,
+  slug: string,
+  runs: SubagentListItem[],
+  deps: OrchestratorDispatcherDeps
+): Promise<SpawnSubagentInput> {
+  const { slice, project } = item;
+  const repo =
+    typeof project.frontmatter.repo === "string"
+      ? project.frontmatter.repo.trim()
+      : "";
+  if (!repo) {
+    throw new Error("Project repo is required for Merger dispatch");
+  }
+
+  const baseBranch = await (
+    deps.ensureProjectIntegrationBranch ?? ensureProjectIntegrationBranch
+  )(expandPath(repo), project.id);
+  const cli = resolveAihubCli();
+  const workerBranch = recentWorkerBranch(
+    config,
+    orchestratorConfig,
+    runs,
+    project.id,
+    slice.id
+  );
+  const mergeTarget = workerBranch ?? "<slice-worker-branch>";
+  const signoffInstruction =
+    'When posting comments via `aihub slices comment`, always pass `--author Merger`. Do not let comments default to "AIHub".';
+
+  const prompt = [
+    `## Merging Slice: ${slice.id} — ${slice.frontmatter.title}`,
+    "",
+    "## Project Context",
+    `Project folder: ${project.absolutePath}`,
+    `Slice folder: ${slice.dirPath}`,
+    `Integration branch: ${baseBranch}`,
+    `Slice branch: ${mergeTarget}`,
+    "",
+    "## Your Role: Merger",
+    "You are running in a worktree forked from the project integration branch.",
+    `Run \`git merge ${mergeTarget}\` to merge the slice branch into this integration branch worktree.`,
+    "If the merge is clean, commit if needed, then run targeted validation you can discover plus `pnpm typecheck` when available.",
+    "If conflicts are trivial, resolve them, commit, and run validation.",
+    `On success: run \`${cli} slices comment ${slice.id} --author Merger "Merged to integration."\` then \`${cli} slices move ${slice.id} done\`. Exit.`,
+    `On irrecoverable conflict or validation failure: run \`${cli} slices comment ${slice.id} --author Merger "Merge conflict — needs human: <files or failing checks>"\`. Leave the slice in \`ready_to_merge\` and exit.`,
+    "Do not push. Do not merge integration into main.",
+    signoffInstruction,
+  ]
+    .join("\n")
+    .trim();
+
+  return {
+    projectId: project.id,
+    sliceId: slice.id,
+    slug,
+    cli: profile.cli,
+    name: profile.name,
+    prompt,
+    model: profile.model,
+    reasoningEffort: profile.reasoningEffort ?? profile.reasoning,
+    mode: normalizeRunMode(profile.runMode),
+    baseBranch,
+    source: "orchestrator",
+  };
+}
+
 function fallbackCwdsForProject(
   config: GatewayConfig,
   project: ProjectListItem
@@ -547,11 +669,12 @@ async function dispatchForStatus(
     return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
   }
 
-  // Only support todo (Worker) and review (Reviewer) slice statuses for now.
+  // Only support Worker, Reviewer, and Merger slice statuses for now.
   // Other status keys are not dispatched.
   if (
     statusKey !== WORKER_SLICE_STATUS &&
-    statusKey !== REVIEWER_SLICE_STATUS
+    statusKey !== REVIEWER_SLICE_STATUS &&
+    statusKey !== MERGER_SLICE_STATUS
   ) {
     keyValueLog(log, {
       component: "orchestrator",
@@ -603,9 +726,15 @@ async function dispatchForStatus(
   const activeBySlice = new Map<string, SubagentListItem[]>();
   for (const item of allItems) {
     const fallbackCwds = fallbackCwdsForProject(config, item.project);
-    const active = item.runs.filter((run) =>
-      isActiveOrchestratorRun(run, item.slice.id, fallbackCwds)
-    );
+    const active = item.runs.filter((run) => {
+      if (!isActiveOrchestratorRun(run, item.slice.id, fallbackCwds)) {
+        return false;
+      }
+      if (statusKey === MERGER_SLICE_STATUS) {
+        return isMergerRun(config, orchestratorConfig, run);
+      }
+      return true;
+    });
     activeBySlice.set(item.slice.id, active);
   }
 
@@ -666,7 +795,7 @@ async function dispatchForStatus(
 
   for (const [index, item] of selected.entries()) {
     const { slice, project, runs } = item;
-    const slug = slugForSlice(slice.id, nowDate, index);
+    const slug = slugForStatus(statusKey, slice.id, nowDate, index);
 
     // Record attempt up-front so cooldown applies even when input construction
     // or spawn throws (e.g. git branch/worktree setup failed).
@@ -684,6 +813,16 @@ async function dispatchForStatus(
           profile,
           slug,
           runs
+        );
+      } else if (statusKey === MERGER_SLICE_STATUS) {
+        input = await buildMergerSpawnInput(
+          config,
+          orchestratorConfig,
+          item,
+          profile,
+          slug,
+          runs,
+          deps
         );
       }
     } catch (error) {

@@ -278,15 +278,34 @@ function formatProfileRows(profiles: SubagentProfileRow[]): string[] {
     Math.max(...rows.map((row) => row[index].length))
   );
   return rows.map((row) =>
-    row.map((cell, index) => cell.padEnd(widths[index])).join("  ").trimEnd()
+    row
+      .map((cell, index) => cell.padEnd(widths[index]))
+      .join("  ")
+      .trimEnd()
   );
 }
 
 export function printSubagentProfiles(json: boolean): void {
-  const profiles =
-    (loadConfig().extensions?.subagents?.profiles as
+  const config = loadConfig();
+  const extensionProfiles =
+    (config.extensions?.subagents?.profiles as
       | SubagentRuntimeProfile[]
       | undefined) ?? [];
+  const legacyProfiles = (config.subagents ?? []).map((profile) => ({
+    name: profile.name,
+    cli: profile.cli,
+    model: profile.model,
+    reasoningEffort: profile.reasoning,
+    type: profile.type,
+    runMode: profile.runMode,
+  }));
+  const profiles = [
+    ...extensionProfiles,
+    ...legacyProfiles.filter(
+      (legacy) =>
+        !extensionProfiles.some((profile) => profile.name === legacy.name)
+    ),
+  ];
 
   if (json) {
     console.log(JSON.stringify(profiles));
