@@ -36,6 +36,8 @@
     }
   ],
   "extensions": {
+    "board": {},
+    "subagents": {},
     "projects": {
       "orchestrator": {
         "enabled": true,
