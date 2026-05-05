@@ -129,8 +129,12 @@ function project(
     title,
     area: "platform",
     status,
+    lifecycleStatus: status === "done" ? "done" : "active",
     group: status === "done" ? "done" : "active",
     created: "2026-04-30T10:00:00.000Z",
+    sliceProgress: { done: 0, total: 0 },
+    lastActivity: null,
+    activeRunCount: 0,
     worktrees,
   };
 }
@@ -141,8 +145,12 @@ function unassigned(worktrees: BoardWorktree[] = []): BoardProject {
     title: "Unassigned",
     area: "",
     status: "unassigned",
+    lifecycleStatus: "active",
     group: "active",
     created: "",
+    sliceProgress: { done: 0, total: 0 },
+    lastActivity: null,
+    activeRunCount: 0,
     worktrees,
   };
 }
@@ -257,9 +265,7 @@ describe("ProjectsOverview", () => {
 
   it("excludes unassigned bucket worktrees from top-level unassigned runs", async () => {
     fetchBoardProjectsMock.mockResolvedValue([
-      project("PRO-1", "Alpha Project", "maybe", [
-        worktree("worker-a", null),
-      ]),
+      project("PRO-1", "Alpha Project", "maybe", [worktree("worker-a", null)]),
       unassigned([worktree("loose", null)]),
     ]);
     const { container, dispose } = renderOverview("__unassigned");

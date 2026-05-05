@@ -413,7 +413,14 @@ function GroupSection(props: {
   };
   const handleDragLeave = (e: DragEvent) => {
     const nextTarget = e.relatedTarget as Node | null;
-    if (nextTarget && e.currentTarget.contains(nextTarget)) return;
+    const currentTarget = e.currentTarget;
+    if (
+      nextTarget &&
+      currentTarget instanceof Node &&
+      currentTarget.contains(nextTarget)
+    ) {
+      return;
+    }
     setDragOver(false);
   };
   const handleDrop = (e: DragEvent) => {

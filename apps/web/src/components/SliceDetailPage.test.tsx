@@ -230,7 +230,7 @@ describe("SliceDetailPage", () => {
     ).not.toContain("Blockers");
   });
 
-  it("renders README tab content by default", async () => {
+  it("renders Specs tab content by default", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(
@@ -238,25 +238,26 @@ describe("SliceDetailPage", () => {
       ).not.toBeNull();
     });
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    expect(tabs.length).toBe(6);
-    expect(tabs[0]?.textContent).toBe("README");
+    expect(tabs.length).toBe(5);
+    expect(tabs[0]?.textContent).toBe("Specs");
     expect(tabs[0]?.classList.contains("active")).toBe(true);
     const editor = container.querySelector("[data-testid='doc-editor']");
-    expect(editor?.getAttribute("data-dockey")).toBe("README");
-    expect(editor?.getAttribute("data-content")).toContain("Must");
-    expect(editor?.getAttribute("data-content")).toContain("login");
-    expect(container.querySelector(".slice-detail-readme")).toBeNull();
+    expect(editor?.getAttribute("data-dockey")).toBe("SPECS");
+    expect(editor?.getAttribute("data-content")).toContain(
+      "Implement OAuth login."
+    );
+    expect(container.textContent).not.toContain("README");
   });
 
   it("switches to tasks tab and shows editable document", async () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(6);
+      expect(tabs.length).toBe(5);
     });
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    // Tab order: README, specs, tasks, validation, thread
-    const tasksTab = tabs[2] as HTMLElement;
+    // Tab order: specs, tasks, validation, thread, agent
+    const tasksTab = tabs[1] as HTMLElement;
     tasksTab.click();
     await vi.waitFor(() => {
       expect(
@@ -272,11 +273,11 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(6);
+      expect(tabs.length).toBe(5);
     });
     const specsTab = container.querySelectorAll(
       ".slice-detail-tab-btn"
-    )[1] as HTMLElement;
+    )[0] as HTMLElement;
     specsTab.click();
     await vi.waitFor(() => {
       expect(
@@ -294,11 +295,11 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-      expect(tabs.length).toBe(6);
+      expect(tabs.length).toBe(5);
     });
 
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    (tabs[4] as HTMLElement).click();
+    (tabs[3] as HTMLElement).click();
 
     await vi.waitFor(() => {
       expect(
@@ -337,12 +338,12 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
-        6
+        5
       );
     });
 
     const tabs = container.querySelectorAll(".slice-detail-tab-btn");
-    (tabs[4] as HTMLElement).click();
+    (tabs[3] as HTMLElement).click();
 
     await vi.waitFor(() => {
       expect(container.querySelector(".slice-detail-empty")?.textContent).toBe(
@@ -440,12 +441,12 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
-        6
+        5
       );
     });
     const agentTab = container.querySelectorAll(
       ".slice-detail-tab-btn"
-    )[5] as HTMLElement;
+    )[4] as HTMLElement;
     agentTab.click();
 
     await vi.waitFor(() => {
@@ -507,7 +508,7 @@ describe("SliceDetailPage", () => {
     render(() => <SliceDetailPage />, container);
     await vi.waitFor(() => {
       expect(container.querySelectorAll(".slice-detail-tab-btn").length).toBe(
-        6
+        5
       );
     });
 
@@ -515,11 +516,10 @@ describe("SliceDetailPage", () => {
       container.querySelectorAll(".slice-detail-tab-btn")
     ) as HTMLElement[];
     const cases = [
-      { tab: tabs[0], key: "README", payload: { readme: "saved:README" } },
-      { tab: tabs[1], key: "SPECS", payload: { specs: "saved:SPECS" } },
-      { tab: tabs[2], key: "TASKS", payload: { tasks: "saved:TASKS" } },
+      { tab: tabs[0], key: "SPECS", payload: { specs: "saved:SPECS" } },
+      { tab: tabs[1], key: "TASKS", payload: { tasks: "saved:TASKS" } },
       {
-        tab: tabs[3],
+        tab: tabs[2],
         key: "VALIDATION",
         payload: { validation: "saved:VALIDATION" },
       },

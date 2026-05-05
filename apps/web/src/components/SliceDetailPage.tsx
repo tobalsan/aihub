@@ -68,13 +68,7 @@ const ALL_STATUSES: SliceStatus[] = [
 const UNKNOWN_STATUS_COLOR = "#6b6b6b";
 const UNKNOWN_STATUS_LABEL = "Unknown";
 
-type SectionTab =
-  | "readme"
-  | "specs"
-  | "tasks"
-  | "validation"
-  | "thread"
-  | "agent";
+type SectionTab = "specs" | "tasks" | "validation" | "thread" | "agent";
 type EditableSliceDocKey = Exclude<keyof SliceRecord["docs"], "thread">;
 type SliceThreadEntry = {
   author: string;
@@ -90,7 +84,6 @@ type BlockerDetail = {
 
 function isSectionTab(value: unknown): value is SectionTab {
   return (
-    value === "readme" ||
     value === "specs" ||
     value === "tasks" ||
     value === "validation" ||
@@ -377,7 +370,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
   const activeTab = createMemo<SectionTab>(() => {
     const tab = props.tab ?? searchParams.tab;
-    return isSectionTab(tab) ? tab : "readme";
+    return isSectionTab(tab) ? tab : "specs";
   });
   const [statusChanging, setStatusChanging] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
@@ -473,7 +466,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
     const base = boardHosted
       ? `/board/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`
       : `/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`;
-    return tab === "readme" ? base : `${base}?tab=${tab}`;
+    return tab === "specs" ? base : `${base}?tab=${tab}`;
   };
 
   const openTab = (tab: SectionTab) => {
@@ -765,11 +758,10 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                   </div>
                 </Show>
 
-                {/* Tabs: README | Specs | Tasks | Validation | Thread | Agent */}
+                {/* Tabs: Specs | Tasks | Validation | Thread | Agent */}
                 <nav class="slice-detail-tabs">
                   <For
                     each={[
-                      { id: "readme" as SectionTab, label: "README" },
                       { id: "specs" as SectionTab, label: "Specs" },
                       { id: "tasks" as SectionTab, label: "Tasks" },
                       { id: "validation" as SectionTab, label: "Validation" },
@@ -791,16 +783,6 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                 </nav>
 
                 <div class="slice-detail-tab-content">
-                  <Show when={activeTab() === "readme"}>
-                    <DocEditor
-                      projectId={projectId()}
-                      docKey="README"
-                      content={docs()?.readme ?? ""}
-                      onSave={(content) =>
-                        void handleSaveDoc("readme", content)
-                      }
-                    />
-                  </Show>
                   <Show when={activeTab() === "specs"}>
                     <DocEditor
                       projectId={projectId()}

@@ -295,9 +295,9 @@ function LeadAgentsSection(props: {
 }
 
 function ActiveProjectsSection(props: { onOpenProject: (id: string) => void }) {
-  const [subagents, setSubagents] = createSignal<
-    Awaited<ReturnType<typeof fetchAllSubagents>> | null
-  >(null);
+  const [subagents, setSubagents] = createSignal<Awaited<
+    ReturnType<typeof fetchAllSubagents>
+  > | null>(null);
   const [projects, setProjects] = createSignal<
     Awaited<ReturnType<typeof fetchProjects>>
   >([]);
@@ -346,6 +346,7 @@ function ActiveProjectsSection(props: { onOpenProject: (id: string) => void }) {
     );
     const grouped = new Map<string, SubagentGlobalListItem[]>();
     for (const item of subagents()?.items ?? []) {
+      if (!item.projectId) continue;
       const existing = grouped.get(item.projectId);
       if (existing) existing.push(item);
       else grouped.set(item.projectId, [item]);
@@ -399,7 +400,9 @@ function ActiveProjectsSection(props: { onOpenProject: (id: string) => void }) {
               <span class="agent-label">
                 {item.id}: {item.title}
               </span>
-              <span class="project-time">{relativeTime(item.lastActiveMs)}</span>
+              <span class="project-time">
+                {relativeTime(item.lastActiveMs)}
+              </span>
               <span
                 class="status-pill"
                 classList={{

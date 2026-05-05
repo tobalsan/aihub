@@ -176,27 +176,46 @@ describe("BoardLifecycleListPage", () => {
       const dispose = render(() => <BoardLifecycleListPage />, container);
       await vi.runAllTimersAsync();
 
-      const fileCallbacks = subscribeToFileChangesMock.mock.calls[0]?.[0];
-      const runCallbacks = subscribeToSubagentChangesMock.mock.calls[0]?.[0];
+      const fileCallbacks = (
+        subscribeToFileChangesMock.mock.calls as unknown as Array<
+          [
+            {
+              onFileChanged: (projectId: string, file: string) => void;
+            },
+          ]
+        >
+      )[0]?.[0];
+      const runCallbacks = (
+        subscribeToSubagentChangesMock.mock.calls as unknown as Array<
+          [
+            {
+              onSubagentChanged: (event: {
+                runId: string;
+                status: string;
+              }) => void;
+            },
+          ]
+        >
+      )[0]?.[0];
       expect(fileCallbacks).toBeTruthy();
       expect(runCallbacks).toBeTruthy();
 
-      fileCallbacks.onFileChanged("PRO-1", "PRO-1/README.md");
-      fileCallbacks.onFileChanged("PRO-2", "PRO-2/SPECS.md");
+      fileCallbacks?.onFileChanged("PRO-1", "PRO-1/README.md");
+      fileCallbacks?.onFileChanged("PRO-2", "PRO-2/SPECS.md");
       await vi.advanceTimersByTimeAsync(250);
       expect(fetchBoardProjectsMock).toHaveBeenLastCalledWith(false);
       expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(2);
 
-      runCallbacks.onSubagentChanged({ runId: "run-1", status: "running" });
+      runCallbacks?.onSubagentChanged({ runId: "run-1", status: "running" });
       await vi.advanceTimersByTimeAsync(250);
       expect(fetchBoardProjectsMock).toHaveBeenLastCalledWith(false);
       expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(3);
 
-      runCallbacks.onSubagentChanged({ runId: "run-1", status: "running" });
+      runCallbacks?.onSubagentChanged({ runId: "run-1", status: "running" });
       await vi.advanceTimersByTimeAsync(250);
       expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(3);
 
-      runCallbacks.onSubagentChanged({ runId: "run-1", status: "done" });
+      runCallbacks?.onSubagentChanged({ runId: "run-1", status: "done" });
       await vi.advanceTimersByTimeAsync(250);
       expect(fetchBoardProjectsMock).toHaveBeenCalledTimes(4);
 
