@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { stdout } from "node:process";
@@ -57,47 +57,124 @@ async function findAvailablePort(range) {
   return ports[index];
 }
 
+const PROJECT_DUMMY_NOTICE = [
+  "> ⚠️ **DUMMY PROJECT — DO NOT IMPLEMENT.**",
+  "> This project exists only to exercise the aihub orchestrator (dispatch, session lifecycle, kanban transitions). It is **not** a real piece of work. There is no production code to write, no bug to fix, no feature to ship.",
+  ">",
+  "> Any agent dispatched against this project must:",
+  ">",
+  "> - **Not** edit, create, or delete files in any repo.",
+  "> - **Not** run build, install, migration, deploy, or any state-changing command.",
+  "> - **Not** call `aihub` mutating endpoints other than the single status transition specified by its slice.",
+  "> - Treat every slice instruction as a script for a harmless smoke test, never as real engineering work.",
+].join("\n");
+
+const SLICE_DUMMY_NOTICE = [
+  "> ⚠️ **DUMMY SLICE — READ-ONLY SMOKE TEST.**",
+  "> This slice is fake. Its only purpose is to verify that orchestrator dispatch, session logging, and status transitions work end-to-end. There is no real deliverable.",
+  ">",
+  "> **Allowed:** read-only shell ops (`pwd`, `ls`, `cat`, `echo`), reading files inside this slice directory, printing a short status line to stdout, and the **single** `aihub slices move` call listed in the validation section.",
+  ">",
+  "> **Forbidden:** writing, creating, deleting, or moving any file; any `git` command other than `git status` / `git log`; running tests, builds, installs, or migrations; calling any other `aihub` mutation; reaching outside this slice directory.",
+  ">",
+  "> If anything in this file looks like a real engineering task, you have misread it. Stop and re-read this notice.",
+].join("\n");
+
+function dummyProjectBody({ summary, scenario }) {
+  return [
+    PROJECT_DUMMY_NOTICE,
+    "",
+    `## What this project pretends to be`,
+    "",
+    summary,
+    "",
+    `## Why it exists`,
+    "",
+    scenario,
+    "",
+    `## Agent contract`,
+    "",
+    "1. Read this README and the slice README for your assigned slice.",
+    "2. Run only read-only shell commands (`pwd`, `ls`, `cat <file-inside-slice>`, `echo`).",
+    "3. Print one short line summarising what you read.",
+    "4. Perform the single `aihub slices move` transition listed in the slice's validation section, then exit.",
+    "5. Do not touch anything else. The success signal is orchestration completing, not code changing.",
+  ].join("\n");
+}
+
+function dummySliceBody({ purpose, transition, sliceFullId }) {
+  return [
+    SLICE_DUMMY_NOTICE,
+    "",
+    `## Purpose of this dummy slice`,
+    "",
+    purpose,
+    "",
+    `## Allowed steps`,
+    "",
+    "1. `pwd` — print current working directory.",
+    "2. `ls` the slice directory.",
+    `3. \`cat\` this README (\`README.md\` in the slice directory).`,
+    `4. \`echo "dummy slice ${sliceFullId} acknowledged"\` so the run produces visible output.`,
+    "",
+    `## Validation (the only state change allowed)`,
+    "",
+    `Run exactly one mutating command, then exit:`,
+    "",
+    "```",
+    `aihub slices move ${sliceFullId} ${transition}`,
+    "```",
+    "",
+    `That transition is the success signal for the orchestrator. No code, tests, commits, or other CLI calls.`,
+    "",
+    `## Hard stops`,
+    "",
+    `- If you feel tempted to "implement" anything described above, stop. This is a dummy slice.`,
+    `- If a tool prompt asks you to write a file, refuse and exit.`,
+    `- If anything is unclear, prefer doing nothing and moving the slice to \`${transition}\` over guessing.`,
+  ].join("\n");
+}
+
 const dummyProjects = [
   {
     id: "PRO-001",
-    folder: "PRO-001_demo_board_polish",
-    title: "Demo board polish",
+    folder: "PRO-001_dummy_smoke_a",
+    title: "Dummy smoke project A",
     area: "Demo",
     status: "shaping",
     created: "2026-04-28T09:00:00.000Z",
     updated: "2026-05-02T16:42:11.000Z",
     summary:
-      "Sample project to preview the lifecycle-grouped board, project detail tabs, and slice kanban with realistic data.",
-    body: [
-      "Polish pass for the Board UI. Three small slices that each touch a distinct surface so the demo data exercises the most common views (project list, detail tabs, slice kanban).",
-      "",
-      "## Goals",
-      "",
-      "- Make the lifecycle-grouped project list legible at a glance.",
-      "- Avoid full-page reflows when switching between project detail tabs.",
-      "- Improve the empty state so a brand-new install looks intentional, not broken.",
-    ].join("\n"),
+      "Three-slice fake project used to confirm the orchestrator can dispatch a worker, log a session, and accept a single status transition without anyone writing code.",
+    scenario:
+      "Lets a developer poke the board UI and the orchestrator end-to-end with realistic-looking data while guaranteeing that no agent run can mutate the repo.",
     slices: [
       {
         num: 1,
-        title: "Group projects by lifecycle in the board list",
+        title: "Dummy slice A1 (no-op, already done)",
         status: "done",
         hill: "done",
-        body: "Group the project list by `status` buckets (Shaping / Active / Done / Cancelled). Collapsed by default for Cancelled.",
+        purpose:
+          "Pre-populated `done` slice so the kanban has something in the Done column. No agent should ever be dispatched against this slice; if one is, it should immediately exit without doing anything.",
+        transition: "done",
       },
       {
         num: 2,
-        title: "Tab-local Suspense boundaries on project detail",
+        title: "Dummy slice A2 (read-only smoke test)",
         status: "in_progress",
         hill: "executing",
-        body: "Wrap each tab panel in its own `<Suspense>` so resource reads inside Slices don't bubble up and re-suspend the chat panel.",
+        purpose:
+          "Primary smoke-test target. An agent dispatched here should read the slice files, print one acknowledgement line, then transition the slice to `review`.",
+        transition: "review",
       },
       {
         num: 3,
-        title: "Empty-state polish for fresh installs",
+        title: "Dummy slice A3 (todo, untouched)",
         status: "todo",
         hill: "figuring",
-        body: "When no projects exist, replace the blank pane with a short blurb + 'Create project' CTA. Same treatment for the slice kanban.",
+        purpose:
+          "Sits in the Todo column so the kanban has visible variety. If picked up, the agent should perform the read-only steps and move it to `review`.",
+        transition: "review",
       },
     ],
     sessions: [
@@ -120,33 +197,34 @@ const dummyProjects = [
   },
   {
     id: "PRO-002",
-    folder: "PRO-002_onboarding_tour",
-    title: "Onboarding tour",
+    folder: "PRO-002_dummy_smoke_b_done",
+    title: "Dummy smoke project B (already done)",
     area: "Demo",
     status: "done",
     created: "2026-04-15T08:00:00.000Z",
     updated: "2026-04-22T11:08:30.000Z",
     summary:
-      "Two-slice mini project, fully merged. Useful for previewing the 'done' lifecycle bucket and read-only views.",
-    body: [
-      "Walks new users through aihub on first launch: sidebar tour, project creation, slice kanban.",
-      "",
-      "Shipped 2026-04-22. Kept around as a sample of a finished project so demo screenshots still have something to render in the Done bucket.",
-    ].join("\n"),
+      "A fake, fully-completed project. Provides material for the Done lifecycle bucket and read-only history views. No agent should ever be dispatched against it.",
+    scenario:
+      "Used to verify that the board renders historical, untouched projects correctly. If something attempts to dispatch work here, that's a bug in whatever invoked it — not an instruction to do real work.",
     slices: [
       {
         num: 1,
-        title: "Tour scaffold and step navigator",
+        title: "Dummy slice B1 (frozen, done)",
         status: "done",
         hill: "done",
-        body: "Skeleton component + step state machine. No content yet; copy lands in S02.",
+        purpose:
+          "Frozen for display only. Treat as read-only. If an agent is dispatched here, exit immediately without changing anything.",
+        transition: "done",
       },
       {
         num: 2,
-        title: "Persist tour-completed flag in user settings",
+        title: "Dummy slice B2 (frozen, done)",
         status: "done",
         hill: "done",
-        body: "Write `onboarding.tourCompletedAt` once the user finishes or skips the last step. Idempotent.",
+        purpose:
+          "Frozen for display only. Treat as read-only. If an agent is dispatched here, exit immediately without changing anything.",
+        transition: "done",
       },
     ],
     sessions: [
@@ -169,52 +247,52 @@ const dummyProjects = [
   },
   {
     id: "PRO-003",
-    folder: "PRO-003_sample_repo_integration",
-    title: "Sample repo integration",
+    folder: "PRO-003_dummy_smoke_c_active",
+    title: "Dummy smoke project C (active, multi-slice)",
     area: "Demo",
     status: "active",
-    repo: "/Users/thinh/code/aihub",
     created: "2026-05-01T09:00:00.000Z",
     updated: "2026-05-04T12:14:55.000Z",
     summary:
-      "Larger demo project with four slices and a session queue — exercises worker dispatch, the merger flow, and stall detection in the kanban.",
-    body: [
-      "Wires aihub against a sample repo end-to-end so demo flows have something to dispatch against. Mirrors the structure of a real integration project (PRO-242) at a smaller scale.",
-      "",
-      "## Clusters",
-      "",
-      "- **Branching.** S01 sets up the per-project integration branch. S02 reroutes worker dispatch to fork off it instead of `main`.",
-      "- **Merging.** S03 introduces a Merger agent profile so `ready_to_merge` slices flow back into the integration branch automatically.",
-      "- **Robustness.** S04 wires stall detection into the orchestrator tick.",
-    ].join("\n"),
+      "Larger fake project with four slices spread across kanban columns. Use it to exercise queueing, multiple parallel sessions, and status transitions — all with strictly read-only agent runs.",
+    scenario:
+      "Mirrors the shape of a realistic integration project at a tiny scale, purely so screenshots and orchestrator runs have non-trivial data. There is no real codebase target; the `repo` field intentionally points nowhere meaningful for execution.",
     slices: [
       {
         num: 1,
-        title: "Project integration branch lifecycle",
+        title: "Dummy slice C1 (already done, do not dispatch)",
         status: "done",
         hill: "done",
-        body: "Lazy create `<projectId>/integration` off `main` on first worker dispatch. Idempotent helper, local-only branch.",
+        purpose:
+          "Pre-populated done slice for kanban display. Do not dispatch.",
+        transition: "done",
       },
       {
         num: 2,
-        title: "Worker dispatch forks off integration branch",
+        title: "Dummy slice C2 (in review, smoke test)",
         status: "review",
         hill: "executing",
-        body: "Replace the hardcoded `main` base for orchestrator-spawned workers with the per-project integration branch from S01.",
+        purpose:
+          "Already in review. If a reviewer agent is dispatched, it should read the slice files, print one acknowledgement line, then transition to `ready_to_merge`.",
+        transition: "ready_to_merge",
       },
       {
         num: 3,
-        title: "Merger agent profile + tick step",
+        title: "Dummy slice C3 (in progress, smoke test)",
         status: "in_progress",
         hill: "executing",
-        body: "Spawn a Merger when a slice hits `ready_to_merge`. Merge slice branch → integration; on conflict, escalate to HITL.",
+        purpose:
+          "Active worker target. Read-only steps only, then move to `review`.",
+        transition: "review",
       },
       {
         num: 4,
-        title: "Stall detection for long-idle slices",
+        title: "Dummy slice C4 (todo, smoke test)",
         status: "todo",
         hill: "figuring",
-        body: "Flag `in_progress` / `review` slices with no live subagent after N minutes. Surface a badge in the kanban.",
+        purpose:
+          "Backlog item. If picked up, perform read-only steps and move to `review`.",
+        transition: "review",
       },
     ],
     sessions: [
@@ -262,8 +340,13 @@ function projectReadme(project) {
     `created: "${project.created}"`,
     `area: "${project.area}"`,
   ];
-  if (project.repo) fm.push(`repo: "${project.repo}"`);
-  return `---\n${fm.join("\n")}\n---\n# ${project.title}\n\n${project.summary}\n\n${project.body}\n`;
+  const repo = project.repo ?? `/tmp/aihub/${project.folder}`;
+  fm.push(`repo: "${repo}"`);
+  const body = dummyProjectBody({
+    summary: project.summary,
+    scenario: project.scenario,
+  });
+  return `---\n${fm.join("\n")}\n---\n# ${project.title}\n\n${body}\n`;
 }
 
 function scopeMap(project) {
@@ -288,7 +371,12 @@ function threadFile(project) {
 
 function sliceReadme(project, slice) {
   const id = sliceId(project.id, slice.num);
-  return `---\nid: "${id}"\nproject_id: "${project.id}"\ntitle: "${slice.title}"\nstatus: "${slice.status}"\nhill_position: "${slice.hill}"\ncreated_at: "${project.created}"\nupdated_at: "${project.updated}"\n---\n# ${slice.title}\n\n${slice.body}\n`;
+  const body = dummySliceBody({
+    purpose: slice.purpose,
+    transition: slice.transition,
+    sliceFullId: id,
+  });
+  return `---\nid: "${id}"\nproject_id: "${project.id}"\ntitle: "${slice.title}"\nstatus: "${slice.status}"\nhill_position: "${slice.hill}"\ncreated_at: "${project.created}"\nupdated_at: "${project.updated}"\n---\n# ${slice.title}\n\n${body}\n`;
 }
 
 function counters(project) {
@@ -417,6 +505,7 @@ function sessionLogs(project, session) {
 
 async function writeDummyProject(project) {
   const projectDir = path.join(projectsOutputDir, project.folder);
+  await rm(projectDir, { recursive: true, force: true });
   await mkdir(path.join(projectDir, ".meta"), { recursive: true });
   await mkdir(path.join(projectDir, "slices"), { recursive: true });
   await mkdir(path.join(projectDir, "sessions"), { recursive: true });
