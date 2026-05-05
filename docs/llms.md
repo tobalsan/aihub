@@ -697,6 +697,10 @@ Behavior:
 
 `aihub gateway --agent-id <id>` filters all services to one agent. Useful for isolated testing.
 
+## Gateway as a Service (macOS)
+
+`aihub gateway install|start|stop|status|uninstall` manages a launchd user agent at `~/Library/LaunchAgents/com.aihub.gateway.plist` (label `com.aihub.gateway`, domain `gui/<uid>`). Implementation in `apps/gateway/src/cli/service.ts`. Plist runs `<process.execPath> <abs dist/cli/index.js> gateway` with `WorkingDirectory`/`AIHUB_HOME` set to `CONFIG_DIR`, logs to `$AIHUB_HOME/logs/gateway.{out,err}.log`, `RunAtLoad=true`, `KeepAlive={SuccessfulExit:false}` (restart on crash). Uses modern `launchctl bootstrap`/`bootout`/`kickstart -k`. `install` is idempotent (boots out existing first). `status` parses `launchctl print` for pid/state/last-exit-code and reads `gateway.port`/`ui.port` from config to render an info box. Non-darwin platforms exit with a "macOS launchd only" message — Linux/systemd not yet implemented.
+
 ## Direct OAuth Authentication (Pi SDK)
 
 Pi SDK agents can authenticate via OAuth tokens stored in `AIHUB_HOME/auth.json`. This allows running agents without a separate CLIProxyAPI.

@@ -29,6 +29,23 @@ cd aihub
 pnpm install
 ```
 
+## Run as a Service (macOS)
+
+Run the gateway (UI included) as a background launchd agent that auto-starts on login and restarts on crash:
+
+```bash
+pnpm aihub gateway install    # write plist + load
+pnpm aihub gateway status     # show pid, ports, log paths
+pnpm aihub gateway stop       # bootout
+pnpm aihub gateway start      # bootstrap + kickstart
+pnpm aihub gateway uninstall  # bootout + remove plist
+```
+
+- Plist: `~/Library/LaunchAgents/com.aihub.gateway.plist` (label `com.aihub.gateway`).
+- Logs: `$AIHUB_HOME/logs/gateway.{out,err}.log`.
+- `install` is idempotent (boots out any existing instance first).
+- macOS only for now; Linux/systemd not yet supported.
+
 ## Configuration
 
 The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`).

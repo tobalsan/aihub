@@ -15,6 +15,7 @@ import {
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
+import { registerGatewayServiceCommands } from "./service.js";
 import {
   registerProjectsCommands,
   registerSlicesCommands,
@@ -198,7 +199,7 @@ function printDevBanner(gatewayPort: number, uiPort: number | null) {
 `);
 }
 
-program
+const gatewayCmd = program
   .command("gateway")
   .description("Start the gateway server (multi-agent mode)")
   .option("-p, --port <port>", "Server port (default: 4000 or config)")
@@ -245,6 +246,8 @@ program
       process.exit(1);
     }
   });
+
+registerGatewayServiceCommands(gatewayCmd);
 
 program
   .command("agent")
