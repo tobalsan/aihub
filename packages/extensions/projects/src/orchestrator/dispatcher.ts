@@ -49,11 +49,61 @@ export function resolveAihubCli(): string {
   return "aihub";
 }
 
+export type OrchestratorDispatchKind = "worker" | "reviewer" | "merger";
+
+const BACKOFF_BASE_MS = 30_000;
+const BACKOFF_MAX_MS = 30 * 60_000;
+
 export type OrchestratorAttemptTracker = {
-  record(sliceId: string, atMs: number): void;
-  isCoolingDown(sliceId: string, nowMs: number, cooldownMs: number): boolean;
+  recordFailure(
+    sliceId: string,
+    kind: OrchestratorDispatchKind,
+    atMs: number
+  ): void;
+  recordSuccess(sliceId: string, kind: OrchestratorDispatchKind): void;
+  isCoolingDown(
+    sliceId: string,
+    kind: OrchestratorDispatchKind,
+    nowMs: number
+  ): boolean;
   clear(): void;
 };
+
+export function createOrchestratorAttemptTracker(): OrchestratorAttemptTracker {
+  const backoffs = new Map<
+    string,
+    { nextAttempt: number; failureCount: number }
+  >();
+
+  const key = (sliceId: string, kind: OrchestratorDispatchKind): string =>
+    `${sliceId}:${kind}`;
+
+  return {
+    recordFailure(sliceId, kind, atMs): void {
+      const attemptKey = key(sliceId, kind);
+      const previous = backoffs.get(attemptKey);
+      const failureCount = (previous?.failureCount ?? 0) + 1;
+      const delay = Math.min(
+        BACKOFF_BASE_MS * 2 ** (failureCount - 1),
+        BACKOFF_MAX_MS
+      );
+      backoffs.set(attemptKey, {
+        failureCount,
+        nextAttempt: atMs + delay,
+      });
+    },
+    recordSuccess(sliceId, kind): void {
+      backoffs.delete(key(sliceId, kind));
+    },
+    isCoolingDown(sliceId, kind, nowMs): boolean {
+      const entry = backoffs.get(key(sliceId, kind));
+      return entry !== undefined && nowMs < entry.nextAttempt;
+    },
+    clear(): void {
+      backoffs.clear();
+    },
+  };
+}
 
 export type OrchestratorDispatcherDeps = {
   listProjects?: typeof listProjects;
@@ -805,6 +855,14 @@ function configuredStatusKeys(
   );
 }
 
+function dispatchKindForStatus(
+  statusKey: string
+): OrchestratorDispatchKind | undefined {
+  if (statusKey === WORKER_SLICE_STATUS) return "worker";
+  if (statusKey === REVIEWER_SLICE_STATUS) return "reviewer";
+  return undefined;
+}
+
 async function dispatchForStatus(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
@@ -913,7 +971,7 @@ async function dispatchForStatus(
   const nowDate = (deps.now ?? (() => new Date()))();
   const nowMs = nowDate.getTime();
   const attempts = deps.attempts;
-  const cooldownMs = orchestratorConfig.failure_cooldown_ms;
+  const dispatchKind = dispatchKindForStatus(statusKey);
 
   // --- Step 5: Blocker + cooldown filtering (per sliceId) ---
   const eligible = allItems.filter((item) => {
@@ -932,7 +990,7 @@ async function dispatchForStatus(
       });
       return false;
     }
-    if (attempts?.isCoolingDown(sliceId, nowMs, cooldownMs)) {
+    if (dispatchKind && attempts?.isCoolingDown(sliceId, dispatchKind, nowMs)) {
       keyValueLog(log, {
         component: "orchestrator",
         status: statusKey,
@@ -963,10 +1021,6 @@ async function dispatchForStatus(
   for (const [index, item] of selected.entries()) {
     const { slice, project, runs } = item;
     const slug = slugForStatus(statusKey, slice.id, nowDate, index);
-
-    // Record attempt up-front so cooldown applies even when input construction
-    // or spawn throws (e.g. git branch/worktree setup failed).
-    attempts?.record(slice.id, nowMs);
 
     let input: SpawnSubagentInput | undefined;
     try {
@@ -1031,6 +1085,7 @@ async function dispatchForStatus(
     }
 
     if (!spawned.ok) {
+      if (dispatchKind) attempts?.recordFailure(slice.id, dispatchKind, nowMs);
       decisions.push({
         projectId: project.id,
         sliceId: slice.id,
@@ -1084,6 +1139,8 @@ async function dispatchForStatus(
       await removeOrphan(path.join(project.absolutePath, "sessions", slug));
       continue;
     }
+
+    if (dispatchKind) attempts?.recordSuccess(slice.id, dispatchKind);
 
     decisions.push({
       projectId: project.id,

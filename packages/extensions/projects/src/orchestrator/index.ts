@@ -1,7 +1,7 @@
 import type { GatewayConfig } from "@aihub/shared";
 import {
+  createOrchestratorAttemptTracker,
   dispatchOrchestratorTick,
-  type OrchestratorAttemptTracker,
 } from "./dispatcher.js";
 import {
   getOrchestratorConfig,
@@ -12,35 +12,13 @@ export type OrchestratorDaemon = {
   stop(): Promise<void>;
 };
 
-// Tracks last spawn-attempt time per slice attribution key.
-// Suppresses re-dispatch within `failure_cooldown_ms` so hard-failing
-// runs don't get hammered every tick. In-memory by design: gateway restart
-// resets cooldown, desired for intentional retry.
-function createAttemptTracker(): OrchestratorAttemptTracker {
-  const lastAttemptAt = new Map<string, number>();
-  return {
-    record(sliceId: string, atMs: number): void {
-      lastAttemptAt.set(sliceId, atMs);
-    },
-    isCoolingDown(sliceId: string, nowMs: number, cooldownMs: number): boolean {
-      if (cooldownMs <= 0) return false;
-      const previous = lastAttemptAt.get(sliceId);
-      if (previous === undefined) return false;
-      return nowMs - previous < cooldownMs;
-    },
-    clear(): void {
-      lastAttemptAt.clear();
-    },
-  };
-}
-
 export function startOrchestratorDaemon(
   config: GatewayConfig
 ): OrchestratorDaemon | null {
   const orchestratorConfig = getOrchestratorConfig(config);
   if (!orchestratorConfig.enabled) return null;
 
-  const attempts = createAttemptTracker();
+  const attempts = createOrchestratorAttemptTracker();
   let stopped = false;
   let running = false;
   let timer: NodeJS.Timeout | null = null;

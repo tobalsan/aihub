@@ -5,6 +5,7 @@ import type { SliceRecord } from "../projects/slices.js";
 import type { SubagentListItem } from "../subagents/index.js";
 import type { SpawnSubagentInput } from "../subagents/runner.js";
 import {
+  createOrchestratorAttemptTracker,
   dispatchOrchestratorTick,
   isActiveOrchestratorRun,
   reconcileLiveRuns,
@@ -597,12 +598,13 @@ describe("orchestrator dispatcher", () => {
   it("records an attempt + cleans the orphan dir when spawnSubagent throws", async () => {
     const removed: string[] = [];
     const logs: string[] = [];
-    const recorded: Array<{ sliceId: string; atMs: number }> = [];
+    const recorded: Array<{ sliceId: string; kind: string; atMs: number }> = [];
     const updates = makeUpdateSliceMock();
     const tracker = {
-      record: (sliceId: string, atMs: number) => {
-        recorded.push({ sliceId, atMs });
+      recordFailure: (sliceId: string, kind: string, atMs: number) => {
+        recorded.push({ sliceId, kind, atMs });
       },
+      recordSuccess: () => {},
       isCoolingDown: () => false,
       clear: () => {},
     };
@@ -632,6 +634,7 @@ describe("orchestrator dispatcher", () => {
     expect(result.decisions[0]?.sliceId).toBe("PRO-1-S01");
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.sliceId).toBe("PRO-1-S01");
+    expect(recorded[0]?.kind).toBe("worker");
     expect(updates.calls).toEqual([{ sliceId: "PRO-1-S01", status: "todo" }]);
     expect(
       logs.some(
@@ -647,7 +650,7 @@ describe("orchestrator dispatcher", () => {
 
   it("reverts Worker slice when spawnSubagent returns ok false", async () => {
     const logs: string[] = [];
-    const recorded: Array<{ sliceId: string; atMs: number }> = [];
+    const recorded: Array<{ sliceId: string; kind: string; atMs: number }> = [];
     const updates = makeUpdateSliceMock();
 
     const result = await dispatchOrchestratorTick(config, orchestratorConfig, {
@@ -660,7 +663,9 @@ describe("orchestrator dispatcher", () => {
       spawnSubagent: async () => ({ ok: false, error: "missing repo" }),
       updateSlice: updates.fn,
       attempts: {
-        record: (sliceId, atMs) => recorded.push({ sliceId, atMs }),
+        recordFailure: (sliceId, kind, atMs) =>
+          recorded.push({ sliceId, kind, atMs }),
+        recordSuccess: () => {},
         isCoolingDown: () => false,
         clear: () => {},
       },
@@ -677,7 +682,7 @@ describe("orchestrator dispatcher", () => {
       },
     ]);
     expect(recorded).toEqual([
-      { sliceId: "PRO-1-S01", atMs: 1_777_827_600_000 },
+      { sliceId: "PRO-1-S01", kind: "worker", atMs: 1_777_827_600_000 },
     ]);
     expect(updates.calls).toEqual([{ sliceId: "PRO-1-S01", status: "todo" }]);
     expect(
@@ -782,7 +787,8 @@ describe("orchestrator dispatcher", () => {
   it("keys cooldown by sliceId", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const tracker = {
-      record: () => {},
+      recordFailure: () => {},
+      recordSuccess: () => {},
       // PRO-1-S01 is cooling down; PRO-1-S02 is not
       isCoolingDown: (sliceId: string) => sliceId === "PRO-1-S01",
       clear: () => {},
@@ -854,7 +860,8 @@ describe("orchestrator dispatcher", () => {
   it("skips slices in the failure cooldown window", async () => {
     const spawned: SpawnSubagentInput[] = [];
     const tracker = {
-      record: () => {},
+      recordFailure: () => {},
+      recordSuccess: () => {},
       isCoolingDown: (sliceId: string) => sliceId === "PRO-1-S01",
       clear: () => {},
     };
@@ -881,6 +888,79 @@ describe("orchestrator dispatcher", () => {
     expect(result.eligible).toBe(1);
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.sliceId).toBe("PRO-2-S01");
+  });
+
+  it("backs off spawn failures exponentially up to 30 minutes", async () => {
+    const tracker = createOrchestratorAttemptTracker();
+    const attemptAt = new Date("2026-05-03T00:00:00.000Z").getTime();
+
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 29_999)
+    ).toBe(true);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 30_000)
+    ).toBe(false);
+
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt + 30_000);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 89_999)
+    ).toBe(true);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 90_000)
+    ).toBe(false);
+
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt + 90_000);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 209_999)
+    ).toBe(true);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 210_000)
+    ).toBe(false);
+
+    for (let i = 0; i < 10; i += 1) {
+      tracker.recordFailure("PRO-1-S02", "worker", attemptAt);
+    }
+    expect(
+      tracker.isCoolingDown("PRO-1-S02", "worker", attemptAt + 1_799_999)
+    ).toBe(true);
+    expect(
+      tracker.isCoolingDown("PRO-1-S02", "worker", attemptAt + 1_800_000)
+    ).toBe(false);
+  });
+
+  it("resets backoff after successful dispatch", () => {
+    const tracker = createOrchestratorAttemptTracker();
+    const attemptAt = new Date("2026-05-03T00:00:00.000Z").getTime();
+
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt);
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt + 30_000);
+    tracker.recordSuccess("PRO-1-S01", "worker");
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt + 90_000);
+
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 119_999)
+    ).toBe(true);
+    expect(
+      tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 120_000)
+    ).toBe(false);
+  });
+
+  it("keeps backoff separate by sliceId and dispatch kind", () => {
+    const tracker = createOrchestratorAttemptTracker();
+    const attemptAt = new Date("2026-05-03T00:00:00.000Z").getTime();
+
+    tracker.recordFailure("PRO-1-S01", "worker", attemptAt);
+
+    expect(tracker.isCoolingDown("PRO-1-S01", "worker", attemptAt + 1)).toBe(
+      true
+    );
+    expect(tracker.isCoolingDown("PRO-1-S01", "reviewer", attemptAt + 1)).toBe(
+      false
+    );
+    expect(tracker.isCoolingDown("PRO-1-S02", "worker", attemptAt + 1)).toBe(
+      false
+    );
   });
 
   it("locks spawned Worker slices by moving them to in_progress (project status unchanged)", async () => {
