@@ -1719,6 +1719,7 @@ describe("orchestrator dispatcher", () => {
   it("comments once for long-idle in_progress slices with no live run", async () => {
     const updates = makeUpdateSliceMock();
     const logs: string[] = [];
+    const hitlEvents: unknown[] = [];
 
     await dispatchOrchestratorTick(config, orchestratorConfig, {
       listProjects: async () => ({
@@ -1734,6 +1735,7 @@ describe("orchestrator dispatcher", () => {
       updateSlice: updates.fn,
       now: () => new Date("2026-05-03T00:31:00.000Z"),
       stalls: createStallTracker(),
+      hitl: { add: (event) => hitlEvents.push(event) },
       log: (msg) => logs.push(msg),
     });
 
@@ -1743,12 +1745,20 @@ describe("orchestrator dispatcher", () => {
       "Stall detected: slice PRO-1-S01 has been in in_progress for 31m with no live subagent run. Last run: none."
     );
     expect(updates.calls[0]?.thread).toContain("[author:Orchestrator]");
+    expect(hitlEvents).toEqual([
+      expect.objectContaining({
+        kind: "stall",
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+      }),
+    ]);
     expect(logs.some((msg) => msg.includes("action=stall_detected"))).toBe(true);
   });
 
   it("suppresses duplicate stall comments for the same stall", async () => {
     const updates = makeUpdateSliceMock();
     const stalls = createStallTracker();
+    const hitlEvents: unknown[] = [];
     const deps = {
       listProjects: async () => ({
         ok: true as const,
@@ -1763,6 +1773,7 @@ describe("orchestrator dispatcher", () => {
       updateSlice: updates.fn,
       now: () => new Date("2026-05-03T00:31:00.000Z"),
       stalls,
+      hitl: { add: (event: unknown) => hitlEvents.push(event) },
       log: () => {},
     };
 
@@ -1770,6 +1781,7 @@ describe("orchestrator dispatcher", () => {
     await dispatchOrchestratorTick(config, orchestratorConfig, deps);
 
     expect(updates.calls).toHaveLength(1);
+    expect(hitlEvents).toHaveLength(1);
   });
 
   it("does not comment for slices below the stall threshold", async () => {
@@ -1856,6 +1868,7 @@ describe("orchestrator dispatcher", () => {
   it("comments again after a stalled slice changes status away and back", async () => {
     const updates = makeUpdateSliceMock();
     const stalls = createStallTracker();
+    const hitlEvents: unknown[] = [];
     let status: SliceRecord["frontmatter"]["status"] = "in_progress";
     const deps = {
       listProjects: async () => ({
@@ -1871,6 +1884,7 @@ describe("orchestrator dispatcher", () => {
       updateSlice: updates.fn,
       now: () => new Date("2026-05-03T00:31:00.000Z"),
       stalls,
+      hitl: { add: (event: unknown) => hitlEvents.push(event) },
       log: () => {},
     };
 
@@ -1881,5 +1895,49 @@ describe("orchestrator dispatcher", () => {
     await dispatchOrchestratorTick(config, orchestratorConfig, deps);
 
     expect(updates.calls).toHaveLength(2);
+    expect(hitlEvents).toHaveLength(2);
+  });
+
+  it("emits HITL when a reviewer returns a slice to todo", async () => {
+    const hitlEvents: unknown[] = [];
+
+    await dispatchOrchestratorTick(
+      config,
+      {
+        ...orchestratorConfig,
+        statuses: { todo: { profile: "Worker", max_concurrent: 0 } },
+      },
+      {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1")],
+        }),
+        listSlices: async () => [slice("PRO-1-S01", "PRO-1", "todo")],
+        listSubagents: async () => ({
+          ok: true,
+          data: {
+            items: [
+              run("idle", "orchestrator", {
+                name: "Reviewer",
+                sliceId: "PRO-1-S01",
+                finishedAt: "2026-05-03T00:30:00.000Z",
+              }),
+            ],
+          },
+        }),
+        hitl: { add: (event) => hitlEvents.push(event) },
+        stalls: createStallTracker(),
+        log: () => {},
+      }
+    );
+
+    expect(hitlEvents).toEqual([
+      expect.objectContaining({
+        kind: "reviewer_fail",
+        projectId: "PRO-1",
+        sliceId: "PRO-1-S01",
+        summary: "Reviewer returned the slice to todo.",
+      }),
+    ]);
   });
 });

@@ -1,4 +1,4 @@
-import type { GatewayConfig } from "@aihub/shared";
+import { notify, type GatewayConfig } from "@aihub/shared";
 import {
   createOrchestratorAttemptTracker,
   createStallTracker,
@@ -8,6 +8,7 @@ import {
   getOrchestratorConfig,
   type OrchestratorConfig,
 } from "./config.js";
+import { createHitlBurstBuffer } from "./hitl.js";
 
 export type OrchestratorDaemon = {
   stop(): Promise<void>;
@@ -21,6 +22,22 @@ export function startOrchestratorDaemon(
 
   const attempts = createOrchestratorAttemptTracker();
   const stalls = createStallTracker();
+  const hitl = createHitlBurstBuffer({
+    notify: async (message) => {
+      const summary = await notify({
+        config: config.notifications,
+        channel: "default",
+        message,
+        surface: "both",
+        discordToken: config.extensions?.discord?.token,
+        slackToken: config.extensions?.slack?.token,
+      });
+      if (!summary.ok) {
+        throw new Error("all notification surfaces failed");
+      }
+    },
+    log: console.error,
+  });
   let stopped = false;
   let running = false;
   let timer: NodeJS.Timeout | null = null;
@@ -32,6 +49,7 @@ export function startOrchestratorDaemon(
       await dispatchOrchestratorTick(config, orchestratorConfig, {
         attempts,
         stalls,
+        hitl,
       });
     } catch (error) {
       console.error(
@@ -56,6 +74,7 @@ export function startOrchestratorDaemon(
       }
       attempts.clear();
       stalls.clear();
+      await hitl.stop();
     },
   };
 }

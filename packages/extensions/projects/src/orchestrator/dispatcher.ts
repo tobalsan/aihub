@@ -24,6 +24,7 @@ import {
 } from "../subagents/runner.js";
 import type { OrchestratorConfig } from "./config.js";
 import { getProjectsWorktreeRoot } from "../util/paths.js";
+import type { HitlEvent } from "./hitl.js";
 
 type Logger = (message: string) => void;
 
@@ -122,6 +123,7 @@ export type OrchestratorDispatcherDeps = {
   updateSlice?: typeof updateSlice;
   now?: () => Date;
   log?: Logger;
+  hitl?: { add(event: HitlEvent): void };
   attempts?: OrchestratorAttemptTracker;
   stalls?: OrchestratorStallTracker;
   removeOrphanDir?: (dirPath: string) => Promise<void>;
@@ -581,6 +583,13 @@ function runStartedAt(run: SubagentListItem): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function runEventTime(run: SubagentListItem): number {
+  const parsed = Date.parse(
+    run.finishedAt ?? run.lastActive ?? run.startedAt ?? ""
+  );
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function runLastActivityAt(run: SubagentListItem): number {
   const parsed = Date.parse(run.lastActive ?? run.startedAt ?? "");
   return Number.isFinite(parsed) ? parsed : 0;
@@ -718,6 +727,14 @@ async function detectStalls(
           thread: appendThreadComment(slice.docs.thread, body, now),
         });
         tracker.markReported(slice.id, slice.frontmatter.status, runKey);
+        deps.hitl?.add({
+          kind: "stall",
+          projectId: project.id,
+          sliceId: slice.id,
+          summary: body,
+          link: slice.dirPath,
+          dedupeKey: `stall:${slice.id}:${slice.frontmatter.status}:${runKey}`,
+        });
       }
     })
   );
@@ -729,6 +746,43 @@ async function pathExists(filePath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function emitReviewerFailureHitl(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  items: Array<SliceDispatchItem & { runs: SubagentListItem[] }>,
+  deps: OrchestratorDispatcherDeps
+): void {
+  if (!deps.hitl) return;
+
+  for (const item of items) {
+    if (item.slice.frontmatter.status !== WORKER_SLICE_STATUS) continue;
+    const latestReviewer = item.runs
+      .filter(
+        (run) =>
+          sourceOf(run) === "orchestrator" &&
+          isReviewerRun(config, orchestratorConfig, run) &&
+          run.sliceId === item.slice.id &&
+          run.status !== "running"
+      )
+      .sort((a, b) => runEventTime(b) - runEventTime(a))[0];
+    if (!latestReviewer) continue;
+
+    deps.hitl.add({
+      kind: "reviewer_fail",
+      projectId: item.project.id,
+      sliceId: item.slice.id,
+      summary: "Reviewer returned the slice to todo.",
+      link: item.slice.dirPath,
+      dedupeKey: `reviewer_fail:${item.slice.id}:${
+        latestReviewer.finishedAt ??
+        latestReviewer.lastActive ??
+        latestReviewer.startedAt ??
+        latestReviewer.slug
+      }`,
+    });
   }
 }
 
@@ -1228,6 +1282,7 @@ async function dispatchForStatus(
     projectData.flatMap(({ project, slices, runs }) =>
       slices.map((slice) => ({ slice, project, runs }))
     );
+  emitReviewerFailureHitl(config, orchestratorConfig, allItems, deps);
 
   // --- Step 4: Active-run deduplication (keyed by sliceId) ---
   const activeBySlice = new Map<string, SubagentListItem[]>();
