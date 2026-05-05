@@ -52,7 +52,7 @@
           }
         }
       },
-      "root": __PROJECTS_ROOT__,
+      "root": __PROJECTS_ROOT__
     }
   },
   "gateway": {
