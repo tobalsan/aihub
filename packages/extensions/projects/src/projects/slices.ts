@@ -374,7 +374,7 @@ export async function createSlice(
   await fs.mkdir(path.join(projectDir, SLICES_DIR), { recursive: true });
   await fs.mkdir(sliceDir);
 
-  const readmeBody = input.readme ?? "## Must\n\n## Nice\n";
+  const readmeBody = input.readme ?? "";
   const frontmatter: SliceFrontmatter = {
     id,
     project_id: input.projectId,

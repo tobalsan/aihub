@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Command } from "commander";
-import { registerSlicesCommands } from "./slices.js";
+import { registerSlicesCommands, resolveAddSliceSpecs } from "./slices.js";
 
 async function setupProject(root: string, id: string, title: string): Promise<string> {
   const dir = path.join(root, `${id}_test`);
@@ -71,10 +71,92 @@ describe("slices CLI", () => {
       "utf8"
     );
     expect(readme).toContain('title: "Auth flow"');
+    expect(readme).not.toContain("## Must");
+    const specs = await fs.readFile(
+      path.join(projectDir, "slices", "PRO-101-S01", "SPECS.md"),
+      "utf8"
+    );
+    expect(specs).toBe("");
 
     const scopeMap = await fs.readFile(path.join(projectDir, "SCOPE_MAP.md"), "utf8");
     expect(scopeMap).toContain("# Scope map — PRO-101");
     expect(scopeMap).toContain("| PRO-101-S01 | Auth flow | todo | figuring |");
+  });
+
+  it("add writes positional specs to SPECS.md", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "Auth flow",
+      "Specs body",
+    ]);
+
+    const specs = await fs.readFile(
+      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "SPECS.md"),
+      "utf8"
+    );
+    expect(specs).toBe("Specs body");
+  });
+
+  it("add writes --specs inline content to SPECS.md", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "Auth flow",
+      "--specs",
+      "Inline specs",
+    ]);
+
+    const specs = await fs.readFile(
+      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "SPECS.md"),
+      "utf8"
+    );
+    expect(specs).toBe("Inline specs");
+  });
+
+  it("add writes --specs @file content to SPECS.md", async () => {
+    await setupProject(projectsRoot, "PRO-101", "Proj");
+    const specsPath = path.join(homeDir, "specs.md");
+    await fs.writeFile(specsPath, "File specs\n", "utf8");
+
+    await createProgram().parseAsync([
+      "node",
+      "slices",
+      "add",
+      "--project",
+      "PRO-101",
+      "Auth flow",
+      "--specs",
+      `@${specsPath}`,
+    ]);
+
+    const specs = await fs.readFile(
+      path.join(projectsRoot, "PRO-101_test", "slices", "PRO-101-S01", "SPECS.md"),
+      "utf8"
+    );
+    expect(specs).toBe("File specs\n");
+  });
+
+  it("resolves --specs - content from stdin", async () => {
+    await expect(
+      resolveAddSliceSpecs(undefined, "-", async () => "stdin specs\n")
+    ).resolves.toBe("stdin specs\n");
+  });
+
+  it("rejects positional specs and --specs together", async () => {
+    await expect(
+      resolveAddSliceSpecs("Specs body", "Other specs")
+    ).rejects.toThrow("Use either positional <specs> or --specs, not both.");
   });
 
   it("list supports no flags and filters", async () => {

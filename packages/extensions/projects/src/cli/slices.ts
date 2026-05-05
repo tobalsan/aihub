@@ -33,11 +33,43 @@ type SliceListItem = {
 };
 
 type LocatedSlice = { project: ProjectLocation; slice: SliceRecord };
+type ReadStdin = () => Promise<string>;
 
 function fail(err: unknown): never {
   if (err instanceof Error) console.error(err.message);
   else console.error("Request failed");
   process.exit(1);
+}
+
+async function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", reject);
+  });
+}
+
+async function readMarkdownArg(value: string, readStdinFn: ReadStdin): Promise<string> {
+  if (value === "-") return readStdinFn();
+  if (value.startsWith("@")) return fs.readFile(value.slice(1), "utf8");
+  return value;
+}
+
+export async function resolveAddSliceSpecs(
+  positionalSpecs: string | undefined,
+  flagSpecs: string | undefined,
+  readStdinFn: ReadStdin = readStdin
+): Promise<string | undefined> {
+  if (positionalSpecs !== undefined && flagSpecs !== undefined) {
+    throw new Error("Use either positional <specs> or --specs, not both.");
+  }
+  const value = flagSpecs !== undefined ? flagSpecs : positionalSpecs;
+  if (value === undefined) return undefined;
+  return readMarkdownArg(value, readStdinFn);
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -235,15 +267,22 @@ export function registerSlicesCommands(program: Command): Command {
     .command("add")
     .description("Create slice")
     .requiredOption("--project <id>", "Project ID")
+    .option("--specs <content>", "Specs content string, @file, or '-' for stdin")
     .argument("<title>", "Slice title")
-    .action(async (title, opts) => {
+    .argument("[specs]", "Slice specs body")
+    .action(async (title, specs, opts) => {
       try {
         const project = await findProjectLocation(String(opts.project));
         if (!project) throw new Error(`Project not found: ${String(opts.project).trim().toUpperCase()}`);
+        const specsBody = await resolveAddSliceSpecs(
+          specs === undefined ? undefined : String(specs),
+          opts.specs === undefined ? undefined : String(opts.specs)
+        );
         const created = await createSlice(project.dirPath, {
           projectId: project.id,
           title: String(title),
           status: "todo",
+          specs: specsBody,
         });
         console.log(created.id);
       } catch (err) {

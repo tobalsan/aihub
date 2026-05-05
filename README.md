@@ -490,6 +490,8 @@ pnpm aihub projects rename <id> --slug <slug> [--name <name>] [--model <id>] [--
 pnpm aihub projects status <id> [--slug <slug>] [--list] [--limit <n>] [--json]
 
 # Slices CLI (local filesystem)
+pnpm aihub slices add --project <PRO-N> "Slice title" [specs]
+pnpm aihub slices add --project <PRO-N> "Slice title" --specs <text|@file|->
 pnpm aihub slices block <sliceId> --on <blockerId>[,<blockerId>...]
 pnpm aihub slices unblock <sliceId> [--from <blockerId>[,<blockerId>...]]
 
