@@ -33,6 +33,10 @@ export {
   commitProjectChanges,
   getProjectPullRequestTarget,
 } from "./git.js";
+export {
+  ensureProjectIntegrationBranch,
+  projectIntegrationBranchName,
+} from "./branches.js";
 export type {
   ProjectChanges,
   CommitResult,
