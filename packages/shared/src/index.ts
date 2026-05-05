@@ -10,4 +10,6 @@ export * from "./tool-names.js";
 export * from "./tool-extension.js";
 export * from "./notify.js";
 export * from "./frontmatter.js";
+export * from "./fs.js";
+export * from "./paths.js";
 export * from "./extensions/index.js";
