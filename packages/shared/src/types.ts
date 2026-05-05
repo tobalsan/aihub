@@ -905,8 +905,7 @@ export type Task = z.infer<typeof TaskSchema>;
 
 export const CreateProjectRequestSchema = z.object({
   title: z.string(),
-  description: z.string().optional(),
-  specs: z.string().optional(),
+  pitch: z.string().optional(),
   status: ProjectStatusSchema.optional(),
   area: z.string().optional(),
 });

@@ -67,7 +67,7 @@ describe("projects extension agent tools", () => {
     const updateTool = tools?.find((tool) => tool.name === "project.update");
 
     const created = await createTool?.execute(
-      { title: "Extension Tool Project", specs: "Initial specs" },
+      { title: "Extension Tool Project", pitch: "Initial pitch" },
       { agent, config }
     );
     expect(created).toMatchObject({

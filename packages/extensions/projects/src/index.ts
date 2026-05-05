@@ -514,8 +514,7 @@ function createProjectAgentTools(): ExtensionAgentTool[] {
         type: "object",
         properties: {
           title: { type: "string" },
-          description: { type: "string" },
-          specs: { type: "string" },
+          pitch: { type: "string" },
           status: { type: "string" },
           area: { type: "string" },
         },
@@ -1126,6 +1125,7 @@ export function registerProjectRoutes(app: Hono): void {
       return c.json({ error: result.error }, 400);
     }
     emitProjectFileChanged(result.data.id, result.data.path, "README.md");
+    emitProjectFileChanged(result.data.id, result.data.path, "PITCH.md");
     return c.json(result.data, 201);
   });
 

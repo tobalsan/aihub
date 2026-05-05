@@ -20,7 +20,8 @@ describe("projects CLI help", () => {
     const help = getCommandHelp("create");
 
     expect(help).toContain("--title <title>");
-    expect(help).toContain("--specs <content>");
+    expect(help).toContain("--pitch <content>");
+    expect(help).not.toContain("--specs <content>");
     expect(help).toContain("--status <status>");
     expect(help).toContain("--area <area>");
     expect(help).not.toContain("--domain");

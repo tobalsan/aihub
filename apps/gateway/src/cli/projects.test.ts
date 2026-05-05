@@ -25,7 +25,7 @@ describe("projects CLI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("create command passes description when provided", async () => {
+  it("create command passes pitch when provided", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -50,10 +50,10 @@ describe("projects CLI", () => {
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe("http://localhost:4000/api/projects");
     const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
-    expect(body).toEqual({ title: "Title", description: "Desc" });
+    expect(body).toEqual({ title: "Title", pitch: "Desc" });
   });
 
-  it("create command omits description when absent", async () => {
+  it("create command omits pitch when absent", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -80,7 +80,7 @@ describe("projects CLI", () => {
     expect(body).toEqual({ title: "Title" });
   });
 
-  it("create command sends --specs", async () => {
+  it("create command sends --pitch", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -98,15 +98,15 @@ describe("projects CLI", () => {
       "create",
       "-t",
       "Title Name",
-      "--specs",
-      "## Tasks",
+      "--pitch",
+      "## Pitch",
       "--json",
     ]);
 
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe("http://localhost:4000/api/projects");
     const body = JSON.parse(String(calls[0].init?.body ?? "{}"));
-    expect(body).toEqual({ title: "Title Name", specs: "## Tasks" });
+    expect(body).toEqual({ title: "Title Name", pitch: "## Pitch" });
   });
 
   it("move command passes agent", async () => {

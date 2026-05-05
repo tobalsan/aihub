@@ -48,8 +48,9 @@ describe("projects API", () => {
     );
 
     vi.resetModules();
-    const { setProjectsContext, clearProjectsContext } =
-      await import("../context.js");
+    const { setProjectsContext, clearProjectsContext } = await import(
+      "../context.js"
+    );
     clearProjectsContextForTest = clearProjectsContext;
     setProjectsContext({
       getConfig: () => config,
@@ -73,13 +74,12 @@ describe("projects API", () => {
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     } as never);
 
-    const { clearConfigCacheForTests, loadConfig } =
-      await import("../../../../../apps/gateway/src/config/index.js");
+    const { clearConfigCacheForTests, loadConfig } = await import(
+      "../../../../../apps/gateway/src/config/index.js"
+    );
     clearConfigCacheForTests();
-    const { loadExtensions } =
-      await import("../../../../../apps/gateway/src/extensions/registry.js");
-    const mod =
-      await import("../../../../../apps/gateway/src/server/api.core.js");
+    const { loadExtensions } = await import("../../../../../apps/gateway/src/extensions/registry.js");
+    const mod = await import("../../../../../apps/gateway/src/server/api.core.js");
     api = mod.api;
     const extensions = await loadExtensions(loadConfig());
     for (const extension of extensions) {
@@ -114,10 +114,12 @@ describe("projects API", () => {
     const created = await createRes.json();
     const createdDir = path.join(projectsRoot, created.path);
     const createdReadme = path.join(createdDir, "README.md");
+    const createdPitch = path.join(createdDir, "PITCH.md");
     const createdThread = path.join(createdDir, "THREAD.md");
 
     await expect(fs.stat(createdDir)).resolves.toBeDefined();
     await expect(fs.stat(createdReadme)).resolves.toBeDefined();
+    await expect(fs.stat(createdPitch)).resolves.toBeDefined();
     await expect(fs.stat(createdThread)).resolves.toBeDefined();
 
     const listRes = await Promise.resolve(api.request("/projects"));
@@ -131,7 +133,7 @@ describe("projects API", () => {
     );
     expect(getRes.status).toBe(200);
     const fetched = await getRes.json();
-    expect(fetched.docs.PITCH).toContain("# Add Project Mgmt v1");
+    expect(fetched.docs.PITCH).toBe("");
 
     const updateRes = await Promise.resolve(
       api.request(`/projects/${created.id}`, {
@@ -165,43 +167,6 @@ describe("projects API", () => {
     expect(updatedSpecsContent).toContain("# Project Mgmt API Specs");
   });
 
-  it("PATCH /projects/:id writes PITCH.md for docs.PITCH", async () => {
-    const createRes = await Promise.resolve(
-      api.request("/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "Pitch Patch API",
-        }),
-      })
-    );
-    expect(createRes.status).toBe(201);
-    const created = await createRes.json();
-    const readmePath = path.join(projectsRoot, created.path, "README.md");
-    const originalReadme = await fs.readFile(readmePath, "utf8");
-
-    const updateRes = await Promise.resolve(
-      api.request(`/projects/${created.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          docs: { PITCH: "# API Pitch\n" },
-        }),
-      })
-    );
-
-    expect(updateRes.status).toBe(200);
-    const updated = await updateRes.json();
-    expect(updated.docs.PITCH).toBe("# API Pitch\n");
-    expect(
-      await fs.readFile(
-        path.join(projectsRoot, updated.path, "PITCH.md"),
-        "utf8"
-      )
-    ).toBe("# API Pitch\n");
-    expect(await fs.readFile(readmePath, "utf8")).toBe(originalReadme);
-  });
-
   it("rejects invalid create payloads", async () => {
     const invalidTitle = await Promise.resolve(
       api.request("/projects", {
@@ -227,8 +192,7 @@ describe("projects API", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: "Metadata Project",
-          description: "Track the active form fields.",
-          specs: "## Tasks\n- [ ] Add field",
+          pitch: "Track the active form fields.",
           status: "shaping",
         }),
       })
@@ -239,12 +203,11 @@ describe("projects API", () => {
     expect(created.frontmatter.status).toBe("shaping");
 
     const readmePath = path.join(projectsRoot, created.path, "README.md");
-    const specsPath = path.join(projectsRoot, created.path, "SPECS.md");
+    const pitchPath = path.join(projectsRoot, created.path, "PITCH.md");
     const readme = await fs.readFile(readmePath, "utf8");
-    const specs = await fs.readFile(specsPath, "utf8");
-    expect(readme).toContain("# Metadata Project");
-    expect(readme).toContain("Track the active form fields.");
-    expect(specs).toContain("## Tasks");
+    const pitch = await fs.readFile(pitchPath, "utf8");
+    expect(readme).not.toContain("Track the active form fields.");
+    expect(pitch).toContain("Track the active form fields.");
     expect(readme).toContain('status: "shaping"');
   });
 

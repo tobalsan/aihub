@@ -78,7 +78,7 @@ describe("projects store", () => {
 
     const firstResult = await createProject(config, {
       title: "Alpha Project",
-      description: "Ship it.",
+      pitch: "Ship it.",
       status: "active",
     });
     if (!firstResult.ok) throw new Error(firstResult.error);
@@ -96,16 +96,22 @@ describe("projects store", () => {
       firstResult.data.path,
       "README.md"
     );
+    const pitchPath = path.join(
+      projectsRoot,
+      firstResult.data.path,
+      "PITCH.md"
+    );
     const threadPath = path.join(
       projectsRoot,
       firstResult.data.path,
       "THREAD.md"
     );
     const readme = await fs.readFile(readmePath, "utf8");
+    const pitch = await fs.readFile(pitchPath, "utf8");
     const thread = await fs.readFile(threadPath, "utf8");
     expect(readme).toContain('status: "active"');
-    expect(readme).toContain("# Alpha Project");
-    expect(readme).toContain("Ship it.");
+    expect(readme).not.toContain("Ship it.");
+    expect(pitch).toBe("Ship it.");
     expect(thread).toContain("project: PRO-1");
 
     const stateRaw = await fs.readFile(
@@ -126,61 +132,8 @@ describe("projects store", () => {
     const getResult = await getProject(config, firstResult.data.id);
     if (!getResult.ok) throw new Error(getResult.error);
     expect(getResult.data.repoValid).toBe(false);
-    expect(getResult.data.docs.PITCH).toContain("Ship it.");
+    expect(getResult.data.docs.PITCH).toBe("Ship it.");
     expect(getResult.data.thread.length).toBe(0);
-  });
-
-  it("reads project pitch from PITCH.md and falls back to README body", async () => {
-    const { createProject, getProject } = await import("./store.js");
-    const config = {
-      agents: [],
-      sessions: { idleMinutes: 360 },
-      projects: { root: projectsRoot },
-    };
-
-    const created = await createProject(config, { title: "Pitch Surface" });
-    if (!created.ok) throw new Error(created.error);
-
-    const projectDir = path.join(projectsRoot, created.data.path);
-    await fs.writeFile(path.join(projectDir, "PITCH.md"), "# Pitch\n", "utf8");
-
-    const withPitch = await getProject(config, created.data.id);
-    if (!withPitch.ok) throw new Error(withPitch.error);
-    expect(withPitch.data.docs.PITCH).toBe("# Pitch\n");
-    expect(withPitch.data.docs.README).toBeUndefined();
-
-    await fs.rm(path.join(projectDir, "PITCH.md"));
-    const legacy = await getProject(config, created.data.id);
-    if (!legacy.ok) throw new Error(legacy.error);
-    expect(legacy.data.docs.PITCH).toContain("# Pitch Surface");
-    expect(legacy.data.docs.README).toBeUndefined();
-  });
-
-  it("writes PITCH.md without changing README body", async () => {
-    const { createProject, updateProject } = await import("./store.js");
-    const config = {
-      agents: [],
-      sessions: { idleMinutes: 360 },
-      projects: { root: projectsRoot },
-    };
-
-    const created = await createProject(config, { title: "Legacy Pitch" });
-    if (!created.ok) throw new Error(created.error);
-
-    const projectDir = path.join(projectsRoot, created.data.path);
-    const readmePath = path.join(projectDir, "README.md");
-    const originalReadme = await fs.readFile(readmePath, "utf8");
-
-    const updated = await updateProject(config, created.data.id, {
-      docs: { PITCH: "# New Pitch\n" },
-    });
-    if (!updated.ok) throw new Error(updated.error);
-
-    expect(await fs.readFile(path.join(projectDir, "PITCH.md"), "utf8")).toBe(
-      "# New Pitch\n"
-    );
-    expect(await fs.readFile(readmePath, "utf8")).toBe(originalReadme);
-    expect(updated.data.docs.PITCH).toBe("# New Pitch\n");
   });
 
   it("rejects titles with fewer than two words", async () => {
@@ -512,9 +465,7 @@ describe("projects store", () => {
     });
     if (!valid.ok) throw new Error(valid.error);
 
-    const updated = await updateProject(config, valid.data.id, {
-      status: "review",
-    });
+    const updated = await updateProject(config, valid.data.id, { status: "review" });
     expect(updated.ok).toBe(false);
     if (updated.ok) return;
     expect(updated.error).toContain("migrate-to-slices");
@@ -532,7 +483,7 @@ describe("projects store", () => {
     await fs.mkdir(legacyDir, { recursive: true });
     await fs.writeFile(
       path.join(legacyDir, "README.md"),
-      '---\nid: "PRO-99"\ntitle: "Legacy"\nstatus: "todo"\n---\n# Legacy\n',
+      "---\nid: \"PRO-99\"\ntitle: \"Legacy\"\nstatus: \"todo\"\n---\n# Legacy\n",
       "utf8"
     );
 
@@ -541,9 +492,7 @@ describe("projects store", () => {
     if (!listed.ok) return;
     const item = listed.data.find((entry) => entry.id === "PRO-99");
     expect(item).toBeDefined();
-    expect(item?.frontmatter.statusValidationError).toContain(
-      "migrate-to-slices"
-    );
+    expect(item?.frontmatter.statusValidationError).toContain("migrate-to-slices");
   });
 
   it("cancels non-terminal slices and keeps done slices unchanged", async () => {
@@ -554,9 +503,7 @@ describe("projects store", () => {
       projects: { root: projectsRoot },
     };
 
-    const created = await createProject(config, {
-      title: "Cascade Cancel Project",
-    });
+    const created = await createProject(config, { title: "Cascade Cancel Project" });
     if (!created.ok) throw new Error(created.error);
     const projectDir = path.join(projectsRoot, created.data.path);
 
@@ -571,9 +518,7 @@ describe("projects store", () => {
       status: "todo",
     });
 
-    const cancelled = await updateProject(config, created.data.id, {
-      status: "cancelled",
-    });
+    const cancelled = await updateProject(config, created.data.id, { status: "cancelled" });
     expect(cancelled.ok).toBe(true);
     if (!cancelled.ok) return;
 
@@ -585,8 +530,7 @@ describe("projects store", () => {
   });
 
   it("auto-marks active project done when all slices terminal and at least one done", async () => {
-    const { createProject, updateProject, getProject } =
-      await import("./store.js");
+    const { createProject, updateProject, getProject } = await import("./store.js");
     const config = {
       agents: [],
       sessions: { idleMinutes: 360 },

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import os from "node:os";
 import { realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   type GatewayConfig,
@@ -84,6 +85,49 @@ async function readStdin(): Promise<string> {
     process.stdin.on("end", () => resolve(data));
     process.stdin.on("error", reject);
   });
+}
+
+async function readMarkdownArg(
+  value: string,
+  readStdinFn: () => Promise<string> = readStdin
+): Promise<string> {
+  if (value === "-") return readStdinFn();
+  if (value.startsWith("@")) {
+    return readFile(value.slice(1), "utf8");
+  }
+  return value;
+}
+
+export async function buildCreateProjectBody(
+  pitch: string | undefined,
+  opts: {
+    title: string;
+    pitch?: string;
+    specs?: string;
+    status?: string;
+    area?: string;
+  },
+  client: { listAreas: () => Promise<unknown> },
+  readStdinFn: () => Promise<string> = readStdin
+): Promise<Record<string, unknown>> {
+  if (opts.specs !== undefined) {
+    throw new Error(
+      "Project-level --specs was removed. Use --pitch for project prose or `aihub slices add --specs` for slice specs."
+    );
+  }
+  if (pitch !== undefined && opts.pitch !== undefined) {
+    throw new Error("Use either positional <pitch> or --pitch, not both.");
+  }
+
+  const body: Record<string, unknown> = { title: opts.title };
+  const pitchValue = opts.pitch !== undefined ? opts.pitch : pitch;
+  if (pitchValue !== undefined) {
+    body.pitch = await readMarkdownArg(pitchValue, readStdinFn);
+  }
+  if (opts.status) body.status = opts.status;
+  const area = await resolveCreateArea(client, opts.area);
+  if (area) body.area = area;
+  return body;
 }
 
 type CommentArgs = {
@@ -454,23 +498,22 @@ export function registerProjectsCommands(program: Command): Command {
 
   program
     .command("create")
-    .argument("[description]", "Project description for README")
+    .argument("[pitch]", "Project pitch body")
     .requiredOption("-t, --title <title>", "Project title")
-    .option("--specs <content>", "SPECS content string or '-' for stdin")
+    .option("--pitch <content>", "Pitch content string, @file, or '-' for stdin")
+    .addOption(
+      new Option(
+        "--specs <content>",
+        "Removed: use --pitch or slices add --specs"
+      ).hideHelp()
+    )
     .option("--status <status>", "Status")
     .option("--area <area>", "Area")
     .option("-j, --json", "JSON output")
-    .action(async (description, opts) => {
+    .action(async (pitch, opts) => {
       try {
         const client = getClient();
-        const body: Record<string, unknown> = { title: opts.title };
-        if (description) body.description = description;
-        if (opts.specs !== undefined) {
-          body.specs = opts.specs === "-" ? await readStdin() : opts.specs;
-        }
-        if (opts.status) body.status = opts.status;
-        const area = await resolveCreateArea(client, opts.area);
-        if (area) body.area = area;
+        const body = await buildCreateProjectBody(pitch, opts, client);
 
         const data = (await client.createProject(body)) as ProjectItem;
         if (opts.json) {

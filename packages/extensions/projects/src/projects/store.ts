@@ -19,8 +19,6 @@ function getProjectsStatePath(): string {
   return path.join(getProjectsContext().getDataDir(), "projects.json");
 }
 const THREAD_FILE = "THREAD.md";
-const README_FILE = "README.md";
-const PITCH_FILE = "PITCH.md";
 const ARCHIVE_DIR = ".archive";
 const DONE_DIR = ".done";
 const TRASH_DIR = ".trash";
@@ -112,16 +110,6 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 async function ensureDir(dirPath: string): Promise<void> {
   await fs.mkdir(dirPath, { recursive: true });
-}
-
-async function buildProjectDocs(
-  dirPath: string
-): Promise<Record<string, string>> {
-  const pitch = await readMarkdownIfExists(path.join(dirPath, PITCH_FILE));
-  if (pitch) return { PITCH: pitch.content };
-
-  const readme = await readMarkdownIfExists(path.join(dirPath, README_FILE));
-  return { PITCH: readme?.content ?? "" };
 }
 
 async function migrateTrashRoot(root: string): Promise<void> {
@@ -434,12 +422,15 @@ async function listProjectItemsFromRoot(
         .map((e) => e.name);
       if (mdFiles.length === 0) continue;
 
+      // Priority: README.md frontmatter > SPECS.md frontmatter > first .md file
       let frontmatter: Record<string, unknown> = {};
       let title = dirName;
+      const specsFile = mdFiles.find((f) => f.toUpperCase() === "SPECS.MD");
       const readmeFile = mdFiles.find((f) => f.toUpperCase() === "README.MD");
-      if (readmeFile) {
+      const primaryFile = readmeFile ?? specsFile ?? mdFiles[0];
+      if (primaryFile) {
         const parsed = await readMarkdownIfExists(
-          path.join(dirPath, readmeFile)
+          path.join(dirPath, primaryFile)
         );
         if (parsed) {
           frontmatter = parsed.frontmatter;
@@ -565,6 +556,7 @@ export async function getProject(
         .filter(Boolean) as ProjectThreadEntry[])
     : [];
 
+  // Scan for all .md files at root (non-recursive)
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
   const mdFiles = entries
     .filter(
@@ -572,16 +564,26 @@ export async function getProject(
     )
     .map((e) => e.name);
 
-  const docs = await buildProjectDocs(dirPath);
+  // Build docs map
+  const docs: Record<string, string> = {};
   let frontmatter: Record<string, unknown> = {};
   let title = dirName;
+  const specsFile = mdFiles.find((f) => f.toUpperCase() === "SPECS.MD");
   const readmeFile = mdFiles.find((f) => f.toUpperCase() === "README.MD");
 
-  if (readmeFile) {
-    const parsed = await readMarkdownIfExists(path.join(dirPath, readmeFile));
+  for (const file of mdFiles) {
+    const parsed = await readMarkdownIfExists(path.join(dirPath, file));
     if (parsed) {
-      frontmatter = parsed.frontmatter;
-      title = parsed.title;
+      const key = file.replace(/\.md$/i, "").toUpperCase();
+      docs[key] = parsed.content;
+      // Use README.md frontmatter if available, else SPECS.md
+      if (file === readmeFile) {
+        frontmatter = parsed.frontmatter;
+        title = parsed.title;
+      } else if (file === specsFile && !readmeFile) {
+        frontmatter = parsed.frontmatter;
+        title = parsed.title;
+      }
     }
   }
 
@@ -659,24 +661,17 @@ export async function createProject(
     created,
   };
   if (input.area) frontmatter.area = input.area;
-  const readmeBody = input.description
-    ? `# ${trimmedTitle}\n\n${input.description}\n`
-    : `# ${trimmedTitle}\n`;
-  const readmeContent = formatMarkdown(frontmatter, readmeBody);
+  const pitchBody = input.pitch ?? "";
+  const readmeContent = formatMarkdown(frontmatter, "");
   await fs.writeFile(path.join(dirPath, "README.md"), readmeContent, "utf8");
-  if (input.specs !== undefined) {
-    await fs.writeFile(path.join(dirPath, "SPECS.md"), input.specs, "utf8");
-  }
+  await fs.writeFile(path.join(dirPath, "PITCH.md"), pitchBody, "utf8");
   await fs.writeFile(
     path.join(dirPath, THREAD_FILE),
     formatThreadFrontmatter(id),
     "utf8"
   );
 
-  const docs: Record<string, string> = { PITCH: readmeBody };
-  if (input.specs !== undefined) {
-    docs.SPECS = input.specs;
-  }
+  const docs: Record<string, string> = { PITCH: pitchBody };
 
   return {
     ok: true,
@@ -707,9 +702,12 @@ export async function updateProject(
 
   const { dirName, baseRoot } = location;
   const dirPath = path.join(baseRoot, dirName);
-  const currentReadmePath = path.join(dirPath, README_FILE);
+  const currentSpecsPath = path.join(dirPath, "SPECS.md");
+  const currentReadmePath = path.join(dirPath, "README.md");
+  const parsedSpecs = await readMarkdownIfExists(currentSpecsPath);
   const parsedReadme = await readMarkdownIfExists(currentReadmePath);
-  const currentFrontmatter = parsedReadme?.frontmatter ?? {};
+  const currentFrontmatter =
+    parsedReadme?.frontmatter ?? parsedSpecs?.frontmatter ?? {};
   let currentStatus: string | null;
   try {
     currentStatus = validateProjectStatus(currentFrontmatter.status);
@@ -720,7 +718,10 @@ export async function updateProject(
     };
   }
   const currentTitle =
-    toStringField(currentFrontmatter.title) ?? parsedReadme?.title ?? id;
+    toStringField(currentFrontmatter.title) ??
+    parsedReadme?.title ??
+    parsedSpecs?.title ??
+    id;
   const nextTitle = input.title ?? currentTitle;
   const nextSlug = slugifyTitle(nextTitle);
   const nextDirName = `${id}_${nextSlug}`;
@@ -844,7 +845,22 @@ export async function updateProject(
     );
   }
 
-  const docs = await buildProjectDocs(finalDirPath);
+  // Re-read all docs
+  const entries = await fs.readdir(finalDirPath, { withFileTypes: true });
+  const mdFiles = entries
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== THREAD_FILE
+    )
+    .map((e) => e.name);
+
+  const docs: Record<string, string> = {};
+  for (const file of mdFiles) {
+    const parsed = await readMarkdownIfExists(path.join(finalDirPath, file));
+    if (parsed) {
+      const key = file.replace(/\.md$/i, "").toUpperCase();
+      docs[key] = parsed.content;
+    }
+  }
 
   const areaRepoMap = await getAreaRepoMap(config);
   const resolvedRepo = resolveProjectRepo(nextFrontmatter, areaRepoMap);
