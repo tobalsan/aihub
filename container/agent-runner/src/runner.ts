@@ -136,12 +136,14 @@ export async function runAgent(
   await resourceLoader.reload();
 
   const sessionManager = SessionManager.open(sessionFile, input.sessionDir);
-  const tools = ["read", "bash", "edit", "write"];
+  const builtInTools = ["read", "bash", "edit", "write"];
   const usedToolNames = new Set<string>();
   const customTools = [
     ...createExtensionTools(input, usedToolNames),
     createSendFileTool(onStreamEvent, usedToolNames),
   ];
+  // Pi treats `tools` as an allowlist when provided, so custom tool names must be included.
+  const tools = [...builtInTools, ...customTools.map((tool) => tool.name)];
 
   const { session } = await createAgentSession({
     cwd: input.workspaceDir,

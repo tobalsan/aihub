@@ -396,6 +396,7 @@ describe("pi adapter onecli env wiring", () => {
 
     expect(mockGetExtensionAgentTools).toHaveBeenCalledWith(agent, config);
     const options = mockCreateAgentSession.mock.calls[0]?.[0] as {
+      tools?: string[];
       customTools?: Array<{
         name: string;
         execute: (_id: string, params: unknown) => Promise<unknown>;
@@ -405,6 +406,13 @@ describe("pi adapter onecli env wiring", () => {
       (candidate) => candidate.name
     );
     expect(customToolNames).toEqual(["scratchpad_read"]);
+    expect(options.tools).toEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+      "scratchpad_read",
+    ]);
     expect(customToolNames).not.toEqual(
       expect.arrayContaining([
         "project_create",

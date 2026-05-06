@@ -173,7 +173,9 @@ describe("Pi runner", () => {
       "onecli-proxy-managed"
     );
     expect(piMock.createAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ tools: ["read", "bash", "edit", "write"] })
+      expect.objectContaining({
+        tools: ["read", "bash", "edit", "write", "send_file"],
+      })
     );
     expect(piMock.session.dispose).toHaveBeenCalledTimes(1);
 
@@ -223,6 +225,7 @@ describe("Pi runner", () => {
     const createAgentSessionCalls = piMock.createAgentSession.mock
       .calls as unknown as Array<[
       {
+        tools: string[];
         customTools: Array<{
           name: string;
           execute: (_id: string, args: unknown) => Promise<unknown>;
@@ -242,6 +245,14 @@ describe("Pi runner", () => {
       (tool) => tool.name
     );
     expect(customToolNames).toEqual(["scratchpad_read", "send_file"]);
+    expect(createAgentSessionArgs.tools).toEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+      "scratchpad_read",
+      "send_file",
+    ]);
     expect(customToolNames).not.toEqual(
       expect.arrayContaining([
         "project_create",

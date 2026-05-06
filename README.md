@@ -275,7 +275,7 @@ Extensions own optional gateway routes, lifecycle hooks, prompt contributions, a
 - Discovery follows real directories and symlinked extension directories.
 - The helper for migrated tool bundles exports from `packages/shared/src/tool-extension.ts`.
 - Gateway startup resolves extension secrets, validates configured mounts, warns on missing extension ids, and fails early on invalid config or missing required secrets.
-- Extensions can append system-prompt guidance and expose Zod-object-backed tools to Pi agents. Pi container runs serialize extension prompt/tool metadata and execute tools through `/internal/tools`; sandbox Claude fails loudly if extension tools are configured.
+- Extensions can append system-prompt guidance and expose Zod-object-backed tools to Pi agents. AIHub includes sanitized extension tool aliases in Pi's tool allowlist so tools like Board scratchpad are callable in-process and in Pi containers. Pi container runs serialize extension prompt/tool metadata and execute tools through `/internal/tools`; sandbox Claude fails loudly if extension tools are configured.
 - The Board extension stores user content in `$AIHUB_HOME` by default. Set `extensions.board.contentRoot` to use a custom content directory. Its `/api/board/projects` endpoint keeps a short in-memory stale-refresh cache; use `?profile=true` to return `X-Profile-Ms`. Project README frontmatter can explicitly attach ad-hoc worktrees with `worktrees: [{"repo":"~/code/aihub","branch":"feat/example"}]` or path strings.
 
 ### OneCLI

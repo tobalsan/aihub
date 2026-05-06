@@ -257,14 +257,19 @@ export const piAdapter: SdkAdapter = {
       const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
       const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
 
-      // Enable Pi's built-in coding tools for the run workspace.
-      const tools = ["read", "bash", "edit", "write"];
+      // Enable Pi's built-in coding tools plus extension custom tools for the run workspace.
+      // Pi treats `tools` as an allowlist when provided, so custom tool names must be included.
+      const builtInTools = ["read", "bash", "edit", "write"];
       const usedToolNames = new Set<string>();
       const extensionTools = await createPiExtensionTools(
         agent,
         usedToolNames,
         params
       );
+      const tools = [
+        ...builtInTools,
+        ...extensionTools.map((tool) => tool.name),
+      ];
       const extensionPrompts =
         params.extensionRuntime
           ? await getExtensionSystemPromptContributions(
