@@ -16,9 +16,8 @@ import {
   resolveWorkspaceDir,
 } from "../config/index.js";
 import {
-  getLoadedExtensions,
   isExtensionLoaded,
-  getHomeExtension,
+  getExtensionRuntime,
 } from "../extensions/registry.js";
 import {
   runAgent,
@@ -139,10 +138,10 @@ api.get("/branding/logo", async (c) => {
 });
 
 api.get("/capabilities", async (c) => {
-  const extensions = Object.fromEntries(
-    getLoadedExtensions().map((extension) => [extension.id, true])
-  );
-  const isMultiUserEnabled = isExtensionLoaded("multiUser");
+  const runtime = getExtensionRuntime();
+  const capabilities = runtime.getCapabilities();
+  const extensions = capabilities.extensions;
+  const isMultiUserEnabled = capabilities.multiUser;
   const authContext = isMultiUserEnabled ? await getRequestAuthContext(c) : null;
   const agents = await getVisibleAgents(c);
   const branding = loadConfig().branding;
@@ -152,7 +151,7 @@ api.get("/capabilities", async (c) => {
     extensions,
     agents: agents.map((agent) => agent.id),
     multiUser: isMultiUserEnabled,
-    home: getHomeExtension(),
+    home: capabilities.home,
     ...(isMultiUserEnabled && authContext
       ? {
           user: {
@@ -309,12 +308,14 @@ api.post("/agents/:id/messages", async (c) => {
       : undefined;
     // Handle /abort - skip session resolution to avoid creating new session
     if (isAbortTrigger(parsed.data.message)) {
+      const extensionRuntime = getExtensionRuntime();
       const result = await runAgent({
         agentId: agent.id,
         userId,
         message: parsed.data.message,
         sessionId: parsed.data.sessionId,
         sessionKey: parsed.data.sessionKey,
+        extensionRuntime,
       });
       return c.json(result);
     }
@@ -353,6 +354,7 @@ api.post("/agents/:id/messages", async (c) => {
       resolvedSession,
       thinkLevel: parsed.data.thinkLevel,
       context,
+      extensionRuntime: getExtensionRuntime(),
       source: "web",
     });
     return c.json(result);

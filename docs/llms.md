@@ -359,7 +359,7 @@ $AIHUB_HOME/
   - `README.md` now includes a dedicated built-in components section listing `discord`, `scheduler`, `heartbeat`, `amsg`, `conversations`, and `projects`
 
 2. **Model Resolution**: Pi SDK `discoverModels()` reads `AIHUB_HOME/models.json`
-3. **Extension Init**: Extension registry is rebuilt from first-party extensions plus external `extensionsPath` or `$AIHUB_HOME/extensions`, then configured extension mounts are validated for missing ids/config/secrets.
+3. **Extension Init**: Extension registry is rebuilt from first-party extensions plus external `extensionsPath` or `$AIHUB_HOME/extensions`, then configured extension mounts are validated for missing ids/config/secrets. `apps/gateway/src/extensions/registry.ts` remains startup/factory glue; loaded extension state, route matchers, enabled checks, prompt/tool lookup, capabilities, and lifecycle live in `apps/gateway/src/extensions/runtime.ts`.
 4. **Session Management**: Per-agent/session state in memory (`sessions.ts`)
 5. **Skills**: Auto-discovered via Pi SDK from `{workspace}/.pi/skills`, `~/.pi/agent/skills`, etc.
 6. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
@@ -370,8 +370,8 @@ $AIHUB_HOME/
 - External extension discovery accepts both real directories and symlinked directories.
 - Tool-extension parameter schemas are object-only Zod schemas.
 - Pi adapter converts extension Zod parameter schemas to JSON Schema custom tools.
-- Loaded extensions can append agent system-prompt guidance through optional `Extension.getSystemPromptContributions(agent, { config })`. Gateway collection lives in `apps/gateway/src/extensions/prompts.ts`; in-process Pi runs append the returned strings directly, while sandbox/container runs serialize them through `ContainerInput.extensionSystemPrompts` for the runner to append.
-- Loaded extensions can expose callable agent tools through optional `Extension.getAgentTools(agent, { config })`. Gateway collection/dispatch lives in `apps/gateway/src/extensions/tools.ts`; in-process Pi runs mount them as `customTools`, while sandbox/container runs serialize definitions through `ContainerInput.extensionTools` and execute them through `/internal/tools`. Model-facing custom tool names are sanitized with `packages/shared/src/tool-names.ts` so providers that reject punctuation see aliases like `scratchpad_read`; gateway dispatch still uses the original extension/tool names.
+- Loaded extensions can append agent system-prompt guidance through optional `Extension.getSystemPromptContributions(agent, { config })`. Gateway collection goes through `ExtensionRuntime.getPromptContributions()`; in-process Pi runs append the returned strings directly, while sandbox/container runs serialize them through `ContainerInput.extensionSystemPrompts` for the runner to append.
+- Loaded extensions can expose callable agent tools through optional `Extension.getAgentTools(agent, { config })`. Gateway collection/dispatch goes through `ExtensionRuntime.getTools()` / `executeTool()`; in-process Pi runs mount them as `customTools`, while sandbox/container runs serialize definitions through `ContainerInput.extensionTools` and execute them through `/internal/tools` against the same runtime. Model-facing custom tool names are sanitized with `packages/shared/src/tool-names.ts` so providers that reject punctuation see aliases like `scratchpad_read`; gateway dispatch still uses the original extension/tool names.
 - Pi lead agents override the Pi SDK default system prompt with AIHub-specific gateway guidance while preserving SDK-appended project context, extension guidance, skills, date, and working directory sections.
 - Pi subagent tools and their appended `Additional tools` system-prompt block are only mounted when the `projects` component is actually loaded.
 - Sandbox Claude currently fails loudly when extension tools are present; Pi supports extension tool execution in and out of containers.

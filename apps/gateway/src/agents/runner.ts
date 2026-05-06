@@ -48,6 +48,8 @@ import {
 import { getContainerAdapter } from "../sdk/container/adapter.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
+import type { ExtensionRuntime } from "../extensions/runtime.js";
+import { getExtensionRuntime } from "../extensions/registry.js";
 import {
   createTurnBuffer,
   bufferHistoryEvent,
@@ -64,6 +66,7 @@ import {
 
 export type InternalRunAgentParams = SharedRunAgentParams & {
   userId?: string;
+  extensionRuntime?: ExtensionRuntime;
   resolvedSession?: {
     sessionId: string;
     sessionKey?: string;
@@ -145,6 +148,7 @@ export async function runAgent(
 
   // Resolve SDK adapter
   const sdkId = (agent.sdk ?? getDefaultSdkId()) as SdkId;
+  const extensionRuntime = params.extensionRuntime ?? getExtensionRuntime();
   const adapter = agent.sandbox?.enabled
     ? getContainerAdapter()
     : getSdkAdapter(sdkId);
@@ -542,6 +546,7 @@ export async function runAgent(
       attachments: params.attachments,
       workspaceDir,
       context: params.context,
+      extensionRuntime,
       onEvent: (event: StreamEvent) => {
         if (event.type === "text" || event.type === "thinking") {
           hasEmittedContent = true;
@@ -666,6 +671,7 @@ export async function runAgent(
           sessionId,
           sessionKey,
           thinkLevel: params.thinkLevel,
+          extensionRuntime,
           source: params.source,
           trace: params.trace,
           // onEvent omitted - events go to agentEventBus only

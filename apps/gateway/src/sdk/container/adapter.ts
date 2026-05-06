@@ -397,7 +397,14 @@ function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
 async function buildExtensionTools(
   params: SdkRunParams
 ): Promise<ContainerExtensionTool[]> {
-  return (await getExtensionAgentTools(params.agent)).map((tool) => ({
+  const tools = params.extensionRuntime
+    ? await getExtensionAgentTools(
+        params.agent,
+        loadConfig(),
+        params.extensionRuntime
+      )
+    : await getExtensionAgentTools(params.agent);
+  return tools.map((tool) => ({
     extensionId: tool.extensionId,
     name: tool.name,
     description: tool.description,
@@ -497,8 +504,13 @@ async function buildInput(
   agentToken: string
 ): Promise<ContainerInput> {
   const config = loadConfig();
-  const extensionSystemPrompts =
-    await getExtensionSystemPromptContributions(params.agent);
+  const extensionSystemPrompts = params.extensionRuntime
+    ? await getExtensionSystemPromptContributions(
+        params.agent,
+        config,
+        params.extensionRuntime
+      )
+    : await getExtensionSystemPromptContributions(params.agent);
   const extensionTools = await buildExtensionTools(params);
   return {
     agentId: params.agentId,

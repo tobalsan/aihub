@@ -1,21 +1,12 @@
 import type { AgentConfig, GatewayConfig } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
-import { getLoadedExtensions } from "./registry.js";
+import { getExtensionRuntime } from "./registry.js";
+import type { ExtensionRuntime } from "./runtime.js";
 
 export async function getExtensionSystemPromptContributions(
   agent: AgentConfig,
-  config: GatewayConfig = loadConfig()
+  config: GatewayConfig = loadConfig(),
+  runtime: ExtensionRuntime = getExtensionRuntime()
 ): Promise<string[]> {
-  const contributions = await Promise.all(
-    getLoadedExtensions().map(async (extension) => {
-      const contribution = await extension.getSystemPromptContributions?.(
-        agent,
-        { config }
-      );
-      if (!contribution) return [];
-      return Array.isArray(contribution) ? contribution : [contribution];
-    })
-  );
-
-  return contributions.flat().filter((prompt) => prompt.trim().length > 0);
+  return runtime.getPromptContributions(agent, config);
 }

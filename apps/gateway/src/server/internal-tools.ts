@@ -4,6 +4,8 @@ import { type GatewayConfig } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 import { validateContainerToken } from "../sdk/container/tokens.js";
 import { executeExtensionAgentTool } from "../extensions/tools.js";
+import { getExtensionRuntime } from "../extensions/registry.js";
+import type { ExtensionRuntime } from "../extensions/runtime.js";
 
 const InternalToolRequestSchema = z.object({
   tool: z.string(),
@@ -14,12 +16,14 @@ const InternalToolRequestSchema = z.object({
 
 type InternalToolsDeps = {
   getConfig: () => GatewayConfig;
+  getRuntime: () => ExtensionRuntime;
   validateToken: (token: string, agentId: string) => boolean;
   executeExtensionTool: typeof executeExtensionAgentTool;
 };
 
 const defaultDeps: InternalToolsDeps = {
   getConfig: loadConfig,
+  getRuntime: getExtensionRuntime,
   validateToken: validateContainerToken,
   executeExtensionTool: executeExtensionAgentTool,
 };
@@ -37,7 +41,8 @@ async function dispatchInternalTool(
     agent,
     tool,
     args,
-    config
+    config,
+    deps.getRuntime()
   );
   if (extensionResult.found) return extensionResult.result;
   throw new Error(`Unknown tool: ${tool}`);

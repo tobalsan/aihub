@@ -20,10 +20,8 @@ import {
 } from "../agents/container.js";
 import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
-import {
-  getKnownExtensionRouteMetadata,
-  isExtensionLoaded,
-} from "../extensions/registry.js";
+import { getExtensionRuntime } from "../extensions/registry.js";
+import type { ExtensionRuntime } from "../extensions/runtime.js";
 import {
   resolveSessionId,
   getSessionEntry,
@@ -38,39 +36,11 @@ type RequestAuthContext =
 
 const app = new Hono();
 const wsDebug = process.env.DEBUG?.includes("aihub:ws");
+let activeExtensionRuntime: ExtensionRuntime | undefined;
 
-type ExtensionRouteMatcher = {
-  extension: string;
-  matches: (path: string) => boolean;
-};
-
-function routePrefixToMatcher(prefix: string): (path: string) => boolean {
-  if (!prefix.includes(":")) {
-    return (path) => path === prefix || path.startsWith(`${prefix}/`);
-  }
-
-  const pattern = prefix
-    .split("/")
-    .map((segment) => {
-      if (!segment) return "";
-      if (segment.startsWith(":")) return "[^/]+";
-      return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    })
-    .join("/");
-  const regex = new RegExp(`^${pattern}$`);
-  return (path) => regex.test(path);
+function currentExtensionRuntime(): ExtensionRuntime {
+  return activeExtensionRuntime ?? getExtensionRuntime();
 }
-
-function buildExtensionRouteMatchers(): ExtensionRouteMatcher[] {
-  return getKnownExtensionRouteMetadata().flatMap((extension) =>
-    extension.routePrefixes.map((prefix) => ({
-      extension: extension.id,
-      matches: routePrefixToMatcher(prefix),
-    }))
-  );
-}
-
-const extensionRouteMatchers = buildExtensionRouteMatchers();
 
 type MultiUserMiddlewareModule = typeof import("@aihub/extension-multi-user");
 
@@ -84,25 +54,10 @@ function loadMultiUserMiddlewareModule(): Promise<MultiUserMiddlewareModule> {
 
 function isExtensionEnabled(
   config: GatewayConfig,
-  extensionId: string
+  extensionId: string,
+  runtime: ExtensionRuntime
 ): boolean {
-  const extensionConfig = (
-    extensionId === "multiUser"
-      ? config.extensions?.multiUser
-      : config.extensions?.[
-          extensionId as keyof NonNullable<GatewayConfig["extensions"]>
-        ]
-  ) as { enabled?: boolean } | undefined;
-  if (
-    extensionConfig &&
-    typeof extensionConfig === "object" &&
-    "enabled" in extensionConfig &&
-    extensionConfig.enabled === false
-  ) {
-    return false;
-  }
-  if (isExtensionLoaded(extensionId)) return true;
-  return !!extensionConfig && extensionConfig.enabled !== false;
+  return runtime.isEnabled(extensionId, config);
 }
 
 app.use("*", cors());
@@ -118,9 +73,10 @@ app.use("/api/*", async (c, next) => {
   }
 
   const path = c.req.path;
-  for (const matcher of extensionRouteMatchers) {
+  const runtime = currentExtensionRuntime();
+  for (const matcher of runtime.getRouteMatchers()) {
     if (!matcher.matches(path)) continue;
-    if (isExtensionEnabled(config, matcher.extension)) break;
+    if (isExtensionEnabled(config, matcher.extension, runtime)) break;
     return c.json(
       {
         error: "extension_disabled",
@@ -133,7 +89,7 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 app.use("/api/*", async (c, next) => {
-  if (!isExtensionLoaded("multiUser")) {
+  if (!currentExtensionRuntime().isEnabled("multiUser")) {
     await next();
     return;
   }
@@ -142,7 +98,7 @@ app.use("/api/*", async (c, next) => {
   return createAuthMiddleware()(c, next);
 });
 app.use("/api/agents/:id", async (c, next) => {
-  if (!isExtensionLoaded("multiUser")) {
+  if (!currentExtensionRuntime().isEnabled("multiUser")) {
     await next();
     return;
   }
@@ -151,7 +107,7 @@ app.use("/api/agents/:id", async (c, next) => {
   return requireAgentAccess("id")(c, next);
 });
 app.use("/api/agents/:id/*", async (c, next) => {
-  if (!isExtensionLoaded("multiUser")) {
+  if (!currentExtensionRuntime().isEnabled("multiUser")) {
     await next();
     return;
   }
@@ -175,7 +131,7 @@ app.all("/api/*", async (c) => {
   url.pathname = pathname || "/";
   const request = new Request(url, c.req.raw);
 
-  if (isExtensionLoaded("multiUser")) {
+  if (currentExtensionRuntime().isEnabled("multiUser")) {
     const { forwardAuthContextToRequest, getRequestAuthContext } =
       await loadMultiUserMiddlewareModule();
     forwardAuthContextToRequest(request, getRequestAuthContext(c));
@@ -185,7 +141,7 @@ app.all("/api/*", async (c) => {
 });
 
 app.all("/hooks/*", async (c) => {
-  if (!isExtensionLoaded("webhooks")) {
+  if (!currentExtensionRuntime().isEnabled("webhooks")) {
     return c.json({ error: "extension_disabled", extension: "webhooks" }, 404);
   }
   return api.fetch(c.req.raw);
@@ -206,7 +162,7 @@ async function canAccessAgent(
   authContext: RequestAuthContext | null,
   agentId: string
 ): Promise<boolean> {
-  if (!isExtensionLoaded("multiUser")) return true;
+  if (!currentExtensionRuntime().isEnabled("multiUser")) return true;
   if (!authContext) return false;
   const { hasAgentAccess } = await loadMultiUserMiddlewareModule();
   return hasAgentAccess(authContext, agentId);
@@ -315,6 +271,7 @@ function handleWsConnection(
             attachments,
             sessionId: msg.sessionId,
             sessionKey: msg.sessionKey,
+            extensionRuntime: currentExtensionRuntime(),
             onEvent: (event) => sendWs(ws, event),
           });
           return;
@@ -377,6 +334,7 @@ function handleWsConnection(
           sessionKey: resolvedSession ? undefined : (msg.sessionKey ?? "main"),
           resolvedSession,
           thinkLevel: msg.thinkLevel,
+          extensionRuntime: currentExtensionRuntime(),
           context: authContext
             ? buildUserContext({ name: authContext.user.name })
             : undefined,
@@ -523,7 +481,12 @@ function setupGracefulShutdown(server: ReturnType<typeof serve>): void {
   process.on("SIGINT", shutdown);
 }
 
-export function startServer(port?: number, host?: string) {
+export function startServer(
+  port?: number,
+  host?: string,
+  runtime: ExtensionRuntime = getExtensionRuntime()
+) {
+  activeExtensionRuntime = runtime;
   const config = loadConfig();
   const hasSandboxAgents = config.agents.some(
     (agent) => agent.sandbox?.enabled
@@ -569,7 +532,7 @@ export function startServer(port?: number, host?: string) {
   });
 
   // Attach WebSocket server to the HTTP server
-  const shouldValidateWs = isExtensionLoaded("multiUser");
+  const shouldValidateWs = currentExtensionRuntime().isEnabled("multiUser");
   const wss = new WebSocketServer({
     server: server as import("http").Server,
     path: "/ws",

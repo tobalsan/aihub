@@ -28,7 +28,10 @@ import {
   resolveStartupConfig,
 } from "../config/validate.js";
 import { startGatewayCommand } from "./gateway.js";
-import { loadExtensions } from "../extensions/registry.js";
+import {
+  getExtensionRuntime,
+  loadExtensions,
+} from "../extensions/registry.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -281,6 +284,7 @@ program
       const rawConfig = loadConfig();
       const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
       const extensions = await loadExtensions(resolvedStartupConfig);
+      const extensionRuntime = getExtensionRuntime();
       const { resolvedConfig: config } = await prepareStartupConfig(
         rawConfig,
         extensions,
@@ -299,6 +303,7 @@ program
         agentId: agent.id,
         message: opts.message,
         sessionId: opts.session,
+        extensionRuntime,
         onEvent: (event) => {
           if (event.type === "text") {
             process.stdout.write(event.data);

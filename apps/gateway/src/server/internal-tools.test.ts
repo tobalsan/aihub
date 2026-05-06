@@ -30,13 +30,16 @@ function createDeps() {
     found: true,
     result: { id: "PRO-1", title: "Project One" },
   });
+  const runtime = {} as never;
 
   return {
     app: createInternalTools({
       getConfig: () => config,
+      getRuntime: () => runtime,
       executeExtensionTool,
     }),
     executeExtensionTool,
+    runtime,
   };
 }
 
@@ -68,7 +71,7 @@ afterEach(() => {
 
 describe("internal tools", () => {
   it("accepts a valid container token", async () => {
-    const { app, executeExtensionTool } = createDeps();
+    const { app, executeExtensionTool, runtime } = createDeps();
     registerToken("token-1");
 
     const response = await postTool(app, {
@@ -87,12 +90,13 @@ describe("internal tools", () => {
       expect.objectContaining({ id: "agent-1" }),
       "project.get",
       { projectId: "PRO-1" },
-      expect.objectContaining({ agents: expect.any(Array), extensions: {} })
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
+      runtime
     );
   });
 
   it("rejects an invalid token", async () => {
-    const { app, executeExtensionTool } = createDeps();
+    const { app, executeExtensionTool, runtime } = createDeps();
 
     const response = await postTool(app, {
       tool: "project.get",
@@ -122,7 +126,7 @@ describe("internal tools", () => {
   });
 
   it("dispatches tools through enabled extensions", async () => {
-    const { app, executeExtensionTool } = createDeps();
+    const { app, executeExtensionTool, runtime } = createDeps();
     registerToken("token-3");
 
     const response = await postTool(app, {
@@ -141,12 +145,13 @@ describe("internal tools", () => {
       expect.objectContaining({ id: "agent-1" }),
       "project.get",
       { projectId: "PRO-1" },
-      expect.objectContaining({ agents: expect.any(Array), extensions: {} })
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
+      runtime
     );
   });
 
   it("dispatches enabled extension tools", async () => {
-    const { app, executeExtensionTool } = createDeps();
+    const { app, executeExtensionTool, runtime } = createDeps();
     executeExtensionTool.mockResolvedValueOnce({
       found: true,
       result: { content: "hello" },
@@ -166,7 +171,8 @@ describe("internal tools", () => {
       expect.objectContaining({ id: "agent-1" }),
       "scratchpad.read",
       {},
-      expect.objectContaining({ agents: expect.any(Array), extensions: {} })
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
+      runtime
     );
   });
 

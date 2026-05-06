@@ -240,6 +240,10 @@ describe("gateway status websocket in multi-user mode", () => {
         getLoadedExtensions: () => [{ id: "multiUser" }],
         isMultiUserLoaded: () => true,
         isExtensionLoaded: (extensionId: string) => extensionId === "multiUser",
+        getExtensionRuntime: () => ({
+          isEnabled: (extensionId: string) => extensionId === "multiUser",
+          getRouteMatchers: () => [],
+        }),
       };
     });
     vi.doMock("@aihub/extension-multi-user", () => ({

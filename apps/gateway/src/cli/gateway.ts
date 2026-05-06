@@ -7,7 +7,10 @@ import {
 } from "../config/index.js";
 import { startServer } from "../server/index.js";
 import { api } from "../server/api.core.js";
-import { loadExtensions } from "../extensions/registry.js";
+import {
+  getExtensionRuntime,
+  loadExtensions,
+} from "../extensions/registry.js";
 import { createExtensionContext } from "../extensions/context.js";
 import {
   prepareStartupConfig,
@@ -36,6 +39,7 @@ export async function startGatewayCommand(
   const rawConfig = loadConfig();
   const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
   const extensions = await loadExtensions(resolvedStartupConfig);
+  const extensionRuntime = getExtensionRuntime();
   const { resolvedConfig: config, summary } = await prepareStartupConfig(
     rawConfig,
     extensions,
@@ -78,7 +82,7 @@ export async function startGatewayCommand(
     await extension.start(extensionContext);
   }
 
-  startServer(port, opts.host);
+  startServer(port, opts.host, extensionRuntime);
 
   return {
     actualPort,

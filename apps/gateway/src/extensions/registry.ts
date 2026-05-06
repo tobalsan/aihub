@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Extension, GatewayConfig } from "@aihub/shared";
 import { discoverExternalExtensions } from "@aihub/shared";
 import { CONFIG_DIR } from "../config/index.js";
+import { ExtensionRuntime } from "./runtime.js";
 
 type ExtensionRegistration = {
   load: () => Promise<Extension>;
@@ -119,9 +120,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
 
 const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
 
-let loadedExtensions: Extension[] = [];
-let loadedExtensionIds = new Set<string>();
-let homeExtensionId: string | undefined;
+let extensionRuntime = new ExtensionRuntime(getKnownExtensionRouteMetadata());
 
 function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -265,8 +264,8 @@ export async function loadExtensions(
     rawConfigs.set(id, configToValidate);
   }
 
-  loadedExtensions = topoSort(extensions);
-  loadedExtensionIds = new Set(
+  const loadedExtensions = topoSort(extensions);
+  const loadedExtensionIds = new Set(
     loadedExtensions.map((extension) => extension.id)
   );
 
@@ -291,7 +290,7 @@ export async function loadExtensions(
       `Multiple extensions claim home route: ${names}. Only one extension can have home: true.`
     );
   }
-  homeExtensionId = homeClaimants[0]?.id;
+  const homeExtensionId = homeClaimants[0]?.id;
 
   for (const agent of config.agents) {
     const agentExtensions = agent.extensions as Record<string, unknown> | undefined;
@@ -306,21 +305,35 @@ export async function loadExtensions(
     }
   }
 
-  return loadedExtensions;
+  extensionRuntime.load(loadedExtensions, homeExtensionId);
+  return extensionRuntime.getLoadedExtensions();
 }
 
 export function getLoadedExtensions(): Extension[] {
-  return loadedExtensions;
+  return extensionRuntime.getLoadedExtensions();
 }
 
 export function isMultiUserLoaded(): boolean {
-  return loadedExtensionIds.has("multiUser");
+  return extensionRuntime.isMultiUserEnabled();
 }
 
 export function isExtensionLoaded(extensionId: string): boolean {
-  return loadedExtensionIds.has(extensionId);
+  return extensionRuntime.isEnabled(extensionId);
 }
 
 export function getHomeExtension(): string | undefined {
-  return homeExtensionId;
+  return extensionRuntime.getHomeExtension();
+}
+
+export function getExtensionRuntime(): ExtensionRuntime {
+  return extensionRuntime;
+}
+
+export function createExtensionRuntime(
+  extensions: Extension[],
+  homeExtensionId?: string
+): ExtensionRuntime {
+  const runtime = new ExtensionRuntime(getKnownExtensionRouteMetadata());
+  runtime.load(extensions, homeExtensionId);
+  return runtime;
 }
