@@ -2489,10 +2489,11 @@ describe("orchestrator dispatcher", () => {
 });
 
 describe("orchestrator HITL channel config", () => {
-  it("requires a configured HITL channel", () => {
-    expect(() => resolveHitlNotifyChannel(config, undefined)).toThrow(
-      "hitl_channel"
-    );
+  it("disables HITL notifications when no channel is configured", () => {
+    expect(resolveHitlNotifyChannel(config, undefined)).toBeUndefined();
+  });
+
+  it("requires an explicitly configured HITL channel to exist", () => {
     expect(() => resolveHitlNotifyChannel(config, "ops")).toThrow(
       "not configured"
     );
