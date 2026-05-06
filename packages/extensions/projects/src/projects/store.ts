@@ -7,8 +7,6 @@ import type {
   UploadedAttachment,
   ProjectStatus,
 } from "@aihub/shared";
-import { expandPath } from "@aihub/shared";
-import { parseMarkdownFile } from "../taskboard/parser.js";
 import { getProjectsContext } from "../context.js";
 import { listAreas } from "../areas/store.js";
 import { dirExists } from "../util/fs.js";
@@ -20,32 +18,16 @@ import {
   type SliceRecord,
 } from "./slices.js";
 import { emitProjectPitchFallbackHint } from "./fallback-hints.js";
+import * as documentStore from "./document-store.js";
 
 function getProjectsStatePath(): string {
   return path.join(getProjectsContext().getDataDir(), "projects.json");
 }
-const THREAD_FILE = "THREAD.md";
-const ARCHIVE_DIR = ".archive";
-const DONE_DIR = ".done";
-const TRASH_DIR = ".trash";
-const LEGACY_TRASH_DIRS = ["Trash", "trash"];
-const DONE_STATUSES = new Set(["done", "cancelled"]);
-const PROJECT_LIFECYCLE_STATUSES = new Set([
-  "shaping",
-  "active",
-  "done",
-  "cancelled",
-  "archived",
-]);
-const LEGACY_PROJECT_STATUSES = new Set([
-  "not_now",
-  "maybe",
-  "todo",
-  "in_progress",
-  "review",
-  "ready_to_merge",
-  "trashed",
-]);
+const THREAD_FILE = documentStore.THREAD_FILE;
+const ARCHIVE_DIR = documentStore.ARCHIVE_DIR;
+const DONE_DIR = documentStore.DONE_DIR;
+const TRASH_DIR = documentStore.TRASH_DIR;
+const DONE_STATUSES = documentStore.DONE_STATUSES;
 
 export type ProjectListItem = {
   id: string;
@@ -87,78 +69,33 @@ export type UnarchiveProjectResult =
   | { ok: true; data: { id: string; path: string } }
   | { ok: false; error: string };
 
-export type ProjectThreadEntry = {
-  author: string;
-  date: string;
-  body: string;
-};
+export type ProjectThreadEntry = documentStore.ProjectThreadEntry;
 
 async function isValidGitRepo(repoPath?: string): Promise<boolean> {
-  if (!repoPath) return false;
-  const expandedRepoPath = expandPath(repoPath);
-  if (!(await dirExists(expandedRepoPath))) return false;
-  try {
-    await fs.stat(path.join(expandedRepoPath, ".git"));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function projectRepoClearError(sliceIds: string[]): string {
-  return `Cannot clear project repo: slice(s) ${sliceIds.join(", ")} rely on it (no slice-level repo set). Set their repo first, then clear the project repo.`;
+  return documentStore.isValidGitRepo(repoPath);
 }
 
 async function assertCanClearProjectRepo(projectDir: string): Promise<void> {
-  const relyingSlices = (await listSlices(projectDir))
-    .filter((slice) => !normalizeRepoValue(slice.frontmatter.repo))
-    .map((slice) => slice.id);
-  if (relyingSlices.length > 0) {
-    throw new Error(projectRepoClearError(relyingSlices));
-  }
+  documentStore.assertCanClearProjectRepo(await listSlices(projectDir));
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(filePath);
-    return stat.isFile();
-  } catch {
-    return false;
-  }
+  return documentStore.fileExists(filePath);
 }
 
 async function ensureDir(dirPath: string): Promise<void> {
-  await fs.mkdir(dirPath, { recursive: true });
+  await documentStore.ensureDir(dirPath);
 }
 
 async function migrateTrashRoot(root: string): Promise<void> {
-  const hiddenTrash = path.join(root, TRASH_DIR);
-  if (await dirExists(hiddenTrash)) return;
-  for (const legacy of LEGACY_TRASH_DIRS) {
-    const legacyPath = path.join(root, legacy);
-    if (await dirExists(legacyPath)) {
-      await fs.rename(legacyPath, hiddenTrash);
-      return;
-    }
-  }
+  await documentStore.migrateTrashRoot(root);
 }
 
 function slugifyTitle(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return slug || "project";
+  return documentStore.slugifyTitle(title);
 }
 
 type ProjectsState = { lastId: number };
-
-type ProjectLocation = {
-  dirName: string;
-  baseRoot: string;
-  path: string;
-};
 
 async function readProjectsState(): Promise<ProjectsState> {
   try {
@@ -187,74 +124,27 @@ async function allocateProjectId(): Promise<string> {
   return `PRO-${next}`;
 }
 
-function formatFrontmatterValue(value: unknown): string {
-  if (typeof value === "string") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value ?? "");
-}
-
-function formatFrontmatter(frontmatter: Record<string, unknown>): string {
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (value === undefined) continue;
-    lines.push(`${key}: ${formatFrontmatterValue(value)}`);
-  }
-  return `---\n${lines.join("\n")}\n---\n`;
-}
-
 function formatMarkdown(
   frontmatter: Record<string, unknown>,
   content: string
 ): string {
-  const fm = formatFrontmatter(frontmatter);
-  return `${fm}${content}`;
+  return documentStore.formatMarkdown(frontmatter, content);
 }
 
 function formatThreadFrontmatter(projectId: string): string {
-  return `---\nproject: ${projectId}\n---\n`;
+  return documentStore.formatThreadFrontmatter(projectId);
 }
 
 function formatThreadEntry(entry: ProjectThreadEntry): string {
-  const body = entry.body.trim();
-  return `[author:${entry.author}]\n[date:${entry.date}]\n${body}\n`;
+  return documentStore.formatThreadEntry(entry);
 }
 
 function parseThreadSections(raw: string): string[] {
-  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
-  const withoutFrontmatter = fmMatch ? raw.slice(fmMatch[0].length) : raw;
-  return withoutFrontmatter
-    .split(/\r?\n---\r?\n---\r?\n/)
-    .map((section) => section.trim())
-    .filter(Boolean);
+  return documentStore.parseThreadSections(raw);
 }
 
 function parseThreadEntry(section: string): ProjectThreadEntry | null {
-  const lines = section.split(/\r?\n/);
-  let author = "";
-  let date = "";
-  let cursor = 0;
-  for (; cursor < lines.length; cursor += 1) {
-    const line = lines[cursor]?.trim();
-    if (!line) continue;
-    const authorMatch = line.match(/^\[author:(.+)\]$/);
-    if (authorMatch) {
-      author = authorMatch[1].trim();
-      continue;
-    }
-    const dateMatch = line.match(/^\[date:(.+)\]$/);
-    if (dateMatch) {
-      date = dateMatch[1].trim();
-      continue;
-    }
-    break;
-  }
-  const body = lines.slice(cursor).join("\n").trim();
-  if (!author && !date && !body) return null;
-  return { author, date, body };
+  return documentStore.parseThreadEntry(section);
 }
 
 async function readMarkdownIfExists(filePath: string): Promise<{
@@ -262,37 +152,14 @@ async function readMarkdownIfExists(filePath: string): Promise<{
   content: string;
   title: string;
 } | null> {
-  if (!(await fileExists(filePath))) return null;
-  return parseMarkdownFile(filePath);
+  return documentStore.readMarkdownIfExists(filePath);
 }
 
 export async function findProjectDir(
   root: string,
   id: string
 ): Promise<string | null> {
-  if (!(await dirExists(root))) return null;
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === id || entry.name.startsWith(`${id}_`)) {
-      return entry.name;
-    }
-  }
-  return null;
-}
-
-async function findArchivedProjectDir(
-  root: string,
-  id: string
-): Promise<string | null> {
-  return findProjectDir(path.join(root, ARCHIVE_DIR), id);
-}
-
-async function findDoneProjectDir(
-  root: string,
-  id: string
-): Promise<string | null> {
-  return findProjectDir(path.join(root, DONE_DIR), id);
+  return documentStore.findProjectDir(root, id);
 }
 
 function projectRelativePath(
@@ -300,67 +167,23 @@ function projectRelativePath(
   baseRoot: string,
   dirName: string
 ): string {
-  const prefix = path.relative(root, baseRoot);
-  return prefix ? path.join(prefix, dirName) : dirName;
+  return documentStore.projectRelativePath(root, baseRoot, dirName);
 }
 
 export async function findProjectLocation(
   root: string,
   id: string,
   options?: { includeDone?: boolean; includeArchived?: boolean }
-): Promise<ProjectLocation | null> {
-  const activeDir = await findProjectDir(root, id);
-  if (activeDir) {
-    return { dirName: activeDir, baseRoot: root, path: activeDir };
-  }
-
-  if (options?.includeDone !== false) {
-    const doneRoot = path.join(root, DONE_DIR);
-    const doneDir = await findDoneProjectDir(root, id);
-    if (doneDir) {
-      return {
-        dirName: doneDir,
-        baseRoot: doneRoot,
-        path: path.join(DONE_DIR, doneDir),
-      };
-    }
-  }
-
-  if (options?.includeArchived) {
-    const archiveRoot = path.join(root, ARCHIVE_DIR);
-    const archivedDir = await findArchivedProjectDir(root, id);
-    if (archivedDir) {
-      return {
-        dirName: archivedDir,
-        baseRoot: archiveRoot,
-        path: path.join(ARCHIVE_DIR, archivedDir),
-      };
-    }
-  }
-
-  return null;
+): Promise<documentStore.ProjectLocation | null> {
+  return documentStore.findProjectLocation(root, id, options);
 }
 
 function toStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function normalizeStatus(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-function projectStatusMigrationHint(status: string): string {
-  return `Legacy project status "${status}" no longer supported. Run \`aihub projects migrate-to-slices\`.`;
-}
-
 function validateProjectStatus(status: unknown): string | null {
-  const normalized = normalizeStatus(status);
-  if (!normalized) return null;
-  if (PROJECT_LIFECYCLE_STATUSES.has(normalized)) return normalized;
-  if (LEGACY_PROJECT_STATUSES.has(normalized)) {
-    throw new Error(projectStatusMigrationHint(normalized));
-  }
-  throw new Error(`Invalid project status: ${String(status)}`);
+  return documentStore.validateProjectStatus(status);
 }
 
 async function cascadeProjectCancellation(projectDir: string): Promise<void> {
@@ -384,15 +207,7 @@ function shouldAutoMarkProjectDone(
   status: string | null,
   slices: SliceRecord[]
 ): boolean {
-  if (status !== "active") return false;
-  if (slices.length === 0) return false;
-  const hasDone = slices.some((slice) => slice.frontmatter.status === "done");
-  const allTerminal = slices.every(
-    (slice) =>
-      slice.frontmatter.status === "done" ||
-      slice.frontmatter.status === "cancelled"
-  );
-  return hasDone && allTerminal;
+  return documentStore.shouldAutoMarkProjectDone(status, slices);
 }
 
 async function getAreaRepoMap(
@@ -1048,11 +863,7 @@ export async function appendProjectComment(
   }
 
   const raw = await fs.readFile(threadPath, "utf8");
-  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
-  const prefix = fmMatch ? fmMatch[0] : formatThreadFrontmatter(projectId);
-  const rest = fmMatch ? raw.slice(fmMatch[0].length) : raw;
-  const separator = rest.trim() ? "\n---\n---\n\n" : "\n";
-  const next = `${prefix}${rest}${separator}${formatted}`;
+  const next = documentStore.appendThreadEntry(raw, projectId, entry);
   await fs.writeFile(threadPath, next, "utf8");
   return { ok: true, data: entry };
 }
@@ -1190,28 +1001,22 @@ export async function updateProjectComment(
     return { ok: false, error: "Thread file not found" };
   }
 
-  const raw = await fs.readFile(threadPath, "utf8");
-  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
-  const prefix = fmMatch ? fmMatch[0] : formatThreadFrontmatter(projectId);
-  const sections = parseThreadSections(raw);
-
-  if (index < 0 || index >= sections.length) {
-    return { ok: false, error: "Comment not found" };
+  try {
+    const raw = await fs.readFile(threadPath, "utf8");
+    const updated = documentStore.updateThreadEntry(
+      raw,
+      projectId,
+      index,
+      body
+    );
+    await fs.writeFile(threadPath, updated.next, "utf8");
+    return { ok: true, data: updated.entry };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
-
-  const entry = parseThreadEntry(sections[index]);
-  if (!entry) {
-    return { ok: false, error: "Failed to parse comment" };
-  }
-
-  const updatedEntry = { ...entry, body };
-  sections[index] =
-    `[author:${updatedEntry.author}]\n[date:${updatedEntry.date}]\n${body.trim()}`;
-
-  const next = prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n");
-  await fs.writeFile(threadPath, next, "utf8");
-
-  return { ok: true, data: updatedEntry };
 }
 
 export type DeleteCommentResult =
@@ -1238,21 +1043,16 @@ export async function deleteProjectComment(
     return { ok: false, error: "Thread file not found" };
   }
 
-  const raw = await fs.readFile(threadPath, "utf8");
-  const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
-  const prefix = fmMatch ? fmMatch[0] : formatThreadFrontmatter(projectId);
-  const sections = parseThreadSections(raw);
-
-  if (index < 0 || index >= sections.length) {
-    return { ok: false, error: "Comment not found" };
+  let next: string;
+  try {
+    const raw = await fs.readFile(threadPath, "utf8");
+    next = documentStore.deleteThreadEntry(raw, projectId, index);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
-
-  sections.splice(index, 1);
-
-  const next =
-    sections.length > 0
-      ? prefix + sections.map((s) => s + "\n").join("\n---\n---\n\n")
-      : prefix;
   await fs.writeFile(threadPath, next, "utf8");
 
   return { ok: true, data: { index } };

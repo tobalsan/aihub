@@ -2,20 +2,16 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseMarkdownFile } from "../taskboard/parser.js";
 import { emitSliceSpecsFallbackHint } from "./fallback-hints.js";
+import * as documentStore from "./document-store.js";
 
 const COUNTERS_FILE = "counters.json";
-const README_FILE = "README.md";
-const SPECS_FILE = "SPECS.md";
-const TASKS_FILE = "TASKS.md";
-const VALIDATION_FILE = "VALIDATION.md";
-const THREAD_FILE = "THREAD.md";
-const META_DIR = ".meta";
-const SLICES_DIR = "slices";
-const LOCK_DIR = ".slice-counter.lock";
-const SCOPE_MAP_LOCK_DIR = ".scope-map.lock";
-const SCOPE_MAP_FILE = "SCOPE_MAP.md";
-const PROJECT_ID_PATTERN = /^PRO-\d+$/;
-const SLICE_ID_PATTERN = /^PRO-\d+-S\d+$/;
+const README_FILE = documentStore.README_FILE;
+const SPECS_FILE = documentStore.SPECS_FILE;
+const TASKS_FILE = documentStore.TASKS_FILE;
+const VALIDATION_FILE = documentStore.VALIDATION_FILE;
+const THREAD_FILE = documentStore.THREAD_FILE;
+const META_DIR = documentStore.META_DIR;
+const SLICES_DIR = documentStore.SLICES_DIR;
 
 export type SliceStatus =
   | "todo"
@@ -84,27 +80,11 @@ export type UpdateSliceInput = {
   frontmatter?: Record<string, unknown>;
 };
 
-function formatFrontmatterValue(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "number" || typeof value === "boolean")
-    return String(value);
-  return JSON.stringify(value);
-}
-
-function formatFrontmatter(frontmatter: Record<string, unknown>): string {
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (value === undefined) continue;
-    lines.push(`${key}: ${formatFrontmatterValue(value)}`);
-  }
-  return `---\n${lines.join("\n")}\n---\n`;
-}
-
 function toMarkdown(
   frontmatter: Record<string, unknown>,
   content: string
 ): string {
-  return `${formatFrontmatter(frontmatter)}${content}`;
+  return documentStore.formatMarkdown(frontmatter, content);
 }
 
 async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
@@ -116,117 +96,23 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
   }
 }
 
-async function writeFileAtomic(
-  filePath: string,
-  content: string
-): Promise<void> {
-  const dir = path.dirname(filePath);
-  const name = path.basename(filePath);
-  const tmpPath = path.join(dir, `.${name}.${process.pid}.${Date.now()}.tmp`);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(tmpPath, content, "utf8");
-  await fs.rename(tmpPath, filePath);
-}
-
-async function withProjectLock<T>(
-  projectDir: string,
-  lockDirName: string,
-  task: () => Promise<T>
-): Promise<T> {
-  const lockPath = path.join(projectDir, META_DIR, lockDirName);
-  await fs.mkdir(path.join(projectDir, META_DIR), { recursive: true });
-  while (true) {
-    try {
-      await fs.mkdir(lockPath);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-
-  try {
-    return await task();
-  } finally {
-    await fs.rm(lockPath, { recursive: true, force: true });
-  }
-}
-
 async function withCounterLock<T>(
   projectDir: string,
   task: () => Promise<T>
 ): Promise<T> {
-  return withProjectLock(projectDir, LOCK_DIR, task);
-}
-
-async function withScopeMapLock<T>(
-  projectDir: string,
-  task: () => Promise<T>
-): Promise<T> {
-  return withProjectLock(projectDir, SCOPE_MAP_LOCK_DIR, task);
+  return documentStore.withCounterLock(projectDir, task);
 }
 
 type CountersState = { lastSliceId: number };
 
-function assertValidProjectId(projectId: string): void {
-  if (!PROJECT_ID_PATTERN.test(projectId)) {
-    throw new Error(`Invalid projectId: ${projectId}`);
-  }
-}
-
-function assertValidSliceId(sliceId: string): void {
-  if (!SLICE_ID_PATTERN.test(sliceId)) {
-    throw new Error(`Invalid sliceId: ${sliceId}`);
-  }
-}
-
 export function normalizeRepoValue(repo: unknown): string | undefined {
-  if (repo === undefined) return undefined;
-  if (typeof repo !== "string") {
-    throw new Error("Slice repo must be an absolute path");
-  }
-  const trimmed = repo.trim();
-  if (!trimmed) return undefined;
-  return trimmed;
+  return documentStore.normalizeRepoValue(repo);
 }
 
 async function assertValidSliceRepo(
   repo: unknown
 ): Promise<string | undefined> {
-  const trimmed = normalizeRepoValue(repo);
-  if (trimmed === undefined) return undefined;
-  if (!path.isAbsolute(trimmed)) {
-    throw new Error("Slice repo must be an absolute path");
-  }
-  const hasGit = await fs
-    .stat(path.join(trimmed, ".git"))
-    .then(() => true)
-    .catch(() => false);
-  if (!hasGit) {
-    throw new Error(`Slice repo is not a git repo: ${trimmed}`);
-  }
-  return trimmed;
-}
-
-async function readProjectRepo(
-  projectDir: string
-): Promise<string | undefined> {
-  const parsed = await parseMarkdownFile(
-    path.join(projectDir, README_FILE)
-  ).catch((error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  });
-  if (!parsed) return undefined;
-  return normalizeRepoValue(parsed.frontmatter.repo);
-}
-
-function repoRequiredMessage(
-  projectId: string,
-  action: "create" | "update"
-): string {
-  const verb = action === "create" ? "create" : "update";
-  return `Cannot ${verb} slice: project ${projectId} has no repo. Pass --repo <abs path> or set the project repo first (\`aihub projects update ${projectId} --repo …\`).`;
+  return documentStore.assertValidSliceRepo(repo);
 }
 
 export async function assertSliceRepoInvariant(
@@ -234,11 +120,11 @@ export async function assertSliceRepoInvariant(
   sliceFrontmatter: Pick<SliceFrontmatter, "project_id" | "repo">,
   action: "create" | "update"
 ): Promise<void> {
-  const projectRepo = await readProjectRepo(projectDir);
-  const sliceRepo = normalizeRepoValue(sliceFrontmatter.repo);
-  if (!projectRepo && !sliceRepo) {
-    throw new Error(repoRequiredMessage(sliceFrontmatter.project_id, action));
-  }
+  await documentStore.assertSliceRepoInvariant(
+    projectDir,
+    sliceFrontmatter,
+    action
+  );
 }
 
 function formatSliceId(projectId: string, sliceNumber: number): string {
@@ -292,7 +178,7 @@ async function allocateSliceId(
     });
     const maxOnDisk = await findMaxSliceNumberOnDisk(projectDir, projectId);
     const next = Math.max(state.lastSliceId, maxOnDisk) + 1;
-    await writeFileAtomic(
+    await documentStore.writeFileAtomic(
       countersPath,
       JSON.stringify({ lastSliceId: next }, null, 2)
     );
@@ -307,7 +193,7 @@ async function reserveSliceId(
   requestedId?: string
 ): Promise<string> {
   if (!requestedId) return allocateSliceId(projectDir, projectId);
-  assertValidSliceId(requestedId);
+  documentStore.assertValidSliceId(requestedId);
   if (!requestedId.startsWith(`${projectId}-S`)) {
     throw new Error(
       `sliceId ${requestedId} does not belong to project ${projectId}`
@@ -325,7 +211,7 @@ async function reserveSliceId(
     if (requestedNumber === null || requestedNumber <= maxEver) {
       throw new Error(`Slice id already assigned: ${requestedId}`);
     }
-    await writeFileAtomic(
+    await documentStore.writeFileAtomic(
       countersPath,
       JSON.stringify({ lastSliceId: requestedNumber }, null, 2)
     );
@@ -340,80 +226,18 @@ function coerceFrontmatter(
   return frontmatter as SliceFrontmatter;
 }
 
-type ScopeMapRow = {
-  id: string;
-  title: string;
-  status: string;
-  hillPosition: string;
-};
-
-function escapeCell(value: string): string {
-  return value.replace(/\r?\n/g, "<br>").replace(/\|/g, "\\|");
-}
-
-function renderScopeMap(projectId: string, rows: ScopeMapRow[]): string {
-  const lines = [
-    "<!-- Auto-generated by aihub. Do not edit by hand. -->",
-    `# Scope map — ${projectId}`,
-    "",
-    "| Slice | Title | Status | Hill |",
-    "|-------|-------|--------|------|",
-  ];
-
-  for (const row of rows) {
-    lines.push(
-      `| ${escapeCell(row.id)} | ${escapeCell(row.title)} | ${escapeCell(row.status)} | ${escapeCell(row.hillPosition)} |`
-    );
-  }
-
-  lines.push("");
-  return lines.join("\n");
-}
-
 export async function regenerateScopeMap(
   projectDir: string,
   projectId: string
 ): Promise<void> {
-  assertValidProjectId(projectId);
-
-  await withScopeMapLock(projectDir, async () => {
-    const slicesDir = path.join(projectDir, SLICES_DIR);
-    const rows: ScopeMapRow[] = [];
-
-    try {
-      const entries = await fs.readdir(slicesDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const readmePath = path.join(slicesDir, entry.name, README_FILE);
-        try {
-          const parsed = await parseMarkdownFile(readmePath);
-          const frontmatter = coerceFrontmatter(parsed.frontmatter);
-          const id = String(frontmatter.id ?? entry.name);
-          rows.push({
-            id,
-            title: String(frontmatter.title ?? ""),
-            status: String(frontmatter.status ?? ""),
-            hillPosition: String(frontmatter.hill_position ?? ""),
-          });
-        } catch {
-          // ignore invalid/incomplete slice dir entries
-        }
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-
-    rows.sort((a, b) => a.id.localeCompare(b.id));
-    const content = renderScopeMap(projectId, rows);
-    await writeFileAtomic(path.join(projectDir, SCOPE_MAP_FILE), content);
-  });
+  await documentStore.regenerateScopeMap(projectDir, projectId);
 }
 
 export async function createSlice(
   projectDir: string,
   input: CreateSliceInput
 ): Promise<SliceRecord> {
-  assertValidProjectId(input.projectId);
+  documentStore.assertValidProjectId(input.projectId);
   const now = new Date().toISOString();
   const repo = await assertValidSliceRepo(input.repo);
   await assertSliceRepoInvariant(
@@ -439,17 +263,26 @@ export async function createSlice(
   };
 
   await Promise.all([
-    writeFileAtomic(
+    documentStore.writeFileAtomic(
       path.join(sliceDir, README_FILE),
       toMarkdown(frontmatter, readmeBody)
     ),
-    writeFileAtomic(path.join(sliceDir, SPECS_FILE), input.specs ?? ""),
-    writeFileAtomic(path.join(sliceDir, TASKS_FILE), input.tasks ?? ""),
-    writeFileAtomic(
+    documentStore.writeFileAtomic(
+      path.join(sliceDir, SPECS_FILE),
+      input.specs ?? ""
+    ),
+    documentStore.writeFileAtomic(
+      path.join(sliceDir, TASKS_FILE),
+      input.tasks ?? ""
+    ),
+    documentStore.writeFileAtomic(
       path.join(sliceDir, VALIDATION_FILE),
       input.validation ?? ""
     ),
-    writeFileAtomic(path.join(sliceDir, THREAD_FILE), input.thread ?? ""),
+    documentStore.writeFileAtomic(
+      path.join(sliceDir, THREAD_FILE),
+      input.thread ?? ""
+    ),
   ]);
 
   await regenerateScopeMap(projectDir, input.projectId);
@@ -460,7 +293,7 @@ export async function getSlice(
   projectDir: string,
   sliceId: string
 ): Promise<SliceRecord> {
-  assertValidSliceId(sliceId);
+  documentStore.assertValidSliceId(sliceId);
   const sliceDir = path.join(projectDir, SLICES_DIR, sliceId);
   const parsed = await parseMarkdownFile(path.join(sliceDir, README_FILE));
   const [specs, tasks, validation, thread] = await Promise.all([
@@ -498,7 +331,8 @@ export async function listSlices(projectDir: string): Promise<SliceRecord[]> {
     const entries = await fs.readdir(slicesRoot, { withFileTypes: true });
     const ids = entries
       .filter(
-        (entry) => entry.isDirectory() && SLICE_ID_PATTERN.test(entry.name)
+        (entry) =>
+          entry.isDirectory() && documentStore.isSliceDirName(entry.name)
       )
       .map((entry) => entry.name)
       .sort();
@@ -513,7 +347,7 @@ export async function updateSlice(
   sliceId: string,
   input: UpdateSliceInput
 ): Promise<SliceRecord> {
-  assertValidSliceId(sliceId);
+  documentStore.assertValidSliceId(sliceId);
   const current = await getSlice(projectDir, sliceId);
   const now = new Date().toISOString();
   const nextFrontmatter: SliceFrontmatter = {
@@ -538,21 +372,33 @@ export async function updateSlice(
 
   const sliceDir = current.dirPath;
   await Promise.all([
-    writeFileAtomic(
+    documentStore.writeFileAtomic(
       path.join(sliceDir, README_FILE),
       toMarkdown(nextFrontmatter, input.readme ?? current.docs.readme)
     ),
     input.specs !== undefined
-      ? writeFileAtomic(path.join(sliceDir, SPECS_FILE), input.specs)
+      ? documentStore.writeFileAtomic(
+          path.join(sliceDir, SPECS_FILE),
+          input.specs
+        )
       : Promise.resolve(),
     input.tasks !== undefined
-      ? writeFileAtomic(path.join(sliceDir, TASKS_FILE), input.tasks)
+      ? documentStore.writeFileAtomic(
+          path.join(sliceDir, TASKS_FILE),
+          input.tasks
+        )
       : Promise.resolve(),
     input.validation !== undefined
-      ? writeFileAtomic(path.join(sliceDir, VALIDATION_FILE), input.validation)
+      ? documentStore.writeFileAtomic(
+          path.join(sliceDir, VALIDATION_FILE),
+          input.validation
+        )
       : Promise.resolve(),
     input.thread !== undefined
-      ? writeFileAtomic(path.join(sliceDir, THREAD_FILE), input.thread)
+      ? documentStore.writeFileAtomic(
+          path.join(sliceDir, THREAD_FILE),
+          input.thread
+        )
       : Promise.resolve(),
   ]);
 
@@ -585,7 +431,7 @@ export async function updateSlice(
             ...projectDoc.frontmatter,
             status: "done",
           };
-          await writeFileAtomic(
+          await documentStore.writeFileAtomic(
             projectReadmePath,
             toMarkdown(nextFrontmatter, projectDoc.content)
           );

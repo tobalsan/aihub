@@ -51,6 +51,7 @@ pnpm aihub gateway uninstall  # bootout + remove plist
 The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`).
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
+Project document layout is centralized in `ProjectDocumentStore`: project metadata stays in `README.md`, pitch in `PITCH.md`, comments in `THREAD.md`, slices under `slices/<sliceId>/`, and `SCOPE_MAP.md` is generated.
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
 Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, starts `Reviewer` subagents for `review`, and starts `Merger` subagents for `ready_to_merge`. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`. HITL bursts require `hitl_channel` to name an existing `notifications.channels` key.
