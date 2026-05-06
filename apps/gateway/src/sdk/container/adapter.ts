@@ -6,13 +6,19 @@ import os from "node:os";
 import path from "node:path";
 import type {
   AgentConfig,
+  ContainerFileOutputRequest,
   ContainerExtensionTool,
   ContainerInput,
   ContainerOutput,
   FileAttachment,
   GatewayConfig,
 } from "@aihub/shared";
-import { renderAgentContext } from "@aihub/shared";
+import {
+  ContainerOutputSchema,
+  ContainerRunnerProtocolEventSchema,
+  HistoryEventSchema,
+  renderAgentContext,
+} from "@aihub/shared";
 import {
   buildContainerArgs,
   buildVolumeMounts,
@@ -82,27 +88,6 @@ function hasReadableDocumentAttachment(params: SdkRunParams): boolean {
   );
 }
 
-const historyEventTypes = new Set<HistoryEvent["type"]>([
-  "system_prompt",
-  "user",
-  "assistant_text",
-  "assistant_thinking",
-  "assistant_file",
-  "tool_call",
-  "tool_result",
-  "turn_end",
-  "meta",
-  "system_context",
-]);
-
-type RawFileOutputEvent = {
-  type: "file_output";
-  path: string;
-  filename?: string;
-  mimeType?: string;
-  size?: number;
-};
-
 function getArgValue(args: string[], flag: string): string {
   const index = args.indexOf(flag);
   const value = index === -1 ? undefined : args[index + 1];
@@ -116,7 +101,7 @@ function parseProtocolOutput(lines: string[]): ContainerOutput | undefined {
   if (!lines.length) return undefined;
   const payload = lines.join("\n").trim();
   if (!payload) return undefined;
-  return JSON.parse(payload) as ContainerOutput;
+  return ContainerOutputSchema.parse(JSON.parse(payload));
 }
 
 function getMeaningfulStderr(stderr: string): string {
@@ -177,26 +162,8 @@ function stopThenKill(containerName: string): void {
   killTimer.unref?.();
 }
 
-function isHistoryEvent(event: unknown): event is HistoryEvent {
-  return (
-    typeof event === "object" &&
-    event !== null &&
-    "type" in event &&
-    typeof event.type === "string" &&
-    historyEventTypes.has(event.type as HistoryEvent["type"])
-  );
-}
-
-function isRawFileOutputEvent(event: unknown): event is RawFileOutputEvent {
-  return (
-    typeof event === "object" &&
-    event !== null &&
-    "type" in event &&
-    event.type === "file_output" &&
-    "path" in event &&
-    typeof event.path === "string"
-  );
-}
+const isHistoryEvent = (event: unknown): event is HistoryEvent =>
+  HistoryEventSchema.safeParse(event).success;
 
 function sanitizeFilename(
   filename: string | undefined,
@@ -267,7 +234,7 @@ function copyUploadAttachment(
 
 async function handleFileOutputEvent(
   params: SdkRunParams,
-  event: RawFileOutputEvent,
+  event: ContainerFileOutputRequest,
   hostDataDir: string
 ): Promise<void> {
   const source = resolveContainerDataFile(hostDataDir, event.path);
@@ -728,8 +695,10 @@ export function getContainerAdapter(): SdkAdapter {
           if (!rawEvent) return;
 
           try {
-            const event = JSON.parse(rawEvent);
-            if (isHistoryEvent(event)) {
+            const event = ContainerRunnerProtocolEventSchema.parse(
+              JSON.parse(rawEvent)
+            );
+            if (event.type !== "file_output") {
               recordActivity(`history_${event.type}`);
               sawStreamingHistory = true;
               if (event.type !== "system_context") {
@@ -738,19 +707,15 @@ export function getContainerAdapter(): SdkAdapter {
               forwardStreamEvent(params, event);
               return;
             }
-            if (isRawFileOutputEvent(event)) {
-              recordActivity("file_output");
-              const task = handleFileOutputEvent(
-                params,
-                event,
-                hostDataDir
-              ).catch((error) => {
+            recordActivity("file_output");
+            const task = handleFileOutputEvent(params, event, hostDataDir).catch(
+              (error) => {
                 const message =
                   error instanceof Error ? error.message : String(error);
                 params.onEvent({ type: "error", message });
-              });
-              pendingFileOutputs.push(task);
-            }
+              }
+            );
+            pendingFileOutputs.push(task);
           } catch {
             // ignore malformed stream event lines
           }

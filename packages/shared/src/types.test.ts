@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   AgentConfigSchema,
+  ContainerFileOutputRequestSchema,
   ContainerInputSchema,
   ContainerOutputSchema,
+  ContainerRunnerProtocolEventSchema,
   GatewayConfigSchema,
+  HistoryEventSchema,
   ProjectsOrchestratorConfigSchema,
+  StreamEventSchema,
 } from "./types.js";
 
 describe("AgentConfigSchema openclaw model handling", () => {
@@ -257,5 +261,70 @@ describe("container IPC schemas", () => {
 
     expect(input.workspaceDir).toBe("/workspace");
     expect(output.text).toBe("hello back");
+  });
+
+  it("keeps raw file output separate from stream downloads and history files", () => {
+    expect(
+      ContainerFileOutputRequestSchema.parse({
+        type: "file_output",
+        path: "/workspace/data/report.csv",
+      })
+    ).toEqual({ type: "file_output", path: "/workspace/data/report.csv" });
+
+    expect(
+      StreamEventSchema.parse({
+        type: "file_output",
+        fileId: "file-1",
+        filename: "report.csv",
+        mimeType: "text/csv",
+        size: 12,
+      })
+    ).toMatchObject({ fileId: "file-1" });
+
+    expect(
+      HistoryEventSchema.safeParse({
+        type: "file_output",
+        fileId: "file-1",
+        filename: "report.csv",
+        mimeType: "text/csv",
+        size: 12,
+        timestamp: 1,
+      }).success
+    ).toBe(false);
+    expect(
+      HistoryEventSchema.parse({
+        type: "assistant_file",
+        fileId: "file-1",
+        filename: "report.csv",
+        mimeType: "text/csv",
+        size: 12,
+        direction: "outbound",
+        timestamp: 1,
+      })
+    ).toMatchObject({ type: "assistant_file", fileId: "file-1" });
+  });
+
+  it("validates container runner protocol events", () => {
+    expect(
+      ContainerRunnerProtocolEventSchema.parse({
+        type: "file_output",
+        path: "/workspace/data/report.csv",
+      })
+    ).toMatchObject({ type: "file_output" });
+
+    expect(
+      ContainerRunnerProtocolEventSchema.parse({
+        type: "assistant_text",
+        text: "hello",
+        timestamp: 1,
+      })
+    ).toMatchObject({ type: "assistant_text" });
+
+    expect(
+      ContainerRunnerProtocolEventSchema.safeParse({
+        type: "assistant_text",
+        text: "hello",
+      }).success
+    ).toBe(false);
   });
 });

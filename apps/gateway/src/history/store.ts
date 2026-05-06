@@ -465,20 +465,6 @@ export function bufferHistoryEvent(
         timestamp: event.timestamp,
       });
       break;
-    case "file_output":
-      if (!buffer.assistantStarted) {
-        buffer.assistantStarted = true;
-        buffer.startTimestamp = event.timestamp ?? Date.now();
-      }
-      buffer.fileBlocks.push({
-        type: "file",
-        fileId: event.fileId,
-        filename: event.filename,
-        mimeType: event.mimeType,
-        size: event.size,
-        direction: "outbound",
-      });
-      break;
     case "turn_end":
       break;
     case "meta":

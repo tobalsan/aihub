@@ -365,6 +365,48 @@ describe("Pi runner", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it("emits raw container file output requests from send_file", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    piMock.session.prompt.mockImplementationOnce(async () => {
+      piMock.session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      });
+    });
+
+    const streamedEvents: unknown[] = [];
+    await runAgent(createInput({ workspaceDir, sessionDir }), (event) => {
+      streamedEvents.push(event);
+    });
+
+    const createAgentSessionArgs = piMock.createAgentSession.mock.calls[0]?.[0] as
+      | {
+          customTools: Array<{
+            name: string;
+            execute: (_id: string, args: unknown) => Promise<unknown>;
+          }>;
+        }
+      | undefined;
+    const sendFile = createAgentSessionArgs?.customTools.find(
+      (tool) => tool.name === "send_file"
+    );
+    await sendFile?.execute("tool-3", {
+      path: "/workspace/data/report.csv",
+    });
+
+    expect(streamedEvents).toContainEqual({
+      type: "file_output",
+      path: "/workspace/data/report.csv",
+    });
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
   it("steers follow-up IPC messages into the active session", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
     const workspaceDir = path.join(tempDir, "workspace");

@@ -42,7 +42,7 @@ describe("agent runner entry point", () => {
   it("parses stdin, streams events, and writes final output", async () => {
     const chunks: string[] = [];
     const runAgent = vi.fn(async (_input, onStreamEvent) => {
-      onStreamEvent?.({ type: "assistant_text", text: "delta" });
+      onStreamEvent?.({ type: "assistant_text", text: "delta", timestamp: 1 });
       return { text: "stubbed" };
     });
 
@@ -56,19 +56,20 @@ describe("agent runner entry point", () => {
 
     expect(runAgent).toHaveBeenCalledWith(input, expect.any(Function));
     expect(chunks.join("")).toBe(
-      `${EVENT_PREFIX}{"type":"assistant_text","text":"delta"}\n${OUTPUT_START}\n{"text":"stubbed"}\n${OUTPUT_END}\n`
+      `${EVENT_PREFIX}{"type":"assistant_text","text":"delta","timestamp":1}\n${OUTPUT_START}\n{"text":"stubbed"}\n${OUTPUT_END}\n`
     );
   });
 
   it("formats stream event output", () => {
     const chunks: string[] = [];
 
-    writeStreamEvent({ type: "assistant_text", text: "hello" }, (chunk) =>
-      chunks.push(chunk)
+    writeStreamEvent(
+      { type: "assistant_text", text: "hello", timestamp: 1 },
+      (chunk) => chunks.push(chunk)
     );
 
     expect(chunks).toEqual([
-      `${EVENT_PREFIX}{"type":"assistant_text","text":"hello"}\n`,
+      `${EVENT_PREFIX}{"type":"assistant_text","text":"hello","timestamp":1}\n`,
     ]);
   });
 

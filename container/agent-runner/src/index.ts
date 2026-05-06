@@ -2,8 +2,10 @@ import { pathToFileURL } from "node:url";
 import {
   ContainerInputSchema,
   ContainerOutputSchema,
+  ContainerRunnerProtocolEventSchema,
   type ContainerInput,
   type ContainerOutput,
+  type ContainerRunnerProtocolEvent,
 } from "@aihub/shared";
 import { startIpcPoller, type IpcCleanup } from "./ipc.js";
 import { configureProxy, proxyClient } from "./proxy.js";
@@ -21,7 +23,7 @@ type AgentRunnerDeps = {
   writeStderr?: (chunk: string) => void;
   runAgent?: (
     input: ContainerInput,
-    onStreamEvent?: (event: unknown) => void
+    onStreamEvent?: (event: ContainerRunnerProtocolEvent) => void
   ) => Promise<ContainerOutput>;
   startIpcPoller?: typeof startIpcPoller;
 };
@@ -71,10 +73,14 @@ export async function runAgentRunner(
 }
 
 export function writeStreamEvent(
-  event: unknown,
+  event: ContainerRunnerProtocolEvent,
   writeStdout: (chunk: string) => void = (chunk) => process.stdout.write(chunk)
 ): void {
-  writeStdout(`${EVENT_PREFIX}${JSON.stringify(event)}\n`);
+  writeStdout(
+    `${EVENT_PREFIX}${JSON.stringify(
+      ContainerRunnerProtocolEventSchema.parse(event)
+    )}\n`
+  );
 }
 
 export function writeProtocolOutput(
