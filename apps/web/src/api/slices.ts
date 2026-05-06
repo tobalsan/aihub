@@ -1,5 +1,6 @@
 import type {
   CreateSlicePayload,
+  ProjectThreadEntry,
   SliceListResponse,
   SliceRecord,
   UpdateSlicePayload,
@@ -62,5 +63,23 @@ export async function updateSlice(
     const data = await res.json().catch(() => ({ error: "Failed to update slice" }));
     throw new Error((data as { error?: string }).error ?? "Failed to update slice");
   }
+  return res.json();
+}
+
+export async function addSliceComment(
+  projectId: string,
+  sliceId: string,
+  message: string,
+  author = "AIHub"
+): Promise<ProjectThreadEntry> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/slices/${encodeURIComponent(sliceId)}/comments`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author, message }),
+    }
+  );
+  if (!res.ok) throw new Error("Failed to add comment");
   return res.json();
 }

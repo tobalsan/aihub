@@ -472,7 +472,7 @@ packages/
 - Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
 - The full project editor remains available from the overview through `?detail=1`; it opens `ProjectDetailPage` over the overview for Pitch editing, chat, activity, changes, and slice spec work
 - Board project detail uses one editable Pitch surface backed by `PITCH.md`; legacy projects without `PITCH.md` display the `README.md` body as fallback while `README.md` remains the frontmatter carrier. Project-level `SPECS.md` files are legacy artifacts and are not surfaced in project detail.
-- Slice detail uses one editable Specs surface backed by `SPECS.md`; legacy slices without `SPECS.md` display the `README.md` body as fallback while slice `README.md` remains the frontmatter carrier. `TASKS.md`, `VALIDATION.md`, and `THREAD.md` remain separate slice tabs.
+- Slice detail uses one editable Specs surface backed by `SPECS.md`; legacy slices without `SPECS.md` display the `README.md` body as fallback while slice `README.md` remains the frontmatter carrier. `TASKS.md`, `VALIDATION.md`, and `THREAD.md` remain separate slice tabs; the Thread tab supports adding timestamped comments from the UI, with Cmd/Ctrl+Enter to submit.
 - Project detail is mobile/tablet responsive: `<=768px` uses a single-column `Overview | Chat | Activity | Changes | Spec` tabbed view, and `769px-1199px` uses a `280px` left rail with merged center/right tabs
 - In `SPECS.md` view, one top-right toggle collapses/expands both Tasks and Acceptance Criteria to free more room for the markdown pane
 - Right context panel `Recent` list shows the 5 most recently viewed projects from browser localStorage

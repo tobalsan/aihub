@@ -48,6 +48,7 @@ import {
   listProjects,
   mergeSpaceIntoBase,
   parseTasks,
+  parseThread,
   readSpec,
   rebaseSpaceOntoMain,
   listSlices,
@@ -651,6 +652,47 @@ export function registerProjectRoutes(app: Hono): void {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "not found";
       return c.json({ error: msg }, sliceMutationErrorStatus(msg));
+    }
+  });
+
+  app.post("/projects/:id/slices/:sliceId/comments", async (c) => {
+    const id = c.req.param("id");
+    const sliceId = c.req.param("sliceId");
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = ProjectCommentRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+    const config = getProjectsConfig();
+    const project = await getProject(config, id);
+    if (!project.ok) {
+      return c.json({ error: project.error }, 404);
+    }
+    try {
+      const existing = await getSlice(project.data.absolutePath, sliceId);
+      const date = formatThreadDate(new Date());
+      const separator = existing.docs.thread.trim().length > 0 ? "\n\n" : "";
+      const entry = `## ${date}\n[author:${parsed.data.author}]\n[date:${date}]\n\n${parsed.data.message.trim()}`;
+      const thread = `${existing.docs.thread.trimEnd()}${separator}${entry}\n`;
+      const updated = await updateSlice(project.data.absolutePath, sliceId, {
+        thread,
+      });
+      emitUpdatedSliceFiles(id, projectDirNameFromPath(project.data.path), sliceId, {
+        thread,
+      });
+      await recordCommentActivity({
+        actor: parsed.data.author,
+        projectId: id,
+        commentExcerpt: parsed.data.message,
+      });
+      const last = parseThread(updated.docs.thread).at(-1);
+      return c.json(
+        last ?? { author: parsed.data.author, date, body: parsed.data.message },
+        201
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "not found";
+      return c.json({ error: msg }, 404);
     }
   });
 

@@ -186,12 +186,11 @@ export function BoardProjectDetailPage(
     const unsubscribe = subscribeToFileChanges({
       onFileChanged: (changedId, file) => {
         if (changedId !== id) return;
-        const upper = file.toUpperCase();
+        const normalized = file.replace(/\\/g, "/").toUpperCase();
         if (
-          upper.includes("PITCH") ||
-          upper.includes("README") ||
-          upper.includes("SPECS") ||
-          upper.includes("THREAD")
+          normalized === "PITCH.MD" ||
+          normalized === "README.MD" ||
+          normalized === "THREAD.MD"
         ) {
           if (refreshTimer) window.clearTimeout(refreshTimer);
           refreshTimer = window.setTimeout(() => {
@@ -600,6 +599,12 @@ export function BoardProjectDetailPage(
                         placeholder="Add a comment…"
                         value={commentDraft()}
                         onInput={(e) => setCommentDraft(e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            e.currentTarget.form?.requestSubmit();
+                          }
+                        }}
                         rows={3}
                       />
                       <button

@@ -13,6 +13,7 @@ export {
   saveAttachments,
   resolveAttachmentFile,
 } from "./store.js";
+export { parseThread } from "./document-store.js";
 export {
   createSlice,
   getSlice,

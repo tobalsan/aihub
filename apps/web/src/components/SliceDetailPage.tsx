@@ -14,6 +14,7 @@ import {
   onCleanup,
 } from "solid-js";
 import {
+  addSliceComment,
   fetchSlices,
   fetchSlice,
   fetchSubagents,
@@ -210,7 +211,13 @@ function parseSliceThreadEntries(content: string): SliceThreadEntry[] {
     : [];
 }
 
-function SliceThreadSection(props: { content: string }) {
+function SliceThreadSection(props: {
+  content: string;
+  draft: string;
+  posting: boolean;
+  onDraftChange: (value: string) => void;
+  onSubmit: (event: Event) => void;
+}) {
   const entries = createMemo(() => parseSliceThreadEntries(props.content));
   return (
     <div class="slice-detail-section">
@@ -242,6 +249,28 @@ function SliceThreadSection(props: { content: string }) {
           </For>
         </div>
       </Show>
+      <form class="slice-detail-comment-form" onSubmit={props.onSubmit}>
+        <textarea
+          class="slice-detail-comment-input"
+          placeholder="Add a comment…"
+          value={props.draft}
+          onInput={(event) => props.onDraftChange(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+          rows={3}
+        />
+        <button
+          type="submit"
+          class="slice-detail-comment-submit"
+          disabled={props.posting || !props.draft.trim()}
+        >
+          {props.posting ? "Posting…" : "Post comment"}
+        </button>
+      </form>
     </div>
   );
 }
@@ -286,6 +315,9 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
   });
   const [statusChanging, setStatusChanging] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
+  const [commentDraft, setCommentDraft] = createSignal("");
+  const [commentPosting, setCommentPosting] = createSignal(false);
+  const locallySavedFiles = new Map<string, number>();
 
   const [slice, { mutate, refetch }] = createResource(
     () => ({ projectId: projectId(), sliceId: sliceId() }),
@@ -312,8 +344,16 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
         void refetchRuns();
       }, 250);
       const unsub = subscribeToFileChanges({
-        onFileChanged: (changedId) => {
-          if (changedId === pid) void refetch();
+        onFileChanged: (changedId, file) => {
+          if (changedId !== pid) return;
+          const normalized = file.replace(/\\/g, "/");
+          const slicePrefix = `slices/${sliceId()}/`;
+          const isThisSliceFile = normalized.startsWith(slicePrefix);
+          const isProjectLifecycleFile =
+            normalized === "README.md" || normalized === "SCOPE_MAP.md";
+          if (!isThisSliceFile && !isProjectLifecycleFile) return;
+          if ((locallySavedFiles.get(normalized) ?? 0) > Date.now()) return;
+          void refetch();
         },
         onAgentChanged: (changedId) => {
           if (changedId === pid) debouncedRefetchRuns();
@@ -382,6 +422,15 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
     if (!current) return;
 
     setSaveError("");
+    const fileByDocKey: Record<EditableSliceDocKey, string> = {
+      specs: "SPECS.md",
+      tasks: "TASKS.md",
+      validation: "VALIDATION.md",
+    };
+    const suppressUntil = Date.now() + 2000;
+    locallySavedFiles.set(`slices/${sliceId()}/${fileByDocKey[docKey]}`, suppressUntil);
+    locallySavedFiles.set(`slices/${sliceId()}/README.md`, suppressUntil);
+    locallySavedFiles.set("SCOPE_MAP.md", suppressUntil);
     mutate({ ...current, docs: { ...current.docs, [docKey]: content } });
 
     try {
@@ -393,6 +442,26 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
       mutate(current);
       setSaveError(error instanceof Error ? error.message : "Save failed");
       setTimeout(() => setSaveError(""), 3000);
+    }
+  };
+
+  const handlePostComment = async (event: Event) => {
+    event.preventDefault();
+    const body = commentDraft().trim();
+    const current = slice();
+    if (!body || commentPosting() || !current) return;
+
+    setCommentPosting(true);
+    setSaveError("");
+    try {
+      await addSliceComment(projectId(), sliceId(), body);
+      setCommentDraft("");
+      await refetch();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Failed to add comment");
+      setTimeout(() => setSaveError(""), 3000);
+    } finally {
+      setCommentPosting(false);
     }
   };
 
@@ -706,7 +775,13 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                     />
                   </Show>
                   <Show when={activeTab() === "thread"}>
-                    <SliceThreadSection content={docs()?.thread ?? ""} />
+                    <SliceThreadSection
+                      content={docs()?.thread ?? ""}
+                      draft={commentDraft()}
+                      posting={commentPosting()}
+                      onDraftChange={setCommentDraft}
+                      onSubmit={handlePostComment}
+                    />
                   </Show>
                   <Show when={activeTab() === "agent"}>
                     <SliceAgentRunsSection
@@ -1084,6 +1159,45 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
 
         .slice-detail-thread-markdown a {
           color: var(--accent);
+        }
+
+        .slice-detail-comment-form {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .slice-detail-comment-input {
+          width: 100%;
+          resize: vertical;
+          min-height: 78px;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          padding: 10px 12px;
+          font: inherit;
+          font-size: 13px;
+          line-height: 1.45;
+          box-sizing: border-box;
+        }
+
+        .slice-detail-comment-submit {
+          align-self: flex-end;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: var(--text-primary);
+          color: var(--bg-base);
+          padding: 7px 12px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .slice-detail-comment-submit:disabled {
+          cursor: not-allowed;
+          opacity: 0.5;
         }
 
         .slice-detail-empty {
