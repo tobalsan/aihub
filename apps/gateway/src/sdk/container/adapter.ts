@@ -1,43 +1,15 @@
 import * as childProcess from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import fsPromises from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import type {
-  AgentConfig,
-  ContainerFileOutputRequest,
-  ContainerExtensionTool,
-  ContainerInput,
-  ContainerOutput,
-  FileAttachment,
-  GatewayConfig,
-} from "@aihub/shared";
+import type { AgentConfig, ContainerOutput } from "@aihub/shared";
 import {
-  ContainerOutputSchema,
   ContainerRunnerProtocolEventSchema,
   HistoryEventSchema,
   renderAgentContext,
 } from "@aihub/shared";
-import {
-  buildContainerArgs,
-  buildVolumeMounts,
-  CONTAINER_DATA_DIR,
-  CONTAINER_UPLOADS_DIR,
-  getAgentDataDir,
-  getSessionUploadsDir,
-  getMountedOnecliCaPath,
-} from "../../agents/container.js";
 import { loadConfig } from "../../config/index.js";
-import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
-import { getExtensionAgentTools } from "../../extensions/tools.js";
 import { ensureBootstrapFiles } from "../../agents/workspace.js";
-import {
-  ensureMediaDirectories,
-  getMediaInboundDir,
-  getMediaOutboundDir,
-  registerMediaFile,
-} from "../../media/metadata.js";
 import { getDefaultSdkId, getSdkAdapter } from "../registry.js";
 import { registerContainerToken, removeContainerToken } from "./tokens.js";
 import {
@@ -51,25 +23,16 @@ import type {
   SdkRunParams,
   SdkRunResult,
 } from "../types.js";
+import {
+  buildContainerLaunchSpec,
+  prepareLaunchFilesystem,
+} from "./launch-spec.js";
+import { ContainerInputBuilder } from "./input-builder.js";
+import { ContainerFileOutputAdapter } from "./file-output.js";
+import { ContainerProtocolDecoder, getMeaningfulStderr } from "./protocol.js";
 
-const OUTPUT_START = "---AIHUB_OUTPUT_START---";
-const OUTPUT_END = "---AIHUB_OUTPUT_END---";
-const EVENT_PREFIX = "---AIHUB_EVENT---";
-const DEFAULT_GATEWAY_PORT = 4000;
 const DEFAULT_IDLE_TIMEOUT_SECONDS = 300;
 const DEFAULT_MAX_RUNTIME_SECONDS = 1800;
-const BENIGN_STDERR_PATTERNS = [
-  /^\[agent-runner\] Running agent .+ with SDK .+$/,
-];
-
-function resolveContainerGatewayUrl(config: GatewayConfig): string {
-  const envPort = Number(process.env.AIHUB_GATEWAY_PORT);
-  const port =
-    Number.isFinite(envPort) && envPort > 0
-      ? envPort
-      : (config.gateway?.port ?? DEFAULT_GATEWAY_PORT);
-  return `http://host.docker.internal:${port}`;
-}
 const STOP_GRACE_MS = 10_000;
 
 type ContainerSessionHandle = {
@@ -86,35 +49,6 @@ function hasReadableDocumentAttachment(params: SdkRunParams): boolean {
         fs.existsSync(attachment.path)
     ) ?? false
   );
-}
-
-function getArgValue(args: string[], flag: string): string {
-  const index = args.indexOf(flag);
-  const value = index === -1 ? undefined : args[index + 1];
-  if (!value) {
-    throw new Error(`Missing docker arg: ${flag}`);
-  }
-  return value;
-}
-
-function parseProtocolOutput(lines: string[]): ContainerOutput | undefined {
-  if (!lines.length) return undefined;
-  const payload = lines.join("\n").trim();
-  if (!payload) return undefined;
-  return ContainerOutputSchema.parse(JSON.parse(payload));
-}
-
-function getMeaningfulStderr(stderr: string): string {
-  return stderr
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0)
-    .filter(
-      (line) =>
-        !BENIGN_STDERR_PATTERNS.some((pattern) => pattern.test(line.trim()))
-    )
-    .join("\n")
-    .trim();
 }
 
 function isContainerHandle(handle: unknown): handle is ContainerSessionHandle {
@@ -164,131 +98,6 @@ function stopThenKill(containerName: string): void {
 
 const isHistoryEvent = (event: unknown): event is HistoryEvent =>
   HistoryEventSchema.safeParse(event).success;
-
-function sanitizeFilename(
-  filename: string | undefined,
-  fallback: string
-): string {
-  if (!filename) return fallback;
-  const cleaned = filename
-    .replace(/\0/g, "")
-    .split(/[\\/]/)
-    .filter(Boolean)
-    .at(-1);
-  return cleaned?.replace(/["\\\r\n]/g, "_") || fallback;
-}
-
-function resolveContainerDataFile(
-  hostDataDir: string,
-  containerPath: string
-): string {
-  const normalized = path.posix.normalize(containerPath);
-  const relative = path.posix.relative(CONTAINER_DATA_DIR, normalized);
-  if (
-    relative === "" ||
-    relative.startsWith("..") ||
-    path.posix.isAbsolute(relative)
-  ) {
-    throw new Error(`file_output path must be under ${CONTAINER_DATA_DIR}`);
-  }
-  return path.join(hostDataDir, ...relative.split("/"));
-}
-
-function ensurePathWithinDir(filePath: string, dir: string): void {
-  const relative = path.relative(dir, filePath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Path is outside expected directory: ${filePath}`);
-  }
-}
-
-function prepareContainerUploads(
-  params: SdkRunParams,
-  uploadsDir: string
-): void {
-  fs.rmSync(uploadsDir, { recursive: true, force: true });
-  fs.mkdirSync(uploadsDir, { recursive: true });
-
-  if (!params.attachments?.length) return;
-
-  const realInboundDir = fs.realpathSync(getMediaInboundDir());
-  params.attachments.forEach((attachment, index) => {
-    copyUploadAttachment(attachment, index, realInboundDir, uploadsDir);
-  });
-}
-
-function copyUploadAttachment(
-  attachment: FileAttachment,
-  index: number,
-  realInboundDir: string,
-  uploadsDir: string
-): void {
-  const source = fs.realpathSync(attachment.path);
-  ensurePathWithinDir(source, realInboundDir);
-  const safeName = sanitizeFilename(
-    attachment.filename ?? path.basename(source),
-    path.basename(source)
-  );
-  const target = path.join(uploadsDir, `${index + 1}-${safeName}`);
-  fs.copyFileSync(source, target);
-}
-
-async function handleFileOutputEvent(
-  params: SdkRunParams,
-  event: ContainerFileOutputRequest,
-  hostDataDir: string
-): Promise<void> {
-  const source = resolveContainerDataFile(hostDataDir, event.path);
-  const realDataDir = await fsPromises.realpath(hostDataDir);
-  const realSource = await fsPromises.realpath(source);
-  ensurePathWithinDir(realSource, realDataDir);
-
-  const stat = await fsPromises.stat(realSource);
-  if (!stat.isFile()) {
-    throw new Error(`file_output path is not a file: ${event.path}`);
-  }
-
-  const filename = sanitizeFilename(
-    event.filename,
-    path.basename(realSource) || "download"
-  );
-  const ext = path.extname(filename);
-  const fileId = randomUUID();
-  const storedFilename = `${fileId}${ext}`;
-  const target = path.join(getMediaOutboundDir(), storedFilename);
-  const mimeType = event.mimeType || "application/octet-stream";
-
-  await ensureMediaDirectories();
-  await fsPromises.copyFile(realSource, target);
-  const metadata = await registerMediaFile({
-    direction: "outbound",
-    fileId,
-    filename,
-    storedFilename,
-    path: target,
-    mimeType,
-    size: stat.size,
-    agentId: params.agentId,
-    sessionId: params.sessionId,
-  });
-
-  const timestamp = Date.now();
-  params.onHistoryEvent({
-    type: "assistant_file",
-    fileId: metadata.fileId,
-    filename: metadata.filename,
-    mimeType: metadata.mimeType,
-    size: metadata.size,
-    direction: "outbound",
-    timestamp,
-  });
-  params.onEvent({
-    type: "file_output",
-    fileId: metadata.fileId,
-    filename: metadata.filename,
-    mimeType: metadata.mimeType,
-    size: metadata.size,
-  });
-}
 
 function forwardStreamEvent(params: SdkRunParams, event: HistoryEvent): void {
   if (event.type === "assistant_text") {
@@ -361,24 +170,6 @@ function emitHistory(params: SdkRunParams, output: ContainerOutput): void {
   params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
 }
 
-async function buildExtensionTools(
-  params: SdkRunParams
-): Promise<ContainerExtensionTool[]> {
-  const tools = params.extensionRuntime
-    ? await getExtensionAgentTools(
-        params.agent,
-        loadConfig(),
-        params.extensionRuntime
-      )
-    : await getExtensionAgentTools(params.agent);
-  return tools.map((tool) => ({
-    extensionId: tool.extensionId,
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters,
-  }));
-}
-
 async function attachExtraNetwork(
   containerName: string,
   network: string,
@@ -429,92 +220,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function resolveOnecliProxyUrl(
-  config: GatewayConfig,
-  agentId: string
-): string | undefined {
-  const onecli = config.onecli;
-  if (!onecli?.enabled || !onecli.gatewayUrl) return undefined;
-  const agent = config.agents.find((a) => a.id === agentId);
-  const base = onecli.sandbox?.url ?? onecli.gatewayUrl;
-  const url = new URL(base);
-  if (!onecli.sandbox?.url) {
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-      url.hostname = "host.docker.internal";
-    }
-  }
-  if (agent?.onecliToken) {
-    url.username = "onecli";
-    url.password = agent.onecliToken;
-  }
-  return url.toString().replace(/\/$/, "");
-}
-
-function remapAttachmentsToContainer(
-  attachments: FileAttachment[] | undefined
-): FileAttachment[] | undefined {
-  if (!attachments?.length) return attachments;
-  return attachments.map((attachment, index) => {
-    const safeName = sanitizeFilename(
-      attachment.filename ?? path.basename(attachment.path),
-      path.basename(attachment.path)
-    );
-    return {
-      ...attachment,
-      path: path.join(CONTAINER_UPLOADS_DIR, `${index + 1}-${safeName}`),
-    };
-  });
-}
-
-async function buildInput(
-  params: SdkRunParams,
-  agentToken: string
-): Promise<ContainerInput> {
-  const config = loadConfig();
-  const extensionSystemPrompts = params.extensionRuntime
-    ? await getExtensionSystemPromptContributions(
-        params.agent,
-        config,
-        params.extensionRuntime
-      )
-    : await getExtensionSystemPromptContributions(params.agent);
-  const extensionTools = await buildExtensionTools(params);
-  return {
-    agentId: params.agentId,
-    sessionId: params.sessionId,
-    userId: params.userId,
-    message: params.message,
-    attachments: remapAttachmentsToContainer(params.attachments),
-    thinkLevel: params.thinkLevel,
-    context: params.context,
-    extensionSystemPrompts:
-      extensionSystemPrompts.length > 0 ? extensionSystemPrompts : undefined,
-    extensionTools: extensionTools.length > 0 ? extensionTools : undefined,
-    workspaceDir: "/workspace",
-    sessionDir: "/sessions",
-    ipcDir: "/workspace/ipc",
-    gatewayUrl: resolveContainerGatewayUrl(config),
-    agentToken,
-    onecli:
-      config.onecli?.enabled && config.onecli.gatewayUrl
-        ? {
-            enabled: true,
-            url:
-              resolveOnecliProxyUrl(config, params.agentId) ??
-              config.onecli.gatewayUrl,
-            caPath: getMountedOnecliCaPath(config.onecli),
-          }
-        : undefined,
-    sdkConfig: {
-      sdk: params.agent.sdk ?? getDefaultSdkId(),
-      model: {
-        provider: params.agent.model.provider,
-        model: params.agent.model.model,
-      },
-    },
-  };
-}
-
 export function getContainerAdapter(): SdkAdapter {
   return {
     id: "container" as SdkId,
@@ -531,48 +236,9 @@ export function getContainerAdapter(): SdkAdapter {
     },
     async run(params: SdkRunParams) {
       const config = loadConfig();
-      const globalSandbox = config.sandbox ?? {};
-      const aihubHome =
-        process.env.AIHUB_HOME ?? path.join(os.homedir(), ".aihub");
-      const mounts = buildVolumeMounts(
-        params.agent,
-        globalSandbox,
-        aihubHome,
-        params.userId,
-        config.onecli,
-        params.sessionId
-      );
-      const args = buildContainerArgs(
-        params.agent,
-        globalSandbox,
-        mounts,
-        aihubHome,
-        params.userId,
-        config.onecli,
-        config.env
-      );
-      const containerName = getArgValue(args, "--name");
-      const ipcDir = path.join(aihubHome, "ipc", params.agentId);
-      const ipcInputDir = path.join(ipcDir, "input");
-      const hostDataDir = getAgentDataDir(aihubHome, params.agentId);
-      const hostUploadsDir = getSessionUploadsDir(
-        aihubHome,
-        params.agentId,
-        params.sessionId
-      );
-      // Wipe stale IPC files from prior container runs so they don't leak into
-      // this run's follow-up queue (e.g. old "/stop" getting delivered to new session).
-      fs.rmSync(ipcInputDir, { recursive: true, force: true });
-      fs.mkdirSync(ipcInputDir, { recursive: true });
-      fs.mkdirSync(path.join(aihubHome, "sessions", params.agentId), {
-        recursive: true,
-      });
-      if (params.userId) {
-        fs.mkdirSync(path.join(aihubHome, "users", params.userId), {
-          recursive: true,
-        });
-      }
-      prepareContainerUploads(params, hostUploadsDir);
+      const launchSpec = buildContainerLaunchSpec(params, config);
+      const { args, containerName, ipcDir, hostDataDir } = launchSpec;
+      prepareLaunchFilesystem(params, launchSpec);
       await ensureBootstrapFiles(params.workspaceDir);
 
       const agentToken = randomUUID();
@@ -580,11 +246,12 @@ export function getContainerAdapter(): SdkAdapter {
       const attachmentContext = hasReadableDocumentAttachment(params)
         ? await buildDocumentAttachmentContext(params.attachments)
         : "";
-      const input = await buildInput(
+      const input = await new ContainerInputBuilder().build(
         {
           ...params,
           message: appendAttachmentContext(params.message, attachmentContext),
         },
+        config,
         agentToken
       );
       const child = childProcess.spawn("docker", args, {
@@ -613,9 +280,8 @@ export function getContainerAdapter(): SdkAdapter {
       let timeoutKind: "idle" | "max" | undefined;
       let aborted = false;
       let settled = false;
-      let stdoutLineBuffer = "";
-      const outputLines: string[] = [];
-      let inOutputBlock = false;
+      const protocol = new ContainerProtocolDecoder();
+      const fileOutputAdapter = new ContainerFileOutputAdapter();
       let sawStreamingHistory = false;
       const pendingFileOutputs: Promise<void>[] = [];
       const idleTimeoutSeconds =
@@ -641,7 +307,10 @@ export function getContainerAdapter(): SdkAdapter {
         };
 
         const describeLastActivity = (): string => {
-          const ageSeconds = Math.max(0, Math.round((Date.now() - lastActivityAt) / 1000));
+          const ageSeconds = Math.max(
+            0,
+            Math.round((Date.now() - lastActivityAt) / 1000)
+          );
           return `last activity was ${lastActivityType} ${ageSeconds}s ago`;
         };
 
@@ -669,7 +338,8 @@ export function getContainerAdapter(): SdkAdapter {
         const handle: ContainerSessionHandle = {
           containerName,
           ipcDir,
-          recordQueuedMessageActivity: () => recordActivity("queued_user_message"),
+          recordQueuedMessageActivity: () =>
+            recordActivity("queued_user_message"),
         };
         params.onSessionHandle?.(handle);
 
@@ -708,13 +378,13 @@ export function getContainerAdapter(): SdkAdapter {
               return;
             }
             recordActivity("file_output");
-            const task = handleFileOutputEvent(params, event, hostDataDir).catch(
-              (error) => {
+            const task = fileOutputAdapter
+              .handle(params, event, hostDataDir)
+              .catch((error) => {
                 const message =
                   error instanceof Error ? error.message : String(error);
                 params.onEvent({ type: "error", message });
-              }
-            );
+              });
             pendingFileOutputs.push(task);
           } catch {
             // ignore malformed stream event lines
@@ -726,25 +396,15 @@ export function getContainerAdapter(): SdkAdapter {
           settled = true;
           cleanup();
 
-          if (stdoutLineBuffer.length > 0) {
-            const line = stdoutLineBuffer.replace(/\r$/, "");
-            if (line === OUTPUT_START) {
-              inOutputBlock = true;
-              outputLines.length = 0;
-            } else if (line === OUTPUT_END) {
-              inOutputBlock = false;
-            } else if (inOutputBlock) {
-              outputLines.push(line);
-            } else if (line.startsWith(EVENT_PREFIX)) {
-              handleProtocolEvent(line.slice(EVENT_PREFIX.length).trim());
-            }
+          for (const frame of protocol.flush()) {
+            handleProtocolEvent(frame.payload);
           }
 
           await Promise.all(pendingFileOutputs);
 
           let output: ContainerOutput | undefined;
           try {
-            output = parseProtocolOutput(outputLines);
+            output = protocol.parseOutput();
           } catch (error) {
             reject(error);
             return;
@@ -795,33 +455,8 @@ export function getContainerAdapter(): SdkAdapter {
         maxRunTimeTimer.unref?.();
 
         child.stdout?.on("data", (chunk: Buffer | string) => {
-          stdoutLineBuffer += chunk.toString();
-          const lines = stdoutLineBuffer.split("\n");
-          stdoutLineBuffer = lines.pop() ?? "";
-
-          for (const rawLine of lines) {
-            const line = rawLine.replace(/\r$/, "");
-            if (line === OUTPUT_START) {
-              inOutputBlock = true;
-              outputLines.length = 0;
-              continue;
-            }
-            if (line === OUTPUT_END) {
-              inOutputBlock = false;
-              continue;
-            }
-            if (inOutputBlock) {
-              outputLines.push(line);
-              continue;
-            }
-            if (!line.startsWith(EVENT_PREFIX)) {
-              continue;
-            }
-
-            const rawEvent = line.slice(EVENT_PREFIX.length).trim();
-            if (!rawEvent) continue;
-
-            handleProtocolEvent(rawEvent);
+          for (const frame of protocol.write(chunk)) {
+            handleProtocolEvent(frame.payload);
           }
         });
         child.once("error", (error) => {
@@ -843,7 +478,8 @@ export function getContainerAdapter(): SdkAdapter {
       });
     },
     async queueMessage(handle: unknown, message: string) {
-      const { ipcDir, recordQueuedMessageActivity } = assertContainerHandle(handle);
+      const { ipcDir, recordQueuedMessageActivity } =
+        assertContainerHandle(handle);
       const inputDir = path.join(ipcDir, "input");
       const timestamp = Date.now();
       fs.mkdirSync(inputDir, { recursive: true });

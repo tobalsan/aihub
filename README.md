@@ -400,6 +400,8 @@ When `sandbox.enabled` is `true`, the gateway replaces the normal in-process age
 6. Gateway parses the output and routes the response to the client
 7. Container is removed on exit (`--rm`)
 
+The public adapter remains `getContainerAdapter()`, with internal container modules for launch specs, protocol framing, input building, file output registration, and extension tool bridging.
+
 **Follow-up messages** while a container is running are delivered via filesystem IPC — the gateway writes JSON files to a bind-mounted input directory that the agent-runner polls.
 
 **Orchestration tools** (subagent spawn, project CRUD) call back to the gateway's `/internal/tools` endpoint from inside the container.

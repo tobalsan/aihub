@@ -12,4 +12,5 @@ export * from "./notify.js";
 export * from "./frontmatter.js";
 export * from "./fs.js";
 export * from "./paths.js";
+export * from "./container-protocol.js";
 export * from "./extensions/index.js";

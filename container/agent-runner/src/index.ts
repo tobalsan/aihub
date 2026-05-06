@@ -1,5 +1,8 @@
 import { pathToFileURL } from "node:url";
 import {
+  CONTAINER_EVENT_PREFIX,
+  CONTAINER_OUTPUT_END,
+  CONTAINER_OUTPUT_START,
   ContainerInputSchema,
   ContainerOutputSchema,
   ContainerRunnerProtocolEventSchema,
@@ -11,9 +14,9 @@ import { startIpcPoller, type IpcCleanup } from "./ipc.js";
 import { configureProxy, proxyClient } from "./proxy.js";
 import { abortActiveAgent, runAgent, sendFollowUpMessage } from "./runner.js";
 
-export const OUTPUT_START = "---AIHUB_OUTPUT_START---";
-export const OUTPUT_END = "---AIHUB_OUTPUT_END---";
-export const EVENT_PREFIX = "---AIHUB_EVENT---";
+export const OUTPUT_START = CONTAINER_OUTPUT_START;
+export const OUTPUT_END = CONTAINER_OUTPUT_END;
+export const EVENT_PREFIX = CONTAINER_EVENT_PREFIX;
 
 export { proxyClient };
 
