@@ -20,7 +20,7 @@ import {
   updateSlice,
   subscribeToFileChanges,
   subscribeToSubagentChanges,
-} from "../api/client";
+} from "../api";
 import type {
   SliceStatus,
   SliceRecord,

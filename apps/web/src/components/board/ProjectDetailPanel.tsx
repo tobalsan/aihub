@@ -8,7 +8,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { fetchProject, updateProject } from "../../api/client";
+import { fetchProject, updateProject } from "../../api";
 import type { ProjectDetail } from "../../api/types";
 import { DocEditor } from "./DocEditor";
 import { TasksEditor } from "./TasksEditor";

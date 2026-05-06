@@ -23,7 +23,7 @@ vi.mock("@solidjs/router", () => ({
   useNavigate: () => navigateMock,
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchAreaSummaries: fetchAreaSummariesMock,
   subscribeToFileChanges: subscribeToFileChangesMock,

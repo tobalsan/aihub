@@ -18,7 +18,7 @@ import {
   onMount,
   type JSX,
 } from "solid-js";
-import { fetchAgents, getSessionKey, subscribeToSession } from "./api/client";
+import { fetchAgents, getSessionKey, subscribeToSession } from "./api";
 import type { Agent } from "./api/types";
 import { AgentList } from "./components/AgentList";
 import { AgentSidebar } from "./components/AgentSidebar";

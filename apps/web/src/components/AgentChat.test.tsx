@@ -30,7 +30,7 @@ const {
   archiveSubagentMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchFullHistory: fetchFullHistoryMock,
   fetchSubagents: fetchSubagentsMock,
   fetchSubagentLogs: fetchSubagentLogsMock,

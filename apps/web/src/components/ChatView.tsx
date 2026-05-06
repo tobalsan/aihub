@@ -21,7 +21,7 @@ import {
   subscribeToStatus,
   postAbort,
   type DoneMeta,
-} from "../api/client";
+} from "../api";
 import type {
   Message,
   HistoryViewMode,
@@ -762,7 +762,7 @@ export function ChatView() {
   };
 
   const applyActiveTurnSnapshot = (
-    turn: import("../api/client").ActiveTurn
+    turn: import("../api").ActiveTurn
   ) => {
     setIsStreaming(true);
     setStreamingStartedAt(turn.startedAt ?? Date.now());
@@ -851,7 +851,7 @@ export function ChatView() {
 
   const applyActiveTurn = (
     streaming: boolean,
-    turn: import("../api/client").ActiveTurn | null
+    turn: import("../api").ActiveTurn | null
   ) => {
     if (!streaming || !turn) return;
     if (cleanup) return;

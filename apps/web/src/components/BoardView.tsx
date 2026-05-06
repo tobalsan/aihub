@@ -17,8 +17,8 @@ import {
   streamMessage,
   subscribeToSession,
   uploadFiles,
-} from "../api/client";
-import type { ActiveTurn } from "../api/client";
+} from "../api";
+import type { ActiveTurn } from "../api";
 import type {
   Agent,
   FileAttachment,

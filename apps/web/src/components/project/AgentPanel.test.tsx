@@ -9,9 +9,9 @@ import {
   renameSubagent,
   fetchSubagentLogs,
   fetchSubagents,
-} from "../../api/client";
+} from "../../api";
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
   fetchSubagentLogs: vi.fn(async () => ({
     ok: true,

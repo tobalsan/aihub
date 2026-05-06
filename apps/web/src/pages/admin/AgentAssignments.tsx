@@ -7,7 +7,7 @@ import {
   createResource,
   createSignal,
 } from "solid-js";
-import { fetchAgents } from "../../api/client";
+import { fetchAgents } from "../../api";
 import {
   fetchAgentAssignments,
   fetchUsers,

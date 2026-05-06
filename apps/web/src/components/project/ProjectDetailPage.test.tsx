@@ -8,7 +8,7 @@ import {
   subscribeToFileChanges,
   subscribeToStatus,
   updateProject,
-} from "../../api/client";
+} from "../../api";
 
 const navigateMock = vi.fn();
 
@@ -17,7 +17,7 @@ vi.mock("@solidjs/router", () => ({
   useNavigate: () => navigateMock,
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchProject: vi.fn(async () => ({
     id: "PRO-1",
     title: "Alpha Project",

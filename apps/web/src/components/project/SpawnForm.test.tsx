@@ -2,10 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import type { ProjectDetail, SubagentListItem } from "../../api/types";
-import { spawnSubagent } from "../../api/client";
+import { spawnSubagent } from "../../api";
 import { SpawnForm, buildReviewerWorkspaceList } from "./SpawnForm";
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "worker-1" } })),
 }));
 

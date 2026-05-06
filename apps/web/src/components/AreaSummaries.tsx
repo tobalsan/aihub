@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
-import { fetchAreaSummaries, toggleAreaHidden, updateAreaLoop } from "../api/client";
+import { fetchAreaSummaries, toggleAreaHidden, updateAreaLoop } from "../api";
 import { renderMarkdown } from "../lib/markdown";
 import type { AreaSummary } from "../api/types";
 

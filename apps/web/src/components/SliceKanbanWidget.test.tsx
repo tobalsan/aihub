@@ -60,7 +60,7 @@ let fileChangeCallbacks:
     }
   | undefined;
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
   fetchSubagents: (...args: unknown[]) => fetchSubagentsMock(...args),
   updateSlice: (...args: unknown[]) => updateSliceMock(...args),

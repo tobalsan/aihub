@@ -126,7 +126,7 @@ vi.mock("./SliceDetailPage", () => ({
   ),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   addProjectComment: vi.fn(),
   createProject: vi.fn(),
   createSlice: vi.fn(),

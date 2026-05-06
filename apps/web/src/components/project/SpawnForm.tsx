@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { buildRolePrompt } from "@aihub/shared/projectPrompt";
 import type { PromptRole } from "@aihub/shared/projectPrompt";
-import { spawnSubagent } from "../../api/client";
+import { spawnSubagent } from "../../api";
 import type { ProjectDetail, SubagentListItem } from "../../api/types";
 
 export type SpawnTemplate = "lead" | "custom";

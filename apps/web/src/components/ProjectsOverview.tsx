@@ -16,7 +16,7 @@ import {
   subscribeToFileChanges,
   subscribeToSubagentChanges,
   updateProject,
-} from "../api/client";
+} from "../api";
 import type {
   BoardProject,
   BoardWorktree,

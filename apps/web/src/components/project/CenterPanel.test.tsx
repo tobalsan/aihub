@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import type { ProjectDetail } from "../../api/types";
 import { CenterPanel } from "./CenterPanel";
-import { fetchSubagentLogs, fetchSubagents } from "../../api/client";
+import { fetchSubagentLogs, fetchSubagents } from "../../api";
 
 vi.mock("../AgentChat", () => ({
   AgentChat: (props: {
@@ -16,7 +16,7 @@ vi.mock("../AgentChat", () => ({
   ),
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchSubagents: vi.fn(async () => ({ ok: true, data: { items: [] } })),
   fetchSubagentLogs: vi.fn(async () => ({
     ok: true,

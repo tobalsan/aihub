@@ -1,5 +1,5 @@
 import type { CapabilitiesResponse } from "../api/types";
-import { fetchCapabilities } from "../api/client";
+import { fetchCapabilities } from "../api";
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 

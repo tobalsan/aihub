@@ -37,7 +37,7 @@ vi.mock("@solidjs/router", () => ({
   useParams: () => ({ agentId: "agent-1", view: routeState.view }),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchAgent: fetchAgentMock,
   fetchSimpleHistory: fetchSimpleHistoryMock,
   fetchFullHistory: fetchFullHistoryMock,

@@ -17,7 +17,7 @@ import type {
   ProjectLifecycleCounts,
   ProjectLifecycleStatus,
 } from "../../api/types";
-import { moveBoardProject } from "../../api/client";
+import { moveBoardProject } from "../../api";
 
 // ── Types ──────────────────────────────────────────────────────────
 

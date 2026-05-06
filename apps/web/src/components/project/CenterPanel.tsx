@@ -10,7 +10,7 @@ import {
   fetchSubagentLogs,
   fetchSubagents,
   subscribeToFileChanges,
-} from "../../api/client";
+} from "../../api";
 import { AgentChat } from "../AgentChat";
 import type {
   ProjectDetail,

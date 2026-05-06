@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { delegateEvents, render } from "solid-js/web";
 import { ProjectsBoard } from "./ProjectsBoard";
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchProjects: vi.fn(() => []),
   fetchAreas: vi.fn(async () => []),
   fetchProject: vi.fn(async () => ({

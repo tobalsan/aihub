@@ -20,8 +20,8 @@ import {
   mergeSpaceIntoMain,
   rebaseSpaceOntoMain,
   skipSpaceEntries,
-} from "../../api/client";
-import type { MergeSpaceIntoMainResult } from "../../api/client";
+} from "../../api";
+import type { MergeSpaceIntoMainResult } from "../../api";
 import type {
   FileChange,
   ProjectChanges,

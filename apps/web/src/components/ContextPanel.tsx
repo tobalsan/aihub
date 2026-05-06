@@ -12,7 +12,7 @@ import { A, useLocation } from "@solidjs/router";
 import { ActivityFeed } from "./ActivityFeed";
 import { AgentChat } from "./AgentChat";
 import { AgentDirectory } from "./AgentDirectory";
-import { fetchAgents, fetchAllSubagents, fetchProjects } from "../api/client";
+import { fetchAgents, fetchAllSubagents, fetchProjects } from "../api";
 import { isExtensionEnabled } from "../lib/capabilities";
 
 type ContextPanelProps = {

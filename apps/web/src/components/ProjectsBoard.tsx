@@ -37,7 +37,7 @@ import {
   deleteProjectComment,
   startProjectRun,
   subscribeToFileChanges,
-} from "../api/client";
+} from "../api";
 import type {
   ProjectListItem,
   ProjectDetail,

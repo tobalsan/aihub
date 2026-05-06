@@ -21,7 +21,7 @@ import {
   subscribeToFileChanges,
   updateProject,
   updateTask,
-} from "../../api/client";
+} from "../../api";
 import type { SubagentListItem, Task } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import {

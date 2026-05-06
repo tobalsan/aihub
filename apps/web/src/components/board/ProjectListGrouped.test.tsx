@@ -20,7 +20,7 @@ const { moveBoardProjectMock } = vi.hoisted(() => ({
   moveBoardProjectMock: vi.fn(),
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   moveBoardProject: moveBoardProjectMock,
 }));
 

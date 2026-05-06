@@ -29,7 +29,7 @@ import {
   subscribeToSession,
   type DoneMeta,
   uploadFiles,
-} from "../api/client";
+} from "../api";
 import type {
   FullHistoryMessage,
   FullToolResultMessage,

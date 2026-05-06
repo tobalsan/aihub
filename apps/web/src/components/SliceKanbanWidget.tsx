@@ -19,7 +19,7 @@ import {
   updateSlice,
   subscribeToFileChanges,
   subscribeToSubagentChanges,
-} from "../api/client";
+} from "../api";
 import type { SliceRecord, SliceStatus, SubagentListItem } from "../api/types";
 
 type ColumnDef = { id: SliceStatus; title: string; color: string };
@@ -283,7 +283,7 @@ export function SliceKanbanWidget(props: Props) {
     setCreating(true);
     setCreateError(null);
     try {
-      const { createSlice } = await import("../api/client");
+      const { createSlice } = await import("../api");
       const created = await createSlice(props.projectId, { title, status });
       mutate([...(slices() ?? []), created]);
       setAddingToColumn(null);

@@ -21,8 +21,8 @@ import {
   resetLeadSession,
   subscribeToFileChanges,
   subscribeToStatus,
-} from "../../api/client";
-import type { AgentInfo } from "../../api/client";
+} from "../../api";
+import type { AgentInfo } from "../../api";
 import type {
   Area,
   ProjectDetail,

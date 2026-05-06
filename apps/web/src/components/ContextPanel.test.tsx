@@ -3,7 +3,7 @@ import { createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { ContextPanel } from "./ContextPanel";
-import * as api from "../api/client";
+import * as api from "../api";
 
 async function flushAsync(): Promise<void> {
   await Promise.resolve();
@@ -11,7 +11,7 @@ async function flushAsync(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchAgents: vi.fn(async () => []),
   fetchAllSubagents: vi.fn(async () => ({ items: [] })),
   fetchProjects: vi.fn(async () => [

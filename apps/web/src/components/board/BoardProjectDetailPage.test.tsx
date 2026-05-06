@@ -10,7 +10,7 @@ import {
   addProjectComment,
   createSlice,
   fetchBoardActivity,
-} from "../../api/client";
+} from "../../api";
 
 const navigateMock = vi.fn();
 const [searchParamsSignal, setSearchParamsSignal] = createSignal<
@@ -73,7 +73,7 @@ const MOCK_PROJECT = {
   ],
 };
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchProject: vi.fn(async () => MOCK_PROJECT),
   fetchAreas: vi.fn(async () => [
     { id: "aihub", title: "AIHub", color: "#53b97c", repo: "~/code/aihub" },

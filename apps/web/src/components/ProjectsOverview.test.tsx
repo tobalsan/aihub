@@ -57,7 +57,7 @@ vi.mock("@solidjs/router", () => ({
   ],
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   createProject: createProjectMock,
   fetchBoardProjects: fetchBoardProjectsMock,
   fetchProject: fetchProjectMock,
