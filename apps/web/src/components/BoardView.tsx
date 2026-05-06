@@ -8,7 +8,7 @@ import {
   For,
   Suspense,
 } from "solid-js";
-import { useLocation, useParams } from "@solidjs/router";
+import { useLocation } from "@solidjs/router";
 import { fetchAgents, getSessionKey } from "../api";
 import type {
   Agent,
@@ -189,14 +189,6 @@ export function BoardView() {
     }
   });
 
-  function setCanvasForRoute(state: CanvasState) {
-    setCanvas(
-      location.pathname.startsWith("/board/projects")
-        ? { panel: "projects" }
-        : state
-    );
-  }
-
   function resetInputHeight() {
     if (inputEl) inputEl.style.height = "auto";
   }
@@ -332,19 +324,23 @@ export function BoardView() {
     writeSelectedAgentId(selectedAgentId());
   });
 
-  // Poll canvas state for selected agent
+  // Poll canvas state for selected agent. Skip while on /board/projects*:
+  // the route owns the canvas there (forced to "projects"), and user tab
+  // clicks would otherwise be clobbered by stale server state on the next tick.
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   createEffect(() => {
     const agentId = selectedAgentId();
+    const path = location.pathname;
     if (pollTimer) clearInterval(pollTimer);
     if (!agentId) return;
+    if (path.startsWith("/board/projects")) return;
 
     // Initial fetch
-    getCanvasState(agentId).then(setCanvasForRoute);
+    getCanvasState(agentId).then(setCanvas);
 
     // Poll every 2s
     pollTimer = setInterval(() => {
-      getCanvasState(agentId).then(setCanvasForRoute);
+      getCanvasState(agentId).then(setCanvas);
     }, 2000);
   });
 
@@ -1367,12 +1363,11 @@ function OverviewPanel() {
 }
 
 function ProjectsPanel() {
-  const params = useParams<{ projectId?: string }>();
   const [localRoute, setLocalRoute] = createSignal<BoardProjectRoute>(
     parseBoardProjectRoute(window.location.pathname, window.location.search)
   );
   const selectedProjectId = createMemo(
-    () => localRoute()?.projectId ?? params.projectId ?? null
+    () => localRoute()?.projectId ?? null
   );
   const selectedSliceId = createMemo(() => localRoute()?.sliceId ?? null);
   const selectedTab = createMemo(() => localRoute()?.tab);

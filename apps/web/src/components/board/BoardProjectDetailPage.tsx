@@ -154,7 +154,10 @@ export function BoardProjectDetailPage(
   );
   const activeTab = createMemo<BpdTab>(() => {
     if (selectedSliceId()) return "slices";
-    const tab = props.tab ?? searchParams.tab;
+    // Embedded (parent owns navigation via onNavigate): trust props.tab only —
+    // searchParams comes from Solid Router and goes stale after manual pushState.
+    // Standalone: fall back to URL searchParams.
+    const tab = props.onNavigate ? props.tab : props.tab ?? searchParams.tab;
     return isBpdTab(tab) ? tab : "pitch";
   });
   const [menuOpen, setMenuOpen] = createSignal(false);
