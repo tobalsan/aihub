@@ -618,6 +618,26 @@ pnpm aihub auth login anthropic
 }
 ```
 
+```bash
+# Login once (OpenAI Codex)
+pnpm aihub auth login openai-codex
+
+# Configure agent to use OAuth with OpenAI Codex
+```
+
+```json
+{
+  "agents": [
+    {
+      "id": "my-agent",
+      "workspace": "~/workspace",
+      "auth": { "mode": "oauth" },
+      "model": { "provider": "openai-codex", "model": "gpt-5.3-codex-spark" }
+    }
+  ]
+}
+```
+
 **API Key auth (e.g. OpenRouter):**
 
 ```json
