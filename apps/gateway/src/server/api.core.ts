@@ -12,8 +12,10 @@ import {
   resolveWorkspaceDir,
 } from "../config/index.js";
 import {
-  isExtensionLoaded,
   getExtensionRuntime,
+  isExtensionLoaded,
+  getHomeExtension,
+  getLoadedExtensions,
 } from "../extensions/registry.js";
 import {
   runAgent,
@@ -130,20 +132,21 @@ api.get("/branding/logo", async (c) => {
 });
 
 api.get("/capabilities", async (c) => {
-  const runtime = getExtensionRuntime();
-  const capabilities = runtime.getCapabilities();
-  const extensions = capabilities.extensions;
-  const isMultiUserEnabled = capabilities.multiUser;
+  const extensions = Object.fromEntries(
+    getLoadedExtensions().map((extension) => [extension.id, true])
+  );
+  const isMultiUserEnabled = isExtensionLoaded("multiUser");
   const authContext = isMultiUserEnabled ? await getRequestAuthContext(c) : null;
   const agents = await getVisibleAgents(c);
   const branding = loadConfig().branding;
+  const home = getHomeExtension();
 
   return c.json({
     version: 2,
     extensions,
     agents: agents.map((agent) => agent.id),
     multiUser: isMultiUserEnabled,
-    home: capabilities.home,
+    ...(home ? { home } : {}),
     ...(isMultiUserEnabled && authContext
       ? {
           user: {
