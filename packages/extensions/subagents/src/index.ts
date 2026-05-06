@@ -5,7 +5,6 @@ import type {
   ExtensionContext,
   OrchestratorSource,
   SubagentRuntimeCli,
-  SubagentRuntimeProfile,
 } from "@aihub/shared";
 import { SubagentsExtensionConfigSchema } from "@aihub/shared";
 import {
@@ -15,6 +14,10 @@ import {
   killSubagent as killProjectSubagent,
   listAllSubagents,
 } from "@aihub/extension-projects";
+import {
+  resolveProfile as resolveRuntimeProfile,
+  runtimeProfiles,
+} from "@aihub/extension-projects/profiles/resolver";
 import {
   deleteSubagentRun,
   getLiveSubagentRunsByCwd,
@@ -47,32 +50,13 @@ function runtimeOptions() {
   };
 }
 
-function profiles(): SubagentRuntimeProfile[] {
-  const config = getContext().getConfig();
-  const raw = config.extensions?.subagents ?? {};
-  const extensionProfiles =
-    SubagentsExtensionConfigSchema.parse(raw).profiles ?? [];
-  const legacyProfiles = (config.subagents ?? []).map((profile) => ({
-    name: profile.name,
-    cli: profile.cli,
-    model: profile.model,
-    reasoningEffort: profile.reasoning,
-    labelPrefix: profile.name,
-  }));
-  return [
-    ...extensionProfiles,
-    ...legacyProfiles.filter(
-      (legacy) =>
-        !extensionProfiles.some((profile) => profile.name === legacy.name)
-    ),
-  ];
+function profiles() {
+  return runtimeProfiles(getContext().getConfig());
 }
 
-function resolveProfile(
-  name: string | undefined
-): SubagentRuntimeProfile | undefined {
+function resolveProfile(name: string | undefined) {
   if (!name) return undefined;
-  return profiles().find((profile) => profile.name === name);
+  return resolveRuntimeProfile(getContext().getConfig(), name);
 }
 
 function profileNames(): string[] {

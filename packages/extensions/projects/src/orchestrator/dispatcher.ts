@@ -8,6 +8,10 @@ import {
   type ProjectsOrchestratorStatusConfig,
   type SubagentRuntimeProfile,
 } from "@aihub/shared";
+import {
+  normalizeRunMode,
+  resolveProfile,
+} from "../profiles/resolver.js";
 import { listProjects, type ProjectListItem } from "../projects/store.js";
 import { ensureProjectIntegrationBranch } from "../projects/branches.js";
 import {
@@ -489,32 +493,6 @@ function isLiveSliceRun(
     (fallback) =>
       worktreePath === fallback || worktreePath.startsWith(`${fallback}/`)
   );
-}
-
-function runtimeProfiles(config: GatewayConfig): SubagentRuntimeProfile[] {
-  const extensionProfiles = config.extensions?.subagents?.profiles ?? [];
-  const legacyProfiles = (config.subagents ?? []).map((profile) => ({
-    name: profile.name,
-    cli: profile.cli,
-    model: profile.model,
-    reasoningEffort: profile.reasoning,
-    labelPrefix: profile.name,
-    runMode: profile.runMode,
-  }));
-  return [
-    ...extensionProfiles,
-    ...legacyProfiles.filter(
-      (legacy) =>
-        !extensionProfiles.some((profile) => profile.name === legacy.name)
-    ),
-  ];
-}
-
-function resolveProfile(
-  config: GatewayConfig,
-  name: string
-): SubagentRuntimeProfile | undefined {
-  return runtimeProfiles(config).find((profile) => profile.name === name);
 }
 
 function statusConfigFor(
@@ -1182,14 +1160,6 @@ function hasLiveWorkerRun(
       isWorkerRun(config, orchestratorConfig, run) &&
       run.sliceId === sliceId
   );
-}
-
-function normalizeRunMode(value: string | undefined): SubagentMode | undefined {
-  if (value === "main-run") return "main-run";
-  if (value === "worktree") return "worktree";
-  if (value === "clone") return "clone";
-  if (value === "none") return "none";
-  return undefined;
 }
 
 /**

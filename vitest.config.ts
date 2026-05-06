@@ -35,6 +35,7 @@ export default defineConfig({
       { find: /^@aihub\/extension-multi-user\/isolation$/, replacement: extSrc("multi-user", "isolation.ts") },
       { find: /^@aihub\/extension-multi-user\/middleware$/, replacement: extSrc("multi-user", "middleware.ts") },
       { find: "@aihub/extension-multi-user", replacement: extSrc("multi-user") },
+      { find: /^@aihub\/extension-projects\/profiles\/resolver$/, replacement: extSrc("projects", "profiles/resolver.ts") },
       { find: "@aihub/extension-projects", replacement: extSrc("projects") },
       { find: "@aihub/extension-board", replacement: extSrc("board") },
       { find: "@aihub/extension-subagents", replacement: extSrc("subagents") },

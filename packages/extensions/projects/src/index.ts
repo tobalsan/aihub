@@ -23,6 +23,11 @@ import {
 } from "@aihub/shared";
 import { z } from "zod";
 import {
+  normalizeRunModeOrClone,
+  resolveCliProfileOptions as resolveCliSpawnOptions,
+  type NormalizedRunMode,
+} from "./profiles/resolver.js";
+import {
   getRecentActivity,
   recordCommentActivity,
   recordProjectStatusActivity,
@@ -180,26 +185,7 @@ async function updateProjectWithCancelInterrupt(
   return result;
 }
 
-type CliRunMode = "main-run" | "worktree" | "clone" | "none";
-type CliHarness = "codex" | "claude" | "pi";
-
-const CODEX_MODELS = [
-  "gpt-5.4",
-  "gpt-5.3-codex",
-  "gpt-5.3-codex-spark",
-  "gpt-5.2",
-];
-const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
-const PI_MODELS = [
-  "qwen3.5-plus",
-  "qwen3-max-2026-01-23",
-  "MiniMax-M2.5",
-  "glm-5",
-  "kimi-k2.5",
-];
-const CODEX_REASONING = ["xhigh", "high", "medium", "low"];
-const CLAUDE_EFFORT = ["high", "medium", "low"];
-const PI_THINKING = ["off", "low", "medium", "high", "xhigh"];
+type CliRunMode = NormalizedRunMode;
 
 const UpdateTaskRequestSchema = z.object({
   checked: z.boolean().optional(),
@@ -369,14 +355,6 @@ function normalizeRunAgent(
   return null;
 }
 
-function normalizeCliRunMode(value: string): CliRunMode {
-  if (value === "main-run") return "main-run";
-  if (value === "worktree") return "worktree";
-  if (value === "clone") return "clone";
-  if (value === "none") return "none";
-  return "clone";
-}
-
 function slugToName(slug: string): string {
   return slug
     .split("-")
@@ -406,101 +384,6 @@ function resolveRunName(
     words.shift();
   }
   return words.length > 0 ? `${prefix} ${words.join(" ")}` : prefix;
-}
-
-function resolveCliSpawnOptions(
-  cli: CliHarness,
-  model?: string,
-  reasoningEffort?: string,
-  thinking?: string
-):
-  | {
-      ok: true;
-      data: {
-        model: string;
-        reasoningEffort?: string;
-        thinking?: string;
-      };
-    }
-  | { ok: false; error: string } {
-  if (cli === "codex") {
-    const resolvedModel = model || "gpt-5.3-codex";
-    if (!CODEX_MODELS.includes(resolvedModel)) {
-      return {
-        ok: false,
-        error: `Invalid codex model: ${resolvedModel}. Allowed: ${CODEX_MODELS.join(", ")}`,
-      };
-    }
-    const resolvedEffort = reasoningEffort || "high";
-    if (!CODEX_REASONING.includes(resolvedEffort)) {
-      return {
-        ok: false,
-        error: `Invalid codex reasoning effort: ${resolvedEffort}. Allowed: ${CODEX_REASONING.join(", ")}`,
-      };
-    }
-    if (thinking) {
-      return {
-        ok: false,
-        error: "thinking is only valid for pi CLI",
-      };
-    }
-    return {
-      ok: true,
-      data: { model: resolvedModel, reasoningEffort: resolvedEffort },
-    };
-  }
-
-  if (cli === "claude") {
-    const resolvedModel = model || "sonnet";
-    if (!CLAUDE_MODELS.includes(resolvedModel)) {
-      return {
-        ok: false,
-        error: `Invalid claude model: ${resolvedModel}. Allowed: ${CLAUDE_MODELS.join(", ")}`,
-      };
-    }
-    const resolvedEffort = reasoningEffort || "high";
-    if (!CLAUDE_EFFORT.includes(resolvedEffort)) {
-      return {
-        ok: false,
-        error: `Invalid claude effort: ${resolvedEffort}. Allowed: ${CLAUDE_EFFORT.join(", ")}`,
-      };
-    }
-    if (thinking) {
-      return {
-        ok: false,
-        error: "thinking is only valid for pi CLI",
-      };
-    }
-    return {
-      ok: true,
-      data: { model: resolvedModel, reasoningEffort: resolvedEffort },
-    };
-  }
-
-  const resolvedModel = model || "qwen3.5-plus";
-  if (!PI_MODELS.includes(resolvedModel)) {
-    return {
-      ok: false,
-      error: `Invalid pi model: ${resolvedModel}. Allowed: ${PI_MODELS.join(", ")}`,
-    };
-  }
-  const resolvedThinking = thinking || "medium";
-  if (!PI_THINKING.includes(resolvedThinking)) {
-    return {
-      ok: false,
-      error: `Invalid pi thinking: ${resolvedThinking}. Allowed: ${PI_THINKING.join(", ")}`,
-    };
-  }
-  if (reasoningEffort) {
-    return {
-      ok: false,
-      error: "reasoningEffort is only valid for codex and claude CLIs",
-    };
-  }
-  return {
-    ok: true,
-    data: { model: resolvedModel, thinking: resolvedThinking },
-  };
 }
 
 function slugifyTitle(value: string): string {
@@ -824,7 +707,7 @@ export function registerProjectRoutes(app: Hono): void {
     const requestedRunModeValue = hasText(startInput.runMode)
       ? startInput.runMode.trim()
       : "";
-    const resolvedRunMode = normalizeCliRunMode(
+    const resolvedRunMode = normalizeRunModeOrClone(
       requestedRunModeValue || "clone"
     );
     if (runAgentSelection.type === "cli") {
@@ -1975,7 +1858,7 @@ export function registerProjectRoutes(app: Hono): void {
       }
     }
     const resolvedCliOptions = resolveCliSpawnOptions(
-      cli as CliHarness,
+      cli,
       model,
       reasoningEffort,
       thinking
