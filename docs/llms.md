@@ -648,6 +648,7 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 - Project Space branch: `space/<projectId>`
 - Project Space worktree: `<projectsRoot>/.workspaces/<projectId>/_space`
 - Persisted state and queue: `<projectDir>/space.json`
+- Space internals are split under `packages/extensions/projects/src/projects/`: `space-state.ts` owns `space.json` parsing/persistence and leases, `space-git.ts` owns git/worktree primitives, `space-policy.ts` owns queue transitions/integration policy, and `space.ts` remains the public compatibility facade.
 
 Behavior:
 
