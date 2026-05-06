@@ -1,32 +1,20 @@
-import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { promisify } from "node:util";
 import { Hono } from "hono";
 import {
   AreaSchema,
   CreateProjectRequestSchema,
   ProjectCommentRequestSchema,
   ProjectsExtensionConfigSchema,
-  StartProjectRunRequestSchema,
   UpdateProjectCommentRequestSchema,
   UpdateProjectRequestSchema,
-  buildRolePrompt,
-  normalizeProjectStatus,
   type Extension,
   type ExtensionAgentTool,
   type GatewayConfig,
-  type PromptRole,
   type UpdateProjectRequest,
 } from "@aihub/shared";
 import { z } from "zod";
-import {
-  normalizeRunModeOrClone,
-  resolveCliProfileOptions as resolveCliSpawnOptions,
-  type NormalizedRunMode,
-} from "./profiles/resolver.js";
 import {
   getRecentActivity,
   recordCommentActivity,
@@ -41,19 +29,15 @@ import {
 } from "./areas/index.js";
 import {
   appendProjectComment,
-  archiveProject,
-  clearProjectSpaceRebaseConflict,
   commitProjectChanges,
   createProject,
   deleteProject,
   deleteProjectComment,
-  getGitHead,
   getProject,
   getProjectChanges,
   getProjectPullRequestTarget,
   getProjectSpace,
   getProjectSpaceCommitLog,
-  getProjectSpaceConflictContext,
   getProjectSpaceContribution,
   getProjectSpaceWriteLease,
   integrateProjectSpaceQueue,
@@ -75,7 +59,6 @@ import {
   saveAttachments,
   serializeTasks,
   skipSpaceEntries,
-  unarchiveProject,
   updateProject,
   updateProjectComment,
   writeSpec,
@@ -96,96 +79,34 @@ import {
   listAllSubagents,
   listProjectBranches,
   listSubagents,
-  readSubagentConfig,
   unarchiveSubagent,
   updateSubagentConfig,
 } from "./subagents/index.js";
 import {
-  getUnsupportedSubagentCliError,
   interruptSubagent,
-  isSupportedSubagentCli,
   killSubagent,
-  spawnSubagent,
 } from "./subagents/runner.js";
 import { getTaskboardItem, scanTaskboard } from "./taskboard/index.js";
-import { parseMarkdownFile } from "./taskboard/parser.js";
 import {
   clearProjectsContext,
   getProjectsContext,
   setProjectsContext,
 } from "./context.js";
+import { startProjectRun } from "./use-cases/start-project-run.js";
+import { spawnProjectSubagent } from "./use-cases/spawn-project-subagent.js";
+import {
+  fixSpaceQueueConflict,
+  fixSpaceRebaseConflict,
+} from "./use-cases/fix-space-conflict.js";
+import {
+  archiveProjectLifecycle,
+  unarchiveProjectLifecycle,
+  updateProjectLifecycle,
+  updateProjectWithCancelInterrupt,
+} from "./use-cases/update-project-lifecycle.js";
+export { interruptCancelledOrchestratorRuns } from "./use-cases/update-project-lifecycle.js";
 
-const execFileAsync = promisify(execFile);
 const registeredApps = new WeakSet<object>();
-
-type CancelInterruptDeps = {
-  listSubagentsFn?: typeof listSubagents;
-  interruptSubagentFn?: typeof interruptSubagent;
-};
-
-async function getCancelledSliceIdsForProject(
-  config: GatewayConfig,
-  id: string
-): Promise<string[]> {
-  const prev = await getProject(config, id);
-  if (!prev.ok) return [];
-  const slices = await listSlices(prev.data.absolutePath);
-  return slices
-    .filter(
-      (slice) =>
-        slice.frontmatter.status !== "done" &&
-        slice.frontmatter.status !== "cancelled"
-    )
-    .map((slice) => slice.id);
-}
-
-export async function interruptCancelledOrchestratorRuns(
-  config: GatewayConfig,
-  projectId: string,
-  cancelledSliceIds: string[],
-  deps: CancelInterruptDeps = {}
-): Promise<void> {
-  if (cancelledSliceIds.length === 0) return;
-  const listSubagentsFn = deps.listSubagentsFn ?? listSubagents;
-  const interruptSubagentFn = deps.interruptSubagentFn ?? interruptSubagent;
-  const runs = await listSubagentsFn(config, projectId, true);
-  if (!runs.ok) return;
-  await Promise.all(
-    runs.data.items
-      .filter(
-        (item) =>
-          item.source === "orchestrator" &&
-          item.status === "running" &&
-          item.sliceId &&
-          cancelledSliceIds.includes(item.sliceId)
-      )
-      .map((item) =>
-        interruptSubagentFn(config, projectId, item.slug).catch(() => undefined)
-      )
-  );
-}
-
-async function updateProjectWithCancelInterrupt(
-  config: GatewayConfig,
-  projectId: string,
-  input: UpdateProjectRequest
-) {
-  const cancelledSliceIds =
-    input.status === "cancelled"
-      ? await getCancelledSliceIdsForProject(config, projectId)
-      : [];
-  const result = await updateProject(config, projectId, input);
-  if (result.ok && input.status === "cancelled") {
-    await interruptCancelledOrchestratorRuns(
-      config,
-      projectId,
-      cancelledSliceIds
-    );
-  }
-  return result;
-}
-
-type CliRunMode = NormalizedRunMode;
 
 const UpdateTaskRequestSchema = z.object({
   checked: z.boolean().optional(),
@@ -252,16 +173,6 @@ function getProjectsConfig(): GatewayConfig {
   return getProjectsRuntimeConfig(getProjectsContext().getConfig());
 }
 
-function hasText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function projectMutationErrorStatus(error: string): 400 | 404 | 409 {
-  if (error.startsWith("Project already exists")) return 409;
-  if (error.startsWith("Cannot clear project repo")) return 400;
-  return 404;
-}
-
 function sliceMutationErrorStatus(error: string): 400 | 404 {
   if (
     error.startsWith("Cannot create slice") ||
@@ -271,13 +182,6 @@ function sliceMutationErrorStatus(error: string): 400 | 404 {
     return 400;
   }
   return 404;
-}
-
-function expandHomePath(value: string): string {
-  if (value.startsWith("~/")) {
-    return path.join(os.homedir(), value.slice(2));
-  }
-  return value;
 }
 
 function projectDirNameFromPath(projectPath: string): string {
@@ -344,53 +248,6 @@ function emitUpdatedSliceFiles(
   for (const fileName of updatedFiles) {
     emitProjectFileChanged(projectId, projectDirName, fileName);
   }
-}
-
-function normalizeRunAgent(
-  value?: string
-): { type: "aihub"; id: string } | { type: "cli"; id: string } | null {
-  if (!value) return null;
-  if (value.startsWith("aihub:")) return { type: "aihub", id: value.slice(6) };
-  if (value.startsWith("cli:")) return { type: "cli", id: value.slice(4) };
-  return null;
-}
-
-function slugToName(slug: string): string {
-  return slug
-    .split("-")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .slice(0, 3)
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
-}
-
-function resolveRunName(
-  prefix: string | undefined,
-  slug: string | undefined,
-  explicitName: string | undefined
-): string | undefined {
-  const requestedName = hasText(explicitName) ? explicitName.trim() : undefined;
-  if (requestedName) return requestedName;
-  if (!prefix) return undefined;
-
-  if (!hasText(slug)) return prefix;
-
-  const words = slugToName(slug)
-    .split(" ")
-    .filter((part) => part.length > 0);
-  if (words.length === 0) return prefix;
-  if (words[0].toLowerCase() === prefix.toLowerCase()) {
-    words.shift();
-  }
-  return words.length > 0 ? `${prefix} ${words.join(" ")}` : prefix;
-}
-
-function slugifyTitle(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function formatThreadDate(date: Date): string {
@@ -618,371 +475,12 @@ export function registerProjectRoutes(app: Hono): void {
   app.post("/projects/:id/start", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json().catch(() => ({}));
-    const parsed = StartProjectRunRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.message }, 400);
-    }
-    const startInput = { ...parsed.data };
-    const userExplicitName = hasText(startInput.name)
-      ? startInput.name.trim()
-      : undefined;
-
-    // Subagent template resolution
-    const subagentTemplateName = startInput.subagentTemplate;
-    if (subagentTemplateName) {
-      const match = getProjectsContext()
-        .getSubagentTemplates()
-        .find(
-          (t) => t.name.toLowerCase() === subagentTemplateName.toLowerCase()
-        );
-      if (!match) {
-        return c.json(
-          { error: `Unknown subagent template: ${subagentTemplateName}` },
-          400
-        );
-      }
-      if (!hasText(startInput.runAgent))
-        startInput.runAgent = `cli:${match.cli}`;
-      if (!hasText(startInput.model)) startInput.model = match.model;
-      if (!hasText(startInput.reasoningEffort))
-        startInput.reasoningEffort = match.reasoning;
-      if (!hasText(startInput.runMode)) startInput.runMode = match.runMode;
-      if (!hasText(startInput.promptRole)) {
-        startInput.promptRole = match.type as PromptRole;
-      }
-      if (!hasText(startInput.name)) startInput.name = match.name;
-    }
-
     const config = getProjectsConfig();
-    const projectResult = await getProject(config, id);
-    if (!projectResult.ok) {
-      return c.json({ error: projectResult.error }, 404);
-    }
-    const project = projectResult.data;
-    const frontmatter = project.frontmatter ?? {};
-
-    const status =
-      typeof frontmatter.status === "string" ? frontmatter.status : "";
-    const normalizedStatus = normalizeProjectStatus(status);
-
-    const requestedRunAgentValue = hasText(startInput.runAgent)
-      ? startInput.runAgent.trim()
-      : "";
-    const frontmatterRunAgentValue =
-      typeof frontmatter.runAgent === "string"
-        ? frontmatter.runAgent.trim()
-        : "";
-    const resolvedRunAgentValue =
-      requestedRunAgentValue || frontmatterRunAgentValue || "cli:codex";
-    const normalizedRunAgentValue = resolvedRunAgentValue.includes(":")
-      ? resolvedRunAgentValue
-      : `cli:${resolvedRunAgentValue}`;
-
-    let runAgentSelection = normalizeRunAgent(normalizedRunAgentValue);
-    if (!runAgentSelection) {
-      const agents = getProjectsContext().getAgents();
-      if (agents.length === 0) {
-        return c.json({ error: "No active agents available" }, 400);
-      }
-      const preferred =
-        normalizedStatus === "shaping"
-          ? agents.find((agent) => agent.name === "Project Manager")
-          : null;
-      const selected = preferred ?? agents[0];
-      runAgentSelection = { type: "aihub", id: selected.id };
-    }
-
-    let runMode: CliRunMode | undefined;
-    let slug: string | undefined;
-    let baseBranch: string | undefined;
-    const requestedModel = hasText(startInput.model)
-      ? startInput.model.trim()
-      : undefined;
-    const requestedReasoningEffort = hasText(startInput.reasoningEffort)
-      ? startInput.reasoningEffort.trim()
-      : undefined;
-    const requestedThinking = hasText(startInput.thinking)
-      ? startInput.thinking.trim()
-      : undefined;
-    const requestedRunModeValue = hasText(startInput.runMode)
-      ? startInput.runMode.trim()
-      : "";
-    const resolvedRunMode = normalizeRunModeOrClone(
-      requestedRunModeValue || "clone"
-    );
-    if (runAgentSelection.type === "cli") {
-      runMode = resolvedRunMode;
-      const requestedSlugValue = hasText(startInput.slug)
-        ? startInput.slug.trim()
-        : "";
-      slug =
-        runMode === "main-run"
-          ? "main"
-          : requestedSlugValue || slugifyTitle(project.title);
-      baseBranch = hasText(startInput.baseBranch)
-        ? startInput.baseBranch.trim()
-        : "main";
-    }
-
-    let runAgentLabel: string | undefined;
-    if (runAgentSelection.type === "cli") {
-      const cliId = runAgentSelection.id;
-      runAgentLabel =
-        cliId === "codex"
-          ? "Codex"
-          : cliId === "claude"
-            ? "Claude"
-            : cliId === "pi"
-              ? "Pi"
-              : undefined;
-    } else {
-      runAgentLabel = getProjectsContext().getAgent(runAgentSelection.id)?.name;
-    }
-
-    const repo = typeof frontmatter.repo === "string" ? frontmatter.repo : "";
-    const root =
-      config.extensions?.projects?.root ??
-      config.projects?.root ??
-      "~/projects";
-    const resolvedRoot = root.startsWith("~/")
-      ? path.join(os.homedir(), root.slice(2))
-      : root;
-    const mainRepoPath = repo ? expandHomePath(repo) : "";
-    const spaceWorktreePath = path.join(
-      resolvedRoot,
-      ".workspaces",
-      project.id,
-      "_space"
-    );
-
-    let implementationRepo = repo;
-    if (runMode && (runMode === "clone" || runMode === "worktree") && slug) {
-      implementationRepo = path.join(
-        resolvedRoot,
-        ".workspaces",
-        project.id,
-        slug
-      );
-    }
-    const basePath = (project.absolutePath || project.path).replace(/\/$/, "");
-    const absReadmePath = basePath.endsWith("README.md")
-      ? basePath
-      : `${basePath}/README.md`;
-    const absSpecsPath = basePath.endsWith("SPECS.md")
-      ? basePath
-      : `${basePath}/SPECS.md`;
-    const relBasePath = project.path.replace(/\/$/, "");
-    const relReadmePath = relBasePath.endsWith("README.md")
-      ? relBasePath
-      : `${relBasePath}/README.md`;
-    const relSpecsPath = relBasePath.endsWith("SPECS.md")
-      ? relBasePath
-      : `${relBasePath}/SPECS.md`;
-    const readmePath =
-      runAgentSelection.type === "aihub" ? absReadmePath : relReadmePath;
-    const specsPathForRole =
-      runAgentSelection.type === "aihub" ? absSpecsPath : relSpecsPath;
-    const threadPath = path.join(basePath, "THREAD.md");
-    let threadContent = "";
-    try {
-      const parsedThread = await parseMarkdownFile(threadPath);
-      threadContent = parsedThread.content.trim();
-    } catch {
-      // ignore missing thread
-    }
-
-    const docKeys = Object.keys(project.docs ?? {}).sort((a, b) => {
-      if (a === "README") return -1;
-      if (b === "README") return 1;
-      return a.localeCompare(b);
-    });
-    let fullContent = project.docs?.README ?? "";
-    if (threadContent) {
-      fullContent += `\n\n## THREAD\n\n${threadContent}`;
-    }
-    for (const key of docKeys) {
-      if (key === "README") continue;
-      const docContent = project.docs?.[key];
-      if (docContent) {
-        fullContent += `\n\n## ${key}\n\n${docContent}`;
-      }
-    }
-
-    const promptRole: PromptRole = startInput.promptRole ?? "legacy";
-    const specsPath = promptRole === "legacy" ? readmePath : specsPathForRole;
-    const coordinatorWorkspaceContext =
-      promptRole === "coordinator"
-        ? [
-            mainRepoPath
-              ? [
-                  "## Main Repository",
-                  `Path: ${mainRepoPath}`,
-                  "(Use this canonical repo for planning and delegation.)",
-                ].join("\n")
-              : "",
-            [
-              "## Project Space Worktree",
-              `Path: ${spaceWorktreePath}`,
-              "(Integration workspace where main-run aggregates worker changes.)",
-            ].join("\n"),
-          ]
-            .filter((part) => part.length > 0)
-            .join("\n\n")
-        : "";
-    const mergedCustomPrompt = [
-      coordinatorWorkspaceContext,
-      typeof startInput.customPrompt === "string"
-        ? startInput.customPrompt
-        : "",
-    ]
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0)
-      .join("\n\n");
-    let reviewerWorkspaces:
-      | Array<{ name: string; cli?: string; path: string }>
-      | undefined;
-    if (promptRole === "reviewer") {
-      const subagentsResult = await listSubagents(config, project.id);
-      if (subagentsResult.ok) {
-        reviewerWorkspaces = subagentsResult.data.items
-          .filter(
-            (item) =>
-              item.archived !== true &&
-              (item.runMode === "clone" || item.runMode === "worktree")
-          )
-          .map((item) => {
-            const workspacePath = hasText(item.worktreePath)
-              ? item.worktreePath.trim()
-              : path.join(resolvedRoot, ".workspaces", project.id, item.slug);
-            return {
-              name: item.name?.trim() || item.slug,
-              cli: item.cli,
-              path: workspacePath,
-            };
-          });
-      }
-    }
-    const prompt = buildRolePrompt({
-      role: promptRole,
-      title: project.title,
-      status,
-      path: basePath,
-      content: fullContent,
-      specsPath,
-      projectFiles: [
-        "README.md",
-        "THREAD.md",
-        ...docKeys.map((key) => `${key}.md`),
-      ],
-      projectId: project.id,
-      repo: promptRole === "coordinator" ? mainRepoPath : implementationRepo,
-      customPrompt: mergedCustomPrompt || undefined,
-      runAgentLabel,
-      workerWorkspaces: reviewerWorkspaces,
-      subagentTypes: getProjectsContext().getSubagentTemplates(),
-      includeDefaultPrompt: startInput.includeDefaultPrompt,
-      includeRoleInstructions: startInput.includeRoleInstructions,
-      includePostRun: startInput.includePostRun,
-    });
-
-    const updates: Partial<UpdateProjectRequest> = {};
-    const hasLegacyRunConfig =
-      typeof frontmatter.runAgent === "string" ||
-      typeof frontmatter.runMode === "string" ||
-      typeof frontmatter.baseBranch === "string";
-
-    if (runAgentSelection.type === "aihub") {
-      const agent = getProjectsContext().getAgent(runAgentSelection.id);
-      if (!agent || !getProjectsContext().isAgentActive(runAgentSelection.id)) {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-      const sessionKeys =
-        typeof frontmatter.sessionKeys === "object" &&
-        frontmatter.sessionKeys !== null
-          ? (frontmatter.sessionKeys as Record<string, string>)
-          : {};
-      const sessionKey =
-        sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
-      if (!sessionKeys[agent.id]) {
-        updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
-      }
-      if (normalizedStatus === "todo") {
-        updates.status = "in_progress";
-      }
-
-      getProjectsContext()
-        .runAgent({
-          agentId: agent.id,
-          message: prompt,
-          sessionKey,
-        })
-        .catch((err) => {
-          console.error(`[projects:${project.id}] start run failed:`, err);
-        });
-
-      if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
-        await updateProject(config, project.id, updates);
-      }
-
-      return c.json({ ok: true, type: "aihub", sessionKey });
-    }
-
-    if (!isSupportedSubagentCli(runAgentSelection.id)) {
-      return c.json(
-        { error: getUnsupportedSubagentCliError(runAgentSelection.id) },
-        400
-      );
-    }
-    const runCli = runAgentSelection.id;
-    const resolvedCliOptions = resolveCliSpawnOptions(
-      runCli,
-      requestedModel,
-      requestedReasoningEffort,
-      requestedThinking
-    );
-    if (!resolvedCliOptions.ok) {
-      return c.json({ error: resolvedCliOptions.error }, 400);
-    }
-
-    const runModeValue = runMode ?? "main-run";
-    const slugValue = slug ?? "main";
-    if (!slug) {
-      return c.json({ error: "Slug required" }, 400);
-    }
-    const baseBranchValue = baseBranch ?? "main";
-    const namePrefix = hasText(startInput.name)
-      ? startInput.name.trim()
-      : undefined;
-    const resolvedName = resolveRunName(
-      namePrefix,
-      slugValue,
-      userExplicitName
-    );
-
-    const result = await spawnSubagent(config, {
-      projectId: project.id,
-      slug: slugValue,
-      cli: runCli,
-      name: resolvedName,
-      prompt,
-      model: resolvedCliOptions.data.model,
-      reasoningEffort: resolvedCliOptions.data.reasoningEffort,
-      thinking: resolvedCliOptions.data.thinking,
-      mode: runModeValue,
-      baseBranch: baseBranchValue,
-    });
+    const result = await startProjectRun(config, id, body);
     if (!result.ok) {
-      return c.json({ error: result.error }, 400);
+      return c.json({ error: result.error }, result.status);
     }
-
-    if (normalizedStatus === "todo") {
-      updates.status = "in_progress";
-    }
-    if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
-      await updateProject(config, project.id, updates);
-    }
-
-    return c.json({ ok: true, type: "cli", slug, runMode });
+    return c.json(result.data);
   });
 
   app.get("/config/spawn-options", (c) => {
@@ -1311,90 +809,18 @@ export function registerProjectRoutes(app: Hono): void {
   app.patch("/projects/:id", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json();
-    if ("runAgent" in body || "runMode" in body || "baseBranch" in body) {
-      return c.json(
-        { error: "runAgent/runMode/baseBranch not supported on projects" },
-        400
-      );
-    }
-    const parsed = UpdateProjectRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.message }, 400);
-    }
-
     const config = getProjectsConfig();
-    let prevStatus: string | null = null;
-    if (parsed.data.status) {
-      const prev = await getProject(config, id);
-      if (prev.ok) {
-        prevStatus = normalizeProjectStatus(
-          String(prev.data.frontmatter?.status ?? "")
-        );
-      }
-    }
-    if (parsed.data.status === "archived") {
-      const rest = { ...parsed.data };
-      delete rest.status;
-      if (Object.keys(rest).length > 0) {
-        const updated = await updateProject(config, id, rest);
-        if (!updated.ok) {
-          return c.json(
-            { error: updated.error },
-            projectMutationErrorStatus(updated.error)
-          );
-        }
-        emitUpdatedProjectFiles(
-          id,
-          projectDirNameFromPath(updated.data.path),
-          rest
-        );
-      }
-      const archived = await archiveProject(config, id);
-      if (!archived.ok) {
-        const status = archived.error.startsWith("Archive already contains")
-          ? 409
-          : 404;
-        return c.json({ error: archived.error }, status);
-      }
-      const detail = await getProject(config, id);
-      if (!detail.ok) {
-        return c.json({ error: detail.error }, 404);
-      }
-      if (prevStatus === null || prevStatus !== "archived") {
-        await recordProjectStatusActivity({
-          actor: parsed.data.agent,
-          projectId: detail.data.id ?? id,
-          status: "archived",
-        });
-      }
-      return c.json(detail.data);
-    }
-    const result = await updateProjectWithCancelInterrupt(
-      config,
-      id,
-      parsed.data
-    );
+    const result = await updateProjectLifecycle(config, id, body);
     if (!result.ok) {
-      return c.json(
-        { error: result.error },
-        projectMutationErrorStatus(result.error)
-      );
+      return c.json({ error: result.error }, result.status);
     }
-    emitUpdatedProjectFiles(
-      id,
-      projectDirNameFromPath(result.data.path),
-      parsed.data
-    );
-    if (parsed.data.status) {
-      const nextStatus = normalizeProjectStatus(
-        String(result.data.frontmatter?.status ?? "")
-      );
-      if (prevStatus === null || prevStatus !== nextStatus) {
-        await recordProjectStatusActivity({
-          actor: parsed.data.agent,
-          projectId: result.data.id ?? id,
-          status: nextStatus,
-        });
+    if (result.files && result.projectDirName) {
+      for (const fileName of result.files) {
+        emitProjectFileChanged(
+          id,
+          projectDirNameFromPath(result.projectDirName),
+          fileName
+        );
       }
     }
     return c.json(result.data);
@@ -1416,28 +842,20 @@ export function registerProjectRoutes(app: Hono): void {
   app.post("/projects/:id/archive", async (c) => {
     const id = c.req.param("id");
     const config = getProjectsConfig();
-    const result = await archiveProject(config, id);
+    const result = await archiveProjectLifecycle(config, id);
     if (!result.ok) {
-      const status = result.error.startsWith("Archive already contains")
-        ? 409
-        : 404;
-      return c.json({ error: result.error }, status);
+      return c.json({ error: result.error }, result.status);
     }
-    await recordProjectStatusActivity({ projectId: id, status: "archived" });
     return c.json(result.data);
   });
 
   app.post("/projects/:id/unarchive", async (c) => {
     const id = c.req.param("id");
     const config = getProjectsConfig();
-    const result = await unarchiveProject(config, id, "shaping");
+    const result = await unarchiveProjectLifecycle(config, id);
     if (!result.ok) {
-      const status = result.error.startsWith("Project already exists")
-        ? 409
-        : 404;
-      return c.json({ error: result.error }, status);
+      return c.json({ error: result.error }, result.status);
     }
-    await recordProjectStatusActivity({ projectId: id, status: "shaping" });
     return c.json(result.data);
   });
 
@@ -1663,232 +1081,12 @@ export function registerProjectRoutes(app: Hono): void {
   app.post("/projects/:id/subagents", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json();
-    const slug = typeof body.slug === "string" ? body.slug : "";
-    const cli = typeof body.cli === "string" ? body.cli : "";
-    const prompt = typeof body.prompt === "string" ? body.prompt : "";
-    const mode = typeof body.mode === "string" ? body.mode : undefined;
-    const name =
-      typeof body.name === "string" && body.name.trim()
-        ? body.name.trim()
-        : undefined;
-    let model =
-      typeof body.model === "string" && body.model.trim()
-        ? body.model.trim()
-        : undefined;
-    let reasoningEffort =
-      typeof body.reasoningEffort === "string" && body.reasoningEffort.trim()
-        ? body.reasoningEffort.trim()
-        : undefined;
-    let thinking =
-      typeof body.thinking === "string" && body.thinking.trim()
-        ? body.thinking.trim()
-        : undefined;
-    const baseBranch =
-      typeof body.baseBranch === "string" ? body.baseBranch : undefined;
-    const sliceId =
-      typeof body.sliceId === "string" && body.sliceId.trim()
-        ? body.sliceId.trim()
-        : undefined;
-    const resume = typeof body.resume === "boolean" ? body.resume : undefined;
-    const attachments = Array.isArray(body.attachments)
-      ? (
-          body.attachments as Array<{
-            path?: unknown;
-            mimeType?: unknown;
-            filename?: unknown;
-          }>
-        ).filter(
-          (
-            attachment
-          ): attachment is {
-            path: string;
-            mimeType: string;
-            filename?: string;
-          } =>
-            typeof attachment.path === "string" &&
-            typeof attachment.mimeType === "string"
-        )
-      : undefined;
-
-    // Lead agent session: route to runAgent instead of spawnSubagent
-    const agentId =
-      typeof body.agentId === "string" && body.agentId.trim()
-        ? body.agentId.trim()
-        : undefined;
-    if (agentId) {
-      const agent = getProjectsContext().getAgent(agentId);
-      if (!agent || !getProjectsContext().isAgentActive(agentId)) {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-      const config = getProjectsConfig();
-      const projectResult = await getProject(config, id);
-      if (!projectResult.ok) {
-        return c.json({ error: projectResult.error }, 404);
-      }
-      const project = projectResult.data;
-      const frontmatter = project.frontmatter ?? {};
-      const sessionKeys =
-        typeof frontmatter.sessionKeys === "object" &&
-        frontmatter.sessionKeys !== null
-          ? (frontmatter.sessionKeys as Record<string, string>)
-          : {};
-      const sessionKey =
-        sessionKeys[agent.id] ?? `project:${project.id}:${agent.id}`;
-      const normalizedStatus = normalizeProjectStatus(
-        typeof frontmatter.status === "string" ? frontmatter.status : ""
-      );
-      const updates: Partial<UpdateProjectRequest> = {};
-      if (!sessionKeys[agent.id]) {
-        updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
-      }
-      if (normalizedStatus === "todo") {
-        updates.status = "in_progress";
-      }
-
-      // Read project docs for prompt context
-      const basePath = (project.absolutePath || project.path).replace(
-        /\/$/,
-        ""
-      );
-      const docKeys = Object.keys(project.docs ?? {}).sort((a, b) => {
-        if (a === "README") return -1;
-        if (b === "README") return 1;
-        return a.localeCompare(b);
-      });
-      let fullContent = project.docs?.README ?? "";
-      for (const key of docKeys) {
-        if (key === "README") continue;
-        const docContent = project.docs?.[key];
-        if (docContent) {
-          fullContent += `\n\n## ${key}\n\n${docContent}`;
-        }
-      }
-
-      const includeDefaultPrompt =
-        typeof body.includeDefaultPrompt === "boolean"
-          ? body.includeDefaultPrompt
-          : true;
-      const includeRoleInstructions =
-        typeof body.includeRoleInstructions === "boolean"
-          ? body.includeRoleInstructions
-          : true;
-      const includePostRun =
-        typeof body.includePostRun === "boolean" ? body.includePostRun : false;
-
-      const repo =
-        typeof frontmatter.repo === "string" ? frontmatter.repo : undefined;
-      const status =
-        typeof frontmatter.status === "string" ? frontmatter.status : "";
-
-      // Build coordinator prompt with subagent types
-      const coordinatorPrompt = buildRolePrompt({
-        role: "coordinator",
-        title: project.title,
-        status,
-        path: basePath,
-        content: fullContent,
-        specsPath: `${basePath}/SPECS.md`,
-        projectId: project.id,
-        projectFiles: [
-          "README.md",
-          "THREAD.md",
-          ...docKeys.map((key) => `${key}.md`),
-        ],
-        repo,
-        runAgentLabel: agent.name,
-        customPrompt: prompt || undefined,
-        subagentTypes: getProjectsContext().getSubagentTemplates(),
-        includeDefaultPrompt,
-        includeRoleInstructions,
-        includePostRun,
-      });
-
-      const leadSlug = `lead-${agent.id.replace(/[^a-z0-9]/gi, "-")}`;
-
-      getProjectsContext()
-        .runAgent({
-          agentId: agent.id,
-          message: coordinatorPrompt,
-          sessionKey,
-        })
-        .catch((err) => {
-          console.error(
-            `[projects:${project.id}] lead agent session failed:`,
-            err
-          );
-        });
-
-      if (Object.keys(updates).length > 0) {
-        await updateProject(config, project.id, updates);
-      }
-
-      return c.json({ slug: leadSlug, agentId: agent.id, sessionKey }, 201);
-    }
-
-    if (!slug || !cli || !prompt) {
-      return c.json({ error: "Missing required fields" }, 400);
-    }
-    if (!isSupportedSubagentCli(cli)) {
-      return c.json({ error: getUnsupportedSubagentCliError(cli) }, 400);
-    }
     const config = getProjectsConfig();
-    let resolvedName = name;
-    if (resume) {
-      const persisted = await readSubagentConfig(config, id, slug);
-      if (persisted.ok) {
-        if (!resolvedName && typeof persisted.data.name === "string") {
-          const saved = persisted.data.name.trim();
-          if (saved) resolvedName = saved;
-        }
-        if (!model && typeof persisted.data.model === "string") {
-          const saved = persisted.data.model.trim();
-          if (saved) model = saved;
-        }
-        if (
-          !reasoningEffort &&
-          typeof persisted.data.reasoningEffort === "string"
-        ) {
-          const saved = persisted.data.reasoningEffort.trim();
-          if (saved) reasoningEffort = saved;
-        }
-        if (!thinking && typeof persisted.data.thinking === "string") {
-          const saved = persisted.data.thinking.trim();
-          if (saved) thinking = saved;
-        }
-      }
-    }
-    const resolvedCliOptions = resolveCliSpawnOptions(
-      cli,
-      model,
-      reasoningEffort,
-      thinking
-    );
-    if (!resolvedCliOptions.ok) {
-      return c.json({ error: resolvedCliOptions.error }, 400);
-    }
-    if (!resolvedName) {
-      resolvedName = resolveRunName(name, slug, name);
-    }
-    const result = await spawnSubagent(config, {
-      projectId: id,
-      slug,
-      cli,
-      name: resolvedName,
-      prompt,
-      model: resolvedCliOptions.data.model,
-      reasoningEffort: resolvedCliOptions.data.reasoningEffort,
-      thinking: resolvedCliOptions.data.thinking,
-      mode: mode as "main-run" | "worktree" | "clone" | "none" | undefined,
-      baseBranch,
-      sliceId,
-      resume,
-      attachments,
-    });
+    const result = await spawnProjectSubagent(config, id, body);
     if (!result.ok) {
-      const status = result.error.startsWith("Project not found") ? 404 : 400;
-      return c.json({ error: result.error }, status);
+      return c.json({ error: result.error }, result.status);
     }
-    return c.json(result.data, 201);
+    return c.json(result.data, result.status);
   });
 
   app.patch("/projects/:id/subagents/:slug", async (c) => {
@@ -2230,205 +1428,22 @@ export function registerProjectRoutes(app: Hono): void {
   app.post("/projects/:id/space/rebase/fix", async (c) => {
     const id = c.req.param("id");
     const config = getProjectsConfig();
-    try {
-      const spaceResult = await getProjectSpace(config, id);
-      if (!spaceResult.ok) {
-        const status =
-          spaceResult.error.startsWith("Project not found") ||
-          spaceResult.error === "Project space not found"
-            ? 404
-            : spaceResult.error === "Project repo not set"
-              ? 400
-              : 500;
-        return c.json({ error: spaceResult.error }, status);
-      }
-      const space = spaceResult.data;
-      if (!space.rebaseConflict) {
-        return c.json({ error: "Space rebase conflict not found" }, 409);
-      }
-
-      const reviewerConfig = getProjectsContext()
-        .getSubagentTemplates()
-        .find((t) => t.type === "reviewer");
-      if (!reviewerConfig) {
-        return c.json({ error: "No reviewer subagent configured" }, 400);
-      }
-      const reviewerRunAgent = normalizeRunAgent(`cli:${reviewerConfig.cli}`);
-      if (
-        !reviewerRunAgent ||
-        reviewerRunAgent.type !== "cli" ||
-        !isSupportedSubagentCli(reviewerRunAgent.id)
-      ) {
-        return c.json(
-          { error: "Reviewer subagent cli is missing or unsupported" },
-          400
-        );
-      }
-
-      const resolvedCliOptions = resolveCliSpawnOptions(
-        reviewerRunAgent.id,
-        reviewerConfig.model,
-        reviewerConfig.reasoning,
-        undefined
-      );
-      if (!resolvedCliOptions.ok) {
-        return c.json({ error: resolvedCliOptions.error }, 400);
-      }
-
-      const slug = "space-rebase-fixer";
-      const prompt = [
-        "Space branch rebase onto base branch has conflicts.",
-        "Resolve all rebase conflicts in this workspace and continue the rebase.",
-        "",
-        `Base branch: ${space.baseBranch}`,
-        `Target base SHA: ${space.rebaseConflict.baseSha || "(unknown)"}`,
-        `Rebase error: ${space.rebaseConflict.error}`,
-        "",
-        "Required commands:",
-        "  git status",
-        "  # resolve conflicts",
-        "  git add <resolved-files>",
-        "  git rebase --continue",
-        "",
-        "Repeat until rebase finishes cleanly. Then summarize what changed.",
-      ].join("\n");
-      const spawned = await spawnSubagent(config, {
-        projectId: id,
-        slug,
-        cli: reviewerRunAgent.id,
-        name: resolveRunName(reviewerConfig.name, slug, undefined),
-        prompt,
-        model: resolvedCliOptions.data.model,
-        reasoningEffort: resolvedCliOptions.data.reasoningEffort,
-        thinking: resolvedCliOptions.data.thinking,
-        mode: "main-run",
-        baseBranch: space.baseBranch,
-        resume: true,
-      });
-      if (!spawned.ok) {
-        const status = spawned.error.startsWith("Project not found")
-          ? 404
-          : 400;
-        return c.json({ error: spawned.error }, status);
-      }
-
-      await clearProjectSpaceRebaseConflict(config, id);
-      return c.json({ slug }, 201);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      const status =
-        message.startsWith("Project not found") ||
-        message === "Project space not found"
-          ? 404
-          : message === "Space rebase conflict not found"
-            ? 409
-            : message === "Project repo not set"
-              ? 400
-              : 500;
-      return c.json({ error: message }, status);
+    const result = await fixSpaceRebaseConflict(config, id);
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status);
     }
+    return c.json(result.data, result.status);
   });
 
   app.post("/projects/:id/space/conflicts/:entryId/fix", async (c) => {
     const id = c.req.param("id");
     const entryId = c.req.param("entryId");
     const config = getProjectsConfig();
-    try {
-      const context = await getProjectSpaceConflictContext(config, id, entryId);
-      await execFileAsync("git", ["cherry-pick", "--abort"], {
-        cwd: context.space.worktreePath,
-      }).catch(() => {});
-      const spaceHead = await getGitHead(context.space.worktreePath);
-      if (!spaceHead) {
-        return c.json({ error: "Failed to resolve Space HEAD SHA" }, 400);
-      }
-      const persisted = await readSubagentConfig(
-        config,
-        id,
-        context.entry.workerSlug
-      );
-      if (!persisted.ok) {
-        const status =
-          persisted.error.startsWith("Project not found") ||
-          persisted.error.startsWith("Subagent not found")
-            ? 404
-            : 400;
-        return c.json({ error: persisted.error }, status);
-      }
-      const cliRaw =
-        typeof persisted.data.cli === "string" ? persisted.data.cli.trim() : "";
-      if (!isSupportedSubagentCli(cliRaw)) {
-        return c.json(
-          { error: "Original worker CLI is missing or unsupported" },
-          400
-        );
-      }
-      const model =
-        typeof persisted.data.model === "string"
-          ? persisted.data.model.trim() || undefined
-          : undefined;
-      const reasoningEffort =
-        typeof persisted.data.reasoningEffort === "string"
-          ? persisted.data.reasoningEffort.trim() || undefined
-          : undefined;
-      const thinking =
-        typeof persisted.data.thinking === "string"
-          ? persisted.data.thinking.trim() || undefined
-          : undefined;
-      const name =
-        typeof persisted.data.name === "string"
-          ? persisted.data.name.trim() || undefined
-          : undefined;
-      const prompt = [
-        "Your previous delivery caused a conflict when Space tried to cherry-pick it.",
-        "",
-        "Rebase your branch onto the current Space HEAD to resolve conflicts:",
-        "",
-        "  git fetch origin",
-        `  git rebase --onto ${spaceHead} ${context.entry.startSha ?? "<start-sha-missing>"} HEAD`,
-        "",
-        "If rebase conflicts occur, resolve them manually, then git rebase --continue.",
-        "After rebase is complete, verify your changes still work, then deliver.",
-        "",
-        `Space HEAD: ${spaceHead}`,
-        `Your original start SHA: ${context.entry.startSha ?? "(missing)"}`,
-        `Your original end SHA: ${context.entry.endSha ?? "(missing)"}`,
-        "Conflicted files:",
-        ...(context.conflictFiles.length > 0
-          ? context.conflictFiles.map((file) => `- ${file}`)
-          : ["- (no unmerged files reported)"]),
-      ].join("\n");
-      const spawned = await spawnSubagent(config, {
-        projectId: id,
-        slug: context.entry.workerSlug,
-        cli: cliRaw,
-        name,
-        prompt,
-        model,
-        reasoningEffort,
-        thinking,
-        resume: true,
-        replaces: [entryId],
-      });
-      if (!spawned.ok) {
-        const status = spawned.error.startsWith("Project not found")
-          ? 404
-          : 400;
-        return c.json({ error: spawned.error }, status);
-      }
-      return c.json({ entryId, slug: context.entry.workerSlug }, 201);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      const status =
-        message.startsWith("Project not found") ||
-        message === "Project space not found" ||
-        message === "Space conflict entry not found"
-          ? 404
-          : message === "Project repo not set"
-            ? 400
-            : 500;
-      return c.json({ error: message }, status);
+    const result = await fixSpaceQueueConflict(config, id, entryId);
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status);
     }
+    return c.json(result.data, result.status);
   });
 
   app.get("/projects/:id/space/lease", async (c) => {
