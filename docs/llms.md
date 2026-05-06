@@ -244,7 +244,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
       mode?: "oauth"|"api_key"|"proxy",
       profileId?: string         // e.g. "anthropic:default"
     },
-    thinkLevel?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh",
+    reasoning?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh",  // Primary lead-agent thinking config
+    thinkLevel?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh", // Deprecated alias
     queueMode?: "queue"|"interrupt",  // Default: queue
     discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, broadcastToChannel?, ... },
     webhooks?: Record<string, { prompt: string, langfuseTracing?: boolean, signingSecret?: string, verification?: { location: "header"|"payload", fieldName: string }, maxPayloadSize?: number }>,

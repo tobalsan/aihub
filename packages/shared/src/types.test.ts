@@ -12,6 +12,30 @@ import {
 } from "./types.js";
 
 describe("AgentConfigSchema openclaw model handling", () => {
+  it("accepts reasoning as lead-agent thinking config", () => {
+    const result = AgentConfigSchema.parse({
+      id: "reasoning-agent",
+      name: "Reasoning Agent",
+      workspace: "~/agents/reasoning",
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
+      reasoning: "high",
+    });
+
+    expect(result.reasoning).toBe("high");
+  });
+
+  it("rejects invalid reasoning values", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "reasoning-agent",
+      name: "Reasoning Agent",
+      workspace: "~/agents/reasoning",
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
+      reasoning: "insane",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("allows openclaw agents to omit model", () => {
     const result = AgentConfigSchema.safeParse({
       id: "openclaw-agent",

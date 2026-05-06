@@ -239,7 +239,6 @@ async function handleDiscordMessage(
       agentId: target.agent.id,
       message: content,
       sessionKey,
-      thinkLevel: target.agent.thinkLevel,
       source: "discord",
       context,
     });
@@ -322,7 +321,6 @@ async function handleDiscordReaction(
       agentId: target.agent.id,
       message,
       sessionKey: `discord:${data.channel_id}`,
-      thinkLevel: target.agent.thinkLevel,
       source: "discord",
       context,
     });

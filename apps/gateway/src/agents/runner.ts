@@ -21,7 +21,6 @@ import {
 } from "../sessions/index.js";
 import { parseThinkDirective } from "../sessions/directives.js";
 import {
-  getSessionThinkLevel,
   setSessionThinkLevel,
   DEFAULT_MAIN_KEY,
 } from "../sessions/store.js";
@@ -81,6 +80,10 @@ function isThinkingLevelError(err: unknown): boolean {
 
 async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
+}
+
+function resolveAgentThinkLevel(agent: { reasoning?: ThinkLevel; thinkLevel?: ThinkLevel }) {
+  return agent.reasoning ?? agent.thinkLevel;
 }
 
 export async function runAgent(
@@ -261,12 +264,9 @@ export async function runAgent(
       } else {
         // /think with no arg - show current level
         const currentLevel =
-          (await getSessionThinkLevel(
-            params.agentId,
-            resolvedSessionKey,
-            params.userId
-          )) ??
-          agent.thinkLevel ??
+          params.thinkLevel ??
+          directiveThinkLevel ??
+          resolveAgentThinkLevel(agent) ??
           "not set";
         const statusText = `Current thinking level: ${currentLevel}`;
         emit({ type: "text", data: statusText });
@@ -280,22 +280,15 @@ export async function runAgent(
   }
 
   // Resolve thinkLevel:
-  // - OAuth: API param > Directive > Session > Config > undefined
+  // - OAuth: API param > Directive > Config > undefined
   // - Non-OAuth: API param > Config > undefined (no directive/session support)
   let resolvedThinkLevel: ThinkLevel | undefined;
   if (isOAuth) {
     resolvedThinkLevel =
-      params.thinkLevel ??
-      directiveThinkLevel ??
-      (await getSessionThinkLevel(
-        params.agentId,
-        resolvedSessionKey,
-        params.userId
-      )) ??
-      agent.thinkLevel;
+      params.thinkLevel ?? directiveThinkLevel ?? resolveAgentThinkLevel(agent);
   } else {
     // Non-OAuth: still honor API param and config, just no directive/session
-    resolvedThinkLevel = params.thinkLevel ?? agent.thinkLevel;
+    resolvedThinkLevel = params.thinkLevel ?? resolveAgentThinkLevel(agent);
   }
 
   const join = await lifecycle.handleJoin({
