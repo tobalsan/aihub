@@ -6,6 +6,7 @@ import type {
   FileAttachment,
   HistoryEvent,
 } from "@aihub/shared";
+import type { ExtensionRuntime } from "../extensions/runtime.js";
 
 export type { HistoryEvent } from "@aihub/shared";
 
@@ -32,6 +33,7 @@ export type SdkRunParams = {
   workspaceDir: string;
   thinkLevel?: ThinkLevel;
   context?: AgentContext; // Structured context (Discord metadata, etc.)
+  extensionRuntime?: ExtensionRuntime;
   onEvent: (event: StreamEvent) => void;
   onHistoryEvent: (event: HistoryEvent) => void;
   onSessionHandle?: (handle: unknown) => void;

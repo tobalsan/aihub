@@ -6,7 +6,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { fetchAgents, fetchBoardActivity } from "../api/client";
+import { fetchAgents, fetchBoardActivity } from "../api";
 import type { ActivityEvent, Agent, BoardActivityItem } from "../api/types";
 
 function formatRelativeTime(ts: string): string {

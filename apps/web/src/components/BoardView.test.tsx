@@ -61,6 +61,7 @@ const {
   subscribeToSessionMock,
   subscribeToFileChangesMock,
   subscribeToSubagentChangesMock,
+  subscribeToRealtimeMock,
   uploadFilesMock,
 } = vi.hoisted(() => ({
   fetchAgentsMock: vi.fn(),
@@ -74,6 +75,7 @@ const {
   subscribeToSessionMock: vi.fn(),
   subscribeToFileChangesMock: vi.fn(),
   subscribeToSubagentChangesMock: vi.fn(),
+  subscribeToRealtimeMock: vi.fn(),
   uploadFilesMock: vi.fn(),
 }));
 
@@ -126,7 +128,7 @@ vi.mock("./SliceDetailPage", () => ({
   ),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   addProjectComment: vi.fn(),
   createProject: vi.fn(),
   createSlice: vi.fn(),
@@ -148,10 +150,29 @@ vi.mock("../api/client", () => ({
   streamMessage: streamMessageMock,
   subscribeToFileChanges: subscribeToFileChangesMock,
   subscribeToSubagentChanges: subscribeToSubagentChangesMock,
+  subscribeToRealtime: subscribeToRealtimeMock,
   subscribeToSession: subscribeToSessionMock,
   updateProject: vi.fn(),
   updateSlice: vi.fn(),
   uploadFiles: uploadFilesMock,
+}));
+
+vi.mock("../api/agents", () => ({
+  fetchFullHistory: fetchFullHistoryMock,
+}));
+
+vi.mock("../api/chat", () => ({
+  getSessionKey: getSessionKeyMock,
+  postAbort: vi.fn(),
+  streamMessage: streamMessageMock,
+}));
+
+vi.mock("../api/media", () => ({
+  uploadFiles: uploadFilesMock,
+}));
+
+vi.mock("../api/realtime", () => ({
+  subscribeToSession: subscribeToSessionMock,
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -262,6 +283,7 @@ describe("BoardView attachments", () => {
     subscribeToSessionMock.mockImplementation(() => () => {});
     subscribeToFileChangesMock.mockReturnValue(() => {});
     subscribeToSubagentChangesMock.mockReturnValue(() => {});
+    subscribeToRealtimeMock.mockReturnValue(() => {});
     uploadFilesMock.mockResolvedValue([
       {
         path: "/tmp/uploaded/report.pdf",

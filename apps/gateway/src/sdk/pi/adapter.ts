@@ -86,10 +86,14 @@ function stringifyToolResult(result: unknown): string {
 
 async function createPiExtensionTools(
   agent: AgentConfig,
-  usedToolNames: Set<string>
+  usedToolNames: Set<string>,
+  params: SdkRunParams
 ): Promise<AgentTool[]> {
   const config = loadConfig();
-  return (await getExtensionAgentTools(agent, config)).map((tool) => ({
+  const tools = params.extensionRuntime
+    ? await getExtensionAgentTools(agent, config, params.extensionRuntime)
+    : await getExtensionAgentTools(agent, config);
+  return tools.map((tool) => ({
     name: claimAgentToolName(tool.name, usedToolNames),
     label: tool.description,
     description: tool.description,
@@ -257,9 +261,19 @@ export const piAdapter: SdkAdapter = {
       // Create tools
       const tools = createCodingTools(params.workspaceDir);
       const usedToolNames = new Set<string>();
-      const extensionTools = await createPiExtensionTools(agent, usedToolNames);
+      const extensionTools = await createPiExtensionTools(
+        agent,
+        usedToolNames,
+        params
+      );
       const extensionPrompts =
-        await getExtensionSystemPromptContributions(agent);
+        params.extensionRuntime
+          ? await getExtensionSystemPromptContributions(
+              agent,
+              loadConfig(),
+              params.extensionRuntime
+            )
+          : await getExtensionSystemPromptContributions(agent);
       const renderedContext = params.context
         ? renderAgentContext(params.context)
         : "";

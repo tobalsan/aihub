@@ -11,7 +11,7 @@ import {
   fetchAreaSummaries,
   subscribeToFileChanges,
   subscribeToSubagentChanges,
-} from "../../api/client";
+} from "../../api";
 import type { BoardProject } from "../../api/types";
 import { ProjectListGrouped } from "./ProjectListGrouped";
 

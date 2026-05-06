@@ -1,26 +1,18 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { homedir } from "node:os";
-import os from "node:os";
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import type { GatewayConfig, OrchestratorSource } from "@aihub/shared";
-import { expandPath } from "@aihub/shared";
 import { parseMarkdownFile } from "../taskboard/parser.js";
-import { findProjectLocation, getProject } from "../projects/store.js";
-import { getSlice } from "../projects/slices.js";
-import {
-  ensureProjectSpace,
-  recordWorkerDelivery,
-  isSpaceWriteLeaseEnabled,
-  acquireProjectSpaceWriteLease,
-  releaseProjectSpaceWriteLease,
-  pruneProjectRepoWorktrees,
-} from "../projects/space.js";
+import { findProjectLocation } from "../projects/store.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot, getProjectsWorktreeRoot } from "../util/paths.js";
-
-const execFileAsync = promisify(execFile);
+import { getSubagentHarnessAdapter } from "./harness-adapter.js";
+import { subagentRunStore, writeJsonFile as writeJson } from "./run-store.js";
+import {
+  getSubagentWorkspaceAdapter,
+  resolveProjectRepo,
+  validateWorkspaceRepo,
+} from "./workspace-adapter.js";
 
 export const SUPPORTED_SUBAGENT_CLIS = ["claude", "codex", "pi"] as const;
 export type SubagentCli = (typeof SUPPORTED_SUBAGENT_CLIS)[number];
@@ -84,19 +76,6 @@ export function getUnsupportedSubagentCliError(value: string): string {
   return `Unsupported CLI: ${value}. Supported CLIs: ${SUPPORTED_SUBAGENT_CLIS.join(", ")}.`;
 }
 
-function isProjectSpaceBranch(projectId: string, branch: string): boolean {
-  return branch === `space/${projectId}`;
-}
-
-async function ensureRunnerBaseBranch(
-  config: GatewayConfig,
-  projectId: string,
-  baseBranch: string
-): Promise<void> {
-  if (!isProjectSpaceBranch(projectId, baseBranch)) return;
-  await ensureProjectSpace(config, projectId);
-}
-
 function buildProjectSummary(
   title: string,
   status: string,
@@ -122,137 +101,6 @@ function parsePromptLimitEnv(name: string, fallback: number): number {
   return parsed;
 }
 
-async function resolveProjectRepo(
-  config: GatewayConfig,
-  projectId: string,
-  projectDir?: string,
-  sliceId?: string,
-  projectFrontmatter?: Record<string, unknown>
-): Promise<string> {
-  const expandRepo = (candidate: string): string => {
-    return expandPath(candidate.trim());
-  };
-  const readExistingRepo = async (candidate: string): Promise<string> => {
-    const expanded = expandRepo(candidate);
-    if (!expanded) return "";
-    return (await dirExists(expanded)) ? expanded : "";
-  };
-
-  if (projectDir && sliceId) {
-    try {
-      const slice = await getSlice(projectDir, sliceId);
-      const sliceRepo =
-        typeof slice.frontmatter.repo === "string"
-          ? slice.frontmatter.repo
-          : "";
-      if (sliceRepo.trim()) return expandRepo(sliceRepo);
-    } catch {
-      // Missing/invalid slices fall back to project repo for legacy callers.
-    }
-  }
-
-  const directRepo =
-    typeof projectFrontmatter?.repo === "string" ? projectFrontmatter.repo : "";
-  if (directRepo.trim()) {
-    const resolved = await readExistingRepo(directRepo);
-    if (resolved) return resolved;
-  }
-
-  const project = await getProject(config, projectId);
-  if (!project.ok) return "";
-  const inheritedRepo =
-    typeof project.data.frontmatter.repo === "string"
-      ? project.data.frontmatter.repo
-      : "";
-  if (!inheritedRepo) return "";
-  return readExistingRepo(inheritedRepo);
-}
-
-async function appendHistory(
-  historyPath: string,
-  event: Record<string, unknown>
-): Promise<void> {
-  const line = `${JSON.stringify(event)}\n`;
-  try {
-    await fs.appendFile(historyPath, line, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-}
-
-async function writeJson(filePath: string, data: unknown): Promise<void> {
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    await fs.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8");
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-}
-
-function isExecutableFile(p: string): Promise<boolean> {
-  return fs
-    .stat(p)
-    .then((st) => {
-      if (st.isDirectory()) return false;
-      if (os.platform() === "win32") return true;
-      return (st.mode & 0o111) !== 0;
-    })
-    .catch(() => false);
-}
-
-async function resolveFromPath(execName: string): Promise<string | null> {
-  const envPath = process.env.PATH ?? "";
-  const parts = envPath.split(path.delimiter).filter((p) => p);
-  for (const part of parts) {
-    const candidate = path.join(part, execName);
-    if (await isExecutableFile(candidate)) return candidate;
-  }
-  return null;
-}
-
-function isSafeShellWord(value: string): boolean {
-  if (!value) return false;
-  if (/[\\/\s]/.test(value)) return false;
-  return /^[a-zA-Z0-9._+-]+$/.test(value);
-}
-
-async function resolveShell(): Promise<string | null> {
-  const shell = process.env.SHELL;
-  if (shell && (await isExecutableFile(shell))) return shell;
-  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
-    if (await isExecutableFile(candidate)) return candidate;
-  }
-  return null;
-}
-
-async function canFindViaShell(execName: string): Promise<boolean> {
-  const shell = await resolveShell();
-  if (!shell) return false;
-  const child = spawn(shell, ["-l", "-c", `type ${execName} >/dev/null 2>&1`], {
-    stdio: "ignore",
-  });
-  return new Promise((resolve) => {
-    child.on("exit", (code) => resolve(code === 0));
-    child.on("error", () => resolve(false));
-  });
-}
-
-async function resolveViaShell(
-  execName: string,
-  args: string[]
-): Promise<{ command: string; args: string[] } | null> {
-  if (!isSafeShellWord(execName)) return null;
-  if (!(await canFindViaShell(execName))) return null;
-  const shell = await resolveShell();
-  if (!shell) return null;
-  const shellArgs = ["-l", "-c", `${execName} "$@"`, "--", ...args];
-  return { command: shell, args: shellArgs };
-}
-
 function normalizeReplaces(input: string[] | undefined): string[] | undefined {
   if (!Array.isArray(input)) return undefined;
   const out: string[] = [];
@@ -264,240 +112,6 @@ function normalizeReplaces(input: string[] | undefined): string[] | undefined {
     out.push(trimmed);
   }
   return out.length > 0 ? out : undefined;
-}
-
-function commonCandidatePaths(execName: string): string[] {
-  const home = homedir();
-  const candidates: string[] = [];
-  const nodeDir = path.dirname(process.execPath);
-  if (nodeDir && nodeDir !== ".") {
-    candidates.push(path.join(nodeDir, execName));
-  }
-
-  if (home) {
-    switch (execName) {
-      case "claude":
-        candidates.push(
-          path.join(home, ".claude", "local", "claude"),
-          path.join(home, ".claude", "local", "bin", "claude"),
-          path.join(home, ".local", "bin", "claude")
-        );
-        break;
-      case "codex":
-        candidates.push(
-          path.join(home, ".local", "bin", "codex"),
-          path.join(home, ".cargo", "bin", "codex")
-        );
-        break;
-      case "pi":
-        candidates.push(path.join(home, ".local", "bin", "pi"));
-        break;
-    }
-
-    candidates.push(
-      path.join(home, ".local", "bin", execName),
-      path.join(home, "bin", execName),
-      path.join(home, ".cargo", "bin", execName)
-    );
-  }
-
-  if (os.platform() === "darwin") {
-    candidates.push(
-      path.join("/opt", "homebrew", "bin", execName),
-      path.join("/usr", "local", "bin", execName)
-    );
-  } else {
-    candidates.push(path.join("/usr", "local", "bin", execName));
-  }
-
-  return Array.from(new Set(candidates));
-}
-
-async function resolveCliCommand(
-  execName: string,
-  args: string[]
-): Promise<{ command: string; args: string[] }> {
-  if (execName.includes("/") || execName.includes("\\")) {
-    if (await isExecutableFile(execName)) return { command: execName, args };
-  }
-
-  const fromPath = await resolveFromPath(execName);
-  if (fromPath) return { command: fromPath, args };
-
-  for (const candidate of commonCandidatePaths(execName)) {
-    if (await isExecutableFile(candidate)) return { command: candidate, args };
-  }
-
-  const shell = await resolveViaShell(execName, args);
-  if (shell) return shell;
-
-  throw new Error(`${execName} not found`);
-}
-
-function buildArgs(
-  cli: SubagentCli,
-  prompt: string,
-  options: {
-    sessionId?: string;
-    sessionFile?: string;
-    model?: string;
-    reasoningEffort?: string;
-    thinking?: string;
-  }
-): string[] {
-  switch (cli) {
-    case "claude": {
-      const args = [
-        "-p",
-        prompt,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--dangerously-skip-permissions",
-      ];
-      if (options.model) args.push("--model", options.model);
-      if (options.reasoningEffort)
-        args.push("--effort", options.reasoningEffort);
-      const sessionId = options.sessionId;
-      if (sessionId) return ["-r", sessionId, ...args];
-      return args;
-    }
-    case "codex": {
-      const base = [
-        "exec",
-        "--json",
-        "--dangerously-bypass-approvals-and-sandbox",
-      ];
-      if (options.model) base.push("-m", options.model);
-      if (options.reasoningEffort) {
-        base.push("-c", `reasoning_effort=${options.reasoningEffort}`);
-      }
-      const sessionId = options.sessionId;
-      if (sessionId) return [...base, "resume", sessionId, prompt];
-      return [...base, prompt];
-    }
-    case "pi": {
-      const sessionFile = options.sessionFile;
-      if (!sessionFile) {
-        throw new Error("Missing Pi session file path");
-      }
-      const args = ["--mode", "json", "--session", sessionFile];
-      if (options.model) args.push("--model", options.model);
-      if (options.thinking) args.push("--thinking", options.thinking);
-      args.push(prompt);
-      return args;
-    }
-  }
-}
-
-async function createWorktree(
-  repo: string,
-  worktreePath: string,
-  branch: string,
-  baseBranch: string
-): Promise<void> {
-  await fs.mkdir(worktreePath, { recursive: true });
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      "git",
-      ["-C", repo, "worktree", "add", "-b", branch, worktreePath, baseBranch],
-      {
-        stdio: "ignore",
-      }
-    );
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error("git worktree add failed"));
-    });
-    child.on("error", reject);
-  });
-}
-
-async function runGit(args: string[], errorMessage: string): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn("git", args, { stdio: "ignore" });
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(errorMessage));
-    });
-    child.on("error", reject);
-  });
-}
-
-async function runGitStdout(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, { cwd });
-  return stdout.trim();
-}
-
-async function getGitHead(cwd: string): Promise<string | undefined> {
-  try {
-    const out = await runGitStdout(cwd, ["rev-parse", "HEAD"]);
-    return out || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function createClone(
-  repo: string,
-  clonePath: string,
-  branch: string,
-  baseBranch: string
-): Promise<void> {
-  await fs.mkdir(path.dirname(clonePath), { recursive: true });
-  await runGit(["clone", repo, clonePath], "git clone failed");
-  try {
-    await runGit(
-      ["-C", clonePath, "checkout", "-b", branch, `origin/${baseBranch}`],
-      "git checkout -b failed"
-    );
-  } catch {
-    await runGit(
-      ["-C", clonePath, "checkout", "-b", branch, baseBranch],
-      "git checkout -b failed"
-    );
-  }
-}
-
-function cloneRemoteName(projectId: string): string {
-  return `agent-${projectId}`.toLowerCase();
-}
-
-async function ensureCloneRemote(
-  repo: string,
-  projectId: string,
-  clonePath: string
-): Promise<void> {
-  const remote = cloneRemoteName(projectId);
-  const realClonePath = await fs.realpath(clonePath).catch(() => clonePath);
-  try {
-    await runGit(
-      ["-C", repo, "remote", "set-url", remote, realClonePath],
-      "git remote set-url failed"
-    );
-  } catch {
-    await runGit(
-      ["-C", repo, "remote", "add", remote, realClonePath],
-      "git remote add failed"
-    );
-  }
-}
-
-async function removeCloneRemote(
-  repo: string,
-  projectId: string
-): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const child = spawn(
-      "git",
-      ["-C", repo, "remote", "remove", cloneRemoteName(projectId)],
-      {
-        stdio: "ignore",
-      }
-    );
-    child.on("exit", () => resolve());
-    child.on("error", () => resolve());
-  });
 }
 
 export async function spawnSubagent(
@@ -516,8 +130,7 @@ export async function spawnSubagent(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  const sessionsRoot = path.join(projectDir, "sessions");
-  const sessionDir = path.join(sessionsRoot, input.slug);
+  const sessionDir = subagentRunStore.locate(projectDir, input.slug);
   let frontmatter: Record<string, unknown> = {};
   let summary = "";
   if (!input.resume) {
@@ -610,18 +223,8 @@ export async function spawnSubagent(
     return { ok: false, error: "Project repo not set" };
   }
 
-  const repoHasGit = repo
-    ? await fs
-        .stat(path.join(repo, ".git"))
-        .then(() => true)
-        .catch(() => false)
-    : false;
-  if (
-    (mode === "clone" || mode === "worktree" || mode === "main-run") &&
-    !repoHasGit
-  ) {
-    return { ok: false, error: "Project repo is not a git repo" };
-  }
+  const repoError = await validateWorkspaceRepo(mode, repo);
+  if (repoError) return { ok: false, error: repoError };
   if (await dirExists(sessionDir)) {
     if (!input.resume) {
       return { ok: false, error: `Subagent already exists: ${input.slug}` };
@@ -630,68 +233,32 @@ export async function spawnSubagent(
     await fs.mkdir(sessionDir, { recursive: true });
   }
 
-  const workspacesRoot = path.join(
-    getProjectsWorktreeRoot(config),
-    input.projectId
-  );
-  const worktreeDir = path.join(workspacesRoot, input.slug);
-
-  let worktreePath = mode === "none" ? repo || projectDir : repo;
-  let acquiredSpaceLease = false;
   const baseBranch = input.baseBranch ?? "main";
-  if (mode === "main-run") {
-    try {
-      const space = await ensureProjectSpace(
-        config,
-        input.projectId,
-        baseBranch
-      );
-      worktreePath = space.worktreePath;
-      if (isSpaceWriteLeaseEnabled()) {
-        const lease = await acquireProjectSpaceWriteLease(
-          config,
-          input.projectId,
-          {
-            holder: input.slug,
-          }
-        );
-        if (!lease.ok) {
-          return { ok: false, error: lease.error };
-        }
-        acquiredSpaceLease = true;
-      }
-    } catch (error) {
-      return {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to initialize project space",
-      };
-    }
-  } else if (mode === "worktree" || mode === "clone") {
-    const branch = `${input.projectId}/${input.slug}`;
-    worktreePath = worktreeDir;
-    await fs.mkdir(workspacesRoot, { recursive: true });
-    const worktreeGitExists = await fs
-      .stat(path.join(worktreePath, ".git"))
-      .then(() => true)
-      .catch(() => false);
-    if (!worktreeGitExists) {
-      await ensureRunnerBaseBranch(config, input.projectId, baseBranch);
-      if (mode === "worktree") {
-        await createWorktree(repo, worktreePath, branch, baseBranch);
-      } else {
-        await createClone(repo, worktreePath, branch, baseBranch);
-      }
-    }
-    if (mode === "clone") {
-      await ensureCloneRemote(repo, input.projectId, worktreePath);
-    }
+  const workspaceAdapter = getSubagentWorkspaceAdapter(mode);
+  let workspace;
+  try {
+    workspace = await workspaceAdapter.prepare({
+      config,
+      projectId: input.projectId,
+      sliceId: input.sliceId,
+      slug: input.slug,
+      projectDir,
+      repo,
+      mode,
+      baseBranch,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to initialize subagent workspace",
+    };
   }
+  const worktreePath = workspace.worktreePath;
 
   const statePath = path.join(sessionDir, "state.json");
-  const historyPath = path.join(sessionDir, "history.jsonl");
   const progressPath = path.join(sessionDir, "progress.json");
   const logsPath = path.join(sessionDir, "logs.jsonl");
   const configPath = path.join(sessionDir, "config.json");
@@ -750,6 +317,7 @@ export async function spawnSubagent(
   const promptBytes = Buffer.byteLength(prompt, "utf8");
   if (promptBytes > promptLimit) {
     const modeLabel = input.resume ? "resume" : "start/spawn";
+    await workspace.releaseLease();
     return {
       ok: false,
       error: `Prompt too large for ${modeLabel}: ${promptBytes} > ${promptLimit} bytes`,
@@ -757,7 +325,9 @@ export async function spawnSubagent(
   }
   const piSessionFile =
     cli === "pi" ? (existingSessionFile ?? piSessionFilePath) : undefined;
-  const args = buildArgs(cli, prompt, {
+  const harness = getSubagentHarnessAdapter(cli);
+  const args = harness.buildArgs({
+    prompt,
     sessionId: existingSessionId,
     sessionFile: piSessionFile,
     model: input.model,
@@ -766,13 +336,9 @@ export async function spawnSubagent(
   });
   let resolved;
   try {
-    resolved = await resolveCliCommand(cli, args);
+    resolved = await harness.resolveCommand(args);
   } catch (err) {
-    if (acquiredSpaceLease) {
-      await releaseProjectSpaceWriteLease(config, input.projectId, {
-        holder: input.slug,
-      }).catch(() => {});
-    }
+    await workspace.releaseLease();
     return {
       ok: false,
       error: err instanceof Error ? err.message : "CLI not found",
@@ -784,16 +350,7 @@ export async function spawnSubagent(
     state = nextState;
     const snapshot = { ...nextState };
     stateWrite = stateWrite.then(async () => {
-      let current: Record<string, unknown> = {};
-      try {
-        current = JSON.parse(await fs.readFile(statePath, "utf8")) as Record<
-          string,
-          unknown
-        >;
-      } catch {
-        current = {};
-      }
-      await writeJson(statePath, { ...current, ...snapshot });
+      await subagentRunStore.updateState(projectDir, input.slug, snapshot);
     });
     await stateWrite;
   };
@@ -822,41 +379,9 @@ export async function spawnSubagent(
           .split(/\r?\n/)
           .filter((line) => line.trim().length > 0);
         for (const line of lines) {
-          if (cli === "codex") {
-            try {
-              const ev = JSON.parse(line) as {
-                type?: string;
-                thread_id?: string;
-              };
-              if (ev.type === "thread.started" && ev.thread_id) {
-                await persistState({ ...state, session_id: ev.thread_id });
-              }
-            } catch {
-              // ignore
-            }
-          }
-          if (cli === "claude") {
-            try {
-              const ev = JSON.parse(line) as {
-                type?: string;
-                session_id?: string;
-              };
-              if (ev.type === "system" && ev.session_id) {
-                await persistState({ ...state, session_id: ev.session_id });
-              }
-            } catch {
-              // ignore
-            }
-          }
-          if (cli === "pi") {
-            try {
-              const ev = JSON.parse(line) as { type?: string; id?: string };
-              if (ev.type === "session" && ev.id) {
-                await persistState({ ...state, session_id: ev.id });
-              }
-            } catch {
-              // ignore
-            }
+          const nextSessionId = harness.extractSessionId(line);
+          if (nextSessionId) {
+            await persistState({ ...state, session_id: nextSessionId });
           }
         }
       } catch (error) {
@@ -887,30 +412,25 @@ export async function spawnSubagent(
       throw error;
     }
   });
-  const startHeadSha =
-    mode === "worktree" || mode === "clone"
-      ? await getGitHead(worktreePath)
-      : undefined;
+  const startHeadSha = workspace.startHeadSha;
 
   child.on("error", async (err) => {
     const finishedAt = new Date().toISOString();
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data: {
-        run_id: `${Date.now()}`,
-        outcome: "error",
-        error_message:
-          err instanceof Error
-            ? `spawn failed: ${err.message}`
-            : "spawn failed",
+    await subagentRunStore.appendHistory(projectDir, input.slug, [
+      {
+        ts: finishedAt,
+        type: "worker.finished",
+        data: {
+          run_id: `${Date.now()}`,
+          outcome: "error",
+          error_message:
+            err instanceof Error
+              ? `spawn failed: ${err.message}`
+              : "spawn failed",
+        },
       },
-    });
-    if (acquiredSpaceLease) {
-      await releaseProjectSpaceWriteLease(config, input.projectId, {
-        holder: input.slug,
-      }).catch(() => {});
-    }
+    ]);
+    await workspace.releaseLease();
   });
 
   const startedAt = new Date().toISOString();
@@ -935,10 +455,7 @@ export async function spawnSubagent(
     if (typeof existing.archived === "boolean") {
       archived = existing.archived;
     }
-    if (
-      existing.source === "manual" ||
-      existing.source === "orchestrator"
-    ) {
+    if (existing.source === "manual" || existing.source === "orchestrator") {
       existingSource = existing.source;
     }
   } catch {
@@ -987,15 +504,17 @@ export async function spawnSubagent(
     await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
   }
   markIoReady();
-  await appendHistory(historyPath, {
-    ts: startedAt,
-    type: "worker.started",
-    data: {
-      action: input.resume ? "follow_up" : "started",
-      harness: cli,
-      session_id: state.session_id,
+  await subagentRunStore.appendHistory(projectDir, input.slug, [
+    {
+      ts: startedAt,
+      type: "worker.started",
+      data: {
+        action: input.resume ? "follow_up" : "started",
+        harness: cli,
+        session_id: state.session_id,
+      },
     },
-  });
+  ]);
 
   child.on("exit", async (code, signal) => {
     await stdoutProcessing;
@@ -1016,11 +535,13 @@ export async function spawnSubagent(
     if (outcome === "error") {
       data.error_message = exitMessage;
     }
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data,
-    });
+    await subagentRunStore.appendHistory(projectDir, input.slug, [
+      {
+        ts: finishedAt,
+        type: "worker.finished",
+        data,
+      },
+    ]);
     if (outcome === "error") {
       let interruptRequestedAt: string | undefined;
       try {
@@ -1037,53 +558,44 @@ export async function spawnSubagent(
         interrupt_requested_at: interruptRequestedAt,
         last_error: exitMessage,
       });
-      if (acquiredSpaceLease) {
-        await releaseProjectSpaceWriteLease(config, input.projectId, {
-          holder: input.slug,
-        }).catch(() => {});
-      }
-      await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
+      await workspace.releaseLease();
+      await workspace.prune();
       return;
     }
 
     await persistState({ ...state, finished_at: finishedAt, outcome: "done" });
 
-    if ((mode === "worktree" || mode === "clone") && startHeadSha) {
-      const endHeadSha = await getGitHead(worktreePath);
+    if (startHeadSha) {
       await persistState({
         ...state,
-        end_head_sha: endHeadSha ?? "",
-        commit_range:
-          endHeadSha && endHeadSha !== startHeadSha
-            ? `${startHeadSha}..${endHeadSha}`
-            : "",
+        end_head_sha: "",
+        commit_range: "",
       });
-      if (endHeadSha) {
-        let replacesFromConfig: string[] | undefined;
-        try {
-          const raw = await fs.readFile(configPath, "utf8");
-          const parsed = JSON.parse(raw) as { replaces?: string[] };
-          replacesFromConfig = normalizeReplaces(parsed.replaces);
-        } catch {
-          replacesFromConfig = undefined;
-        }
-        await recordWorkerDelivery(config, {
-          projectId: input.projectId,
-          workerSlug: input.slug,
-          runMode: mode,
-          worktreePath,
-          startSha: startHeadSha,
-          endSha: endHeadSha,
-          replaces: replacesFromConfig,
-        }).catch(() => {});
+      let replacesFromConfig: string[] | undefined;
+      try {
+        const raw = await fs.readFile(configPath, "utf8");
+        const parsed = JSON.parse(raw) as { replaces?: string[] };
+        replacesFromConfig = normalizeReplaces(parsed.replaces);
+      } catch {
+        replacesFromConfig = undefined;
+      }
+      const delivery = await workspace.recordDelivery({
+        config,
+        projectId: input.projectId,
+        slug: input.slug,
+        startHeadSha,
+        replaces: replacesFromConfig,
+      });
+      if (delivery) {
+        await persistState({
+          ...state,
+          end_head_sha: delivery.endHeadSha,
+          commit_range: delivery.commitRange,
+        });
       }
     }
-    if (acquiredSpaceLease) {
-      await releaseProjectSpaceWriteLease(config, input.projectId, {
-        holder: input.slug,
-      }).catch(() => {});
-    }
-    await pruneProjectRepoWorktrees(config, input.projectId).catch(() => {});
+    await workspace.releaseLease();
+    await workspace.prune();
   });
 
   return { ok: true, data: { slug: input.slug } };
@@ -1101,9 +613,8 @@ export async function interruptSubagent(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  const sessionDir = path.join(projectDir, "sessions", slug);
+  const sessionDir = subagentRunStore.locate(projectDir, slug);
   const statePath = path.join(sessionDir, "state.json");
-  const historyPath = path.join(sessionDir, "history.jsonl");
 
   try {
     const raw = await fs.readFile(statePath, "utf8");
@@ -1118,20 +629,21 @@ export async function interruptSubagent(
       return { ok: false, error: `Subagent not running: ${slug}` };
     }
     if (state.supervisor_pid) {
-      await writeJson(statePath, {
-        ...state,
+      await subagentRunStore.updateState(projectDir, slug, {
         interrupt_requested_at: new Date().toISOString(),
       });
       process.kill(state.supervisor_pid, "SIGTERM");
-      await appendHistory(historyPath, {
-        ts: new Date().toISOString(),
-        type: "worker.interrupt",
-        data: {
-          action: "requested",
-          signal: "SIGTERM",
-          supervisor_pid: state.supervisor_pid,
+      await subagentRunStore.appendHistory(projectDir, slug, [
+        {
+          ts: new Date().toISOString(),
+          type: "worker.interrupt",
+          data: {
+            action: "requested",
+            signal: "SIGTERM",
+            supervisor_pid: state.supervisor_pid,
+          },
         },
-      });
+      ]);
       return { ok: true, data: { slug } };
     }
   } catch {
@@ -1153,7 +665,7 @@ export async function killSubagent(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  const sessionDir = path.join(projectDir, "sessions", slug);
+  const sessionDir = subagentRunStore.locate(projectDir, slug);
   if (!(await dirExists(sessionDir))) {
     return { ok: false, error: `Subagent not found: ${slug}` };
   }
@@ -1186,10 +698,7 @@ export async function killSubagent(
     }
   }
 
-  const workspacesRoot = path.join(
-    getProjectsWorktreeRoot(config),
-    projectId
-  );
+  const workspacesRoot = path.join(getProjectsWorktreeRoot(config), projectId);
   const worktreeDir = path.join(workspacesRoot, slug);
   const worktreePath =
     typeof state?.worktree_path === "string" ? state.worktree_path : "";
@@ -1218,32 +727,32 @@ export async function killSubagent(
   }
   if (!runMode) runMode = "main-run";
 
-  if (runMode === "worktree") {
+  if (
+    runMode === "worktree" ||
+    runMode === "clone" ||
+    runMode === "main-run" ||
+    runMode === "none"
+  ) {
     const repo = await resolveProjectRepo(
       config,
       projectId,
       projectDir,
       state?.slice_id
     );
-    if (!repo) {
+    if (runMode === "worktree" && !repo) {
       return { ok: false, error: "Project repo not set" };
     }
-
-    const resolvedWorktreePath = worktreePath || worktreeDir;
     try {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn(
-          "git",
-          ["-C", repo, "worktree", "remove", resolvedWorktreePath, "--force"],
-          {
-            stdio: "ignore",
-          }
-        );
-        child.on("exit", (code) => {
-          if (code === 0) resolve();
-          else reject(new Error("git worktree remove failed"));
-        });
-        child.on("error", reject);
+      await getSubagentWorkspaceAdapter(runMode).cleanup({
+        config,
+        projectId,
+        sliceId: state?.slice_id,
+        slug,
+        projectDir,
+        repo,
+        mode: runMode,
+        baseBranch: "main",
+        worktreePath,
       });
     } catch (err) {
       return {
@@ -1252,60 +761,9 @@ export async function killSubagent(
           err instanceof Error ? err.message : "git worktree remove failed",
       };
     }
-
-    try {
-      await new Promise<void>((resolve) => {
-        const child = spawn(
-          "git",
-          ["-C", repo, "branch", "-D", `${projectId}/${slug}`],
-          {
-            stdio: "ignore",
-          }
-        );
-        child.on("exit", (code) => {
-          if (code === 0) resolve();
-          else resolve();
-        });
-        child.on("error", () => resolve());
-      });
-    } catch {
-      // ignore
-    }
-  } else if (runMode === "clone") {
-    const repo = await resolveProjectRepo(
-      config,
-      projectId,
-      projectDir,
-      state?.slice_id
-    );
-
-    if (repo) {
-      await removeCloneRemote(repo, projectId);
-    }
-
-    const resolvedClonePath = worktreePath || worktreeDir;
-    await fs.rm(resolvedClonePath, { recursive: true, force: true });
   }
 
-  if (runMode === "main-run" && isSpaceWriteLeaseEnabled()) {
-    await releaseProjectSpaceWriteLease(config, projectId, {
-      holder: slug,
-    }).catch(() => {});
-  }
-  await pruneProjectRepoWorktrees(config, projectId).catch(() => {});
-
-  await fs.rm(sessionDir, { recursive: true, force: true });
-
-  try {
-    const remainingSessions = await fs.readdir(
-      path.join(projectDir, "sessions")
-    );
-    if (remainingSessions.length === 0) {
-      await fs.rmdir(path.join(projectDir, "sessions"));
-    }
-  } catch {
-    // ignore
-  }
+  await subagentRunStore.delete(projectDir, slug);
 
   // Remove parent folder (PRO-XX) if empty
   try {

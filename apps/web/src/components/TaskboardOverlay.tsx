@@ -1,5 +1,5 @@
 import { createSignal, createEffect, createMemo, onCleanup, Show, For } from "solid-js";
-import { fetchTaskboard, fetchTaskboardItem } from "../api/client";
+import { fetchTaskboard, fetchTaskboardItem } from "../api";
 import type { TodoItem, ProjectItem, TaskboardItemResponse } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 

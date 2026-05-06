@@ -181,6 +181,65 @@ describe("gateway status websocket", () => {
 
     setSessionStreaming("status-agent", sessionId, false);
   });
+
+  it("broadcasts project and subagent events to connected clients", async () => {
+    const { agentEventBus } = await import("../agents/events.js");
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const received: Array<{ type: string; projectId?: string; runId?: string }> =
+      [];
+    const receivePromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as {
+          type?: string;
+          projectId?: string;
+          runId?: string;
+        };
+        if (
+          msg.type === "file_changed" ||
+          msg.type === "agent_changed" ||
+          msg.type === "subagent_changed"
+        ) {
+          received.push({
+            type: msg.type,
+            projectId: msg.projectId,
+            runId: msg.runId,
+          });
+          if (received.length === 3) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => ws.once("open", () => resolve()));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    agentEventBus.emitFileChanged({
+      type: "file_changed",
+      projectId: "PRO-1",
+      file: "README.md",
+    });
+    agentEventBus.emitAgentChanged({
+      type: "agent_changed",
+      projectId: "PRO-1",
+    });
+    agentEventBus.emit("subagent.changed", {
+      type: "subagent_changed",
+      runId: "run-1",
+      status: "running",
+    });
+
+    await receivePromise;
+    ws.close();
+
+    expect(received).toEqual([
+      { type: "file_changed", projectId: "PRO-1", runId: undefined },
+      { type: "agent_changed", projectId: "PRO-1", runId: undefined },
+      { type: "subagent_changed", projectId: undefined, runId: "run-1" },
+    ]);
+  });
 });
 
 describe("gateway status websocket in multi-user mode", () => {
@@ -240,6 +299,10 @@ describe("gateway status websocket in multi-user mode", () => {
         getLoadedExtensions: () => [{ id: "multiUser" }],
         isMultiUserLoaded: () => true,
         isExtensionLoaded: (extensionId: string) => extensionId === "multiUser",
+        getExtensionRuntime: () => ({
+          isEnabled: (extensionId: string) => extensionId === "multiUser",
+          getRouteMatchers: () => [],
+        }),
       };
     });
     vi.doMock("@aihub/extension-multi-user", () => ({

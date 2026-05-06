@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { resolveBindHost, type SubagentRuntimeProfile } from "@aihub/shared";
+import { runtimeProfiles } from "@aihub/extension-projects/profiles/resolver";
+import { resolveBindHost } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -287,25 +288,7 @@ function formatProfileRows(profiles: SubagentProfileRow[]): string[] {
 
 export function printSubagentProfiles(json: boolean): void {
   const config = loadConfig();
-  const extensionProfiles =
-    (config.extensions?.subagents?.profiles as
-      | SubagentRuntimeProfile[]
-      | undefined) ?? [];
-  const legacyProfiles = (config.subagents ?? []).map((profile) => ({
-    name: profile.name,
-    cli: profile.cli,
-    model: profile.model,
-    reasoningEffort: profile.reasoning,
-    type: profile.type,
-    runMode: profile.runMode,
-  }));
-  const profiles = [
-    ...extensionProfiles,
-    ...legacyProfiles.filter(
-      (legacy) =>
-        !extensionProfiles.some((profile) => profile.name === legacy.name)
-    ),
-  ];
+  const profiles = runtimeProfiles(config);
 
   if (json) {
     console.log(JSON.stringify(profiles));

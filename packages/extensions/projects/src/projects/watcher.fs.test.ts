@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
-import { agentEventBus } from "../../../../../apps/gateway/src/agents/events.js";
+import { agentEventBus } from "@aihub/shared";
 import { clearProjectsContext, setProjectsContext } from "../context.js";
 import { startProjectWatcher } from "./watcher.js";
 

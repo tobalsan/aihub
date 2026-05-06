@@ -1,0 +1,232 @@
+import type {
+  AgentConfig,
+  Extension,
+  ExtensionAgentTool,
+  GatewayConfig,
+} from "@aihub/shared";
+
+export type LoadedExtensionAgentTool = ExtensionAgentTool & {
+  extensionId: string;
+};
+
+export type ExtensionRouteMetadata = {
+  id: string;
+  routePrefixes: string[];
+};
+
+export type ExtensionRouteMatcher = {
+  extension: string;
+  matches: (path: string) => boolean;
+};
+
+export type ExtensionCapabilities = {
+  extensions: Record<string, true>;
+  capabilities: Record<string, string[]>;
+  multiUser: boolean;
+  home?: string;
+};
+
+function routePrefixToMatcher(prefix: string): (path: string) => boolean {
+  if (!prefix.includes(":")) {
+    return (path) => path === prefix || path.startsWith(`${prefix}/`);
+  }
+
+  const pattern = prefix
+    .split("/")
+    .map((segment) => {
+      if (!segment) return "";
+      if (segment.startsWith(":")) return "[^/]+";
+      return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("/");
+  const regex = new RegExp(`^${pattern}$`);
+  return (path) => regex.test(path);
+}
+
+function isExplicitlyDisabled(
+  config: GatewayConfig,
+  extensionId: string
+): boolean {
+  const extensionConfig = (
+    extensionId === "multiUser"
+      ? config.extensions?.multiUser
+      : config.extensions?.[
+          extensionId as keyof NonNullable<GatewayConfig["extensions"]>
+        ]
+  ) as { enabled?: boolean } | undefined;
+
+  return !!(
+    extensionConfig &&
+    typeof extensionConfig === "object" &&
+    "enabled" in extensionConfig &&
+    extensionConfig.enabled === false
+  );
+}
+
+function hasEnabledConfig(config: GatewayConfig, extensionId: string): boolean {
+  const extensionConfig = (
+    extensionId === "multiUser"
+      ? config.extensions?.multiUser
+      : config.extensions?.[
+          extensionId as keyof NonNullable<GatewayConfig["extensions"]>
+        ]
+  ) as { enabled?: boolean } | undefined;
+
+  return !!extensionConfig && extensionConfig.enabled !== false;
+}
+
+export class ExtensionRuntime {
+  #extensions: Extension[] = [];
+  #extensionIds = new Set<string>();
+  #homeExtensionId: string | undefined;
+  #routeMatchers: ExtensionRouteMatcher[];
+
+  constructor(routeMetadata: ExtensionRouteMetadata[] = []) {
+    this.#routeMatchers = this.#buildRouteMatchers(routeMetadata);
+  }
+
+  load(extensions: Extension[], homeExtensionId?: string): Extension[] {
+    this.#extensions = [...extensions];
+    this.#extensionIds = new Set(extensions.map((extension) => extension.id));
+    this.#homeExtensionId = homeExtensionId;
+    return this.getLoadedExtensions();
+  }
+
+  async unload(): Promise<void> {
+    for (const extension of [...this.#extensions].reverse()) {
+      await extension.stop();
+    }
+    this.#extensions = [];
+    this.#extensionIds = new Set();
+    this.#homeExtensionId = undefined;
+  }
+
+  async reload(
+    extensions: Extension[],
+    homeExtensionId?: string
+  ): Promise<Extension[]> {
+    await this.unload();
+    return this.load(extensions, homeExtensionId);
+  }
+
+  getLoadedExtensions(): Extension[] {
+    return [...this.#extensions];
+  }
+
+  isEnabled(extensionId: string, config?: GatewayConfig): boolean {
+    if (config && isExplicitlyDisabled(config, extensionId)) return false;
+    if (this.#extensionIds.has(extensionId)) return true;
+    return config ? hasEnabledConfig(config, extensionId) : false;
+  }
+
+  getHomeExtension(): string | undefined {
+    return this.#homeExtensionId;
+  }
+
+  isMultiUserEnabled(): boolean {
+    return this.#extensionIds.has("multiUser");
+  }
+
+  getRouteMatchers(): ExtensionRouteMatcher[] {
+    return [...this.#routeMatchers];
+  }
+
+  async getTools(
+    agent: AgentConfig,
+    config: GatewayConfig
+  ): Promise<LoadedExtensionAgentTool[]> {
+    const groups = await Promise.all(
+      this.#extensions.map(async (extension) => {
+        const tools = (await extension.getAgentTools?.(agent, { config })) ?? [];
+        return tools.map((tool) => ({ ...tool, extensionId: extension.id }));
+      })
+    );
+    const tools = groups.flat();
+    const seen = new Set<string>();
+    for (const tool of tools) {
+      if (seen.has(tool.name)) {
+        throw new Error(`Duplicate extension agent tool: ${tool.name}`);
+      }
+      seen.add(tool.name);
+    }
+    return tools;
+  }
+
+  async getTool(
+    agent: AgentConfig,
+    toolName: string,
+    config: GatewayConfig
+  ): Promise<LoadedExtensionAgentTool | undefined> {
+    return (await this.getTools(agent, config)).find(
+      (tool) => tool.name === toolName
+    );
+  }
+
+  async executeTool(
+    agent: AgentConfig,
+    toolName: string,
+    args: unknown,
+    config: GatewayConfig
+  ): Promise<{ found: boolean; result?: unknown }> {
+    const tool = await this.getTool(agent, toolName, config);
+    if (!tool) return { found: false };
+    return {
+      found: true,
+      result: await tool.execute(args, { agent, config }),
+    };
+  }
+
+  async getPromptContributions(
+    agent: AgentConfig,
+    config: GatewayConfig
+  ): Promise<string[]> {
+    const contributions = await Promise.all(
+      this.#extensions.map(async (extension) => {
+        const contribution = await extension.getSystemPromptContributions?.(
+          agent,
+          { config }
+        );
+        if (!contribution) return [];
+        return Array.isArray(contribution) ? contribution : [contribution];
+      })
+    );
+
+    return contributions.flat().filter((prompt) => prompt.trim().length > 0);
+  }
+
+  async getPrompts(
+    agent: AgentConfig,
+    config: GatewayConfig
+  ): Promise<string[]> {
+    return this.getPromptContributions(agent, config);
+  }
+
+  getCapabilities(): ExtensionCapabilities {
+    return {
+      extensions: Object.fromEntries(
+        this.#extensions.map((extension) => [extension.id, true])
+      ),
+      capabilities: Object.fromEntries(
+        this.#extensions.map((extension) => [
+          extension.id,
+          extension.capabilities(),
+        ])
+      ),
+      multiUser: this.isMultiUserEnabled(),
+      home: this.#homeExtensionId,
+    };
+  }
+
+  #buildRouteMatchers(
+    routeMetadata: ExtensionRouteMetadata[]
+  ): ExtensionRouteMatcher[] {
+    return routeMetadata.flatMap((extension) =>
+      extension.routePrefixes.map((prefix) => ({
+        extension: extension.id,
+        matches: routePrefixToMatcher(prefix),
+      }))
+    );
+  }
+}
+
+export const emptyExtensionRuntime = new ExtensionRuntime();

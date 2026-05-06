@@ -23,7 +23,7 @@ import {
   fetchProject,
   subscribeToFileChanges,
   updateProject,
-} from "../../api/client";
+} from "../../api";
 import type { ProjectLifecycleStatus } from "../../api/types";
 import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";

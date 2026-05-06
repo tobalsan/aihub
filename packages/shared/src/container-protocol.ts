@@ -1,0 +1,3 @@
+export const CONTAINER_OUTPUT_START = "---AIHUB_OUTPUT_START---";
+export const CONTAINER_OUTPUT_END = "---AIHUB_OUTPUT_END---";
+export const CONTAINER_EVENT_PREFIX = "---AIHUB_EVENT---";

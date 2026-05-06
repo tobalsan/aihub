@@ -29,7 +29,7 @@ import {
   subscribeToSession,
   type DoneMeta,
   uploadFiles,
-} from "../api/client";
+} from "../api";
 import type {
   FullHistoryMessage,
   FullToolResultMessage,
@@ -40,6 +40,7 @@ import type {
 import { extractBlockText, getTextBlocks } from "../lib/history";
 import { toggleZenMode, zenMode } from "../lib/layout";
 import { renderMarkdown } from "../lib/markdown";
+import { createChatAttachmentRuntime } from "../lib/chat-runtime";
 
 type AgentChatProps = {
   agentId: string | null;
@@ -161,13 +162,6 @@ function summarizeToolLabel(
       : formatMeasure(countLines(body), "line")
   }`;
 }
-
-// Local UI state for file attachments (before upload)
-type PendingFile = {
-  id: string;
-  file: File;
-  name: string;
-};
 
 type PendingCliUserMessage = {
   id: string;
@@ -1262,7 +1256,11 @@ function mergePendingAihubMessages(
 export function AgentChat(props: AgentChatProps) {
   const [localInput, setLocalInput] = createSignal("");
   const [error, setError] = createSignal("");
-  const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
+  const attachmentRuntime = createChatAttachmentRuntime({
+    acceptFile: (file) => isSupportedImage(file),
+    previewImages: false,
+  });
+  const pendingFiles = attachmentRuntime.pendingFiles;
   const [aihubLogs, setAihubLogs] = createSignal<LogItem[]>([]);
   const [aihubLive, setAihubLive] = createSignal("");
   const [aihubStreaming, setAihubStreaming] = createSignal(false);
@@ -1412,18 +1410,7 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   const addPendingFiles = (files: FileList | File[]) => {
-    const next: PendingFile[] = [];
-    for (const file of Array.from(files)) {
-      if (!isSupportedImage(file)) continue;
-      next.push({
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        file,
-        name: file.name,
-      });
-    }
-    if (next.length > 0) {
-      setPendingFiles((prev) => [...prev, ...next]);
-    }
+    attachmentRuntime.attachFiles(files);
   };
 
   const handleFileDragOver = (event: Event) => {
@@ -1442,7 +1429,7 @@ export function AgentChat(props: AgentChatProps) {
   };
 
   const removePendingFile = (id: string) => {
-    setPendingFiles((prev) => prev.filter((item) => item.id !== id));
+    attachmentRuntime.removeFile(id);
   };
 
   const resizeTextarea = (value = input()) => {
@@ -2051,7 +2038,7 @@ export function AgentChat(props: AgentChatProps) {
     setAihubStreaming(false);
     setAihubPending(false);
     setAihubHistoryMessages([]);
-    setPendingFiles([]);
+    attachmentRuntime.clearFiles();
     setPendingAihubUserMessages([]);
     streamingToolCalls.clear();
     setCliLogs([]);
@@ -2244,7 +2231,7 @@ export function AgentChat(props: AgentChatProps) {
         setSubagentAwaitingResponse(true);
       }
       setInput("");
-      setPendingFiles([]);
+      attachmentRuntime.clearFiles();
       resizeTextarea("");
       scrollToBottom(true);
       focusInput();
@@ -2317,7 +2304,7 @@ export function AgentChat(props: AgentChatProps) {
         },
       ]);
       setInput("");
-      setPendingFiles([]);
+    attachmentRuntime.clearFiles();
     }
     setError("");
     resizeTextarea("");

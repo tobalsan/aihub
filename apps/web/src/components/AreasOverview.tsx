@@ -5,7 +5,7 @@ import {
   fetchAreas,
   fetchProjects,
   updateArea,
-} from "../api/client";
+} from "../api";
 import type { Area, ProjectListItem } from "../api/types";
 import { AreaCard, STATUS_META, type AreaStats } from "./AreaCard";
 

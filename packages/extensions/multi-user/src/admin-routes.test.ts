@@ -40,6 +40,7 @@ vi.mock(
       getAgent,
       getActiveAgents,
       isAgentActive: () => true,
+      loadConfig: () => ({ agents: [] }),
       resolveWorkspaceDir: (workspace: string) => workspace,
     };
   }
@@ -48,6 +49,14 @@ vi.mock(
 vi.mock("../../../../apps/gateway/src/extensions/registry.js", () => ({
   getLoadedExtensions,
   getHomeExtension: () => undefined,
+  getExtensionRuntime: () => ({
+    getCapabilities: () => ({
+      extensions: {},
+      capabilities: {},
+      multiUser: true,
+      home: undefined,
+    }),
+  }),
   isMultiUserLoaded: () =>
     getLoadedExtensions().some(
       (extension: { id?: string }) => extension.id === "multiUser"
@@ -56,7 +65,6 @@ vi.mock("../../../../apps/gateway/src/extensions/registry.js", () => ({
     getLoadedExtensions().some(
       (extension: { id?: string }) => extension.id === id
     ),
-  getHomeExtension: () => undefined,
 }));
 
 type MockSession = {

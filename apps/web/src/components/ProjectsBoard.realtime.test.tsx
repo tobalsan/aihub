@@ -11,7 +11,7 @@ let fileChangeCallbacks:
     }
   | undefined;
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchProjects: vi.fn(() => []),
   fetchAreas: vi.fn(async () => []),
   fetchProject: vi.fn(async () => ({
@@ -118,7 +118,7 @@ describe("ProjectsBoard realtime refresh", () => {
   });
 
   it("refetches projects on non-README file_changed events", async () => {
-    const api = await import("../api/client");
+    const api = await import("../api");
     const fetchProjects = vi.mocked(api.fetchProjects);
 
     const container = document.createElement("div");
@@ -147,7 +147,7 @@ describe("ProjectsBoard realtime refresh", () => {
   });
 
   it("does not subscribe to project realtime while detail view is active", async () => {
-    const api = await import("../api/client");
+    const api = await import("../api");
     const fetchProjects = vi.mocked(api.fetchProjects);
     const subscribeToFileChanges = vi.mocked(api.subscribeToFileChanges);
 

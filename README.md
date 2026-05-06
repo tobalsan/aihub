@@ -51,9 +51,10 @@ pnpm aihub gateway uninstall  # bootout + remove plist
 The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`).
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
+Project document layout is centralized in `ProjectDocumentStore`: project metadata stays in `README.md`, pitch in `PITCH.md`, comments in `THREAD.md`, slices under `slices/<sliceId>/`, and `SCOPE_MAP.md` is generated.
 Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
-Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, starts `Reviewer` subagents for `review`, and starts `Merger` subagents for `ready_to_merge`. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`. HITL bursts require `hitl_channel` to name an existing `notifications.channels` key.
+Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, starts `Reviewer` subagents for `review`, and starts `Merger` subagents for `ready_to_merge`. The dispatcher is split internally into dispatch policy, prompt factory, and run planner modules. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`. HITL bursts require `hitl_channel` to name an existing `notifications.channels` key.
 Orchestrated Worker/Reviewer/Merger prompts tell agents to pass their role via `--author` when posting project or slice comments, so THREAD.md keeps role attribution.
 
 ```json
@@ -83,6 +84,7 @@ Orchestrated Worker/Reviewer/Merger prompts tell agents to pass their role via `
 Startup now resolves `$env:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
+WebSocket routing lives behind `apps/gateway/src/server/ws-broker.ts`, with the web app consuming session/status/project/subagent realtime interests through `apps/web/src/api/realtime-client.ts`.
 OneCLI now uses the dedicated top-level `onecli` config section for native proxy/gateway wiring.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
@@ -399,6 +401,8 @@ When `sandbox.enabled` is `true`, the gateway replaces the normal in-process age
 5. Container writes structured output to stdout between sentinel markers
 6. Gateway parses the output and routes the response to the client
 7. Container is removed on exit (`--rm`)
+
+The public adapter remains `getContainerAdapter()`, with internal container modules for launch specs, protocol framing, input building, file output registration, and extension tool bridging.
 
 **Follow-up messages** while a container is running are delivered via filesystem IPC — the gateway writes JSON files to a bind-mounted input directory that the agent-runner polls.
 

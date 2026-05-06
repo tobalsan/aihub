@@ -16,7 +16,7 @@ const {
   subscribeToSubagentChangesMock: vi.fn(),
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchBoardAgents: fetchBoardAgentsMock,
   killBoardAgent: killBoardAgentMock,
   subscribeToSubagentChanges: subscribeToSubagentChangesMock,

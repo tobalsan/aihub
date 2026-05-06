@@ -9,6 +9,11 @@
       "development": "./src/index.ts",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./profiles/resolver": {
+      "development": "./src/profiles/resolver.ts",
+      "import": "./dist/profiles/resolver.js",
+      "types": "./dist/profiles/resolver.d.ts"
     }
   },
   "scripts": {

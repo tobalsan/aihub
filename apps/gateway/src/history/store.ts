@@ -465,20 +465,6 @@ export function bufferHistoryEvent(
         timestamp: event.timestamp,
       });
       break;
-    case "file_output":
-      if (!buffer.assistantStarted) {
-        buffer.assistantStarted = true;
-        buffer.startTimestamp = event.timestamp ?? Date.now();
-      }
-      buffer.fileBlocks.push({
-        type: "file",
-        fileId: event.fileId,
-        filename: event.filename,
-        mimeType: event.mimeType,
-        size: event.size,
-        direction: "outbound",
-      });
-      break;
     case "turn_end":
       break;
     case "meta":
@@ -578,12 +564,14 @@ export async function getSimpleHistory(
             });
           }
         }
-      } catch {
-        // Skip malformed lines
+      } catch (err) {
+        // Expected: malformed JSON lines in history file
+        console.warn("[history] Skipping malformed line in simple history", { agentId, sessionId, error: String(err) });
       }
     }
-  } catch {
-    // File doesn't exist
+  } catch (err) {
+    // Expected: history file may not exist yet for new sessions
+    console.warn("[history] Could not read simple history file", { agentId, sessionId, error: String(err) });
   }
 
   return messages;
@@ -641,12 +629,14 @@ export async function getFullHistory(
             timestamp: entry.timestamp,
           });
         }
-      } catch {
-        // Skip malformed lines
+      } catch (err) {
+        // Expected: malformed JSON lines in history file
+        console.warn("[history] Skipping malformed line in full history", { agentId, sessionId, error: String(err) });
       }
     }
-  } catch {
-    // File doesn't exist
+  } catch (err) {
+    // Expected: history file may not exist yet for new sessions
+    console.warn("[history] Could not read full history file", { agentId, sessionId, error: String(err) });
   }
 
   return messages;
@@ -665,6 +655,7 @@ export async function hasCanonicalHistory(
     await fs.access(file);
     return true;
   } catch {
+    // Intentionally swallowed: access() failure means file doesn't exist, which is an expected condition
     return false;
   }
 }
@@ -710,6 +701,8 @@ export async function backfillFromPiSession(
   try {
     content = await fs.readFile(piFile, "utf-8");
   } catch {
+    // Expected: Pi session file may not exist during backfill
+    console.warn("[history] Pi session file not found during backfill", { agentId, sessionId, piFile });
     return false;
   }
 
@@ -783,8 +776,9 @@ export async function backfillFromPiSession(
           userId
         );
       }
-    } catch {
-      // Skip malformed lines
+    } catch (err) {
+      // Expected: malformed JSON lines in Pi session file
+      console.warn("[history] Skipping malformed line in Pi backfill", { agentId, sessionId, error: String(err) });
     }
   }
 
@@ -807,6 +801,8 @@ export async function readPiSessionHistory(
   try {
     content = await fs.readFile(piFile, "utf-8");
   } catch {
+    // Expected: Pi session file may not exist
+    console.warn("[history] Pi session file not found for history read", { agentId, sessionId, piFile });
     return [];
   }
 
@@ -863,8 +859,9 @@ export async function readPiSessionHistory(
           timestamp,
         });
       }
-    } catch {
-      // Skip malformed lines
+    } catch (err) {
+      // Expected: malformed JSON lines in Pi session file
+      console.warn("[history] Skipping malformed line in Pi history read", { agentId, sessionId, error: String(err) });
     }
   }
 

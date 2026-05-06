@@ -19,7 +19,10 @@
 
 import { loadConfig, getAgent, setLoadedConfig } from "../config/index.js";
 import { resolveStartupConfig, prepareStartupConfig } from "../config/validate.js";
-import { loadExtensions } from "../extensions/registry.js";
+import {
+  getExtensionRuntime,
+  loadExtensions,
+} from "../extensions/registry.js";
 import { runAgent } from "../agents/index.js";
 import type { StreamEvent } from "@aihub/shared";
 import { TrajectoryBuilder, type AtifTrajectory } from "./trajectory.js";
@@ -151,6 +154,7 @@ export async function runEval(opts: RunEvalOptions): Promise<RunEvalOutcome> {
   const rawConfig = loadConfig();
   const resolvedStartupConfig = await resolveStartupConfig(rawConfig);
   const extensions = await loadExtensions(resolvedStartupConfig);
+  const extensionRuntime = getExtensionRuntime();
   const { resolvedConfig: config } = await prepareStartupConfig(
     rawConfig,
     extensions,
@@ -179,6 +183,7 @@ export async function runEval(opts: RunEvalOptions): Promise<RunEvalOutcome> {
       message: opts.instruction,
       // Each eval invocation is a fresh single-turn session.
       sessionId: `eval-${Date.now()}`,
+      extensionRuntime,
       source: "cli",
       onEvent: (event) => collector.ingest(event),
     });

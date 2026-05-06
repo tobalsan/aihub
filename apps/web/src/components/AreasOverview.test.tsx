@@ -18,7 +18,7 @@ const {
   navigateMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   createArea: createAreaMock,
   fetchAreas: fetchAreasMock,
   fetchProjects: fetchProjectsMock,

@@ -6,6 +6,7 @@ const setSingleAgentMode = vi.fn();
 const setLoadedConfig = vi.fn();
 const startServer = vi.fn();
 const loadExtensions = vi.fn();
+const getExtensionRuntime = vi.fn(() => ({ runtime: true }));
 const createExtensionContext = vi.fn();
 const prepareStartupConfig = vi.fn();
 const logComponentSummary = vi.fn();
@@ -28,6 +29,7 @@ vi.mock("../server/api.core.js", () => ({
 
 vi.mock("../extensions/registry.js", () => ({
   loadExtensions,
+  getExtensionRuntime,
 }));
 
 vi.mock("../extensions/context.js", () => ({
@@ -102,7 +104,9 @@ describe("startGatewayCommand", () => {
       gateway: { port: 4003 },
       ui: { enabled: true, port: 3003 },
     });
-    expect(startServer).toHaveBeenCalledWith(undefined, undefined);
+    expect(startServer).toHaveBeenCalledWith(undefined, undefined, {
+      runtime: true,
+    });
     expect(setLoadedConfig).toHaveBeenCalledWith(config);
     expect(result.actualPort).toBe(4003);
     expect(result.uiPort).toBe(3003);

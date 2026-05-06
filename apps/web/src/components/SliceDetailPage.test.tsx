@@ -4,7 +4,7 @@ import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { SliceDetailPage } from "./SliceDetailPage";
 import type { SliceRecord, SubagentListItem } from "../api/types";
-import { updateSlice } from "../api/client";
+import { updateSlice } from "../api";
 
 const navigateMock = vi.fn();
 const [searchParamsSignal, setSearchParamsSignal] = createSignal<
@@ -54,7 +54,7 @@ let fileChangeCallbacks:
     }
   | undefined;
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchSlices: (...args: unknown[]) => fetchSlicesMock(...args),
   fetchSlice: (...args: unknown[]) => fetchSliceMock(...args),
   updateSlice: vi.fn(async () => MOCK_SLICE),

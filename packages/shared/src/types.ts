@@ -1091,101 +1091,6 @@ export const UpdateScheduleRequestSchema = z.object({
 });
 export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
 
-// Stream event types (used by WebSocket)
-export type StreamEvent =
-  | { type: "text"; data: string }
-  | { type: "thinking"; data: string }
-  | { type: "tool_call"; id: string; name: string; arguments: unknown }
-  | {
-      type: "tool_result";
-      id: string;
-      name: string;
-      content: string;
-      isError: boolean;
-      details?: { diff?: string };
-    }
-  | { type: "tool_start"; toolName: string }
-  | { type: "tool_end"; toolName: string; isError?: boolean }
-  | {
-      type: "done";
-      meta?: { durationMs: number; aborted?: boolean; queued?: boolean };
-    }
-  | FileOutputEvent
-  | { type: "error"; message: string };
-
-export type FileOutputEvent = {
-  type: "file_output";
-  fileId: string;
-  filename: string;
-  mimeType: string;
-  size: number;
-};
-
-// History event types (canonical transcript format)
-export type HistoryEvent =
-  | {
-      type: "system_prompt";
-      text: string;
-      timestamp: number;
-    }
-  | {
-      type: "user";
-      text: string;
-      attachments?: FileAttachment[];
-      timestamp: number;
-    }
-  | { type: "assistant_text"; text: string; timestamp: number }
-  | { type: "assistant_thinking"; text: string; timestamp: number }
-  | {
-      type: "assistant_file";
-      fileId: string;
-      filename: string;
-      mimeType: string;
-      size: number;
-      direction: "inbound" | "outbound";
-      timestamp: number;
-    }
-  | {
-      type: "tool_call";
-      id: string;
-      name: string;
-      args: unknown;
-      timestamp: number;
-    }
-  | {
-      type: "tool_result";
-      id: string;
-      name: string;
-      content: string;
-      isError: boolean;
-      details?: { diff?: string };
-      timestamp: number;
-    }
-  | { type: "turn_end"; timestamp: number }
-  | {
-      type: "meta";
-      provider?: string;
-      model?: string;
-      api?: string;
-      usage?: ModelUsage;
-      stopReason?: string;
-      timestamp: number;
-    }
-  | {
-      type: "file_output";
-      fileId: string;
-      filename: string;
-      mimeType: string;
-      size: number;
-      timestamp: number;
-    }
-  | {
-      type: "system_context";
-      context: AgentContext;
-      rendered: string;
-      timestamp: number;
-    };
-
 // Image attachment for multimodal messages (base64 - legacy)
 export type ImageAttachment = {
   /** Base64-encoded image data (without data: prefix) */
@@ -1203,6 +1108,53 @@ export const FileAttachmentSchema = z.object({
 
 // File attachment (file path - preferred)
 export type FileAttachment = z.infer<typeof FileAttachmentSchema>;
+
+export const FileOutputEventSchema = z.object({
+  type: z.literal("file_output"),
+  fileId: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  size: z.number(),
+});
+export type FileOutputEvent = z.infer<typeof FileOutputEventSchema>;
+
+export const StreamEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), data: z.string() }),
+  z.object({ type: z.literal("thinking"), data: z.string() }),
+  z.object({
+    type: z.literal("tool_call"),
+    id: z.string(),
+    name: z.string(),
+    arguments: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("tool_result"),
+    id: z.string(),
+    name: z.string(),
+    content: z.string(),
+    isError: z.boolean(),
+    details: z.object({ diff: z.string().optional() }).optional(),
+  }),
+  z.object({ type: z.literal("tool_start"), toolName: z.string() }),
+  z.object({
+    type: z.literal("tool_end"),
+    toolName: z.string(),
+    isError: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("done"),
+    meta: z
+      .object({
+        durationMs: z.number(),
+        aborted: z.boolean().optional(),
+        queued: z.boolean().optional(),
+      })
+      .optional(),
+  }),
+  FileOutputEventSchema,
+  z.object({ type: z.literal("error"), message: z.string() }),
+]);
+export type StreamEvent = z.infer<typeof StreamEventSchema>;
 
 // WebSocket protocol types
 export type WsSendMessage = {
@@ -1347,18 +1299,21 @@ export type ContentBlock =
   | FileBlock;
 
 /** Model usage info */
-export type ModelUsage = {
-  input: number;
-  output: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  totalTokens: number;
-  cost?: {
-    input: number;
-    output: number;
-    total: number;
-  };
-};
+export const ModelUsageSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cacheRead: z.number().optional(),
+  cacheWrite: z.number().optional(),
+  totalTokens: z.number(),
+  cost: z
+    .object({
+      input: z.number(),
+      output: z.number(),
+      total: z.number(),
+    })
+    .optional(),
+});
+export type ModelUsage = z.infer<typeof ModelUsageSchema>;
 
 export type ContextEstimate = {
   usedTokens: number;
@@ -1497,11 +1452,96 @@ export type UserContext = {
 
 export type AgentContext = DiscordContext | SlackContext | UserContext;
 
-export const AgentContextSchema = z
+export const AgentContextSchema: z.ZodType<AgentContext> = z
   .object({
     kind: z.string(),
   })
-  .passthrough();
+  .passthrough() as z.ZodType<AgentContext>;
+
+export const HistoryEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("system_prompt"),
+    text: z.string(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("user"),
+    text: z.string(),
+    attachments: z.array(FileAttachmentSchema).optional(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("assistant_text"),
+    text: z.string(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("assistant_thinking"),
+    text: z.string(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("assistant_file"),
+    fileId: z.string(),
+    filename: z.string(),
+    mimeType: z.string(),
+    size: z.number(),
+    direction: z.enum(["inbound", "outbound"]),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("tool_call"),
+    id: z.string(),
+    name: z.string(),
+    args: z.unknown(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("tool_result"),
+    id: z.string(),
+    name: z.string(),
+    content: z.string(),
+    isError: z.boolean(),
+    details: z.object({ diff: z.string().optional() }).optional(),
+    timestamp: z.number(),
+  }),
+  z.object({ type: z.literal("turn_end"), timestamp: z.number() }),
+  z.object({
+    type: z.literal("meta"),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    api: z.string().optional(),
+    usage: ModelUsageSchema.optional(),
+    stopReason: z.string().optional(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("system_context"),
+    context: AgentContextSchema,
+    rendered: z.string(),
+    timestamp: z.number(),
+  }),
+]);
+export type HistoryEvent = z.infer<typeof HistoryEventSchema>;
+
+export const ContainerFileOutputRequestSchema = z.object({
+  type: z.literal("file_output"),
+  path: z.string(),
+  filename: z.string().optional(),
+  mimeType: z.string().optional(),
+  size: z.number().optional(),
+});
+export type ContainerFileOutputRequest = z.infer<
+  typeof ContainerFileOutputRequestSchema
+>;
+
+export const ContainerRunnerProtocolEventSchema = z.discriminatedUnion("type", [
+  ...HistoryEventSchema.options,
+  ContainerFileOutputRequestSchema,
+]);
+export type ContainerRunnerProtocolEvent = z.infer<
+  typeof ContainerRunnerProtocolEventSchema
+>;
 
 export const ContainerExtensionToolSchema = z.object({
   extensionId: z.string(),
@@ -1545,7 +1585,7 @@ export type ContainerInput = z.infer<typeof ContainerInputSchema>;
 export const ContainerOutputSchema = z.object({
   text: z.string(),
   aborted: z.boolean().optional(),
-  history: z.array(z.unknown()).optional(),
+  history: z.array(HistoryEventSchema).optional(),
   error: z.string().optional(),
 });
 export type ContainerOutput = z.infer<typeof ContainerOutputSchema>;

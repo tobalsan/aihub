@@ -19,7 +19,7 @@ vi.mock("@solidjs/router", () => ({
   A: (props: Record<string, unknown>) => <a {...props} />,
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchProjects: vi.fn(async () => [
     {
       id: "PRO-1",

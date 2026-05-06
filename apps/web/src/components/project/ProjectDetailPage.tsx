@@ -18,10 +18,10 @@ import {
   fetchSpec,
   fetchTasks,
   saveSpec,
-  subscribeToFileChanges,
+  useProjectRealtime,
   updateProject,
   updateTask,
-} from "../../api/client";
+} from "../../api";
 import type { SubagentListItem, Task } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import {
@@ -201,9 +201,9 @@ export function ProjectDetailPage() {
       refreshTimer = undefined;
     };
 
-    const unsubscribe = subscribeToFileChanges({
-      onFileChanged: (projectId, file) => {
-        if (projectId !== id) return;
+    const unsubscribe = useProjectRealtime(id, ["files"], (event) => {
+      if (event.type === "file_changed") {
+        const file = event.file;
         if (isSessionArtifact(file)) return;
         const filename = getFilename(file);
         if (filename === "SPECS.MD") {
@@ -216,7 +216,7 @@ export function ProjectDetailPage() {
         }
         if (refreshTimer) window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(flush, 300);
-      },
+      }
     });
 
     onCleanup(() => {

@@ -12,7 +12,7 @@ import {
   onMount,
 } from "solid-js";
 import type { SubagentRun } from "@aihub/shared/types";
-import { fetchBoardAgents, killBoardAgent, subscribeToSubagentChanges } from "../../api/client";
+import { fetchBoardAgents, killBoardAgent, subscribeToSubagentChanges } from "../../api";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

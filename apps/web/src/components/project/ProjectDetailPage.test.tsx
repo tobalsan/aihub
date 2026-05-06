@@ -5,10 +5,10 @@ import { ProjectDetailPage } from "./ProjectDetailPage";
 import {
   fetchAgentStatuses,
   fetchProject,
-  subscribeToFileChanges,
   subscribeToStatus,
+  useProjectRealtime,
   updateProject,
-} from "../../api/client";
+} from "../../api";
 
 const navigateMock = vi.fn();
 
@@ -17,7 +17,7 @@ vi.mock("@solidjs/router", () => ({
   useNavigate: () => navigateMock,
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchProject: vi.fn(async () => ({
     id: "PRO-1",
     title: "Alpha Project",
@@ -53,9 +53,8 @@ vi.mock("../../api/client", () => ({
     ok: true,
     data: { cursor: 0, events: [] },
   })),
-  subscribeToFileChanges: vi.fn(
-    () => () => {}
-  ),
+  subscribeToFileChanges: vi.fn(() => () => {}),
+  useProjectRealtime: vi.fn(() => () => {}),
   fetchAgentStatuses: vi.fn(async () => ({ statuses: {} })),
   subscribeToStatus: vi.fn(() => () => {}),
   spawnSubagent: vi.fn(async () => ({ ok: true, data: { slug: "alpha" } })),
@@ -304,13 +303,14 @@ describe("ProjectDetailPage", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const initialCalls = vi.mocked(fetchProject).mock.calls.length;
-    const callbacks = vi.mocked(subscribeToFileChanges).mock.calls[0]?.[0];
-    expect(callbacks?.onFileChanged).toBeTypeOf("function");
+    const callback = vi.mocked(useProjectRealtime).mock.calls[0]?.[2];
+    expect(callback).toBeTypeOf("function");
 
-    callbacks?.onFileChanged?.(
-      "PRO-1",
-      "PRO-1_alpha-project/sessions/coordinator/session.jsonl"
-    );
+    callback?.({
+      type: "file_changed",
+      projectId: "PRO-1",
+      file: "PRO-1_alpha-project/sessions/coordinator/session.jsonl",
+    });
 
     await new Promise((resolve) => setTimeout(resolve, 350));
 

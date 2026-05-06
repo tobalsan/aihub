@@ -100,3 +100,6 @@ export function startOrchestratorDaemon(
 }
 
 export { getOrchestratorConfig, type OrchestratorConfig };
+export { SliceDispatchPolicy } from "./dispatch-policy.js";
+export { OrchestratorPromptFactory } from "./prompt-factory.js";
+export { OrchestratorRunPlanner } from "./run-planner.js";

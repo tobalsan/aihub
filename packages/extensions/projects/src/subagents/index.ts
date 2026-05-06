@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
@@ -12,11 +11,14 @@ import {
 } from "@aihub/shared";
 import { findProjectLocation } from "../projects/store.js";
 import { parseMarkdownFile } from "../taskboard/parser.js";
-import { migrateLegacySessions } from "./migrate.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot } from "../util/paths.js";
-
-export type SubagentStatus = "running" | "replied" | "error" | "idle";
+import {
+  readJsonFile,
+  subagentRunStore,
+  type SubagentRunConfig,
+  type SubagentRunStatus as SubagentStatus,
+} from "./run-store.js";
 
 export type SubagentListItem = {
   slug: string;
@@ -76,76 +78,6 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function getSessionsRoot(projectDir: string): string {
-  return path.join(projectDir, "sessions");
-}
-
-async function readJson<T>(filePath: string): Promise<T | null> {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
-function isProcessAlive(
-  pid: number | undefined | null,
-  startedAt?: string
-): boolean {
-  if (!pid || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return false;
-  }
-  // PID exists — verify it started around the same time as our subagent
-  // to avoid false positives from OS PID reuse.
-  if (!startedAt) return true;
-  const subagentStart = Date.parse(startedAt);
-  if (Number.isNaN(subagentStart)) return true;
-  try {
-    const psOutput = execSync(`ps -o lstart= -p ${pid}`, {
-      encoding: "utf8",
-      timeout: 2000,
-    }).trim();
-    const procStart = Date.parse(psOutput);
-    if (Number.isNaN(procStart)) return true;
-    // If the current process with this PID started >5s after the subagent
-    // was launched, the PID was reused by the OS for a different process.
-    return procStart <= subagentStart + 5000;
-  } catch {
-    return true;
-  }
-}
-
-async function readLastOutcome(
-  historyPath: string
-): Promise<"replied" | "error" | null> {
-  try {
-    const raw = await fs.readFile(historyPath, "utf8");
-    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = lines[i];
-      try {
-        const ev = JSON.parse(line) as {
-          type?: string;
-          data?: { outcome?: string };
-        };
-        if (ev.type === "worker.finished") {
-          if (ev.data?.outcome === "replied") return "replied";
-          if (ev.data?.outcome === "error") return "error";
-        }
-      } catch {
-        // ignore parse errors
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -702,96 +634,8 @@ export async function listSubagents(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  await migrateLegacySessions(root, projectId, projectDir);
-  const sessionsRoot = getSessionsRoot(projectDir);
-  if (!(await dirExists(sessionsRoot))) {
-    return { ok: true, data: { items: [] } };
-  }
-
-  const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
-  const items: SubagentListItem[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const slug = entry.name;
-    const dir = path.join(sessionsRoot, slug);
-    const configData = await readJson<{
-      type?: "subagent";
-      cli?: string;
-      name?: string;
-      model?: string;
-      reasoningEffort?: string;
-      thinking?: string;
-      runMode?: string;
-      projectId?: string;
-      sliceId?: string;
-      baseBranch?: string;
-      source?: OrchestratorSource;
-      archived?: boolean;
-    }>(path.join(dir, "config.json"));
-    const state = await readJson<{
-      supervisor_pid?: number;
-      last_error?: string;
-      cli?: string;
-      run_mode?: string;
-      project_id?: string;
-      slice_id?: string;
-      worktree_path?: string;
-      base_branch?: string;
-      started_at?: string;
-      outcome?: string;
-      finished_at?: string;
-    }>(path.join(dir, "state.json"));
-    const progress = await readJson<{ last_active?: string }>(
-      path.join(dir, "progress.json")
-    );
-    const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
-
-    // A terminal state.json (outcome="done" or finished_at present) means the
-    // run completed.  Skip the PID probe to avoid false positives from PID
-    // reuse by the OS.
-    const isTerminal = state?.outcome === "done" || state?.finished_at;
-
-    let status: SubagentStatus = "idle";
-    if (state?.last_error && state.last_error.trim()) {
-      status = "error";
-    } else if (
-      !isTerminal &&
-      isProcessAlive(state?.supervisor_pid, state?.started_at)
-    ) {
-      status = "running";
-    } else if (outcome === "error") {
-      status = "error";
-    } else if (outcome === "replied") {
-      status = "replied";
-    }
-
-    if (configData?.archived && !includeArchived) {
-      continue;
-    }
-
-    items.push({
-      slug,
-      type: configData?.type ?? "subagent",
-      cli: configData?.cli ?? state?.cli,
-      name: configData?.name,
-      model: configData?.model,
-      reasoningEffort: configData?.reasoningEffort,
-      thinking: configData?.thinking,
-      runMode: configData?.runMode ?? state?.run_mode,
-      projectId: configData?.projectId ?? state?.project_id,
-      sliceId: configData?.sliceId ?? state?.slice_id,
-      status,
-      lastActive: progress?.last_active,
-      startedAt: state?.started_at,
-      finishedAt: state?.finished_at,
-      baseBranch: configData?.baseBranch ?? state?.base_branch,
-      worktreePath: state?.worktree_path,
-      source: configData?.source ?? "manual",
-      lastError: state?.last_error,
-      archived: configData?.archived ?? false,
-    });
-  }
+  await subagentRunStore.migrateProject(root, projectId, projectDir);
+  const items = await subagentRunStore.list(projectDir, { includeArchived });
 
   return { ok: true, data: { items } };
 }
@@ -800,21 +644,7 @@ export type ArchiveSubagentResult =
   | { ok: true; data: { slug: string; archived: boolean } }
   | { ok: false; error: string };
 
-type SubagentStoredConfig = {
-  type?: "subagent";
-  cli?: string;
-  name?: string;
-  model?: string;
-  reasoningEffort?: string;
-  thinking?: string;
-  runMode?: string;
-  projectId?: string;
-  sliceId?: string;
-  baseBranch?: string;
-  source?: OrchestratorSource;
-  created?: string;
-  archived?: boolean;
-} & Record<string, unknown>;
+type SubagentStoredConfig = SubagentRunConfig;
 
 export type ReadSubagentConfigResult =
   | { ok: true; data: SubagentStoredConfig }
@@ -854,13 +684,13 @@ async function resolveSubagentConfigPath(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  await migrateLegacySessions(root, projectId, projectDir);
-  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
-  if (!(await dirExists(sessionDir))) {
+  await subagentRunStore.migrateProject(root, projectId, projectDir);
+  const run = await subagentRunStore.read(projectDir, slug);
+  if (!run) {
     return { ok: false, error: `Subagent not found: ${slug}` };
   }
 
-  const configPath = path.join(sessionDir, "config.json");
+  const configPath = path.join(run.runDir, "config.json");
   if (!(await pathExists(configPath))) {
     return { ok: false, error: `Subagent config missing: ${slug}` };
   }
@@ -875,7 +705,7 @@ export async function readSubagentConfig(
 ): Promise<ReadSubagentConfigResult> {
   const resolved = await resolveSubagentConfigPath(config, projectId, slug);
   if (!resolved.ok) return resolved;
-  const configData = await readJson<SubagentStoredConfig>(
+  const configData = await readJsonFile<SubagentStoredConfig>(
     resolved.data.configPath
   );
   if (!configData) {
@@ -892,7 +722,7 @@ export async function updateSubagentConfig(
 ): Promise<UpdateSubagentConfigResult> {
   const resolved = await resolveSubagentConfigPath(config, projectId, slug);
   if (!resolved.ok) return resolved;
-  const current = await readJson<SubagentStoredConfig>(
+  const current = await readJsonFile<SubagentStoredConfig>(
     resolved.data.configPath
   );
   if (!current) {
@@ -946,17 +776,14 @@ async function updateSubagentArchive(
   const resolved = await resolveSubagentConfigPath(config, projectId, slug);
   if (!resolved.ok) return resolved;
 
-  const configData = await readJson<Record<string, unknown>>(
-    resolved.data.configPath
-  );
-  if (!configData) {
-    return { ok: false, error: `Subagent config missing: ${slug}` };
+  const root = getProjectsRoot(config);
+  const location = await findProjectLocation(root, projectId);
+  if (!location) {
+    return { ok: false, error: `Project not found: ${projectId}` };
   }
-
-  await fs.writeFile(
-    resolved.data.configPath,
-    JSON.stringify({ ...configData, archived }, null, 2)
-  );
+  const projectDir = path.join(location.baseRoot, location.dirName);
+  if (archived) await subagentRunStore.archive(projectDir, slug);
+  else await subagentRunStore.unarchive(projectDir, slug);
 
   return { ok: true, data: { slug, archived } };
 }
@@ -978,84 +805,27 @@ export async function listAllSubagents(
       if (!entry.name.startsWith("PRO-")) continue;
       const projectId = entry.name.split("_")[0];
       const projectDir = path.join(scanRoot, entry.name);
-      await migrateLegacySessions(root, projectId, projectDir);
-      const sessionsRoot = getSessionsRoot(projectDir);
-      if (!(await dirExists(sessionsRoot))) continue;
-
-      const entries = await fs.readdir(sessionsRoot, { withFileTypes: true });
-      for (const workspace of entries) {
-        if (!workspace.isDirectory()) continue;
-        const slug = workspace.name;
-        const dir = path.join(sessionsRoot, slug);
-        const configData = await readJson<{
-          type?: "subagent";
-          cli?: string;
-          name?: string;
-          model?: string;
-          reasoningEffort?: string;
-          thinking?: string;
-          runMode?: string;
-          projectId?: string;
-          sliceId?: string;
-          baseBranch?: string;
-          source?: OrchestratorSource;
-          archived?: boolean;
-        }>(path.join(dir, "config.json"));
-        const state = await readJson<{
-          supervisor_pid?: number;
-          last_error?: string;
-          cli?: string;
-          run_mode?: string;
-          project_id?: string;
-          slice_id?: string;
-          worktree_path?: string;
-          started_at?: string;
-          outcome?: string;
-          finished_at?: string;
-        }>(path.join(dir, "state.json"));
-        const progress = await readJson<{ last_active?: string }>(
-          path.join(dir, "progress.json")
-        );
-        const outcome = await readLastOutcome(path.join(dir, "history.jsonl"));
-
-        const isTerminal = state?.outcome === "done" || state?.finished_at;
-
-        let status: SubagentStatus = "idle";
-        if (state?.last_error && state.last_error.trim()) {
-          status = "error";
-        } else if (
-          !isTerminal &&
-          isProcessAlive(state?.supervisor_pid, state?.started_at)
-        ) {
-          status = "running";
-        } else if (outcome === "error") {
-          status = "error";
-        } else if (outcome === "replied") {
-          status = "replied";
-        }
-
-        if (configData?.archived) {
-          continue;
-        }
-
+      await subagentRunStore.migrateProject(root, projectId, projectDir);
+      const runs = await subagentRunStore.list(projectDir);
+      for (const run of runs) {
         items.push({
-          projectId: configData?.projectId ?? state?.project_id ?? projectId,
-          sliceId: configData?.sliceId ?? state?.slice_id,
-          slug,
-          type: configData?.type ?? "subagent",
-          cli: configData?.cli ?? state?.cli,
-          name: configData?.name,
-          model: configData?.model,
-          reasoningEffort: configData?.reasoningEffort,
-          thinking: configData?.thinking,
-          runMode: configData?.runMode ?? state?.run_mode,
-          baseBranch: configData?.baseBranch,
-          worktreePath: state?.worktree_path,
-          source: configData?.source ?? "manual",
-          status,
-          lastActive: progress?.last_active,
-          runStartedAt: state?.started_at,
-          finishedAt: state?.finished_at,
+          projectId: run.projectId ?? projectId,
+          sliceId: run.sliceId,
+          slug: run.slug,
+          type: run.type,
+          cli: run.cli,
+          name: run.name,
+          model: run.model,
+          reasoningEffort: run.reasoningEffort,
+          thinking: run.thinking,
+          runMode: run.runMode,
+          baseBranch: run.baseBranch,
+          worktreePath: run.worktreePath,
+          source: run.source,
+          status: run.status,
+          lastActive: run.lastActive,
+          runStartedAt: run.startedAt,
+          finishedAt: run.finishedAt,
         });
       }
     }
@@ -1077,10 +847,10 @@ export async function getSubagentLogs(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  await migrateLegacySessions(root, projectId, projectDir);
-  const sessionDir = path.join(getSessionsRoot(projectDir), slug);
+  await subagentRunStore.migrateProject(root, projectId, projectDir);
+  const sessionDir = subagentRunStore.locate(projectDir, slug);
   const logsPath = path.join(sessionDir, "logs.jsonl");
-  const storedConfig = await readJson<{ model?: string }>(
+  const storedConfig = await readJsonFile<{ model?: string }>(
     path.join(sessionDir, "config.json")
   );
   let stat;

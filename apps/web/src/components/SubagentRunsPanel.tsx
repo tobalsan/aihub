@@ -9,7 +9,7 @@ import {
   interruptRuntimeSubagent,
   subscribeToFileChanges,
   subscribeToSubagentChanges,
-} from "../api/client";
+} from "../api";
 import type { SubagentLogEvent } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 

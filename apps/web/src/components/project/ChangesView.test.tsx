@@ -62,7 +62,7 @@ const mocks = vi.hoisted(() => ({
     >(),
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api", () => ({
   fetchProjectChanges: mocks.fetchProjectChanges,
   fetchProjectSpace: mocks.fetchProjectSpace,
   fetchProjectSpaceCommits: mocks.fetchProjectSpaceCommits,

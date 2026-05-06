@@ -24,6 +24,7 @@ const multiUserState = vi.hoisted(() => ({
 }));
 
 vi.mock("../config/index.js", () => ({
+  CONFIG_DIR: "/tmp/aihub-test",
   getAgent,
   getActiveAgents,
   isAgentActive,
@@ -34,6 +35,14 @@ vi.mock("../extensions/registry.js", () => ({
   getLoadedExtensions: () => [],
   isExtensionLoaded: (extensionId: string) =>
     extensionId === "multiUser" && multiUserState.loaded,
+  getExtensionRuntime: () => ({
+    getCapabilities: () => ({
+      extensions: {},
+      capabilities: {},
+      multiUser: multiUserState.loaded,
+      home: undefined,
+    }),
+  }),
 }));
 
 vi.mock("@aihub/extension-multi-user", () => ({
@@ -126,6 +135,7 @@ describe("api core session resolution", () => {
       },
       thinkLevel: undefined,
       context: undefined,
+      extensionRuntime: expect.any(Object),
       source: "web",
     });
   });

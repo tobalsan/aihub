@@ -15,7 +15,7 @@ import {
   fetchProjects,
   subscribeToFileChanges,
   subscribeToStatus,
-} from "../api/client";
+} from "../api";
 import type { SubagentGlobalListItem } from "../api/types";
 
 type AgentDirectoryProps = {

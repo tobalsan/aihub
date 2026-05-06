@@ -9,7 +9,7 @@ window.matchMedia = vi.fn().mockReturnValue({ matches: false });
 const [pathname, setPathname] = createSignal("/projects");
 const fetchProjectsMock = vi.fn<() => Promise<unknown[]>>();
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   fetchProjects: fetchProjectsMock,
 }));
 

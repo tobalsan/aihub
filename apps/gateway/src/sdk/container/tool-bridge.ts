@@ -1,0 +1,38 @@
+import type { ContainerExtensionTool, GatewayConfig } from "@aihub/shared";
+import { getExtensionSystemPromptContributions } from "../../extensions/prompts.js";
+import { getExtensionAgentTools } from "../../extensions/tools.js";
+import type { SdkRunParams } from "../types.js";
+
+export class ContainerToolBridge {
+  async buildSystemPrompts(
+    params: SdkRunParams,
+    config: GatewayConfig
+  ): Promise<string[]> {
+    return params.extensionRuntime
+      ? getExtensionSystemPromptContributions(
+          params.agent,
+          config,
+          params.extensionRuntime
+        )
+      : getExtensionSystemPromptContributions(params.agent);
+  }
+
+  async buildTools(
+    params: SdkRunParams,
+    config: GatewayConfig
+  ): Promise<ContainerExtensionTool[]> {
+    const tools = params.extensionRuntime
+      ? await getExtensionAgentTools(
+          params.agent,
+          config,
+          params.extensionRuntime
+        )
+      : await getExtensionAgentTools(params.agent);
+    return tools.map((tool) => ({
+      extensionId: tool.extensionId,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
+  }
+}

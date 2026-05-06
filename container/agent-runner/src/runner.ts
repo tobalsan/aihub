@@ -14,54 +14,16 @@ import {
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import {
+  ContainerFileOutputRequestSchema,
   claimAgentToolName,
   renderAgentContext,
   type AgentContext,
   type ContainerInput,
   type ContainerOutput,
+  type ContainerRunnerProtocolEvent,
+  type HistoryEvent,
 } from "@aihub/shared";
 import { callGatewayTool } from "./gateway-client.js";
-
-type HistoryEvent =
-  | {
-      type: "system_prompt";
-      text: string;
-      timestamp: number;
-    }
-  | {
-      type: "system_context";
-      context: ContainerInput["context"];
-      rendered: string;
-      timestamp: number;
-    }
-  | { type: "user"; text: string; timestamp: number }
-  | { type: "assistant_text"; text: string; timestamp: number }
-  | { type: "assistant_thinking"; text: string; timestamp: number }
-  | {
-      type: "tool_call";
-      id: string;
-      name: string;
-      args: unknown;
-      timestamp: number;
-    }
-  | {
-      type: "tool_result";
-      id: string;
-      name: string;
-      content: string;
-      isError: boolean;
-      timestamp: number;
-    }
-  | {
-      type: "meta";
-      provider?: string;
-      model?: string;
-      api?: string;
-      usage?: unknown;
-      stopReason?: string;
-      timestamp: number;
-    }
-  | { type: "turn_end"; timestamp: number };
 
 const BOOTSTRAP_FILENAMES = [
   "AGENTS.md",
@@ -101,7 +63,7 @@ export function abortActiveAgent(): void {
 
 export async function runAgent(
   input: ContainerInput,
-  onStreamEvent?: (event: unknown) => void
+  onStreamEvent?: (event: ContainerRunnerProtocolEvent) => void
 ): Promise<ContainerOutput> {
   if (input.sdkConfig.sdk !== "pi") {
     throw new Error(`Unsupported sandbox SDK: ${input.sdkConfig.sdk}`);
@@ -300,7 +262,7 @@ function createExtensionTools(
 }
 
 function createSendFileTool(
-  onStreamEvent: ((event: unknown) => void) | undefined,
+  onStreamEvent: ((event: ContainerRunnerProtocolEvent) => void) | undefined,
   usedToolNames: Set<string>
 ): ToolDefinition {
   return {
@@ -332,7 +294,12 @@ function createSendFileTool(
           details: undefined,
         };
       }
-      onStreamEvent?.({ type: "file_output", path: filePath });
+      onStreamEvent?.(
+        ContainerFileOutputRequestSchema.parse({
+          type: "file_output",
+          path: filePath,
+        })
+      );
       return {
         content: [{ type: "text", text: `File sent to user: ${filePath}` }],
         details: undefined,
@@ -461,7 +428,7 @@ function collectHistoryEvent(
         typeof assistant.provider === "string" ? assistant.provider : undefined,
       model: typeof assistant.model === "string" ? assistant.model : undefined,
       api: typeof assistant.api === "string" ? assistant.api : undefined,
-      usage: assistant.usage,
+      usage: normalizeUsage(assistant.usage),
       stopReason:
         typeof assistant.stopReason === "string"
           ? assistant.stopReason
@@ -519,6 +486,27 @@ function extractToolResultText(result: unknown): string {
 
 function stringifyToolResult(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result ?? null);
+}
+
+function normalizeUsage(
+  usage: unknown
+): HistoryEvent extends { type: "meta"; usage?: infer U } ? U : undefined {
+  if (!usage || typeof usage !== "object") return undefined as never;
+  const record = usage as Record<string, unknown>;
+  const input = readNumber(record.input) ?? readNumber(record.inputTokens);
+  const output = readNumber(record.output) ?? readNumber(record.outputTokens);
+  if (input === undefined || output === undefined) return undefined as never;
+  return {
+    input,
+    output,
+    cacheRead: readNumber(record.cacheRead),
+    cacheWrite: readNumber(record.cacheWrite),
+    totalTokens: readNumber(record.totalTokens) ?? input + output,
+  } as never;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function formatGatewayToolResult(

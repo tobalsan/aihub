@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
+  RunAgentParams as SharedRunAgentParams,
+  RunAgentResult as SharedRunAgentResult,
   ThinkLevel,
   StreamEvent,
   SimpleHistoryMessage,
@@ -11,20 +13,7 @@ import type {
   FileAttachment,
 } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
-import {
-  setSessionStreaming,
-  isStreaming,
-  abortSession,
-  setSessionHandle,
-  getSessionHandle,
-  clearSessionHandle,
-  bufferPendingMessage,
-  popPendingMessages,
-  enqueuePendingUserMessage,
-  shiftPendingUserMessage,
-  popAllPendingUserMessages,
-  setSessionCurrentTurn,
-} from "./sessions.js";
+import { SessionRunLifecycle } from "./run-lifecycle.js";
 import {
   resolveSessionId,
   getSessionEntry,
@@ -39,19 +28,14 @@ import {
 import { appendSessionMeta } from "../history/store.js";
 import {
   agentEventBus,
-  type AgentHistoryEvent,
   type AgentStreamEvent,
-  type RunSource,
 } from "./events.js";
 import { getContainerAdapter } from "../sdk/container/adapter.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
+import type { ExtensionRuntime } from "../extensions/runtime.js";
+import { getExtensionRuntime } from "../extensions/registry.js";
 import {
-  createTurnBuffer,
-  bufferHistoryEvent,
-  flushUserMessage,
-  type TurnBuffer,
-  flushTurnBuffer,
   getSimpleHistory as getCanonicalSimpleHistory,
   getFullHistory as getCanonicalFullHistory,
   hasCanonicalHistory,
@@ -60,18 +44,9 @@ import {
   invalidateResolvedHistoryFile,
 } from "../history/store.js";
 
-export type RunAgentParams = {
-  agentId: string;
+export type InternalRunAgentParams = SharedRunAgentParams & {
   userId?: string;
-  message: string;
-  attachments?: FileAttachment[]; // file attachments (paths from upload)
-  sessionId?: string;
-  sessionKey?: string; // Resolves to sessionId with idle timeout + reset triggers
-  thinkLevel?: ThinkLevel;
-  context?: AgentContext; // Structured context (Discord metadata, etc.)
-  source?: RunSource;
-  trace?: AgentTraceContext;
-  onEvent?: (event: StreamEvent) => void;
+  extensionRuntime?: ExtensionRuntime;
   resolvedSession?: {
     sessionId: string;
     sessionKey?: string;
@@ -80,15 +55,7 @@ export type RunAgentParams = {
   };
 };
 
-export type RunAgentResult = {
-  payloads: Array<{ text?: string; mediaUrls?: string[] }>;
-  meta: {
-    durationMs: number;
-    sessionId: string;
-    aborted?: boolean;
-    queued?: boolean;
-  };
-};
+export type InternalRunAgentResult = SharedRunAgentResult;
 
 const SESSIONS_DIR = path.join(CONFIG_DIR, "sessions");
 
@@ -112,48 +79,13 @@ function isThinkingLevelError(err: unknown): boolean {
   );
 }
 
-// Max wait time for session handle to be set during queue race
-const QUEUE_WAIT_MS = 500;
-const QUEUE_POLL_MS = 10;
-
-// Max wait time for streaming to end during interrupt
-const INTERRUPT_WAIT_MS = 2000;
-const INTERRUPT_POLL_MS = 50;
-
 async function ensureSessionsDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }
 
-/** Wait for session handle to be available, with timeout */
-async function waitForSessionHandle(
-  agentId: string,
-  sessionId: string
-): Promise<unknown | undefined> {
-  const deadline = Date.now() + QUEUE_WAIT_MS;
-  while (Date.now() < deadline) {
-    const handle = getSessionHandle(agentId, sessionId);
-    if (handle) return handle;
-    await new Promise((r) => setTimeout(r, QUEUE_POLL_MS));
-  }
-  return undefined;
-}
-
-/** Wait for streaming to end, with timeout */
-async function waitForStreamingEnd(
-  agentId: string,
-  sessionId: string
-): Promise<boolean> {
-  const deadline = Date.now() + INTERRUPT_WAIT_MS;
-  while (Date.now() < deadline) {
-    if (!isStreaming(agentId, sessionId)) return true;
-    await new Promise((r) => setTimeout(r, INTERRUPT_POLL_MS));
-  }
-  return false;
-}
-
 export async function runAgent(
-  params: RunAgentParams
-): Promise<RunAgentResult> {
+  params: InternalRunAgentParams
+): Promise<InternalRunAgentResult> {
   const agent = getAgent(params.agentId);
   if (!agent) {
     throw new Error(`Agent not found: ${params.agentId}`);
@@ -161,6 +93,7 @@ export async function runAgent(
 
   // Resolve SDK adapter
   const sdkId = (agent.sdk ?? getDefaultSdkId()) as SdkId;
+  const extensionRuntime = params.extensionRuntime ?? getExtensionRuntime();
   const adapter = agent.sandbox?.enabled
     ? getContainerAdapter()
     : getSdkAdapter(sdkId);
@@ -204,46 +137,19 @@ export async function runAgent(
       };
     }
 
-    // Emit helper for abort flow
-    const emit = (event: StreamEvent) => {
-      params.onEvent?.(event);
-      agentEventBus.emitStreamEvent({
-        ...event,
-        agentId: params.agentId,
-        sessionId,
-        sessionKey: params.sessionKey,
-        source: params.source,
-        trace: params.trace,
-      } as AgentStreamEvent);
-    };
-
-    const wasStreaming = isStreaming(params.agentId, sessionId);
-    let aborted = false;
-
-    if (wasStreaming) {
-      // Attempt to interrupt via adapter
-      if (capabilities.interrupt && adapter.abort) {
-        const handle = getSessionHandle(params.agentId, sessionId);
-        if (handle) {
-          adapter.abort(handle);
-        }
-      }
-      // Trip the AbortController
-      abortSession(params.agentId, sessionId);
-
-      // Wait for streaming to end
-      const ended = await waitForStreamingEnd(params.agentId, sessionId);
-      if (!ended) {
-        // Force clear stuck state
-        clearSessionHandle(params.agentId, sessionId);
-        setSessionStreaming(params.agentId, sessionId, false);
-      }
-      aborted = true;
-    }
+    const lifecycle = new SessionRunLifecycle({
+      agentId: params.agentId,
+      sessionId,
+      sessionKey: params.sessionKey,
+      source: params.source,
+      trace: params.trace,
+      onEvent: params.onEvent,
+    });
+    const aborted = await lifecycle.abortActiveRun(adapter, capabilities);
 
     const ackText = aborted ? "Run aborted." : "No active run.";
-    emit({ type: "text", data: ackText });
-    emit({ type: "done", meta: { durationMs: 0, aborted } });
+    lifecycle.emit({ type: "text", data: ackText });
+    lifecycle.emit({ type: "done", meta: { durationMs: 0, aborted } });
     return {
       payloads: [{ text: ackText }],
       meta: { durationMs: 0, sessionId, aborted },
@@ -278,18 +184,16 @@ export async function runAgent(
     sessionId = "default";
   }
 
-  // Helper to emit events to both callback and global bus
-  const emit = (event: StreamEvent) => {
-    params.onEvent?.(event);
-    agentEventBus.emitStreamEvent({
-      ...event,
-      agentId: params.agentId,
-      sessionId,
-      sessionKey,
-      source: params.source,
-      trace: params.trace,
-    } as AgentStreamEvent);
-  };
+  const lifecycle = new SessionRunLifecycle({
+    agentId: params.agentId,
+    sessionId,
+    sessionKey,
+    userId: params.userId,
+    source: params.source,
+    trace: params.trace,
+    onEvent: params.onEvent,
+  });
+  const emit = (event: StreamEvent) => lifecycle.emit(event);
 
   // Resolve sessionKey for thinkLevel persistence (OAuth only)
   const resolvedSessionKey = sessionKey ?? DEFAULT_MAIN_KEY;
@@ -394,153 +298,29 @@ export async function runAgent(
     resolvedThinkLevel = params.thinkLevel ?? agent.thinkLevel;
   }
 
-  const currentlyStreaming = isStreaming(params.agentId, sessionId);
-
-  // Handle queue vs interrupt mode when already streaming
-  if (currentlyStreaming) {
-    if (agent.queueMode === "queue") {
-      if (capabilities.queueWhileStreaming && adapter.queueMessage) {
-        // Track user message for the next assistant turn
-        enqueuePendingUserMessage(
-          params.agentId,
-          sessionId,
-          message,
-          Date.now()
-        );
-        // Adapter supports native queue - wait for session handle
-        const existingHandle = await waitForSessionHandle(
-          params.agentId,
-          sessionId
-        );
-        if (existingHandle) {
-          await adapter.queueMessage(existingHandle, message);
-        } else {
-          // Handle not ready - buffer for later
-          bufferPendingMessage(params.agentId, sessionId, message);
-        }
-      } else {
-        // Adapter lacks queue support - buffer message for sequential drain
-        bufferPendingMessage(params.agentId, sessionId, message);
-      }
-
-      const queueNote = capabilities.queueWhileStreaming
-        ? "Message queued into current run"
-        : "Message queued for next run";
-      emit({ type: "text", data: queueNote });
-      emit({ type: "done", meta: { durationMs: 0, queued: true } });
-      return {
-        payloads: [{ text: queueNote }],
-        meta: { durationMs: 0, sessionId, queued: true },
-      };
-    }
-
-    if (agent.queueMode === "interrupt") {
-      if (capabilities.interrupt && adapter.abort) {
-        // Adapter supports interrupt
-        const handle = getSessionHandle(params.agentId, sessionId);
-        if (handle) {
-          adapter.abort(handle);
-        }
-        abortSession(params.agentId, sessionId);
-      } else {
-        // Fall back to abort controller only
-        abortSession(params.agentId, sessionId);
-      }
-      const ended = await waitForStreamingEnd(params.agentId, sessionId);
-      if (!ended) {
-        // Force clear if not ended gracefully
-        clearSessionHandle(params.agentId, sessionId);
-        setSessionStreaming(params.agentId, sessionId, false);
-      }
-    }
+  const join = await lifecycle.handleJoin({
+    queueMode: agent.queueMode,
+    capabilities,
+    adapter,
+    message,
+  });
+  if (join.handled) {
+    emit({ type: "text", data: join.result.text });
+    emit({ type: "done", meta: { durationMs: 0, queued: true } });
+    return {
+      payloads: [{ text: join.result.text }],
+      meta: { durationMs: 0, sessionId, queued: true },
+    };
   }
 
   await ensureSessionsDir();
   const workspaceDir = resolveWorkspaceDir(agent.workspace);
 
-  const abortController = new AbortController();
-  setSessionStreaming(params.agentId, sessionId, true, abortController);
+  const abortController = lifecycle.beginRun();
 
   const started = Date.now();
   let aborted = false;
   let runCompleted = false;
-
-  // Turn buffers for assembling history events (sync, no I/O during streaming)
-  let currentTurn: TurnBuffer | null = null;
-  const completedTurns: TurnBuffer[] = [];
-
-  const startTurnWithUser = (
-    event: Extract<HistoryEvent, { type: "user" }>
-  ) => {
-    const buffer = createTurnBuffer();
-    bufferHistoryEvent(buffer, event);
-    if (!currentTurn) {
-      currentTurn = buffer;
-      // Eagerly persist so history includes the user message mid-run
-      setSessionCurrentTurn(params.agentId, sessionId, buffer);
-      void flushUserMessage(params.agentId, sessionId, buffer, params.userId);
-    } else {
-      enqueuePendingUserMessage(
-        params.agentId,
-        sessionId,
-        event.text,
-        event.timestamp
-      );
-    }
-  };
-
-  const ensureCurrentTurn = (): TurnBuffer => {
-    if (!currentTurn) {
-      const pendingUser = shiftPendingUserMessage(params.agentId, sessionId);
-      currentTurn = createTurnBuffer();
-      if (pendingUser) {
-        bufferHistoryEvent(currentTurn, {
-          type: "user",
-          text: pendingUser.text,
-          timestamp: pendingUser.timestamp,
-        });
-        void flushUserMessage(
-          params.agentId,
-          sessionId,
-          currentTurn,
-          params.userId
-        );
-      }
-      setSessionCurrentTurn(params.agentId, sessionId, currentTurn);
-    }
-    return currentTurn;
-  };
-
-  const finishCurrentTurn = () => {
-    if (currentTurn) {
-      completedTurns.push(currentTurn);
-      currentTurn = null;
-      setSessionCurrentTurn(params.agentId, sessionId, null);
-    }
-  };
-
-  // History event handler - buffers events synchronously
-  const handleHistoryEvent = (event: HistoryEvent): void => {
-    agentEventBus.emitHistoryEvent({
-      ...event,
-      agentId: params.agentId,
-      sessionId,
-      sessionKey,
-      source: params.source,
-      trace: params.trace,
-    } as AgentHistoryEvent);
-
-    if (event.type === "user") {
-      startTurnWithUser(event);
-      return;
-    }
-    if (event.type === "turn_end") {
-      finishCurrentTurn();
-      return;
-    }
-    const buffer = ensureCurrentTurn();
-    bufferHistoryEvent(buffer, event);
-  };
 
   try {
     // Run with fallback retry for unsupported thinking levels
@@ -558,22 +338,17 @@ export async function runAgent(
       attachments: params.attachments,
       workspaceDir,
       context: params.context,
+      extensionRuntime,
       onEvent: (event: StreamEvent) => {
         if (event.type === "text" || event.type === "thinking") {
           hasEmittedContent = true;
         }
         emit(event);
       },
-      onHistoryEvent: handleHistoryEvent,
+      onHistoryEvent: (event: HistoryEvent) =>
+        lifecycle.acceptHistoryEvent(event),
       onSessionHandle: (handle: unknown) => {
-        setSessionHandle(params.agentId, sessionId, handle);
-        // Inject buffered messages if adapter supports queue
-        if (capabilities.queueWhileStreaming && adapter.queueMessage) {
-          const buffered = popPendingMessages(params.agentId, sessionId);
-          for (const msg of buffered) {
-            adapter.queueMessage!(handle, msg);
-          }
-        }
+        lifecycle.acceptSessionHandle(handle, adapter, capabilities);
       },
       abortSignal: abortController.signal,
     };
@@ -623,32 +398,7 @@ export async function runAgent(
 
     aborted = result.aborted ?? false;
 
-    // Flush completed turns first
-    for (const buffer of completedTurns) {
-      await flushTurnBuffer(params.agentId, sessionId, buffer, params.userId);
-    }
-    // Flush any in-progress turn
-    if (currentTurn) {
-      await flushTurnBuffer(
-        params.agentId,
-        sessionId,
-        currentTurn,
-        params.userId
-      );
-      currentTurn = null;
-      setSessionCurrentTurn(params.agentId, sessionId, null);
-    }
-    // Flush any pending user-only turns (queued but not processed)
-    const pendingUsers = popAllPendingUserMessages(params.agentId, sessionId);
-    for (const pending of pendingUsers) {
-      const buffer = createTurnBuffer();
-      bufferHistoryEvent(buffer, {
-        type: "user",
-        text: pending.text,
-        timestamp: pending.timestamp,
-      });
-      await flushTurnBuffer(params.agentId, sessionId, buffer, params.userId);
-    }
+    await lifecycle.flushTurns();
 
     const durationMs = Date.now() - started;
     emit({ type: "done", meta: { durationMs, aborted } });
@@ -666,13 +416,11 @@ export async function runAgent(
     emit({ type: "error", message: errMessage });
     throw err;
   } finally {
-    clearSessionHandle(params.agentId, sessionId);
-    setSessionCurrentTurn(params.agentId, sessionId, null);
-    setSessionStreaming(params.agentId, sessionId, false);
+    lifecycle.finishRun();
 
     // Drain pending queue if adapter lacks native queue support
     if (runCompleted && !capabilities.queueWhileStreaming) {
-      const pendingMessages = popPendingMessages(params.agentId, sessionId);
+      const pendingMessages = lifecycle.drainPendingMessages();
       for (const pendingMsg of pendingMessages) {
         // Run next message - omit onEvent to use agentEventBus only
         await runAgent({
@@ -682,6 +430,7 @@ export async function runAgent(
           sessionId,
           sessionKey,
           thinkLevel: params.thinkLevel,
+          extensionRuntime,
           source: params.source,
           trace: params.trace,
           // onEvent omitted - events go to agentEventBus only

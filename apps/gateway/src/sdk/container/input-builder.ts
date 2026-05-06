@@ -1,0 +1,88 @@
+import type { ContainerInput, GatewayConfig } from "@aihub/shared";
+import { getDefaultSdkId } from "../registry.js";
+import type { SdkRunParams } from "../types.js";
+import { getMountedOnecliCaPath } from "../../agents/container.js";
+import { remapAttachmentsToContainer } from "./launch-spec.js";
+import { ContainerToolBridge } from "./tool-bridge.js";
+
+const DEFAULT_GATEWAY_PORT = 4000;
+
+export class ContainerInputBuilder {
+  constructor(private readonly toolBridge = new ContainerToolBridge()) {}
+
+  async build(
+    params: SdkRunParams,
+    config: GatewayConfig,
+    agentToken: string
+  ): Promise<ContainerInput> {
+    const extensionSystemPrompts = await this.toolBridge.buildSystemPrompts(
+      params,
+      config
+    );
+    const extensionTools = await this.toolBridge.buildTools(params, config);
+    return {
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      userId: params.userId,
+      message: params.message,
+      attachments: remapAttachmentsToContainer(params.attachments),
+      thinkLevel: params.thinkLevel,
+      context: params.context,
+      extensionSystemPrompts:
+        extensionSystemPrompts.length > 0 ? extensionSystemPrompts : undefined,
+      extensionTools: extensionTools.length > 0 ? extensionTools : undefined,
+      workspaceDir: "/workspace",
+      sessionDir: "/sessions",
+      ipcDir: "/workspace/ipc",
+      gatewayUrl: resolveContainerGatewayUrl(config),
+      agentToken,
+      onecli:
+        config.onecli?.enabled && config.onecli.gatewayUrl
+          ? {
+              enabled: true,
+              url:
+                resolveOnecliProxyUrl(config, params.agentId) ??
+                config.onecli.gatewayUrl,
+              caPath: getMountedOnecliCaPath(config.onecli),
+            }
+          : undefined,
+      sdkConfig: {
+        sdk: params.agent.sdk ?? getDefaultSdkId(),
+        model: {
+          provider: params.agent.model.provider,
+          model: params.agent.model.model,
+        },
+      },
+    };
+  }
+}
+
+export function resolveContainerGatewayUrl(config: GatewayConfig): string {
+  const envPort = Number(process.env.AIHUB_GATEWAY_PORT);
+  const port =
+    Number.isFinite(envPort) && envPort > 0
+      ? envPort
+      : (config.gateway?.port ?? DEFAULT_GATEWAY_PORT);
+  return `http://host.docker.internal:${port}`;
+}
+
+export function resolveOnecliProxyUrl(
+  config: GatewayConfig,
+  agentId: string
+): string | undefined {
+  const onecli = config.onecli;
+  if (!onecli?.enabled || !onecli.gatewayUrl) return undefined;
+  const agent = config.agents.find((a) => a.id === agentId);
+  const base = onecli.sandbox?.url ?? onecli.gatewayUrl;
+  const url = new URL(base);
+  if (!onecli.sandbox?.url) {
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+      url.hostname = "host.docker.internal";
+    }
+  }
+  if (agent?.onecliToken) {
+    url.username = "onecli";
+    url.password = agent.onecliToken;
+  }
+  return url.toString().replace(/\/$/, "");
+}

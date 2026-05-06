@@ -356,6 +356,13 @@ describe("subagents extension profile resolution", () => {
     const dataDir = await fs.mkdtemp(
       path.join(os.tmpdir(), "aihub-subagents-")
     );
+    const homeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-subagents-home-root-")
+    );
+    const previousHome = process.env.HOME;
+    const previousUserProfile = process.env.USERPROFILE;
+    process.env.HOME = homeRoot;
+    process.env.USERPROFILE = homeRoot;
     const homeDir = await fs.mkdtemp(
       path.join(os.homedir(), ".aihub-subagents-home-")
     );
@@ -380,8 +387,12 @@ describe("subagents extension profile resolution", () => {
       expect(data.items.map((run) => run.id)).toEqual(["run-home"]);
     } finally {
       await subagentsExtension.stop();
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = previousUserProfile;
       await fs.rm(dataDir, { recursive: true, force: true });
-      await fs.rm(homeDir, { recursive: true, force: true });
+      await fs.rm(homeRoot, { recursive: true, force: true });
     }
   });
 });

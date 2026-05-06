@@ -1,6 +1,6 @@
 import { createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import { fetchAgents } from "../api/client";
+import { fetchAgents } from "../api";
 import { isExtensionEnabled } from "../lib/capabilities";
 
 function shortenPath(path: string): string {

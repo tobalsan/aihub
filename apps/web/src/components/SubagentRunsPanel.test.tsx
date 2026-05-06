@@ -21,7 +21,7 @@ const {
   subscribeToSubagentChangesMock: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../api", () => ({
   archiveRuntimeSubagent: archiveRuntimeSubagentMock,
   deleteRuntimeSubagent: deleteRuntimeSubagentMock,
   fetchRuntimeSubagentLogs: fetchRuntimeSubagentLogsMock,
