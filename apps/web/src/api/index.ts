@@ -1,6 +1,7 @@
 export * from "./agents";
 export * from "./chat";
 export * from "./realtime";
+export * from "./realtime-client";
 export * from "./board";
 export * from "./projects";
 export * from "./slices";

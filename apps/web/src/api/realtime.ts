@@ -1,6 +1,11 @@
 import type { SubagentRunStatus } from "@aihub/shared/types";
 import type { ActiveTurn } from "./agents";
-import { dispatchWsEvent, getWsUrl, wsDebug, type WsStreamEvent } from "./ws";
+import { dispatchWsEvent, wsDebug, type WsStreamEvent } from "./ws";
+import {
+  subscribeToRealtime,
+  type RealtimeEvent,
+  type RealtimeInterest,
+} from "./realtime-client";
 
 export type SubscriptionCallbacks = {
   onText?: (text: string) => void;
@@ -27,36 +32,20 @@ export type SubscriptionCallbacks = {
   onError?: (error: string) => void;
 };
 
-/**
- * Subscribe to live updates for an agent session.
- * Receives events from background runs (discord, scheduler).
- */
 export function subscribeToSession(
   agentId: string,
   sessionKey: string,
   callbacks: SubscriptionCallbacks
 ): () => void {
-  const ws = new WebSocket(getWsUrl());
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "subscribe", agentId, sessionKey }));
-    callbacks.onHistoryUpdated?.();
-  };
-
-  ws.onmessage = (e) => {
-    dispatchWsEvent(JSON.parse(e.data) as WsStreamEvent, callbacks);
-  };
-
-  ws.onerror = () => {
-    callbacks.onError?.("Subscription connection error");
-  };
-
-  return () => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "unsubscribe" }));
-    }
-    ws.close();
-  };
+  return subscribeToRealtime({
+    interests: [{ type: "session", agentId, sessionKey }],
+    reconnect: false,
+    onOpen: () => callbacks.onHistoryUpdated?.(),
+    onEvent: (event) => {
+      dispatchWsEvent(event as WsStreamEvent, callbacks);
+    },
+    onError: () => callbacks.onError?.("Subscription connection error"),
+  });
 }
 
 export type StatusCallbacks = {
@@ -81,214 +70,114 @@ export type SubagentChangeCallbacks = {
 };
 
 const statusSubscribers = new Set<StatusCallbacks>();
-let statusSocket: WebSocket | null = null;
-let statusReconnectTimer: number | undefined;
-let statusHasConnectedOnce = false;
+let statusCleanup: (() => void) | null = null;
 
-function clearStatusReconnectTimer(): void {
-  if (statusReconnectTimer !== undefined) {
-    window.clearTimeout(statusReconnectTimer);
-    statusReconnectTimer = undefined;
-  }
-}
-
-function scheduleStatusReconnect(): void {
-  if (statusSubscribers.size === 0) return;
-  if (statusReconnectTimer !== undefined) return;
-  statusReconnectTimer = window.setTimeout(() => {
-    statusReconnectTimer = undefined;
-    if (statusSubscribers.size > 0) {
-      connectStatusSocket();
-    }
-  }, 1000);
+function connectStatusSocket(): void {
+  if (statusCleanup || statusSubscribers.size === 0) return;
+  statusCleanup = subscribeToRealtime({
+    interests: [{ type: "status" }],
+    onReconnect: () => {
+      for (const subscriber of statusSubscribers) subscriber.onReconnect?.();
+    },
+    onEvent: (event) => {
+      if (event.type === "status") {
+        if (wsDebug()) {
+          console.log("[ws] status received:", event.agentId, event.status);
+        }
+        for (const subscriber of statusSubscribers) {
+          subscriber.onStatus?.(event.agentId, event.status);
+        }
+        return;
+      }
+      if (event.type === "error") {
+        for (const subscriber of statusSubscribers) {
+          subscriber.onError?.(event.message);
+        }
+      }
+    },
+    onError: () => {
+      for (const subscriber of statusSubscribers) {
+        subscriber.onError?.("Status subscription connection error");
+      }
+    },
+  });
 }
 
 function disconnectStatusSocket(): void {
-  clearStatusReconnectTimer();
-  const socket = statusSocket;
-  statusSocket = null;
-  statusHasConnectedOnce = false;
-  if (!socket) return;
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "unsubscribeStatus" }));
-  }
-  socket.close();
-}
-
-function connectStatusSocket(): void {
-  if (statusSubscribers.size === 0) return;
-  if (
-    statusSocket &&
-    (statusSocket.readyState === WebSocket.OPEN ||
-      statusSocket.readyState === WebSocket.CONNECTING)
-  ) {
-    return;
-  }
-  const ws = new WebSocket(getWsUrl());
-  statusSocket = ws;
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "subscribeStatus" }));
-    if (statusHasConnectedOnce) {
-      for (const subscriber of statusSubscribers) {
-        subscriber.onReconnect?.();
-      }
-    }
-    statusHasConnectedOnce = true;
-  };
-
-  ws.onmessage = (event) => {
-    const payload = JSON.parse(event.data);
-    if (payload.type === "status") {
-      if (wsDebug()) {
-        console.log("[ws] status received:", payload.agentId, payload.status);
-      }
-      for (const subscriber of statusSubscribers) {
-        subscriber.onStatus?.(payload.agentId, payload.status);
-      }
-      return;
-    }
-    if (payload.type === "error") {
-      for (const subscriber of statusSubscribers) {
-        subscriber.onError?.(payload.message);
-      }
-    }
-  };
-
-  ws.onerror = () => {
-    for (const subscriber of statusSubscribers) {
-      subscriber.onError?.("Status subscription connection error");
-    }
-  };
-
-  ws.onclose = () => {
-    if (statusSocket === ws) {
-      statusSocket = null;
-    }
-    if (wsDebug()) {
-      console.log("[ws] status socket closed, scheduling reconnect");
-    }
-    scheduleStatusReconnect();
-  };
+  statusCleanup?.();
+  statusCleanup = null;
 }
 
 const fileChangeSubscribers = new Set<FileChangeCallbacks>();
 const subagentChangeSubscribers = new Set<SubagentChangeCallbacks>();
-let fileChangeSocket: WebSocket | null = null;
-let fileChangeReconnectTimer: number | undefined;
+let projectCleanup: (() => void) | null = null;
 
-function clearFileChangeReconnectTimer(): void {
-  if (fileChangeReconnectTimer !== undefined) {
-    window.clearTimeout(fileChangeReconnectTimer);
-    fileChangeReconnectTimer = undefined;
-  }
-}
-
-function scheduleFileChangeReconnect(): void {
+function connectProjectSocket(): void {
+  if (projectCleanup) return;
   if (
     fileChangeSubscribers.size === 0 &&
     subagentChangeSubscribers.size === 0
   ) {
     return;
   }
-  if (fileChangeReconnectTimer !== undefined) return;
-  fileChangeReconnectTimer = window.setTimeout(() => {
-    fileChangeReconnectTimer = undefined;
-    if (fileChangeSubscribers.size > 0 || subagentChangeSubscribers.size > 0) {
-      connectFileChangeSocket();
-    }
-  }, 1000);
-}
 
-function disconnectFileChangeSocket(): void {
-  clearFileChangeReconnectTimer();
-  const socket = fileChangeSocket;
-  fileChangeSocket = null;
-  if (!socket) return;
-  // No unsubscribe message needed — server broadcasts to all clients.
-  socket.close();
-}
-
-function connectFileChangeSocket(): void {
-  if (
-    fileChangeSubscribers.size === 0 &&
-    subagentChangeSubscribers.size === 0
-  ) {
-    return;
+  const interests: RealtimeInterest[] = [{ type: "project" }];
+  if (subagentChangeSubscribers.size > 0) {
+    interests.push({ type: "subagents" });
   }
-  if (
-    fileChangeSocket &&
-    (fileChangeSocket.readyState === WebSocket.OPEN ||
-      fileChangeSocket.readyState === WebSocket.CONNECTING)
-  ) {
-    return;
-  }
-  const ws = new WebSocket(getWsUrl());
-  fileChangeSocket = ws;
-
-  ws.onopen = () => {
-    // Server broadcasts file_changed/agent_changed to all connected clients,
-    // no subscribe message needed — just keep the connection open.
-  };
-
-  ws.onmessage = (event) => {
-    const payload = JSON.parse(event.data);
-    if (wsDebug()) {
-      console.log("[ws] file event received:", payload.type, payload.projectId);
-    }
-    if (payload.type === "file_changed") {
-      for (const subscriber of fileChangeSubscribers) {
-        subscriber.onFileChanged?.(payload.projectId, payload.file);
+  projectCleanup = subscribeToRealtime({
+    interests,
+    onEvent: (event: RealtimeEvent) => {
+      if (wsDebug()) {
+        console.log("[ws] file event received:", event.type);
       }
-      return;
-    }
-    if (payload.type === "agent_changed") {
-      for (const subscriber of fileChangeSubscribers) {
-        subscriber.onAgentChanged?.(payload.projectId);
+      if (event.type === "file_changed") {
+        for (const subscriber of fileChangeSubscribers) {
+          subscriber.onFileChanged?.(event.projectId, event.file);
+        }
+        return;
       }
-      return;
-    }
-    if (payload.type === "subagent_changed") {
-      for (const subscriber of subagentChangeSubscribers) {
-        subscriber.onSubagentChanged?.({
-          runId: payload.runId,
-          parent: payload.parent,
-          status: payload.status,
-        });
+      if (event.type === "agent_changed") {
+        for (const subscriber of fileChangeSubscribers) {
+          subscriber.onAgentChanged?.(event.projectId);
+        }
+        return;
       }
-      return;
-    }
-    if (payload.type === "error") {
+      if (event.type === "subagent_changed") {
+        for (const subscriber of subagentChangeSubscribers) {
+          subscriber.onSubagentChanged?.({
+            runId: event.runId,
+            parent: event.parent,
+            status: event.status,
+          });
+        }
+        return;
+      }
+      if (event.type === "error") {
+        for (const subscriber of fileChangeSubscribers) {
+          subscriber.onError?.(event.message);
+        }
+        for (const subscriber of subagentChangeSubscribers) {
+          subscriber.onError?.(event.message);
+        }
+      }
+    },
+    onError: () => {
       for (const subscriber of fileChangeSubscribers) {
-        subscriber.onError?.(payload.message);
+        subscriber.onError?.("File change subscription connection error");
       }
       for (const subscriber of subagentChangeSubscribers) {
-        subscriber.onError?.(payload.message);
+        subscriber.onError?.("Subagent subscription connection error");
       }
-    }
-  };
-
-  ws.onerror = () => {
-    for (const subscriber of fileChangeSubscribers) {
-      subscriber.onError?.("File change subscription connection error");
-    }
-    for (const subscriber of subagentChangeSubscribers) {
-      subscriber.onError?.("Subagent subscription connection error");
-    }
-  };
-
-  ws.onclose = () => {
-    if (fileChangeSocket === ws) {
-      fileChangeSocket = null;
-    }
-    scheduleFileChangeReconnect();
-  };
+    },
+  });
 }
 
-/**
- * Subscribe to global agent status updates.
- * Receives real-time status changes for all agents.
- */
+function disconnectProjectSocket(): void {
+  projectCleanup?.();
+  projectCleanup = null;
+}
+
 export function subscribeToStatus(callbacks: StatusCallbacks): () => void {
   statusSubscribers.add(callbacks);
   connectStatusSocket();
@@ -305,7 +194,7 @@ export function subscribeToFileChanges(
   callbacks: FileChangeCallbacks
 ): () => void {
   fileChangeSubscribers.add(callbacks);
-  connectFileChangeSocket();
+  connectProjectSocket();
 
   return () => {
     fileChangeSubscribers.delete(callbacks);
@@ -313,7 +202,7 @@ export function subscribeToFileChanges(
       fileChangeSubscribers.size === 0 &&
       subagentChangeSubscribers.size === 0
     ) {
-      disconnectFileChangeSocket();
+      disconnectProjectSocket();
     }
   };
 }
@@ -322,7 +211,10 @@ export function subscribeToSubagentChanges(
   callbacks: SubagentChangeCallbacks
 ): () => void {
   subagentChangeSubscribers.add(callbacks);
-  connectFileChangeSocket();
+  if (projectCleanup) {
+    disconnectProjectSocket();
+  }
+  connectProjectSocket();
 
   return () => {
     subagentChangeSubscribers.delete(callbacks);
@@ -330,7 +222,10 @@ export function subscribeToSubagentChanges(
       fileChangeSubscribers.size === 0 &&
       subagentChangeSubscribers.size === 0
     ) {
-      disconnectFileChangeSocket();
+      disconnectProjectSocket();
+    } else if (subagentChangeSubscribers.size === 0) {
+      disconnectProjectSocket();
+      connectProjectSocket();
     }
   };
 }

@@ -3,14 +3,8 @@ import path from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { WebSocketServer, type WebSocket } from "ws";
 import { resolveBindHost } from "@aihub/shared";
-import type {
-  WsClientMessage,
-  WsServerMessage,
-  GatewayBindMode,
-  GatewayConfig,
-} from "@aihub/shared";
+import type { GatewayBindMode, GatewayConfig } from "@aihub/shared";
 import { api } from "./api.core.js";
 import { internalTools } from "./internal-tools.js";
 import {
@@ -18,19 +12,16 @@ import {
   ensureAgentImage,
   ensureNetwork,
 } from "../agents/container.js";
-import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
-import { runAgent, agentEventBus } from "../agents/index.js";
+import { loadConfig } from "../config/index.js";
+import { agentEventBus } from "../agents/index.js";
 import { getExtensionRuntime } from "../extensions/registry.js";
 import type { ExtensionRuntime } from "../extensions/runtime.js";
-import { getSessionEntry } from "../sessions/index.js";
-import { getSessionCurrentTurn, isStreaming } from "../agents/index.js";
-import { normalizeRunRequest } from "./run-request.js";
+import { WsBroker, type WsBrokerAuthAdapter } from "./ws-broker.js";
 
 type RequestAuthContext =
   import("@aihub/extension-multi-user").RequestAuthContext;
 
 const app = new Hono();
-const wsDebug = process.env.DEBUG?.includes("aihub:ws");
 let activeExtensionRuntime: ExtensionRuntime | undefined;
 
 function currentExtensionRuntime(): ExtensionRuntime {
@@ -144,15 +135,6 @@ app.all("/hooks/*", async (c) => {
 
 app.get("/health", (c) => c.json({ ok: true }));
 
-// Subscription store: Map<ws, { agentId, sessionKey }>
-type Subscription = { agentId: string; sessionKey: string };
-const subscriptions = new Map<WebSocket, Subscription>();
-const connectedClients = new Set<WebSocket>();
-const wsAuthContexts = new Map<WebSocket, RequestAuthContext>();
-
-// Global status subscribers (for sidebar real-time updates)
-const statusSubscribers = new Set<WebSocket>();
-
 async function canAccessAgent(
   authContext: RequestAuthContext | null,
   agentId: string
@@ -161,231 +143,6 @@ async function canAccessAgent(
   if (!authContext) return false;
   const { hasAgentAccess } = await loadMultiUserMiddlewareModule();
   return hasAgentAccess(authContext, agentId);
-}
-
-function handleWsConnection(
-  ws: WebSocket,
-  request?: import("http").IncomingMessage & {
-    authContext?: RequestAuthContext | null;
-  }
-) {
-  connectedClients.add(ws);
-  if (request?.authContext) {
-    wsAuthContexts.set(ws, request.authContext);
-  }
-
-  ws.on("message", async (raw) => {
-    let msg: WsClientMessage;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      sendWs(ws, { type: "error", message: "Invalid JSON" });
-      return;
-    }
-
-    const authContext = wsAuthContexts.get(ws) ?? null;
-
-    if (msg.type === "subscribe") {
-      const agent = getAgent(msg.agentId);
-      if (!agent || !isAgentActive(msg.agentId)) {
-        sendWs(ws, { type: "error", message: "Agent not found" });
-        return;
-      }
-      if (!(await canAccessAgent(authContext, msg.agentId))) {
-        sendWs(ws, { type: "error", message: "Forbidden" });
-        return;
-      }
-      subscriptions.set(ws, {
-        agentId: msg.agentId,
-        sessionKey: msg.sessionKey,
-      });
-      const entry = await getSessionEntry(
-        msg.agentId,
-        msg.sessionKey,
-        authContext?.session.userId
-      );
-      if (entry && isStreaming(msg.agentId, entry.sessionId)) {
-        const turn = getSessionCurrentTurn(msg.agentId, entry.sessionId);
-        if (turn) {
-          sendWs(ws, {
-            type: "active_turn",
-            agentId: msg.agentId,
-            sessionId: entry.sessionId,
-            userText: turn.userFlushed ? null : turn.userText,
-            userTimestamp: turn.userTimestamp,
-            startedAt: turn.startTimestamp,
-            thinking: turn.thinkingText,
-            text: turn.assistantText,
-            toolCalls: turn.toolCalls.map((tc) => ({
-              id: tc.id,
-              name: tc.name,
-              arguments: tc.args,
-              status: tc.status,
-            })),
-          });
-        }
-      }
-      return;
-    }
-
-    if (msg.type === "unsubscribe") {
-      subscriptions.delete(ws);
-      return;
-    }
-
-    if (msg.type === "subscribeStatus") {
-      statusSubscribers.add(ws);
-      return;
-    }
-
-    if (msg.type === "unsubscribeStatus") {
-      statusSubscribers.delete(ws);
-      return;
-    }
-
-    if (msg.type === "send") {
-      const agent = getAgent(msg.agentId);
-      if (!agent || !isAgentActive(msg.agentId)) {
-        sendWs(ws, { type: "error", message: "Agent not found" });
-        return;
-      }
-      if (!(await canAccessAgent(authContext, msg.agentId))) {
-        sendWs(ws, { type: "error", message: "Forbidden" });
-        return;
-      }
-
-      try {
-        const normalized = await normalizeRunRequest({
-          agent,
-          input: msg,
-          authContext,
-          extensionRuntime: currentExtensionRuntime(),
-          source: "web",
-          onEvent: (event) => sendWs(ws, event),
-          defaultSessionId: "default",
-        });
-        if (normalized.type === "validation_error") {
-          sendWs(ws, { type: "error", message: normalized.message });
-          return;
-        }
-        if (normalized.type === "immediate") {
-          for (const event of normalized.events) sendWs(ws, event);
-          return;
-        }
-
-        await runAgent(normalized.params);
-      } catch (err) {
-        sendWs(ws, {
-          type: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-      return;
-    }
-
-    sendWs(ws, { type: "error", message: "Unknown message type" });
-  });
-
-  ws.on("close", () => {
-    subscriptions.delete(ws);
-    statusSubscribers.delete(ws);
-    connectedClients.delete(ws);
-    wsAuthContexts.delete(ws);
-  });
-}
-
-function sendWs(ws: WebSocket, event: WsServerMessage) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(event));
-  }
-}
-
-// Broadcast stream events to subscribers
-function setupEventBroadcast() {
-  agentEventBus.onStreamEvent((event) => {
-    void (async () => {
-      for (const [ws, sub] of subscriptions) {
-        if (sub.agentId !== event.agentId) continue;
-
-        const entry = await getSessionEntry(
-          sub.agentId,
-          sub.sessionKey,
-          wsAuthContexts.get(ws)?.session.userId
-        );
-        if (!entry || entry.sessionId !== event.sessionId) continue;
-
-        const { agentId, sessionId, ...streamEvent } = event;
-        sendWs(ws, streamEvent);
-        if (event.type === "done") {
-          sendWs(ws, { type: "history_updated", agentId, sessionId });
-        }
-      }
-    })();
-  });
-
-  // Broadcast status changes to all status subscribers
-  agentEventBus.onStatusChange((event) => {
-    if (wsDebug) {
-      console.log(
-        `[ws] statusChange: ${event.agentId} -> ${event.status} (${statusSubscribers.size} subscribers)`
-      );
-    }
-    const statusMessage = {
-      type: "status" as const,
-      agentId: event.agentId,
-      status: event.status,
-    };
-
-    void (async () => {
-      const access = await Promise.all(
-        [...statusSubscribers].map(async (ws) => ({
-          ws,
-          allowed: await canAccessAgent(
-            wsAuthContexts.get(ws) ?? null,
-            event.agentId
-          ),
-        }))
-      );
-      for (const { ws, allowed } of access) {
-        if (!allowed) continue;
-        sendWs(ws, statusMessage);
-      }
-    })();
-  });
-
-  agentEventBus.onFileChanged((event) => {
-    if (wsDebug) {
-      console.log(
-        `[ws] fileChanged: ${event.projectId}/${event.file} (${connectedClients.size} clients)`
-      );
-    }
-    for (const ws of connectedClients) {
-      sendWs(ws, event);
-    }
-  });
-
-  agentEventBus.onAgentChanged((event) => {
-    if (wsDebug) {
-      console.log(
-        `[ws] agentChanged: ${event.projectId} (${connectedClients.size} clients)`
-      );
-    }
-    for (const ws of connectedClients) {
-      sendWs(ws, event);
-    }
-  });
-
-  agentEventBus.on("subagent.changed", (event) => {
-    if (wsDebug) {
-      const payload = event as { runId?: string; status?: string };
-      console.log(
-        `[ws] subagentChanged: ${payload.runId ?? "unknown"} -> ${payload.status ?? "unknown"} (${connectedClients.size} clients)`
-      );
-    }
-    for (const ws of connectedClients) {
-      sendWs(ws, event as WsServerMessage);
-    }
-  });
 }
 
 function resolveGatewayBindHost(bind?: GatewayBindMode): string {
@@ -464,37 +221,17 @@ export function startServer(
     hostname: resolvedHost,
   });
 
-  // Attach WebSocket server to the HTTP server
-  const shouldValidateWs = currentExtensionRuntime().isEnabled("multiUser");
-  const wss = new WebSocketServer({
-    server: server as import("http").Server,
-    path: "/ws",
-    verifyClient: shouldValidateWs
-      ? (info, done) => {
-          const request = new Request("http://localhost/ws", {
-            headers: new Headers(info.req.headers as Record<string, string>),
-          });
+  const wsAuthAdapter: WsBrokerAuthAdapter = {
+    isMultiUserEnabled: () => currentExtensionRuntime().isEnabled("multiUser"),
+    validateWebSocketRequest: async (request) => {
+      const { validateWebSocketRequest } = await loadMultiUserMiddlewareModule();
+      return validateWebSocketRequest(request);
+    },
+    canAccessAgent,
+    getExtensionRuntime: currentExtensionRuntime,
+  };
+  new WsBroker().attach(server as import("http").Server, wsAuthAdapter);
 
-          loadMultiUserMiddlewareModule()
-            .then(({ validateWebSocketRequest }) =>
-              validateWebSocketRequest(request)
-            )
-            .then((authContext) => {
-              (
-                info.req as import("http").IncomingMessage & {
-                  authContext?: RequestAuthContext | null;
-                }
-              ).authContext = authContext;
-              done(!!authContext, authContext ? undefined : 401);
-            })
-            .catch(() => done(false, 401));
-        }
-      : undefined,
-  });
-  wss.on("connection", handleWsConnection);
-
-  // Start broadcasting events to subscribers
-  setupEventBroadcast();
   setupGracefulShutdown(server);
 
   return server;

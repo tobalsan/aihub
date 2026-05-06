@@ -61,6 +61,7 @@ const {
   subscribeToSessionMock,
   subscribeToFileChangesMock,
   subscribeToSubagentChangesMock,
+  subscribeToRealtimeMock,
   uploadFilesMock,
 } = vi.hoisted(() => ({
   fetchAgentsMock: vi.fn(),
@@ -74,6 +75,7 @@ const {
   subscribeToSessionMock: vi.fn(),
   subscribeToFileChangesMock: vi.fn(),
   subscribeToSubagentChangesMock: vi.fn(),
+  subscribeToRealtimeMock: vi.fn(),
   uploadFilesMock: vi.fn(),
 }));
 
@@ -148,6 +150,7 @@ vi.mock("../api", () => ({
   streamMessage: streamMessageMock,
   subscribeToFileChanges: subscribeToFileChangesMock,
   subscribeToSubagentChanges: subscribeToSubagentChangesMock,
+  subscribeToRealtime: subscribeToRealtimeMock,
   subscribeToSession: subscribeToSessionMock,
   updateProject: vi.fn(),
   updateSlice: vi.fn(),
@@ -280,6 +283,7 @@ describe("BoardView attachments", () => {
     subscribeToSessionMock.mockImplementation(() => () => {});
     subscribeToFileChangesMock.mockReturnValue(() => {});
     subscribeToSubagentChangesMock.mockReturnValue(() => {});
+    subscribeToRealtimeMock.mockReturnValue(() => {});
     uploadFilesMock.mockResolvedValue([
       {
         path: "/tmp/uploaded/report.pdf",

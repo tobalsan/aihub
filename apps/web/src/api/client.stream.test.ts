@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { streamMessage, subscribeToFileChanges, subscribeToSession } from "./client";
+import {
+  streamMessage,
+  subscribeToFileChanges,
+  subscribeToRealtime,
+  subscribeToSession,
+} from "./client";
 
 type MessageEventLike = { data: string };
 
@@ -226,5 +231,58 @@ describe("subscribeToFileChanges", () => {
     expect(ws.readyState).not.toBe(MockWebSocket.CLOSED);
     second();
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+  });
+});
+
+describe("subscribeToRealtime", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost:5173" },
+      setTimeout,
+      clearTimeout,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends session interests and filters project events", () => {
+    const onEvent = vi.fn();
+    const cleanup = subscribeToRealtime({
+      interests: [
+        { type: "session", agentId: "agent-1", sessionKey: "main" },
+        { type: "project", projectId: "PRO-1" },
+      ],
+      onEvent,
+    });
+
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    expect(ws.sent).toContain(
+      JSON.stringify({
+        type: "subscribe",
+        agentId: "agent-1",
+        sessionKey: "main",
+      })
+    );
+
+    ws.receive({ type: "file_changed", projectId: "PRO-2", file: "README.md" });
+    ws.receive({ type: "file_changed", projectId: "PRO-1", file: "README.md" });
+    ws.receive({ type: "text", data: "hi" });
+
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent).toHaveBeenNthCalledWith(1, {
+      type: "file_changed",
+      projectId: "PRO-1",
+      file: "README.md",
+    });
+    expect(onEvent).toHaveBeenNthCalledWith(2, { type: "text", data: "hi" });
+
+    cleanup();
+    expect(ws.sent).toContain(JSON.stringify({ type: "unsubscribe" }));
   });
 });

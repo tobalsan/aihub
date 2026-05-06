@@ -51,13 +51,14 @@ let updateSliceMock: ReturnType<typeof vi.fn>;
 let createSliceMock: ReturnType<typeof vi.fn>;
 let fetchSlicesMock: ReturnType<typeof vi.fn>;
 let fetchSubagentsMock: ReturnType<typeof vi.fn>;
-let subagentChangeCallback: (() => void) | undefined;
-let fileChangeCallbacks:
-  | {
-      onFileChanged?: (projectId: string, file: string) => void;
-      onAgentChanged?: (projectId: string) => void;
-      onError?: (error: string) => void;
-    }
+let realtimeCallback:
+  | ((event: {
+      type: "file_changed" | "agent_changed" | "subagent_changed";
+      projectId?: string;
+      file?: string;
+      runId?: string;
+      status?: string;
+    }) => void)
   | undefined;
 
 vi.mock("../api", () => ({
@@ -65,21 +66,19 @@ vi.mock("../api", () => ({
   fetchSubagents: (...args: unknown[]) => fetchSubagentsMock(...args),
   updateSlice: (...args: unknown[]) => updateSliceMock(...args),
   createSlice: (...args: unknown[]) => createSliceMock(...args),
-  subscribeToSubagentChanges: vi.fn(
-    (callbacks: { onSubagentChanged?: () => void }) => {
-      subagentChangeCallback = callbacks.onSubagentChanged;
-      return () => {};
-    }
-  ),
-  subscribeToFileChanges: vi.fn(
-    (callbacks: {
-      onFileChanged?: (projectId: string, file: string) => void;
-      onAgentChanged?: (projectId: string) => void;
-      onError?: (error: string) => void;
+  subscribeToRealtime: vi.fn(
+    (options: {
+      onEvent?: (event: {
+        type: "file_changed" | "agent_changed" | "subagent_changed";
+        projectId?: string;
+        file?: string;
+        runId?: string;
+        status?: string;
+      }) => void;
     }) => {
-      fileChangeCallbacks = callbacks;
+      realtimeCallback = options.onEvent;
       return () => {
-        fileChangeCallbacks = undefined;
+        realtimeCallback = undefined;
       };
     }
   ),
@@ -115,8 +114,7 @@ beforeEach(() => {
       },
     })
   );
-  fileChangeCallbacks = undefined;
-  subagentChangeCallback = undefined;
+  realtimeCallback = undefined;
 });
 
 afterEach(() => {
@@ -250,16 +248,21 @@ describe("SliceKanbanWidget", () => {
 
     const initialCalls = fetchSlicesMock.mock.calls.length;
     expect(initialCalls).toBeGreaterThan(0);
-    expect(fileChangeCallbacks?.onFileChanged).toBeTypeOf("function");
+    expect(realtimeCallback).toBeTypeOf("function");
 
-    fileChangeCallbacks?.onFileChanged?.("PRO-2", "PRO-2_other/README.md");
+    realtimeCallback?.({
+      type: "file_changed",
+      projectId: "PRO-2",
+      file: "PRO-2_other/README.md",
+    });
     await vi.advanceTimersByTimeAsync(250);
     expect(fetchSlicesMock.mock.calls.length).toBe(initialCalls);
 
-    fileChangeCallbacks?.onFileChanged?.(
-      "PRO-1",
-      "PRO-1_test/slices/PRO-1-S01/README.md"
-    );
+    realtimeCallback?.({
+      type: "file_changed",
+      projectId: "PRO-1",
+      file: "PRO-1_test/slices/PRO-1-S01/README.md",
+    });
     await vi.advanceTimersByTimeAsync(249);
     expect(fetchSlicesMock.mock.calls.length).toBe(initialCalls);
 
@@ -369,7 +372,11 @@ describe("SliceKanbanWidget", () => {
       ).not.toBeNull();
     });
 
-    subagentChangeCallback?.();
+    realtimeCallback?.({
+      type: "subagent_changed",
+      runId: "run-1",
+      status: "done",
+    });
     await vi.advanceTimersByTimeAsync(250);
 
     await vi.waitFor(() => {

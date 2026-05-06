@@ -14,7 +14,7 @@ const {
   postAbortMock,
   streamMessageMock,
   subscribeToSessionMock,
-  subscribeToStatusMock,
+  subscribeToRealtimeMock,
   uploadFilesMock,
   routeState,
 } = vi.hoisted(() => ({
@@ -26,7 +26,7 @@ const {
   postAbortMock: vi.fn(),
   streamMessageMock: vi.fn(),
   subscribeToSessionMock: vi.fn(),
-  subscribeToStatusMock: vi.fn(),
+  subscribeToRealtimeMock: vi.fn(),
   uploadFilesMock: vi.fn(),
   routeState: { view: undefined as string | undefined },
 }));
@@ -46,7 +46,7 @@ vi.mock("../api", () => ({
   postAbort: postAbortMock,
   streamMessage: streamMessageMock,
   subscribeToSession: subscribeToSessionMock,
-  subscribeToStatus: subscribeToStatusMock,
+  subscribeToRealtime: subscribeToRealtimeMock,
   uploadFiles: uploadFilesMock,
 }));
 
@@ -103,7 +103,7 @@ describe("ChatView abort handling", () => {
     postAbortMock.mockResolvedValue(undefined);
     streamMessageMock.mockImplementation(() => () => {});
     subscribeToSessionMock.mockImplementation(() => () => {});
-    subscribeToStatusMock.mockImplementation(() => () => {});
+    subscribeToRealtimeMock.mockImplementation(() => () => {});
     uploadFilesMock.mockResolvedValue([]);
     routeState.view = undefined;
   });

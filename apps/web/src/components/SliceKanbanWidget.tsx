@@ -17,8 +17,7 @@ import {
   fetchSlices,
   fetchSubagents,
   updateSlice,
-  subscribeToFileChanges,
-  subscribeToSubagentChanges,
+  subscribeToRealtime,
 } from "../api";
 import type { SliceRecord, SliceStatus, SubagentListItem } from "../api/types";
 
@@ -149,31 +148,31 @@ export function SliceKanbanWidget(props: Props) {
       }, 250);
     };
 
-    const unsubscribe = subscribeToFileChanges({
-      onFileChanged: (changedProjectId) => {
-        if (changedProjectId === projectId) {
-          shouldRefreshSlices = true;
-          scheduleRefresh();
+    const unsubscribe = subscribeToRealtime({
+      interests: [{ type: "project" }, { type: "subagents" }],
+      onEvent: (event) => {
+        if (event.type === "file_changed") {
+          const changedProjectId = event.projectId;
+          if (changedProjectId === projectId) {
+            shouldRefreshSlices = true;
+            scheduleRefresh();
           return;
         }
-        if (externalProjectIds.includes(changedProjectId)) {
-          shouldRefreshExternalBlockers = true;
-          scheduleRefresh();
+          if (externalProjectIds.includes(changedProjectId)) {
+            shouldRefreshExternalBlockers = true;
+            scheduleRefresh();
+          }
+          return;
         }
+        if (event.type === "agent_changed") scheduleAgentRefresh();
+        if (event.type === "subagent_changed") scheduleAgentRefresh();
       },
-      onAgentChanged: (changedProjectId) => {
-        if (changedProjectId === projectId) scheduleAgentRefresh();
-      },
-    });
-    const unsubscribeSubagents = subscribeToSubagentChanges({
-      onSubagentChanged: () => scheduleAgentRefresh(),
     });
 
     onCleanup(() => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       if (agentRefreshTimer) window.clearTimeout(agentRefreshTimer);
       unsubscribe();
-      unsubscribeSubagents();
     });
   });
 

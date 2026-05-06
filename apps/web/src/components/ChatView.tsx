@@ -18,7 +18,7 @@ import {
   fetchAgent,
   fetchAgentStatuses,
   subscribeToSession,
-  subscribeToStatus,
+  subscribeToRealtime,
   postAbort,
   type DoneMeta,
 } from "../api";
@@ -1084,8 +1084,12 @@ export function ChatView() {
       });
 
     // Subscribe to real-time status changes
-    statusCleanup = subscribeToStatus({
-      onStatus: (id, status) => {
+    statusCleanup = subscribeToRealtime({
+      interests: [{ type: "status" }],
+      onEvent: (event) => {
+        if (event.type !== "status") return;
+        const id = event.agentId;
+        const status = event.status;
         if (id !== agentId) return;
         if (status === "streaming" && !isStreaming() && !streamingFinished()) {
           setIsStreaming(true);

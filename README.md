@@ -84,6 +84,7 @@ Orchestrated Worker/Reviewer/Merger prompts tell agents to pass their role via `
 Startup now resolves `$env:` refs once and threads the resolved config through runtime/component context.
 Core routes now live in `apps/gateway/src/server/api.core.ts`. Component-owned routes mount through the component lifecycle, declare their own API route prefixes, and disabled component endpoints return `404 { error: "component_disabled", component: "<id>" }` without eagerly loading disabled component modules.
 The main HTTP app now delegates `/api/*` requests into the live component-mutated API router, so `pnpm dev` sees newly enabled route-owning components instead of a stale route snapshot.
+WebSocket routing lives behind `apps/gateway/src/server/ws-broker.ts`, with the web app consuming session/status/project/subagent realtime interests through `apps/web/src/api/realtime-client.ts`.
 OneCLI now uses the dedicated top-level `onecli` config section for native proxy/gateway wiring.
 
 The app has two levels of agents: lead agents that you configure in the main config file, and subagents, that are started using either Claude Code, Codex, or Pi CLI coding agents. This means you have to have them installed to use subagents.
