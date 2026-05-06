@@ -96,7 +96,7 @@ describe("internal tools", () => {
   });
 
   it("rejects an invalid token", async () => {
-    const { app, executeExtensionTool, runtime } = createDeps();
+    const { app, executeExtensionTool } = createDeps();
 
     const response = await postTool(app, {
       tool: "project.get",

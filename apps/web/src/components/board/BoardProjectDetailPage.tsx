@@ -24,12 +24,14 @@ import {
   subscribeToFileChanges,
   updateProject,
 } from "../../api";
-import type { ProjectLifecycleStatus } from "../../api/types";
+import type { ProjectDetail, ProjectLifecycleStatus } from "../../api/types";
 import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
 import { SliceDetailPage } from "../SliceDetailPage";
 import { ActivityFeed } from "../ActivityFeed";
 import { renderMarkdown } from "../../lib/markdown";
+import { EditRepoModal } from "../project/EditRepoModal";
+import { ToastNotification, type ToastVariant } from "../ui/Toast";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -158,6 +160,11 @@ export function BoardProjectDetailPage(
     return isBpdTab(tab) ? tab : "pitch";
   });
   const [menuOpen, setMenuOpen] = createSignal(false);
+  const [editRepoOpen, setEditRepoOpen] = createSignal(false);
+  const [toast, setToast] = createSignal<{
+    message: string;
+    variant: ToastVariant;
+  } | null>(null);
   const [actionPending, setActionPending] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
 
@@ -234,6 +241,10 @@ export function BoardProjectDetailPage(
   });
 
   const validActions = createMemo(() => getValidActions(lifecycleStatus()));
+  const currentRepo = createMemo(() => {
+    const repo = project.latest?.frontmatter.repo;
+    return typeof repo === "string" ? repo : "";
+  });
 
   const projectUrl = (tab: BpdTab = "pitch") => {
     const id = projectId();
@@ -286,6 +297,30 @@ export function BoardProjectDetailPage(
     } finally {
       setActionPending(false);
     }
+  };
+
+  const getRepoStatusMessage = (
+    target: Pick<ProjectDetail, "frontmatter" | "repoValid">
+  ) => {
+    const repo = target.frontmatter.repo;
+    if (typeof repo !== "string" || !repo) return "No repo configured";
+    if (target.repoValid) return "";
+    return "Path not found";
+  };
+
+  const handleRepoSave = async (repo: string): Promise<ProjectDetail> => {
+    const id = projectId();
+    const previousRepo = currentRepo();
+    if (!id) throw new Error("Project not loaded");
+    const updated = await updateProject(id, { repo });
+    if (repo.trim() !== "" && !updated.repoValid) {
+      await updateProject(id, { repo: previousRepo });
+      await refetchProject();
+      return updated;
+    }
+    mutateProject(updated);
+    await refetchProject();
+    return updated;
   };
 
   const handleSaveDoc = async (docKey: string, content: string) => {
@@ -381,42 +416,51 @@ export function BoardProjectDetailPage(
           )}
         </Show>
 
-        {/* Lifecycle action menu */}
-        <Show when={validActions().length > 0}>
-          <div class="bpd-action-menu-root">
-            <button
-              type="button"
-              class="bpd-action-menu-trigger"
-              disabled={actionPending()}
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen()}
-            >
-              {actionPending() ? "…" : "Actions ▾"}
-            </button>
-            <Show when={menuOpen()}>
-              <div class="bpd-action-menu" role="menu">
-                <For each={validActions()}>
-                  {(action) => (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      class="bpd-action-item"
-                      classList={{
-                        "bpd-action-item--danger": Boolean(action.dangerous),
-                      }}
-                      onClick={() =>
-                        void handleLifecycleAction(action.nextStatus)
-                      }
-                    >
-                      {action.label}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-        </Show>
+        {/* Action menu */}
+        <div class="bpd-action-menu-root">
+          <button
+            type="button"
+            class="bpd-action-menu-trigger"
+            disabled={actionPending()}
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen()}
+          >
+            {actionPending() ? "…" : "Actions ▾"}
+          </button>
+          <Show when={menuOpen()}>
+            <div class="bpd-action-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                class="bpd-action-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setEditRepoOpen(true);
+                }}
+              >
+                Edit repo…
+              </button>
+              <For each={validActions()}>
+                {(action) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    class="bpd-action-item"
+                    classList={{
+                      "bpd-action-item--danger": Boolean(action.dangerous),
+                    }}
+                    onClick={() =>
+                      void handleLifecycleAction(action.nextStatus)
+                    }
+                  >
+                    {action.label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
 
         <Show when={actionError()}>
           <span class="bpd-action-error">{actionError()}</span>
@@ -630,6 +674,25 @@ export function BoardProjectDetailPage(
           )}
         </Show>
       </div>
+
+      <Show when={editRepoOpen()}>
+        <EditRepoModal
+          initialRepo={currentRepo()}
+          onClose={() => setEditRepoOpen(false)}
+          onSave={handleRepoSave}
+          showToast={(message, variant) => setToast({ message, variant })}
+          getErrorMessage={getRepoStatusMessage}
+        />
+      </Show>
+      <Show when={toast()}>
+        {(currentToast) => (
+          <ToastNotification
+            message={currentToast().message}
+            variant={currentToast().variant}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </Show>
 
       <style>{`
         .bpd {

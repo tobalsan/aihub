@@ -2,10 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import {
-  expandPath,
-  type GatewayConfig,
-} from "@aihub/shared";
+import { expandPath, type GatewayConfig } from "@aihub/shared";
 import { listProjects, type ProjectListItem } from "../projects/store.js";
 import { ensureProjectIntegrationBranch } from "../projects/branches.js";
 import {
@@ -34,7 +31,6 @@ import {
   isLiveSliceRun,
   isMergerRun,
   isReviewerRun,
-  isWorkerRun,
   projectStatus,
   sourceOf,
 } from "./dispatch-policy.js";
@@ -43,7 +39,6 @@ import {
   fallbackCwdsForProject,
   hasLiveWorkerRun,
   pathExists,
-  runStartedAt,
   workerWorkspaceRuns,
 } from "./run-planner.js";
 
@@ -534,8 +529,9 @@ export async function reconcileLiveRuns(
 
   return {
     inspected: decisions.length,
-    interrupted: decisions.filter((decision) => decision.action === "interrupted")
-      .length,
+    interrupted: decisions.filter(
+      (decision) => decision.action === "interrupted"
+    ).length,
     decisions,
   };
 }
@@ -564,8 +560,7 @@ function lastRunForSlice(
       if (!worktreePath) return false;
       return fallbackCwds.some(
         (fallback) =>
-          worktreePath === fallback ||
-          worktreePath.startsWith(`${fallback}/`)
+          worktreePath === fallback || worktreePath.startsWith(`${fallback}/`)
       );
     })
     .sort((a, b) => runLastActivityAt(b) - runLastActivityAt(a))[0];
@@ -685,9 +680,13 @@ async function detectStalls(
           last_run: describeRun(lastRun),
         });
 
-        await (deps.updateSlice ?? updateSlice)(project.absolutePath, slice.id, {
-          thread: appendThreadComment(slice.docs.thread, body, now),
-        });
+        await (deps.updateSlice ?? updateSlice)(
+          project.absolutePath,
+          slice.id,
+          {
+            thread: appendThreadComment(slice.docs.thread, body, now),
+          }
+        );
         tracker.markReported(slice.id, slice.frontmatter.status, runKey);
         deps.hitl?.add({
           kind: "stall",

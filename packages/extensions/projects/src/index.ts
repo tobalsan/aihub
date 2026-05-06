@@ -12,7 +12,6 @@ import {
   type Extension,
   type ExtensionAgentTool,
   type GatewayConfig,
-  type UpdateProjectRequest,
 } from "@aihub/shared";
 import { z } from "zod";
 import {
@@ -82,10 +81,7 @@ import {
   unarchiveSubagent,
   updateSubagentConfig,
 } from "./subagents/index.js";
-import {
-  interruptSubagent,
-  killSubagent,
-} from "./subagents/runner.js";
+import { interruptSubagent, killSubagent } from "./subagents/runner.js";
 import { getTaskboardItem, scanTaskboard } from "./taskboard/index.js";
 import {
   clearProjectsContext,
@@ -198,25 +194,6 @@ function emitProjectFileChanged(
     projectId,
     file: `${projectDirName}/${fileName}`,
   });
-}
-
-function emitUpdatedProjectFiles(
-  projectId: string,
-  projectDirName: string,
-  input: UpdateProjectRequest
-): void {
-  const updatedFiles = new Set<string>(["README.md"]);
-  if (input.specs !== undefined) updatedFiles.add("SPECS.md");
-  if (input.readme !== undefined) updatedFiles.add("README.md");
-  if (input.docs) {
-    for (const key of Object.keys(input.docs)) {
-      const normalized = key.replace(/\.md$/i, "");
-      updatedFiles.add(`${normalized}.md`);
-    }
-  }
-  for (const fileName of updatedFiles) {
-    emitProjectFileChanged(projectId, projectDirName, fileName);
-  }
 }
 
 function emitUpdatedSliceFiles(
