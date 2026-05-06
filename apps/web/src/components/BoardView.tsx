@@ -9,22 +9,11 @@ import {
   Suspense,
 } from "solid-js";
 import { useLocation, useParams } from "@solidjs/router";
-import {
-  fetchAgents,
-  fetchFullHistory,
-  getSessionKey,
-  postAbort,
-  streamMessage,
-  subscribeToSession,
-  uploadFiles,
-} from "../api";
-import type { ActiveTurn } from "../api";
+import { fetchAgents, getSessionKey } from "../api";
 import type {
   Agent,
-  FileAttachment,
   FileBlock,
   FullHistoryMessage,
-  FullToolResultMessage,
 } from "../api/types";
 import { buildBoardLogs, BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
@@ -32,15 +21,13 @@ import { ScratchpadEditor } from "./ScratchpadEditor";
 import { BoardLifecycleListPage } from "./board/BoardLifecycleListPage";
 import { BoardProjectDetailPage } from "./board/BoardProjectDetailPage";
 import {
-  attachmentToFileBlock,
-  createPendingFile,
   FILE_INPUT_ACCEPT,
   formatFileSize,
-  isSupportedFile,
-  MAX_UPLOAD_SIZE_BYTES,
-  revokePendingFile,
-  type PendingFile,
 } from "../lib/attachments";
+import {
+  createChatRuntime,
+  type ChatRuntimeBlock,
+} from "../lib/chat-runtime";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -58,6 +45,27 @@ type BoardProjectRoute = {
 } | null;
 
 type DropZone = "history" | "composer" | "attach";
+
+function toBoardLog(block: ChatRuntimeBlock): BoardLogItem {
+  if (block.type === "thinking") {
+    return { type: "thinking", content: block.content };
+  }
+  if (block.type === "text") {
+    return { type: "text", role: "assistant", content: block.content };
+  }
+  if (block.type === "tool") {
+    return {
+      type: "tool",
+      id: block.id,
+      toolName: block.toolName,
+      args: block.args,
+      body: block.body,
+      result: block.result,
+      status: block.status,
+    };
+  }
+  return { type: "file", content: block.filename };
+}
 
 // ── API helpers ─────────────────────────────────────────────────────
 
@@ -147,16 +155,14 @@ export function BoardView() {
   const [canvas, setCanvas] = createSignal<CanvasState>({ panel: "overview" });
   const [chatInput, setChatInput] = createSignal("");
   const [logItems, setLogItems] = createSignal<BoardLogItem[]>([]);
-  const [streamingLogItems, setStreamingLogItems] = createSignal<
-    BoardLogItem[]
-  >([]);
-  const [isStreaming, setIsStreaming] = createSignal(false);
-  const [waitingForFirstText, setWaitingForFirstText] = createSignal(false);
+  const chatRuntime = createChatRuntime();
+  const isStreaming = chatRuntime.isStreaming;
+  const waitingForFirstText = chatRuntime.waitingForFirstText;
   const [stickToBottom, setStickToBottom] = createSignal(true);
-  const [queuedMessages, setQueuedMessages] = createSignal<string[]>([]);
-  const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
-  const [uploadingFiles, setUploadingFiles] = createSignal(false);
-  const [uploadError, setUploadError] = createSignal("");
+  const queuedMessages = chatRuntime.queuedMessages;
+  const pendingFiles = chatRuntime.pendingFiles;
+  const uploadingFiles = chatRuntime.uploadingFiles;
+  const uploadError = chatRuntime.uploadError;
   const [isFileDragActive, setIsFileDragActive] = createSignal(false);
   const [activeDropZone, setActiveDropZone] = createSignal<DropZone | null>(
     null
@@ -166,10 +172,7 @@ export function BoardView() {
   let messagesEl: HTMLDivElement | undefined;
   let inputEl: HTMLTextAreaElement | undefined;
   let fileInputEl: HTMLInputElement | undefined;
-  let stopStream: (() => void) | null = null;
-  let stopSubscription: (() => void) | null = null;
   let historyLoadVersion = 0;
-  let activeQueuedMessage: string | null = null;
   let fileDragDepth = 0;
 
   const selectedAgent = createMemo(() =>
@@ -177,7 +180,7 @@ export function BoardView() {
   );
   const selectedAgentAvatar = createMemo(() => selectedAgent()?.avatar);
   const displayedLogItems = createMemo<BoardLogItem[]>(() => {
-    return [...logItems(), ...streamingLogItems()];
+    return [...logItems(), ...chatRuntime.streamingBlocks().map(toBoardLog)];
   });
 
   createEffect(() => {
@@ -194,57 +197,20 @@ export function BoardView() {
     );
   }
 
-  function cleanupStream() {
-    stopStream?.();
-    stopStream = null;
-  }
-
-  function cleanupSubscription() {
-    stopSubscription?.();
-    stopSubscription = null;
-  }
-
-  function cleanupLiveConnections() {
-    cleanupStream();
-    cleanupSubscription();
-  }
-
   function resetInputHeight() {
     if (inputEl) inputEl.style.height = "auto";
   }
 
   function clearPendingFiles() {
-    setPendingFiles((prev) => {
-      prev.forEach(revokePendingFile);
-      return [];
-    });
+    chatRuntime.clearFiles();
   }
 
   function addPendingFiles(files: FileList | File[]) {
-    setUploadError("");
-    const next: PendingFile[] = [];
-    for (const file of Array.from(files)) {
-      if (!isSupportedFile(file)) {
-        setUploadError(`Unsupported file type: ${file.name}`);
-        continue;
-      }
-      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-        setUploadError(`File exceeds 25 MB: ${file.name}`);
-        continue;
-      }
-      next.push(createPendingFile(file));
-    }
-    if (next.length > 0) {
-      setPendingFiles((prev) => [...prev, ...next]);
-    }
+    chatRuntime.attachFiles(files);
   }
 
   function removePendingFile(id: string) {
-    setPendingFiles((prev) => {
-      const removed = prev.find((item) => item.id === id);
-      if (removed) revokePendingFile(removed);
-      return prev.filter((item) => item.id !== id);
-    });
+    chatRuntime.removeFile(id);
   }
 
   function canAttachFiles() {
@@ -316,186 +282,10 @@ export function BoardView() {
     ]);
   }
 
-  function appendStreamingTextLog(text: string) {
-    setWaitingForFirstText(false);
-    setStreamingLogItems((prev) => {
-      const last = prev.at(-1);
-      if (last?.type === "text" && last.role === "assistant") {
-        return [
-          ...prev.slice(0, -1),
-          { ...last, content: last.content + text },
-        ];
-      }
-      return [...prev, { type: "text", role: "assistant", content: text }];
-    });
-  }
-
-  function appendStreamingThinkingLog(text: string) {
-    setStreamingLogItems((prev) => {
-      const last = prev.at(-1);
-      if (last?.type === "thinking") {
-        return [
-          ...prev.slice(0, -1),
-          { ...last, content: last.content + text },
-        ];
-      }
-      return [...prev, { type: "thinking", content: text }];
-    });
-  }
-
-  function appendStreamingToolLog(id: string, name: string, args: unknown) {
-    setStreamingLogItems((prev) =>
-      prev.some((item) => item.type === "tool" && item.id === id)
-        ? prev
-        : [
-            ...prev,
-            {
-              type: "tool",
-              id,
-              toolName: name,
-              args,
-              status: "running",
-            },
-          ]
-    );
-  }
-
-  function updateStreamingToolStatus(name: string, status: "done" | "error") {
-    setStreamingLogItems((prev) =>
-      prev.map((item) =>
-        item.type === "tool" &&
-        item.toolName === name &&
-        item.status === "running"
-          ? { ...item, status }
-          : item
-      )
-    );
-  }
-
-  function attachStreamingToolResult(
-    id: string,
-    name: string,
-    content: string,
-    isError: boolean,
-    details?: { diff?: string }
-  ) {
-    const result: FullToolResultMessage = {
-      role: "toolResult",
-      toolCallId: id,
-      toolName: name,
-      content: [{ type: "text", text: content }],
-      isError,
-      details,
-      timestamp: Date.now(),
-    };
-    setStreamingLogItems((prev) =>
-      prev.map((item) =>
-        item.type === "tool" && item.id === id
-          ? {
-              ...item,
-              body: content,
-              result,
-              status: isError ? "error" : "done",
-            }
-          : item
-      )
-    );
-  }
-
-  function finalizeStreamingLogs() {
-    const items = streamingLogItems();
-    if (items.length > 0) {
-      setLogItems((prev) => [...prev, ...items]);
-    }
-    setStreamingLogItems([]);
-  }
-
-  function applyActiveTurnSnapshot(turn: ActiveTurn) {
-    setIsStreaming(true);
-    setWaitingForFirstText(!turn.text?.trim() && !turn.thinking?.trim());
-    const activeItems: BoardLogItem[] = [];
-    if (turn.thinking) {
-      activeItems.push({ type: "thinking", content: turn.thinking });
-    }
-    if (turn.text) {
-      activeItems.push({ type: "text", role: "assistant", content: turn.text });
-    }
-    for (const toolCall of turn.toolCalls ?? []) {
-      activeItems.push({
-        type: "tool",
-        id: toolCall.id,
-        toolName: toolCall.name,
-        args: toolCall.arguments,
-        status: toolCall.status,
-      });
-    }
-    setStreamingLogItems(activeItems);
-    if (turn.userText) {
-      setLogItems((prev) =>
-        prev.some(
-          (item) =>
-            item.type === "text" &&
-            item.role === "user" &&
-            item.content === turn.userText
-        )
-          ? prev
-          : [
-              ...prev,
-              { type: "text", role: "user", content: turn.userText ?? "" },
-            ]
-      );
-    }
-  }
-
-  function clearStreamingLogs() {
-    setStreamingLogItems([]);
-  }
-
   function buildHistoryLogItems(
     messages: FullHistoryMessage[]
   ): BoardLogItem[] {
     return buildBoardLogs(messages);
-  }
-
-  function attachSessionSubscription(agentId: string, sessionKey: string) {
-    cleanupSubscription();
-    stopSubscription = subscribeToSession(agentId, sessionKey, {
-      onText(text) {
-        if (!text) return;
-        appendStreamingTextLog(text);
-      },
-      onThinking(text) {
-        if (!text) return;
-        appendStreamingThinkingLog(text);
-      },
-      onToolCall(id, name, args) {
-        appendStreamingToolLog(id, name, args);
-      },
-      onToolEnd(name, isError) {
-        updateStreamingToolStatus(name, isError ? "error" : "done");
-      },
-      onToolResult(id, name, content, isError, details) {
-        attachStreamingToolResult(id, name, content, isError, details);
-      },
-      onActiveTurn(turn) {
-        applyActiveTurnSnapshot(turn);
-      },
-      onDone() {
-        cleanupSubscription();
-        finalizeStreamingLogs();
-        setWaitingForFirstText(false);
-        setIsStreaming(false);
-        processNextQueuedMessage(agentId);
-      },
-      onError(error) {
-        cleanupSubscription();
-        clearStreamingLogs();
-        setWaitingForFirstText(false);
-        setIsStreaming(false);
-        appendAssistantLog(error);
-        processNextQueuedMessage(agentId);
-      },
-    });
   }
 
   async function loadHistory(agentId: string) {
@@ -503,37 +293,21 @@ export function BoardView() {
     const sessionKey = getSessionKey(agentId);
 
     try {
-      const history = await fetchFullHistory(agentId, sessionKey);
+      const history = await chatRuntime.loadHistory({ agentId, sessionKey });
       if (version !== historyLoadVersion || selectedAgentId() !== agentId)
         return;
 
       const historyMessages: FullHistoryMessage[] = history.messages;
       const items = buildHistoryLogItems(historyMessages);
 
-      if (history.isStreaming && history.activeTurn && !stopStream) {
-        cleanupSubscription();
-        attachSessionSubscription(agentId, sessionKey);
-      }
-
       setLogItems(items);
-      if (history.isStreaming && history.activeTurn) {
-        applyActiveTurnSnapshot(history.activeTurn);
-      } else {
-        clearStreamingLogs();
-      }
-      setIsStreaming(Boolean(history.isStreaming));
-      setWaitingForFirstText(
-        Boolean(history.isStreaming && !history.activeTurn?.text?.trim())
-      );
       scrollToBottom(true);
     } catch (err) {
       if (version !== historyLoadVersion || selectedAgentId() !== agentId)
         return;
       console.error("[BoardView] failed to load history:", err);
       setLogItems([]);
-      clearStreamingLogs();
-      setIsStreaming(false);
-      setWaitingForFirstText(false);
+      chatRuntime.reset();
     }
   }
 
@@ -576,7 +350,7 @@ export function BoardView() {
 
   onCleanup(() => {
     if (pollTimer) clearInterval(pollTimer);
-    cleanupLiveConnections();
+    chatRuntime.reset();
     clearPendingFiles();
     resetFileDragState();
   });
@@ -623,7 +397,7 @@ export function BoardView() {
       const dropError = getFileDropError();
       resetFileDragState();
       if (dropError) {
-        setUploadError(dropError);
+        chatRuntime.setUploadError(dropError);
         return;
       }
       if (!files || files.length === 0) return;
@@ -653,108 +427,13 @@ export function BoardView() {
 
   createEffect(() => {
     const agentId = selectedAgentId();
-    cleanupLiveConnections();
+    chatRuntime.reset();
     historyLoadVersion += 1;
     setLogItems([]);
-    clearStreamingLogs();
-    setIsStreaming(false);
-    setWaitingForFirstText(false);
     setStickToBottom(true);
-    setQueuedMessages([]);
-    activeQueuedMessage = null;
     if (!agentId) return;
     void loadHistory(agentId);
   });
-
-  function sendStreamMessage(
-    agentId: string,
-    text: string,
-    mode: "normal" | "queued",
-    attachments?: FileAttachment[]
-  ) {
-    cleanupSubscription();
-    setIsStreaming(true);
-    setWaitingForFirstText(true);
-    setStickToBottom(true);
-    clearStreamingLogs();
-    scrollToBottom(true);
-
-    const sessionKey = getSessionKey(agentId);
-    stopStream = streamMessage(
-      agentId,
-      text,
-      sessionKey,
-      (chunk) => {
-        if (!chunk) return;
-        appendStreamingTextLog(chunk);
-      },
-      () => {
-        cleanupStream();
-        finalizeStreamingLogs();
-        setWaitingForFirstText(false);
-        setIsStreaming(false);
-        if (mode === "queued") {
-          activeQueuedMessage = null;
-        }
-        processNextQueuedMessage(agentId);
-      },
-      (error) => {
-        cleanupStream();
-        clearStreamingLogs();
-        setWaitingForFirstText(false);
-        setIsStreaming(false);
-        if (mode === "queued") {
-          activeQueuedMessage = null;
-        }
-        appendAssistantLog(error);
-        processNextQueuedMessage(agentId);
-      },
-      {
-        onThinking(chunk) {
-          if (!chunk) return;
-          appendStreamingThinkingLog(chunk);
-        },
-        onToolCall(id, name, args) {
-          appendStreamingToolLog(id, name, args);
-        },
-        onToolEnd(name, isError) {
-          updateStreamingToolStatus(name, isError ? "error" : "done");
-        },
-        onToolResult(id, name, content, isError, details) {
-          attachStreamingToolResult(id, name, content, isError, details);
-        },
-      },
-      attachments?.length ? { attachments } : undefined
-    );
-  }
-
-  function processNextQueuedMessage(agentId: string) {
-    if (selectedAgentId() !== agentId || isStreaming() || activeQueuedMessage) {
-      return;
-    }
-    const nextText = queuedMessages()[0];
-    if (!nextText) return;
-    activeQueuedMessage = nextText;
-    setQueuedMessages((prev) => prev.slice(1));
-    appendUserLog(nextText);
-    sendStreamMessage(agentId, nextText, "queued");
-  }
-
-  async function resumeQueuedMessagesAfterAbort(agentId: string) {
-    if (!queuedMessages().length || selectedAgentId() !== agentId) return;
-    const sessionKey = getSessionKey(agentId);
-    try {
-      const history = await fetchFullHistory(agentId, sessionKey);
-      if (selectedAgentId() !== agentId) return;
-      if (!history.isStreaming) {
-        processNextQueuedMessage(agentId);
-        return;
-      }
-      attachSessionSubscription(agentId, sessionKey);
-    } catch (err) {
-      console.error("[BoardView] failed to resume queued messages:", err);
-    }
-  }
 
   async function handleSend() {
     const agentId = selectedAgentId();
@@ -764,48 +443,29 @@ export function BoardView() {
     if (!agentId || (!text && !hasFiles) || uploadingFiles()) return;
 
     if (isStreaming() && hasFiles) {
-      setUploadError("Wait for the current response before attaching files.");
+      chatRuntime.setUploadError(
+        "Wait for the current response before attaching files."
+      );
       return;
-    }
-
-    let attachments: FileAttachment[] | undefined;
-    let inboundFiles: FileBlock[] = [];
-    if (hasFiles) {
-      setUploadingFiles(true);
-      setUploadError("");
-      try {
-        attachments = await uploadFiles(
-          currentPendingFiles.map((item) => item.file)
-        );
-        inboundFiles = attachments.map((attachment, index) =>
-          attachmentToFileBlock(attachment, currentPendingFiles[index])
-        );
-        clearPendingFiles();
-      } catch (error) {
-        setUploadError(
-          error instanceof Error ? error.message : "File upload failed"
-        );
-        setUploadingFiles(false);
-        return;
-      }
-      setUploadingFiles(false);
     }
 
     const messageText = text || "Attached file(s).";
-    const logText = messageText;
+    const wasStreaming = isStreaming();
 
     setChatInput("");
     resetInputHeight();
-
-    if (isStreaming()) {
-      setQueuedMessages((prev) => [...prev, messageText]);
-      setStickToBottom(true);
-      scrollToBottom(true);
-      return;
-    }
-
-    appendUserLog(logText, inboundFiles.length > 0 ? inboundFiles : undefined);
-    sendStreamMessage(agentId, messageText, "normal", attachments);
+    setStickToBottom(true);
+    scrollToBottom(true);
+    await chatRuntime.send({
+      agentId,
+      text: messageText,
+      sessionKey: getSessionKey(agentId),
+      queueWhileStreaming: true,
+      onUserMessage: (sentText, files) => {
+        if (!wasStreaming) appendUserLog(sentText, files);
+      },
+      onAssistantError: appendAssistantLog,
+    });
   }
 
   async function handleAbort() {
@@ -813,16 +473,9 @@ export function BoardView() {
     if (!agentId || !isStreaming()) return;
     const sessionKey = getSessionKey(agentId);
     try {
-      await postAbort(agentId, sessionKey);
+      await chatRuntime.stop(agentId, sessionKey);
     } catch (err) {
       console.error("[BoardView] failed to abort stream:", err);
-    } finally {
-      cleanupLiveConnections();
-      finalizeStreamingLogs();
-      setIsStreaming(false);
-      setWaitingForFirstText(false);
-      activeQueuedMessage = null;
-      void resumeQueuedMessagesAfterAbort(agentId);
     }
   }
 
@@ -946,7 +599,7 @@ export function BoardView() {
                   </svg>
                   <span>You (queued)</span>
                 </div>
-                <div class="board-msg-content">{message}</div>
+                <div class="board-msg-content">{message.text}</div>
               </div>
             )}
           </For>

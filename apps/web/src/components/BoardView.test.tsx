@@ -154,6 +154,24 @@ vi.mock("../api", () => ({
   uploadFiles: uploadFilesMock,
 }));
 
+vi.mock("../api/agents", () => ({
+  fetchFullHistory: fetchFullHistoryMock,
+}));
+
+vi.mock("../api/chat", () => ({
+  getSessionKey: getSessionKeyMock,
+  postAbort: vi.fn(),
+  streamMessage: streamMessageMock,
+}));
+
+vi.mock("../api/media", () => ({
+  uploadFiles: uploadFilesMock,
+}));
+
+vi.mock("../api/realtime", () => ({
+  subscribeToSession: subscribeToSessionMock,
+}));
+
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function createFileDragEvent(

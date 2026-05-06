@@ -41,14 +41,10 @@ import { isExtensionEnabled } from "../lib/capabilities";
 import { getMaxContextTokens } from "@aihub/shared/model-context";
 import {
   attachmentToFileBlock,
-  createPendingFile,
   FILE_INPUT_ACCEPT,
   formatFileSize,
-  isSupportedFile,
-  MAX_UPLOAD_SIZE_BYTES,
-  revokePendingFile,
-  type PendingFile,
 } from "../lib/attachments";
+import { createChatAttachmentRuntime } from "../lib/chat-runtime";
 
 function isEmoji(str: string): boolean {
   return /^\p{Emoji}/u.test(str) && str.length <= 4;
@@ -456,9 +452,12 @@ export function ChatView() {
   const [pendingThinkLevel, setPendingThinkLevel] =
     createSignal<ThinkLevel | null>(null);
   const [input, setInput] = createSignal("");
-  const [pendingFiles, setPendingFiles] = createSignal<PendingFile[]>([]);
-  const [uploadingFiles, setUploadingFiles] = createSignal(false);
-  const [uploadError, setUploadError] = createSignal("");
+  const attachmentRuntime = createChatAttachmentRuntime();
+  const pendingFiles = attachmentRuntime.pendingFiles;
+  const uploadingFiles = attachmentRuntime.uploadingFiles;
+  const uploadError = attachmentRuntime.uploadError;
+  const setUploadingFiles = attachmentRuntime.setUploadingFiles;
+  const setUploadError = attachmentRuntime.setUploadError;
   const [isFileDragActive, setIsFileDragActive] = createSignal(false);
   const [activeDropZone, setActiveDropZone] = createSignal<DropZone | null>(
     null
@@ -662,39 +661,9 @@ export function ChatView() {
     textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, maxHeight)}px`;
   };
 
-  const clearPendingFiles = () => {
-    setPendingFiles((prev) => {
-      prev.forEach(revokePendingFile);
-      return [];
-    });
-  };
-
-  const addPendingFiles = (files: FileList | File[]) => {
-    setUploadError("");
-    const next: PendingFile[] = [];
-    for (const file of Array.from(files)) {
-      if (!isSupportedFile(file)) {
-        setUploadError(`Unsupported file type: ${file.name}`);
-        continue;
-      }
-      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-        setUploadError(`File exceeds 25 MB: ${file.name}`);
-        continue;
-      }
-      next.push(createPendingFile(file));
-    }
-    if (next.length > 0) {
-      setPendingFiles((prev) => [...prev, ...next]);
-    }
-  };
-
-  const removePendingFile = (id: string) => {
-    setPendingFiles((prev) => {
-      const removed = prev.find((item) => item.id === id);
-      if (removed) revokePendingFile(removed);
-      return prev.filter((item) => item.id !== id);
-    });
-  };
+  const clearPendingFiles = attachmentRuntime.clearFiles;
+  const addPendingFiles = attachmentRuntime.attachFiles;
+  const removePendingFile = attachmentRuntime.removeFile;
 
   onCleanup(clearPendingFiles);
 
