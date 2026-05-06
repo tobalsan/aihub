@@ -3,11 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
-import {
-  SendMessageRequestSchema,
-  buildUserContext,
-  resolveHomeDir,
-} from "@aihub/shared";
+import { resolveHomeDir } from "@aihub/shared";
 import {
   getActiveAgents,
   getAgent,
@@ -29,12 +25,7 @@ import {
   isStreaming,
 } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
-import {
-  resolveSessionId,
-  getSessionEntry,
-  isAbortTrigger,
-  getSessionThinkLevel,
-} from "../sessions/index.js";
+import { getSessionEntry, getSessionThinkLevel } from "../sessions/index.js";
 import {
   saveUploadedFile,
   resolveUploadMimeType,
@@ -47,6 +38,7 @@ import {
   getMediaFileMetadata,
   resolveMediaFilePath,
 } from "../media/metadata.js";
+import { normalizeRunRequest } from "./run-request.js";
 
 const api = new Hono();
 const UUID_RE =
@@ -294,69 +286,25 @@ api.post("/agents/:id/messages", async (c) => {
     return c.json({ error: "Agent not found" }, 404);
   }
 
-  const body = await c.req.json();
-  const parsed = SendMessageRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.message }, 400);
-  }
-
   try {
+    const body = await c.req.json();
     const authContext = await getRequestAuthContext(c);
-    const userId = authContext?.session.userId;
-    const context = authContext
-      ? buildUserContext({ name: authContext.user.name })
-      : undefined;
-    // Handle /abort - skip session resolution to avoid creating new session
-    if (isAbortTrigger(parsed.data.message)) {
-      const extensionRuntime = getExtensionRuntime();
-      const result = await runAgent({
-        agentId: agent.id,
-        userId,
-        message: parsed.data.message,
-        sessionId: parsed.data.sessionId,
-        sessionKey: parsed.data.sessionKey,
-        extensionRuntime,
-      });
-      return c.json(result);
-    }
-
-    let resolvedSession:
-      | {
-          sessionId: string;
-          sessionKey?: string;
-          message: string;
-          isNew: boolean;
-        }
-      | undefined;
-    if (!parsed.data.sessionId && parsed.data.sessionKey) {
-      const resolved = await resolveSessionId({
-        agentId: agent.id,
-        userId,
-        sessionKey: parsed.data.sessionKey,
-        message: parsed.data.message,
-      });
-      resolvedSession = {
-        sessionId: resolved.sessionId,
-        sessionKey: parsed.data.sessionKey,
-        message: resolved.message,
-        isNew: resolved.isNew,
-      };
-    }
-
-    const result = await runAgent({
-      agentId: agent.id,
-      userId,
-      message: parsed.data.message,
-      sessionId: parsed.data.sessionId,
-      sessionKey: resolvedSession
-        ? undefined
-        : (parsed.data.sessionKey ?? "main"),
-      resolvedSession,
-      thinkLevel: parsed.data.thinkLevel,
-      context,
+    const normalized = await normalizeRunRequest({
+      agent,
+      input: { agentId, ...body },
+      authContext,
       extensionRuntime: getExtensionRuntime(),
       source: "web",
     });
+
+    if (normalized.type === "validation_error") {
+      return c.json({ error: normalized.message }, 400);
+    }
+    if (normalized.type === "immediate") {
+      return c.json(normalized.result);
+    }
+
+    const result = await runAgent(normalized.params);
     return c.json(result);
   } catch (err) {
     return c.json(

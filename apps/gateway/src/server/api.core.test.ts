@@ -24,6 +24,7 @@ const multiUserState = vi.hoisted(() => ({
 }));
 
 vi.mock("../config/index.js", () => ({
+  CONFIG_DIR: "/tmp/aihub-test",
   getAgent,
   getActiveAgents,
   isAgentActive,

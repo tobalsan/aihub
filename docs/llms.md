@@ -26,6 +26,7 @@ Core TypeScript/Node.js application. Exports:
 - **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub notify`, `aihub projects ...`, `aihub subagents ...`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + extensions + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
+  - `src/server/run-request.ts` normalizes REST/WebSocket agent run inputs before `runAgent()`: validation, session key defaults/resolution, multi-user user IDs/context, inbound attachment paths, and empty reset-trigger intro responses.
 - **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
 - **Agent Runtime** (`src/agents/`): Pi SDK integration, session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
 - **Scheduler** (`src/scheduler/`): Interval/daily job execution

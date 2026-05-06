@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { WebSocketServer, type WebSocket } from "ws";
-import { buildUserContext, resolveBindHost } from "@aihub/shared";
+import { resolveBindHost } from "@aihub/shared";
 import type {
   WsClientMessage,
   WsServerMessage,
@@ -22,14 +22,9 @@ import { loadConfig, getAgent, isAgentActive } from "../config/index.js";
 import { runAgent, agentEventBus } from "../agents/index.js";
 import { getExtensionRuntime } from "../extensions/registry.js";
 import type { ExtensionRuntime } from "../extensions/runtime.js";
-import {
-  resolveSessionId,
-  getSessionEntry,
-  isAbortTrigger,
-} from "../sessions/index.js";
-import { invalidateResolvedHistoryFile } from "../history/store.js";
+import { getSessionEntry } from "../sessions/index.js";
 import { getSessionCurrentTurn, isStreaming } from "../agents/index.js";
-import { normalizeInboundAttachments } from "../sdk/attachments.js";
+import { normalizeRunRequest } from "./run-request.js";
 
 type RequestAuthContext =
   import("@aihub/extension-multi-user").RequestAuthContext;
@@ -260,87 +255,25 @@ function handleWsConnection(
       }
 
       try {
-        const userId = authContext?.session.userId;
-        const attachments = await normalizeInboundAttachments(msg.attachments);
-        // Handle /abort - skip session resolution to avoid creating new session
-        if (isAbortTrigger(msg.message)) {
-          await runAgent({
-            agentId: msg.agentId,
-            userId,
-            message: msg.message,
-            attachments,
-            sessionId: msg.sessionId,
-            sessionKey: msg.sessionKey,
-            extensionRuntime: currentExtensionRuntime(),
-            onEvent: (event) => sendWs(ws, event),
-          });
-          return;
-        }
-
-        // Resolve sessionId from sessionKey if not explicitly provided
-        let sessionId = msg.sessionId;
-        let message = msg.message;
-        let isNewSession = false;
-        let resolvedSession:
-          | {
-              sessionId: string;
-              sessionKey?: string;
-              message: string;
-              isNew: boolean;
-            }
-          | undefined;
-        if (!sessionId && msg.sessionKey) {
-          const resolved = await resolveSessionId({
-            agentId: msg.agentId,
-            userId,
-            sessionKey: msg.sessionKey,
-            message: msg.message,
-          });
-          sessionId = resolved.sessionId;
-          message = resolved.message;
-          isNewSession = resolved.isNew;
-          resolvedSession = {
-            sessionId: resolved.sessionId,
-            sessionKey: msg.sessionKey,
-            message: resolved.message,
-            isNew: resolved.isNew,
-          };
-        }
-
-        // Handle session reset with empty message (e.g., /new command)
-        if (isNewSession && !message.trim()) {
-          invalidateResolvedHistoryFile(
-            msg.agentId,
-            sessionId ?? "default",
-            userId
-          );
-          const introMessage =
-            agent.introMessage ?? "New conversation started.";
-          sendWs(ws, {
-            type: "session_reset",
-            sessionId: sessionId ?? "default",
-          });
-          sendWs(ws, { type: "text", data: introMessage });
-          sendWs(ws, { type: "done", meta: { durationMs: 0 } });
-          return;
-        }
-
-        await runAgent({
-          agentId: msg.agentId,
-          userId,
-          message: msg.message,
-          attachments,
-          sessionId: msg.sessionId ?? (resolvedSession ? undefined : "default"),
-          sessionKey: resolvedSession ? undefined : (msg.sessionKey ?? "main"),
-          resolvedSession,
-          thinkLevel: msg.thinkLevel,
+        const normalized = await normalizeRunRequest({
+          agent,
+          input: msg,
+          authContext,
           extensionRuntime: currentExtensionRuntime(),
-          context: authContext
-            ? buildUserContext({ name: authContext.user.name })
-            : undefined,
           source: "web",
           onEvent: (event) => sendWs(ws, event),
+          defaultSessionId: "default",
         });
+        if (normalized.type === "validation_error") {
+          sendWs(ws, { type: "error", message: normalized.message });
+          return;
+        }
+        if (normalized.type === "immediate") {
+          for (const event of normalized.events) sendWs(ws, event);
+          return;
+        }
+
+        await runAgent(normalized.params);
       } catch (err) {
         sendWs(ws, {
           type: "error",
