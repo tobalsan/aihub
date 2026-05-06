@@ -40,7 +40,6 @@ const piMock = vi.hoisted(() => {
     model,
     session,
     createAgentSession: vi.fn(async (_options: unknown) => ({ session })),
-    createCodingTools: vi.fn(() => []),
     resourceReload: vi.fn(async () => undefined),
     reset() {
       subscribers.length = 0;
@@ -52,7 +51,6 @@ const piMock = vi.hoisted(() => {
       session.abort.mockClear();
       session.dispose.mockClear();
       this.createAgentSession.mockClear();
-      this.createCodingTools.mockClear();
       this.resourceReload.mockClear();
       setRuntimeApiKey.mockClear();
       sessionManagerOpen.mockClear();
@@ -88,7 +86,6 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
     this.options = options;
   }),
   createAgentSession: piMock.createAgentSession,
-  createCodingTools: piMock.createCodingTools,
 }));
 
 afterEach(() => {
@@ -175,7 +172,9 @@ describe("Pi runner", () => {
       "anthropic",
       "onecli-proxy-managed"
     );
-    expect(piMock.createCodingTools).toHaveBeenCalledWith(workspaceDir);
+    expect(piMock.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: ["read", "bash", "edit", "write"] })
+    );
     expect(piMock.session.dispose).toHaveBeenCalledTimes(1);
 
     await fs.rm(tempDir, { recursive: true, force: true });

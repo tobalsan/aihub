@@ -9,7 +9,6 @@ import {
   SessionManager,
   SettingsManager,
   createAgentSession,
-  createCodingTools,
   type AgentSession,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
@@ -137,7 +136,7 @@ export async function runAgent(
   await resourceLoader.reload();
 
   const sessionManager = SessionManager.open(sessionFile, input.sessionDir);
-  const tools = createCodingTools(input.workspaceDir);
+  const tools = ["read", "bash", "edit", "write"];
   const usedToolNames = new Set<string>();
   const customTools = [
     ...createExtensionTools(input, usedToolNames),

@@ -176,7 +176,6 @@ export const piAdapter: SdkAdapter = {
         AuthStorage,
         ModelRegistry,
         DefaultResourceLoader,
-        createCodingTools,
       } = await import("@mariozechner/pi-coding-agent");
       const { getEnvApiKey } = await import("@mariozechner/pi-ai");
 
@@ -258,8 +257,8 @@ export const piAdapter: SdkAdapter = {
       const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
       const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
 
-      // Create tools
-      const tools = createCodingTools(params.workspaceDir);
+      // Enable Pi's built-in coding tools for the run workspace.
+      const tools = ["read", "bash", "edit", "write"];
       const usedToolNames = new Set<string>();
       const extensionTools = await createPiExtensionTools(
         agent,

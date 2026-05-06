@@ -7,7 +7,6 @@ import {
 } from "../../../config/index.js";
 
 const mockCreateAgentSession = vi.fn();
-const mockCreateCodingTools = vi.fn(() => []);
 const mockGetEnvApiKey = vi.fn(() => "env-api-key");
 const mockEnsureBootstrapFiles = vi.fn(async () => undefined);
 const mockLoadBootstrapFiles = vi.fn(async () => []);
@@ -68,7 +67,6 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
       return undefined;
     }
   },
-  createCodingTools: mockCreateCodingTools,
 }));
 
 function makeAgent(id = "pi-agent"): AgentConfig {
