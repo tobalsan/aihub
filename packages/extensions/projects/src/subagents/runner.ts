@@ -19,6 +19,7 @@ import {
 } from "../projects/space.js";
 import { dirExists } from "../util/fs.js";
 import { getProjectsRoot, getProjectsWorktreeRoot } from "../util/paths.js";
+import { subagentRunStore, writeJsonFile as writeJson } from "./run-store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -166,31 +167,6 @@ async function resolveProjectRepo(
       : "";
   if (!inheritedRepo) return "";
   return readExistingRepo(inheritedRepo);
-}
-
-async function appendHistory(
-  historyPath: string,
-  event: Record<string, unknown>
-): Promise<void> {
-  const line = `${JSON.stringify(event)}\n`;
-  try {
-    await fs.appendFile(historyPath, line, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-}
-
-async function writeJson(filePath: string, data: unknown): Promise<void> {
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    await fs.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8");
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
 }
 
 function isExecutableFile(p: string): Promise<boolean> {
@@ -516,8 +492,7 @@ export async function spawnSubagent(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  const sessionsRoot = path.join(projectDir, "sessions");
-  const sessionDir = path.join(sessionsRoot, input.slug);
+  const sessionDir = subagentRunStore.locate(projectDir, input.slug);
   let frontmatter: Record<string, unknown> = {};
   let summary = "";
   if (!input.resume) {
@@ -691,7 +666,6 @@ export async function spawnSubagent(
   }
 
   const statePath = path.join(sessionDir, "state.json");
-  const historyPath = path.join(sessionDir, "history.jsonl");
   const progressPath = path.join(sessionDir, "progress.json");
   const logsPath = path.join(sessionDir, "logs.jsonl");
   const configPath = path.join(sessionDir, "config.json");
@@ -784,16 +758,7 @@ export async function spawnSubagent(
     state = nextState;
     const snapshot = { ...nextState };
     stateWrite = stateWrite.then(async () => {
-      let current: Record<string, unknown> = {};
-      try {
-        current = JSON.parse(await fs.readFile(statePath, "utf8")) as Record<
-          string,
-          unknown
-        >;
-      } catch {
-        current = {};
-      }
-      await writeJson(statePath, { ...current, ...snapshot });
+      await subagentRunStore.updateState(projectDir, input.slug, snapshot);
     });
     await stateWrite;
   };
@@ -894,18 +859,20 @@ export async function spawnSubagent(
 
   child.on("error", async (err) => {
     const finishedAt = new Date().toISOString();
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data: {
-        run_id: `${Date.now()}`,
-        outcome: "error",
-        error_message:
-          err instanceof Error
-            ? `spawn failed: ${err.message}`
-            : "spawn failed",
+    await subagentRunStore.appendHistory(projectDir, input.slug, [
+      {
+        ts: finishedAt,
+        type: "worker.finished",
+        data: {
+          run_id: `${Date.now()}`,
+          outcome: "error",
+          error_message:
+            err instanceof Error
+              ? `spawn failed: ${err.message}`
+              : "spawn failed",
+        },
       },
-    });
+    ]);
     if (acquiredSpaceLease) {
       await releaseProjectSpaceWriteLease(config, input.projectId, {
         holder: input.slug,
@@ -935,10 +902,7 @@ export async function spawnSubagent(
     if (typeof existing.archived === "boolean") {
       archived = existing.archived;
     }
-    if (
-      existing.source === "manual" ||
-      existing.source === "orchestrator"
-    ) {
+    if (existing.source === "manual" || existing.source === "orchestrator") {
       existingSource = existing.source;
     }
   } catch {
@@ -987,15 +951,17 @@ export async function spawnSubagent(
     await fs.appendFile(logsPath, `${userLine}\n`, "utf8");
   }
   markIoReady();
-  await appendHistory(historyPath, {
-    ts: startedAt,
-    type: "worker.started",
-    data: {
-      action: input.resume ? "follow_up" : "started",
-      harness: cli,
-      session_id: state.session_id,
+  await subagentRunStore.appendHistory(projectDir, input.slug, [
+    {
+      ts: startedAt,
+      type: "worker.started",
+      data: {
+        action: input.resume ? "follow_up" : "started",
+        harness: cli,
+        session_id: state.session_id,
+      },
     },
-  });
+  ]);
 
   child.on("exit", async (code, signal) => {
     await stdoutProcessing;
@@ -1016,11 +982,13 @@ export async function spawnSubagent(
     if (outcome === "error") {
       data.error_message = exitMessage;
     }
-    await appendHistory(historyPath, {
-      ts: finishedAt,
-      type: "worker.finished",
-      data,
-    });
+    await subagentRunStore.appendHistory(projectDir, input.slug, [
+      {
+        ts: finishedAt,
+        type: "worker.finished",
+        data,
+      },
+    ]);
     if (outcome === "error") {
       let interruptRequestedAt: string | undefined;
       try {
@@ -1101,9 +1069,8 @@ export async function interruptSubagent(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  const sessionDir = path.join(projectDir, "sessions", slug);
+  const sessionDir = subagentRunStore.locate(projectDir, slug);
   const statePath = path.join(sessionDir, "state.json");
-  const historyPath = path.join(sessionDir, "history.jsonl");
 
   try {
     const raw = await fs.readFile(statePath, "utf8");
@@ -1118,20 +1085,21 @@ export async function interruptSubagent(
       return { ok: false, error: `Subagent not running: ${slug}` };
     }
     if (state.supervisor_pid) {
-      await writeJson(statePath, {
-        ...state,
+      await subagentRunStore.updateState(projectDir, slug, {
         interrupt_requested_at: new Date().toISOString(),
       });
       process.kill(state.supervisor_pid, "SIGTERM");
-      await appendHistory(historyPath, {
-        ts: new Date().toISOString(),
-        type: "worker.interrupt",
-        data: {
-          action: "requested",
-          signal: "SIGTERM",
-          supervisor_pid: state.supervisor_pid,
+      await subagentRunStore.appendHistory(projectDir, slug, [
+        {
+          ts: new Date().toISOString(),
+          type: "worker.interrupt",
+          data: {
+            action: "requested",
+            signal: "SIGTERM",
+            supervisor_pid: state.supervisor_pid,
+          },
         },
-      });
+      ]);
       return { ok: true, data: { slug } };
     }
   } catch {
@@ -1153,7 +1121,7 @@ export async function killSubagent(
   }
 
   const projectDir = path.join(location.baseRoot, location.dirName);
-  const sessionDir = path.join(projectDir, "sessions", slug);
+  const sessionDir = subagentRunStore.locate(projectDir, slug);
   if (!(await dirExists(sessionDir))) {
     return { ok: false, error: `Subagent not found: ${slug}` };
   }
@@ -1186,10 +1154,7 @@ export async function killSubagent(
     }
   }
 
-  const workspacesRoot = path.join(
-    getProjectsWorktreeRoot(config),
-    projectId
-  );
+  const workspacesRoot = path.join(getProjectsWorktreeRoot(config), projectId);
   const worktreeDir = path.join(workspacesRoot, slug);
   const worktreePath =
     typeof state?.worktree_path === "string" ? state.worktree_path : "";
@@ -1294,18 +1259,7 @@ export async function killSubagent(
   }
   await pruneProjectRepoWorktrees(config, projectId).catch(() => {});
 
-  await fs.rm(sessionDir, { recursive: true, force: true });
-
-  try {
-    const remainingSessions = await fs.readdir(
-      path.join(projectDir, "sessions")
-    );
-    if (remainingSessions.length === 0) {
-      await fs.rmdir(path.join(projectDir, "sessions"));
-    }
-  } catch {
-    // ignore
-  }
+  await subagentRunStore.delete(projectDir, slug);
 
   // Remove parent folder (PRO-XX) if empty
   try {
