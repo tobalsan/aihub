@@ -22,7 +22,7 @@ import {
   updateProject,
   updateTask,
 } from "../../api";
-import type { SubagentListItem, Task } from "../../api/types";
+import type { ProjectDetail, SubagentListItem, Task } from "../../api/types";
 import { AgentPanel } from "./AgentPanel";
 import {
   CenterPanel,
@@ -33,6 +33,8 @@ import { SpecEditor } from "./SpecEditor";
 import type { SpawnFormDraft, SpawnPrefill, SpawnTemplate } from "./SpawnForm";
 import { zenMode } from "../../lib/layout";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
+import { EditRepoModal } from "./EditRepoModal";
+import { ToastNotification, type ToastVariant } from "../ui/Toast";
 
 type PersistedCenterView = {
   tab: CenterTab;
@@ -72,7 +74,13 @@ function saveCenterView(id: string, view: PersistedCenterView): void {
 }
 
 type MergedTab = "chat" | "activity" | "changes" | "spec" | "slices";
-type MobileTab = "overview" | "chat" | "activity" | "changes" | "spec" | "slices";
+type MobileTab =
+  | "overview"
+  | "chat"
+  | "activity"
+  | "changes"
+  | "spec"
+  | "slices";
 
 function getBaseAppTitle(): string {
   if (import.meta.env.VITE_AIHUB_DEV === "true") {
@@ -174,6 +182,12 @@ export function ProjectDetailPage() {
   };
   const [isEditingTitle, setIsEditingTitle] = createSignal(false);
   const [titleDraft, setTitleDraft] = createSignal("");
+  const [actionMenuOpen, setActionMenuOpen] = createSignal(false);
+  const [editRepoOpen, setEditRepoOpen] = createSignal(false);
+  const [toast, setToast] = createSignal<{
+    message: string;
+    variant: ToastVariant;
+  } | null>(null);
   let titleInputRef: HTMLInputElement | undefined;
 
   const [project, { mutate: mutateProject, refetch: refetchProject }] =
@@ -262,6 +276,9 @@ export function ProjectDetailPage() {
     return (areas() ?? []).find((item) => item.id === areaId);
   });
   const repoMessage = createMemo(() => getRepoStatusMessage(project()));
+  const currentRepo = createMemo(() =>
+    getFrontmatterString(project()?.frontmatter, "repo")
+  );
 
   const handleBack = () => {
     navigate("/projects");
@@ -279,6 +296,21 @@ export function ProjectDetailPage() {
     if (!id) return;
     await updateProject(id, { repo });
     await refetchProject();
+  };
+
+  const handleModalRepoSave = async (repo: string): Promise<ProjectDetail> => {
+    const id = projectId();
+    const previousRepo = currentRepo();
+    if (!id) throw new Error("Project not loaded");
+    const updated = await updateProject(id, { repo });
+    if (repo.trim() !== "" && !updated.repoValid) {
+      await updateProject(id, { repo: previousRepo });
+      await refetchProject();
+      return updated;
+    }
+    mutateProject(updated);
+    await refetchProject();
+    return updated;
   };
 
   const handleAreaChange = async (areaId: string) => {
@@ -364,9 +396,11 @@ export function ProjectDetailPage() {
   const applyLeadSpawnToProject = (agentId: string, sessionKey?: string) => {
     const current = project();
     if (!current) return;
-    const nextSessionKey = sessionKey?.trim() || `project:${projectId()}:${agentId}`;
+    const nextSessionKey =
+      sessionKey?.trim() || `project:${projectId()}:${agentId}`;
     const currentFrontmatter = current.frontmatter ?? {};
-    const currentSessionKeys = getFrontmatterRecord(currentFrontmatter, "sessionKeys") ?? {};
+    const currentSessionKeys =
+      getFrontmatterRecord(currentFrontmatter, "sessionKeys") ?? {};
     mutateProject({
       ...current,
       frontmatter: {
@@ -582,6 +616,18 @@ export function ProjectDetailPage() {
     setSpawnMode(null);
   });
 
+  createEffect(() => {
+    if (!actionMenuOpen()) return;
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest(".project-detail-action-menu-root")) {
+        setActionMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    onCleanup(() => window.removeEventListener("mousedown", handler));
+  });
+
   onCleanup(() => {
     document.title = getBaseAppTitle();
   });
@@ -654,6 +700,33 @@ export function ProjectDetailPage() {
                     </button>
                   </form>
                 </Show>
+                <div class="project-detail-breadcrumb-spacer" />
+                <div class="project-detail-action-menu-root">
+                  <button
+                    type="button"
+                    class="project-detail-action-menu-trigger"
+                    aria-haspopup="menu"
+                    aria-expanded={actionMenuOpen()}
+                    onClick={() => setActionMenuOpen((open) => !open)}
+                  >
+                    Actions ▾
+                  </button>
+                  <Show when={actionMenuOpen()}>
+                    <div class="project-detail-action-menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        class="project-detail-action-item"
+                        onClick={() => {
+                          setActionMenuOpen(false);
+                          setEditRepoOpen(true);
+                        }}
+                      >
+                        Edit repo…
+                      </button>
+                    </div>
+                  </Show>
+                </div>
               </header>
             </Show>
             <Show
@@ -1034,7 +1107,9 @@ export function ProjectDetailPage() {
                             specContent={spec()?.content ?? ""}
                             docs={detail().docs}
                             tasks={tasks()?.tasks ?? []}
-                            progress={tasks()?.progress ?? { done: 0, total: 0 }}
+                            progress={
+                              tasks()?.progress ?? { done: 0, total: 0 }
+                            }
                             areaColor={area()?.color}
                             onToggleTask={handleToggleTask}
                             onAddTask={handleAddTask}
@@ -1198,7 +1273,11 @@ export function ProjectDetailPage() {
                               onSliceClick={openSliceDetail}
                             />
                           </Show>
-                          <Show when={mergedTab() !== "spec" && mergedTab() !== "slices"}>
+                          <Show
+                            when={
+                              mergedTab() !== "spec" && mergedTab() !== "slices"
+                            }
+                          >
                             <CenterPanel
                               project={detail()}
                               onAddComment={handleAddComment}
@@ -1302,6 +1381,32 @@ export function ProjectDetailPage() {
                 </div>
               </div>
             </Show>
+            <Show when={editRepoOpen()}>
+              <EditRepoModal
+                initialRepo={currentRepo()}
+                onClose={() => setEditRepoOpen(false)}
+                onSave={handleModalRepoSave}
+                showToast={(message, variant) => setToast({ message, variant })}
+                getErrorMessage={(updated) => {
+                  const message = getRepoStatusMessage({
+                    frontmatter: updated.frontmatter,
+                    repoValid: updated.repoValid,
+                  });
+                  return message.startsWith("Repo path not found")
+                    ? "Path not found"
+                    : message;
+                }}
+              />
+            </Show>
+            <Show when={toast()}>
+              {(currentToast) => (
+                <ToastNotification
+                  message={currentToast().message}
+                  variant={currentToast().variant}
+                  onClose={() => setToast(null)}
+                />
+              )}
+            </Show>
           </div>
         )}
       </Show>
@@ -1357,6 +1462,55 @@ export function ProjectDetailPage() {
           cursor: text;
           display: inline-block;
           max-width: min(40vw, 360px);
+        }
+
+        .project-detail-breadcrumb-spacer {
+          flex: 1;
+          min-width: 12px;
+        }
+
+        .project-detail-action-menu-root {
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        .project-detail-action-menu-trigger {
+          border: 1px solid var(--border-subtle);
+          border-radius: 6px;
+          background: var(--bg-overlay);
+          color: var(--text-primary);
+          font-size: 12px;
+          padding: 4px 8px;
+          cursor: pointer;
+        }
+
+        .project-detail-action-menu {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          min-width: 150px;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: var(--bg-surface);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+          overflow: hidden;
+          z-index: 100;
+        }
+
+        .project-detail-action-item {
+          display: block;
+          width: 100%;
+          border: 0;
+          background: transparent;
+          color: var(--text-primary);
+          padding: 8px 12px;
+          text-align: left;
+          font-size: 13px;
+          cursor: pointer;
+        }
+
+        .project-detail-action-item:hover {
+          background: var(--bg-hover, color-mix(in srgb, var(--bg-surface) 80%, #fff));
         }
 
         .project-detail-title-edit {

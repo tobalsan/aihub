@@ -615,6 +615,37 @@ describe("BoardProjectDetailPage", () => {
     expect(items).toContain("Move to active");
   });
 
+  it("action menu shows Edit repo and opens the modal", async () => {
+    vi.mocked(fetchProject).mockResolvedValue({
+      ...MOCK_PROJECT,
+      frontmatter: { ...MOCK_PROJECT.frontmatter, repo: "/tmp/repo" },
+    });
+    dispose = render(() => <BoardProjectDetailPage />, container);
+    await wait();
+    await wait();
+
+    expect(container.textContent).not.toContain("Edit repo…");
+    const trigger = container.querySelector(
+      ".bpd-action-menu-trigger"
+    ) as HTMLButtonElement;
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    const edit = Array.from(
+      container.querySelectorAll(".bpd-action-item")
+    ).find(
+      (el) => el.textContent?.trim() === "Edit repo…"
+    ) as HTMLButtonElement;
+    expect(edit).not.toBeNull();
+    edit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wait();
+
+    const input = container.querySelector(
+      ".edit-repo-modal__input"
+    ) as HTMLInputElement;
+    expect(input.value).toBe("/tmp/repo");
+  });
+
   it("lifecycle action calls updateProject with next status", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();

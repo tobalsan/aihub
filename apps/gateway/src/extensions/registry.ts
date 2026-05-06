@@ -120,7 +120,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
 
 const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
 
-let extensionRuntime = new ExtensionRuntime(getKnownExtensionRouteMetadata());
+const extensionRuntime = new ExtensionRuntime(getKnownExtensionRouteMetadata());
 
 function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -293,7 +293,9 @@ export async function loadExtensions(
   const homeExtensionId = homeClaimants[0]?.id;
 
   for (const agent of config.agents) {
-    const agentExtensions = agent.extensions as Record<string, unknown> | undefined;
+    const agentExtensions = agent.extensions as
+      | Record<string, unknown>
+      | undefined;
     if (!agentExtensions) continue;
     for (const [id, value] of Object.entries(agentExtensions)) {
       if (toRecord(value).enabled === false) continue;

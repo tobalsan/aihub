@@ -141,6 +141,75 @@ describe("ProjectDetailPage", () => {
     dispose();
   });
 
+  it("shows Edit repo only inside the Actions menu", async () => {
+    mockMatchMedia();
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.textContent).not.toContain("Edit repo…");
+    const trigger = container.querySelector(
+      ".project-detail-action-menu-trigger"
+    ) as HTMLButtonElement;
+    expect(trigger.textContent?.trim()).toBe("Actions ▾");
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.textContent).toContain("Edit repo…");
+
+    dispose();
+  });
+
+  it("opens the repo modal from the Actions menu", async () => {
+    mockMatchMedia();
+    vi.mocked(fetchProject).mockResolvedValueOnce({
+      id: "PRO-1",
+      title: "Alpha Project",
+      path: "PRO-1_alpha-project",
+      absolutePath: "/tmp/PRO-1_alpha-project",
+      repoValid: true,
+      frontmatter: {
+        area: "aihub",
+        status: "todo",
+        repo: "/tmp/repo",
+      },
+      docs: {},
+      thread: [],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectDetailPage />, container);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trigger = container.querySelector(
+      ".project-detail-action-menu-trigger"
+    ) as HTMLButtonElement;
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const edit = Array.from(
+      container.querySelectorAll(".project-detail-action-item")
+    ).find(
+      (item) => item.textContent?.trim() === "Edit repo…"
+    ) as HTMLButtonElement;
+    edit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const input = container.querySelector(
+      ".edit-repo-modal__input"
+    ) as HTMLInputElement;
+    expect(input.value).toBe("/tmp/repo");
+
+    dispose();
+  });
+
   it("allows inline title edit on double-click and updates breadcrumb after save", async () => {
     vi.mocked(updateProject).mockClear();
     mockMatchMedia();
@@ -207,7 +276,9 @@ describe("ProjectDetailPage", () => {
 
     const leadOption = Array.from(
       container.querySelectorAll(".template-option")
-    ).find((item) => item.textContent?.includes("Lead Agent")) as HTMLButtonElement;
+    ).find((item) =>
+      item.textContent?.includes("Lead Agent")
+    ) as HTMLButtonElement;
     leadOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -271,7 +342,14 @@ describe("ProjectDetailPage", () => {
     const tabs = Array.from(
       container.querySelectorAll(".project-detail-merged-tabs button")
     ).map((button) => button.textContent?.trim());
-    expect(tabs).toEqual(["Overview", "Chat", "Activity", "Changes", "Spec", "Slices"]);
+    expect(tabs).toEqual([
+      "Overview",
+      "Chat",
+      "Activity",
+      "Changes",
+      "Spec",
+      "Slices",
+    ]);
     expect(container.querySelector(".project-detail__center")).toBeNull();
     expect(container.querySelector(".project-detail__right")).toBeNull();
     expect(container.textContent).toContain("Back to Projects");

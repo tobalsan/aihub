@@ -3,21 +3,14 @@
  * §15.2 of kanban-slice-refactor spec + Issue #11.
  */
 // @vitest-environment jsdom
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import type {
   BoardProject,
   ProjectLifecycleCounts,
   ProjectLifecycleStatus,
 } from "../../api/types";
 import { moveBoardProject } from "../../api";
+import { ToastNotification, type ToastVariant } from "../ui/Toast";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -56,7 +49,7 @@ export type ProjectListGroupedProps = {
   /** Navigate to project detail */
   onProjectClick?: (project: BoardProject) => void;
   /** Toast message emitter */
-  onToast?: (message: string, variant?: "error" | "info") => void;
+  onToast?: (message: string, variant?: ToastVariant) => void;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -575,63 +568,6 @@ function GroupSection(props: {
   );
 }
 
-// ── Toast ──────────────────────────────────────────────────────────
-
-export function ToastNotification(props: {
-  message: string;
-  variant?: "error" | "info";
-  onClose?: () => void;
-}) {
-  const bg = () =>
-    props.variant === "error"
-      ? "var(--color-danger, #b94040)"
-      : "var(--color-info, #3b5ba8)";
-
-  onMount(() => {
-    const timer = setTimeout(() => props.onClose?.(), 4000);
-    onCleanup(() => clearTimeout(timer));
-  });
-
-  return (
-    <div
-      data-testid={`toast-${props.variant ?? "info"}`}
-      style={{
-        position: "fixed",
-        bottom: "24px",
-        left: "50%",
-        transform: "translateX(-50%)",
-        "z-index": 9999,
-        background: bg(),
-        color: "#fff",
-        padding: "10px 18px",
-        "border-radius": "6px",
-        "font-size": "13px",
-        "box-shadow": "0 4px 12px rgba(0,0,0,0.4)",
-        display: "flex",
-        gap: "10px",
-        "align-items": "center",
-        "max-width": "420px",
-      }}
-    >
-      <span>{props.message}</span>
-      <button
-        data-testid="toast-close"
-        onClick={props.onClose}
-        style={{
-          background: "none",
-          border: "none",
-          color: "#fff",
-          cursor: "pointer",
-          padding: "0 4px",
-          "font-size": "16px",
-        }}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
 // ── Main component ─────────────────────────────────────────────────
 
 export function ProjectListGrouped(props: ProjectListGroupedProps) {
@@ -641,7 +577,7 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
   const [suppressNextClick, setSuppressNextClick] = createSignal(false);
   const [toast, setToast] = createSignal<{
     message: string;
-    variant: "error" | "info";
+    variant: ToastVariant;
   } | null>(null);
   // Optimistic project list — mirrors props.projects with pending status updates
   const [optimisticOverrides, setOptimisticOverrides] = createSignal<
@@ -703,7 +639,7 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
   const groupCount = (status: ProjectLifecycleStatus) =>
     props.lifecycleCounts?.[status] ?? fallbackCounts()[status];
 
-  function showToast(message: string, variant: "error" | "info" = "info") {
+  function showToast(message: string, variant: ToastVariant = "info") {
     setToast({ message, variant });
     props.onToast?.(message, variant);
   }

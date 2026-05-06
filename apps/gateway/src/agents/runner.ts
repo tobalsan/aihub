@@ -8,9 +8,6 @@ import type {
   SimpleHistoryMessage,
   FullHistoryMessage,
   HistoryViewMode,
-  AgentContext,
-  AgentTraceContext,
-  FileAttachment,
 } from "@aihub/shared";
 import { getAgent, resolveWorkspaceDir, CONFIG_DIR } from "../config/index.js";
 import { SessionRunLifecycle } from "./run-lifecycle.js";
@@ -25,10 +22,7 @@ import {
   DEFAULT_MAIN_KEY,
 } from "../sessions/store.js";
 import { appendSessionMeta } from "../history/store.js";
-import {
-  agentEventBus,
-  type AgentStreamEvent,
-} from "./events.js";
+import { agentEventBus, type AgentStreamEvent } from "./events.js";
 import { getContainerAdapter } from "../sdk/container/adapter.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
@@ -471,11 +465,7 @@ export async function getFullSessionHistory(
 
   // Try canonical history
   if (await hasCanonicalHistory(agentId, sessionId, userId)) {
-    const canonical = await getCanonicalFullHistory(
-      agentId,
-      sessionId,
-      userId
-    );
+    const canonical = await getCanonicalFullHistory(agentId, sessionId, userId);
     // If canonical is incomplete (streaming in progress), fall back to Pi
     if (canonical.length > 0) {
       const last = canonical[canonical.length - 1];

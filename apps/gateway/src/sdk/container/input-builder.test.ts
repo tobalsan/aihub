@@ -45,7 +45,14 @@ describe("container input builder", () => {
       gateway: { port: 4100 },
     } as GatewayConfig;
 
+    const previousGatewayPort = process.env.AIHUB_GATEWAY_PORT;
+    delete process.env.AIHUB_GATEWAY_PORT;
     const input = await builder.build(params, config, "token-1");
+    if (previousGatewayPort === undefined) {
+      delete process.env.AIHUB_GATEWAY_PORT;
+    } else {
+      process.env.AIHUB_GATEWAY_PORT = previousGatewayPort;
+    }
 
     expect(input).toMatchObject({
       agentId: "cloud",
