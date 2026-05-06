@@ -12,6 +12,7 @@
         "provider": "zai",
         "model": "glm-5.1"
       },
+      "reasoning": "medium",
       "queueMode": "queue"
     }
   ],

@@ -51,7 +51,6 @@ async function runControlCommand(
       agentId: target.agent.id,
       message,
       sessionKey: commandSessionKey(target, command),
-      thinkLevel: target.agent.thinkLevel,
       source: "slack",
     });
     await respond({

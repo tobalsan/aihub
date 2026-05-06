@@ -179,7 +179,6 @@ async function runWebhookAgent(params: {
       agentId: params.agent.id,
       message,
       sessionKey,
-      thinkLevel: params.agent.thinkLevel,
       source: "webhook",
       trace,
     });

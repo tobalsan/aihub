@@ -171,6 +171,7 @@ const AgentConfigBaseSchema = z.object({
   auth: AgentAuthConfigSchema.optional(), // OAuth/API key auth config
   discord: DiscordConfigSchema.optional(),
   slack: z.lazy(() => SlackAgentConfigSchema).optional(),
+  reasoning: ThinkLevelSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
   heartbeat: HeartbeatConfigSchema.optional(), // Periodic heartbeat config

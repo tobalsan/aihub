@@ -635,7 +635,6 @@ async function handleBangCommand(
         agentId: target.agent.id,
         message: "/stop",
         sessionKey: effectiveSessionKey,
-        thinkLevel: target.agent.thinkLevel,
         source: "slack",
       });
       await client.chat.postEphemeral({
@@ -791,7 +790,6 @@ async function handleSlackMessage(
       message: content,
       attachments,
       sessionKey,
-      thinkLevel: target.agent.thinkLevel,
       source: "slack",
       context,
       onEvent: (event) => {
@@ -866,7 +864,6 @@ async function handleSlackReaction(
       agentId: target.agent.id,
       message: formatReactionMessage(data, action),
       sessionKey: buildSlackSessionKey(result.channel, reactionThreadTs),
-      thinkLevel: target.agent.thinkLevel,
       source: "slack",
       context,
     });

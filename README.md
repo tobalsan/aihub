@@ -723,7 +723,7 @@ Project API details: `docs/projects_api.md`
         "provider": "anthropic",
         "model": "claude-sonnet-4-5-20250929"
       },
-      "thinkLevel": "off",
+      "reasoning": "off",
       "queueMode": "queue",
       "amsg": { "id": "agent-1", "enabled": true }
     }
@@ -750,7 +750,7 @@ Project API details: `docs/projects_api.md`
 | `model.base_url`   | API proxy URL (Claude SDK only)                                                      |
 | `model.auth_token` | API auth token (Claude SDK only, overrides env)                                      |
 | `auth.mode`        | `oauth`, `api_key`, or `proxy` (Pi SDK only)                                         |
-| `thinkLevel`       | off, minimal, low, medium, high                                                      |
+| `reasoning`        | off, minimal, low, medium, high, xhigh; `thinkLevel` is a deprecated alias            |
 | `queueMode`        | `queue` (inject into current run) or `interrupt` (abort & restart)                   |
 | `discord`          | Discord bot config (legacy per-agent; prefer [Channels](#channels) component config) |
 | `slack`            | Slack bot config (per-agent token; see [Channels](#channels) section)                |
