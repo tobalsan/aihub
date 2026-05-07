@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +28,10 @@ const CONTAINER_ONECLI_CA_PATH =
   "/usr/local/share/ca-certificates/onecli-ca.pem";
 export const CONTAINER_DATA_DIR = "/workspace/data";
 export const CONTAINER_UPLOADS_DIR = "/workspace/uploads";
+
+function createContainerName(agentId: string): string {
+  return `aihub-agent-${agentId}-${randomUUID()}`;
+}
 
 export function getMountedOnecliCaPath(
   onecli?: OnecliConfig
@@ -319,7 +324,7 @@ export function buildContainerArgs(
     "-i",
     "--rm",
     "--name",
-    `aihub-agent-${agent.id}-${Date.now()}`,
+    createContainerName(agent.id),
     "--user",
     `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
     "--memory",

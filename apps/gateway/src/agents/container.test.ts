@@ -244,8 +244,6 @@ describe("filterSecretEnvVars", () => {
 
 describe("buildContainerArgs", () => {
   it("builds docker run args with mounts, resources, network, and env", () => {
-    vi.spyOn(Date, "now").mockReturnValue(123456);
-
     const agent = AgentConfigSchema.parse({
       id: "cloud",
       name: "Cloud",
@@ -282,7 +280,11 @@ describe("buildContainerArgs", () => {
     );
 
     expect(args.slice(0, 3)).toEqual(["run", "-i", "--rm"]);
-    expect(argValues(args, "--name")).toEqual(["aihub-agent-cloud-123456"]);
+    expect(argValues(args, "--name")).toEqual([
+      expect.stringMatching(
+        /^aihub-agent-cloud-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      ),
+    ]);
     expect(argValues(args, "--memory")).toEqual(["4g"]);
     expect(argValues(args, "--cpus")).toEqual(["2"]);
     expect(argValues(args, "--network")).toEqual(["custom-net"]);
