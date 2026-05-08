@@ -64,9 +64,14 @@ const LazyProjectsBoard = lazy(() =>
     default: mod.ProjectsBoard,
   }))
 );
-const LazyProjectDetailPage = lazy(() =>
-  import("./components/project/ProjectDetailPage").then((mod) => ({
-    default: mod.ProjectDetailPage,
+const LazyProjectsDetailRouteAdapter = lazy(() =>
+  import("./components/project/ProjectsDetailRouteAdapter").then((mod) => ({
+    default: mod.ProjectsDetailRouteAdapter,
+  }))
+);
+const LazyProjectsArchivePage = lazy(() =>
+  import("./components/project/ProjectsArchivePage").then((mod) => ({
+    default: mod.ProjectsArchivePage,
   }))
 );
 const LazySliceDetailPage = lazy(() =>
@@ -335,48 +340,38 @@ function ProjectsRouteShell() {
     return <ExtensionUnavailable extension="projects" />;
   }
 
-  const params = useParams();
-  const showDetail = createMemo(
-    () => typeof params.id === "string" && params.id.length > 0
-  );
   return (
     <LeftNavShell>
       <Suspense>
-        <div class="projects-route-shell">
-          <LazyProjectsBoard
-            withSidebar={false}
-            suspendProjectRealtime={showDetail()}
-          />
-          <Show when={showDetail()}>
-            <div class="projects-route-detail-layer">
-              <LazyProjectDetailPage />
-            </div>
-          </Show>
-          <style>{`
-            .projects-route-shell {
-              height: 100%;
-              position: relative;
-            }
+        <LazyProjectsBoard withSidebar={false} />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
 
-            .projects-route-detail-layer {
-              position: absolute;
-              inset: 0 480px 0 0;
-              z-index: 20;
-            }
+function ProjectsDetailRouteShell() {
+  if (!isExtensionEnabled("projects")) {
+    return <ExtensionUnavailable extension="projects" />;
+  }
 
-            @media (max-width: 1399px) {
-              .projects-route-detail-layer {
-                inset: 0 50px 0 0;
-              }
-            }
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazyProjectsDetailRouteAdapter />
+      </Suspense>
+    </LeftNavShell>
+  );
+}
 
-            @media (max-width: 768px) {
-              .projects-route-detail-layer {
-                inset: 0;
-              }
-            }
-          `}</style>
-        </div>
+function ProjectsArchiveRouteShell() {
+  if (!isExtensionEnabled("projects")) {
+    return <ExtensionUnavailable extension="projects" />;
+  }
+
+  return (
+    <LeftNavShell>
+      <Suspense>
+        <LazyProjectsArchivePage />
       </Suspense>
     </LeftNavShell>
   );
@@ -700,7 +695,7 @@ export default function App() {
         )}
       />
       <Route
-        path="/projects/:id?"
+        path="/projects"
         component={() => (
           <GuardedRoute>
             <ProjectsRouteShell />
@@ -708,10 +703,26 @@ export default function App() {
         )}
       />
       <Route
+        path="/projects/archive"
+        component={() => (
+          <GuardedRoute>
+            <ProjectsArchiveRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/projects/:projectId"
+        component={() => (
+          <GuardedRoute>
+            <ProjectsDetailRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
         path="/projects/:projectId/slices/:sliceId"
         component={() => (
           <GuardedRoute>
-            <SliceDetailRouteShell />
+            <ProjectsDetailRouteShell />
           </GuardedRoute>
         )}
       />

@@ -34,10 +34,13 @@ describe("project document store", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("validates project lifecycle statuses and rejects legacy statuses", () => {
+  it("validates project lifecycle statuses and normalizes legacy statuses", () => {
     expect(validateProjectStatus(" active ")).toBe("active");
+    expect(validateProjectStatus("triage")).toBe("triage");
+    expect(validateProjectStatus("ready_to_merge")).toBe("ready_to_merge");
     expect(validateProjectStatus(undefined)).toBeNull();
-    expect(() => validateProjectStatus("todo")).toThrow("migrate-to-slices");
+    expect(validateProjectStatus("todo")).toBe("active");
+    expect(validateProjectStatus("maybe")).toBe("triage");
     expect(() => validateProjectStatus("unknown")).toThrow(
       "Invalid project status"
     );

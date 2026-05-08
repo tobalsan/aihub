@@ -22,7 +22,7 @@ The Projects home will show a simplified project kanban with exactly five visibl
 
 Archived and cancelled projects will no longer appear in a top section on the Projects home. Instead, a dedicated `/projects/archive` page will list them grouped by Archived and Cancelled.
 
-Project creation will continue using the existing lightweight form shape, but the main body text will be persisted to `PITCH.md`. The area selector will become an autocomplete search input. If no existing area matches the typed text, the form will offer `+ Create "<area>"`; selecting it only marks a pending new area, and the actual area is created when the project form is submitted.
+Project creation will continue using the existing lightweight form shape, but the main body text entered in the UI will be persisted to `README.md` as the initial idea/prompt. Shaping agents can then use that README context to create and iterate on `PITCH.md`. The area selector will become an autocomplete search input. If no existing area matches the typed text, the form will offer `+ Create "<area>"`; selecting it only marks a pending new area, and the actual area is created when the project form is submitted.
 
 Clicking a project from the Projects kanban will open the Board-style project detail experience under Projects routes, preserving the left navigation shell and removing the old project detail UI and right sidebar. The detail page will expose Pitch, Slices, Thread, and Activity tabs, with slice details rendered inline under the Slices tab.
 
@@ -46,7 +46,7 @@ Clicking a project from the Projects kanban will open the Board-style project de
 16. As a project owner, I want expanded column state persisted, so that my preferred board layout survives refreshes.
 17. As a project owner, I want no hidden limit forcing only two columns expanded, so that the UI does not unexpectedly collapse columns I am using.
 18. As a project creator, I want the quick-create form to remain lightweight, so that creating projects stays fast.
-19. As a project creator, I want the create form body to write to `PITCH.md`, so that the pitch becomes the primary editable project document.
+19. As a project creator, I want the create form body to write to `README.md`, so that shaping agents have my initial idea/prompt available before they create or refine `PITCH.md`.
 20. As a project creator, I want README to remain metadata-oriented, so that document responsibilities stay clear.
 21. As a CLI user, I want explicit status values passed during project creation to still be honored, so that scripted workflows remain possible.
 22. As a project creator, I want to search existing areas while creating a project, so that selecting an area is faster than scanning a dropdown.
@@ -89,7 +89,7 @@ Clicking a project from the Projects kanban will open the Board-style project de
 - The previous top archived section on the Projects home will be removed.
 - The archive navigation will route to `/projects/archive` and show grouped Archived and Cancelled sections.
 - The expanded-column persistence logic will allow any number of valid columns instead of truncating to two.
-- Project quick creation will persist main form text to `PITCH.md`; README remains the frontmatter/metadata carrier.
+- Project quick creation will persist main form text to `README.md` so shaping agents can use the initial idea/prompt to create or refine `PITCH.md`.
 - The area dropdown in the project creation form will be replaced by an autocomplete input over existing areas.
 - When typed area text has no matching existing area, the autocomplete will expose a selectable `+ Create "<area>"` option.
 - Selecting `+ Create "<area>"` will only set pending form state. It will not create the area immediately.
@@ -108,7 +108,7 @@ Clicking a project from the Projects kanban will open the Board-style project de
 ### Proposed Modules
 
 - **Project lifecycle/status model**: centralizes allowed project statuses, creation defaults, and legacy normalization.
-- **Project creation flow**: owns default status, `PITCH.md` persistence, and transactional pending-area creation.
+- **Project creation flow**: owns default status, UI README persistence, and transactional pending-area creation.
 - **Projects kanban UI**: owns displayed columns, expanded-column persistence, drag/move behavior, and create affordances.
 - **Projects archive page**: owns archived/cancelled project listing and grouping.
 - **Projects detail routing adapter**: reuses the Board-style lifecycle detail component under Projects routes while translating navigation.
@@ -121,7 +121,7 @@ Good tests should verify externally observable behavior rather than implementati
 Testing priority:
 
 - Test project status normalization/defaults, including legacy mappings into `triage` and `active`.
-- Test project creation writes user-entered body text to `PITCH.md` and defaults to `triage`.
+- Test project creation from the UI writes user-entered body text to `README.md` and defaults to `triage`.
 - Test explicit status remains honored when project creation receives one.
 - Test the area autocomplete flow, especially that selecting `+ Create "<area>"` does not create an area until form submit.
 - Test successful submit with a pending new area creates/selects that area for the new project.

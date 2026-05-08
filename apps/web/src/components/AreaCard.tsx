@@ -4,14 +4,12 @@ import type { Area } from "../api/types";
 import { AreaEditForm, type AreaEditDraft } from "./AreaEditForm";
 
 const STATUS_META = [
-  { id: "in_progress", label: "In Progress", color: "#8a6fd1" },
-  { id: "review", label: "Review", color: "#f08b57" },
-  { id: "ready_to_merge", label: "Ready to Merge", color: "#2fb6a3" },
+  { id: "triage", label: "Triage", color: "#d2b356" },
   { id: "shaping", label: "Shaping", color: "#4aa3a0" },
-  { id: "todo", label: "Todo", color: "#3b6ecc" },
-  { id: "maybe", label: "Maybe", color: "#d2b356" },
-  { id: "not_now", label: "Not now", color: "#6b6b6b" },
+  { id: "active", label: "Active", color: "#8a6fd1" },
+  { id: "ready_to_merge", label: "Ready to Merge", color: "#2fb6a3" },
   { id: "done", label: "Done", color: "#53b97c" },
+  { id: "cancelled", label: "Cancelled", color: "#f08b57" },
 ] as const;
 
 type StatusId = (typeof STATUS_META)[number]["id"];

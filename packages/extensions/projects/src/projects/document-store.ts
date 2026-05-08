@@ -23,21 +23,20 @@ const SCOPE_MAP_LOCK_DIR = ".scope-map.lock";
 
 export const DONE_STATUSES = new Set(["done", "cancelled"]);
 const PROJECT_LIFECYCLE_STATUSES = new Set([
+  "triage",
   "shaping",
   "active",
+  "ready_to_merge",
   "done",
   "cancelled",
-  "archived",
 ]);
-const LEGACY_PROJECT_STATUSES = new Set([
-  "not_now",
-  "maybe",
-  "todo",
-  "in_progress",
-  "review",
-  "ready_to_merge",
-  "trashed",
-]);
+const LEGACY_PROJECT_STATUS_MAP: Record<string, string> = {
+  not_now: "triage",
+  maybe: "triage",
+  todo: "active",
+  in_progress: "active",
+  review: "active",
+};
 
 export type ProjectLocation = {
   dirName: string;
@@ -208,17 +207,12 @@ function normalizeStatus(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
-function projectStatusMigrationHint(status: string): string {
-  return `Legacy project status "${status}" no longer supported. Run \`aihub projects migrate-to-slices\`.`;
-}
-
 export function validateProjectStatus(status: unknown): string | null {
   const normalized = normalizeStatus(status);
   if (!normalized) return null;
   if (PROJECT_LIFECYCLE_STATUSES.has(normalized)) return normalized;
-  if (LEGACY_PROJECT_STATUSES.has(normalized)) {
-    throw new Error(projectStatusMigrationHint(normalized));
-  }
+  const migrated = LEGACY_PROJECT_STATUS_MAP[normalized];
+  if (migrated) return migrated;
   throw new Error(`Invalid project status: ${String(status)}`);
 }
 

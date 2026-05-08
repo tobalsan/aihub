@@ -135,45 +135,6 @@ export async function updateProjectLifecycle(
     }
   }
 
-  if (parsed.data.status === "archived") {
-    const rest = { ...parsed.data };
-    delete rest.status;
-    if (Object.keys(rest).length > 0) {
-      const updated = await updateProject(config, projectId, rest);
-      if (!updated.ok) {
-        return {
-          ok: false,
-          error: updated.error,
-          status: projectMutationErrorStatus(updated.error),
-        };
-      }
-    }
-    const archived = await archiveProject(config, projectId);
-    if (!archived.ok) {
-      return {
-        ok: false,
-        error: archived.error,
-        status: archived.error.startsWith("Archive already contains") ? 409 : 404,
-      };
-    }
-    const detail = await getProject(config, projectId);
-    if (!detail.ok) {
-      return { ok: false, error: detail.error, status: 404 };
-    }
-    if (prevStatus === null || prevStatus !== "archived") {
-      await recordProjectStatusActivity({
-        actor: parsed.data.agent,
-        projectId: detail.data.id ?? projectId,
-        status: "archived",
-      });
-    }
-    return {
-      ok: true,
-      data: detail.data,
-      files: updatedProjectFiles(rest),
-      projectDirName: detail.data.path,
-    };
-  }
 
   const result = await updateProjectWithCancelInterrupt(
     config,
@@ -227,7 +188,7 @@ export async function unarchiveProjectLifecycle(
   config: GatewayConfig,
   projectId: string
 ): Promise<ProjectLifecycleResult> {
-  const result = await unarchiveProject(config, projectId, "shaping");
+  const result = await unarchiveProject(config, projectId, "triage");
   if (!result.ok) {
     return {
       ok: false,
@@ -235,6 +196,6 @@ export async function unarchiveProjectLifecycle(
       status: result.error.startsWith("Project already exists") ? 409 : 404,
     };
   }
-  await recordProjectStatusActivity({ projectId, status: "shaping" });
+  await recordProjectStatusActivity({ projectId, status: "triage" });
   return { ok: true, data: result.data };
 }

@@ -304,15 +304,15 @@ describe("projects API", () => {
       `Cannot clear project repo: slice(s) ${slice.id} rely on it (no slice-level repo set). Set their repo first, then clear the project repo.`
     );
 
-    const archiveClearRepo = await Promise.resolve(
+    const readyClearRepo = await Promise.resolve(
       api.request(`/projects/${project.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "archived", repo: "" }),
+        body: JSON.stringify({ status: "ready_to_merge", repo: "" }),
       })
     );
-    expect(archiveClearRepo.status).toBe(400);
-    expect((await archiveClearRepo.json()).error).toContain(
+    expect(readyClearRepo.status).toBe(400);
+    expect((await readyClearRepo.json()).error).toContain(
       "Cannot clear project repo"
     );
   });

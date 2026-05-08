@@ -275,7 +275,8 @@ async function listProjectItemsFromRoot(
       const id = toStringField(frontmatter.id) ?? dirName.split("_")[0];
       const resolvedTitle = toStringField(frontmatter.title) ?? title;
       try {
-        validateProjectStatus(frontmatter.status);
+        const normalizedStatus = validateProjectStatus(frontmatter.status);
+        if (normalizedStatus) frontmatter.status = normalizedStatus;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         projects.push({
@@ -482,10 +483,10 @@ export async function createProject(
   await fs.mkdir(dirPath);
 
   const created = new Date().toISOString();
-  let requestedStatus = "shaping";
+  let requestedStatus = "triage";
   try {
     requestedStatus =
-      validateProjectStatus(input.status ?? "shaping") ?? "shaping";
+      validateProjectStatus(input.status ?? "triage") ?? "triage";
   } catch (error) {
     return {
       ok: false,
@@ -793,12 +794,7 @@ export async function archiveProject(
     };
   }
 
-  const updated = await updateProject(config, id, { status: "archived" });
-  if (!updated.ok) {
-    return { ok: false, error: updated.error };
-  }
-
-  const sourcePath = updated.data.absolutePath;
+  const sourcePath = path.join(location.baseRoot, location.dirName);
   const dirName = path.basename(sourcePath);
   await fs.rename(sourcePath, targetPath);
 

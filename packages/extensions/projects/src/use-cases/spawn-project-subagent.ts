@@ -92,8 +92,8 @@ export async function spawnProjectSubagent(
     if (!sessionKeys[agent.id]) {
       updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
     }
-    if (normalizedStatus === "todo") {
-      updates.status = "in_progress";
+    if (normalizedStatus === "triage" || normalizedStatus === "shaping") {
+      updates.status = "active";
     }
 
     const basePath = (project.absolutePath || project.path).replace(/\/$/, "");

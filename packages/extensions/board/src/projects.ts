@@ -12,8 +12,10 @@ export type BoardProjectGroup = "active" | "review" | "stale" | "done";
 
 /** Lifecycle status per §5.4 of the kanban-slice-refactor spec. */
 export type ProjectLifecycleStatus =
+  | "triage"
   | "shaping"
   | "active"
+  | "ready_to_merge"
   | "done"
   | "cancelled"
   | "archived";
@@ -88,8 +90,10 @@ export const UNASSIGNED_PROJECT_ID = "__unassigned";
 
 /** Valid target lifecycle statuses for POST /board/projects/:id/move */
 export const MOVEABLE_LIFECYCLE_STATUSES = new Set<ProjectLifecycleStatus>([
+  "triage",
   "shaping",
   "active",
+  "ready_to_merge",
   "done",
   "cancelled",
   "archived",
@@ -98,19 +102,23 @@ export const MOVEABLE_LIFECYCLE_STATUSES = new Set<ProjectLifecycleStatus>([
 /** Map a raw project status string to a board lifecycle status. */
 export function mapToLifecycleStatus(status: string): ProjectLifecycleStatus {
   switch (status) {
+    case "triage":
+      return "triage";
     case "active":
       return "active";
     case "shaping":
+      return "shaping";
     case "maybe":
     case "not_now":
-      return "shaping";
+      return "triage";
     // Legacy kanban statuses (todo, in_progress, review, ready_to_merge) map to
     // "active" per §10.1 of kanban-slice-refactor spec.
     case "todo":
     case "in_progress":
     case "review":
-    case "ready_to_merge":
       return "active";
+    case "ready_to_merge":
+      return "ready_to_merge";
     case "done":
       return "done";
     case "cancelled":
@@ -118,7 +126,7 @@ export function mapToLifecycleStatus(status: string): ProjectLifecycleStatus {
     case "archived":
       return "archived";
     default:
-      return "shaping";
+      return "triage";
   }
 }
 
@@ -389,8 +397,10 @@ export function resetProjectCaches(): void {
 export function statusToGroup(status: string): BoardProjectGroup {
   switch (status) {
     case "current":
+    case "triage":
     case "todo":
     case "shaping":
+    case "active":
     case "in_progress":
       return "active";
     case "review":
@@ -542,8 +552,10 @@ export async function scanProjectLifecycleMetadata(
   projectsRoot: string
 ): Promise<ProjectLifecycleScan> {
   const counts: ProjectLifecycleCounts = {
+    triage: 0,
     shaping: 0,
     active: 0,
+    ready_to_merge: 0,
     done: 0,
     cancelled: 0,
     archived: 0,

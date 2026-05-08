@@ -86,7 +86,8 @@ export async function fetchActivity(
 
 export type CreateProjectInput = {
   title: string;
-  description?: string;
+  pitch?: string;
+  status?: string;
   area?: string;
 };
 

@@ -361,8 +361,8 @@ export async function startProjectRun(
     if (!sessionKeys[agent.id]) {
       updates.sessionKeys = { ...sessionKeys, [agent.id]: sessionKey };
     }
-    if (normalizedStatus === "todo") {
-      updates.status = "in_progress";
+    if (normalizedStatus === "triage" || normalizedStatus === "shaping") {
+      updates.status = "active";
     }
 
     getProjectsContext()
@@ -421,8 +421,8 @@ export async function startProjectRun(
     return { ok: false, error: result.error, status: 400 };
   }
 
-  if (normalizedStatus === "todo") {
-    updates.status = "in_progress";
+  if (normalizedStatus === "triage" || normalizedStatus === "shaping") {
+    updates.status = "active";
   }
   if (Object.keys(updates).length > 0 || hasLegacyRunConfig) {
     await updateProject(config, project.id, updates);

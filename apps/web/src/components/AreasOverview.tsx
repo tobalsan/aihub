@@ -22,8 +22,14 @@ function normalizeStatus(
 ): (typeof STATUS_META)[number]["id"] | null {
   if (!raw) return null;
   const normalized = raw.trim().toLowerCase().replace(/\s+/g, "_");
-  return STATUS_META.some((entry) => entry.id === normalized)
-    ? (normalized as (typeof STATUS_META)[number]["id"])
+  const mapped =
+    normalized === "maybe" || normalized === "not_now"
+      ? "triage"
+      : ["todo", "in_progress", "review"].includes(normalized)
+        ? "active"
+        : normalized;
+  return STATUS_META.some((entry) => entry.id === mapped)
+    ? (mapped as (typeof STATUS_META)[number]["id"])
     : null;
 }
 
@@ -31,14 +37,12 @@ function createEmptyStats(): AreaStats {
   return {
     total: 0,
     statuses: {
-      in_progress: 0,
-      review: 0,
-      ready_to_merge: 0,
+      triage: 0,
       shaping: 0,
-      todo: 0,
-      maybe: 0,
-      not_now: 0,
+      active: 0,
+      ready_to_merge: 0,
       done: 0,
+      cancelled: 0,
     },
   };
 }

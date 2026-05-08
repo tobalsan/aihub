@@ -1,6 +1,8 @@
 export function normalizeProjectStatus(raw?: string): string {
-  if (!raw) return "maybe";
-  return raw.trim().toLowerCase().replace(/\s+/g, "_");
+  const normalized = raw?.trim().toLowerCase().replace(/\s+/g, "_") || "triage";
+  if (normalized === "maybe" || normalized === "not_now") return "triage";
+  if (["todo", "in_progress", "review"].includes(normalized)) return "active";
+  return normalized;
 }
 
 export function buildProjectSummary(

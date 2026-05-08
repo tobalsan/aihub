@@ -896,18 +896,12 @@ export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 
 // Projects API types
 export const ProjectStatusSchema = z.enum([
-  "not_now",
-  "maybe",
+  "triage",
   "shaping",
   "active",
-  "todo",
-  "in_progress",
-  "review",
   "ready_to_merge",
   "done",
   "cancelled",
-  "archived",
-  "trashed",
 ]);
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 

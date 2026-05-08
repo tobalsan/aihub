@@ -319,8 +319,10 @@ describe("scanProjects", () => {
     });
 
     await expect(scanProjectLifecycleCounts(tmp)).resolves.toEqual({
+      triage: 0,
       shaping: 0,
       active: 1,
+      ready_to_merge: 0,
       done: 1,
       cancelled: 1,
       archived: 0,
@@ -340,8 +342,10 @@ describe("scanProjects", () => {
     });
 
     await expect(scanProjectLifecycleCounts(tmp)).resolves.toEqual({
+      triage: 0,
       shaping: 0,
       active: 1,
+      ready_to_merge: 0,
       done: 1,
       cancelled: 0,
       archived: 0,

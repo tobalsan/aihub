@@ -265,7 +265,7 @@ describe("projects store", () => {
       path.join(archivedDir, "README.md"),
       "utf8"
     );
-    expect(archivedReadme).toContain('status: "archived"');
+    expect(archivedReadme).toContain('status: "triage"');
 
     const unarchiveResult = await unarchiveProject(
       config,
@@ -571,7 +571,7 @@ describe("projects store", () => {
     expect(fetched.data.frontmatter.repo).toBeUndefined();
   });
 
-  it("rejects legacy project statuses with migration hint", async () => {
+  it("normalizes legacy project statuses", async () => {
     const { createProject, updateProject } = await import("./store.js");
     const config = {
       agents: [],
@@ -580,12 +580,12 @@ describe("projects store", () => {
     };
 
     const created = await createProject(config, {
-      title: "Legacy Status Reject",
+      title: "Legacy Status Normalize",
       status: "todo",
     });
-    expect(created.ok).toBe(false);
-    if (created.ok) return;
-    expect(created.error).toContain("migrate-to-slices");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.data.frontmatter.status).toBe("active");
 
     const valid = await createProject(config, {
       title: "Legacy Status Holder",
@@ -595,12 +595,12 @@ describe("projects store", () => {
     const updated = await updateProject(config, valid.data.id, {
       status: "review",
     });
-    expect(updated.ok).toBe(false);
-    if (updated.ok) return;
-    expect(updated.error).toContain("migrate-to-slices");
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.data.frontmatter.status).toBe("active");
   });
 
-  it("surfaces legacy-status migration hint in project list scans", async () => {
+  it("normalizes legacy statuses in project list scans", async () => {
     const { listProjects } = await import("./store.js");
     const config = {
       agents: [],
@@ -621,9 +621,8 @@ describe("projects store", () => {
     if (!listed.ok) return;
     const item = listed.data.find((entry) => entry.id === "PRO-99");
     expect(item).toBeDefined();
-    expect(item?.frontmatter.statusValidationError).toContain(
-      "migrate-to-slices"
-    );
+    expect(item?.frontmatter.status).toBe("active");
+    expect(item?.frontmatter.statusValidationError).toBeUndefined();
   });
 
   it("cancels non-terminal slices and keeps done slices unchanged", async () => {

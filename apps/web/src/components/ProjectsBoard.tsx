@@ -16,6 +16,7 @@ import {
   fetchAreas,
   fetchArchivedProjects,
   fetchProject,
+  createArea as createAreaApi,
   updateProject,
   deleteProject,
   archiveProject,
@@ -67,13 +68,25 @@ import {
 
 type ColumnDef = { id: string; title: string; color: string };
 
+function slugifyAreaTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "area";
+}
+
+function defaultAreaColor(title: string): string {
+  const palette = ["#7c3aed", "#2563eb", "#0891b2", "#059669", "#ca8a04", "#dc2626"];
+  let hash = 0;
+  for (const ch of title) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return palette[hash % palette.length] ?? palette[0];
+}
+
 const COLUMNS: ColumnDef[] = [
-  { id: "not_now", title: "Not now", color: "#6b6b6b" },
-  { id: "maybe", title: "Maybe", color: "#d2b356" },
+  { id: "triage", title: "Triage", color: "#d2b356" },
   { id: "shaping", title: "Shaping", color: "#4aa3a0" },
-  { id: "todo", title: "Todo", color: "#3b6ecc" },
-  { id: "in_progress", title: "In Progress", color: "#8a6fd1" },
-  { id: "review", title: "Review", color: "#f08b57" },
+  { id: "active", title: "Active", color: "#8a6fd1" },
   { id: "ready_to_merge", title: "Ready to Merge", color: "#2fb6a3" },
   { id: "done", title: "Done", color: "#53b97c" },
 ];
@@ -102,7 +115,6 @@ function normalizeExpanded(value: unknown): string[] {
     if (!COLUMN_IDS.has(entry) || seen.has(entry)) continue;
     seen.add(entry);
     next.push(entry);
-    if (next.length >= 2) break;
   }
   return next;
 }
@@ -950,13 +962,15 @@ function logLabel(type: string, text: string): string {
   return "";
 }
 
-function getStatus(item: ProjectListItem): string {
-  return getFrontmatterString(item.frontmatter, "status") ?? "maybe";
+function normalizeStatus(raw?: string): string {
+  const normalized = raw?.trim().toLowerCase().replace(/\s+/g, "_") || "triage";
+  if (normalized === "maybe" || normalized === "not_now") return "triage";
+  if (["todo", "in_progress", "review"].includes(normalized)) return "active";
+  return normalized;
 }
 
-function normalizeStatus(raw?: string): string {
-  if (!raw) return "maybe";
-  return raw.trim().toLowerCase().replace(/\s+/g, "_");
+function getStatus(item: ProjectListItem): string {
+  return normalizeStatus(getFrontmatterString(item.frontmatter, "status"));
 }
 
 function getStatusLabel(status: string): string {
@@ -994,7 +1008,6 @@ export function ProjectsBoard(props: {
     const value = searchParams.project;
     return typeof value === "string" && value.trim() ? value : undefined;
   });
-  const [showArchived, setShowArchived] = createSignal(false);
   const [projects, { refetch }] = createResource(() => fetchProjects());
   const [areas] = createResource(fetchAreas);
   const areaFilterId = createMemo(() => {
@@ -1009,9 +1022,6 @@ export function ProjectsBoard(props: {
     const area = (areas() ?? []).find((item) => item.id === areaId);
     return area?.title ?? areaId;
   });
-  const [archivedProjects] = createResource(showArchived, async (show) =>
-    show ? fetchArchivedProjects() : []
-  );
   const [commandOpen, setCommandOpen] = createSignal(false);
   const [commandQuery, setCommandQuery] = createSignal("");
   const [commandSelectedIndex, setCommandSelectedIndex] = createSignal(0);
@@ -1033,7 +1043,7 @@ export function ProjectsBoard(props: {
   const [expanded, setExpanded] = createSignal<string[]>(
     readExpandedFromStorage()
   );
-  const [detailStatus, setDetailStatus] = createSignal("maybe");
+  const [detailStatus, setDetailStatus] = createSignal("triage");
   const [detailRunAgent, setDetailRunAgent] = createSignal("");
   const [detailRunMode, setDetailRunMode] = createSignal("clone");
   const [detailRepo, setDetailRepo] = createSignal("");
@@ -1086,6 +1096,7 @@ export function ProjectsBoard(props: {
   const [createTitle, setCreateTitle] = createSignal("");
   const [createDescription, setCreateDescription] = createSignal("");
   const [createArea, setCreateArea] = createSignal("");
+  const [areaSuggestionsOpen, setAreaSuggestionsOpen] = createSignal(false);
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
   const [createSuccess, setCreateSuccess] = createSignal<string | null>(null);
@@ -1106,6 +1117,31 @@ export function ProjectsBoard(props: {
     "chat" | null
   >(null);
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
+
+  const matchingAreas = createMemo(() => {
+    const query = createArea().trim().toLowerCase();
+    const list = areas() ?? [];
+    if (!query) return list.slice(0, 6);
+    return list
+      .filter((area) =>
+        area.title.toLowerCase().includes(query) || area.id.toLowerCase().includes(query)
+      )
+      .slice(0, 6);
+  });
+
+  const exactAreaMatch = createMemo(() => {
+    const query = createArea().trim().toLowerCase();
+    if (!query) return null;
+    return (
+      (areas() ?? []).find(
+        (area) => area.id.toLowerCase() === query || area.title.toLowerCase() === query
+      ) ?? null
+    );
+  });
+
+  const shouldOfferNewArea = createMemo(
+    () => createArea().trim().length > 0 && !exactAreaMatch()
+  );
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
   let createNotesRef: HTMLTextAreaElement | undefined;
@@ -1312,7 +1348,7 @@ export function ProjectsBoard(props: {
 
   const isMonitoringHidden = createMemo(() => {
     const status = detailStatus();
-    return status === "not_now" || status === "maybe";
+    return status === "triage";
   });
 
   const subagentLogItems = createMemo(() => buildCliLogs(subagentLogs()));
@@ -1417,7 +1453,8 @@ export function ProjectsBoard(props: {
         }
       }
       const status = getStatus(item);
-      if (!byStatus.has(status)) byStatus.set(status, []);
+      if (status === "cancelled" || status === "archived") continue;
+      if (!byStatus.has(status)) continue;
       byStatus.get(status)?.push(item);
     }
     for (const [, list] of byStatus) {
@@ -1486,16 +1523,16 @@ export function ProjectsBoard(props: {
     if (expanded().length > 0) return;
     const items = projects() ?? [];
     if (items.length === 0) {
-      setExpanded(COLUMNS.slice(0, 2).map((col) => col.id));
+      setExpanded(COLUMNS.map((col) => col.id));
       return;
     }
     const withItems = COLUMNS.filter((col) =>
       items.some((item) => getStatus(item) === col.id)
     ).map((col) => col.id);
     setExpanded(
-      withItems.slice(0, 2).length > 0
-        ? withItems.slice(0, 2)
-        : COLUMNS.slice(0, 2).map((col) => col.id)
+      withItems.length > 0
+        ? withItems
+        : COLUMNS.map((col) => col.id)
     );
   });
 
@@ -1797,7 +1834,6 @@ export function ProjectsBoard(props: {
   const toggleColumn = (id: string) => {
     setExpanded((prev) => {
       if (prev.includes(id)) return prev.filter((col) => col !== id);
-      if (prev.length >= 2) return [...prev.slice(1), id];
       return [...prev, id];
     });
   };
@@ -2183,6 +2219,36 @@ export function ProjectsBoard(props: {
     setDraggingFromStatus(null);
   };
 
+  const ensureCreateArea = async (
+    value: string
+  ): Promise<{ area?: string; error?: string }> => {
+    const trimmed = value.trim();
+    if (!trimmed) return {};
+    const existing = (areas() ?? []).find(
+      (area) =>
+        area.id.toLowerCase() === trimmed.toLowerCase() ||
+        area.title.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing) return { area: existing.id };
+
+    const baseId = slugifyAreaTitle(trimmed);
+    const existingIds = new Set((areas() ?? []).map((area) => area.id));
+    let id = baseId;
+    let suffix = 2;
+    while (existingIds.has(id)) id = `${baseId}-${suffix++}`;
+
+    try {
+      const created = await createAreaApi({
+        id,
+        title: trimmed,
+        color: defaultAreaColor(trimmed),
+      });
+      return { area: created.id };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  };
+
   const handleCreateSubmit = async () => {
     let title = createTitle().trim();
     const description = createDescription().trim();
@@ -2203,10 +2269,15 @@ export function ProjectsBoard(props: {
     }
 
     setCreateError("");
+    const resolvedArea = await ensureCreateArea(areaValue);
+    if (resolvedArea.error) {
+      setCreateError(resolvedArea.error);
+      return;
+    }
+
     const result = await createProject({
       title,
-      description: description || undefined,
-      ...(areaValue ? { area: areaValue } : {}),
+      ...(resolvedArea.area ? { area: resolvedArea.area } : {}),
     });
 
     if (!result.ok) {
@@ -2233,11 +2304,12 @@ export function ProjectsBoard(props: {
       attachmentSection = buildAttachmentSection(uploadResult.data);
     }
 
-    if (attachmentSection) {
-      const currentReadme = result.data.docs?.README || "";
-      const updatedReadme =
-        currentReadme + (currentReadme ? "\n\n" : "") + attachmentSection;
-      await updateProject(projectId, { docs: { README: updatedReadme } });
+    const readmeBody = [description, attachmentSection]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join("\n\n");
+    if (readmeBody) {
+      await updateProject(projectId, { docs: { README: readmeBody } });
     }
 
     clearFormFromStorage();
@@ -2546,9 +2618,9 @@ export function ProjectsBoard(props: {
             <button
               class="archive-link"
               type="button"
-              onClick={() => setShowArchived((prev) => !prev)}
+              onClick={() => navigate("/projects/archive")}
             >
-              {showArchived() ? "Hide archive" : "Archived"}
+              Archive
             </button>
           </header>
 
@@ -2559,52 +2631,6 @@ export function ProjectsBoard(props: {
             <div class="projects-error">Failed to load projects</div>
           </Show>
 
-          <Show when={showArchived()}>
-            <div class="archive-panel">
-              <div class="archive-panel-header">
-                <div class="archive-panel-title">Archived</div>
-                <button
-                  class="archive-panel-close"
-                  type="button"
-                  onClick={() => setShowArchived(false)}
-                >
-                  Close
-                </button>
-              </div>
-              <Show when={archivedProjects.loading}>
-                <div class="archive-panel-loading">
-                  Loading archived projects...
-                </div>
-              </Show>
-              <Show when={archivedProjects.error}>
-                <div class="archive-panel-error">
-                  Failed to load archived projects
-                </div>
-              </Show>
-              <Show
-                when={
-                  !archivedProjects.loading &&
-                  (archivedProjects() ?? []).length === 0
-                }
-              >
-                <div class="archive-panel-empty">No archived projects</div>
-              </Show>
-              <div class="archive-panel-list">
-                <For each={archivedProjects() ?? []}>
-                  {(item) => (
-                    <button
-                      class="archive-item"
-                      type="button"
-                      onClick={() => openDetail(item.id)}
-                    >
-                      <div class="archive-item-title">{item.title}</div>
-                      <div class="archive-item-id">{item.id}</div>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
 
           <div class="board">
             <For each={COLUMNS}>
@@ -2630,7 +2656,7 @@ export function ProjectsBoard(props: {
                         <div class="column-title">{column.title}</div>
                         <div class="column-count">{items().length}</div>
                       </button>
-                      <Show when={column.id === "maybe" && isExpanded()}>
+                      <Show when={column.id === "triage" && isExpanded()}>
                         <button
                           class="create-btn"
                           onClick={openCreateModal}
@@ -3715,23 +3741,68 @@ export function ProjectsBoard(props: {
                       </div>
                     </Show>
                   </div>
-                  <div class="create-field">
+                  <div class="create-field area-autocomplete">
                     <label class="create-label" for="create-area">
                       Area
                     </label>
-                    <select
+                    <input
                       id="create-area"
                       class="create-input"
+                      type="text"
                       value={createArea()}
-                      onChange={(e) => setCreateArea(e.currentTarget.value)}
-                    >
-                      <option value="">No area</option>
-                      <For each={areas() ?? []}>
-                        {(area) => (
-                          <option value={area.id}>{area.title}</option>
-                        )}
-                      </For>
-                    </select>
+                      autocomplete="off"
+                      placeholder="Search or create area..."
+                      onFocus={() => setAreaSuggestionsOpen(true)}
+                      onInput={(e) => {
+                        setCreateArea(e.currentTarget.value);
+                        setAreaSuggestionsOpen(true);
+                      }}
+                    />
+                    <Show when={areaSuggestionsOpen()}>
+                      <div class="area-suggestions">
+                        <button
+                          type="button"
+                          class="area-suggestion muted"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setCreateArea("");
+                            setAreaSuggestionsOpen(false);
+                          }}
+                        >
+                          No area
+                        </button>
+                        <For each={matchingAreas()}>
+                          {(area) => (
+                            <button
+                              type="button"
+                              class="area-suggestion"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setCreateArea(area.title);
+                                setAreaSuggestionsOpen(false);
+                              }}
+                            >
+                              {area.title}
+                            </button>
+                          )}
+                        </For>
+                        <Show when={shouldOfferNewArea()}>
+                          <button
+                            type="button"
+                            class="area-suggestion create-new"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setAreaSuggestionsOpen(false);
+                            }}
+                          >
+                            + Create "{createArea().trim()}"
+                          </button>
+                        </Show>
+                      </div>
+                    </Show>
+                    <div class="create-helper">
+                      New areas are created when the project is submitted.
+                    </div>
                   </div>
                   <div class="create-field create-notes">
                     <div class="create-notes-header">
@@ -4662,6 +4733,34 @@ export function ProjectsBoard(props: {
         .create-input.error {
           border-color: #cc5b5b;
         }
+
+        .area-autocomplete { position: relative; }
+        .area-suggestions {
+          position: absolute;
+          z-index: 30;
+          top: calc(100% - 18px);
+          left: 0;
+          right: 0;
+          background: var(--mix-panel-bg);
+          border: 1px solid var(--mix-col-border);
+          border-radius: 10px;
+          padding: 6px;
+          box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+        }
+        .area-suggestion {
+          display: block;
+          width: 100%;
+          border: 0;
+          background: transparent;
+          color: var(--text-primary);
+          text-align: left;
+          padding: 8px 10px;
+          border-radius: 8px;
+          cursor: pointer;
+        }
+        .area-suggestion:hover { background: var(--mix-hover-bg); }
+        .area-suggestion.muted { color: var(--text-tertiary); }
+        .area-suggestion.create-new { color: #7dd3fc; }
 
         .create-textarea {
           background: var(--mix-input-bg);

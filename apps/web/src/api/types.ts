@@ -477,8 +477,10 @@ export type UpdateSlicePayload = {
 };
 
 export type ProjectLifecycleStatus =
+  | "triage"
   | "shaping"
   | "active"
+  | "ready_to_merge"
   | "done"
   | "cancelled"
   | "archived";

@@ -18,10 +18,12 @@ import {
 } from "solid-js";
 import {
   addProjectComment,
+  archiveProject,
   createSlice,
   fetchAreas,
   fetchProject,
   subscribeToFileChanges,
+  unarchiveProject,
   updateProject,
 } from "../../api";
 import type { ProjectDetail, ProjectLifecycleStatus } from "../../api/types";
@@ -50,30 +52,39 @@ function getLifecycleStatus(
 ): ProjectLifecycleStatus {
   const s = frontmatter.status;
   if (
+    s === "triage" ||
     s === "shaping" ||
     s === "active" ||
+    s === "ready_to_merge" ||
     s === "done" ||
     s === "cancelled" ||
     s === "archived"
   ) {
     return s;
   }
-  return "shaping";
+  return "triage";
 }
 
 function getValidActions(status: ProjectLifecycleStatus): LifecycleAction[] {
   switch (status) {
+    case "triage":
+      return [{ label: "Move to shaping", nextStatus: "shaping" }];
     case "shaping":
       return [{ label: "Move to active", nextStatus: "active" }];
     case "active":
       return [
-        { label: "Archive", nextStatus: "archived" },
+        { label: "Move to ready", nextStatus: "ready_to_merge" },
+        { label: "Cancel", nextStatus: "cancelled", dangerous: true },
+      ];
+    case "ready_to_merge":
+      return [
+        { label: "Move to done", nextStatus: "done" },
         { label: "Cancel", nextStatus: "cancelled", dangerous: true },
       ];
     case "done":
       return [{ label: "Archive", nextStatus: "archived" }];
     case "archived":
-      return [{ label: "Unarchive", nextStatus: "shaping" }];
+      return [{ label: "Unarchive", nextStatus: "triage" }];
     case "cancelled":
       return [];
   }
@@ -81,8 +92,12 @@ function getValidActions(status: ProjectLifecycleStatus): LifecycleAction[] {
 
 function statusPillStyle(status: ProjectLifecycleStatus): string {
   switch (status) {
+    case "triage":
+      return "background:#f59e0b22;color:#d97706;border-color:#f59e0b44";
     case "active":
       return "background:#22c55e22;color:#16a34a;border-color:#22c55e44";
+    case "ready_to_merge":
+      return "background:#14b8a622;color:#0f766e;border-color:#14b8a644";
     case "done":
       return "background:#6366f122;color:#6366f1;border-color:#6366f144";
     case "cancelled":
@@ -292,6 +307,19 @@ export function BoardProjectDetailPage(
     setActionPending(true);
     setActionError(null);
     try {
+      if (nextStatus === "archived") {
+        const result = await archiveProject(id);
+        if (!result.ok) throw new Error(result.error);
+        handleBack();
+        return;
+      }
+      if (lifecycleStatus() === "archived") {
+        const result = await unarchiveProject(id);
+        if (!result.ok) throw new Error(result.error);
+        const refreshed = await fetchProject(id);
+        mutateProject(refreshed);
+        return;
+      }
       const updated = await updateProject(id, { status: nextStatus });
       mutateProject(updated);
     } catch (err) {
