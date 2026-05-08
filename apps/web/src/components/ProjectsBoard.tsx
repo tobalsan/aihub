@@ -8,6 +8,7 @@ import {
   on,
   onCleanup,
   onMount,
+  startTransition,
   untrack,
 } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
@@ -1008,7 +1009,9 @@ export function ProjectsBoard(props: {
     const value = searchParams.project;
     return typeof value === "string" && value.trim() ? value : undefined;
   });
-  const [projects, { refetch }] = createResource(() => fetchProjects());
+  const [projects, { refetch, mutate: mutateProjects }] = createResource(() =>
+    fetchProjects()
+  );
   const [areas] = createResource(fetchAreas);
   const areaFilterId = createMemo(() => {
     const value = searchParams.area;
@@ -1209,7 +1212,7 @@ export function ProjectsBoard(props: {
       onFileChanged: () => {
         if (refreshTimer) window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(() => {
-          void refetch();
+          void startTransition(() => refetch());
           refreshTimer = undefined;
         }, 500);
       },
@@ -1223,7 +1226,7 @@ export function ProjectsBoard(props: {
   createEffect(() => {
     const suspended = props.suspendProjectRealtime ?? false;
     if (!suspended && wasProjectRealtimeSuspended) {
-      void refetch();
+      void startTransition(() => refetch());
     }
     wasProjectRealtimeSuspended = suspended;
   });
@@ -1847,9 +1850,36 @@ export function ProjectsBoard(props: {
 
   const handleStatusChange = async (id: string, status: string) => {
     setDetailStatus(status);
-    await updateProject(id, { status });
-    await refetch();
-    await refetchDetail();
+    mutateProjects((prev) =>
+      prev?.map((item) =>
+        item.id === id
+          ? { ...item, frontmatter: { ...item.frontmatter, status } }
+          : item
+      )
+    );
+    try {
+      const updated = await updateProject(id, { status });
+      mutateProjects((prev) =>
+        prev?.map((item) =>
+          item.id === id
+            ? {
+                id: updated.id,
+                title: updated.title,
+                path: updated.path,
+                absolutePath: updated.absolutePath,
+                repoValid: updated.repoValid,
+                frontmatter: updated.frontmatter,
+              }
+            : item
+        )
+      );
+      if (activeProjectId() === id) {
+        await refetchDetail();
+      }
+    } catch (error) {
+      void refetch();
+      throw error;
+    }
   };
 
   const handleRunAgentChange = (runAgent: string) => {
