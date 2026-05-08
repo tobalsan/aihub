@@ -200,7 +200,9 @@ function RawMarkdownEditor(props: {
   return (
     <section class="raw-doc-editor">
       <header class="raw-doc-editor-header">
-        {props.headerContent ?? <span class="raw-doc-editor-key">{props.docKey}</span>}
+        {props.headerContent ?? (
+          <span class="raw-doc-editor-key">{props.docKey}</span>
+        )}
         <span class="raw-doc-editor-status" data-status={status()}>
           <Show when={status() === "saving"}>saving…</Show>
           <Show when={status() === "saved"}>saved</Show>
@@ -246,7 +248,7 @@ export function BoardProjectDetailPage(
     // Embedded (parent owns navigation via onNavigate): trust props.tab only —
     // searchParams comes from Solid Router and goes stale after manual pushState.
     // Standalone: fall back to URL searchParams.
-    const tab = props.onNavigate ? props.tab : props.tab ?? searchParams.tab;
+    const tab = props.onNavigate ? props.tab : (props.tab ?? searchParams.tab);
     return isBpdTab(tab) ? tab : "pitch";
   });
   const [menuOpen, setMenuOpen] = createSignal(false);
@@ -258,6 +260,10 @@ export function BoardProjectDetailPage(
   } | null>(null);
   const [actionPending, setActionPending] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
+  const [titleEditing, setTitleEditing] = createSignal(false);
+  const [titleDraft, setTitleDraft] = createSignal("");
+  const [titleSaving, setTitleSaving] = createSignal(false);
+  const [titleError, setTitleError] = createSignal<string | null>(null);
 
   // Slice creation form state
   const [addingSlice, setAddingSlice] = createSignal(false);
@@ -270,10 +276,19 @@ export function BoardProjectDetailPage(
   // Thread comment form state
   const [commentDraft, setCommentDraft] = createSignal("");
   const [commentPosting, setCommentPosting] = createSignal(false);
+  let titleInputRef: HTMLInputElement | undefined;
 
   const [project, { mutate: mutateProject, refetch: refetchProject }] =
     createResource(projectId, fetchProject);
   const [areas] = createResource(fetchAreas);
+
+  createEffect(() => {
+    if (!titleEditing()) return;
+    queueMicrotask(() => {
+      titleInputRef?.focus();
+      titleInputRef?.select();
+    });
+  });
 
   // Realtime file-change subscription
   createEffect(() => {
@@ -422,6 +437,48 @@ export function BoardProjectDetailPage(
     return updated;
   };
 
+  const startTitleEdit = () => {
+    const p = project.latest;
+    if (!p || titleSaving()) return;
+    setTitleDraft(p.title);
+    setTitleError(null);
+    setTitleEditing(true);
+  };
+
+  const cancelTitleEdit = () => {
+    setTitleEditing(false);
+    setTitleDraft("");
+    setTitleError(null);
+  };
+
+  const saveTitleEdit = async () => {
+    const id = projectId();
+    const nextTitle = titleDraft().trim();
+    if (!id || titleSaving()) return;
+    if (!nextTitle) {
+      setTitleError("Title is required");
+      return;
+    }
+    if (nextTitle === project.latest?.title) {
+      cancelTitleEdit();
+      return;
+    }
+    setTitleSaving(true);
+    setTitleError(null);
+    try {
+      const updated = await updateProject(id, { title: nextTitle });
+      mutateProject(updated);
+      setTitleEditing(false);
+      setTitleDraft("");
+    } catch (error) {
+      setTitleError(
+        error instanceof Error ? error.message : "Failed to update title"
+      );
+    } finally {
+      setTitleSaving(false);
+    }
+  };
+
   const handleSaveDoc = async (docKey: string, content: string) => {
     const id = projectId();
     if (!id) return;
@@ -501,7 +558,84 @@ export function BoardProjectDetailPage(
           {(p) => (
             <div class="bpd-header-info">
               <span class="bpd-id">{p().id}</span>
-              <span class="bpd-title">{p().title}</span>
+              <div class="bpd-title-wrap" data-editing={titleEditing()}>
+                <Show
+                  when={titleEditing()}
+                  fallback={
+                    <>
+                      <span class="bpd-title" title={p().title}>
+                        {p().title}
+                      </span>
+                      <button
+                        type="button"
+                        class="bpd-title-icon"
+                        aria-label="Edit project title"
+                        onClick={startTitleEdit}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 20h9" />
+                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                        </svg>
+                      </button>
+                    </>
+                  }
+                >
+                  <input
+                    ref={titleInputRef}
+                    class="bpd-title-input"
+                    aria-label="Project title"
+                    value={titleDraft()}
+                    disabled={titleSaving()}
+                    onInput={(e) => {
+                      setTitleDraft(e.currentTarget.value);
+                      if (titleError()) setTitleError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void saveTitleEdit();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        cancelTitleEdit();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    class="bpd-title-icon bpd-title-check"
+                    aria-label="Save project title"
+                    disabled={titleSaving()}
+                    onClick={() => void saveTitleEdit()}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  </button>
+                </Show>
+              </div>
+              <Show when={titleError()}>
+                {(error) => <span class="bpd-title-error">{error()}</span>}
+              </Show>
               <span
                 class="bpd-status-pill"
                 style={statusPillStyle(lifecycleStatus())}
@@ -603,11 +737,32 @@ export function BoardProjectDetailPage(
                         projectId={projectId()}
                         docKey="PITCH"
                         content={p().docs?.["PITCH"] ?? ""}
-                        onSave={(content) => void handleSaveDoc("PITCH", content)}
+                        onSave={(content) =>
+                          void handleSaveDoc("PITCH", content)
+                        }
                         headerContent={
-                          <div class="bpd-doc-switcher" role="tablist" aria-label="Project documents">
-                            <button type="button" role="tab" aria-selected="true" class="active" onClick={() => setPitchDoc("PITCH")}>PITCH</button>
-                            <button type="button" role="tab" aria-selected="false" onClick={() => setPitchDoc("README")}>README</button>
+                          <div
+                            class="bpd-doc-switcher"
+                            role="tablist"
+                            aria-label="Project documents"
+                          >
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected="true"
+                              class="active"
+                              onClick={() => setPitchDoc("PITCH")}
+                            >
+                              PITCH
+                            </button>
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected="false"
+                              onClick={() => setPitchDoc("README")}
+                            >
+                              README
+                            </button>
                           </div>
                         }
                       />
@@ -616,11 +771,32 @@ export function BoardProjectDetailPage(
                     <RawMarkdownEditor
                       docKey="README"
                       content={p().docs?.["README"] ?? ""}
-                      onSave={(content) => void handleSaveDoc("README", content)}
+                      onSave={(content) =>
+                        void handleSaveDoc("README", content)
+                      }
                       headerContent={
-                        <div class="bpd-doc-switcher" role="tablist" aria-label="Project documents">
-                          <button type="button" role="tab" aria-selected="false" onClick={() => setPitchDoc("PITCH")}>PITCH</button>
-                          <button type="button" role="tab" aria-selected="true" class="active" onClick={() => setPitchDoc("README")}>README</button>
+                        <div
+                          class="bpd-doc-switcher"
+                          role="tablist"
+                          aria-label="Project documents"
+                        >
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected="false"
+                            onClick={() => setPitchDoc("PITCH")}
+                          >
+                            PITCH
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected="true"
+                            class="active"
+                            onClick={() => setPitchDoc("README")}
+                          >
+                            README
+                          </button>
                         </div>
                       }
                     />
@@ -872,6 +1048,14 @@ export function BoardProjectDetailPage(
           flex-shrink: 0;
         }
 
+        .bpd-title-wrap {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          min-width: 0;
+          max-width: min(460px, 100%);
+        }
+
         .bpd-title {
           font-size: 15px;
           font-weight: 600;
@@ -879,6 +1063,66 @@ export function BoardProjectDetailPage(
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+
+        .bpd-title-icon {
+          width: 22px;
+          height: 22px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          border: 0;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--text-secondary);
+          opacity: 0;
+          cursor: pointer;
+          transition: opacity 0.12s, background 0.12s, color 0.12s;
+        }
+
+        .bpd-title-wrap:hover .bpd-title-icon,
+        .bpd-title-wrap:focus-within .bpd-title-icon,
+        .bpd-title-wrap[data-editing="true"] .bpd-title-icon {
+          opacity: 1;
+        }
+
+        .bpd-title-icon:hover:not(:disabled) {
+          background: var(--bg-surface);
+          color: var(--text-primary);
+        }
+
+        .bpd-title-icon:disabled {
+          cursor: default;
+          opacity: 0.5;
+        }
+
+        .bpd-title-check {
+          color: var(--text-accent, #6366f1);
+        }
+
+        .bpd-title-input {
+          min-width: 180px;
+          max-width: min(420px, 60vw);
+          height: 28px;
+          padding: 3px 8px;
+          border: 1px solid var(--border-default);
+          border-radius: 6px;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          font-size: 15px;
+          font-weight: 600;
+          outline: none;
+        }
+
+        .bpd-title-input:focus {
+          border-color: var(--text-accent, #6366f1);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-accent, #6366f1) 18%, transparent);
+        }
+
+        .bpd-title-error {
+          font-size: 12px;
+          color: var(--color-danger, #dc2626);
         }
 
         .bpd-status-pill {
