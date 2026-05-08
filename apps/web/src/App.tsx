@@ -121,6 +121,7 @@ function Layout(props: { children?: JSX.Element }) {
   const canLoadQuickChatAgents = createMemo(
     () =>
       capabilitiesReady() &&
+      capabilities.agentFab === true &&
       !isLoginPage() &&
       (!capabilities.multiUser || Boolean(capabilities.user))
   );

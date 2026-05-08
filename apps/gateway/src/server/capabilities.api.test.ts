@@ -66,6 +66,7 @@ describe("/capabilities API", () => {
       extensions: { scheduler: true, heartbeat: true },
       agents: ["main"],
       multiUser: false,
+      agentFab: false,
     });
   });
 });

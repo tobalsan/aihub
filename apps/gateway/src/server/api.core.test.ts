@@ -29,6 +29,7 @@ vi.mock("../config/index.js", () => ({
   getActiveAgents,
   isAgentActive,
   resolveWorkspaceDir,
+  loadConfig: () => ({ branding: undefined, agentFab: false }),
 }));
 
 vi.mock("../extensions/registry.js", () => ({

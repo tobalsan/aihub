@@ -48,7 +48,12 @@ async function loadGatewayConfig(): Promise<GatewayConfig> {
     const raw = await fs.readFile(getProjectsConfigPath(), "utf8");
     return JSON.parse(raw) as GatewayConfig;
   } catch {
-    return { agents: [], extensions: {}, sessions: { idleMinutes: 360 } };
+    return {
+      agents: [],
+      extensions: {},
+      sessions: { idleMinutes: 360 },
+      agentFab: false,
+    };
   }
 }
 

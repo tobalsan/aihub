@@ -8,6 +8,7 @@ const defaultCapabilities: CapabilitiesResponse = {
   extensions: {},
   agents: [],
   multiUser: false,
+  agentFab: false,
 };
 
 const [capabilities, setCapabilities] =
@@ -62,6 +63,7 @@ export function setCapabilitiesForTests(
     extensions: value.extensions ?? defaultCapabilities.extensions,
     agents: value.agents ?? defaultCapabilities.agents,
     multiUser: value.multiUser ?? defaultCapabilities.multiUser,
+    agentFab: value.agentFab ?? defaultCapabilities.agentFab,
     user: value.user,
   });
   setCapabilitiesReady(true);

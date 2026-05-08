@@ -27,9 +27,7 @@ import type { GatewayConfig } from "@aihub/shared";
 import { resolveHomeDir } from "@aihub/shared";
 import { splitFrontmatter } from "../util/frontmatter.js";
 import { getProjectsRoot } from "../util/paths.js";
-import {
-  regenerateScopeMap,
-} from "../projects/slices.js";
+import { regenerateScopeMap } from "../projects/slices.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,15 +76,15 @@ export type MigrateProjectResult = {
 // ─── Status mapping ───────────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<string, StatusMapping> = {
-  not_now:        { projectStatus: "shaping",   sliceStatus: null },
-  maybe:          { projectStatus: "shaping",   sliceStatus: null },
-  shaping:        { projectStatus: "shaping",   sliceStatus: "todo" },
-  todo:           { projectStatus: "active",    sliceStatus: "todo" },
-  in_progress:    { projectStatus: "active",    sliceStatus: "in_progress" },
-  review:         { projectStatus: "active",    sliceStatus: "review" },
-  ready_to_merge: { projectStatus: "active",    sliceStatus: "ready_to_merge" },
-  done:           { projectStatus: "done",      sliceStatus: "done" },
-  cancelled:      { projectStatus: "cancelled", sliceStatus: "cancelled" },
+  not_now: { projectStatus: "shaping", sliceStatus: null },
+  maybe: { projectStatus: "shaping", sliceStatus: null },
+  shaping: { projectStatus: "shaping", sliceStatus: "todo" },
+  todo: { projectStatus: "active", sliceStatus: "todo" },
+  in_progress: { projectStatus: "active", sliceStatus: "in_progress" },
+  review: { projectStatus: "active", sliceStatus: "review" },
+  ready_to_merge: { projectStatus: "active", sliceStatus: "ready_to_merge" },
+  done: { projectStatus: "done", sliceStatus: "done" },
+  cancelled: { projectStatus: "cancelled", sliceStatus: "cancelled" },
 };
 
 // ─── Gateway detection ────────────────────────────────────────────────────────
@@ -95,7 +93,11 @@ const STATUS_MAP: Record<string, StatusMapping> = {
  * Check if anything is listening on the given host:port.
  * Resolves true if connected, false otherwise.
  */
-function isPortReachable(host: string, port: number, timeoutMs = 1000): Promise<boolean> {
+function isPortReachable(
+  host: string,
+  port: number,
+  timeoutMs = 1000
+): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
@@ -115,7 +117,9 @@ function isPortReachable(host: string, port: number, timeoutMs = 1000): Promise<
   });
 }
 
-export async function isGatewayRunning(config: GatewayConfig): Promise<boolean> {
+export async function isGatewayRunning(
+  config: GatewayConfig
+): Promise<boolean> {
   const port = config.gateway?.port ?? 4000;
   const host = config.gateway?.host ?? "127.0.0.1";
   return isPortReachable(host, port);
@@ -141,7 +145,10 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
   }
 }
 
-async function writeFileAtomic(filePath: string, content: string): Promise<void> {
+async function writeFileAtomic(
+  filePath: string,
+  content: string
+): Promise<void> {
   const dir = path.dirname(filePath);
   const name = path.basename(filePath);
   const tmpPath = path.join(dir, `.${name}.${process.pid}.${Date.now()}.tmp`);
@@ -152,7 +159,8 @@ async function writeFileAtomic(filePath: string, content: string): Promise<void>
 
 function formatFrontmatterValue(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return JSON.stringify(value);
 }
 
@@ -210,19 +218,33 @@ function formatSliceId(projectId: string, n: number): string {
   return `${projectId}-S${String(n).padStart(2, "0")}`;
 }
 
-async function migrateProject(project: ProjectLocation): Promise<MigrateProjectResult> {
+async function migrateProject(
+  project: ProjectLocation
+): Promise<MigrateProjectResult> {
   const { id, dirPath } = project;
 
   // Idempotency: skip if slices/ already exists
   const slicesDir = path.join(dirPath, SLICES_DIR);
   if (await pathExists(slicesDir)) {
-    return { id, dirPath, outcome: "skipped", legacyStatus: "", projectStatus: "" };
+    return {
+      id,
+      dirPath,
+      outcome: "skipped",
+      legacyStatus: "",
+      projectStatus: "",
+    };
   }
 
   // Read project README frontmatter
   const readmePath = path.join(dirPath, README_FILE);
   if (!(await pathExists(readmePath))) {
-    return { id, dirPath, outcome: "skipped", legacyStatus: "", projectStatus: "" };
+    return {
+      id,
+      dirPath,
+      outcome: "skipped",
+      legacyStatus: "",
+      projectStatus: "",
+    };
   }
 
   const readmeRaw = await fs.readFile(readmePath, "utf8");
@@ -231,13 +253,25 @@ async function migrateProject(project: ProjectLocation): Promise<MigrateProjectR
 
   // archived → unchanged, skip
   if (legacyStatus === "archived") {
-    return { id, dirPath, outcome: "skipped", legacyStatus, projectStatus: "archived" };
+    return {
+      id,
+      dirPath,
+      outcome: "skipped",
+      legacyStatus,
+      projectStatus: "archived",
+    };
   }
 
   const mapping = STATUS_MAP[legacyStatus];
   if (!mapping) {
     // Unknown status — skip
-    return { id, dirPath, outcome: "skipped", legacyStatus, projectStatus: legacyStatus };
+    return {
+      id,
+      dirPath,
+      outcome: "skipped",
+      legacyStatus,
+      projectStatus: legacyStatus,
+    };
   }
 
   const { projectStatus, sliceStatus } = mapping;
@@ -256,9 +290,14 @@ async function migrateProject(project: ProjectLocation): Promise<MigrateProjectR
   const metaDir = path.join(dirPath, META_DIR);
   await fs.mkdir(metaDir, { recursive: true });
   const countersPath = path.join(metaDir, COUNTERS_FILE);
-  const counters = await readJsonFile<{ lastSliceId: number }>(countersPath, { lastSliceId: 0 });
+  const counters = await readJsonFile<{ lastSliceId: number }>(countersPath, {
+    lastSliceId: 0,
+  });
   const sliceNumber = counters.lastSliceId + 1;
-  await writeFileAtomic(countersPath, JSON.stringify({ lastSliceId: sliceNumber }, null, 2));
+  await writeFileAtomic(
+    countersPath,
+    JSON.stringify({ lastSliceId: sliceNumber }, null, 2)
+  );
 
   const sliceId = formatSliceId(id, sliceNumber);
   const sliceDir = path.join(slicesDir, sliceId);
@@ -271,11 +310,16 @@ async function migrateProject(project: ProjectLocation): Promise<MigrateProjectR
   const [specs, tasks, validation] = await Promise.all([
     moveOrRead(path.join(dirPath, SPECS_FILE), path.join(sliceDir, SPECS_FILE)),
     moveOrRead(path.join(dirPath, TASKS_FILE), path.join(sliceDir, TASKS_FILE)),
-    moveOrRead(path.join(dirPath, VALIDATION_FILE), path.join(sliceDir, VALIDATION_FILE)),
+    moveOrRead(
+      path.join(dirPath, VALIDATION_FILE),
+      path.join(sliceDir, VALIDATION_FILE)
+    ),
   ]);
 
   // Suppress unused-var warnings - files already moved, values unused
-  void specs; void tasks; void validation;
+  void specs;
+  void tasks;
+  void validation;
 
   // Create slice README with frontmatter
   const sliceFrontmatter: Record<string, unknown> = {
@@ -334,7 +378,12 @@ async function loadGatewayConfig(): Promise<GatewayConfig> {
     const raw = await fs.readFile(getConfigPath(), "utf8");
     return JSON.parse(raw) as GatewayConfig;
   } catch {
-    return { agents: [], extensions: {}, sessions: { idleMinutes: 360 } };
+    return {
+      agents: [],
+      extensions: {},
+      sessions: { idleMinutes: 360 },
+      agentFab: false,
+    };
   }
 }
 
@@ -354,14 +403,21 @@ export type MigrateResult = {
   noSliceCount: number;
 };
 
-export async function runMigration(opts: MigrateOptions = {}): Promise<MigrateResult> {
+export async function runMigration(
+  opts: MigrateOptions = {}
+): Promise<MigrateResult> {
   let config: GatewayConfig;
   if (opts.config) {
     try {
       const raw = await fs.readFile(opts.config, "utf8");
       config = JSON.parse(raw) as GatewayConfig;
     } catch {
-      config = { agents: [], extensions: {}, sessions: { idleMinutes: 360 } };
+      config = {
+        agents: [],
+        extensions: {},
+        sessions: { idleMinutes: 360 },
+        agentFab: false,
+      };
     }
   } else {
     config = await loadGatewayConfig();

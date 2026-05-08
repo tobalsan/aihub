@@ -635,6 +635,7 @@ export const GatewayConfigSchema = z.object({
       logo: z.string().optional(),
     })
     .optional(),
+  agentFab: z.boolean().optional().default(false),
   server: z
     .object({
       host: z.string().optional(),
@@ -883,6 +884,7 @@ export const CapabilitiesResponseSchema = z.object({
   extensions: z.record(z.string(), z.boolean()),
   agents: z.array(z.string()),
   multiUser: z.boolean(),
+  agentFab: z.boolean(),
   home: z.string().optional(),
   user: CapabilitiesUserSchema.optional(),
   branding: z

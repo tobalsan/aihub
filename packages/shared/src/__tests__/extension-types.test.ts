@@ -105,6 +105,7 @@ describe("extension config schemas", () => {
       extensions: { scheduler: true, projects: false },
       agents: ["main"],
       multiUser: false,
+      agentFab: false,
     });
 
     expect(result.extensions.scheduler).toBe(true);

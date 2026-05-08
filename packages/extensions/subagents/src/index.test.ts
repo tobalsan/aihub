@@ -7,11 +7,15 @@ import type { ExtensionContext, GatewayConfig } from "@aihub/shared";
 import { subagentsExtension } from "./index.js";
 
 function context(
-  config: GatewayConfig,
+  config: Omit<GatewayConfig, "agentFab"> & { agentFab?: boolean },
   dataDir = "/tmp/aihub-subagents-test"
 ): ExtensionContext {
+  const normalizedConfig: GatewayConfig = {
+    ...config,
+    agentFab: config.agentFab ?? false,
+  };
   return {
-    getConfig: () => config,
+    getConfig: () => normalizedConfig,
     getDataDir: () => dataDir,
     getAgent: () => undefined,
     getAgents: () => [],
@@ -22,7 +26,7 @@ function context(
       payloads: [],
       meta: { durationMs: 0, sessionId: "test" },
     }),
-    getSubagentTemplates: () => config.subagents ?? [],
+    getSubagentTemplates: () => normalizedConfig.subagents ?? [],
     resolveSessionId: async () => undefined,
     getSessionEntry: async () => undefined,
     clearSessionEntry: async () => undefined,

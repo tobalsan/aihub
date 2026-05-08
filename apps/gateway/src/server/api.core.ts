@@ -136,9 +136,12 @@ api.get("/capabilities", async (c) => {
     getLoadedExtensions().map((extension) => [extension.id, true])
   );
   const isMultiUserEnabled = isExtensionLoaded("multiUser");
-  const authContext = isMultiUserEnabled ? await getRequestAuthContext(c) : null;
+  const authContext = isMultiUserEnabled
+    ? await getRequestAuthContext(c)
+    : null;
   const agents = await getVisibleAgents(c);
-  const branding = loadConfig().branding;
+  const config = loadConfig();
+  const branding = config.branding;
   const home = getHomeExtension();
 
   return c.json({
@@ -146,6 +149,7 @@ api.get("/capabilities", async (c) => {
     extensions,
     agents: agents.map((agent) => agent.id),
     multiUser: isMultiUserEnabled,
+    agentFab: config.agentFab ?? false,
     ...(home ? { home } : {}),
     ...(isMultiUserEnabled && authContext
       ? {
