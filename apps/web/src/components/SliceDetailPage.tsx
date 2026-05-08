@@ -519,7 +519,7 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                 class="slice-detail-back"
                 onClick={handleBack}
               >
-                ← Back to project
+                ← Slice Kanban
               </button>
               <span class="slice-detail-sep">/</span>
               <span class="slice-detail-id">{detail().id}</span>

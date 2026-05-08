@@ -280,10 +280,6 @@ export function BoardProjectDetailPage(
   };
 
   const handleBack = () => {
-    if (selectedSliceId()) {
-      closeSliceDetail();
-      return;
-    }
     if (props.onBack) {
       props.onBack();
     } else {
@@ -540,18 +536,7 @@ export function BoardProjectDetailPage(
               <Match when={activeTab() === "slices"}>
                 <div class="bpd-tab-panel bpd-tab-panel--slices">
                   <div class="bpd-slices-toolbar">
-                    <Show
-                      when={addingSlice()}
-                      fallback={
-                        <button
-                          type="button"
-                          class="bpd-add-slice-btn"
-                          onClick={() => setAddingSlice(true)}
-                        >
-                          + Add slice
-                        </button>
-                      }
-                    >
+                    <Show when={addingSlice()}>
                       <form
                         class="bpd-add-slice-form"
                         onSubmit={handleAddSlice}
