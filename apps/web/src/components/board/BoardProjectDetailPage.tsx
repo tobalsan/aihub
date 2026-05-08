@@ -38,6 +38,7 @@ import { ToastNotification, type ToastVariant } from "../ui/Toast";
 // ── Types ────────────────────────────────────────────────────────────
 
 type BpdTab = "pitch" | "slices" | "thread" | "activity";
+type PitchDocKey = "PITCH" | "README";
 
 type LifecycleAction = {
   label: string;
@@ -153,6 +154,77 @@ export type BoardProjectDetailPageProps = {
 
 // ── Component ────────────────────────────────────────────────────────
 
+function RawMarkdownEditor(props: {
+  docKey: string;
+  content: string;
+  onSave: (content: string) => void;
+  headerContent?: import("solid-js").JSX.Element;
+}) {
+  const [draft, setDraft] = createSignal(props.content);
+  const [status, setStatus] = createSignal<"idle" | "saving" | "saved">("idle");
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let savedTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastSaved = props.content;
+
+  createEffect(() => {
+    const next = props.content;
+    if (next === lastSaved) return;
+    lastSaved = next;
+    setDraft(next);
+  });
+
+  const flush = (content: string) => {
+    if (content === lastSaved) return;
+    setStatus("saving");
+    lastSaved = content;
+    props.onSave(content);
+    setStatus("saved");
+    if (savedTimer) clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => setStatus("idle"), 1500);
+  };
+
+  const scheduleSave = (content: string) => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = undefined;
+      flush(content);
+    }, 800);
+  };
+
+  onCleanup(() => {
+    if (saveTimer) clearTimeout(saveTimer);
+    if (savedTimer) clearTimeout(savedTimer);
+    flush(draft());
+  });
+
+  return (
+    <section class="raw-doc-editor">
+      <header class="raw-doc-editor-header">
+        {props.headerContent ?? <span class="raw-doc-editor-key">{props.docKey}</span>}
+        <span class="raw-doc-editor-status" data-status={status()}>
+          <Show when={status() === "saving"}>saving…</Show>
+          <Show when={status() === "saved"}>saved</Show>
+        </span>
+      </header>
+      <textarea
+        class="raw-doc-editor-body"
+        aria-label={`Document ${props.docKey}`}
+        value={draft()}
+        onInput={(e) => {
+          const next = e.currentTarget.value;
+          setDraft(next);
+          scheduleSave(next);
+        }}
+        onBlur={() => {
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = undefined;
+          flush(draft());
+        }}
+      />
+    </section>
+  );
+}
+
 export function BoardProjectDetailPage(
   props: BoardProjectDetailPageProps = {}
 ) {
@@ -178,6 +250,7 @@ export function BoardProjectDetailPage(
     return isBpdTab(tab) ? tab : "pitch";
   });
   const [menuOpen, setMenuOpen] = createSignal(false);
+  const [pitchDoc, setPitchDoc] = createSignal<PitchDocKey>("PITCH");
   const [editRepoOpen, setEditRepoOpen] = createSignal(false);
   const [toast, setToast] = createSignal<{
     message: string;
@@ -523,12 +596,35 @@ export function BoardProjectDetailPage(
               {/* Pitch tab */}
               <Match when={activeTab() === "pitch"}>
                 <div class="bpd-tab-panel">
-                  <DocEditor
-                    projectId={projectId()}
-                    docKey="PITCH"
-                    content={p().docs?.["PITCH"] ?? ""}
-                    onSave={(content) => void handleSaveDoc("PITCH", content)}
-                  />
+                  <Show
+                    when={pitchDoc() === "README"}
+                    fallback={
+                      <DocEditor
+                        projectId={projectId()}
+                        docKey="PITCH"
+                        content={p().docs?.["PITCH"] ?? ""}
+                        onSave={(content) => void handleSaveDoc("PITCH", content)}
+                        headerContent={
+                          <div class="bpd-doc-switcher" role="tablist" aria-label="Project documents">
+                            <button type="button" role="tab" aria-selected="true" class="active" onClick={() => setPitchDoc("PITCH")}>PITCH</button>
+                            <button type="button" role="tab" aria-selected="false" onClick={() => setPitchDoc("README")}>README</button>
+                          </div>
+                        }
+                      />
+                    }
+                  >
+                    <RawMarkdownEditor
+                      docKey="README"
+                      content={p().docs?.["README"] ?? ""}
+                      onSave={(content) => void handleSaveDoc("README", content)}
+                      headerContent={
+                        <div class="bpd-doc-switcher" role="tablist" aria-label="Project documents">
+                          <button type="button" role="tab" aria-selected="false" onClick={() => setPitchDoc("PITCH")}>PITCH</button>
+                          <button type="button" role="tab" aria-selected="true" class="active" onClick={() => setPitchDoc("README")}>README</button>
+                        </div>
+                      }
+                    />
+                  </Show>
                 </div>
               </Match>
 
@@ -932,6 +1028,80 @@ export function BoardProjectDetailPage(
           flex-direction: column;
           height: 100%;
           padding: 16px;
+        }
+
+        .bpd-doc-switcher {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .bpd-doc-switcher button {
+          border: 0;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 11px;
+          letter-spacing: 0.02em;
+          padding: 4px 7px;
+        }
+
+        .bpd-doc-switcher button:hover,
+        .bpd-doc-switcher button.active {
+          background: var(--bg-surface-hover, var(--bg-surface));
+          color: var(--text-primary);
+        }
+
+        .raw-doc-editor {
+          min-height: 200px;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          border: 1px solid var(--border-default);
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        .raw-doc-editor-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          border-bottom: 1px solid var(--border-default);
+          background: var(--bg-surface);
+          font-size: 11px;
+          color: var(--text-secondary);
+        }
+
+        .raw-doc-editor-key {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          letter-spacing: 0.02em;
+        }
+
+        .raw-doc-editor-status {
+          min-width: 56px;
+          text-align: right;
+          opacity: 0.75;
+        }
+
+        .raw-doc-editor-status[data-status="idle"] {
+          opacity: 0;
+        }
+
+        .raw-doc-editor-body {
+          flex: 1;
+          min-height: 200px;
+          resize: none;
+          border: 0;
+          outline: none;
+          background: transparent;
+          color: var(--text-primary);
+          font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          padding: 14px;
         }
 
         /* Slices tab */

@@ -1097,6 +1097,7 @@ export function ProjectsBoard(props: {
   const [createDescription, setCreateDescription] = createSignal("");
   const [createArea, setCreateArea] = createSignal("");
   const [areaSuggestionsOpen, setAreaSuggestionsOpen] = createSignal(false);
+  const [createAreaSelection, setCreateAreaSelection] = createSignal<"existing" | "new" | null>(null);
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
   const [createSuccess, setCreateSuccess] = createSignal<string | null>(null);
@@ -1142,6 +1143,12 @@ export function ProjectsBoard(props: {
   const shouldOfferNewArea = createMemo(
     () => createArea().trim().length > 0 && !exactAreaMatch()
   );
+  const selectedAreaPill = createMemo(() => {
+    const value = createArea().trim();
+    const selection = createAreaSelection();
+    if (!value || !selection) return null;
+    return { title: value, isNew: selection === "new" };
+  });
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
   let createNotesRef: HTMLTextAreaElement | undefined;
@@ -2113,6 +2120,7 @@ export function ProjectsBoard(props: {
     setCreateTitle(saved?.title ?? "");
     setCreateDescription(saved?.description ?? "");
     setCreateArea(areaFilterId() || "");
+    setCreateAreaSelection(areaFilterId() ? "existing" : null);
     setCreateError("");
     setCreateToast("");
     setFilesLoaded(false);
@@ -2317,6 +2325,7 @@ export function ProjectsBoard(props: {
     setCreateTitle("");
     setCreateDescription("");
     setCreateArea("");
+    setCreateAreaSelection(null);
     setCreateError("");
     setCreateToast("");
     setPendingFiles([]);
@@ -3745,60 +3754,110 @@ export function ProjectsBoard(props: {
                     <label class="create-label" for="create-area">
                       Area
                     </label>
-                    <input
-                      id="create-area"
-                      class="create-input"
-                      type="text"
-                      value={createArea()}
-                      autocomplete="off"
-                      placeholder="Search or create area..."
-                      onFocus={() => setAreaSuggestionsOpen(true)}
-                      onInput={(e) => {
-                        setCreateArea(e.currentTarget.value);
-                        setAreaSuggestionsOpen(true);
-                      }}
-                    />
-                    <Show when={areaSuggestionsOpen()}>
-                      <div class="area-suggestions">
-                        <button
-                          type="button"
-                          class="area-suggestion muted"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setCreateArea("");
-                            setAreaSuggestionsOpen(false);
-                          }}
-                        >
-                          No area
-                        </button>
-                        <For each={matchingAreas()}>
-                          {(area) => (
+                    <Show
+                      when={selectedAreaPill()}
+                      fallback={
+                        <div class="area-input-wrap">
+                          <input
+                            id="create-area"
+                            class="create-input"
+                            type="text"
+                            value={createArea()}
+                            autocomplete="off"
+                            placeholder="Search or create area..."
+                            onFocus={() => setAreaSuggestionsOpen(true)}
+                            onInput={(e) => {
+                              setCreateArea(e.currentTarget.value);
+                              setCreateAreaSelection(null);
+                              setAreaSuggestionsOpen(true);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const first = matchingAreas()[0];
+                              if (first) {
+                                setCreateArea(first.title);
+                                setCreateAreaSelection("existing");
+                                setAreaSuggestionsOpen(false);
+                                return;
+                              }
+                              if (shouldOfferNewArea()) {
+                                setCreateAreaSelection("new");
+                                setAreaSuggestionsOpen(false);
+                              }
+                            }}
+                          />
+                          <Show when={areaSuggestionsOpen()}>
+                            <div class="area-suggestions">
+                              <button
+                                type="button"
+                                class="area-suggestion muted"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setCreateArea("");
+                                  setCreateAreaSelection(null);
+                                  setAreaSuggestionsOpen(false);
+                                }}
+                              >
+                                No area
+                              </button>
+                              <For each={matchingAreas()}>
+                                {(area) => (
+                                  <button
+                                    type="button"
+                                    class="area-suggestion"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      setCreateArea(area.title);
+                                      setCreateAreaSelection("existing");
+                                      setAreaSuggestionsOpen(false);
+                                    }}
+                                  >
+                                    {area.title}
+                                  </button>
+                                )}
+                              </For>
+                              <Show when={shouldOfferNewArea()}>
+                                <button
+                                  type="button"
+                                  class="area-suggestion create-new"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setCreateAreaSelection("new");
+                                    setAreaSuggestionsOpen(false);
+                                  }}
+                                >
+                                  + Create "{createArea().trim()}"
+                                </button>
+                              </Show>
+                            </div>
+                          </Show>
+                        </div>
+                      }
+                    >
+                      {(area) => (
+                        <div class="area-pill-row">
+                          <span
+                            class="area-pill"
+                            classList={{ "area-pill-new": area().isNew }}
+                          >
+                            <span>{area().isNew ? "New area" : "Area"}</span>
+                            <strong>{area().title}</strong>
                             <button
                               type="button"
-                              class="area-suggestion"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                setCreateArea(area.title);
+                              class="area-pill-remove"
+                              aria-label="Remove area"
+                              onClick={() => {
+                                setCreateArea("");
+                                setCreateAreaSelection(null);
                                 setAreaSuggestionsOpen(false);
                               }}
                             >
-                              {area.title}
+                              ×
                             </button>
-                          )}
-                        </For>
-                        <Show when={shouldOfferNewArea()}>
-                          <button
-                            type="button"
-                            class="area-suggestion create-new"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setAreaSuggestionsOpen(false);
-                            }}
-                          >
-                            + Create "{createArea().trim()}"
-                          </button>
-                        </Show>
-                      </div>
+                          </span>
+                        </div>
+                      )}
                     </Show>
                     <div class="create-helper">
                       New areas are created when the project is submitted.
@@ -4735,13 +4794,15 @@ export function ProjectsBoard(props: {
         }
 
         .area-autocomplete { position: relative; }
+        .area-input-wrap { position: relative; }
+        .area-input-wrap .create-input { width: 100%; }
         .area-suggestions {
           position: absolute;
-          z-index: 30;
-          top: calc(100% - 18px);
+          z-index: 60;
+          top: calc(100% + 6px);
           left: 0;
           right: 0;
-          background: var(--mix-panel-bg);
+          background: var(--mix-modal-bg);
           border: 1px solid var(--mix-col-border);
           border-radius: 10px;
           padding: 6px;
@@ -4761,6 +4822,51 @@ export function ProjectsBoard(props: {
         .area-suggestion:hover { background: var(--mix-hover-bg); }
         .area-suggestion.muted { color: var(--text-tertiary); }
         .area-suggestion.create-new { color: #7dd3fc; }
+        .area-pill-row {
+          min-height: 42px;
+          display: flex;
+          align-items: center;
+        }
+        .area-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          max-width: 100%;
+          padding: 7px 8px 7px 12px;
+          border-radius: 999px;
+          border: 1px solid var(--mix-col-border);
+          background: var(--mix-input-bg);
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+        .area-pill-new {
+          border-color: rgba(125, 211, 252, 0.55);
+          background: color-mix(in oklch, #7dd3fc 18%, var(--mix-input-bg));
+        }
+        .area-pill span {
+          color: var(--text-tertiary);
+        }
+        .area-pill strong {
+          font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .area-pill-remove {
+          width: 22px;
+          height: 22px;
+          border: 0;
+          border-radius: 999px;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+          font-size: 18px;
+          line-height: 1;
+        }
+        .area-pill-remove:hover {
+          background: var(--mix-hover-bg);
+          color: var(--text-primary);
+        }
 
         .create-textarea {
           background: var(--mix-input-bg);
