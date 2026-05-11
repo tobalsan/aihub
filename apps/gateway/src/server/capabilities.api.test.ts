@@ -62,8 +62,8 @@ describe("/capabilities API", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       version: 2,
-      // core runtime extensions load by default even without explicit config
-      extensions: { scheduler: true, heartbeat: true },
+      // only configured extensions load (heartbeat absent from config)
+      extensions: { scheduler: true },
       agents: ["main"],
       multiUser: false,
       agentFab: false,

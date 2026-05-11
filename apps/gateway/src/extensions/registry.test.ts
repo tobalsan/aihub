@@ -111,13 +111,11 @@ describe("extension registry", () => {
 
     const result = await loadExtensions(config);
 
-    // scheduler and heartbeat load by default even without explicit config
-    expect(result.map((extension) => extension.id)).toEqual([
-      "scheduler",
-      "heartbeat",
-      "multiUser",
-    ]);
+    // scheduler and heartbeat must be opted in via config — only multiUser loads here
+    expect(result.map((extension) => extension.id)).toEqual(["multiUser"]);
     expect(isExtensionLoaded("multiUser")).toBe(true);
+    expect(isExtensionLoaded("scheduler")).toBe(false);
+    expect(isExtensionLoaded("heartbeat")).toBe(false);
   });
 
   it("loads webhooks extension when any agent has webhooks config", async () => {

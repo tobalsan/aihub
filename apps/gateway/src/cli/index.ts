@@ -22,7 +22,7 @@ import {
   registerSlicesCommands,
 } from "@aihub/extension-projects";
 import { registerEvalCommands } from "../evals/cli.js";
-import { resolveBindHost, type UiConfig } from "@aihub/shared";
+import { resolveBindHost, type Extension, type UiConfig } from "@aihub/shared";
 import {
   prepareStartupConfig,
   resolveStartupConfig,
@@ -190,7 +190,15 @@ const program = new Command();
 
 program.name("aihub").description("AIHub multi-agent gateway").version("0.1.0");
 
-function printDevBanner(gatewayPort: number, uiPort: number | null) {
+function printDevBanner(
+  gatewayPort: number,
+  uiPort: number | null,
+  extensions: Extension[]
+) {
+  const enabledIds = new Set(extensions.map((extension) => extension.id));
+  const scheduler = enabledIds.has("scheduler") ? "ON" : "OFF";
+  const heartbeat = enabledIds.has("heartbeat") ? "ON" : "OFF";
+  const status = `Scheduler: ${scheduler}  Heartbeat: ${heartbeat}`;
   const uiLine = uiPort
     ? `║  Web UI:  http://127.0.0.1:${uiPort.toString().padEnd(5)}       ║`
     : null;
@@ -198,7 +206,7 @@ function printDevBanner(gatewayPort: number, uiPort: number | null) {
 ╔════════════════════════════════════════╗
 ║           DEV MODE ACTIVE              ║
 ║  Gateway: http://127.0.0.1:${gatewayPort.toString().padEnd(5)}       ║${uiLine ? `\n${uiLine}` : ""}
-║  Scheduler/Heartbeat: OFF             ║
+║  ${status.padEnd(38)}║
 ╚════════════════════════════════════════╝
 `);
 }
@@ -212,7 +220,7 @@ const gatewayCmd = program
     "Server host (default: from config gateway.bind)"
   )
   .option("--agent-id <id>", "Single-agent mode: only load this agent")
-  .option("--dev", "Dev mode: auto-find ports, disable scheduler/heartbeat")
+  .option("--dev", "Dev mode: auto-find ports, print dev banner")
   .action(async (opts) => {
     try {
       const { actualPort, config, extensions, uiEnabled, uiPort } =
@@ -224,9 +232,8 @@ const gatewayCmd = program
         webProcess = startWebUI(config.ui ?? {}, actualPort);
       }
 
-      // In dev mode, skip external services and show banner
       if (opts.dev) {
-        printDevBanner(actualPort, uiEnabled ? uiPort : null);
+        printDevBanner(actualPort, uiEnabled ? uiPort : null, extensions);
       }
 
       // Handle shutdown

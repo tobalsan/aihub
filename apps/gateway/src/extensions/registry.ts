@@ -118,8 +118,6 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   },
 };
 
-const BUILT_IN_DEFAULTS = new Set(["heartbeat", "scheduler"]);
-
 const extensionRuntime = new ExtensionRuntime(getKnownExtensionRouteMetadata());
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -215,13 +213,11 @@ export async function loadExtensions(
     // Skip if explicitly disabled
     if (extensionConfig?.enabled === false) continue;
 
-    // Skip non-defaults that have no config
-    const isDefault = BUILT_IN_DEFAULTS.has(id);
-    if (!hasConfig && !isDefault) continue;
+    // Skip extensions that have no config — must be opted in via config.extensions[id]
+    if (!hasConfig) continue;
 
     const extension = await registration.load();
-    // For defaults with no config, pass empty object; validateConfig should accept it
-    const configToValidate = hasConfig ? extensionConfig : {};
+    const configToValidate = extensionConfig;
     const validation = extension.validateConfig(configToValidate);
     if (!validation.valid) {
       throw new Error(
