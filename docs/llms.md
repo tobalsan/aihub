@@ -31,7 +31,7 @@ Core TypeScript/Node.js application. Exports:
 - **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
 - **Agent Runtime** (`src/agents/`): Pi SDK integration (Pi packages pinned at `^0.73.0`; built-in coding tools are enabled by name via `createAgentSession({ tools: ["read", "bash", "edit", "write"] })`), session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
   - `src/agents/run-lifecycle.ts` owns gateway session run state transitions behind `SessionRunLifecycle`: active streaming/abort state, adapter handles, queue vs interrupt joins, pending follow-up messages, turn buffering, history event emission, and final turn flushing. `runAgent()` still resolves agents/sessions, handles `/abort` and `/think`, selects adapters, invokes SDKs, and drains non-native queued runs.
-- **Scheduler** (`src/scheduler/`): Interval/daily job execution
+- **Scheduler** (`packages/extensions/scheduler/`): Interval/daily job execution. See `packages/extensions/scheduler/README.md`.
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
 - **Slack** (`src/slack/`): Component-owned Slack Bolt Socket Mode runtime with channel/DM routing, thread replies, reactions, `/new`/`/stop` slash commands, `!new`/`!stop` bang commands (detected at start of regular messages — no slash command setup needed, works with multiple bots), optional live thinking thread replies, Slack mrkdwn conversion, inbound file attachment downloads to AIHub media, outbound `file_output` uploads via Slack `files.uploadV2`, and cross-source broadcasts in v2 modular config
 - Inbound Slack/Discord message runs now normalize `channel`, `place`, `conversation_type`, and `sender`, render a fallback-filled `[CHANNEL CONTEXT]` block, and append it to the true system prompt. This applies to both in-process and sandbox/container runs. First-party gateway/CLI runs do not get channel context. Web UI runs in multi-user mode pass a name-only `[USER CONTEXT]` block from the authenticated OAuth profile.
@@ -506,14 +506,16 @@ The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHist
 
 ## Services
 
-### Scheduler (`src/scheduler/`)
+### Scheduler (`packages/extensions/scheduler/`)
+
+Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled?, tickSeconds? }`). Routes `/api/schedules` (GET/POST) and `/api/schedules/:id` (PATCH/DELETE) are mounted by the extension; the `heartbeat` extension depends on it.
 
 Two schedule types:
 
-- **interval**: `{ type: "interval", everyMinutes: N, startAt?: ISO8601 }`
-- **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }`
+- **interval**: `{ type: "interval", everyMinutes: N, startAt?: ISO8601 }` — without `startAt` the first run fires `everyMinutes` after creation; with `startAt` runs align to that anchor.
+- **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }` — IANA timezone optional; defaults to the gateway's local zone.
 
-Jobs stored in `AIHUB_HOME/schedules.json` with state (nextRunAtMs, lastRunAtMs, lastStatus). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling.
+Jobs stored in `$AIHUB_HOME/schedules.json` (`{ version, jobs[] }`) with per-job `state` (`nextRunAtMs`, `lastRunAtMs`, `lastStatus`, `lastError`). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling. Each fire dispatches through `ExtensionContext.runAgent({ agentId, message, sessionId })` with default `sessionId = "scheduler:<jobId>"`; runs skip (and advance `nextRunAtMs`) when `ctx.isAgentActive(agentId)` is false, so scheduled traffic does not hijack single-agent mode. Ticks are serialized and missed runs do not back-fill — on boot the runner recomputes `nextRunAtMs` from now, so a job that was due during downtime fires once. Full reference: `packages/extensions/scheduler/README.md`.
 
 ### Discord (`src/discord/`)
 
