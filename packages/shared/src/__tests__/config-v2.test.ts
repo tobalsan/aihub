@@ -13,7 +13,7 @@ describe("GatewayConfigSchema v2", () => {
         },
       ],
       extensions: {
-        scheduler: { enabled: true, tickSeconds: 60 },
+        scheduler: { enabled: true },
       },
     });
 
@@ -37,14 +37,14 @@ describe("GatewayConfigSchema v2", () => {
         gatewayUrl: "http://localhost:10255",
       },
       extensions: {
-        scheduler: { enabled: true, tickSeconds: 30 },
+        scheduler: { enabled: true },
         heartbeat: { enabled: true },
       },
     });
 
     expect(result.version).toBe(2);
     expect(result.onecli?.gatewayUrl).toBe("http://localhost:10255");
-    expect(result.extensions?.scheduler?.tickSeconds).toBe(30);
+    expect(result.extensions?.scheduler?.enabled).toBe(true);
   });
 
   it("allows disabled multiUser without oauth config", () => {

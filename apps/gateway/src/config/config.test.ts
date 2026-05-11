@@ -48,7 +48,6 @@ describe("config validation", () => {
       extensions: {
         scheduler: {
           enabled: true,
-          tickSeconds: 60,
         },
       },
     };

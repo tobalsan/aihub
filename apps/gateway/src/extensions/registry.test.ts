@@ -64,7 +64,7 @@ describe("extension registry", () => {
         },
       ],
       extensions: {
-        scheduler: { enabled: true, tickSeconds: 60 },
+        scheduler: { enabled: true },
         heartbeat: { enabled: true },
       },
     });
@@ -188,7 +188,7 @@ describe("extension registry", () => {
         },
       ],
       extensions: {
-        scheduler: { enabled: true, tickSeconds: "bad" },
+        scheduler: { enabled: "bad" },
       },
     };
 

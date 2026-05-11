@@ -20,7 +20,7 @@ describe("migrateConfigV1toV2", () => {
           heartbeat: { every: "30m" },
         },
       ],
-      scheduler: { enabled: true, tickSeconds: 60 },
+      scheduler: { enabled: true },
       projects: { root: "~/projects" },
       })
     );
@@ -29,7 +29,7 @@ describe("migrateConfigV1toV2", () => {
     expect(config.version).toBe(2);
     expect(config.extensions?.discord?.channels?.["123"]?.agent).toBe("main");
     expect(config.extensions?.heartbeat?.enabled).toBe(true);
-    expect(config.extensions?.scheduler?.tickSeconds).toBe(60);
+    expect(config.extensions?.scheduler?.enabled).toBe(true);
     expect(config.extensions?.projects?.root).toBe("~/projects");
     expect(config.agents[0]?.discord?.token).toBe("$env:DISCORD_TOKEN");
   });

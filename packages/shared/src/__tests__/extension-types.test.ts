@@ -59,7 +59,7 @@ describe("extension config schemas", () => {
 
   it("parses extension map", () => {
     const result = ExtensionsConfigSchema.parse({
-      scheduler: { tickSeconds: 60 },
+      scheduler: { enabled: true },
       heartbeat: { enabled: true },
       projects: { root: "~/projects" },
       subagents: {
@@ -75,7 +75,7 @@ describe("extension config schemas", () => {
     if (!result) {
       throw new Error("Expected extensions config");
     }
-    expect(result.scheduler?.tickSeconds).toBe(60);
+    expect(result.scheduler?.enabled).toBe(true);
     expect(result.projects?.root).toBe("~/projects");
     expect(result.subagents?.profiles[0]?.cli).toBe("codex");
     expect(result.langfuse?.enabled).toBe(true);

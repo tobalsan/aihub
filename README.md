@@ -128,8 +128,7 @@ cat > "$AIHUB_HOME/aihub.json" << 'EOF'
       "root": "/your/custom/projects/path"
     },
     "scheduler": {
-      "enabled": true,
-      "tickSeconds": 60
+      "enabled": true
     }
   }
 }
@@ -754,7 +753,7 @@ Project API details: `docs/projects_api.md`
   ],
   "sessions": { "idleMinutes": 360 },
   "gateway": { "port": 4000, "bind": "tailnet" },
-  "scheduler": { "enabled": true, "tickSeconds": 60 },
+  "scheduler": { "enabled": true },
   "ui": { "port": 3000, "bind": "loopback" },
   "projects": { "root": "~/projects" },
   "env": { "OPENROUTER_API_KEY": "sk-or-..." }

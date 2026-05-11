@@ -39,13 +39,10 @@ export class SchedulerService {
   private store: ScheduleStore;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
-  private tickMs: number;
 
   constructor() {
     const ctx = getSchedulerContext();
     this.store = loadScheduleStore(ctx.getDataDir());
-    const config = ctx.getConfig();
-    this.tickMs = (config.extensions?.scheduler?.tickSeconds ?? 60) * 1000;
   }
 
   async start() {

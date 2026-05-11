@@ -32,7 +32,7 @@ describe("/capabilities API", () => {
           },
         ],
         extensions: {
-          scheduler: { enabled: true, tickSeconds: 60 },
+          scheduler: { enabled: true },
         },
       })
     );

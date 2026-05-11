@@ -451,7 +451,6 @@ export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 
 export const SchedulerExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
-  tickSeconds: z.number().optional(),
 });
 export type SchedulerExtensionConfig = z.infer<
   typeof SchedulerExtensionConfigSchema
@@ -568,7 +567,6 @@ export const ExtensionsConfigSchema = z
     scheduler: z
       .object({
         enabled: z.boolean().optional(),
-        tickSeconds: z.number().optional(),
       })
       .optional(),
     heartbeat: HeartbeatExtensionConfigSchema.optional(),

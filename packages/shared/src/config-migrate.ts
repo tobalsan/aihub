@@ -18,7 +18,6 @@ type LegacyGatewayConfig = GatewayConfig & {
   components?: ExtensionsConfig;
   scheduler?: {
     enabled?: boolean;
-    tickSeconds?: number;
   };
 };
 
@@ -72,14 +71,12 @@ export function migrateConfigV1toV2(v1: GatewayConfig): MigrationResult {
     extensions.heartbeat = { enabled: true };
     extensions.scheduler ??= {
       enabled: legacy.scheduler?.enabled ?? true,
-      tickSeconds: legacy.scheduler?.tickSeconds ?? 60,
     };
   }
 
   if (legacy.scheduler) {
     extensions.scheduler = {
       enabled: legacy.scheduler.enabled,
-      tickSeconds: legacy.scheduler.tickSeconds,
     };
   }
 

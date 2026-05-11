@@ -297,14 +297,14 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
   },
   components?: {
     discord?: { enabled?, token, channels?, dm?, historyLimit?, replyToMode? },
-    scheduler?: { enabled?, tickSeconds? },
+    scheduler?: { enabled? },
     heartbeat?: { enabled? },
     amsg?: { enabled? },
     conversations?: { enabled? },
     projects?: { enabled?, root? },
     langfuse?: { enabled?, baseUrl?, publicKey?, secretKey?, flushAt?, flushInterval?, debug? }
   },
-  scheduler?: { enabled?, tickSeconds? },
+  scheduler?: { enabled? },
   multiUser?: {
     enabled: boolean,
     oauth?: {
@@ -508,7 +508,7 @@ The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHist
 
 ### Scheduler (`packages/extensions/scheduler/`)
 
-Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled?, tickSeconds? }`). Routes `/api/schedules` (GET/POST) and `/api/schedules/:id` (PATCH/DELETE) are mounted by the extension; the `heartbeat` extension depends on it.
+Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled? }`). Routes `/api/schedules` (GET/POST) and `/api/schedules/:id` (PATCH/DELETE) are mounted by the extension; the `heartbeat` extension depends on it.
 
 Two schedule types:
 

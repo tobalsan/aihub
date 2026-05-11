@@ -53,7 +53,7 @@ describe("aihub projects config commands", () => {
               heartbeat: { every: "30m" },
             },
           ],
-          scheduler: { enabled: true, tickSeconds: 60 },
+          scheduler: { enabled: true },
           projects: { root: "~/projects" },
         },
         null,

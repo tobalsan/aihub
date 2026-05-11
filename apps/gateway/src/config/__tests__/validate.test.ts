@@ -68,7 +68,7 @@ describe("startup validation", () => {
         },
       ],
       extensions: {
-        scheduler: { enabled: true, tickSeconds: 60 },
+        scheduler: { enabled: true },
       },
     });
 
@@ -118,7 +118,7 @@ describe("startup validation", () => {
         },
       ],
       extensions: {
-        scheduler: { enabled: true, tickSeconds: 60 },
+        scheduler: { enabled: true },
         heartbeat: { enabled: true },
       },
     });
