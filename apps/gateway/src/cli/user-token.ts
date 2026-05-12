@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveBindHost } from "@aihub/shared";
 import { loadConfig, CONFIG_DIR } from "../config/index.js";
+import { resolveConfigSecrets } from "../config/secrets.js";
 
 type CachedToken = {
   token: string;
@@ -86,7 +87,11 @@ export async function createTokenInProcess(opts: {
   name?: string;
   dataDir?: string;
 }): Promise<{ token: string; tokenId: string; userId: string }> {
-  const config = loadConfig();
+  // loadConfig() loads $AIHUB_HOME/.env into process.env but leaves $env: refs
+  // unresolved on the returned object; the gateway proper resolves them via
+  // prepareStartupConfig(). The CLI bootstrap mirrors that step so baseUrl /
+  // sessionSecret / OAuth refs reach better-auth as real strings.
+  const config = await resolveConfigSecrets(loadConfig());
   const mu = config.extensions?.multiUser;
   if (!mu?.enabled) {
     throw new Error(
