@@ -22,7 +22,7 @@ without it. Jobs can be managed either via the HTTP API or via the
 
 The scheduler does not own prompt selection, agent state, or message history.
 It hands `{ agentId, message, sessionId }` to the runtime and records whether
-the call succeeded.
+the call succeeded. By default, each job fire gets a fresh scheduler session.
 
 ## Storage
 
@@ -137,9 +137,9 @@ The second form runs at 23:30 in the gateway's local timezone.
   `lastStatus: "error"` and `lastError: "Agent not found"`. The next-run time
   is still advanced so the job does not livelock.
 - Each fire sends `payload.message` through `runAgent({ agentId, message,
-  sessionId })`. Default `sessionId` is `scheduler:<jobId>`, so all runs from a
-  job share one session by default. Override `payload.sessionId` to merge into
-  the agent's main session (e.g. `agent:<id>:main`) or any other key.
+  sessionId })`. Default `sessionId` is `scheduler:<jobId>:<runId>`, so each
+  scheduled fire writes into a fresh session. Override `payload.sessionId` to
+  merge into the agent's main session (e.g. `agent:<id>:main`) or any other key.
 - `tick` is serialized: while one tick is running, additional timer firings are
   no-ops. Missed runs do not back-fill — only the next due time is computed.
 
@@ -241,9 +241,9 @@ curl -X POST localhost:4000/api/schedules \
 
 ### Route runs into the agent's main session
 
-By default each job uses `sessionId: "scheduler:<jobId>"`. Override it to merge
-scheduled output into the agent's main thread so users see it in the chat
-panel:
+By default each job fire uses a fresh `sessionId:
+"scheduler:<jobId>:<runId>"`. Override it to merge scheduled output into the
+agent's main thread so users see it in the chat panel:
 
 ```bash
 curl -X POST localhost:4000/api/schedules \
