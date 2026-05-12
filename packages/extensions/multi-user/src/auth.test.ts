@@ -74,4 +74,51 @@ describe("multi-user auth", () => {
       ])
     );
   });
+
+  it("treats empty server.baseUrl / web.baseUrl as missing", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-auth-"));
+    tempDirs.push(tempDir);
+
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      gateway: { port: 4124 },
+      // Both baseUrls are empty strings (e.g. unset $env: ref): the auth
+      // builder must fall back to the gateway default instead of letting
+      // `new URL("")` blow up.
+      server: { baseUrl: "" },
+      web: { baseUrl: "   " },
+      extensions: {
+        multiUser: {
+          enabled: true,
+          oauth: {
+            google: {
+              clientId: "client-id",
+              clientSecret: "client-secret",
+            },
+          },
+          sessionSecret: "x".repeat(32),
+        },
+      },
+    });
+
+    const db = initializeMultiUserDatabase(path.join(tempDir, "auth.db"));
+    const multiUserConfig = config.extensions?.multiUser;
+    if (!multiUserConfig || !multiUserConfig.enabled) {
+      throw new Error("multiUser config missing");
+    }
+
+    await expect(
+      createMultiUserAuth(config, multiUserConfig, db)
+    ).resolves.toBeDefined();
+
+    db.close();
+  });
 });

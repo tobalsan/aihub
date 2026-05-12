@@ -10,10 +10,16 @@ function normalizeOrigin(url: string): string {
   return new URL(url).origin;
 }
 
+function nonEmpty(value: string | undefined | null): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function getAuthBaseUrl(config: GatewayConfig): string {
   const configured =
-    config.server?.baseUrl ??
-    config.web?.baseUrl ??
+    nonEmpty(config.server?.baseUrl) ??
+    nonEmpty(config.web?.baseUrl) ??
     `http://127.0.0.1:${config.gateway?.port ?? 4000}`;
   return normalizeOrigin(configured);
 }
@@ -21,8 +27,8 @@ function getAuthBaseUrl(config: GatewayConfig): string {
 function getTrustedOrigins(config: GatewayConfig): string[] {
   const uiPort = config.ui?.port ?? 3000;
   const candidates = [
-    config.server?.baseUrl,
-    config.web?.baseUrl,
+    nonEmpty(config.server?.baseUrl),
+    nonEmpty(config.web?.baseUrl),
     getAuthBaseUrl(config),
     // Dev mode: web UI runs on a separate port
     `http://localhost:${uiPort}`,
