@@ -48,6 +48,15 @@ type LifecycleAction = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+function getShapingSubStatus(
+  frontmatter: Record<string, unknown>
+): string | null {
+  const s = frontmatter.status;
+  if (typeof s !== "string" || !s.startsWith("shaping:")) return null;
+  const stage = s.slice("shaping:".length);
+  return stage || null;
+}
+
 function getLifecycleStatus(
   frontmatter: Record<string, unknown>
 ): ProjectLifecycleStatus {
@@ -344,6 +353,12 @@ export function BoardProjectDetailPage(
     const p = project.latest;
     if (!p) return "shaping";
     return getLifecycleStatus(p.frontmatter);
+  });
+
+  const shapingSubStatus = createMemo((): string | null => {
+    const p = project.latest;
+    if (!p) return null;
+    return getShapingSubStatus(p.frontmatter);
   });
 
   const validActions = createMemo(() => getValidActions(lifecycleStatus()));
@@ -643,6 +658,11 @@ export function BoardProjectDetailPage(
               >
                 {lifecycleStatus()}
               </span>
+              <Show when={shapingSubStatus()}>
+                {(stage) => (
+                  <span class="bpd-shaping-stage">{stage()}</span>
+                )}
+              </Show>
               <Show when={area()}>
                 {(a) => <span class="bpd-area">{a().title}</span>}
               </Show>
@@ -1144,6 +1164,19 @@ export function BoardProjectDetailPage(
           text-transform: uppercase;
           letter-spacing: 0.04em;
           flex-shrink: 0;
+        }
+
+        .bpd-shaping-stage {
+          font-size: 11px;
+          font-weight: 500;
+          padding: 2px 8px;
+          border-radius: 999px;
+          background: rgba(74, 163, 160, 0.16);
+          color: #4aa3a0;
+          text-transform: lowercase;
+          letter-spacing: 0.02em;
+          flex-shrink: 0;
+          white-space: nowrap;
         }
 
         .bpd-area {
