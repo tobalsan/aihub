@@ -23,7 +23,7 @@ aihub/
 
 Core TypeScript/Node.js application. Exports:
 
-- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub notify`, `aihub projects ...`, `aihub subagents ...`, `aihub eval run`
+- **CLI** (`src/cli/index.ts`): `aihub gateway`, `aihub agent list`, `aihub send`, `aihub notify`, `aihub projects ...`, `aihub subagents ...`, `aihub scheduler ...`, `aihub eval run`
 - **Evals** (`src/evals/`): Headless single-turn runtime for Harbor eval tasks. `aihub eval run --agent <id> --instruction-file <path>` boots config + extensions + `runAgent()` only (no HTTP server, no Discord/amsg/scheduler/heartbeat/conversations/projects/multi-user/web), aggregates the stream into `result.json`, and emits an ATIF `trajectory.json`. See `docs/plans/harbor-evals-for-aihub-migration.md`.
 - **Server** (`src/server/`): Hono-based HTTP API + WebSocket streaming
   - `src/server/run-request.ts` normalizes REST/WebSocket agent run inputs before `runAgent()`: validation, session key defaults/resolution, multi-user user IDs/context, inbound attachment paths, and empty reset-trigger intro responses.
@@ -525,6 +525,8 @@ Two schedule types:
 - **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }` — IANA timezone optional; defaults to the gateway's local zone.
 
 Jobs stored in `$AIHUB_HOME/schedules.json` (`{ version, jobs[] }`) with per-job `state` (`nextRunAtMs`, `lastRunAtMs`, `lastStatus`, `lastError`). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling. Each fire dispatches through `ExtensionContext.runAgent({ agentId, message, sessionId })` with default `sessionId = "scheduler:<jobId>"`; runs skip (and advance `nextRunAtMs`) when `ctx.isAgentActive(agentId)` is false, so scheduled traffic does not hijack single-agent mode. Ticks are serialized and missed runs do not back-fill — on boot the runner recomputes `nextRunAtMs` from now, so a job that was due during downtime fires once. Full reference: `packages/extensions/scheduler/README.md`.
+
+CLI: `aihub scheduler {list,get,create,update,enable,disable,delete}` wraps `/api/schedules`. `create` derives `--name` as `<agent>-every-<dur>` or `<agent>-daily-HH:MM` when omitted. Because `GET /api/schedules` returns only enabled jobs, `aihub scheduler get <id>` cannot see disabled jobs — keep the id from the `disable` response if you intend to re-enable later. CLI registration lives in `packages/extensions/scheduler/src/cli/`; wired into the gateway CLI at `apps/gateway/src/cli/index.ts`.
 
 ### Discord (`src/discord/`)
 

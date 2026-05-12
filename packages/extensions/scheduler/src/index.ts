@@ -98,3 +98,5 @@ export {
   stopScheduler,
   computeNextRunAtMs,
 };
+
+export { registerSchedulerCommands } from "./cli/index.js";

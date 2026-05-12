@@ -827,23 +827,29 @@ Shell env vars take precedence over config values.
 
 ## Scheduling
 
-Create via API:
+Create via CLI:
 
 ```bash
-# Every 5 minutes
+# Every hour
+aihub scheduler create --agent my-agent --every 1h -m "Run hourly check"
+
+# Daily at 9am New York time
+aihub scheduler create --agent my-agent --daily 09:00 --tz America/New_York \
+  -m "Generate standup summary"
+
+aihub scheduler list
+aihub scheduler disable <id>
+aihub scheduler delete <id> -y
+```
+
+Or directly via the HTTP API:
+
+```bash
 curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d '{
   "name": "Hourly check",
   "agentId": "my-agent",
   "schedule": { "type": "interval", "everyMinutes": 60 },
   "payload": { "message": "Run hourly check" }
-}'
-
-# Daily at 9am
-curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d '{
-  "name": "Daily standup",
-  "agentId": "my-agent",
-  "schedule": { "type": "daily", "time": "09:00", "timezone": "America/New_York" },
-  "payload": { "message": "Generate standup summary" }
 }'
 ```
 

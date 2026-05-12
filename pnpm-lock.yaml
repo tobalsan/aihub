@@ -324,6 +324,9 @@ importers:
       '@aihub/shared':
         specifier: workspace:*
         version: link:../../shared
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
       hono:
         specifier: ^4.11.4
         version: 4.11.4

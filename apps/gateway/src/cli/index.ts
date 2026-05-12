@@ -22,6 +22,7 @@ import {
   registerProjectsCommands,
   registerSlicesCommands,
 } from "@aihub/extension-projects";
+import { registerSchedulerCommands } from "@aihub/extension-scheduler";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type Extension, type UiConfig } from "@aihub/shared";
 import {
@@ -394,6 +395,12 @@ registerProjectsCommands(
 );
 registerSlicesCommands(
   program.command("slices").description("Manage AIHub slices").version("0.1.0")
+);
+registerSchedulerCommands(
+  program
+    .command("scheduler")
+    .description("Manage AIHub schedules")
+    .version("0.1.0")
 );
 registerEvalCommands(program);
 

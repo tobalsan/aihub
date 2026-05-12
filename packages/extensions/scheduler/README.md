@@ -6,8 +6,8 @@ and their next-run state across restarts.
 
 The extension is opt-in: add an `extensions.scheduler` block to the gateway
 config to load it. The `heartbeat` extension depends on it and will not start
-without it. The CLI for scheduling is HTTP-only — there is no `aihub scheduler`
-command yet; use `curl` or any HTTP client against the gateway.
+without it. Jobs can be managed either via the HTTP API or via the
+`aihub scheduler` CLI (see below).
 
 ## What It Owns
 
@@ -269,6 +269,46 @@ curl -X PATCH localhost:4000/api/schedules/<id> \
 
 Re-enable with `{ "enabled": true }`; `nextRunAtMs` is recomputed from the time
 of the patch.
+
+## CLI
+
+`aihub scheduler` is a thin wrapper over the HTTP API. It honors
+`AIHUB_API_URL` / `AIHUB_URL` and `$AIHUB_HOME/aihub.json`, and reuses the
+same `AIHUB_TOKEN` bearer auth as the projects CLI.
+
+```text
+aihub scheduler list
+aihub scheduler get <id>
+aihub scheduler create --agent <id> -m <msg> (--every 2m | --daily 09:00 [--tz TZ]) [--start-at <iso>] [--name <n>] [--session <id>] [--disabled]
+aihub scheduler update <id> [--name <n>] [--enable|--disable] [--every <dur>|--daily HH:MM [--tz TZ]] [--start-at <iso>] [-m <msg> [--session <id>]]
+aihub scheduler enable <id>
+aihub scheduler disable <id>
+aihub scheduler delete <id> [-y]
+```
+
+All commands accept `-j` / `--json` for machine output and otherwise render a
+markdown table with columns `id | name | agent | schedule | next-run | last-status`.
+
+`--name` is optional on `create`: when omitted, it is derived as
+`<agent>-every-1h` or `<agent>-daily-09:00`.
+
+`get` and `list` mirror `GET /api/schedules`, which returns only enabled jobs.
+A disabled job cannot be looked up by CLI; pause via `disable` and keep the id
+if you intend to re-enable later (the `disable` response contains it).
+
+`delete` prompts interactively unless `-y` is passed; non-TTY runs without
+`-y` abort.
+
+Examples:
+
+```bash
+aihub scheduler create --agent ops --every 1h -m "Run the hourly sweep."
+aihub scheduler create --agent lead --daily 09:00 --tz America/New_York \
+  -m "Daily standup" --session agent:lead:main
+aihub scheduler update 9b1c... --every 30m
+aihub scheduler disable 9b1c...
+aihub scheduler delete 9b1c... -y
+```
 
 ## Operational Notes
 
