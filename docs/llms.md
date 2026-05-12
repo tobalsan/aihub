@@ -359,6 +359,15 @@ $AIHUB_HOME/
   - Admin users get `/admin/users` and `/admin/agents`
 - There is no migration path from an existing single-user data directory into per-user ownership. Enabling multi-user mode is a fresh start for auth-owned state.
 
+### Bearer-token API auth
+
+Multi-user mode also accepts `Authorization: Bearer <token>` on every `/api/*` route in place of a cookie session. Tokens are minted per user via the `@better-auth/api-key` plugin, stored hashed at rest in the `apikey` table, and resolve to the same `RequestAuthContext` shape as cookie sessions (so `requireAdmin` / `requireAgentAccess` work unchanged, no admin bypass). Revocation is immediate — each request re-verifies the key. Manage tokens from the CLI: `aihub user token create --user <email>` (prints the plaintext once and caches it at `~/.aihub/user-token.json` with mode `0600`), `aihub user token list`, `aihub user token revoke <token-id>`. The revoke path hits `DELETE /api/user/token/:id`, which emits a `user_token.revoked` audit log line; the plugin's built-in `/api/auth/api-key/delete` endpoint stays available but is silent.
+
+```bash
+T=$(aihub user token create --user me@example.com --name ci | tail -n1)
+curl -H "Authorization: Bearer $T" http://127.0.0.1:4000/api/me
+```
+
 ## Agent Runtime Flow
 
 1. **Config Load**: `loadConfig()` reads `--config`/explicit file paths when provided, else `$AIHUB_HOME/aihub.json` (default `~/.aihub/aihub.json`), validates via Zod

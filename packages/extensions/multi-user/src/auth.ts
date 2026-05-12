@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins/admin";
+import { apiKey } from "@better-auth/api-key";
 import type Database from "better-sqlite3";
 import type { GatewayConfig, MultiUserConfig } from "@aihub/shared";
 
@@ -53,6 +54,24 @@ export type MultiUserAuth = {
       headers: Headers;
       body: { userId: string; role: string };
     }): Promise<{ user: Record<string, unknown> }>;
+    verifyApiKey(args: {
+      body: { key: string };
+    }): Promise<{
+      valid: boolean;
+      key?: Record<string, unknown> | null;
+      error?: { message?: string; code?: string } | null;
+    }>;
+    createApiKey(args: {
+      body: { userId: string; name?: string };
+    }): Promise<Record<string, unknown>>;
+    listApiKeys(args: {
+      headers: Headers;
+      query?: Record<string, unknown>;
+    }): Promise<Array<Record<string, unknown>>>;
+    deleteApiKey(args: {
+      headers?: Headers;
+      body: { keyId: string };
+    }): Promise<Record<string, unknown>>;
   };
 };
 
@@ -94,6 +113,9 @@ function buildMultiUserAuth(
     plugins: [
       admin({
         defaultRole: "user",
+      }),
+      apiKey({
+        rateLimit: { enabled: false },
       }),
     ],
     databaseHooks: {

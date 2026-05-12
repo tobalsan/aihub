@@ -1,6 +1,11 @@
 import type { Hono } from "hono";
 import { getMultiUserRuntime } from "./index.js";
 import { registerMultiUserAdminRoutes } from "./admin-routes.js";
+import {
+  getForwardedAuthContext,
+  getRequestAuthContext,
+  hasAdminRole,
+} from "./middleware.js";
 
 function refreshApproval(
   user: Record<string, unknown>,
@@ -38,16 +43,36 @@ export function registerMultiUserRoutes(app: Hono): void {
 
   app.get("/me", async (c) => {
     const { auth, db, assignments } = getRuntimeOrThrow();
-    const session = await auth.api.getSession({
-      headers: c.req.raw.headers,
-    });
 
-    if (!session) {
+    // Prefer the auth context the parent app already validated (bearer or
+    // cookie). Falls back to a direct getSession lookup so this route works
+    // when called outside the createAuthMiddleware pipeline.
+    const forwarded =
+      getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+
+    let user: Record<string, unknown> | null = null;
+    if (forwarded) {
+      user = {
+        id: forwarded.user.id,
+        name: forwarded.user.name ?? null,
+        email: forwarded.user.email ?? null,
+        role: forwarded.user.role ?? null,
+        approved: forwarded.user.approved ?? null,
+      };
+    } else {
+      const session = await auth.api.getSession({
+        headers: c.req.raw.headers,
+      });
+      if (session) {
+        user = session.user as Record<string, unknown>;
+      }
+    }
+
+    if (!user) {
       return c.json({ user: null, session: null }, 401);
     }
 
-    const userId = String(session.user.id);
-    const user = session.user as Record<string, unknown>;
+    const userId = String(user.id);
     refreshApproval(user, db);
     return c.json({
       user: {
@@ -67,6 +92,93 @@ export function registerMultiUserRoutes(app: Hono): void {
       },
       assignedAgentIds: assignments.getAssignmentsForUser(userId),
     });
+  });
+
+  app.delete("/user/token/:id", async (c) => {
+    const runtime = getRuntimeOrThrow();
+    const authContext =
+      getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+    if (!authContext) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+
+    const tokenId = c.req.param("id");
+    if (!tokenId) {
+      return c.json({ error: "bad_request" }, 400);
+    }
+
+    const callerId = authContext.user.id;
+    const isAdmin = hasAdminRole(authContext);
+
+    // Look up the key to verify it exists and (for non-admins) check ownership.
+    // The api-key plugin uses `apikey` as its table name with `referenceId` /
+    // `userId` columns depending on plugin config. We probe both columns for
+    // safety.
+    let ownerId: string | null = null;
+    try {
+      const row = runtime.db
+        .prepare("SELECT userId FROM apikey WHERE id = ?")
+        .get(tokenId) as { userId?: string | null } | undefined;
+      if (row && typeof row.userId === "string") {
+        ownerId = row.userId;
+      }
+    } catch {
+      // Column may not exist on this schema version — fall through.
+    }
+    if (ownerId === null) {
+      try {
+        const row = runtime.db
+          .prepare("SELECT referenceId FROM apikey WHERE id = ?")
+          .get(tokenId) as { referenceId?: string | null } | undefined;
+        if (row && typeof row.referenceId === "string") {
+          ownerId = row.referenceId;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (ownerId === null) {
+      return c.json({ error: "not_found" }, 404);
+    }
+
+    if (!isAdmin && ownerId !== callerId) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    // Delete directly from the apikey table. We do this rather than calling
+    // `auth.api.deleteApiKey` because the plugin's endpoint requires a
+    // Better-Auth session (cookie); when the caller authenticated via bearer,
+    // no session exists. We already validated ownership above so this is
+    // safe — and the wrapper exists precisely to add the audit-log line that
+    // the plugin's endpoint does not emit.
+    try {
+      const result = runtime.db
+        .prepare("DELETE FROM apikey WHERE id = ?")
+        .run(tokenId);
+      if (result.changes === 0) {
+        return c.json({ error: "not_found" }, 404);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      runtime.logger.warn({
+        event: "user_token.revoke_failed",
+        userId: ownerId,
+        tokenId,
+        actor: callerId,
+        error: message,
+      });
+      return c.json({ error: "delete_failed" }, 500);
+    }
+
+    runtime.logger.info({
+      event: "user_token.revoked",
+      userId: ownerId,
+      tokenId,
+      actor: callerId,
+    });
+
+    return c.json({ ok: true });
   });
 
   registerMultiUserAdminRoutes(app);

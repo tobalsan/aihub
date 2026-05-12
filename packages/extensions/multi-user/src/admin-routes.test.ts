@@ -650,6 +650,7 @@ describe("multi-user api core", () => {
       extensions: { multiUser: true },
       agents: ["agent-b"],
       multiUser: true,
+      agentFab: false,
       user: {
         id: "user-1",
         name: "User One",

@@ -214,6 +214,197 @@ describe("multi-user integration", () => {
     }
   });
 
+  it("authenticates /api/* via bearer tokens and revokes them through the audited wrapper", async () => {
+    const { dir, previousEnv } = await createTempHome();
+
+    try {
+      await fs.writeFile(
+        path.join(dir, "aihub.json"),
+        JSON.stringify({
+          version: 2,
+          agents: [
+            {
+              id: "main",
+              name: "Main",
+              workspace: "~/agents/main",
+              model: { provider: "anthropic", model: "claude" },
+            },
+          ],
+          extensions: {
+            multiUser: {
+              enabled: true,
+              oauth: {
+                google: {
+                  clientId: "client-id",
+                  clientSecret: "client-secret",
+                },
+              },
+              allowedDomains: ["example.com"],
+              sessionSecret: "x".repeat(32),
+            },
+          },
+        })
+      );
+
+      const { clearConfigCacheForTests, loadConfig } = await import(
+        "../../../../apps/gateway/src/config/index.js"
+      );
+      clearConfigCacheForTests();
+
+      const config = loadConfig();
+      const { api } = await import(
+        "../../../../apps/gateway/src/server/api.core.js"
+      );
+      const {
+        createAuthMiddleware,
+        getRequestAuthContext,
+        forwardAuthContextToRequest,
+      } = await import("./middleware.js");
+      const { multiUserExtension, getMultiUserRuntime } = await import(
+        "./index.js"
+      );
+
+      const auditLogs: Array<Record<string, unknown>> = [];
+
+      multiUserExtension.registerRoutes(api as never);
+      await multiUserExtension.start({
+        getConfig: () => config,
+        getDataDir: () => dir,
+        getAgent: (agentId) =>
+          config.agents.find((agent) => agent.id === agentId),
+        getAgents: () => config.agents,
+        isAgentActive: () => true,
+        isAgentStreaming: () => false,
+        resolveWorkspaceDir: () => "/tmp",
+        runAgent: async () => ({
+          payloads: [],
+          meta: { durationMs: 0, sessionId: "session" },
+        }),
+        getSubagentTemplates: () => [],
+        resolveSessionId: async () => undefined,
+        getSessionEntry: async () => undefined,
+        clearSessionEntry: async () => undefined,
+        restoreSessionUpdatedAt: () => undefined,
+        deleteSession: () => undefined,
+        invalidateHistoryCache: async () => undefined,
+        getSessionHistory: async () => [],
+        subscribe: () => () => undefined,
+        emit: () => undefined,
+        logger: {
+          info: (payload) => {
+            if (payload && typeof payload === "object") {
+              auditLogs.push(payload as Record<string, unknown>);
+            }
+          },
+          warn: () => undefined,
+          error: () => undefined,
+        },
+      });
+
+      const app = createApiApp({
+        api,
+        createAuthMiddleware,
+        getRequestAuthContext,
+        forwardAuthContextToRequest,
+      });
+      const runtime = getMultiUserRuntime();
+      expect(runtime).not.toBeNull();
+      if (!runtime) throw new Error("runtime missing");
+
+      // Seed an approved user directly in the auth DB.
+      const now = new Date().toISOString();
+      runtime.db
+        .prepare(
+          `INSERT INTO user (id, name, email, emailVerified, image, role, approved, createdAt, updatedAt)
+           VALUES (@id, @name, @email, 1, NULL, 'user', 1, @createdAt, @updatedAt)`
+        )
+        .run({
+          id: "user-bearer",
+          name: "Bearer Tester",
+          email: "bearer@example.com",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+      // Mint a token via the api-key plugin.
+      const created = (await runtime.auth.api.createApiKey({
+        body: { userId: "user-bearer", name: "ci" },
+      })) as Record<string, unknown>;
+      const token = created.key as string | undefined;
+      const tokenId = created.id as string | undefined;
+      expect(token).toBeTruthy();
+      expect(tokenId).toBeTruthy();
+      if (!token || !tokenId) throw new Error("token mint failed");
+
+      // /api/me with bearer → 200 with the right user.
+      const meResponse = await app.request("/api/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(meResponse.status).toBe(200);
+      const meBody = (await meResponse.json()) as {
+        user: { id: string; email: string | null };
+        assignedAgentIds: string[];
+      };
+      expect(meBody.user.id).toBe("user-bearer");
+      expect(meBody.user.email).toBe("bearer@example.com");
+
+      // /api/agents with the same bearer → 200, list reflects multi-user mode
+      // (assignments returns [] for non-admin users → empty list is fine; just
+      // assert the request passes auth and returns JSON).
+      const agentsResponse = await app.request("/api/agents", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(agentsResponse.status).toBe(200);
+
+      // Without auth, /api/me returns 401.
+      const meNoAuth = await app.request("/api/me");
+      expect(meNoAuth.status).toBe(401);
+
+      // Verify the keyId exists in the apikey table (matching the CLI lookup pattern).
+      const apikeyCols = runtime.db.pragma("table_info(apikey)") as Array<{
+        name: string;
+      }>;
+      const ownerCol = apikeyCols.some((c) => c.name === "userId")
+        ? "userId"
+        : "referenceId";
+      const ownerRow = runtime.db
+        .prepare(`SELECT ${ownerCol} as owner FROM apikey WHERE id = ?`)
+        .get(tokenId) as { owner?: string } | undefined;
+      expect(ownerRow?.owner).toBe("user-bearer");
+
+      // Revoke via the audited wrapper using the same bearer.
+      const revokeResponse = await app.request(
+        `/api/user/token/${encodeURIComponent(tokenId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      expect(revokeResponse.status).toBe(200);
+      await expect(revokeResponse.json()).resolves.toEqual({ ok: true });
+
+      // The audit log line should have been emitted.
+      const revokeEvent = auditLogs.find(
+        (entry) => entry.event === "user_token.revoked"
+      );
+      expect(revokeEvent).toMatchObject({
+        event: "user_token.revoked",
+        userId: "user-bearer",
+        tokenId,
+      });
+
+      // After revocation the same bearer must be rejected.
+      const meAfterRevoke = await app.request("/api/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(meAfterRevoke.status).toBe(401);
+
+      await multiUserExtension.stop();
+    } finally {
+      restoreEnv(previousEnv);
+    }
+  });
+
   it("keeps single-user mode unauthenticated and skips sqlite setup", async () => {
     const { dir, previousEnv } = await createTempHome();
 
@@ -261,6 +452,7 @@ describe("multi-user integration", () => {
         extensions: {},
         agents: ["main"],
         multiUser: false,
+        agentFab: false,
       });
 
       const agentsResponse = await app.request("/api/agents");
@@ -328,10 +520,10 @@ describe("multi-user integration", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
         version: 2,
-        // scheduler and heartbeat load by default
-        extensions: { scheduler: true, heartbeat: true },
+        extensions: {},
         agents: ["main"],
         multiUser: false,
+        agentFab: false,
       });
     } finally {
       restoreEnv(previousEnv);

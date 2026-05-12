@@ -146,11 +146,107 @@ function shouldSkipAuth(path: string): boolean {
   return false;
 }
 
+export function getBearerToken(headers: Headers): string | null {
+  const raw = headers.get("authorization") ?? headers.get("Authorization");
+  if (!raw) return null;
+  const match = /^\s*bearer\s+(.+?)\s*$/i.exec(raw);
+  if (!match) return null;
+  const token = match[1];
+  return token.length > 0 ? token : null;
+}
+
+type BearerVerifyResult =
+  | { kind: "context"; authContext: RequestAuthContext }
+  | { kind: "invalid" }
+  | { kind: "forbidden"; authContext: RequestAuthContext };
+
+async function verifyBearer(
+  token: string
+): Promise<BearerVerifyResult | null> {
+  const runtime = getMultiUserRuntime();
+  if (!runtime) return null;
+
+  let res: Awaited<ReturnType<typeof runtime.auth.api.verifyApiKey>>;
+  try {
+    res = await runtime.auth.api.verifyApiKey({ body: { key: token } });
+  } catch {
+    return { kind: "invalid" };
+  }
+
+  if (!res?.valid || !res.key) return { kind: "invalid" };
+
+  const key = res.key as Record<string, unknown>;
+  const ownerId =
+    typeof key.referenceId === "string" && key.referenceId.length > 0
+      ? key.referenceId
+      : typeof key.userId === "string" && key.userId.length > 0
+        ? (key.userId as string)
+        : null;
+  if (!ownerId) return { kind: "invalid" };
+
+  if (!runtime.db) return { kind: "invalid" };
+  const userRow = runtime.db
+    .prepare(
+      "SELECT id, email, name, image, role, approved FROM user WHERE id = ?"
+    )
+    .get(ownerId) as
+    | {
+        id: string;
+        email: string | null;
+        name: string | null;
+        image: string | null;
+        role: string | null;
+        approved: number | boolean | null;
+      }
+    | undefined;
+  if (!userRow) return { kind: "invalid" };
+
+  const keyId =
+    typeof key.id === "string" && key.id.length > 0 ? key.id : "unknown";
+
+  const authContext = normalizeAuthContext({
+    user: {
+      id: userRow.id,
+      email: userRow.email ?? undefined,
+      name: userRow.name ?? undefined,
+      image: userRow.image,
+      role: userRow.role ?? undefined,
+      approved:
+        typeof userRow.approved === "boolean"
+          ? userRow.approved
+          : userRow.approved === 1
+            ? true
+            : userRow.approved === 0
+              ? false
+              : userRow.approved,
+    },
+    session: {
+      id: `apikey:${keyId}`,
+      userId: userRow.id,
+      expiresAt: undefined,
+    },
+  });
+
+  refreshApprovalFromDb(authContext);
+  if (!isApproved(authContext)) {
+    return { kind: "forbidden", authContext };
+  }
+  return { kind: "context", authContext };
+}
+
 async function getValidatedAuthContext(
   headers: Headers
 ): Promise<RequestAuthContext | null> {
   const runtime = getMultiUserRuntime();
   if (!runtime) return null;
+
+  const bearer = getBearerToken(headers);
+  if (bearer) {
+    const result = await verifyBearer(bearer);
+    if (!result) return null;
+    if (result.kind === "context") return result.authContext;
+    return null;
+  }
 
   const session = await runtime.auth.api.getSession({ headers });
   if (!session) return null;
@@ -165,6 +261,33 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
   return async (c, next) => {
     const runtime = getMultiUserRuntime();
     if (!runtime) {
+      await next();
+      return;
+    }
+
+    const bearer = getBearerToken(c.req.raw.headers);
+
+    if (bearer) {
+      const result = await verifyBearer(bearer);
+      const skip = shouldSkipAuth(c.req.path);
+
+      if (!result || result.kind === "invalid") {
+        if (skip) {
+          await next();
+          return;
+        }
+        return c.json({ error: "unauthorized" }, 401);
+      }
+
+      if (result.kind === "forbidden") {
+        if (skip) {
+          await next();
+          return;
+        }
+        return c.json({ error: "forbidden" }, 403);
+      }
+
+      c.set(REQUEST_AUTH_CONTEXT_KEY, result.authContext);
       await next();
       return;
     }

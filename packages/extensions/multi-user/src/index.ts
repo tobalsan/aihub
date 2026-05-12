@@ -3,6 +3,7 @@ import {
   type AgentConfig,
   type Extension,
   type ExtensionContext,
+  type ExtensionLogger,
 } from "@aihub/shared";
 import type { Hono } from "hono";
 import type Database from "better-sqlite3";
@@ -19,6 +20,7 @@ export type MultiUserRuntime = {
   db: Database.Database;
   assignments: AgentAssignmentStore;
   getAgent: ExtensionContext["getAgent"];
+  logger: ExtensionLogger;
 };
 
 let runtime: MultiUserRuntime | null = null;
@@ -63,6 +65,9 @@ export {
   getUserHistoryDir,
   getUserSessionsPath,
 } from "./isolation.js";
+export { initializeMultiUserDatabase, getAuthDbPath } from "./db.js";
+export { createMultiUserAuth } from "./auth.js";
+export type { MultiUserAuth } from "./auth.js";
 
 export const multiUserExtension: Extension = {
   id: "multiUser",
@@ -92,7 +97,13 @@ export const multiUserExtension: Extension = {
     const db = initializeMultiUserDatabase(ctx.getDataDir());
     const auth = await createMultiUserAuth(ctx.getConfig(), config, db);
     const assignments = createAgentAssignmentStore(db);
-    runtime = { auth, db, assignments, getAgent: ctx.getAgent };
+    runtime = {
+      auth,
+      db,
+      assignments,
+      getAgent: ctx.getAgent,
+      logger: ctx.logger,
+    };
   },
   async stop() {
     runtime?.db.close();

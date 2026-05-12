@@ -15,6 +15,7 @@ import {
 import { runAgent } from "../agents/index.js";
 import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
+import { registerUserTokenCommands } from "./user-token.js";
 import { registerNotifyCommand } from "./notify.js";
 import { registerGatewayServiceCommands } from "./service.js";
 import {
@@ -383,6 +384,7 @@ program
 
 registerSubagentCommands(program);
 registerWebhookCommands(program);
+registerUserTokenCommands(program);
 registerNotifyCommand(program);
 registerProjectsCommands(
   program
