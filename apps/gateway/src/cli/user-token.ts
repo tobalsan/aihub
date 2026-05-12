@@ -161,6 +161,18 @@ async function printResponse(
   if (text) console.log(text);
 }
 
+function reportError(err: unknown): never {
+  const debug = !!process.env.DEBUG;
+  if (err instanceof Error) {
+    console.error("Error:", err.message);
+    if (debug && err.stack) console.error(err.stack);
+    else if (!debug) console.error("(re-run with DEBUG=1 for a stack trace)");
+  } else {
+    console.error("Error:", err);
+  }
+  process.exit(1);
+}
+
 export function registerUserTokenCommands(
   program: Command,
   options?: {
@@ -223,8 +235,7 @@ export function registerUserTokenCommands(
         console.log("");
         console.log(`Cached at ${getTokenCachePath()} (mode 0600)`);
       } catch (err) {
-        console.error("Error:", err instanceof Error ? err.message : err);
-        process.exit(1);
+        reportError(err);
       }
     });
 
@@ -255,8 +266,7 @@ export function registerUserTokenCommands(
         );
         await printResponse(res);
       } catch (err) {
-        console.error("Error:", err instanceof Error ? err.message : err);
-        process.exit(1);
+        reportError(err);
       }
     });
 
@@ -284,8 +294,7 @@ export function registerUserTokenCommands(
         );
         await printResponse(res, "Revoked.");
       } catch (err) {
-        console.error("Error:", err instanceof Error ? err.message : err);
-        process.exit(1);
+        reportError(err);
       }
     });
 }
