@@ -36,6 +36,7 @@ const config = {
         { name: "Worker", cli: "codex", runMode: "clone", type: "worker" },
         { name: "Reviewer", cli: "codex", runMode: "none", type: "reviewer" },
         { name: "Merger", cli: "codex", runMode: "worktree", type: "merger" },
+        { name: "RepoSetter", cli: "codex", runMode: "none", type: "shaper" },
       ],
     },
     projects: {},
@@ -278,6 +279,76 @@ describe("orchestrator dispatcher", () => {
         ["/tmp/wt/s01"]
       )
     ).toBe(false);
+  });
+
+  it("dispatches Shaper profiles for matching shaping project statuses", async () => {
+    const spawned: SpawnSubagentInput[] = [];
+    const shapingConfig: OrchestratorConfig = {
+      ...orchestratorConfig,
+      statuses: {},
+      shaping_statuses: {
+        "shaping:repo": { profile: "RepoSetter", max_concurrent: 1 },
+        "shaping:drill": { profile: "RepoSetter", max_concurrent: 1 },
+      },
+    };
+
+    const result = await dispatchOrchestratorTick(config, shapingConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1", "shaping:repo"), project("PRO-2", "shaping:drill")],
+      }),
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      now: () => new Date("2026-05-03T00:00:00.000Z"),
+      log: () => {},
+    });
+
+    expect(result.eligible).toBe(2);
+    expect(spawned).toHaveLength(2);
+    expect(spawned[0]).toMatchObject({ projectId: "PRO-1", name: "RepoSetter", source: "orchestrator" });
+    expect(spawned[0].sliceId).toBeUndefined();
+    expect(spawned[0].prompt).toContain("Current shaping status: shaping:repo");
+    expect(spawned[0].prompt).toContain("Next status: shaping:drill");
+  });
+
+  it("moves stale shaping projects to shaping:blocked", async () => {
+    const updates: Array<{ id: string; status?: string }> = [];
+    const comments: Array<{ projectId: string; body: string }> = [];
+    const shapingConfig: OrchestratorConfig = {
+      ...orchestratorConfig,
+      statuses: {},
+      shaping_statuses: {
+        "shaping:repo": { profile: "RepoSetter", max_concurrent: 1, stall_threshold_ms: 1000 },
+      },
+    };
+
+    const result = await dispatchOrchestratorTick(config, shapingConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [{ ...project("PRO-1", "shaping:repo"), frontmatter: { status: "shaping:repo", repo: "/tmp/repo", last_status_change_at: "2026-05-03T00:00:00.000Z" } }],
+      }),
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+      updateProject: async (_config, id, input) => {
+        updates.push({ id, status: input.status });
+        return { ok: true as const, data: project(id, input.status) };
+      },
+      appendProjectComment: async (_config, projectId, entry) => {
+        comments.push({ projectId, body: entry.body });
+        return { ok: true as const, data: entry };
+      },
+      spawnSubagent: async () => {
+        throw new Error("should not spawn");
+      },
+      now: () => new Date("2026-05-03T00:00:02.000Z"),
+      log: () => {},
+    });
+
+    expect(result.decisions).toContainEqual({ projectId: "PRO-1", action: "skipped", reason: "shaping_stalled" });
+    expect(updates).toEqual([{ id: "PRO-1", status: "shaping:blocked" }]);
+    expect(comments[0]?.body).toContain("Shaping stage shaping:repo exceeded");
   });
 
   it("dispatches Workers for todo slices under active projects", async () => {

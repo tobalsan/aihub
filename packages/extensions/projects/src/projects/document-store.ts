@@ -211,6 +211,7 @@ export function validateProjectStatus(status: unknown): string | null {
   const normalized = normalizeStatus(status);
   if (!normalized) return null;
   if (PROJECT_LIFECYCLE_STATUSES.has(normalized)) return normalized;
+  if (/^shaping:[a-z][a-z0-9_-]*$/.test(normalized)) return normalized;
   const migrated = LEGACY_PROJECT_STATUS_MAP[normalized];
   if (migrated) return migrated;
   throw new Error(`Invalid project status: ${String(status)}`);

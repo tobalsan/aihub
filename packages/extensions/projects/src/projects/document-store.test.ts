@@ -38,6 +38,7 @@ describe("project document store", () => {
     expect(validateProjectStatus(" active ")).toBe("active");
     expect(validateProjectStatus("triage")).toBe("triage");
     expect(validateProjectStatus("ready_to_merge")).toBe("ready_to_merge");
+    expect(validateProjectStatus("shaping:repo")).toBe("shaping:repo");
     expect(validateProjectStatus(undefined)).toBeNull();
     expect(validateProjectStatus("todo")).toBe("active");
     expect(validateProjectStatus("maybe")).toBe("triage");

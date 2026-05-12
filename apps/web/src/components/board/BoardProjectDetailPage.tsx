@@ -52,6 +52,7 @@ function getLifecycleStatus(
   frontmatter: Record<string, unknown>
 ): ProjectLifecycleStatus {
   const s = frontmatter.status;
+  if (typeof s === "string" && s.startsWith("shaping:")) return "shaping";
   if (
     s === "triage" ||
     s === "shaping" ||
@@ -808,6 +809,15 @@ export function BoardProjectDetailPage(
               <Match when={activeTab() === "slices"}>
                 <div class="bpd-tab-panel bpd-tab-panel--slices">
                   <div class="bpd-slices-toolbar">
+                    <Show when={!addingSlice()}>
+                      <button
+                        type="button"
+                        class="bpd-add-slice-btn"
+                        onClick={() => setAddingSlice(true)}
+                      >
+                        Add slice
+                      </button>
+                    </Show>
                     <Show when={addingSlice()}>
                       <form
                         class="bpd-add-slice-form"

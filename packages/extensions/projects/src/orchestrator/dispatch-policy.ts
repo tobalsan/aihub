@@ -1,5 +1,6 @@
 import {
   type GatewayConfig,
+  type ProjectsOrchestratorShapingStatusConfig,
   type ProjectsOrchestratorStatusConfig,
   type SubagentRuntimeProfile,
 } from "@aihub/shared";
@@ -119,6 +120,35 @@ export function configuredStatusKeys(
   );
 }
 
+export function shapingStatusConfigFor(
+  orchestratorConfig: OrchestratorConfig,
+  statusKey: string
+): ProjectsOrchestratorShapingStatusConfig | undefined {
+  const value = ((orchestratorConfig.shaping_statuses ?? {}) as Record<string, unknown>)[
+    statusKey
+  ];
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<ProjectsOrchestratorShapingStatusConfig>;
+  if (typeof candidate.profile !== "string") return undefined;
+  return {
+    profile: candidate.profile,
+    max_concurrent:
+      typeof candidate.max_concurrent === "number" ? candidate.max_concurrent : 1,
+    stall_threshold_ms:
+      typeof candidate.stall_threshold_ms === "number"
+        ? candidate.stall_threshold_ms
+        : undefined,
+  };
+}
+
+export function configuredShapingStatusKeys(
+  orchestratorConfig: OrchestratorConfig
+): string[] {
+  return Object.keys(orchestratorConfig.shaping_statuses ?? {}).filter((key) =>
+    Boolean(shapingStatusConfigFor(orchestratorConfig, key))
+  );
+}
+
 export function dispatchKindForStatus(
   statusKey: string
 ): OrchestratorDispatchKind | undefined {
@@ -174,6 +204,18 @@ export function isMergerRun(
     run.name &&
       run.name ===
         statusConfigFor(orchestratorConfig, MERGER_SLICE_STATUS)?.profile
+  );
+}
+
+export function isShaperRun(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  run: SubagentListItem
+): boolean {
+  const profile = profileForRun(config, run);
+  if (profile?.type?.toLowerCase() === "shaper") return true;
+  return configuredShapingStatusKeys(orchestratorConfig).some(
+    (statusKey) => run.name === shapingStatusConfigFor(orchestratorConfig, statusKey)?.profile
   );
 }
 

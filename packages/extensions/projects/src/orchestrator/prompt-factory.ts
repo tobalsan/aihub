@@ -27,8 +27,63 @@ export type MergerPromptInput = WorkerPromptInput & {
   workerBranch?: string;
 };
 
+export type ShaperPromptInput = {
+  projectId: string;
+  projectTitle: string;
+  projectDirPath: string;
+  status: string;
+  nextStatus?: string;
+  profileName: string;
+  projectDocs: string;
+  sliceDocs: string;
+  recentThread: string;
+};
+
+export function renderPromptTemplate(
+  template: string,
+  context: Record<string, string | undefined>
+): string {
+  return template.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, key) => {
+    const value = context[key];
+    if (value === undefined) {
+      throw new Error(`Unresolved prompt variable: ${key}`);
+    }
+    return value;
+  });
+}
+
 export class OrchestratorPromptFactory {
   constructor(private readonly aihubCli: string = resolveAihubCli()) {}
+
+  buildShaperPrompt(input: ShaperPromptInput, template?: string): string {
+    const fallbackTemplate = [
+      `## Shaping Project: \${projectId} — \${projectTitle}`,
+      "",
+      "Project folder: \${projectDirPath}",
+      "Current shaping status: \${status}",
+      "Next status: \${nextStatus}",
+      "",
+      "## Project docs",
+      "\${projectDocs}",
+      "",
+      "## Slice docs",
+      "\${sliceDocs}",
+      "",
+      "## Recent THREAD.md comments",
+      "\${recentThread}",
+      "",
+      "## Role",
+      "You are \${profileName}, a shaping specialist. Read the project state, do only the work required for this stage, or self-skip if already complete.",
+      `For any \`aihub\` CLI calls, invoke \`${this.aihubCli}\` (this targets the gateway that owns this project - prod or dev).`,
+      `Record rejection or escalation reasons with \`${this.aihubCli} projects comment \${projectId} --author \${profileName} \"<reason>\"\`.`,
+      `When your stage is complete, run \`${this.aihubCli} projects move \${projectId} \${nextStatus}\` and exit. If human intervention is required, comment why, move to \`shaping:blocked\`, and exit.`,
+    ].join("\n");
+    return renderPromptTemplate(template ?? fallbackTemplate, {
+      ...input,
+      aihubCli: this.aihubCli,
+      nextStatus: input.nextStatus ?? "active",
+    }).trim();
+  }
 
   buildWorkerPrompt(input: WorkerPromptInput): string {
     const signoffInstruction =
