@@ -967,11 +967,19 @@ function normalizeStatus(raw?: string): string {
   const normalized = raw?.trim().toLowerCase().replace(/\s+/g, "_") || "triage";
   if (normalized === "maybe" || normalized === "not_now") return "triage";
   if (["todo", "in_progress", "review"].includes(normalized)) return "active";
+  if (normalized.startsWith("shaping:")) return "shaping";
   return normalized;
 }
 
 function getStatus(item: ProjectListItem): string {
   return normalizeStatus(getFrontmatterString(item.frontmatter, "status"));
+}
+
+function shapingSubStatus(raw?: string): string | null {
+  const value = raw?.trim().toLowerCase();
+  if (!value || !value.startsWith("shaping:")) return null;
+  const stage = value.slice("shaping:".length);
+  return stage || null;
 }
 
 function getStatusLabel(status: string): string {
@@ -2723,6 +2731,9 @@ export function ProjectsBoard(props: {
                           {(item) => {
                             const fm = item.frontmatter ?? {};
                             const created = getFrontmatterString(fm, "created");
+                            const subStatus = shapingSubStatus(
+                              getFrontmatterString(fm, "status")
+                            );
                             return (
                               <div
                                 class="card"
@@ -2753,6 +2764,11 @@ export function ProjectsBoard(props: {
                                       ? formatCreatedRelative(created)
                                       : ""}
                                   </span>
+                                  <Show when={subStatus}>
+                                    <span class="shaping-stage-badge">
+                                      {subStatus}
+                                    </span>
+                                  </Show>
                                 </div>
                               </div>
                             );
@@ -2978,6 +2994,20 @@ export function ProjectsBoard(props: {
                                     ? getStatusLabel(detailStatus())
                                     : "status"}
                                 </button>
+                                <Show
+                                  when={shapingSubStatus(
+                                    getFrontmatterString(
+                                      project.frontmatter,
+                                      "status"
+                                    )
+                                  )}
+                                >
+                                  {(stage) => (
+                                    <span class="shaping-stage-badge">
+                                      {stage()}
+                                    </span>
+                                  )}
+                                </Show>
                                 <Show when={openMenu() === "status"}>
                                   <div class="meta-menu">
                                     <For each={COLUMNS}>
@@ -4396,6 +4426,24 @@ export function ProjectsBoard(props: {
         .card-footer {
           font-size: 12px;
           color: var(--text-secondary);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+        }
+
+        .shaping-stage-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 6px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 500;
+          letter-spacing: 0.02em;
+          background: rgba(74, 163, 160, 0.16);
+          color: #4aa3a0;
+          text-transform: lowercase;
+          white-space: nowrap;
         }
 
         .overlay {
