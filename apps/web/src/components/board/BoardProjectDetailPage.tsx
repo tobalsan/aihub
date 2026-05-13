@@ -1,7 +1,7 @@
 /**
  * Board-hosted project detail page — §15.3
  * Route: /board/projects/:projectId
- * Tabs: Pitch | Slices | Thread | Activity
+ * Tabs: Pitch | Slices | Thread | Activity | Agent
  */
 import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
 import {
@@ -22,7 +22,9 @@ import {
   createSlice,
   fetchAreas,
   fetchProject,
+  fetchRuntimeSubagents,
   subscribeToFileChanges,
+  subscribeToSubagentChanges,
   unarchiveProject,
   updateProject,
 } from "../../api";
@@ -31,13 +33,22 @@ import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
 import { SliceDetailPage } from "../SliceDetailPage";
 import { ActivityFeed } from "../ActivityFeed";
+import { SubagentRunsPanel } from "../SubagentRunsPanel";
 import { renderMarkdown } from "../../lib/markdown";
 import { EditRepoModal } from "../project/EditRepoModal";
 import { ToastNotification, type ToastVariant } from "../ui/Toast";
+import {
+  formatRunElapsed,
+  getProjectRunPillState,
+  isProjectShapingRun,
+  projectRunPillClass,
+  projectRunPillLabel,
+  sortProjectShapingRuns,
+} from "../../lib/project-shaping-runs";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type BpdTab = "pitch" | "slices" | "thread" | "activity";
+type BpdTab = "pitch" | "slices" | "thread" | "activity" | "agent";
 type PitchDocKey = "PITCH" | "README";
 
 type LifecycleAction = {
@@ -138,7 +149,8 @@ function isBpdTab(value: unknown): value is BpdTab {
     value === "pitch" ||
     value === "slices" ||
     value === "thread" ||
-    value === "activity"
+    value === "activity" ||
+    value === "agent"
   );
 }
 
@@ -291,6 +303,18 @@ export function BoardProjectDetailPage(
   const [project, { mutate: mutateProject, refetch: refetchProject }] =
     createResource(projectId, fetchProject);
   const [areas] = createResource(fetchAreas);
+  const [projectRuns, { refetch: refetchProjectRuns }] = createResource(
+    projectId,
+    async (id) => {
+      const data = await fetchRuntimeSubagents({
+        projectId: id,
+        includeArchived: true,
+      });
+      return data.items
+        .filter((run) => isProjectShapingRun(run, id))
+        .sort(sortProjectShapingRuns);
+    }
+  );
 
   createEffect(() => {
     if (!titleEditing()) return;
@@ -299,6 +323,29 @@ export function BoardProjectDetailPage(
       titleInputRef?.select();
     });
   });
+
+  createEffect(() => {
+    let refreshTimer: number | undefined;
+    const unsubscribe = subscribeToSubagentChanges({
+      onSubagentChanged: () => {
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refetchProjectRuns();
+        }, 250);
+      },
+    });
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
+  });
+
+  const projectRunPillState = createMemo(() =>
+    getProjectRunPillState(projectRuns.latest ?? [])
+  );
+  const recentProjectRuns = createMemo(() =>
+    (projectRuns.latest ?? []).slice(0, 5)
+  );
 
   // Realtime file-change subscription
   createEffect(() => {
@@ -652,6 +699,11 @@ export function BoardProjectDetailPage(
               <Show when={titleError()}>
                 {(error) => <span class="bpd-title-error">{error()}</span>}
               </Show>
+              <Show when={projectRunPillState() !== "hidden"}>
+                <span class={projectRunPillClass(projectRunPillState())}>
+                  {projectRunPillLabel(projectRunPillState())}
+                </span>
+              </Show>
               <span
                 class="bpd-status-pill"
                 style={statusPillStyle(lifecycleStatus())}
@@ -723,7 +775,8 @@ export function BoardProjectDetailPage(
 
       {/* ── Tabs ── */}
       <div class="bpd-tabs" role="tablist">
-        {(["pitch", "slices", "thread", "activity"] as BpdTab[]).map((tab) => (
+        {(["pitch", "slices", "thread", "activity", "agent"] as BpdTab[]).map(
+          (tab) => (
           <button
             type="button"
             role="tab"
@@ -733,8 +786,32 @@ export function BoardProjectDetailPage(
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
-        ))}
+          )
+        )}
       </div>
+
+      <Show when={recentProjectRuns().length > 0}>
+        <aside class="bpd-recent-runs" aria-label="Recent Runs">
+          <div class="bpd-recent-runs-title">Recent Runs</div>
+          <For each={recentProjectRuns()}>
+            {(run) => (
+              <button
+                type="button"
+                class="bpd-recent-run-row"
+                onClick={() => openProjectTab("agent")}
+              >
+                <span class="bpd-recent-run-name">{run.label}</span>
+                <span class={`bpd-recent-run-status run-${run.status}`}>
+                  {run.status}
+                </span>
+                <span class="bpd-recent-run-time">
+                  {formatRunElapsed(run)}
+                </span>
+              </button>
+            )}
+          </For>
+        </aside>
+      </Show>
 
       {/* ── Body ── */}
       <div class="bpd-body">
@@ -993,6 +1070,16 @@ export function BoardProjectDetailPage(
                   />
                 </div>
               </Match>
+
+              <Match when={activeTab() === "agent"}>
+                <div class="bpd-tab-panel bpd-agent-panel">
+                  <SubagentRunsPanel
+                    projectId={projectId()}
+                    includeArchived={true}
+                    filter={(run) => isProjectShapingRun(run, projectId())}
+                  />
+                </div>
+              </Match>
             </Switch>
           )}
         </Show>
@@ -1155,7 +1242,8 @@ export function BoardProjectDetailPage(
           color: var(--color-danger, #dc2626);
         }
 
-        .bpd-status-pill {
+        .bpd-status-pill,
+        .project-run-pill {
           font-size: 11px;
           font-weight: 500;
           padding: 2px 8px;
@@ -1164,6 +1252,24 @@ export function BoardProjectDetailPage(
           text-transform: uppercase;
           letter-spacing: 0.04em;
           flex-shrink: 0;
+        }
+
+        .project-run-pill--running {
+          background: #22c55e22;
+          color: #16a34a;
+          border-color: #22c55e44;
+        }
+
+        .project-run-pill--stalled {
+          background: #f59e0b22;
+          color: #d97706;
+          border-color: #f59e0b44;
+        }
+
+        .project-run-pill--error {
+          background: #ef444422;
+          color: #dc2626;
+          border-color: #ef444444;
         }
 
         .bpd-shaping-stage {
@@ -1188,6 +1294,57 @@ export function BoardProjectDetailPage(
         .bpd-loading-inline {
           font-size: 13px;
           color: var(--text-secondary);
+        }
+
+        .bpd-recent-runs {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 16px;
+          border-bottom: 1px solid var(--border-default);
+          overflow-x: auto;
+          flex-shrink: 0;
+        }
+
+        .bpd-recent-runs-title {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          white-space: nowrap;
+        }
+
+        .bpd-recent-run-row {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: 1px solid var(--border-default);
+          border-radius: 999px;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          padding: 3px 8px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .bpd-recent-run-name,
+        .bpd-recent-run-status,
+        .bpd-recent-run-time {
+          font-size: 11px;
+        }
+
+        .bpd-recent-run-time {
+          color: var(--text-secondary);
+        }
+
+        .bpd-recent-run-status.run-running,
+        .bpd-recent-run-status.run-starting {
+          color: var(--color-success, #16a34a);
+        }
+
+        .bpd-recent-run-status.run-error {
+          color: var(--color-danger, #dc2626);
         }
 
         /* Lifecycle action menu */

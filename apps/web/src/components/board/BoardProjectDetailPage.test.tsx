@@ -100,6 +100,13 @@ vi.mock("../../api", () => ({
     docs: { readme: "", specs: "", tasks: "", validation: "", thread: "" },
   })),
   subscribeToFileChanges: vi.fn(() => () => {}),
+  subscribeToSubagentChanges: vi.fn(() => () => {}),
+  fetchRuntimeSubagents: vi.fn(async () => ({ items: [] })),
+  fetchRuntimeSubagentLogs: vi.fn(async () => ({ events: [], cursor: 0 })),
+  interruptRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
+  archiveRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
+  deleteRuntimeSubagent: vi.fn(async () => ({ ok: true })),
+  resumeRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
   fetchAgents: vi.fn(async () => []),
   fetchBoardActivity: vi.fn(async () => ({
     items: [
@@ -248,7 +255,7 @@ describe("BoardProjectDetailPage", () => {
     expect(navigateMock).toHaveBeenCalledWith("/board");
   });
 
-  it("renders 4 tabs: Pitch, Slices, Thread, Activity", async () => {
+  it("renders 5 tabs: Pitch, Slices, Thread, Activity, Agent", async () => {
     dispose = render(() => <BoardProjectDetailPage />, container);
     await wait();
     await wait();
@@ -256,7 +263,7 @@ describe("BoardProjectDetailPage", () => {
     const tabs = Array.from(container.querySelectorAll(".bpd-tab")).map((t) =>
       t.textContent?.trim()
     );
-    expect(tabs).toEqual(["Pitch", "Slices", "Thread", "Activity"]);
+    expect(tabs).toEqual(["Pitch", "Slices", "Thread", "Activity", "Agent"]);
   });
 
   it("Pitch tab is active by default and shows DocEditor for PITCH", async () => {

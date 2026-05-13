@@ -190,6 +190,7 @@ export function SubagentRunsPanel(props: {
   excludeCwds?: string[];
   status?: SubagentRunStatus;
   rawLogHref?: (run: SubagentRun) => string | undefined;
+  filter?: (run: SubagentRun) => boolean;
 }) {
   const [runs, setRuns] = createSignal<SubagentRun[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -225,7 +226,7 @@ export function SubagentRunsPanel(props: {
                 (!run.cwd || !excludeCwds.has(run.cwd))
             )
           : data.items;
-      setRuns(items);
+      setRuns(props.filter ? items.filter(props.filter) : items);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
