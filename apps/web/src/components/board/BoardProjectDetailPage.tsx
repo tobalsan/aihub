@@ -33,7 +33,7 @@ import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
 import { SliceDetailPage } from "../SliceDetailPage";
 import { ActivityFeed } from "../ActivityFeed";
-import { SubagentRunsPanel } from "../SubagentRunsPanel";
+import { AgentRunChatPanel } from "../AgentRunChatPanel";
 import { renderMarkdown } from "../../lib/markdown";
 import { EditRepoModal } from "../project/EditRepoModal";
 import { ToastNotification, type ToastVariant } from "../ui/Toast";
@@ -414,6 +414,11 @@ export function BoardProjectDetailPage(
     const id = projectId();
     const base = `/board/projects/${encodeURIComponent(id)}`;
     return tab === "pitch" ? base : `${base}?tab=${tab}`;
+  };
+
+  const projectAgentRunUrl = (runId: string | undefined) => {
+    const base = `/board/projects/${encodeURIComponent(projectId())}?tab=agent`;
+    return runId ? `${base}&run=${encodeURIComponent(runId)}` : base;
   };
 
   const sliceUrl = (sliceId: string, tab?: string) => {
@@ -1046,9 +1051,12 @@ export function BoardProjectDetailPage(
 
               <Match when={activeTab() === "agent"}>
                 <div class="bpd-tab-panel bpd-agent-panel">
-                  <SubagentRunsPanel
+                  <AgentRunChatPanel
                     projectId={projectId()}
-                    includeArchived={true}
+                    selectedRunId={searchParams.run}
+                    onSelectedRunIdChange={(runId) =>
+                      navigateTo(projectAgentRunUrl(runId), { replace: true })
+                    }
                     filter={(run) => isProjectShapingRun(run, projectId())}
                   />
                 </div>
@@ -1394,6 +1402,10 @@ export function BoardProjectDetailPage(
           flex-direction: column;
           height: 100%;
           padding: 16px;
+        }
+
+        .bpd-agent-panel {
+          overflow: hidden;
         }
 
         .bpd-doc-switcher {

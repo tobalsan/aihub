@@ -30,7 +30,7 @@ import type {
 } from "../api/types";
 import { renderMarkdown } from "../lib/markdown";
 import { DocEditor } from "./board/DocEditor";
-import { SubagentRunsPanel } from "./SubagentRunsPanel";
+import { AgentRunChatPanel } from "./AgentRunChatPanel";
 
 const RUN_STATUS_LABELS: Record<SubagentStatus, string> = {
   running: "Running",
@@ -120,11 +120,6 @@ function formatRelative(iso: string): string {
 
 function runStartedAt(run: SubagentListItem): string | undefined {
   return run.startedAt;
-}
-
-function runSlugFromPanelId(runId: string, projectId: string): string {
-  const prefix = `${projectId}:`;
-  return runId.startsWith(prefix) ? runId.slice(prefix.length) : runId;
 }
 
 function sortRuns(a: SubagentListItem, b: SubagentListItem): number {
@@ -275,17 +270,19 @@ function SliceThreadSection(props: {
   );
 }
 
-function SliceAgentRunsSection(props: { projectId: string; sliceId: string }) {
+function SliceAgentRunsSection(props: {
+  projectId: string;
+  sliceId: string;
+  selectedRunId?: string;
+  onSelectedRunIdChange?: (runId: string | undefined) => void;
+}) {
   return (
-    <div class="slice-detail-section">
-      <h3 class="slice-detail-section-title">Agent runs</h3>
-      <SubagentRunsPanel
+    <div class="slice-detail-section slice-detail-agent-section">
+      <AgentRunChatPanel
         projectId={props.projectId}
         sliceId={props.sliceId}
-        rawLogHref={(run) => {
-          const slug = runSlugFromPanelId(run.id, props.projectId);
-          return `/api/projects/${encodeURIComponent(props.projectId)}/subagents/${encodeURIComponent(slug)}/logs?since=0`;
-        }}
+        selectedRunId={props.selectedRunId}
+        onSelectedRunIdChange={props.onSelectedRunIdChange}
       />
     </div>
   );
@@ -403,6 +400,11 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
       ? `/board/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`
       : `/projects/${encodeURIComponent(projectId())}/slices/${encodeURIComponent(sliceId())}`;
     return tab === "specs" ? base : `${base}?tab=${tab}`;
+  };
+
+  const agentRunUrl = (runId: string | undefined) => {
+    const base = tabUrl("agent");
+    return runId ? `${base}&run=${encodeURIComponent(runId)}` : base;
   };
 
   const openTab = (tab: SectionTab) => {
@@ -787,6 +789,14 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                     <SliceAgentRunsSection
                       projectId={projectId()}
                       sliceId={sliceId()}
+                      selectedRunId={searchParams.run}
+                      onSelectedRunIdChange={(runId) =>
+                        props.onNavigate
+                          ? props.onNavigate(agentRunUrl(runId), {
+                              replace: true,
+                            })
+                          : navigate(agentRunUrl(runId), { replace: true })
+                      }
                     />
                   </Show>
                 </div>
@@ -1046,6 +1056,12 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
         }
 
         .slice-detail-section {}
+
+        .slice-detail-agent-section {
+          height: 100%;
+          min-height: 0;
+          overflow: hidden;
+        }
 
         .slice-detail-section-title {
           font-size: 13px;
