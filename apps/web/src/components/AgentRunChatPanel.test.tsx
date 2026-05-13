@@ -118,6 +118,46 @@ describe("AgentRunChatPanel", () => {
     expect(container.textContent).not.toContain("Raw logs");
   });
 
+  it("shows a running run with no visible transcript and its Stop control", async () => {
+    fetchRunsMock.mockResolvedValue({
+      items: [
+        run({
+          id: "starting-run",
+          label: "Worker",
+          status: "running",
+        }),
+      ],
+    });
+    fetchLogsMock.mockResolvedValue({
+      cursor: 1,
+      events: [{ type: "stdout", text: '{"type":"thread.started"}' }],
+    });
+    const [selected, setSelected] = createSignal<string | undefined>();
+
+    render(
+      () => (
+        <AgentRunChatPanel
+          projectId="PRO-1"
+          selectedRunId={selected()}
+          onSelectedRunIdChange={setSelected}
+        />
+      ),
+      container
+    );
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Worker");
+      expect(container.textContent).toContain("No visible transcript");
+    });
+
+    expect(container.textContent).not.toContain("No agent runs yet.");
+    const stopButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Stop"
+    ) as HTMLButtonElement | undefined;
+    expect(stopButton).toBeDefined();
+    expect(stopButton?.disabled).toBe(false);
+  });
+
   it("expands archived deep links and clears selection after archive/delete", async () => {
     fetchRunsMock.mockResolvedValue({
       items: [

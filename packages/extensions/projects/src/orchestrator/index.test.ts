@@ -365,6 +365,61 @@ describe("orchestrator dispatcher", () => {
     }
   });
 
+  it("skips a Shaper prompt build failure and continues slice dispatch", async () => {
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-home-"));
+    process.env.AIHUB_HOME = homeDir;
+    await fs.mkdir(path.join(homeDir, "prompts"), { recursive: true });
+    await fs.writeFile(
+      path.join(homeDir, "prompts", "RepoSetter.md"),
+      "CUSTOM ${missingVariable}"
+    );
+    const spawned: SpawnSubagentInput[] = [];
+    const updates = makeUpdateSliceMock();
+    const logs: string[] = [];
+    const shapingConfig: OrchestratorConfig = {
+      ...orchestratorConfig,
+      shaping_statuses: {
+        "shaping:repo": { profile: "RepoSetter", max_concurrent: 1 },
+      },
+    };
+
+    const result = await dispatchOrchestratorTick(config, shapingConfig, {
+      listProjects: async () => ({
+        ok: true,
+        data: [project("PRO-1", "shaping:repo"), project("PRO-2", "active")],
+      }),
+      listSlices: async (projectDir) =>
+        projectDir.includes("PRO-2") ? [slice("PRO-2-S01", "PRO-2")] : [],
+      listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+      spawnSubagent: async (_config, input) => {
+        spawned.push(input);
+        return { ok: true, data: { slug: input.slug } };
+      },
+      updateSlice: updates.fn,
+      now: () => new Date("2026-05-03T00:00:00.000Z"),
+      log: (message) => logs.push(message),
+    });
+
+    expect(result.decisions).toContainEqual({
+      projectId: "PRO-1",
+      action: "skipped",
+      reason: "build_failed",
+    });
+    expect(spawned.map((input) => input.projectId)).toEqual(["PRO-2"]);
+    expect(spawned[0]?.sliceId).toBe("PRO-2-S01");
+    expect(updates.calls).toEqual([
+      { sliceId: "PRO-2-S01", status: "in_progress" },
+    ]);
+    expect(
+      logs.some(
+        (line) =>
+          line.includes("action=build_failed") &&
+          line.includes("project=PRO-1") &&
+          line.includes("missingVariable")
+      )
+    ).toBe(true);
+  });
+
   it("moves stale shaping projects to shaping:blocked", async () => {
     const updates: Array<{ id: string; status?: string }> = [];
     const comments: Array<{ projectId: string; body: string }> = [];

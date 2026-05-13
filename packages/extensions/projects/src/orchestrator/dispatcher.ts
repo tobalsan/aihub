@@ -1316,7 +1316,31 @@ async function dispatchShapingStatus(
   keyValueLog(log, { component: "orchestrator", status: statusKey, action: "shaping_tick", running, eligible: eligible.length, available_slots: availableSlots });
   for (const [index, project] of eligible.slice(0, availableSlots).entries()) {
     const slug = planner.slugForShapingStatus(statusKey, project.id, nowDate, index);
-    const input = await planner.buildShaperSpawnInput(project, statusKey, nextStatus, profile, slug);
+    let input;
+    try {
+      input = await planner.buildShaperSpawnInput(
+        project,
+        statusKey,
+        nextStatus,
+        profile,
+        slug
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      decisions.push({
+        projectId: project.id,
+        action: "skipped",
+        reason: "build_failed",
+      });
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: statusKey,
+        action: "build_failed",
+        project: project.id,
+        reason,
+      });
+      continue;
+    }
     const spawned = await (deps.spawnSubagent ?? spawnSubagent)(config, input).catch((error) => ({ ok: false as const, error: error instanceof Error ? error.message : String(error) }));
     if (!spawned.ok) {
       decisions.push({ projectId: project.id, action: "skipped", reason: "spawn_failed" });

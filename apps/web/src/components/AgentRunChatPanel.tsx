@@ -259,9 +259,7 @@ export function AgentRunChatPanel(props: {
 
   createEffect(() => {
     if (loading() || props.selectedRunId || selectionCleared()) return;
-    const next = activeRuns().find(
-      (run) => transcriptItems(logsByRunId()[run.id]?.events ?? []).length > 0
-    );
+    const next = activeRuns().find((run) => shouldShowRun(run));
     if (next) selectRun(next.id);
   });
 
@@ -290,6 +288,10 @@ export function AgentRunChatPanel(props: {
 
   function runItems(run: SubagentRun) {
     return transcriptItems(logsByRunId()[run.id]?.events ?? []);
+  }
+
+  function shouldShowRun(run: SubagentRun) {
+    return isRunning(run) || runItems(run).length > 0;
   }
 
   function clearSelectedAfterMutation(runId: string) {
@@ -441,8 +443,8 @@ export function AgentRunChatPanel(props: {
       </Show>
       <Show
         when={
-          activeRuns().some((run) => runItems(run).length > 0) ||
-          archivedRuns().some((run) => runItems(run).length > 0)
+          activeRuns().some((run) => shouldShowRun(run)) ||
+          archivedRuns().some((run) => shouldShowRun(run))
         }
         fallback={
           <div class="agent-run-empty">
@@ -452,11 +454,11 @@ export function AgentRunChatPanel(props: {
       >
         <aside class="agent-run-sidebar">
           <div class="agent-run-list" style={{ overflow: "auto" }}>
-            <For each={activeRuns().filter((run) => runItems(run).length > 0)}>
+            <For each={activeRuns().filter((run) => shouldShowRun(run))}>
               {(run) => <RunRow run={run} />}
             </For>
           </div>
-          <Show when={archivedRuns().some((run) => runItems(run).length > 0)}>
+          <Show when={archivedRuns().some((run) => shouldShowRun(run))}>
             <div class="agent-run-archived">
               <button
                 type="button"
@@ -468,7 +470,7 @@ export function AgentRunChatPanel(props: {
               <Show when={archivedOpen()}>
                 <div class="agent-run-archived-list">
                   <For
-                    each={archivedRuns().filter((run) => runItems(run).length > 0)}
+                    each={archivedRuns().filter((run) => shouldShowRun(run))}
                   >
                     {(run) => <RunRow run={run} />}
                   </For>
