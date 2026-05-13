@@ -56,6 +56,7 @@ const {
   fetchFullHistoryMock,
   fetchProjectMock,
   fetchSubagentsMock,
+  fetchRuntimeSubagentsMock,
   getSessionKeyMock,
   streamMessageMock,
   subscribeToSessionMock,
@@ -70,6 +71,7 @@ const {
   fetchFullHistoryMock: vi.fn(),
   fetchProjectMock: vi.fn(),
   fetchSubagentsMock: vi.fn(),
+  fetchRuntimeSubagentsMock: vi.fn(),
   getSessionKeyMock: vi.fn(),
   streamMessageMock: vi.fn(),
   subscribeToSessionMock: vi.fn(),
@@ -140,11 +142,14 @@ vi.mock("../api", () => ({
   fetchFullHistory: fetchFullHistoryMock,
   fetchProject: fetchProjectMock,
   fetchSubagents: fetchSubagentsMock,
-  fetchRuntimeSubagentLogs: vi.fn(),
+  fetchRuntimeSubagents: fetchRuntimeSubagentsMock,
+  fetchRuntimeSubagentLogs: vi.fn(async () => ({ events: [], cursor: 0 })),
   fetchSlices: vi.fn(async () => []),
   getSessionKey: getSessionKeyMock,
   moveBoardProject: vi.fn(),
-  interruptRuntimeSubagent: vi.fn(),
+  interruptRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
+  archiveRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
+  deleteRuntimeSubagent: vi.fn(async () => ({ ok: true })),
   postAbort: vi.fn(),
   resumeRuntimeSubagent: vi.fn(),
   streamMessage: streamMessageMock,
@@ -278,6 +283,7 @@ describe("BoardView attachments", () => {
       thread: [],
     });
     fetchSubagentsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    fetchRuntimeSubagentsMock.mockResolvedValue({ items: [] });
     getSessionKeyMock.mockReturnValue("main");
     streamMessageMock.mockImplementation(() => () => {});
     subscribeToSessionMock.mockImplementation(() => () => {});

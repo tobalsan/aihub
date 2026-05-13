@@ -3,7 +3,12 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { expandPath, type GatewayConfig } from "@aihub/shared";
-import { listProjects, type ProjectListItem } from "../projects/store.js";
+import {
+  appendProjectComment,
+  listProjects,
+  updateProject,
+  type ProjectListItem,
+} from "../projects/store.js";
 import { ensureProjectIntegrationBranch } from "../projects/branches.js";
 import {
   listSlices,
@@ -25,13 +30,16 @@ import {
   STALL_SLICE_STATUSES,
   SliceDispatchPolicy,
   WORKER_SLICE_STATUS,
+  configuredShapingStatusKeys,
   configuredStatusKeys,
   dispatchKindForStatus,
   expectedStatusForRun,
   isLiveSliceRun,
   isMergerRun,
   isReviewerRun,
+  isShaperRun,
   projectStatus,
+  shapingStatusConfigFor,
   sourceOf,
 } from "./dispatch-policy.js";
 import {
@@ -121,6 +129,8 @@ export type OrchestratorDispatcherDeps = {
   ensureProjectIntegrationBranch?: typeof ensureProjectIntegrationBranch;
   interruptSubagent?: typeof interruptSubagent;
   updateSlice?: typeof updateSlice;
+  updateProject?: typeof updateProject;
+  appendProjectComment?: typeof appendProjectComment;
   now?: () => Date;
   log?: Logger;
   hitl?: { add(event: HitlEvent): void };
@@ -1243,6 +1253,107 @@ async function dispatchForStatus(
   };
 }
 
+async function dispatchShapingStatus(
+  config: GatewayConfig,
+  orchestratorConfig: OrchestratorConfig,
+  statusKey: string,
+  nextStatus: string | undefined,
+  deps: OrchestratorDispatcherDeps
+): Promise<DispatchResult> {
+  const log = deps.log ?? console.log;
+  const planner = new OrchestratorRunPlanner(config, orchestratorConfig, deps);
+  const statusConfig = shapingStatusConfigFor(orchestratorConfig, statusKey);
+  if (!statusConfig) return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
+  const profile = planner.resolveProfile(statusConfig.profile);
+  if (!profile) {
+    keyValueLog(log, { component: "orchestrator", status: statusKey, action: "skip", reason: "profile_not_found", profile: statusConfig.profile });
+    return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
+  }
+
+  const projectResult = await (deps.listProjects ?? listProjects)(config);
+  if (!projectResult.ok) return { running: 0, availableSlots: 0, eligible: 0, decisions: [] };
+
+  const rows = await Promise.all(
+    projectResult.data
+      .filter((project) => projectStatus(project) === statusKey)
+      .map(async (project) => ({
+        project,
+        runs: await (deps.listSubagents ?? listSubagents)(config, project.id).then((r) => r.ok ? r.data.items : []),
+      }))
+  );
+
+  const activeProjects = new Set<string>();
+  for (const { project, runs } of rows) {
+    if (runs.some((run) => run.status === "running" && sourceOf(run) === "orchestrator" && isShaperRun(config, orchestratorConfig, run))) {
+      activeProjects.add(project.id);
+    }
+  }
+  const running = activeProjects.size;
+  const availableSlots = Math.max(0, statusConfig.max_concurrent - running);
+  const nowDate = (deps.now ?? (() => new Date()))();
+  const threshold = statusConfig.stall_threshold_ms ?? orchestratorConfig.stall_threshold_ms;
+  const decisions: DispatchDecision[] = [];
+
+  const eligible: ProjectListItem[] = [];
+  for (const { project } of rows) {
+    if (activeProjects.has(project.id)) continue;
+    const changedAt = typeof project.frontmatter.last_status_change_at === "string"
+      ? Date.parse(project.frontmatter.last_status_change_at)
+      : Date.parse(typeof project.frontmatter.updated_at === "string" ? project.frontmatter.updated_at : "");
+    if (threshold > 0 && Number.isFinite(changedAt) && nowDate.getTime() - changedAt > threshold) {
+      await (deps.appendProjectComment ?? appendProjectComment)(config, project.id, {
+        author: ORCHESTRATOR_STALL_AUTHOR,
+        date: nowDate.toISOString(),
+        body: `Shaping stage ${statusKey} exceeded ${threshold}ms without progress; moving to shaping:blocked for human pickup.`,
+      });
+      await (deps.updateProject ?? updateProject)(config, project.id, { status: "shaping:blocked" });
+      decisions.push({ projectId: project.id, action: "skipped", reason: "shaping_stalled" });
+      continue;
+    }
+    eligible.push(project);
+  }
+
+  keyValueLog(log, { component: "orchestrator", status: statusKey, action: "shaping_tick", running, eligible: eligible.length, available_slots: availableSlots });
+  for (const [index, project] of eligible.slice(0, availableSlots).entries()) {
+    const slug = planner.slugForShapingStatus(statusKey, project.id, nowDate, index);
+    let input;
+    try {
+      input = await planner.buildShaperSpawnInput(
+        project,
+        statusKey,
+        nextStatus,
+        profile,
+        slug
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      decisions.push({
+        projectId: project.id,
+        action: "skipped",
+        reason: "build_failed",
+      });
+      keyValueLog(log, {
+        component: "orchestrator",
+        status: statusKey,
+        action: "build_failed",
+        project: project.id,
+        reason,
+      });
+      continue;
+    }
+    const spawned = await (deps.spawnSubagent ?? spawnSubagent)(config, input).catch((error) => ({ ok: false as const, error: error instanceof Error ? error.message : String(error) }));
+    if (!spawned.ok) {
+      decisions.push({ projectId: project.id, action: "skipped", reason: "spawn_failed" });
+      keyValueLog(log, { component: "orchestrator", status: statusKey, action: "spawn_failed", project: project.id, reason: spawned.error });
+      continue;
+    }
+    decisions.push({ projectId: project.id, action: "spawned", slug });
+    keyValueLog(log, { component: "orchestrator", status: statusKey, action: "spawned", project: project.id, slug, profile: statusConfig.profile });
+  }
+
+  return { running, availableSlots, eligible: eligible.length, decisions };
+}
+
 export async function dispatchOrchestratorTick(
   config: GatewayConfig,
   orchestratorConfig: OrchestratorConfig,
@@ -1256,6 +1367,19 @@ export async function dispatchOrchestratorTick(
     config,
     deps
   );
+  const shapingKeys = configuredShapingStatusKeys(orchestratorConfig);
+  for (const [index, statusKey] of shapingKeys.entries()) {
+    if (statusKey === "shaping:blocked") continue;
+    results.push(
+      await dispatchShapingStatus(
+        config,
+        orchestratorConfig,
+        statusKey,
+        shapingKeys[index + 1] ?? "active",
+        deps
+      )
+    );
+  }
   for (const statusKey of configuredStatusKeys(orchestratorConfig)) {
     results.push(
       await dispatchForStatus(

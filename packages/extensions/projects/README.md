@@ -128,6 +128,63 @@ The web spawn form and `aihub projects start --subagent <name>` both resolve thr
 Any explicit locked-field override requires `--allow-overrides`.
 Lead-agent launches use `--agent aihub:<id>` and run in project-scoped sessions.
 
+## Shaping pipeline configuration
+
+The projects orchestrator can also run a project-level shaping pipeline before projects become `active`. Configure ordered shaping stages under `extensions.projects.orchestrator.shaping_statuses` and add matching subagent profiles with `type: "shaper"` under `extensions.subagents.profiles`.
+
+Example `aihub.json` fragment:
+
+```json
+{
+  "extensions": {
+    "projects": {
+      "orchestrator": {
+        "enabled": true,
+        "poll_interval_ms": 30000,
+        "stall_threshold_ms": 1800000,
+        "shaping_statuses": {
+          "shaping:repo": { "profile": "RepoSetter", "max_concurrent": 1 },
+          "shaping:drill": { "profile": "SpecsDriller", "max_concurrent": 1 },
+          "shaping:slice": { "profile": "Slicer", "max_concurrent": 1 },
+          "shaping:verticality": { "profile": "VerticalityChecker", "max_concurrent": 1 },
+          "shaping:validation": {
+            "profile": "ValidationFiller",
+            "max_concurrent": 1,
+            "stall_threshold_ms": 3600000
+          },
+          "shaping:approve": { "profile": "Approver", "max_concurrent": 1 }
+        }
+      }
+    },
+    "subagents": {
+      "profiles": [
+        { "name": "RepoSetter", "type": "shaper", "cli": "codex", "model": "gpt-5.1-codex-mini", "runMode": "none" },
+        { "name": "SpecsDriller", "type": "shaper", "cli": "codex", "model": "gpt-5.1-codex", "runMode": "none" },
+        { "name": "Slicer", "type": "shaper", "cli": "codex", "model": "gpt-5.1-codex", "runMode": "none" },
+        { "name": "VerticalityChecker", "type": "shaper", "cli": "codex", "model": "gpt-5.1-codex", "runMode": "none" },
+        { "name": "ValidationFiller", "type": "shaper", "cli": "codex", "model": "gpt-5.1-codex", "runMode": "worktree" },
+        { "name": "Approver", "type": "shaper", "cli": "codex", "model": "gpt-5.1-codex", "runMode": "none" }
+      ]
+    }
+  }
+}
+```
+
+Behavior:
+
+- Project status is the pipeline cursor. A project at `shaping:repo` dispatches the `RepoSetter` profile; the agent advances with `aihub projects move <id> shaping:drill`.
+- The next status is the next key in `shaping_statuses`; the final configured stage defaults to advancing to `active`.
+- `shaping:blocked` is terminal for the pipeline. Move the project back to any `shaping:<stage>` status to resume.
+- Only one shaper runs per project at a time. `max_concurrent` limits concurrent runs for that stage across projects.
+- If a project stays in one shaping status longer than `stall_threshold_ms`, the orchestrator comments in `THREAD.md` and moves it to `shaping:blocked`.
+- Prompts are loaded from `.aihub/prompts/<ProfileName>.md` when present. Templates use `${variable}` substitution and fail dispatch on unresolved variables. Available variables include `projectId`, `projectTitle`, `projectDirPath`, `status`, `nextStatus`, `profileName`, `projectDocs`, `sliceDocs`, `recentThread`, and `aihubCli`.
+
+Start a project in the pipeline with:
+
+```bash
+aihub projects move PRO-19 shaping:repo
+```
+
 - `--mode <mode>`: `main-run|worktree`.
 - `--branch <branch>`: base branch for worktree mode.
 - `-j, --json`: JSON output.

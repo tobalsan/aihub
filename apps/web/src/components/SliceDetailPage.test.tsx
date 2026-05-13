@@ -95,20 +95,22 @@ vi.mock("./board/DocEditor", () => ({
   ),
 }));
 
-vi.mock("./SubagentRunsPanel", () => ({
-  SubagentRunsPanel: (props: {
+vi.mock("./AgentRunChatPanel", () => ({
+  AgentRunChatPanel: (props: {
     projectId?: string;
     sliceId?: string;
-    rawLogHref?: (run: { id: string }) => string | undefined;
+    selectedRunId?: string;
+    onSelectedRunIdChange?: (runId: string | undefined) => void;
   }) => (
     <div
-      data-testid="subagent-runs-panel"
+      data-testid="agent-run-chat-panel"
       data-project-id={props.projectId}
       data-slice-id={props.sliceId}
+      data-selected-run-id={props.selectedRunId}
     >
-      <a href={props.rawLogHref?.({ id: `${props.projectId}:worker` })}>
-        View raw JSON
-      </a>
+      <button type="button" onClick={() => props.onSelectedRunIdChange?.("run-1")}>
+        Select run
+      </button>
     </div>
   ),
 }));
@@ -429,7 +431,7 @@ describe("SliceDetailPage", () => {
     expect(container.textContent).not.toContain("Other Slice");
   });
 
-  it("renders the agent tab with the scoped run timeline panel", async () => {
+  it("renders the agent tab with the scoped session chat panel", async () => {
     fetchSubagentsMock = vi.fn(async () => ({
       ok: true as const,
       data: {
@@ -466,17 +468,15 @@ describe("SliceDetailPage", () => {
 
     await vi.waitFor(() => {
       expect(
-        container.querySelector("[data-testid='subagent-runs-panel']")
+        container.querySelector("[data-testid='agent-run-chat-panel']")
       ).not.toBeNull();
     });
     const panel = container.querySelector(
-      "[data-testid='subagent-runs-panel']"
+      "[data-testid='agent-run-chat-panel']"
     ) as HTMLElement;
     expect(panel.getAttribute("data-project-id")).toBe("PRO-1");
     expect(panel.getAttribute("data-slice-id")).toBe("PRO-1-S01");
-    expect(panel.querySelector("a")?.getAttribute("href")).toBe(
-      "/api/projects/PRO-1/subagents/worker/logs?since=0"
-    );
+    expect(panel.textContent).not.toContain("View raw JSON");
   });
 
   it("refreshes agent runs when project agent state changes", async () => {

@@ -101,6 +101,7 @@ export const MOVEABLE_LIFECYCLE_STATUSES = new Set<ProjectLifecycleStatus>([
 
 /** Map a raw project status string to a board lifecycle status. */
 export function mapToLifecycleStatus(status: string): ProjectLifecycleStatus {
+  if (status.startsWith("shaping:")) return "shaping";
   switch (status) {
     case "triage":
       return "triage";

@@ -1,7 +1,7 @@
 /**
  * Board-hosted project detail page — §15.3
  * Route: /board/projects/:projectId
- * Tabs: Pitch | Slices | Thread | Activity
+ * Tabs: Pitch | Slices | Thread | Activity | Agent
  */
 import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
 import {
@@ -22,7 +22,9 @@ import {
   createSlice,
   fetchAreas,
   fetchProject,
+  fetchRuntimeSubagents,
   subscribeToFileChanges,
+  subscribeToSubagentChanges,
   unarchiveProject,
   updateProject,
 } from "../../api";
@@ -31,13 +33,21 @@ import { DocEditor } from "./DocEditor";
 import { SliceKanbanWidget } from "../SliceKanbanWidget";
 import { SliceDetailPage } from "../SliceDetailPage";
 import { ActivityFeed } from "../ActivityFeed";
+import { AgentRunChatPanel } from "../AgentRunChatPanel";
 import { renderMarkdown } from "../../lib/markdown";
 import { EditRepoModal } from "../project/EditRepoModal";
 import { ToastNotification, type ToastVariant } from "../ui/Toast";
+import {
+  getProjectRunPillState,
+  isProjectShapingRun,
+  projectRunPillClass,
+  projectRunPillLabel,
+  sortProjectShapingRuns,
+} from "../../lib/project-shaping-runs";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type BpdTab = "pitch" | "slices" | "thread" | "activity";
+type BpdTab = "pitch" | "slices" | "thread" | "activity" | "agent";
 type PitchDocKey = "PITCH" | "README";
 
 type LifecycleAction = {
@@ -48,10 +58,20 @@ type LifecycleAction = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+function getShapingSubStatus(
+  frontmatter: Record<string, unknown>
+): string | null {
+  const s = frontmatter.status;
+  if (typeof s !== "string" || !s.startsWith("shaping:")) return null;
+  const stage = s.slice("shaping:".length);
+  return stage || null;
+}
+
 function getLifecycleStatus(
   frontmatter: Record<string, unknown>
 ): ProjectLifecycleStatus {
   const s = frontmatter.status;
+  if (typeof s === "string" && s.startsWith("shaping:")) return "shaping";
   if (
     s === "triage" ||
     s === "shaping" ||
@@ -128,7 +148,8 @@ function isBpdTab(value: unknown): value is BpdTab {
     value === "pitch" ||
     value === "slices" ||
     value === "thread" ||
-    value === "activity"
+    value === "activity" ||
+    value === "agent"
   );
 }
 
@@ -281,6 +302,18 @@ export function BoardProjectDetailPage(
   const [project, { mutate: mutateProject, refetch: refetchProject }] =
     createResource(projectId, fetchProject);
   const [areas] = createResource(fetchAreas);
+  const [projectRuns, { refetch: refetchProjectRuns }] = createResource(
+    projectId,
+    async (id) => {
+      const data = await fetchRuntimeSubagents({
+        projectId: id,
+        includeArchived: true,
+      });
+      return data.items
+        .filter((run) => isProjectShapingRun(run, id))
+        .sort(sortProjectShapingRuns);
+    }
+  );
 
   createEffect(() => {
     if (!titleEditing()) return;
@@ -289,6 +322,26 @@ export function BoardProjectDetailPage(
       titleInputRef?.select();
     });
   });
+
+  createEffect(() => {
+    let refreshTimer: number | undefined;
+    const unsubscribe = subscribeToSubagentChanges({
+      onSubagentChanged: () => {
+        if (refreshTimer) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+          void refetchProjectRuns();
+        }, 250);
+      },
+    });
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
+  });
+
+  const projectRunPillState = createMemo(() =>
+    getProjectRunPillState(projectRuns.latest ?? [])
+  );
 
   // Realtime file-change subscription
   createEffect(() => {
@@ -345,6 +398,12 @@ export function BoardProjectDetailPage(
     return getLifecycleStatus(p.frontmatter);
   });
 
+  const shapingSubStatus = createMemo((): string | null => {
+    const p = project.latest;
+    if (!p) return null;
+    return getShapingSubStatus(p.frontmatter);
+  });
+
   const validActions = createMemo(() => getValidActions(lifecycleStatus()));
   const currentRepo = createMemo(() => {
     const repo = project.latest?.frontmatter.repo;
@@ -355,6 +414,11 @@ export function BoardProjectDetailPage(
     const id = projectId();
     const base = `/board/projects/${encodeURIComponent(id)}`;
     return tab === "pitch" ? base : `${base}?tab=${tab}`;
+  };
+
+  const projectAgentRunUrl = (runId: string | undefined) => {
+    const base = `/board/projects/${encodeURIComponent(projectId())}?tab=agent`;
+    return runId ? `${base}&run=${encodeURIComponent(runId)}` : base;
   };
 
   const sliceUrl = (sliceId: string, tab?: string) => {
@@ -636,12 +700,22 @@ export function BoardProjectDetailPage(
               <Show when={titleError()}>
                 {(error) => <span class="bpd-title-error">{error()}</span>}
               </Show>
+              <Show when={projectRunPillState() !== "hidden"}>
+                <span class={projectRunPillClass(projectRunPillState())}>
+                  {projectRunPillLabel(projectRunPillState())}
+                </span>
+              </Show>
               <span
                 class="bpd-status-pill"
                 style={statusPillStyle(lifecycleStatus())}
               >
                 {lifecycleStatus()}
               </span>
+              <Show when={shapingSubStatus()}>
+                {(stage) => (
+                  <span class="bpd-shaping-stage">{stage()}</span>
+                )}
+              </Show>
               <Show when={area()}>
                 {(a) => <span class="bpd-area">{a().title}</span>}
               </Show>
@@ -702,7 +776,8 @@ export function BoardProjectDetailPage(
 
       {/* ── Tabs ── */}
       <div class="bpd-tabs" role="tablist">
-        {(["pitch", "slices", "thread", "activity"] as BpdTab[]).map((tab) => (
+        {(["pitch", "slices", "thread", "activity", "agent"] as BpdTab[]).map(
+          (tab) => (
           <button
             type="button"
             role="tab"
@@ -712,7 +787,8 @@ export function BoardProjectDetailPage(
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
-        ))}
+          )
+        )}
       </div>
 
       {/* ── Body ── */}
@@ -808,6 +884,15 @@ export function BoardProjectDetailPage(
               <Match when={activeTab() === "slices"}>
                 <div class="bpd-tab-panel bpd-tab-panel--slices">
                   <div class="bpd-slices-toolbar">
+                    <Show when={!addingSlice()}>
+                      <button
+                        type="button"
+                        class="bpd-add-slice-btn"
+                        onClick={() => setAddingSlice(true)}
+                      >
+                        Add slice
+                      </button>
+                    </Show>
                     <Show when={addingSlice()}>
                       <form
                         class="bpd-add-slice-form"
@@ -960,6 +1045,19 @@ export function BoardProjectDetailPage(
                         ? props.onOpenProject(id)
                         : navigateTo(`/board/projects/${id}`)
                     }
+                  />
+                </div>
+              </Match>
+
+              <Match when={activeTab() === "agent"}>
+                <div class="bpd-tab-panel bpd-agent-panel">
+                  <AgentRunChatPanel
+                    projectId={projectId()}
+                    selectedRunId={searchParams.run}
+                    onSelectedRunIdChange={(runId) =>
+                      navigateTo(projectAgentRunUrl(runId), { replace: true })
+                    }
+                    filter={(run) => isProjectShapingRun(run, projectId())}
                   />
                 </div>
               </Match>
@@ -1125,7 +1223,8 @@ export function BoardProjectDetailPage(
           color: var(--color-danger, #dc2626);
         }
 
-        .bpd-status-pill {
+        .bpd-status-pill,
+        .project-run-pill {
           font-size: 11px;
           font-weight: 500;
           padding: 2px 8px;
@@ -1134,6 +1233,37 @@ export function BoardProjectDetailPage(
           text-transform: uppercase;
           letter-spacing: 0.04em;
           flex-shrink: 0;
+        }
+
+        .project-run-pill--running {
+          background: #22c55e22;
+          color: #16a34a;
+          border-color: #22c55e44;
+        }
+
+        .project-run-pill--stalled {
+          background: #f59e0b22;
+          color: #d97706;
+          border-color: #f59e0b44;
+        }
+
+        .project-run-pill--error {
+          background: #ef444422;
+          color: #dc2626;
+          border-color: #ef444444;
+        }
+
+        .bpd-shaping-stage {
+          font-size: 11px;
+          font-weight: 500;
+          padding: 2px 8px;
+          border-radius: 999px;
+          background: rgba(74, 163, 160, 0.16);
+          color: #4aa3a0;
+          text-transform: lowercase;
+          letter-spacing: 0.02em;
+          flex-shrink: 0;
+          white-space: nowrap;
         }
 
         .bpd-area {
@@ -1272,6 +1402,10 @@ export function BoardProjectDetailPage(
           flex-direction: column;
           height: 100%;
           padding: 16px;
+        }
+
+        .bpd-agent-panel {
+          overflow: hidden;
         }
 
         .bpd-doc-switcher {

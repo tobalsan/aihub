@@ -3,14 +3,32 @@
  * §15.2 of kanban-slice-refactor spec + Issue #11.
  */
 // @vitest-environment jsdom
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+} from "solid-js";
 import type {
   BoardProject,
   ProjectLifecycleCounts,
   ProjectLifecycleStatus,
 } from "../../api/types";
-import { moveBoardProject } from "../../api";
+import {
+  fetchRuntimeSubagents,
+  moveBoardProject,
+  subscribeToSubagentChanges,
+} from "../../api";
 import { ToastNotification, type ToastVariant } from "../ui/Toast";
+import type { SubagentRun } from "@aihub/shared/types";
+import {
+  getProjectRunPillState,
+  isProjectShapingRun,
+  projectRunPillLabel,
+} from "../../lib/project-shaping-runs";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -67,12 +85,37 @@ function relativeTime(iso: string | null | undefined): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+const DEFAULT_SHAPING_STAGE_ORDER = [
+  "repo",
+  "drill",
+  "slice",
+  "verticality",
+  "validation",
+  "approve",
+  "blocked",
+];
+
+function shapingStage(status: string): string | null {
+  return status.startsWith("shaping:") ? status.slice("shaping:".length) : null;
+}
+
+function shapingStageRank(status: string): number {
+  const stage = shapingStage(status);
+  if (!stage) return -1;
+  const index = DEFAULT_SHAPING_STAGE_ORDER.indexOf(stage);
+  return index === -1 ? DEFAULT_SHAPING_STAGE_ORDER.length : index;
+}
+
 function lifecycleStatusLabel(status: ProjectLifecycleStatus): string {
   switch (status) {
+    case "triage":
+      return "triage";
     case "active":
       return "active";
     case "shaping":
       return "shaping";
+    case "ready_to_merge":
+      return "ready";
     case "done":
       return "done";
     case "cancelled":
@@ -86,8 +129,10 @@ function lifecycleStatusLabel(status: ProjectLifecycleStatus): string {
 
 function StatusPill(props: { status: ProjectLifecycleStatus }) {
   const colorMap: Record<ProjectLifecycleStatus, string> = {
+    triage: "var(--color-muted, #6b6b6b)",
     active: "var(--color-success, #53b97c)",
     shaping: "var(--color-warning, #d2b356)",
+    ready_to_merge: "var(--color-link, #4a9eff)",
     done: "var(--color-muted, #6b6b6b)",
     cancelled: "var(--color-danger, #e05252)",
     archived: "var(--color-muted, #6b6b6b)",
@@ -109,6 +154,29 @@ function StatusPill(props: { status: ProjectLifecycleStatus }) {
     >
       {lifecycleStatusLabel(props.status)}
     </span>
+  );
+}
+
+function ShapingStageBadge(props: { status: string }) {
+  const stage = () => shapingStage(props.status);
+  return (
+    <Show when={stage()}>
+      {(value) => (
+        <span
+          data-testid="shaping-stage-badge"
+          style={{
+            "font-size": "11px",
+            color: "var(--text-primary)",
+            background: "var(--bg-elevated, var(--bg-base))",
+            border: "1px solid var(--border-default)",
+            padding: "1px 5px",
+            "border-radius": "999px",
+          }}
+        >
+          {value()}
+        </span>
+      )}
+    </Show>
   );
 }
 
@@ -149,6 +217,40 @@ function ProgressBar(props: { done: number; total: number }) {
   );
 }
 
+function ProjectRunPill(props: { runs: SubagentRun[] }) {
+  const state = () => getProjectRunPillState(props.runs);
+  const color = () => {
+    switch (state()) {
+      case "running":
+        return "var(--color-success, #53b97c)";
+      case "stalled":
+        return "var(--color-warning, #d2b356)";
+      case "error":
+        return "var(--color-danger, #e05252)";
+      case "hidden":
+        return "transparent";
+    }
+  };
+  return (
+    <Show when={state() !== "hidden"}>
+      <span
+        data-testid="project-run-pill"
+        style={{
+          "font-size": "11px",
+          "font-weight": 700,
+          color: "#fff",
+          background: color(),
+          padding: "1px 6px",
+          "border-radius": "999px",
+          "margin-left": "auto",
+        }}
+      >
+        {projectRunPillLabel(state())}
+      </span>
+    </Show>
+  );
+}
+
 function ActiveRunDot() {
   return (
     <span
@@ -184,6 +286,7 @@ function ProjectCard(props: {
   onDragEnd?: () => void;
   onClick?: () => void;
   onStatusChange?: (status: ProjectLifecycleStatus) => void;
+  shapingRuns?: SubagentRun[];
 }) {
   const [menuOpen, setMenuOpen] = createSignal(false);
 
@@ -234,6 +337,8 @@ function ProjectCard(props: {
           {props.project.id}
         </span>
         <StatusPill status={props.project.lifecycleStatus} />
+        <ShapingStageBadge status={props.project.status} />
+        <ProjectRunPill runs={props.shapingRuns ?? []} />
         <Show when={props.areaName}>
           <span
             data-testid="project-area-chip"
@@ -391,6 +496,7 @@ function GroupSection(props: {
     targetStatus: ProjectLifecycleStatus
   ) => void;
   onExpandedChange?: (expanded: boolean) => void;
+  shapingRunsByProjectId?: Map<string, SubagentRun[]>;
 }) {
   const [expanded, setExpanded] = createSignal(props.group.defaultExpanded);
   const [dragOver, setDragOver] = createSignal(false);
@@ -557,6 +663,7 @@ function GroupSection(props: {
                     onStatusChange={(targetStatus) =>
                       props.onStatusChange?.(project, targetStatus)
                     }
+                    shapingRuns={props.shapingRunsByProjectId?.get(project.id)}
                   />
                 )}
               </For>
@@ -583,6 +690,39 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
   const [optimisticOverrides, setOptimisticOverrides] = createSignal<
     Map<string, ProjectLifecycleStatus>
   >(new Map());
+
+  const [allRuns, { refetch: refetchAllRuns }] = createResource(async () => {
+    const data = await fetchRuntimeSubagents({ includeArchived: true });
+    return data.items;
+  });
+
+  createEffect(() => {
+    let refreshTimer: number | undefined;
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void refetchAllRuns();
+      }, 250);
+    };
+    const unsubscribe = subscribeToSubagentChanges({
+      onSubagentChanged: scheduleRefresh,
+    });
+    onCleanup(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe();
+    });
+  });
+
+  const shapingRunsByProjectId = createMemo(() => {
+    const map = new Map<string, SubagentRun[]>();
+    for (const project of props.projects) map.set(project.id, []);
+    for (const run of allRuns.latest ?? []) {
+      const id = run.projectId;
+      if (!id || !isProjectShapingRun(run, id) || !map.has(id)) continue;
+      map.get(id)!.push(run);
+    }
+    return map;
+  });
 
   const areaMap = createMemo(() => {
     const m = new Map<string, string>();
@@ -621,6 +761,12 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
       if (list) list.push(p);
       else result.get("shaping")!.push(p);
     }
+    const shaping = result.get("shaping");
+    shaping?.sort((a, b) => {
+      const rankDiff = shapingStageRank(a.status) - shapingStageRank(b.status);
+      if (rankDiff !== 0) return rankDiff;
+      return a.id.localeCompare(b.id);
+    });
     return result;
   });
   const fallbackCounts = createMemo(() => {
@@ -932,6 +1078,7 @@ export function ProjectListGrouped(props: ProjectListGroupedProps) {
                       targetStatus
                     )
                   }
+                  shapingRunsByProjectId={shapingRunsByProjectId()}
                 />
               );
             }}

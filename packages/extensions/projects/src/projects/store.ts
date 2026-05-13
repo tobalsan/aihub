@@ -604,6 +604,9 @@ export async function updateProject(
     id,
     title: nextTitle,
     ...(nextStatus ? { status: nextStatus } : {}),
+    ...(input.status !== undefined && nextStatus !== currentStatus
+      ? { last_status_change_at: new Date().toISOString() }
+      : {}),
   };
 
   if (input.repo !== undefined) {

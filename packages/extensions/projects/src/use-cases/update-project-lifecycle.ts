@@ -5,6 +5,8 @@ import {
   type UpdateProjectRequest,
 } from "@aihub/shared";
 import { recordProjectStatusActivity } from "../activity/index.js";
+import { getOrchestratorConfig } from "../orchestrator/config.js";
+import { configuredShapingStatusKeys } from "../orchestrator/dispatch-policy.js";
 import {
   archiveProject,
   getProject,
@@ -19,6 +21,16 @@ type CancelInterruptDeps = {
   listSubagentsFn?: typeof listSubagents;
   interruptSubagentFn?: typeof interruptSubagent;
 };
+
+export function normalizeShapingMoveTarget<T extends string | undefined>(
+  status: T,
+  shapingStatusKeys: readonly string[]
+): T {
+  if (status === "shaping" && shapingStatusKeys.length > 0) {
+    return shapingStatusKeys[0] as T;
+  }
+  return status;
+}
 
 export type ProjectLifecycleResult =
   | { ok: true; data: unknown; files?: string[]; projectDirName?: string }
@@ -124,6 +136,11 @@ export async function updateProjectLifecycle(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.message, status: 400 };
   }
+
+  parsed.data.status = normalizeShapingMoveTarget(
+    parsed.data.status,
+    configuredShapingStatusKeys(getOrchestratorConfig(config))
+  );
 
   let prevStatus: string | null = null;
   if (parsed.data.status) {

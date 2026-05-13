@@ -470,8 +470,16 @@ export const ProjectsOrchestratorStatusConfigSchema = z.object({
   profile: z.string(),
   max_concurrent: z.number().int().nonnegative().default(1),
 });
+
+export const ProjectsOrchestratorShapingStatusConfigSchema =
+  ProjectsOrchestratorStatusConfigSchema.extend({
+    stall_threshold_ms: z.number().int().nonnegative().optional(),
+  });
 export type ProjectsOrchestratorStatusConfig = z.infer<
   typeof ProjectsOrchestratorStatusConfigSchema
+>;
+export type ProjectsOrchestratorShapingStatusConfig = z.infer<
+  typeof ProjectsOrchestratorShapingStatusConfigSchema
 >;
 
 const ProjectsOrchestratorMergerStatusConfigSchema =
@@ -502,6 +510,10 @@ export const ProjectsOrchestratorConfigSchema = z.object({
       ready_to_merge: ProjectsOrchestratorMergerStatusConfigSchema.optional(),
     })
     .passthrough()
+    .optional()
+    .default({}),
+  shaping_statuses: z
+    .record(z.string(), ProjectsOrchestratorShapingStatusConfigSchema)
     .optional()
     .default({}),
   notify_channel: z.string().optional(),
@@ -895,14 +907,9 @@ export const CapabilitiesResponseSchema = z.object({
 export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 
 // Projects API types
-export const ProjectStatusSchema = z.enum([
-  "triage",
-  "shaping",
-  "active",
-  "ready_to_merge",
-  "done",
-  "cancelled",
-]);
+export const ProjectStatusSchema = z
+  .string()
+  .regex(/^(triage|shaping|active|ready_to_merge|done|cancelled|shaping:[a-z][a-z0-9_-]*)$/);
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 
 export const AreaSchema = z.object({

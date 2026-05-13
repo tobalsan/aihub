@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import {
   interruptCancelledOrchestratorRuns,
+  normalizeShapingMoveTarget,
   updateProjectLifecycle,
 } from "./update-project-lifecycle.js";
 
@@ -18,6 +19,39 @@ describe("updateProjectLifecycle", () => {
       error: "runAgent/runMode/baseBranch not supported on projects",
       status: 400,
     });
+  });
+});
+
+describe("normalizeShapingMoveTarget", () => {
+  it("rewrites bare shaping to the first manifest key", () => {
+    expect(normalizeShapingMoveTarget("shaping", ["shaping:repo"])).toBe(
+      "shaping:repo"
+    );
+  });
+
+  it("preserves manifest insertion order when picking the first key", () => {
+    expect(
+      normalizeShapingMoveTarget("shaping", ["shaping:drill", "shaping:slice"])
+    ).toBe("shaping:drill");
+  });
+
+  it("leaves bare shaping unchanged when no manifest keys are configured", () => {
+    expect(normalizeShapingMoveTarget("shaping", [])).toBe("shaping");
+  });
+
+  it("does not rewrite an explicit manifest key", () => {
+    expect(
+      normalizeShapingMoveTarget("shaping:slice", [
+        "shaping:repo",
+        "shaping:slice",
+      ])
+    ).toBe("shaping:slice");
+  });
+
+  it("does not rewrite non-shaping statuses", () => {
+    expect(normalizeShapingMoveTarget("active", ["shaping:repo"])).toBe(
+      "active"
+    );
   });
 });
 

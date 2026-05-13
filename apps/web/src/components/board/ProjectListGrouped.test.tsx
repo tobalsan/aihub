@@ -16,12 +16,20 @@ if (typeof DragEvent === "undefined") {
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
-const { moveBoardProjectMock } = vi.hoisted(() => ({
+const {
+  moveBoardProjectMock,
+  fetchRuntimeSubagentsMock,
+  subscribeToSubagentChangesMock,
+} = vi.hoisted(() => ({
   moveBoardProjectMock: vi.fn(),
+  fetchRuntimeSubagentsMock: vi.fn(async () => ({ items: [] })),
+  subscribeToSubagentChangesMock: vi.fn(() => () => {}),
 }));
 
 vi.mock("../../api", () => ({
   moveBoardProject: moveBoardProjectMock,
+  fetchRuntimeSubagents: fetchRuntimeSubagentsMock,
+  subscribeToSubagentChanges: subscribeToSubagentChangesMock,
 }));
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -54,6 +62,10 @@ let dispose: () => void;
 
 beforeEach(() => {
   moveBoardProjectMock.mockReset();
+  fetchRuntimeSubagentsMock.mockReset();
+  fetchRuntimeSubagentsMock.mockResolvedValue({ items: [] });
+  subscribeToSubagentChangesMock.mockReset();
+  subscribeToSubagentChangesMock.mockReturnValue(() => {});
   container = document.createElement("div");
   document.body.appendChild(container);
 });
