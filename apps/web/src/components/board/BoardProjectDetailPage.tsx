@@ -38,7 +38,6 @@ import { renderMarkdown } from "../../lib/markdown";
 import { EditRepoModal } from "../project/EditRepoModal";
 import { ToastNotification, type ToastVariant } from "../ui/Toast";
 import {
-  formatRunElapsed,
   getProjectRunPillState,
   isProjectShapingRun,
   projectRunPillClass,
@@ -342,9 +341,6 @@ export function BoardProjectDetailPage(
 
   const projectRunPillState = createMemo(() =>
     getProjectRunPillState(projectRuns.latest ?? [])
-  );
-  const recentProjectRuns = createMemo(() =>
-    (projectRuns.latest ?? []).slice(0, 5)
   );
 
   // Realtime file-change subscription
@@ -789,29 +785,6 @@ export function BoardProjectDetailPage(
           )
         )}
       </div>
-
-      <Show when={recentProjectRuns().length > 0}>
-        <aside class="bpd-recent-runs" aria-label="Recent Runs">
-          <div class="bpd-recent-runs-title">Recent Runs</div>
-          <For each={recentProjectRuns()}>
-            {(run) => (
-              <button
-                type="button"
-                class="bpd-recent-run-row"
-                onClick={() => openProjectTab("agent")}
-              >
-                <span class="bpd-recent-run-name">{run.label}</span>
-                <span class={`bpd-recent-run-status run-${run.status}`}>
-                  {run.status}
-                </span>
-                <span class="bpd-recent-run-time">
-                  {formatRunElapsed(run)}
-                </span>
-              </button>
-            )}
-          </For>
-        </aside>
-      </Show>
 
       {/* ── Body ── */}
       <div class="bpd-body">
@@ -1294,57 +1267,6 @@ export function BoardProjectDetailPage(
         .bpd-loading-inline {
           font-size: 13px;
           color: var(--text-secondary);
-        }
-
-        .bpd-recent-runs {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 16px;
-          border-bottom: 1px solid var(--border-default);
-          overflow-x: auto;
-          flex-shrink: 0;
-        }
-
-        .bpd-recent-runs-title {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          white-space: nowrap;
-        }
-
-        .bpd-recent-run-row {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          border: 1px solid var(--border-default);
-          border-radius: 999px;
-          background: var(--bg-surface);
-          color: var(--text-primary);
-          padding: 3px 8px;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        .bpd-recent-run-name,
-        .bpd-recent-run-status,
-        .bpd-recent-run-time {
-          font-size: 11px;
-        }
-
-        .bpd-recent-run-time {
-          color: var(--text-secondary);
-        }
-
-        .bpd-recent-run-status.run-running,
-        .bpd-recent-run-status.run-starting {
-          color: var(--color-success, #16a34a);
-        }
-
-        .bpd-recent-run-status.run-error {
-          color: var(--color-danger, #dc2626);
         }
 
         /* Lifecycle action menu */

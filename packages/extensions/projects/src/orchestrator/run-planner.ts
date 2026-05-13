@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
   expandPath,
+  resolveHomeDir,
   type GatewayConfig,
   type SubagentRuntimeProfile,
 } from "@aihub/shared";
@@ -161,7 +162,7 @@ export function hasLiveWorkerRun(
 }
 
 async function readPromptTemplate(profileName: string): Promise<string | undefined> {
-  const filePath = path.join(process.cwd(), ".aihub", "prompts", `${profileName}.md`);
+  const filePath = path.join(resolveHomeDir(), "prompts", `${profileName}.md`);
   try {
     return await fs.readFile(filePath, "utf8");
   } catch {

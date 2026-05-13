@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import type { ProjectListItem } from "../projects/store.js";
 import type { SliceRecord } from "../projects/slices.js";
@@ -58,6 +58,13 @@ const donePingConfig: OrchestratorConfig = {
   notify_channel: "ops",
   statuses: {},
 };
+
+const originalAihubHome = process.env.AIHUB_HOME;
+
+afterEach(() => {
+  if (originalAihubHome === undefined) delete process.env.AIHUB_HOME;
+  else process.env.AIHUB_HOME = originalAihubHome;
+});
 
 /** Create a project in `active` status (the project gate for slice dispatch). */
 function project(id: string, status = "active"): ProjectListItem {
@@ -282,6 +289,9 @@ describe("orchestrator dispatcher", () => {
   });
 
   it("dispatches Shaper profiles for matching shaping project statuses", async () => {
+    process.env.AIHUB_HOME = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-home-")
+    );
     const spawned: SpawnSubagentInput[] = [];
     const shapingConfig: OrchestratorConfig = {
       ...orchestratorConfig,
@@ -312,6 +322,47 @@ describe("orchestrator dispatcher", () => {
     expect(spawned[0].sliceId).toBeUndefined();
     expect(spawned[0].prompt).toContain("Current shaping status: shaping:repo");
     expect(spawned[0].prompt).toContain("Next status: shaping:drill");
+  });
+
+  it("loads Shaper prompt templates from AIHUB_HOME, not process cwd", async () => {
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-home-"));
+    const cwdDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-cwd-"));
+    process.env.AIHUB_HOME = homeDir;
+    await fs.mkdir(path.join(homeDir, "prompts"), { recursive: true });
+    await fs.writeFile(
+      path.join(homeDir, "prompts", "RepoSetter.md"),
+      "CUSTOM ${profileName} ${projectId} ${nextStatus}"
+    );
+    const previousCwd = process.cwd();
+    process.chdir(cwdDir);
+    try {
+      const spawned: SpawnSubagentInput[] = [];
+      const shapingConfig: OrchestratorConfig = {
+        ...orchestratorConfig,
+        statuses: {},
+        shaping_statuses: {
+          "shaping:repo": { profile: "RepoSetter", max_concurrent: 1 },
+        },
+      };
+
+      await dispatchOrchestratorTick(config, shapingConfig, {
+        listProjects: async () => ({
+          ok: true,
+          data: [project("PRO-1", "shaping:repo")],
+        }),
+        listSubagents: async () => ({ ok: true as const, data: { items: [] } }),
+        spawnSubagent: async (_config, input) => {
+          spawned.push(input);
+          return { ok: true, data: { slug: input.slug } };
+        },
+        now: () => new Date("2026-05-03T00:00:00.000Z"),
+        log: () => {},
+      });
+
+      expect(spawned[0]?.prompt).toBe("CUSTOM RepoSetter PRO-1 active");
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 
   it("moves stale shaping projects to shaping:blocked", async () => {
