@@ -16,17 +16,20 @@ describe("mapToLifecycleStatus", () => {
   });
 
   // §10.1: legacy project status 'todo' maps to 'active' (project is dispatch-ready)
-  it("maps legacy in-flight statuses (including 'todo') to 'active'", () => {
+  it("maps legacy in-flight statuses to 'active'", () => {
     expect(mapToLifecycleStatus("todo")).toBe("active");
     expect(mapToLifecycleStatus("in_progress")).toBe("active");
     expect(mapToLifecycleStatus("review")).toBe("active");
-    expect(mapToLifecycleStatus("ready_to_merge")).toBe("active");
   });
 
-  it("maps pre-start statuses to 'shaping'", () => {
+  it("maps shaping and legacy pre-start statuses", () => {
     expect(mapToLifecycleStatus("shaping")).toBe("shaping");
-    expect(mapToLifecycleStatus("maybe")).toBe("shaping");
-    expect(mapToLifecycleStatus("not_now")).toBe("shaping");
+    expect(mapToLifecycleStatus("maybe")).toBe("triage");
+    expect(mapToLifecycleStatus("not_now")).toBe("triage");
+  });
+
+  it("maps ready_to_merge to ready_to_merge", () => {
+    expect(mapToLifecycleStatus("ready_to_merge")).toBe("ready_to_merge");
   });
 
   it("maps 'done' to 'done'", () => {
@@ -41,9 +44,9 @@ describe("mapToLifecycleStatus", () => {
     expect(mapToLifecycleStatus("archived")).toBe("archived");
   });
 
-  it("maps unknown status to 'shaping'", () => {
-    expect(mapToLifecycleStatus("")).toBe("shaping");
-    expect(mapToLifecycleStatus("something_else")).toBe("shaping");
+  it("maps unknown status to 'triage'", () => {
+    expect(mapToLifecycleStatus("")).toBe("triage");
+    expect(mapToLifecycleStatus("something_else")).toBe("triage");
   });
 });
 

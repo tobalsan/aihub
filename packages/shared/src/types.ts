@@ -909,7 +909,9 @@ export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
 // Projects API types
 export const ProjectStatusSchema = z
   .string()
-  .regex(/^(triage|shaping|active|ready_to_merge|done|cancelled|shaping:[a-z][a-z0-9_-]*)$/);
+  .regex(
+    /^(triage|shaping|active|ready_to_merge|done|cancelled|shaping:[a-z][a-z0-9_-]*)$/
+  );
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 
 export const AreaSchema = z.object({
@@ -938,6 +940,7 @@ export const CreateProjectRequestSchema = z.object({
   pitch: z.string().optional(),
   status: ProjectStatusSchema.optional(),
   area: z.string().optional(),
+  repo: z.union([z.string(), z.literal("")]).optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 

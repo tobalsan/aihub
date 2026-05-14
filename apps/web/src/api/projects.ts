@@ -89,6 +89,7 @@ export type CreateProjectInput = {
   pitch?: string;
   status?: string;
   area?: string;
+  repo?: string;
 };
 
 export type CreateProjectResult =
@@ -111,6 +112,18 @@ export async function createProject(
   }
   const data = (await res.json()) as ProjectDetail;
   return { ok: true, data };
+}
+
+export async function validateProjectRepo(
+  repo: string
+): Promise<{ valid: boolean }> {
+  const res = await fetch(`${API_BASE}/projects/validate-repo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo }),
+  });
+  if (!res.ok) throw new Error("Failed to validate repo");
+  return res.json();
 }
 
 export async function fetchProject(id: string): Promise<ProjectDetail> {

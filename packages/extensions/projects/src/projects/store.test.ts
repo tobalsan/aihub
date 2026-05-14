@@ -206,6 +206,66 @@ describe("projects store", () => {
     expect(result.error).toBe("Title must contain at least two words");
   });
 
+  it("rejects moving a project without project repo into shaping group", async () => {
+    const { createProject, updateProject } = await import("./store.js");
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, {
+      title: "Repo Guarded Project",
+    });
+    if (!created.ok) throw new Error(created.error);
+
+    const baseResult = await updateProject(config, created.data.id, {
+      status: "shaping",
+    });
+    const stageResult = await updateProject(config, created.data.id, {
+      status: "shaping:brief",
+    });
+
+    expect(baseResult.ok).toBe(false);
+    if (!baseResult.ok) {
+      expect(baseResult.error).toBe(
+        "Cannot move project to Shaping: project repo is not set."
+      );
+    }
+    expect(stageResult.ok).toBe(false);
+    if (!stageResult.ok) {
+      expect(stageResult.error).toBe(
+        "Cannot move project to Shaping: project repo is not set."
+      );
+    }
+  });
+
+  it("allows moving a project with project repo into shaping group", async () => {
+    const { createProject, updateProject } = await import("./store.js");
+    const repoDir = path.join(tmpDir, "repo-guard-valid");
+    await createGitRepo(repoDir);
+    const config = {
+      agents: [],
+      sessions: { idleMinutes: 360 },
+      projects: { root: projectsRoot },
+    };
+
+    const created = await createProject(config, {
+      title: "Repo Ready Project",
+      repo: repoDir,
+    });
+    if (!created.ok) throw new Error(created.error);
+
+    const result = await updateProject(config, created.data.id, {
+      status: "shaping:brief",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.frontmatter.status).toBe("shaping:brief");
+    }
+  });
+
   it("moves deleted projects into trash and creates the trash folder", async () => {
     const { createProject, deleteProject } = await import("./store.js");
     const config = {
@@ -240,9 +300,12 @@ describe("projects store", () => {
       sessions: { idleMinutes: 360 },
       projects: { root: projectsRoot },
     };
+    const repoDir = path.join(tmpDir, "archive-repo");
+    await createGitRepo(repoDir);
 
     const created = await createProject(config, {
       title: "Archive Me Project",
+      repo: repoDir,
     });
     if (!created.ok) throw new Error(created.error);
 
@@ -294,9 +357,12 @@ describe("projects store", () => {
       sessions: { idleMinutes: 360 },
       projects: { root: projectsRoot },
     };
+    const repoDir = path.join(tmpDir, "complete-repo");
+    await createGitRepo(repoDir);
 
     const created = await createProject(config, {
       title: "Complete Me Project",
+      repo: repoDir,
     });
     if (!created.ok) throw new Error(created.error);
 

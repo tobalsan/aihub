@@ -41,6 +41,7 @@ import {
   getProjectSpaceWriteLease,
   integrateProjectSpaceQueue,
   integrateSpaceEntries,
+  isValidGitRepo,
   acquireProjectSpaceWriteLease,
   isSpaceWriteLeaseEnabled,
   listArchivedProjects,
@@ -488,6 +489,15 @@ export function registerProjectRoutes(app: Hono): void {
     return c.json(result.data);
   });
 
+  app.post("/projects/validate-repo", async (c) => {
+    const body = await c.req.json();
+    const parsed = z.object({ repo: z.string() }).safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+    return c.json({ valid: await isValidGitRepo(parsed.data.repo) });
+  });
+
   app.post("/projects", async (c) => {
     const body = await c.req.json();
     const parsed = CreateProjectRequestSchema.safeParse(body);
@@ -654,9 +664,14 @@ export function registerProjectRoutes(app: Hono): void {
       const updated = await updateSlice(project.data.absolutePath, sliceId, {
         thread,
       });
-      emitUpdatedSliceFiles(id, projectDirNameFromPath(project.data.path), sliceId, {
-        thread,
-      });
+      emitUpdatedSliceFiles(
+        id,
+        projectDirNameFromPath(project.data.path),
+        sliceId,
+        {
+          thread,
+        }
+      );
       await recordCommentActivity({
         actor: parsed.data.author,
         projectId: id,

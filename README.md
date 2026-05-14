@@ -464,7 +464,7 @@ packages/
 - Left sidebar: AIHub logo + primary links (`Chats` always; `Projects` and `Conversations` only when those components are enabled)
 - Main route: `/` for Areas overview (new homepage)
 - Areas homepage supports quick area creation with auto-generated ids and color picker selection
-- Project routes: `/projects` shows the simplified Projects kanban (`Triage`, `Shaping`, `Active`, `Ready to merge`, `Done`), `/projects/archive` groups archived and cancelled projects, and `/projects/:id` reuses the Board-style project detail (`Pitch`, `Slices`, `Thread`, `Activity`) with the global left nav. The Projects create form stores the initial idea in `README.md` for shaping agents to turn into `PITCH.md`. The Board extension's `Projects` tab embeds the two-pane Projects Overview with client-side filters/search and worktree run state from `/api/board/projects`
+- Project routes: `/projects` shows the simplified Projects kanban (`Triage`, `Shaping`, `Active`, `Ready to merge`, `Done`), `/projects/archive` groups archived and cancelled projects, and `/projects/:id` reuses the Board-style project detail (`Pitch`, `Slices`, `Thread`, `Activity`) with the global left nav. The Projects create form stores the initial idea in `README.md` for shaping agents to turn into `PITCH.md`, exposes an editable repo field, prefills it from the selected area repo, and validates the path on blur without blocking creation. Moving a project to `Shaping` or any `shaping:*` stage requires an explicit project-level repo. The Board extension's `Projects` tab embeds the two-pane Projects Overview with client-side filters/search and worktree run state from `/api/board/projects`
 - Right sidebar tabs: `Agents`, `Chat`, `Feed`
 - Collapsed left/right sidebars hover-expand as overlays instead of pushing the main content
 - Legacy direct-chat agent list remains at `/agents`
@@ -496,7 +496,7 @@ pnpm aihub notify --channel default --message "Hello" [--surface discord|slack|b
 
 # Projects CLI (aihub projects; uses gateway API)
 pnpm aihub projects list [--status <status>]
-pnpm aihub projects create --title "My Project" [pitch] [--pitch <text>|@file|-] [--status <status>] [--area <area>]
+pnpm aihub projects create --title "My Project" [pitch] [--pitch <text>|@file|-] [--status <status>] [--area <area>] [--repo <path>]
 pnpm aihub projects get <id>
 pnpm aihub projects update <id> [--title <title>] [--status <status>] [--readme <text>|-] [--specs <text>|-]
 pnpm aihub projects pitch <id> --from-readme [--force]
@@ -544,6 +544,8 @@ pnpm aihub auth login anthropic # Login to specific provider
 pnpm aihub auth status          # Show authenticated providers
 pnpm aihub auth logout <provider>
 ```
+
+`aihub projects move <id> shaping` and `aihub projects move <id> shaping:<stage>` fail unless the project has an explicit `repo` in its frontmatter. `aihub projects create --area <area>` copies the area's repo into the new project when the area has one; explicit `--repo` wins.
 
 Project Space model:
 
@@ -774,7 +776,7 @@ Project API details: `docs/projects_api.md`
 | `model.base_url`   | API proxy URL (Claude SDK only)                                                      |
 | `model.auth_token` | API auth token (Claude SDK only, overrides env)                                      |
 | `auth.mode`        | `oauth`, `api_key`, or `proxy` (Pi SDK only)                                         |
-| `reasoning`        | off, minimal, low, medium, high, xhigh; `thinkLevel` is a deprecated alias            |
+| `reasoning`        | off, minimal, low, medium, high, xhigh; `thinkLevel` is a deprecated alias           |
 | `queueMode`        | `queue` (inject into current run) or `interrupt` (abort & restart)                   |
 | `discord`          | Discord bot config (legacy per-agent; prefer [Channels](#channels) component config) |
 | `slack`            | Slack bot config (per-agent token; see [Channels](#channels) section)                |
