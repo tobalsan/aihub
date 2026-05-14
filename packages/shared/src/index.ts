@@ -14,3 +14,4 @@ export * from "./fs.js";
 export * from "./paths.js";
 export * from "./container-protocol.js";
 export * from "./extensions/index.js";
+export * from "./lead-sessions/types.js";

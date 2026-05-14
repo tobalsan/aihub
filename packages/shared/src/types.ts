@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { LeadSessionChangedEvent } from "./lead-sessions/types.js";
 import type { Hono } from "hono";
 
 // Think levels
@@ -1258,6 +1259,7 @@ export type WsServerMessage =
   | WsFileChangedEvent
   | WsAgentChangedEvent
   | WsSubagentChangedEvent
+  | LeadSessionChangedEvent
   | WsActiveTurnSnapshot;
 
 // History types
