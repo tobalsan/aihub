@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AssistantMessage, Model } from "@mariozechner/pi-ai";
+import type { Api, AssistantMessage, Model } from "@mariozechner/pi-ai";
 import type { AgentConfig, GatewayConfig } from "@aihub/shared";
 import {
   clearProjectsContext,
@@ -26,7 +26,7 @@ const agent = {
   model: { provider: "anthropic", model: "claude-opus" },
 } as AgentConfig;
 
-function model(id: string, input: number, output: number): Model {
+function model(id: string, input: number, output: number): Model<Api> {
   return {
     id,
     name: id,
@@ -38,7 +38,7 @@ function model(id: string, input: number, output: number): Model {
     cost: { input, output, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000,
     maxTokens: 4096,
-  } as Model;
+  } as Model<Api>;
 }
 
 function assistant(text: string): AssistantMessage {
