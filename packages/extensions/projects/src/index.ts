@@ -1657,6 +1657,7 @@ export function registerProjectRoutes(app: Hono): void {
 // Re-exports for gateway/internal consumers
 export { recordCommentActivity } from "./activity/index.js";
 export * from "./projects/index.js";
+export { spawnProjectSubagent } from "./use-cases/spawn-project-subagent.js";
 export {
   archiveSubagent,
   getSubagentLogs,

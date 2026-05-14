@@ -126,6 +126,43 @@ async function writeProjectSubagentRun(
   );
 }
 
+async function writeResumableProjectSubagentRun(
+  projectsRoot: string,
+  params: {
+    projectId: string;
+    slug: string;
+    sessionId: string;
+  }
+) {
+  const projectDir = path.join(projectsRoot, `${params.projectId}_test`);
+  const runDir = path.join(projectDir, "sessions", params.slug);
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "config.json"),
+    JSON.stringify({
+      type: "subagent",
+      cli: "codex",
+      name: "Worker",
+      projectId: params.projectId,
+      source: "manual",
+      runMode: "none",
+    }),
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(runDir, "state.json"),
+    JSON.stringify({
+      session_id: params.sessionId,
+      run_mode: "none",
+      worktree_path: projectDir,
+      status: "interrupted",
+    }),
+    "utf8"
+  );
+  await fs.writeFile(path.join(runDir, "history.jsonl"), "", "utf8");
+  await fs.writeFile(path.join(runDir, "logs.jsonl"), "", "utf8");
+}
+
 describe("subagents extension profile resolution", () => {
   it("contributes subagent command guidance to the system prompt", async () => {
     const contribution = subagentsExtension.getSystemPromptContributions?.({
@@ -351,6 +388,68 @@ describe("subagents extension profile resolution", () => {
 
       expect(logsData.events[0]?.text).toBe("done");
     } finally {
+      await subagentsExtension.stop();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes project runs addressed by synthetic id", async () => {
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-subagents-")
+    );
+    const projectsRoot = path.join(dataDir, "projects");
+    const binDir = path.join(dataDir, "bin");
+    const app = new Hono();
+    const previousPath = process.env.PATH;
+    try {
+      await fs.mkdir(binDir, { recursive: true });
+      await fs.writeFile(
+        path.join(binDir, "codex"),
+        ["#!/bin/sh", 'echo "$@"'].join("\n"),
+        { mode: 0o755 }
+      );
+      process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+      await writeResumableProjectSubagentRun(projectsRoot, {
+        projectId: "PRO-1",
+        slug: "worker",
+        sessionId: "codex-session-1",
+      });
+      await subagentsExtension.start(
+        context(
+          {
+            agents: [],
+            sessions: { idleMinutes: 360 },
+            extensions: { projects: { root: projectsRoot } },
+          },
+          dataDir
+        )
+      );
+      subagentsExtension.registerRoutes(app);
+
+      const res = await app.request("/subagents/PRO-1:worker/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "follow up" }),
+      });
+
+      expect(res.status).toBe(201);
+      const logsPath = path.join(
+        projectsRoot,
+        "PRO-1_test",
+        "sessions",
+        "worker",
+        "logs.jsonl"
+      );
+      const start = Date.now();
+      while (Date.now() - start < 2000) {
+        const logs = await fs.readFile(logsPath, "utf8");
+        if (logs.includes("resume codex-session-1 follow up")) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const logs = await fs.readFile(logsPath, "utf8");
+      expect(logs).toContain("resume codex-session-1 follow up");
+    } finally {
+      process.env.PATH = previousPath;
       await subagentsExtension.stop();
       await fs.rm(dataDir, { recursive: true, force: true });
     }

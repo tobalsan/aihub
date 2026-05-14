@@ -273,8 +273,11 @@ export function AgentRunChatPanel(props: {
     void sendPending(next);
   });
 
-  const unsubscribeSubagents = subscribeToSubagentChanges(() => {
-    void loadRuns();
+  const unsubscribeSubagents = subscribeToSubagentChanges({
+    onSubagentChanged: () => {
+      void loadRuns();
+    },
+    onError: setError,
   });
   const unsubscribeFiles = subscribeToFileChanges({
     onAgentChanged: (projectId) => {
