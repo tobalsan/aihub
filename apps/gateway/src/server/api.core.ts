@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
-import { resolveHomeDir } from "@aihub/shared";
+import { resolveDefaultProjectManager, resolveHomeDir } from "@aihub/shared";
 import {
   getActiveAgents,
   getAgent,
@@ -186,6 +186,10 @@ function resolveAvatarForApi(
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", async (c) => {
   const agents = await getVisibleAgents(c);
+  const configDefaultId = resolveDefaultProjectManager(loadConfig());
+  const visibleDefaultId = agents.some((agent) => agent.id === configDefaultId)
+    ? configDefaultId
+    : (agents[0]?.id ?? null);
   return c.json(
     agents.map((a) => ({
       id: a.id,
@@ -197,6 +201,7 @@ api.get("/agents", async (c) => {
       workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
       authMode: a.auth?.mode,
       queueMode: a.queueMode ?? "queue",
+      isDefaultProjectManager: a.id === visibleDefaultId,
     }))
   );
 });

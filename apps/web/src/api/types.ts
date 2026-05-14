@@ -72,6 +72,7 @@ export type Agent = {
   workspace?: string;
   authMode?: "oauth" | "api_key" | "proxy";
   queueMode?: QueueMode; // default "queue"
+  isDefaultProjectManager?: boolean;
 };
 
 export type Message = {
