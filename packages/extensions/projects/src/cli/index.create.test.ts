@@ -82,6 +82,56 @@ describe("buildCreateProjectBody", () => {
     ).resolves.toEqual({ title: "Test Project", pitch: "stdin pitch\n" });
   });
 
+  it("copies area repo when creating a project for an area with repo", async () => {
+    const areaClient = {
+      listAreas: async () => [
+        {
+          id: "aihub",
+          title: "AIHub",
+          color: "#3b8ecc",
+          repo: "/tmp/aihub",
+        },
+      ],
+    };
+
+    await expect(
+      buildCreateProjectBody(
+        undefined,
+        { title: "Test Project", area: "aihub" },
+        areaClient
+      )
+    ).resolves.toEqual({
+      title: "Test Project",
+      area: "aihub",
+      repo: "/tmp/aihub",
+    });
+  });
+
+  it("keeps explicit repo when area also has repo", async () => {
+    const areaClient = {
+      listAreas: async () => [
+        {
+          id: "aihub",
+          title: "AIHub",
+          color: "#3b8ecc",
+          repo: "/tmp/aihub",
+        },
+      ],
+    };
+
+    await expect(
+      buildCreateProjectBody(
+        undefined,
+        { title: "Test Project", area: "aihub", repo: "/tmp/override" },
+        areaClient
+      )
+    ).resolves.toEqual({
+      title: "Test Project",
+      area: "aihub",
+      repo: "/tmp/override",
+    });
+  });
+
   it("rejects positional and --pitch together", async () => {
     await expect(
       buildCreateProjectBody(

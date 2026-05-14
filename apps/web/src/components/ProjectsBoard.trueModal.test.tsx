@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSignal } from "solid-js";
 import { delegateEvents, render } from "solid-js/web";
 import { ProjectsBoard } from "./ProjectsBoard";
+import {
+  createProject,
+  validateProjectRepo,
+  fetchAreas,
+  updateProject,
+} from "../api";
 
 const navigateMock = vi.fn();
 
@@ -48,6 +54,7 @@ vi.mock("../api", () => ({
     ok: true,
     data: { id: "PRO-2", title: "New" },
   })),
+  validateProjectRepo: vi.fn(async () => ({ valid: true })),
   fetchAgents: vi.fn(async () => []),
   fetchAllSubagents: vi.fn(async () => ({ items: [] })),
   fetchFullHistory: vi.fn(async () => ({ messages: [] })),
@@ -109,7 +116,7 @@ describe("ProjectsBoard card navigation", () => {
     localStorage.clear();
     localStorage.setItem(
       "aihub:projects:expanded-columns",
-      JSON.stringify(["maybe", "not_now"])
+      JSON.stringify(["triage"])
     );
   });
 
@@ -131,6 +138,125 @@ describe("ProjectsBoard card navigation", () => {
     card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(navigateMock).toHaveBeenCalledWith("/projects/PRO-1");
 
+    dispose();
+  });
+
+  it("prefills repo from selected area and submits it", async () => {
+    vi.mocked(fetchAreas).mockResolvedValueOnce([
+      {
+        id: "aihub",
+        title: "AIHub",
+        color: "#3b8ecc",
+        repo: "/tmp/aihub",
+      },
+    ]);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectsBoard />, container);
+    await tick();
+    await tick();
+
+    const newButton = container.querySelector(
+      ".create-btn"
+    ) as HTMLButtonElement;
+    newButton.click();
+    await tick();
+
+    const titleInput = container.querySelector(
+      "#create-title"
+    ) as HTMLInputElement;
+    titleInput.value = "Repo Project";
+    titleInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const areaInput = container.querySelector(
+      "#create-area"
+    ) as HTMLInputElement;
+    areaInput.focus();
+    areaInput.value = "AIHub";
+    areaInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await tick();
+    const areaButton = Array.from(
+      container.querySelectorAll(".area-suggestion")
+    ).find(
+      (button) => button.textContent?.trim() === "AIHub"
+    ) as HTMLButtonElement;
+    areaButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await tick();
+
+    const repoInput = container.querySelector(
+      "#create-repo"
+    ) as HTMLInputElement;
+    expect(repoInput.value).toBe("/tmp/aihub");
+    const createButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Create"
+    ) as HTMLButtonElement;
+    createButton.click();
+    await tick();
+
+    expect(createProject).toHaveBeenCalledWith({
+      title: "Repo Project",
+      area: "aihub",
+      repo: "/tmp/aihub",
+    });
+    dispose();
+  });
+
+  it("shows repo validation feedback on blur without blocking creation", async () => {
+    vi.mocked(validateProjectRepo).mockResolvedValueOnce({ valid: false });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectsBoard />, container);
+    await tick();
+    await tick();
+
+    const newButton = container.querySelector(
+      ".create-btn"
+    ) as HTMLButtonElement;
+    newButton.click();
+    await tick();
+    const repoInput = container.querySelector(
+      "#create-repo"
+    ) as HTMLInputElement;
+    repoInput.value = "/tmp/missing";
+    repoInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    repoInput.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+    await tick();
+    await tick();
+
+    expect(validateProjectRepo).toHaveBeenCalledWith("/tmp/missing");
+    expect(container.textContent).toContain("Path is not a git repo");
+    dispose();
+  });
+
+  it("shows an error toast when drag status update fails", async () => {
+    vi.mocked(updateProject).mockRejectedValueOnce(
+      new Error("Cannot move project to Shaping: project repo is not set.")
+    );
+    localStorage.setItem(
+      "aihub:projects:expanded-columns",
+      JSON.stringify(["triage", "shaping"])
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <ProjectsBoard />, container);
+    await tick();
+    await tick();
+
+    const card = container.querySelector(".card") as HTMLElement;
+    card.dispatchEvent(new Event("dragstart", { bubbles: true }));
+    let shapingColumn: HTMLElement | undefined;
+    await vi.waitFor(() => {
+      shapingColumn = Array.from(container.querySelectorAll(".column")).find(
+        (column) => column.textContent?.includes("Shaping")
+      ) as HTMLElement | undefined;
+      expect(shapingColumn).toBeTruthy();
+    });
+    shapingColumn.dispatchEvent(new Event("drop", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain(
+        "Cannot move project to Shaping: project repo is not set."
+      );
+    });
     dispose();
   });
 });

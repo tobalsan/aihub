@@ -75,6 +75,8 @@ async function isValidGitRepo(repoPath?: string): Promise<boolean> {
   return documentStore.isValidGitRepo(repoPath);
 }
 
+export { isValidGitRepo };
+
 async function assertCanClearProjectRepo(projectDir: string): Promise<void> {
   documentStore.assertCanClearProjectRepo(await listSlices(projectDir));
 }
@@ -231,6 +233,14 @@ function resolveProjectRepo(
   const areaId = toStringField(frontmatter.area);
   if (!areaId) return undefined;
   return areaRepoMap.get(areaId);
+}
+
+function isShapingStatus(status: string | null | undefined): boolean {
+  return status === "shaping" || status?.startsWith("shaping:") === true;
+}
+
+function hasProjectRepo(frontmatter: Record<string, unknown>): boolean {
+  return toStringField(frontmatter.repo)?.trim().length ? true : false;
 }
 
 async function listProjectItemsFromRoot(
@@ -500,6 +510,10 @@ export async function createProject(
     created,
   };
   if (input.area) frontmatter.area = input.area;
+  if (input.repo !== undefined) {
+    const repo = normalizeRepoValue(input.repo);
+    if (repo !== undefined) frontmatter.repo = repo;
+  }
   const pitchBody = input.pitch ?? "";
   const readmeContent = formatMarkdown(frontmatter, "");
   await fs.writeFile(path.join(dirPath, "README.md"), readmeContent, "utf8");
@@ -511,6 +525,7 @@ export async function createProject(
   );
 
   const docs: Record<string, string> = { PITCH: pitchBody };
+  const repoValid = await isValidGitRepo(toStringField(frontmatter.repo));
 
   return {
     ok: true,
@@ -519,7 +534,7 @@ export async function createProject(
       title: trimmedTitle,
       path: dirName,
       absolutePath: dirPath,
-      repoValid: false,
+      repoValid,
       frontmatter,
       docs,
       thread: [],
@@ -577,6 +592,21 @@ export async function updateProject(
     };
   }
   const nextStatus = requestedStatus ?? currentStatus;
+  if (
+    input.status !== undefined &&
+    nextStatus !== currentStatus &&
+    isShapingStatus(nextStatus) &&
+    !hasProjectRepo(
+      input.repo !== undefined
+        ? { ...currentFrontmatter, repo: input.repo }
+        : currentFrontmatter
+    )
+  ) {
+    return {
+      ok: false,
+      error: "Cannot move project to Shaping: project repo is not set.",
+    };
+  }
   const nextBaseRoot =
     nextStatus && DONE_STATUSES.has(nextStatus)
       ? path.join(root, DONE_DIR)

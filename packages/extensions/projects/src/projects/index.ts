@@ -4,6 +4,7 @@ export {
   getProject,
   createProject,
   updateProject,
+  isValidGitRepo,
   deleteProject,
   archiveProject,
   unarchiveProject,

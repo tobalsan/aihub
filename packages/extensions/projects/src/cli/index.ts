@@ -52,13 +52,7 @@ function normalizeItem(item: ProjectItem) {
 }
 
 function renderTable(items: ProjectItem[]): string {
-  const headers = [
-    "id",
-    "title",
-    "status",
-    "created",
-    "path",
-  ];
+  const headers = ["id", "title", "status", "created", "path"];
   const formatCell = (value: unknown) =>
     String(value ?? "")
       .replace(/\r?\n/g, "<br>")
@@ -107,8 +101,9 @@ export async function buildCreateProjectBody(
     specs?: string;
     status?: string;
     area?: string;
+    repo?: string;
   },
-  client: { listAreas: () => Promise<unknown> },
+  client: Pick<ApiClient, "listAreas">,
   readStdinFn: () => Promise<string> = readStdin
 ): Promise<Record<string, unknown>> {
   if (opts.specs !== undefined) {
@@ -126,8 +121,12 @@ export async function buildCreateProjectBody(
     body.pitch = await readMarkdownArg(pitchValue, readStdinFn);
   }
   if (opts.status) body.status = opts.status;
-  const area = await resolveCreateArea(client, opts.area);
-  if (area) body.area = area;
+  const area = await resolveCreateAreaDetails(client, opts.area);
+  if (area) {
+    body.area = area.id;
+    if (area.repo) body.repo = area.repo;
+  }
+  if (opts.repo !== undefined) body.repo = opts.repo;
   return body;
 }
 
@@ -304,10 +303,18 @@ export async function resolveCreateArea(
   client: Pick<ApiClient, "listAreas">,
   area: string | undefined
 ): Promise<string | undefined> {
+  return (await resolveCreateAreaDetails(client, area))?.id;
+}
+
+async function resolveCreateAreaDetails(
+  client: Pick<ApiClient, "listAreas">,
+  area: string | undefined
+): Promise<{ id: string; repo?: string } | undefined> {
   if (!area) return undefined;
   const areasList = (await client.listAreas()) as Array<{
     id: string;
     title: string;
+    repo?: string;
   }>;
   const validIds = areasList.map((item) => item.id);
   if (!validIds.includes(area)) {
@@ -315,7 +322,7 @@ export async function resolveCreateArea(
       `Error: Invalid area "${area}". Valid areas: ${validIds.join(", ")}`
     );
   }
-  return area;
+  return areasList.find((item) => item.id === area);
 }
 
 function fail(err: unknown): never {
@@ -501,7 +508,10 @@ export function registerProjectsCommands(program: Command): Command {
     .command("create")
     .argument("[pitch]", "Project pitch body")
     .requiredOption("-t, --title <title>", "Project title")
-    .option("--pitch <content>", "Pitch content string, @file, or '-' for stdin")
+    .option(
+      "--pitch <content>",
+      "Pitch content string, @file, or '-' for stdin"
+    )
     .addOption(
       new Option(
         "--specs <content>",
@@ -510,6 +520,7 @@ export function registerProjectsCommands(program: Command): Command {
     )
     .option("--status <status>", "Status")
     .option("--area <area>", "Area")
+    .option("--repo <path>", "Repo path")
     .option("-j, --json", "JSON output")
     .action(async (pitch, opts) => {
       try {
@@ -1000,9 +1011,13 @@ export function registerProjectsCommands(program: Command): Command {
         });
         for (const r of result.projects) {
           if (r.outcome === "skipped") {
-            console.log(`  skip    ${r.id}${r.legacyStatus ? ` (${r.legacyStatus})` : ""}`);
+            console.log(
+              `  skip    ${r.id}${r.legacyStatus ? ` (${r.legacyStatus})` : ""}`
+            );
           } else if (r.outcome === "no-slice") {
-            console.log(`  shaping ${r.id} (${r.legacyStatus} → project:${r.projectStatus}, no slice)`);
+            console.log(
+              `  shaping ${r.id} (${r.legacyStatus} → project:${r.projectStatus}, no slice)`
+            );
           } else {
             console.log(
               `  migrate ${r.id} (${r.legacyStatus} → project:${r.projectStatus}, ${r.sliceId}:${r.sliceStatus})`

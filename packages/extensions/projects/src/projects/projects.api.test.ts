@@ -185,6 +185,31 @@ describe("projects API", () => {
     );
   });
 
+  it("validates repo paths without persisting a project", async () => {
+    const repoDir = path.join(tmpDir, "valid-api-repo");
+    await fs.mkdir(path.join(repoDir, ".git"), { recursive: true });
+
+    const validRes = await Promise.resolve(
+      api.request("/projects/validate-repo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoDir }),
+      })
+    );
+    const invalidRes = await Promise.resolve(
+      api.request("/projects/validate-repo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: path.join(tmpDir, "missing") }),
+      })
+    );
+
+    expect(validRes.status).toBe(200);
+    await expect(validRes.json()).resolves.toEqual({ valid: true });
+    expect(invalidRes.status).toBe(200);
+    await expect(invalidRes.json()).resolves.toEqual({ valid: false });
+  });
+
   it("creates project with active fields", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

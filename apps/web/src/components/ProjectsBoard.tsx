@@ -23,6 +23,7 @@ import {
   archiveProject,
   unarchiveProject,
   createProject,
+  validateProjectRepo,
   fetchAgents,
   fetchAllSubagents,
   fetchFullHistory,
@@ -53,32 +54,37 @@ import type {
 import { AgentSidebar } from "./AgentSidebar";
 import { ContextPanel } from "./ContextPanel";
 import { AgentChat } from "./AgentChat";
-import {
-  formatCreatedRelative,
-  formatRunRelative,
-} from "../lib/format";
+import { formatCreatedRelative, formatRunRelative } from "../lib/format";
 import { extractBlockText } from "../lib/history";
-import {
-  renderMarkdown as renderMarkdownHtml,
-} from "../lib/markdown";
+import { renderMarkdown as renderMarkdownHtml } from "../lib/markdown";
 import {
   rightPanelCollapsed,
   setRightPanelCollapsedPersistent,
   toggleRightPanelCollapsed,
 } from "../lib/layout";
+import { ToastNotification } from "./ui/Toast";
 
 type ColumnDef = { id: string; title: string; color: string };
 
 function slugifyAreaTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "") || "area";
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "area"
+  );
 }
 
 function defaultAreaColor(title: string): string {
-  const palette = ["#7c3aed", "#2563eb", "#0891b2", "#059669", "#ca8a04", "#dc2626"];
+  const palette = [
+    "#7c3aed",
+    "#2563eb",
+    "#0891b2",
+    "#059669",
+    "#ca8a04",
+    "#dc2626",
+  ];
   let hash = 0;
   for (const ch of title) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return palette[hash % palette.length] ?? palette[0];
@@ -1006,10 +1012,12 @@ function sortByCreatedAsc(a: ProjectListItem, b: ProjectListItem): number {
   return aTime - bTime;
 }
 
-export function ProjectsBoard(props: {
-  withSidebar?: boolean;
-  suspendProjectRealtime?: boolean;
-} = {}) {
+export function ProjectsBoard(
+  props: {
+    withSidebar?: boolean;
+    suspendProjectRealtime?: boolean;
+  } = {}
+) {
   const showSidebar = () => props.withSidebar !== false;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1100,17 +1108,23 @@ export function ProjectsBoard(props: {
   >({});
   const [runLogAtBottom, setRunLogAtBottom] = createSignal(true);
   const [initialRunScroll, setInitialRunScroll] = createSignal(false);
-  const [openMenu, setOpenMenu] = createSignal<
-    "status" | null
-  >(null);
+  const [openMenu, setOpenMenu] = createSignal<"status" | null>(null);
   const [createModalOpen, setCreateModalOpen] = createSignal(false);
   const [createTitle, setCreateTitle] = createSignal("");
   const [createDescription, setCreateDescription] = createSignal("");
   const [createArea, setCreateArea] = createSignal("");
   const [areaSuggestionsOpen, setAreaSuggestionsOpen] = createSignal(false);
-  const [createAreaSelection, setCreateAreaSelection] = createSignal<"existing" | "new" | null>(null);
+  const [createAreaSelection, setCreateAreaSelection] = createSignal<
+    "existing" | "new" | null
+  >(null);
+  const [createRepo, setCreateRepo] = createSignal("");
+  const [createRepoTouched, setCreateRepoTouched] = createSignal(false);
+  const [createRepoStatus, setCreateRepoStatus] = createSignal<
+    "idle" | "checking" | "ok" | "error"
+  >("idle");
   const [createError, setCreateError] = createSignal("");
   const [createToast, setCreateToast] = createSignal("");
+  const [statusToast, setStatusToast] = createSignal("");
   const [createSuccess, setCreateSuccess] = createSignal<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = createSignal<string | null>(null);
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
@@ -1125,9 +1139,7 @@ export function ProjectsBoard(props: {
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
-  const [mobileOverlay, setMobileOverlay] = createSignal<
-    "chat" | null
-  >(null);
+  const [mobileOverlay, setMobileOverlay] = createSignal<"chat" | null>(null);
   const selectedAgentStorageKey = "aihub:context-panel:selected-agent";
 
   const matchingAreas = createMemo(() => {
@@ -1135,8 +1147,10 @@ export function ProjectsBoard(props: {
     const list = areas() ?? [];
     if (!query) return list.slice(0, 6);
     return list
-      .filter((area) =>
-        area.title.toLowerCase().includes(query) || area.id.toLowerCase().includes(query)
+      .filter(
+        (area) =>
+          area.title.toLowerCase().includes(query) ||
+          area.id.toLowerCase().includes(query)
       )
       .slice(0, 6);
   });
@@ -1146,7 +1160,8 @@ export function ProjectsBoard(props: {
     if (!query) return null;
     return (
       (areas() ?? []).find(
-        (area) => area.id.toLowerCase() === query || area.title.toLowerCase() === query
+        (area) =>
+          area.id.toLowerCase() === query || area.title.toLowerCase() === query
       ) ?? null
     );
   });
@@ -1159,6 +1174,17 @@ export function ProjectsBoard(props: {
     const selection = createAreaSelection();
     if (!value || !selection) return null;
     return { title: value, isNew: selection === "new" };
+  });
+  const selectedExistingArea = createMemo(() => {
+    if (createAreaSelection() !== "existing") return null;
+    const value = createArea().trim().toLowerCase();
+    if (!value) return null;
+    return (
+      (areas() ?? []).find(
+        (area) =>
+          area.id.toLowerCase() === value || area.title.toLowerCase() === value
+      ) ?? null
+    );
   });
 
   let subagentLogPaneRef: HTMLDivElement | undefined;
@@ -1248,14 +1274,20 @@ export function ProjectsBoard(props: {
     }
   });
 
-  createEffect(on(isMobile, (mobile) => {
-    if (mobile) {
-      if (showSidebar()) setSidebarCollapsed(true);
-      setRightPanelCollapsedPersistent(true);
-      return;
-    }
-    if (mobileOverlay()) setMobileOverlay(null);
-  }, { defer: true }));
+  createEffect(
+    on(
+      isMobile,
+      (mobile) => {
+        if (mobile) {
+          if (showSidebar()) setSidebarCollapsed(true);
+          setRightPanelCollapsedPersistent(true);
+          return;
+        }
+        if (mobileOverlay()) setMobileOverlay(null);
+      },
+      { defer: true }
+    )
+  );
 
   createEffect(() => {
     const value = selectedAgent();
@@ -1548,9 +1580,7 @@ export function ProjectsBoard(props: {
       items.some((item) => getStatus(item) === col.id)
     ).map((col) => col.id);
     setExpanded(
-      withItems.length > 0
-        ? withItems
-        : COLUMNS.map((col) => col.id)
+      withItems.length > 0 ? withItems : COLUMNS.map((col) => col.id)
     );
   });
 
@@ -1886,7 +1916,9 @@ export function ProjectsBoard(props: {
       }
     } catch (error) {
       void refetch();
-      throw error;
+      setStatusToast(
+        error instanceof Error ? error.message : "Failed to move project"
+      );
     }
   };
 
@@ -2154,11 +2186,18 @@ export function ProjectsBoard(props: {
 
   const openCreateModal = () => {
     const saved = loadFormFromStorage();
+    const filterArea = areaFilterId();
+    const area = filterArea
+      ? (areas() ?? []).find((item) => item.id === filterArea)
+      : null;
     setCreateModalOpen(true);
     setCreateTitle(saved?.title ?? "");
     setCreateDescription(saved?.description ?? "");
-    setCreateArea(areaFilterId() || "");
-    setCreateAreaSelection(areaFilterId() ? "existing" : null);
+    setCreateArea(area?.title ?? filterArea ?? "");
+    setCreateAreaSelection(filterArea ? "existing" : null);
+    setCreateRepo(area?.repo ?? "");
+    setCreateRepoTouched(false);
+    setCreateRepoStatus("idle");
     setCreateError("");
     setCreateToast("");
     setFilesLoaded(false);
@@ -2174,6 +2213,43 @@ export function ProjectsBoard(props: {
     setCreateModalOpen(false);
     setIsDragging(false);
     setFilesLoaded(false);
+  };
+
+  createEffect(() => {
+    if (!createModalOpen() || createRepoTouched()) return;
+    const area = selectedExistingArea();
+    setCreateRepo(area?.repo ?? "");
+    setCreateRepoStatus("idle");
+  });
+
+  const selectCreateArea = (
+    title: string,
+    selection: "existing" | "new" | null
+  ) => {
+    setCreateArea(title);
+    setCreateAreaSelection(selection);
+    if (selection === "existing" && !createRepoTouched()) {
+      const area = (areas() ?? []).find(
+        (item) => item.title === title || item.id === title
+      );
+      setCreateRepo(area?.repo ?? "");
+      setCreateRepoStatus("idle");
+    }
+  };
+
+  const handleCreateRepoBlur = async () => {
+    const repo = createRepo().trim();
+    if (!repo) {
+      setCreateRepoStatus("idle");
+      return;
+    }
+    setCreateRepoStatus("checking");
+    try {
+      const result = await validateProjectRepo(repo);
+      setCreateRepoStatus(result.valid ? "ok" : "error");
+    } catch {
+      setCreateRepoStatus("error");
+    }
   };
 
   const validateTitle = (title: string): string | null => {
@@ -2324,6 +2400,7 @@ export function ProjectsBoard(props: {
     const result = await createProject({
       title,
       ...(resolvedArea.area ? { area: resolvedArea.area } : {}),
+      repo: createRepo().trim(),
     });
 
     if (!result.ok) {
@@ -2364,6 +2441,9 @@ export function ProjectsBoard(props: {
     setCreateDescription("");
     setCreateArea("");
     setCreateAreaSelection(null);
+    setCreateRepo("");
+    setCreateRepoTouched(false);
+    setCreateRepoStatus("idle");
     setCreateError("");
     setCreateToast("");
     setPendingFiles([]);
@@ -2677,7 +2757,6 @@ export function ProjectsBoard(props: {
           <Show when={projects.error}>
             <div class="projects-error">Failed to load projects</div>
           </Show>
-
 
           <div class="board">
             <For each={COLUMNS}>
@@ -3373,7 +3452,9 @@ export function ProjectsBoard(props: {
                           <input
                             class="meta-input"
                             value={detailRepo()}
-                            onInput={(e) => setDetailRepo(e.currentTarget.value)}
+                            onInput={(e) =>
+                              setDetailRepo(e.currentTarget.value)
+                            }
                             onBlur={() =>
                               handleRepoSave(activeProjectId() ?? "")
                             }
@@ -3631,9 +3712,7 @@ export function ProjectsBoard(props: {
                                         <button
                                           class="kill-btn"
                                           type="button"
-                                          title={
-                                            "Kill subagent"
-                                          }
+                                          title={"Kill subagent"}
                                           onClick={async (e) => {
                                             e.stopPropagation();
                                             const projectId = detail()?.id;
@@ -3736,6 +3815,14 @@ export function ProjectsBoard(props: {
             </div>
           </Show>
 
+          <Show when={statusToast()}>
+            <ToastNotification
+              message={statusToast()}
+              variant="error"
+              onClose={() => setStatusToast("")}
+            />
+          </Show>
+
           <Show when={createModalOpen()}>
             <div class="overlay" role="dialog" aria-modal="true">
               <div class="overlay-backdrop" onClick={closeCreateModal} />
@@ -3827,8 +3914,7 @@ export function ProjectsBoard(props: {
                             placeholder="Search or create area..."
                             onFocus={() => setAreaSuggestionsOpen(true)}
                             onInput={(e) => {
-                              setCreateArea(e.currentTarget.value);
-                              setCreateAreaSelection(null);
+                              selectCreateArea(e.currentTarget.value, null);
                               setAreaSuggestionsOpen(true);
                             }}
                             onKeyDown={(e) => {
@@ -3836,13 +3922,12 @@ export function ProjectsBoard(props: {
                               e.preventDefault();
                               const first = matchingAreas()[0];
                               if (first) {
-                                setCreateArea(first.title);
-                                setCreateAreaSelection("existing");
+                                selectCreateArea(first.title, "existing");
                                 setAreaSuggestionsOpen(false);
                                 return;
                               }
                               if (shouldOfferNewArea()) {
-                                setCreateAreaSelection("new");
+                                selectCreateArea(createArea(), "new");
                                 setAreaSuggestionsOpen(false);
                               }
                             }}
@@ -3854,8 +3939,7 @@ export function ProjectsBoard(props: {
                                 class="area-suggestion muted"
                                 onMouseDown={(e) => {
                                   e.preventDefault();
-                                  setCreateArea("");
-                                  setCreateAreaSelection(null);
+                                  selectCreateArea("", null);
                                   setAreaSuggestionsOpen(false);
                                 }}
                               >
@@ -3868,8 +3952,7 @@ export function ProjectsBoard(props: {
                                     class="area-suggestion"
                                     onMouseDown={(e) => {
                                       e.preventDefault();
-                                      setCreateArea(area.title);
-                                      setCreateAreaSelection("existing");
+                                      selectCreateArea(area.title, "existing");
                                       setAreaSuggestionsOpen(false);
                                     }}
                                   >
@@ -3883,7 +3966,7 @@ export function ProjectsBoard(props: {
                                   class="area-suggestion create-new"
                                   onMouseDown={(e) => {
                                     e.preventDefault();
-                                    setCreateAreaSelection("new");
+                                    selectCreateArea(createArea(), "new");
                                     setAreaSuggestionsOpen(false);
                                   }}
                                 >
@@ -3908,8 +3991,7 @@ export function ProjectsBoard(props: {
                               class="area-pill-remove"
                               aria-label="Remove area"
                               onClick={() => {
-                                setCreateArea("");
-                                setCreateAreaSelection(null);
+                                selectCreateArea("", null);
                                 setAreaSuggestionsOpen(false);
                               }}
                             >
@@ -3922,6 +4004,36 @@ export function ProjectsBoard(props: {
                     <div class="create-helper">
                       New areas are created when the project is submitted.
                     </div>
+                  </div>
+                  <div class="create-field">
+                    <div class="create-notes-header">
+                      <label class="create-label" for="create-repo">
+                        Repo
+                      </label>
+                      <span class="create-optional">Optional</span>
+                    </div>
+                    <input
+                      id="create-repo"
+                      class="create-input"
+                      type="text"
+                      value={createRepo()}
+                      placeholder="/abs/path/to/repo"
+                      onInput={(e) => {
+                        setCreateRepo(e.currentTarget.value);
+                        setCreateRepoTouched(true);
+                        setCreateRepoStatus("idle");
+                      }}
+                      onBlur={handleCreateRepoBlur}
+                    />
+                    <Show when={createRepoStatus() !== "idle"}>
+                      <div class={`repo-status ${createRepoStatus()}`}>
+                        {createRepoStatus() === "checking"
+                          ? "Checking repo..."
+                          : createRepoStatus() === "ok"
+                            ? "Git repo found"
+                            : "Path is not a git repo"}
+                      </div>
+                    </Show>
                   </div>
                   <div class="create-field create-notes">
                     <div class="create-notes-header">
@@ -6590,7 +6702,7 @@ export function ProjectsBoard(props: {
         }}
         onOpenProject={openDetail}
       />
-<Show when={isMobile() && mobileOverlay() === "chat"}>
+      <Show when={isMobile() && mobileOverlay() === "chat"}>
         <div class="mobile-overlay" role="dialog" aria-modal="true">
           <div class="mobile-overlay-panel">
             <AgentChat
