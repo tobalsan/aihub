@@ -559,6 +559,13 @@ export type SubagentsExtensionConfig = z.infer<
   typeof SubagentsExtensionConfigSchema
 >;
 
+export const SessionsExtensionConfigSchema = z.object({
+  autoTitleModel: z.string().optional(),
+});
+export type SessionsExtensionConfig = z.infer<
+  typeof SessionsExtensionConfigSchema
+>;
+
 export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   baseUrl: z.string().optional(),
   publicKey: z.string().optional(),
@@ -585,6 +592,7 @@ export const ExtensionsConfigSchema = z
     heartbeat: HeartbeatExtensionConfigSchema.optional(),
     projects: ProjectsExtensionConfigSchema.optional(),
     subagents: SubagentsExtensionConfigSchema.optional(),
+    sessions: SessionsExtensionConfigSchema.optional(),
     langfuse: LangfuseExtensionConfigSchema.optional(),
     multiUser: MultiUserConfigSchema.optional(),
     board: z

@@ -114,6 +114,7 @@ import {
   readLeadTranscript,
   sendLeadSessionMessage,
 } from "./lead-sessions/transcript.js";
+import { maybeAutoTitleLeadSession } from "./lead-sessions/auto-title.js";
 export { interruptCancelledOrchestratorRuns } from "./use-cases/update-project-lifecycle.js";
 
 const registeredApps = new WeakSet<object>();
@@ -1180,7 +1181,6 @@ export function registerProjectRoutes(app: Hono): void {
 
     const result = await sendLeadSessionMessage({
       projectDir: found.projectDir,
-      sessions: found.sessions,
       session,
       content,
       files: parsed.data.files,
@@ -1189,6 +1189,12 @@ export function registerProjectRoutes(app: Hono): void {
       type: "lead_session_changed",
       kind: "updated",
       session: result.session,
+    });
+    maybeAutoTitleLeadSession({
+      config,
+      projectDir: found.projectDir,
+      session: result.session,
+      hadUserMessageBeforeSend: hasUserMessage,
     });
     return c.json({ session: result.session, result: result.result });
   });

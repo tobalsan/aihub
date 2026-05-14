@@ -303,6 +303,12 @@ importers:
       '@aihub/shared':
         specifier: workspace:*
         version: link:../../shared
+      '@mariozechner/pi-ai':
+        specifier: ^0.73.0
+        version: 0.73.0(ws@8.19.0)(zod@3.25.76)
+      '@mariozechner/pi-coding-agent':
+        specifier: ^0.73.0
+        version: 0.73.0(ws@8.19.0)(zod@3.25.76)
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3

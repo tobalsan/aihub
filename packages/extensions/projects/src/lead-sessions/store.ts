@@ -167,6 +167,23 @@ export async function writeLeadSessionsForProject(
   await writeJsonIndex(projectDir, sessions);
 }
 
+export async function updateLeadSessionInProject(
+  projectDir: string,
+  id: string,
+  updater: (session: LeadSession) => LeadSession | null
+): Promise<LeadSession | null> {
+  const sessions = await readJsonIndex(projectDir);
+  let updated: LeadSession | null = null;
+  const next = sessions.map((session) => {
+    if (session.id !== id) return session;
+    updated = updater(session);
+    return updated ?? session;
+  });
+  if (!updated) return null;
+  await writeJsonIndex(projectDir, next);
+  return updated;
+}
+
 export async function listLeadSessions(
   config: GatewayConfig,
   projectId: string,

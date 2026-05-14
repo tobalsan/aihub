@@ -11,7 +11,7 @@ import { getProjectsContext } from "../context.js";
 import {
   historyPath,
   transcriptDir,
-  writeLeadSessionsForProject,
+  updateLeadSessionInProject,
 } from "./store.js";
 
 type HistoryEntry = {
@@ -68,7 +68,6 @@ export async function leadTranscriptHasUserMessage(
 
 export async function sendLeadSessionMessage(args: {
   projectDir: string;
-  sessions: LeadSession[];
   session: LeadSession;
   content: string;
   files?: FileAttachment[];
@@ -131,13 +130,17 @@ export async function sendLeadSessionMessage(args: {
     ...args.session,
     updatedAt: new Date().toISOString(),
   };
-  await writeLeadSessionsForProject(
-    args.projectDir,
-    args.sessions.map((session) =>
-      session.id === updated.id ? updated : session
-    )
-  );
-  return { session: updated, result };
+  const persisted =
+    (await updateLeadSessionInProject(
+      args.projectDir,
+      args.session.id,
+      (current) => ({
+        ...current,
+        agentId: args.session.agentId,
+        updatedAt: updated.updatedAt,
+      })
+    )) ?? updated;
+  return { session: persisted, result };
 }
 
 async function ensureTranscriptDir(
