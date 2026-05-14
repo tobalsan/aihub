@@ -13,6 +13,7 @@ import {
   interruptSubagent as interruptProjectSubagent,
   killSubagent as killProjectSubagent,
   listAllSubagents,
+  spawnProjectSubagent,
 } from "@aihub/extension-projects";
 import {
   resolveProfile as resolveRuntimeProfile,
@@ -222,6 +223,30 @@ function registerSubagentRoutes(app: Hono): void {
     const prompt = readOptionalString(body.prompt);
     if (!prompt) return c.json({ error: "prompt is required" }, 400);
     try {
+      const projectRun = parseProjectRunId(c.req.param("runId"));
+      if (projectRun) {
+        const config = getContext().getConfig();
+        const existing = (await listAllSubagents(config)).find(
+          (item) =>
+            item.projectId === projectRun.projectId &&
+            item.slug === projectRun.slug
+        );
+        if (!existing?.cli) {
+          return c.json(
+            { error: `Subagent not found: ${projectRun.slug}` },
+            404
+          );
+        }
+        const result = await spawnProjectSubagent(config, projectRun.projectId, {
+          slug: projectRun.slug,
+          cli: existing.cli,
+          prompt,
+          mode: existing.runMode,
+          resume: true,
+        });
+        if (!result.ok) return c.json({ error: result.error }, result.status);
+        return c.json(result.data, result.status);
+      }
       const run = await resumeSubagentRun(
         runtimeOptions(),
         c.req.param("runId"),

@@ -10,6 +10,7 @@ import {
   fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
   resumeRuntimeSubagent,
+  subscribeToSubagentChanges,
 } from "../api";
 
 vi.mock("../api", () => ({
@@ -29,6 +30,7 @@ const fetchLogsMock = vi.mocked(fetchRuntimeSubagentLogs);
 const resumeMock = vi.mocked(resumeRuntimeSubagent);
 const archiveMock = vi.mocked(archiveRuntimeSubagent);
 const deleteMock = vi.mocked(deleteRuntimeSubagent);
+const subscribeToSubagentChangesMock = vi.mocked(subscribeToSubagentChanges);
 
 function run(overrides: Partial<SubagentRun>): SubagentRun {
   return {
@@ -246,6 +248,45 @@ describe("AgentRunChatPanel", () => {
       expect(container.textContent).toContain("You (queued)");
     });
     expect(resumeMock).not.toHaveBeenCalled();
+  });
+
+  it("reloads runs and logs when a subagent change event arrives", async () => {
+    fetchRunsMock
+      .mockResolvedValueOnce({
+        items: [run({ id: "live-run", status: "done", label: "Worker" })],
+      })
+      .mockResolvedValueOnce({
+        items: [run({ id: "live-run", status: "running", label: "Worker" })],
+      });
+    fetchLogsMock
+      .mockResolvedValueOnce({
+        cursor: 1,
+        events: [{ type: "assistant", text: "Old transcript" }],
+      })
+      .mockResolvedValueOnce({
+        cursor: 2,
+        events: [{ type: "assistant", text: "Streaming update" }],
+      });
+
+    render(
+      () => <AgentRunChatPanel projectId="PRO-1" selectedRunId="live-run" />,
+      container
+    );
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Old transcript");
+    });
+
+    const callbacks = subscribeToSubagentChangesMock.mock.calls[0]?.[0];
+    callbacks?.onSubagentChanged?.({ runId: "live-run", status: "running" });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Streaming update");
+    });
+    const stopButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Stop"
+    ) as HTMLButtonElement | undefined;
+    expect(stopButton?.disabled).toBe(false);
   });
 
   it("keeps the run list and conversation as independent scroll regions", async () => {
