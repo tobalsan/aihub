@@ -13,4 +13,5 @@ export * from "./frontmatter.js";
 export * from "./fs.js";
 export * from "./paths.js";
 export * from "./container-protocol.js";
+export * from "./default-project-manager.js";
 export * from "./extensions/index.js";

@@ -635,6 +635,7 @@ export type GlobalSandboxConfig = z.infer<typeof GlobalSandboxConfigSchema>;
 export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
+  defaultProjectManager: z.string().optional(),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
   extensions: ExtensionsConfigSchema,
